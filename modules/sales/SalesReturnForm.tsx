@@ -1,0 +1,232 @@
+import React, { useState, useEffect } from 'react';
+import { supabase } from '../../supabaseClient';
+import { useAccounting } from '../../context/AccountingContext';
+import { RotateCcw, Save, Plus, Trash2, Loader2, Search } from 'lucide-react';
+
+const SalesReturnForm = () => {
+  const { accounts, addEntry, getSystemAccount, customers, products, currentUser } = useAccounting();
+  const [items, setItems] = useState<any[]>([]);
+  const [formData, setFormData] = useState({ customerId: '', date: new Date().toISOString().split('T')[0], returnNumber: '', notes: '' });
+  const [saving, setSaving] = useState(false);
+  const [productSearch, setProductSearch] = useState('');
+
+  const addItem = (product: any) => {
+    setItems([...items, { productId: product.id, name: product.name, quantity: 1, price: product.sales_price || product.price || 0 }]);
+    setProductSearch('');
+  };
+
+  const updateItem = (index: number, field: string, value: any) => {
+    const newItems = [...items];
+    newItems[index][field] = value;
+    setItems(newItems);
+  };
+
+  const removeItem = (index: number) => {
+    if (items.length > 0) {
+      setItems(items.filter((_, i) => i !== index));
+    }
+  };
+
+  const calculateTotal = () => items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.customerId || items.length === 0) {
+        alert('أكمل البيانات');
+        return;
+    }
+    setSaving(true);
+
+    if (currentUser?.role === 'demo') {
+        alert('تم حفظ مرتجع المبيعات وتحديث المخزون وإنشاء القيد بنجاح ✅ (محاكاة)');
+        setItems([]);
+        setFormData({ ...formData, returnNumber: '', notes: '' });
+        setSaving(false);
+        return;
+    }
+
+    try {
+      const subtotal = calculateTotal();
+      const taxRate = 0.15;
+      const taxAmount = subtotal * taxRate;
+      const totalAmount = subtotal + taxAmount;
+      
+      const customer = customers.find(c => c.id === formData.customerId);
+      const returnNumber = formData.returnNumber || `SR-${Date.now().toString().slice(-6)}`;
+
+      // 1. حفظ المرتجع
+      const { data: returnDoc, error: retError } = await supabase.from('sales_returns').insert({
+        customer_id: formData.customerId,
+        return_number: returnNumber,
+        return_date: formData.date,
+        total_amount: totalAmount,
+        tax_amount: taxAmount,
+        notes: formData.notes,
+        status: 'posted'
+      }).select().single();
+
+      if (retError) throw retError;
+
+      if (!returnDoc) throw new Error("فشل حفظ مستند المرتجع.");
+
+      // 2. حفظ البنود وتحديث المخزون (زيادة)
+      for (const item of items) {
+        await supabase.from('sales_return_items').insert({
+          return_id: returnDoc.id,
+          product_id: item.productId,
+          quantity: item.quantity,
+          price: item.price,
+          total: item.quantity * item.price
+        });
+
+        const product = products.find(p => p.id === item.productId);
+        const newStock = (product?.stock || 0) + Number(item.quantity);
+        await supabase.from('products').update({ stock: newStock }).eq('id', item.productId);
+      }
+
+      // 3. إنشاء القيد المحاسبي العكسي
+      const normalizeCode = (code: string | number) => String(code).trim();
+      const normalizeText = (text: string) => (text || '').toLowerCase();
+      const findAccount = (preferredCodes: string[], nameKeywords: string[]) => {
+           for (const code of preferredCodes) {
+               const found = accounts?.find(a => normalizeCode(a.code) === code);
+               if (found) return found;
+           }
+           return accounts?.find(a => nameKeywords.some(k => normalizeText(a.name).includes(k)));
+      };
+
+      const salesReturnAcc = getSystemAccount('SALES_REVENUE') || findAccount(['401'], ['مردودات مبيعات', 'sales return']); 
+      const salesAcc = getSystemAccount('SALES_REVENUE') || findAccount(['401'], ['مبيعات', 'sales']);
+      const targetSalesAcc = salesReturnAcc || salesAcc;
+
+      const taxAcc = getSystemAccount('VAT') || findAccount(['202'], ['ضريبة', 'tax', 'vat']); 
+      const customerAcc = getSystemAccount('CUSTOMERS') || findAccount(['10201'], ['عملاء', 'customer']); 
+      const cogsAcc = getSystemAccount('COGS') || findAccount(['501'], ['تكلفة', 'cogs']);
+      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || findAccount(['10302', '103'], ['مخزون', 'inventory']);
+
+      if (targetSalesAcc && customerAcc) {
+        // حساب تكلفة البضاعة المرتجعة
+        let totalCost = 0;
+        for (const item of items) {
+            const product = products.find(p => p.id === item.productId);
+            const itemCost = product?.purchase_price || product?.cost || 0;
+            totalCost += (item.quantity * itemCost);
+        }
+
+        const lines = [
+          { accountId: targetSalesAcc.id, debit: subtotal, credit: 0, description: `مرتجع مبيعات - ${returnNumber}` },
+          { accountId: customerAcc.id, debit: 0, credit: totalAmount, description: `مرتجع مبيعات من العميل ${customer?.name}` }
+        ];
+        if (taxAmount > 0 && taxAcc) {
+          lines.push({ accountId: taxAcc.id, debit: taxAmount, credit: 0, description: 'عكس ضريبة المبيعات' });
+        }
+
+        // عكس قيد التكلفة
+        if (totalCost > 0 && cogsAcc && inventoryAcc) {
+            lines.push({ accountId: inventoryAcc.id, debit: totalCost, credit: 0, description: 'إرجاع بضاعة للمخزون' });
+            lines.push({ accountId: cogsAcc.id, debit: 0, credit: totalCost, description: 'عكس تكلفة البضاعة المباعة' });
+        }
+
+        await addEntry({
+          date: formData.date,
+          description: `مرتجع مبيعات - ${customer?.name}`,
+          reference: returnNumber,
+          status: 'posted',
+          lines: lines as any[]
+        });
+      }
+
+      alert('تم حفظ مرتجع المبيعات وتحديث المخزون وإنشاء القيد بنجاح ✅');
+      setItems([]);
+      setFormData({ ...formData, returnNumber: '', notes: '' });
+
+    } catch (error: any) {
+      alert('خطأ: ' + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filteredProducts = products.filter(p => p.name.toLowerCase().includes(productSearch.toLowerCase())).slice(0, 5);
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><RotateCcw className="text-red-600" /> مرتجع مبيعات</h2>
+        <button onClick={handleSave} disabled={saving} className="bg-red-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 disabled:opacity-50 hover:bg-red-700">
+          {saving ? <Loader2 className="animate-spin" /> : <Save size={18} />} حفظ المرتجع
+        </button>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-bold mb-1">العميل</label>
+          <select className="w-full border rounded-lg p-2" value={formData.customerId} onChange={e => setFormData({...formData, customerId: e.target.value})}>
+            <option value="">اختر العميل...</option>
+            {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-bold mb-1">تاريخ المرتجع</label>
+          <input type="date" className="w-full border rounded-lg p-2" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+        </div>
+        <div>
+            <label className="block text-sm font-bold mb-1">رقم المرتجع (اختياري)</label>
+            <input type="text" className="w-full border rounded-lg p-2" value={formData.returnNumber} onChange={e => setFormData({...formData, returnNumber: e.target.value})} placeholder="تلقائي" />
+        </div>
+        <div>
+            <label className="block text-sm font-bold mb-1">ملاحظات</label>
+            <input type="text" className="w-full border rounded-lg p-2" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="سبب الإرجاع..." />
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="relative mb-4">
+          <input type="text" placeholder="ابحث عن صنف لإرجاعه..." className="w-full border rounded-lg p-2 pl-10" value={productSearch} onChange={e => setProductSearch(e.target.value)} />
+          <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+          {productSearch && filteredProducts.length > 0 && (
+            <div className="absolute top-full left-0 w-full bg-white border shadow-lg rounded-lg mt-1 z-10">
+              {filteredProducts.map(p => (
+                <div key={p.id} onClick={() => addItem(p)} className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 flex justify-between">
+                  <span>{p.name}</span>
+                  <span className="text-slate-400 text-sm">{p.sku}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <table className="w-full text-right">
+          <thead className="bg-slate-50 text-sm font-bold text-slate-600">
+            <tr>
+              <th className="p-3">الصنف</th>
+              <th className="p-3 w-32">الكمية المرتجعة</th>
+              <th className="p-3 w-32">سعر الوحدة</th>
+              <th className="p-3 w-32">الإجمالي</th>
+              <th className="p-3 w-10"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((item, idx) => (
+              <tr key={idx} className="border-b">
+                <td className="p-3">{item.name}</td>
+                <td className="p-3"><input type="number" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td>
+                <td className="p-3"><input type="number" className="w-full border rounded p-1 text-center" value={item.price} onChange={e => updateItem(idx, 'price', Number(e.target.value))} /></td>
+                <td className="p-3 font-bold">{(item.quantity * item.price).toLocaleString()}</td>
+                <td className="p-3"><button onClick={() => removeItem(idx)} className="text-red-500"><Trash2 size={18} /></button></td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot className="font-bold text-lg">
+            <tr className="bg-slate-50">
+              <td colSpan={3} className="p-4 text-left text-red-600">إجمالي المرتجع (شامل الضريبة):</td>
+              <td className="p-4 text-red-600">{(calculateTotal() * 1.15).toLocaleString()}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+};
+
+export default SalesReturnForm;

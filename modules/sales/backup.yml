@@ -1,0 +1,38 @@
+name: Daily Supabase Backup
+
+on:
+  schedule:
+    # تشغيل يومياً في منتصف الليل (00:00 UTC)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # يسمح بالتشغيل اليدوي من تبويب Actions
+
+jobs:
+  backup:
+    name: Dump Database and Upload Artifact
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL Client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Dump Database
+        env:
+          # تأكد من إضافة SUPABASE_DB_URL في إعدادات الأسرار (Secrets) في GitHub
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          timestamp=$(date +%Y%m%d_%H%M%S)
+          filename="backup_${timestamp}.sql"
+          pg_dump "$DATABASE_URL" -f "$filename"
+          echo "BACKUP_FILENAME=$filename" >> $GITHUB_ENV
+
+      - name: Upload Backup Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: database-backup
+          path: ${{ env.BACKUP_FILENAME }}
+          retention-days: 30
