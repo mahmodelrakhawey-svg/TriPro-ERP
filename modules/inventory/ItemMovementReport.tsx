@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { Package, Calendar, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter, Download, X } from 'lucide-react';
+import { Package, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter, Download, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 type Movement = {

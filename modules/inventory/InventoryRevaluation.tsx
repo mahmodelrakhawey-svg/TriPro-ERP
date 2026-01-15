@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useProducts } from '../hooks/usePermissions';
-import { Loader2, Save, Package, Search, X, Info, CircleDollarSign } from 'lucide-react';
+import { Loader2, Save, Search, X, CircleDollarSign } from 'lucide-react';
 
 const InventoryRevaluation = () => {
   const { currentUser, products: contextProducts } = useAccounting();

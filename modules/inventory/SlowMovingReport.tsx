@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { PackageX, Calendar, Download, Printer, Loader2, Filter, AlertCircle } from 'lucide-react';
+import { PackageX, Download, Printer, Loader2, Filter } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 type SlowProduct = {

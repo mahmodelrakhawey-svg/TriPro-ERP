@@ -1,5 +1,5 @@
 ﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Printer, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag } from 'lucide-react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useProducts } from '../hooks/usePermissions'; // استيراد الخطاف الجديد

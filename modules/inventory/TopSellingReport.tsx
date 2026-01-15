@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { TrendingUp, Calendar, Download, Printer, Loader2, Filter, Package } from 'lucide-react';
+import { TrendingUp, Download, Printer, Loader2, Filter, Package } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 type TopProduct = {

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { FileText, Search, Download, Filter, Printer, Loader2, Calendar, ArrowRightLeft, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { Search, Download, Printer, Loader2, ArrowRightLeft } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 
