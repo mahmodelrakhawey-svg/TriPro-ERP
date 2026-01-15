@@ -300,6 +300,7 @@ interface AccountingContextType {
   restoreItem: (table: string, id: string) => Promise<{ success: boolean, message?: string }>;
   permanentDeleteItem: (table: string, id: string) => Promise<{ success: boolean, message?: string }>;
   emptyRecycleBin: (table: string) => Promise<{ success: boolean, message?: string }>;
+  calculateProductPrice: (product: Product) => number;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -1142,7 +1143,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
       }
       if (Object.keys(changes).length > 0) {
-          logActivity('تعديل صنف', `تعديل بيانات الصنف: ${oldData?.name}`, undefined, { changes });
+          logActivity('تعديل صنف', `تعديل بيانات الصنف: ${oldData?.name}`, undefined, { changes, productId: id });
       }
     } catch (error: any) {
       console.error("Error updating product:", error);
@@ -1564,7 +1565,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { error: itemsError } = await supabase.from('stock_transfer_items').insert(items);
         if (itemsError) throw itemsError;
 
-        await recalculateStock();
+        // تحديث الأرصدة يدوياً لضمان الفورية والدقة
+        for (const item of items) {
+            const { data: product } = await supabase.from('products').select('warehouse_stock').eq('id', item.product_id).single();
+            if (product) {
+                const currentWarehouseStock = product.warehouse_stock || {};
+                const fromQty = Number(currentWarehouseStock[data.fromWarehouseId] || 0);
+                const toQty = Number(currentWarehouseStock[data.toWarehouseId] || 0);
+                
+                const newWarehouseStock = {
+                    ...currentWarehouseStock,
+                    [data.fromWarehouseId]: fromQty - Number(item.quantity),
+                    [data.toWarehouseId]: toQty + Number(item.quantity)
+                };
+
+                await supabase.from('products').update({ warehouse_stock: newWarehouseStock }).eq('id', item.product_id);
+            }
+        }
+
+        await fetchData(); // تحديث الواجهة بالبيانات الجديدة
         showToast('تم التحويل المخزني بنجاح', 'success');
     } catch (error: any) {
         console.error(error);
@@ -2656,6 +2675,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return userPermissions.has(`${module}.${action}`);
   };
 
+  const calculateProductPrice = (product: Product): number => {
+      const today = new Date().toISOString().split('T')[0];
+      if (
+          product.offer_price && 
+          product.offer_price > 0 && 
+          product.offer_start_date && 
+          product.offer_end_date && 
+          today >= product.offer_start_date && 
+          today <= product.offer_end_date
+      ) {
+          return product.offer_price;
+      }
+      return product.sales_price || product.price || 0;
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -2768,7 +2802,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getSystemAccount,
       getInvoicesPaginated,
       getJournalEntriesPaginated,
-      isLoading
+      isLoading,
+      calculateProductPrice
     }}>
       {children}
     </AccountingContext.Provider>

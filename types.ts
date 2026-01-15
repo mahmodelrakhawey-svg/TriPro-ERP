@@ -256,6 +256,11 @@ export interface Product {
   halfWholesalePrice?: number;
   warehouseStock?: { [warehouseId: string]: number };
   sales_price?: number;
+  expiry_date?: string;
+  offer_price?: number;
+  offer_start_date?: string;
+  offer_end_date?: string;
+  offer_max_qty?: number;
 }
 
 export interface InvoiceItem {

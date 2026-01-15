@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { ArrowRightLeft, Save, Plus, Trash2, Search, Package, Loader2 } from 'lucide-react';
 
 const StockTransfer = () => {
+  const location = useLocation();
   const { warehouses, products, addStockTransfer } = useAccounting();
   const [loading, setLoading] = useState(false);
   
@@ -16,6 +18,12 @@ const StockTransfer = () => {
   const [items, setItems] = useState<any[]>([]);
   const [selectedProductId, setSelectedProductId] = useState('');
   const [qty, setQty] = useState(1);
+
+  useEffect(() => {
+    if (location.state?.productId) {
+        setSelectedProductId(location.state.productId);
+    }
+  }, [location.state]);
 
   const handleAddItem = () => {
     if (!selectedProductId) return;

@@ -1,9 +1,11 @@
-﻿﻿import React, { useState } from 'react';
+﻿﻿import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package } from 'lucide-react';
 
 const StockAdjustmentForm = () => {
+  const location = useLocation();
   const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount } = useAccounting();
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -12,6 +14,23 @@ const StockAdjustmentForm = () => {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
+
+  useEffect(() => {
+    if (location.state?.productId && products.length > 0) {
+        const product = products.find(p => p.id === location.state.productId);
+        if (product) {
+            setItems(prev => {
+                if (prev.find(i => i.productId === product.id)) return prev;
+                return [...prev, {
+                    productId: product.id,
+                    productName: product.name,
+                    quantity: 0,
+                    type: 'in'
+                }];
+            });
+        }
+    }
+  }, [location.state, products]);
 
   const handleAddItem = () => {
     if (!selectedProductId) return;

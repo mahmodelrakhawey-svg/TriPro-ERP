@@ -107,6 +107,7 @@ import { Landmark, X, Info } from 'lucide-react';
 import About from './components/About';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
+import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -332,6 +333,7 @@ const MainLayout = () => {
                 <Route path="/sales-reports" element={<SalesReports />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
+                <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
                 <Route path="/item-sales-analysis" element={<ItemSalesAnalysis />} />
                 <Route path="/purchase-analysis" element={<PurchaseAnalysisReport />} />
                 <Route path="/users" element={<UserManager />} />

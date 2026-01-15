@@ -5,7 +5,7 @@ import {
     LayoutDashboard, BookOpen, FileText, PieChart, Settings,
     ScrollText, Library, ShoppingCart, Users, Truck, Package, 
     Receipt, RotateCcw, ClipboardList, History, Banknote, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Scale, Store, Wallet, TrendingUp, LogOut, Shield, ListChecks, Landmark, MonitorSmartphone, Briefcase, Settings as Cog, PenTool, FileCheck, Calculator, Gauge, Target, BarChartHorizontal, Bell, BarChartBig, FileMinus, FilePlus, PackageX, CircleDollarSign, FileSpreadsheet, PackageOpen, ShieldAlert, X, BarChart2, ShieldCheck, HelpCircle
-    , Lock, Trash2, AlertTriangle
+    , Lock, Trash2, AlertTriangle, Percent
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -293,6 +293,12 @@ const Sidebar = () => {
                 <Link to="/sales-reports" className={getNavClass('/sales-reports')}>
                 <BarChartBig size={18} />
                 <span>تقارير المبيعات</span>
+                </Link>
+                )}
+                {canShow(['reports', 'sales'], ['read', 'view']) && (
+                <Link to="/offer-beneficiaries" className={getNavClass('/offer-beneficiaries')}>
+                <Percent size={18} />
+                <span>المستفيدين من العروض</span>
                 </Link>
                 )}
                 {canShow(['reports', 'sales'], ['read', 'view']) && (
