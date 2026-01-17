@@ -1,5 +1,4 @@
 /// <reference types="vite/client" />
-/// <reference types="vite/client" />
 import { createClient } from '@supabase/supabase-js';
 
 // قراءة المفاتيح من ملف البيئة (.env)
