@@ -53,7 +53,7 @@ const SupplierBalanceReconciliation = () => {
       // تخزين القيود للمراجعة
       const glEntriesMap = new Map();
 
-      glLines?.forEach(line => {
+      glLines?.forEach((line: any) => {
           totalGlCredit += line.credit;
           totalGlDebit += line.debit;
           
