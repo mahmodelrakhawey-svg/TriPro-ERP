@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 
 const PaymentVoucherList = () => {
   const navigate = useNavigate();
@@ -31,6 +32,24 @@ const PaymentVoucherList = () => {
 
   const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
   const [selectedAttachments, setSelectedAttachments] = useState<any[]>([]);
+
+  // Print State
+  const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+  }, []);
+
+  useEffect(() => {
+    if (voucherToPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+        setVoucherToPrint(null);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [voucherToPrint]);
 
   const fetchVouchers = async (pageNumber = 1) => {
     setLoading(true);
@@ -122,8 +141,13 @@ const PaymentVoucherList = () => {
     }
   };
 
+  const handlePrint = (voucher: any) => {
+    setVoucherToPrint(voucher);
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
+      <div className={voucherToPrint ? 'print:hidden' : ''}>
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
@@ -227,7 +251,7 @@ const PaymentVoucherList = () => {
                             )}
                         </td>
                         <td className="py-4 px-6 text-center">
-                            <button onClick={() => window.print()} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="طباعة">
+                            <button onClick={() => handlePrint(voucher)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="طباعة">
                                 <Printer size={18} />
                             </button>
                         </td>
@@ -264,6 +288,7 @@ const PaymentVoucherList = () => {
         </div>
       </div>
       )}
+      </div>
 
       {/* Attachments Modal */}
       {attachmentModalOpen && (
@@ -284,6 +309,9 @@ const PaymentVoucherList = () => {
             </div>
         </div>
       )}
+
+      {/* Print Component (Hidden on Screen) */}
+      <PaymentVoucherPrint voucher={voucherToPrint} companySettings={companySettings} />
     </div>
   );
 };

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
+import { supabase } from '../../supabaseClient';
 import { Invoice } from '../../types';
-import { Search, Loader2, Edit, Plus, ChevronLeft, ChevronRight, AlertCircle, FileText, CheckCircle, MessageCircle } from 'lucide-react';
+import { Search, Loader2, Edit, Plus, ChevronLeft, ChevronRight, AlertCircle, FileText, CheckCircle, MessageCircle, Printer } from 'lucide-react';
 import { useDebounce } from '../../context/useDebounce';
+import { SalesInvoicePrint } from './SalesInvoicePrint';
 
 const InvoiceList = () => {
   const { getInvoicesPaginated, settings, approveSalesInvoice } = useAccounting();
@@ -19,6 +21,24 @@ const InvoiceList = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   
+  // Print State
+  const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+  }, []);
+
+  useEffect(() => {
+    if (invoiceToPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+        setInvoiceToPrint(null);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [invoiceToPrint]);
+
   const debouncedSearchTerm = useDebounce(searchTerm, 500); // Debounce search input
   const PAGE_SIZE = 15;
 
@@ -76,6 +96,33 @@ const InvoiceList = () => {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  const handlePrint = async (invoice: Invoice) => {
+    // جلب تفاصيل الفاتورة كاملة (مع الأصناف) للطباعة
+    try {
+        const { data, error } = await supabase
+            .from('invoices')
+            .select('*, invoice_items(*, products(name))')
+            .eq('id', invoice.id)
+            .single();
+            
+        if (error) throw error;
+        
+        const fullInvoice = {
+            ...invoice,
+            items: data.invoice_items.map((item: any) => ({
+                productName: item.products?.name,
+                quantity: item.quantity,
+                unitPrice: item.price,
+                total: item.total
+            }))
+        };
+        setInvoiceToPrint(fullInvoice);
+    } catch (err) {
+        console.error("Error fetching invoice details:", err);
+        alert("فشل تحميل تفاصيل الفاتورة للطباعة");
+    }
+  };
+
   const getStatusChip = (status: string) => {
     switch (status) {
       case 'paid':
@@ -93,6 +140,7 @@ const InvoiceList = () => {
 
   return (
     <div className="p-6 max-w-7xl mx-auto animate-in fade-in">
+      <div className={invoiceToPrint ? 'print:hidden' : ''}>
       <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
@@ -195,6 +243,13 @@ const InvoiceList = () => {
                           </button>
                       )}
                       <button 
+                        onClick={() => handlePrint(invoice)}
+                        className="p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-800 rounded-full transition-colors"
+                        title="طباعة الفاتورة"
+                      >
+                        <Printer size={16} />
+                      </button>
+                      <button 
                         onClick={() => handleEdit(invoice)}
                         className="p-2 text-slate-500 hover:bg-blue-100 hover:text-blue-600 rounded-full transition-colors"
                         title={invoice.status === 'draft' ? "تعديل الفاتورة" : "عرض التفاصيل"}
@@ -236,6 +291,9 @@ const InvoiceList = () => {
             </div>
         )}
       </div>
+      </div>
+      
+      <SalesInvoicePrint invoice={invoiceToPrint} companySettings={companySettings} />
     </div>
   );
 };

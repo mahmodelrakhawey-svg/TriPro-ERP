@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Save, ArrowRight, ArrowLeft, ShieldCheck, Plus, Search, Loader2 } from 'lucide-react';
+import { Save, ArrowRight, ArrowLeft, ShieldCheck, Plus, Search, Loader2, Printer, MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
+import { CustomerDepositPrint } from './CustomerDepositPrint';
 
 const CustomerDepositForm = () => {
   const { customers, accounts, addEntry, getSystemAccount, updateVoucher } = useAccounting();
@@ -35,6 +36,24 @@ const CustomerDepositForm = () => {
     };
     fetchVouchers();
   }, []);
+
+  // Print State
+  const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+  }, []);
+
+  useEffect(() => {
+    if (voucherToPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+        setVoucherToPrint(null);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [voucherToPrint]);
 
   const [isEditing, setIsEditing] = useState(false);
   const [currentVoucherId, setCurrentVoucherId] = useState<string | null>(null);
@@ -95,6 +114,26 @@ const CustomerDepositForm = () => {
     if (idx > 0) {
       loadVoucher(depositVouchers[idx - 1]);
     }
+  };
+
+  const handlePrint = () => {
+    const customerName = customers.find(c => c.id === formData.customerId)?.name;
+    setVoucherToPrint({
+        ...formData,
+        customerName
+    });
+  };
+
+  const handleWhatsApp = () => {
+    const customer = customers.find(c => c.id === formData.customerId);
+    if (!customer || !customer.phone) {
+      alert('رقم هاتف العميل غير متوفر');
+      return;
+    }
+    const message = `*سند قبض تأمين*\n\nمرحباً ${customer.name}،\nتم استلام مبلغ تأمين: *${Number(formData.amount).toLocaleString()} EGP*\nرقم السند: ${formData.voucherNumber}\nالتاريخ: ${formData.date}\n\nشكراً لتعاملكم معنا.`;
+    const phone = customer.phone.replace(/[^0-9]/g, '');
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -221,6 +260,7 @@ const CustomerDepositForm = () => {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+        <div className={voucherToPrint ? 'print:hidden' : ''}>
         <form onSubmit={handleSubmit} className="space-y-6">
           {isEditing && (
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
@@ -302,7 +342,21 @@ const CustomerDepositForm = () => {
             </div>
           </div>
 
-          <div className="pt-4 border-t border-slate-100 flex justify-end">
+          <div className="pt-4 border-t border-slate-100 flex justify-end gap-4">
+            <button 
+                type="button"
+                onClick={handlePrint}
+                className="bg-slate-800 text-white px-6 py-2.5 rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2 font-bold"
+            >
+                <Printer size={18} /> طباعة
+            </button>
+            <button 
+                type="button"
+                onClick={handleWhatsApp}
+                className="bg-green-600 text-white px-6 py-2.5 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 font-bold"
+            >
+                <MessageCircle size={18} /> واتساب
+            </button>
             <button 
               type="submit"
               disabled={loading}
@@ -313,7 +367,9 @@ const CustomerDepositForm = () => {
             </button>
           </div>
         </form>
+        </div>
       </div>
+      <CustomerDepositPrint voucher={voucherToPrint} companySettings={companySettings} />
     </div>
   );
 };

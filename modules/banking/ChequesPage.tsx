@@ -1,10 +1,14 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { Landmark, Plus, ArrowRight, ArrowUpRight, ArrowDownLeft, Check, X, Ban, Calendar, Search, Loader2, Upload, Paperclip, Eye, Download } from 'lucide-react';
+import { Landmark, Plus, ArrowRight, ArrowUpRight, ArrowDownLeft, Check, X, Ban, Calendar, Search, Loader2, Upload, Paperclip, Eye, Download, Printer, MessageCircle, AlertTriangle, FileText, PieChart as PieChartIcon, Filter } from 'lucide-react';
+import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { ChequePrint } from './ChequePrint';
+import { useNavigate } from 'react-router-dom';
 
 export const ChequesPage = () => {
-  const { addCheque, updateChequeStatus, currentUser } = useAccounting();
+  const { addCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount } = useAccounting();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'outgoing' | 'incoming'>('outgoing');
   const [cheques, setCheques] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,8 +22,33 @@ export const ChequesPage = () => {
   
   // Modal States
   const [showAddModal, setShowModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
   const [showCashModal, setShowCashModal] = useState(false);
   const [selectedCheque, setSelectedCheque] = useState<any>(null);
+
+  // Print State
+  const [chequeToPrint, setChequeToPrint] = useState<any>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+  }, []);
+
+  useEffect(() => {
+    if (chequeToPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+        setChequeToPrint(null);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [chequeToPrint]);
+
+  // Filter State
+  const [selectedBankFilter, setSelectedBankFilter] = useState('');
+  useEffect(() => {
+    setSelectedBankFilter('');
+  }, [activeTab]);
 
   // Form Data
   const [formData, setFormData] = useState({
@@ -31,6 +60,14 @@ export const ChequesPage = () => {
     notes: ''
   });
   const [selectedBankId, setSelectedBankId] = useState(''); // البنك الذي سيتم الصرف منه
+
+  // Transfer Data State
+  const [transferData, setTransferData] = useState({
+    accountNumber: '',
+    bankName: '',
+    date: new Date().toISOString().split('T')[0],
+    ourBankId: '' // حسابنا البنكي (المصدر أو المستلم)
+  });
 
   useEffect(() => {
     fetchData();
@@ -56,10 +93,10 @@ export const ChequesPage = () => {
     if (chequesData) setCheques(chequesData);
 
     // 2. Fetch Parties
-    const { data: supps } = await supabase.from('suppliers').select('id, name');
+    const { data: supps } = await supabase.from('suppliers').select('id, name, phone');
     if (supps) setSuppliers(supps);
     
-    const { data: custs } = await supabase.from('customers').select('id, name');
+    const { data: custs } = await supabase.from('customers').select('id, name, phone');
     if (custs) setCustomers(custs);
 
     // 3. Fetch Bank Accounts
@@ -119,6 +156,91 @@ export const ChequesPage = () => {
       }
   };
 
+  const handleTransferCheque = async () => {
+    if (!selectedCheque || !transferData.date || !transferData.ourBankId) {
+        alert('يرجى تعبئة جميع البيانات واختيار البنك الخاص بنا');
+        return;
+    }
+
+    try {
+        // 1. تحديث حالة الشيك وبيانات التحويل
+        const newStatus = selectedCheque.type === 'incoming' ? 'collected' : 'cashed';
+        
+        const { error: updateError } = await supabase.from('cheques').update({
+            status: newStatus,
+            transfer_account_number: transferData.accountNumber,
+            transfer_bank_name: transferData.bankName,
+            transfer_date: transferData.date
+        }).eq('id', selectedCheque.id);
+
+        if (updateError) throw updateError;
+
+        // 2. إنشاء القيد المحاسبي
+        const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE');
+        const notesPayableAcc = getSystemAccount('NOTES_PAYABLE');
+        
+        let lines = [];
+        let description = `تحويل بنكي للشيك رقم ${selectedCheque.cheque_number} - ${selectedCheque.party_name}`;
+
+        if (selectedCheque.type === 'incoming') {
+            // شيك وارد (تحصيل): من ح/ البنك (حسابنا) إلى ح/ أوراق القبض
+            if (!notesReceivableAcc) throw new Error('حساب أوراق القبض غير معرف');
+            lines = [
+                { accountId: transferData.ourBankId, debit: selectedCheque.amount, credit: 0, description: description + ' - إيداع' },
+                { accountId: notesReceivableAcc.id, debit: 0, credit: selectedCheque.amount, description: description + ' - تحصيل' }
+            ];
+        } else {
+            // شيك صادر (سداد): من ح/ أوراق الدفع إلى ح/ البنك (حسابنا)
+            if (!notesPayableAcc) throw new Error('حساب أوراق الدفع غير معرف');
+            lines = [
+                { accountId: notesPayableAcc.id, debit: selectedCheque.amount, credit: 0, description: description + ' - سداد' },
+                { accountId: transferData.ourBankId, debit: 0, credit: selectedCheque.amount, description: description + ' - خصم' }
+            ];
+        }
+
+        await addEntry({
+            date: transferData.date,
+            reference: `TRF-${selectedCheque.cheque_number}`,
+            description: description,
+            status: 'posted',
+            lines: lines
+        });
+
+        alert('تم تسجيل التحويل وتحديث حالة الشيك بنجاح ✅');
+        setShowTransferModal(false);
+        fetchData();
+
+    } catch (error: any) {
+        alert('حدث خطأ: ' + error.message);
+    }
+  };
+
+  const handleRejectCheque = async (cheque: any) => {
+      if (!window.confirm('هل أنت متأكد من رفض هذا الشيك؟ سيتم إنشاء قيد عكسي لإعادة المديونية/الدائنية.')) return;
+      
+      try {
+          const actionDate = new Date().toISOString().split('T')[0];
+          await updateChequeStatus(cheque.id, 'rejected', actionDate);
+          
+          // إشعار المورد عند رفض شيك صادر
+          if (cheque.type === 'outgoing') {
+              const supplier = suppliers.find(s => s.id === cheque.party_id);
+              if (supplier && supplier.phone) {
+                  if (window.confirm(`تم رفض الشيك. هل تريد إرسال إشعار للمورد (${supplier.name}) عبر واتساب؟`)) {
+                      const message = `تنبيه: تم رفض/إرجاع الشيك رقم ${cheque.cheque_number} بمبلغ ${Number(cheque.amount).toLocaleString()} EGP.\nيرجى مراجعة الحساب أو التواصل معنا للتسوية.`;
+                      const phone = supplier.phone.replace(/[^0-9]/g, '');
+                      const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+                      window.open(url, '_blank');
+                  }
+              }
+          }
+
+          fetchData();
+      } catch (err: any) {
+          alert('خطأ: ' + err.message);
+      }
+  };
+
   const handleViewAttachments = (cheque: any) => {
       setCurrentAttachments(cheque.cheque_attachments || []);
       setShowAttachmentsModal(true);
@@ -145,10 +267,77 @@ export const ChequesPage = () => {
     }
   };
 
-  const filteredCheques = cheques.filter(c => c.type === activeTab);
+  const handlePrint = (cheque: any) => {
+    setChequeToPrint(cheque);
+  };
+
+  const handleWhatsApp = (cheque: any) => {
+      let phone = '';
+      if (cheque.type === 'outgoing') {
+          const supplier = suppliers.find(s => s.id === cheque.party_id);
+          phone = supplier?.phone;
+      } else {
+          const customer = customers.find(c => c.id === cheque.party_id);
+          phone = customer?.phone;
+      }
+
+      if (!phone) {
+          alert('رقم الهاتف غير متوفر للطرف المستفيد');
+          return;
+      }
+
+      const typeText = cheque.type === 'outgoing' ? 'صرف شيك' : 'استلام شيك';
+      const message = `*${typeText}*\n\nمرحباً ${cheque.party_name}،\nتم تسجيل شيك رقم: *${cheque.cheque_number}*\nالمبلغ: *${Number(cheque.amount).toLocaleString()} EGP*\nتاريخ الاستحقاق: ${cheque.due_date}\nالبنك: ${cheque.bank_name}\n\nشكراً لتعاملكم معنا.`;
+      
+      const cleanPhone = phone.replace(/[^0-9]/g, '');
+      const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+      window.open(url, '_blank');
+  };
+
+  const uniqueBanks = useMemo(() => {
+    const banks = cheques
+        .filter(c => c.type === activeTab)
+        .map(c => c.bank_name)
+        .filter(name => name && name.trim() !== '');
+    return [...new Set(banks)];
+  }, [cheques, activeTab]);
+
+  const filteredCheques = useMemo(() => {
+    return cheques.filter(c => {
+        if (c.type !== activeTab) return false;
+        if (selectedBankFilter && c.bank_name !== selectedBankFilter) return false;
+        return true;
+    });
+  }, [cheques, activeTab, selectedBankFilter]);
+
+  const chequeStats = useMemo(() => {
+    const stats = { collected: 0, rejected: 0, pending: 0 };
+    filteredCheques.forEach(c => {
+      if (c.status === 'collected' || c.status === 'cashed') stats.collected += c.amount;
+      else if (c.status === 'rejected') stats.rejected += c.amount;
+      else stats.pending += c.amount;
+    });
+    return [
+      { name: 'تم التحصيل/الصرف', value: stats.collected, color: '#10b981' },
+      { name: 'مرتجع', value: stats.rejected, color: '#ef4444' },
+      { name: 'قيد الانتظار', value: stats.pending, color: '#f59e0b' }
+    ];
+  }, [filteredCheques]);
+
+  const isDueSoon = (dateStr: string, status: string) => {
+      if (status !== 'issued' && status !== 'received') return false;
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const due = new Date(dateStr);
+      const diffTime = due.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+      // مستحق خلال يومين أو متأخر
+      return diffDays <= 2; 
+  };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 animate-in fade-in">
+      <div className={chequeToPrint ? 'print:hidden' : ''}>
       <div className="flex justify-between items-center">
         <div>
             <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
@@ -156,25 +345,85 @@ export const ChequesPage = () => {
             </h2>
             <p className="text-slate-500">إدارة الشيكات الصادرة للموردين والواردة من العملاء</p>
         </div>
-        <button onClick={() => setShowModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-indigo-700">
-            <Plus size={18} /> تسجيل شيك جديد
-        </button>
+        <div className="flex gap-2">
+            <button onClick={() => navigate('/cheque-movement-report')} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-slate-50">
+                <FileText size={18} /> تقرير الحركة
+            </button>
+            <button onClick={() => navigate('/returned-cheques-report')} className="bg-white border border-red-200 text-red-700 px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-red-50">
+                <Ban size={18} /> الشيكات المرتجعة
+            </button>
+            <button onClick={() => setShowModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-indigo-700">
+                <Plus size={18} /> تسجيل شيك جديد
+            </button>
+        </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-white p-1 rounded-xl border border-slate-200 w-fit">
-          <button 
-            onClick={() => setActiveTab('outgoing')}
-            className={`px-6 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${activeTab === 'outgoing' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-              <ArrowUpRight size={16} /> أوراق الدفع (للموردين)
-          </button>
-          <button 
-            onClick={() => setActiveTab('incoming')}
-            className={`px-6 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${activeTab === 'incoming' ? 'bg-emerald-50 text-emerald-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
-          >
-              <ArrowDownLeft size={16} /> أوراق القبض (من العملاء)
-          </button>
+      <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex bg-white p-1 rounded-xl border border-slate-200 w-fit">
+              <button 
+                onClick={() => setActiveTab('outgoing')}
+                className={`px-6 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${activeTab === 'outgoing' ? 'bg-indigo-50 text-indigo-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <ArrowUpRight size={16} /> أوراق الدفع (للموردين)
+              </button>
+              <button 
+                onClick={() => setActiveTab('incoming')}
+                className={`px-6 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-all ${activeTab === 'incoming' ? 'bg-emerald-50 text-emerald-700 shadow-sm' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <ArrowDownLeft size={16} /> أوراق القبض (من العملاء)
+              </button>
+          </div>
+
+          <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+              <Filter size={16} className="text-slate-400" />
+              <select 
+                  value={selectedBankFilter} 
+                  onChange={(e) => setSelectedBankFilter(e.target.value)}
+                  className="bg-transparent text-sm font-bold text-slate-700 outline-none min-w-[150px]"
+              >
+                  <option value="">كل البنوك</option>
+                  {uniqueBanks.map(bank => (
+                      <option key={bank} value={bank}>{bank}</option>
+                  ))}
+              </select>
+          </div>
+      </div>
+
+      {/* Charts & Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 md:col-span-2">
+             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <PieChartIcon className="text-indigo-600" size={20} /> 
+                تحليل حالة الشيكات (بالمبالغ)
+             </h3>
+             <div className="h-64 w-full" dir="ltr">
+                <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                        <Pie
+                            data={chequeStats}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={80}
+                            paddingAngle={5}
+                            dataKey="value"
+                        >
+                            {chequeStats.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                        </Pie>
+                        <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                        <Legend verticalAlign="middle" align="right" layout="vertical" />
+                    </PieChart>
+                </ResponsiveContainer>
+             </div>
+        </div>
+        <div className="space-y-4">
+            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-100"><p className="text-sm text-emerald-600 font-bold">إجمالي المحصل/المصروف</p><p className="text-2xl font-black text-emerald-700">{chequeStats[0].value.toLocaleString()}</p></div>
+            <div className="bg-amber-50 p-4 rounded-xl border border-amber-100"><p className="text-sm text-amber-600 font-bold">إجمالي قيد الانتظار</p><p className="text-2xl font-black text-amber-700">{chequeStats[2].value.toLocaleString()}</p></div>
+            <div className="bg-red-50 p-4 rounded-xl border border-red-100"><p className="text-sm text-red-600 font-bold">إجمالي المرتجع</p><p className="text-2xl font-black text-red-700">{chequeStats[1].value.toLocaleString()}</p></div>
+        </div>
       </div>
 
       {/* Table */}
@@ -193,9 +442,15 @@ export const ChequesPage = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                   {filteredCheques.map(cheque => (
-                      <tr key={cheque.id} className="hover:bg-slate-50">
+                      <tr key={cheque.id} className={`hover:bg-slate-50 ${isDueSoon(cheque.due_date, cheque.status) ? 'bg-amber-50' : ''}`}>
                           <td className="p-4 font-mono font-bold text-indigo-600">{cheque.cheque_number}</td>
-                          <td className="p-4">{cheque.due_date}</td>
+                          <td className="p-4">
+                              <div className="flex items-center gap-2">
+                                  {cheque.due_date}
+                                  {isDueSoon(cheque.due_date, cheque.status) && 
+                                      <span className="text-amber-600" title="مستحق السداد"><AlertTriangle size={16} /></span>}
+                              </div>
+                          </td>
                           <td className="p-4 font-bold">{cheque.party_name}</td>
                           <td className="p-4 text-slate-500">{cheque.bank_name}</td>
                           <td className="p-4 font-bold">{cheque.amount.toLocaleString()}</td>
@@ -227,6 +482,42 @@ export const ChequesPage = () => {
                                       تأكيد الصرف
                                   </button>
                               )}
+                              {(cheque.status === 'received' || cheque.status === 'issued') && (
+                                  <>
+                                  <button 
+                                    onClick={() => { setSelectedCheque(cheque); setShowTransferModal(true); }}
+                                    className="bg-blue-50 text-blue-600 px-3 py-1 rounded text-xs font-bold hover:bg-blue-100 flex items-center gap-1"
+                                  >
+                                      <Landmark size={14} />
+                                      تسجيل تحويل
+                                  </button>
+                                  <button 
+                                    onClick={() => handleRejectCheque(cheque)}
+                                    className="bg-red-50 text-red-600 px-3 py-1 rounded text-xs font-bold hover:bg-red-100 flex items-center gap-1"
+                                    title="رفض الشيك"
+                                  >
+                                      <Ban size={14} />
+                                      رفض
+                                  </button>
+                                  </>
+                              )}
+
+
+
+                              <button 
+                                onClick={() => handlePrint(cheque)}
+                                className="bg-slate-50 text-slate-600 px-2 py-1 rounded text-xs font-bold hover:bg-slate-100 flex items-center gap-1"
+                                title="طباعة السند"
+                              >
+                                  <Printer size={14} />
+                              </button>
+                              <button 
+                                onClick={() => handleWhatsApp(cheque)}
+                                className="bg-green-50 text-green-600 px-2 py-1 rounded text-xs font-bold hover:bg-green-100 flex items-center gap-1"
+                                title="إرسال واتساب"
+                              >
+                                  <MessageCircle size={14} />
+                              </button>
                               {cheque.cheque_attachments && cheque.cheque_attachments.length > 0 && (
                                   <button 
                                     onClick={() => handleViewAttachments(cheque)}
@@ -365,6 +656,9 @@ export const ChequesPage = () => {
               </div>
           </div>
       )}
+      </div>
+
+      <ChequePrint cheque={chequeToPrint} companySettings={companySettings} />
     </div>
   );
 };

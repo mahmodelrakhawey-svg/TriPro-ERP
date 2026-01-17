@@ -4,7 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import {
     Search, Plus, FileCheck, Printer, Edit, Trash2,
     ChevronLeft, ChevronRight, Loader2, Eye, ArrowRightLeft,
-    X, Warehouse as WarehouseIcon, Save, ShoppingCart
+    X, Warehouse as WarehouseIcon, Save, ShoppingCart, Clock, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 
@@ -93,6 +93,15 @@ const PurchaseOrderList = () => {
         return;
     }
     navigate('/purchase-order-new', { state: { orderToEdit: order } });
+  };
+
+  const getLifecycle = (status: string) => {
+    switch (status) {
+        case 'converted': return { percent: 100, label: 'مفوتر بالكامل', color: 'bg-emerald-500', text: 'text-emerald-600', icon: <CheckCircle2 size={12} /> };
+        case 'sent': return { percent: 60, label: 'بانتظار التوريد', color: 'bg-blue-500', text: 'text-blue-600', icon: <Clock size={12} /> };
+        case 'cancelled': return { percent: 100, label: 'ملغي', color: 'bg-red-500', text: 'text-red-600', icon: <AlertCircle size={12} /> };
+        default: return { percent: 20, label: 'مسودة', color: 'bg-slate-300', text: 'text-slate-500', icon: <Edit size={12} /> };
+    }
   };
 
   const openConvertModal = (order: any) => {
@@ -213,7 +222,7 @@ const PurchaseOrderList = () => {
                 <th className="p-4">التاريخ</th>
                 <th className="p-4">المورد</th>
                 <th className="p-4">الإجمالي</th>
-                <th className="p-4">الحالة</th>
+                <th className="p-4">دورة الحياة</th>
                 <th className="p-4 text-center">إجراءات</th>
                 </tr>
             </thead>
@@ -225,16 +234,20 @@ const PurchaseOrderList = () => {
                     <td className="p-4 font-bold text-slate-800">{order.suppliers?.name || 'مورد غير محدد'}</td>
                     <td className="p-4 font-mono font-bold text-slate-900">{order.total_amount.toLocaleString()}</td>
                     <td className="p-4">
-                    <span className={`px-2.5 py-1 rounded-lg text-xs font-bold ${
-                        order.status === 'converted' ? 'bg-blue-100 text-blue-700' :
-                        order.status === 'sent' ? 'bg-emerald-100 text-emerald-700' :
-                        order.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                        'bg-slate-100 text-slate-600'
-                    }`}>
-                        {order.status === 'converted' ? 'تم التحويل' :
-                        order.status === 'sent' ? 'تم الإرسال' :
-                        order.status === 'cancelled' ? 'ملغي' : 'مسودة'}
-                    </span>
+                        {(() => {
+                            const lifecycle = getLifecycle(order.status);
+                            return (
+                                <div className="w-full max-w-[140px]">
+                                    <div className="flex justify-between text-[10px] mb-1 font-bold items-center">
+                                        <span className={`flex items-center gap-1 ${lifecycle.text}`}>{lifecycle.icon} {lifecycle.label}</span>
+                                        <span className="text-slate-400">{lifecycle.percent}%</span>
+                                    </div>
+                                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                                        <div className={`h-full ${lifecycle.color} transition-all duration-500`} style={{ width: `${lifecycle.percent}%` }}></div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </td>
                     <td className="p-4 flex justify-center gap-2">
                     {order.status !== 'converted' && order.status !== 'cancelled' && (

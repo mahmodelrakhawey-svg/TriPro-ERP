@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 // قراءة المفاتيح من ملف البيئة (.env)
 let supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-let supabaseKey = import.meta.env.VITE_SUPABASE_KEY;
+let supabaseKey = import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 // تنظيف القيم من أي علامات تنصيص زائدة أو مسافات (قد تحدث بسبب خطأ في ملف .env)
 if (supabaseUrl) supabaseUrl = supabaseUrl.replace(/["']/g, "").trim();

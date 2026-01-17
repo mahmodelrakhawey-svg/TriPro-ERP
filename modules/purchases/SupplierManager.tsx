@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Truck, Plus, Search, Edit2, Trash2, Save, X, Phone, MapPin, FileText, Loader2 } from 'lucide-react';
+import { supabase } from '../../supabaseClient';
+import { Truck, Plus, Search, Edit2, Trash2, Save, X, Phone, MapPin, FileText, Loader2, Wallet, TrendingUp, Calendar, RefreshCw, Scale } from 'lucide-react';
 import { useSuppliers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 
 type Supplier = {
   id: string;
@@ -15,6 +17,7 @@ type Supplier = {
 const SupplierManager = () => {
   const queryClient = useQueryClient();
   const { addSupplier, updateSupplier, deleteSupplier, currentUser, suppliers: contextSuppliers } = useAccounting();
+  const navigate = useNavigate();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -35,6 +38,70 @@ const SupplierManager = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Supplier>>({});
 
+  // حالة لتخزين الإحصائيات المالية للموردين
+  const [stats, setStats] = useState<Record<string, { balance: number, totalPurchases: number, lastInvoice: string | null }>>({});
+  const [statsLoading, setStatsLoading] = useState(false);
+
+  // جلب الإحصائيات عند تحميل الموردين
+  useEffect(() => {
+    if (suppliers.length > 0) {
+        fetchStats();
+    }
+  }, [suppliers]);
+
+  const fetchStats = async () => {
+    if (currentUser?.role === 'demo') {
+        setStats({
+            'demo-s1': { balance: 15000, totalPurchases: 50000, lastInvoice: '2024-03-15' },
+            'demo-s2': { balance: 0, totalPurchases: 20000, lastInvoice: '2024-02-20' }
+        });
+        return;
+    }
+    
+    setStatsLoading(true);
+    try {
+        // جلب الفواتير (دائن)
+        const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, invoice_date').neq('status', 'draft');
+        // جلب السندات (مدين)
+        const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount');
+        // جلب المرتجعات (مدين)
+        const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').neq('status', 'draft');
+        // جلب الإشعارات المدينة (مدين)
+        const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount');
+        // جلب الشيكات الصادرة (مدين) - التي لم يتم رفضها
+        const { data: cheques } = await supabase.from('cheques')
+            .select('party_id, amount')
+            .eq('type', 'outgoing')
+            .neq('status', 'rejected');
+
+        const newStats: Record<string, any> = {};
+
+        // تهيئة الإحصائيات
+        suppliers.forEach(s => { newStats[s.id] = { balance: 0, totalPurchases: 0, lastInvoice: null }; });
+
+        // حساب الفواتير
+        invoices?.forEach(inv => {
+            if (!newStats[inv.supplier_id]) newStats[inv.supplier_id] = { balance: 0, totalPurchases: 0, lastInvoice: null };
+            newStats[inv.supplier_id].balance += Number(inv.total_amount);
+            newStats[inv.supplier_id].totalPurchases += Number(inv.total_amount);
+            if (!newStats[inv.supplier_id].lastInvoice || inv.invoice_date > newStats[inv.supplier_id].lastInvoice) {
+                newStats[inv.supplier_id].lastInvoice = inv.invoice_date;
+            }
+        });
+
+        // خصم المدفوعات والمرتجعات
+        payments?.forEach(p => { if (newStats[p.supplier_id]) newStats[p.supplier_id].balance -= Number(p.amount); });
+        returns?.forEach(r => { if (newStats[r.supplier_id]) newStats[r.supplier_id].balance -= Number(r.total_amount); });
+        debitNotes?.forEach(d => { if (newStats[d.supplier_id]) newStats[d.supplier_id].balance -= Number(d.total_amount); });
+        
+        // خصم الشيكات الصادرة
+        cheques?.forEach(c => { 
+            if (newStats[c.party_id]) newStats[c.party_id].balance -= Number(c.amount); 
+        });
+
+        setStats(newStats);
+    } catch (error) { console.error("Error fetching stats", error); } finally { setStatsLoading(false); }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +141,12 @@ const SupplierManager = () => {
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Truck className="text-blue-600" /> إدارة الموردين
         </h2>
+        <button onClick={() => navigate('/supplier-reconciliation')} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold ml-auto mr-2">
+            <Scale size={16} /> تقرير المطابقة
+        </button>
+        <button onClick={fetchStats} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold ml-auto mr-2">
+            <RefreshCw size={16} className={statsLoading ? 'animate-spin' : ''} /> تحديث الأرصدة
+        </button>
         <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
           <Plus size={18} /> إضافة مورد
         </button>
@@ -103,6 +176,22 @@ const SupplierManager = () => {
               <div className="flex items-center gap-2"><Phone size={14} /> {supplier.phone || '-'}</div>
               <div className="flex items-center gap-2"><FileText size={14} /> {supplier.tax_number || '-'}</div>
               <div className="flex items-center gap-2"><MapPin size={14} /> {supplier.address || '-'}</div>
+            </div>
+
+            {/* قسم الإحصائيات المالية */}
+            <div className="mt-4 pt-4 border-t border-slate-100 grid grid-cols-2 gap-2">
+                <div className="bg-slate-50 p-2 rounded-lg">
+                    <p className="text-[10px] text-slate-500 flex items-center gap-1 font-bold"><Wallet size={12}/> الرصيد المستحق</p>
+                    <p className={`font-bold text-sm ${stats[supplier.id]?.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {statsLoading ? '...' : (stats[supplier.id]?.balance?.toLocaleString() || '0')}
+                    </p>
+                </div>
+                <div className="bg-slate-50 p-2 rounded-lg">
+                    <p className="text-[10px] text-slate-500 flex items-center gap-1 font-bold"><TrendingUp size={12}/> إجمالي المشتريات</p>
+                    <p className="font-bold text-sm text-slate-800">
+                        {statsLoading ? '...' : (stats[supplier.id]?.totalPurchases?.toLocaleString() || '0')}
+                    </p>
+                </div>
             </div>
           </div>
         ))}

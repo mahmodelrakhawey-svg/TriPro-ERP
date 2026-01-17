@@ -1,7 +1,8 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers } from 'lucide-react';
+import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
+import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 
 const PaymentVoucherForm = () => {
   const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers } = useAccounting();
@@ -14,7 +15,7 @@ const PaymentVoucherForm = () => {
     notes: '',
     voucherNumber: '',
     paymentMethod: 'cash',
-    currency: 'SAR',
+    currency: 'EGP',
     exchangeRate: 1,
     costCenterId: ''
   });
@@ -23,6 +24,23 @@ const PaymentVoucherForm = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentVoucherId, setCurrentVoucherId] = useState<string | null>(null);
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
+  
+  // Print State
+  const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+  }, []);
+
+  useEffect(() => {
+    if (voucherToPrint) {
+      setTimeout(() => {
+        window.print();
+        setVoucherToPrint(null);
+      }, 500);
+    }
+  }, [voucherToPrint]);
 
   const paymentVouchers = vouchers.filter(v => v.type === 'payment');
 
@@ -57,7 +75,7 @@ const PaymentVoucherForm = () => {
         notes: data.notes || '',
       voucherNumber: data.voucher_number || '',
       paymentMethod: data.payment_method || 'cash',
-      currency: data.currency || 'SAR',
+      currency: data.currency || 'EGP',
       exchangeRate: data.exchange_rate || 1,
       costCenterId: data.cost_center_id || ''
       });
@@ -79,7 +97,7 @@ const PaymentVoucherForm = () => {
       notes: '',
       voucherNumber: '',
       paymentMethod: 'cash',
-      currency: 'SAR',
+      currency: 'EGP',
       exchangeRate: 1,
       costCenterId: ''
     });
@@ -132,6 +150,33 @@ const PaymentVoucherForm = () => {
     if (data.publicUrl) {
         window.open(data.publicUrl, '_blank');
     }
+  };
+
+  const handlePrint = () => {
+    const supplierName = suppliers.find(s => s.id === formData.supplierId)?.name;
+    const printData = {
+        ...formData,
+        voucher_number: formData.voucherNumber,
+        payment_date: formData.date,
+        suppliers: { name: supplierName },
+        payment_method: formData.paymentMethod
+    };
+    setVoucherToPrint(printData);
+  };
+
+  const handleWhatsApp = () => {
+    const supplier = suppliers.find(s => s.id === formData.supplierId);
+    if (!supplier || !supplier.phone) {
+      alert('رقم هاتف المورد غير متوفر في البيانات الأساسية');
+      return;
+    }
+    
+    const message = `*سند صرف جديد*\n\nمرحباً ${supplier.name}،\nتم صرف مبلغ: *${Number(formData.amount).toLocaleString()} ${formData.currency}*\nرقم السند: ${formData.voucherNumber}\nالتاريخ: ${formData.date}\n${formData.notes ? 'البيان: ' + formData.notes : ''}\n\nشكراً لتعاملكم معنا.`;
+    
+    // تنظيف رقم الهاتف من الرموز غير الرقمية
+    const phone = supplier.phone.replace(/[^0-9]/g, '');
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -236,6 +281,7 @@ const PaymentVoucherForm = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in">
+      <div className={voucherToPrint ? 'print:hidden' : ''}>
       {/* شريط الأدوات */}
       <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-2">
@@ -249,6 +295,14 @@ const PaymentVoucherForm = () => {
           <button onClick={handleNew} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm">
             <Plus className="w-4 h-4" />
             <span>سند جديد</span>
+          </button>
+          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-bold text-sm" title="طباعة السند الحالي">
+            <Printer className="w-4 h-4" />
+            <span>طباعة</span>
+          </button>
+          <button onClick={handleWhatsApp} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-bold text-sm" title="إرسال عبر واتساب">
+            <MessageCircle className="w-4 h-4" />
+            <span>واتساب</span>
           </button>
         </div>
 
@@ -403,10 +457,10 @@ const PaymentVoucherForm = () => {
                         onChange={(e) => setFormData({...formData, currency: e.target.value})}
                         className="w-2/3 border border-slate-300 rounded-lg px-3 py-3 text-sm focus:border-blue-500 outline-none bg-white appearance-none"
                     >
+                        <option value="EGP">EGP</option>
                         <option value="SAR">SAR</option>
                         <option value="USD">USD</option>
                         <option value="EUR">EUR</option>
-                        <option value="EGP">EGP</option>
                     </select>
                     <input 
                         type="number" 
@@ -487,6 +541,14 @@ const PaymentVoucherForm = () => {
 
         <div className="pt-4 border-t border-slate-100 flex justify-end">
             <button 
+                type="button"
+                onClick={handlePrint}
+                className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-700 flex items-center gap-2 shadow-lg transition-all transform hover:-translate-y-1 ml-4"
+            >
+                <Printer size={20} />
+                طباعة السند
+            </button>
+            <button 
                 type="submit" 
                 disabled={loading}
                 className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 flex items-center gap-2 shadow-lg shadow-blue-200 transition-all transform hover:-translate-y-1"
@@ -497,6 +559,9 @@ const PaymentVoucherForm = () => {
         </div>
 
       </form>
+      </div>
+      
+      <PaymentVoucherPrint voucher={voucherToPrint} companySettings={companySettings} />
     </div>
   );
 };

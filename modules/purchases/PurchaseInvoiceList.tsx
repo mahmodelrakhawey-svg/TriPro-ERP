@@ -1,18 +1,33 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
-import { FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, Edit, CheckCircle } from 'lucide-react';
+import { FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, Edit, CheckCircle, DollarSign, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 
 const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
-  const { approvePurchaseInvoice, settings, currentUser } = useAccounting();
+  const { approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, accounts } = useAccounting();
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [invoiceToPrint, setInvoiceToPrint] = useState<any | null>(null);
+
+  // Payment Modal State
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<any>(null);
+  const [paymentFormData, setPaymentFormData] = useState({
+    amount: 0,
+    date: new Date().toISOString().split('T')[0],
+    treasuryAccountId: '',
+    notes: ''
+  });
+
+  // تصفية حسابات النقدية والبنوك للدفع
+  const treasuryAccounts = useMemo(() => {
+    return accounts.filter(a => !a.isGroup && (a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('بنك') || a.type === 'ASSET'));
+  }, [accounts]);
 
   const fetchInvoices = async () => {
     setLoading(true);
@@ -62,6 +77,41 @@ const PurchaseInvoiceList = () => {
       fetchInvoices();
     } catch (err: any) {
       alert('فشل الترحيل: ' + err.message);
+    }
+  };
+
+  const openPaymentModal = (invoice: any) => {
+    setSelectedInvoiceForPayment(invoice);
+    setPaymentFormData({
+        amount: invoice.total_amount, // افتراضياً سداد كامل المبلغ
+        date: new Date().toISOString().split('T')[0],
+        treasuryAccountId: treasuryAccounts[0]?.id || '',
+        notes: `سداد فاتورة مشتريات رقم ${invoice.invoice_number}`
+    });
+    setIsPaymentModalOpen(true);
+  };
+
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentFormData.treasuryAccountId) {
+        alert('الرجاء اختيار حساب الخزينة/البنك');
+        return;
+    }
+    
+    try {
+        await addPaymentVoucher({
+            supplierId: selectedInvoiceForPayment.supplier_id,
+            partyName: selectedInvoiceForPayment.suppliers?.name,
+            amount: paymentFormData.amount,
+            date: paymentFormData.date,
+            treasuryAccountId: paymentFormData.treasuryAccountId,
+            description: paymentFormData.notes,
+            subType: 'supplier',
+        });
+        alert('تم إنشاء سند الصرف بنجاح ✅');
+        setIsPaymentModalOpen(false);
+    } catch (err: any) {
+        alert('حدث خطأ: ' + err.message);
     }
   };
 
@@ -190,6 +240,15 @@ const PurchaseInvoiceList = () => {
                                         <CheckCircle size={18} />
                                     </button>
                                 )}
+                                {invoice.status === 'posted' && (
+                                    <button 
+                                        onClick={() => openPaymentModal(invoice)}
+                                        className="text-emerald-600 hover:text-emerald-800 p-2 rounded-full hover:bg-emerald-50 transition-colors"
+                                        title="سداد سريع (سند صرف)"
+                                    >
+                                        <DollarSign size={18} />
+                                    </button>
+                                )}
                                 <button 
                                     onClick={() => navigate('/purchase-invoice', { state: { invoiceToEdit: invoice } })}
                                     className="text-slate-400 hover:text-blue-600 p-2 rounded-full hover:bg-slate-100 transition-colors"
@@ -274,6 +333,51 @@ const PurchaseInvoiceList = () => {
           </div>
         )}
       </div>
+
+      {/* نافذة السداد السريع */}
+      {isPaymentModalOpen && selectedInvoiceForPayment && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                        <DollarSign className="text-emerald-600" /> سداد فاتورة مورد
+                    </h3>
+                    <button onClick={() => setIsPaymentModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors">
+                        <X size={20} />
+                    </button>
+                </div>
+                <form onSubmit={handlePaymentSubmit} className="p-6 space-y-4">
+                    <div className="bg-blue-50 p-3 rounded-lg text-sm text-blue-800 mb-4">
+                        <p><strong>المورد:</strong> {selectedInvoiceForPayment.suppliers?.name}</p>
+                        <p><strong>رقم الفاتورة:</strong> {selectedInvoiceForPayment.invoice_number}</p>
+                        <p><strong>إجمالي الفاتورة:</strong> {selectedInvoiceForPayment.total_amount?.toLocaleString()}</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ المدفوع</label>
+                        <input type="number" required min="0" step="0.01" className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500" value={paymentFormData.amount} onChange={e => setPaymentFormData({...paymentFormData, amount: parseFloat(e.target.value)})} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ السداد</label>
+                        <input type="date" required className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500" value={paymentFormData.date} onChange={e => setPaymentFormData({...paymentFormData, date: e.target.value})} />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">حساب الدفع (الخزينة/البنك)</label>
+                        <select required className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500" value={paymentFormData.treasuryAccountId} onChange={e => setPaymentFormData({...paymentFormData, treasuryAccountId: e.target.value})}>
+                            {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">ملاحظات</label>
+                        <input type="text" className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500" value={paymentFormData.notes} onChange={e => setPaymentFormData({...paymentFormData, notes: e.target.value})} />
+                    </div>
+                    <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 flex items-center justify-center gap-2 shadow-md transition-colors mt-4">
+                        <DollarSign size={18} /> تأكيد السداد
+                    </button>
+                </form>
+            </div>
+        </div>
+      )}
     </div>
   );
 };

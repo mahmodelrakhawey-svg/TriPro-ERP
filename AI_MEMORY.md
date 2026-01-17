@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٣‏/١‏/٢٠٢٦، ١٠:٥٦:٤٧ ص
+📅 تاريخ التحديث: ١٥‏/١‏/٢٠٢٦، ٩:٤٠:٤٧ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -44,8 +44,10 @@
     📄 ExpenseVoucherForm.tsx
     📄 PaymentVoucherForm.tsx
     📄 PaymentVoucherList.tsx
+    📄 PaymentVoucherPrint.tsx
     📄 ReceiptVoucherForm.tsx
     📄 ReceiptVoucherList.tsx
+    📄 ReceiptVoucherPrint.tsx
     📄 TransferForm.tsx
   📁 hooks/
     📄 usePermissions.ts
@@ -112,6 +114,7 @@
     📄 CustomerStatement.tsx
     📄 index.css
     📄 InvoiceList.tsx
+    📄 OfferBeneficiariesReport.tsx
     📄 QuotationForm.tsx
     📄 QuotationList.tsx
     📄 Reports.tsx
@@ -143,6 +146,7 @@
 📁 services/
   📄 accountService.ts
   📄 add_account_mappings.sql
+  📄 add_currency_to_vouchers.sql
   📄 add_max_deficit_column.sql
   📄 add_original_invoice_column.sql
   📄 add_payment_method_column.sql
@@ -168,6 +172,9 @@
   📄 setup_demo_environment.sql
   📄 supabaseClient.ts
   📄 test_approve_invoice.sql
+  📄 test_payment_voucher.sql
+  📄 test_receipt_voucher_logic.sql
+  📄 test_receipt_voucher_v2.sql
   📄 UserManagement.tsx
   📄 verify_demo_security.sql
   📄 voucher_attachments_setup.sql
@@ -184,7 +191,7 @@
 ### 📄 package.json
 ```json
 {
-  "name": "alrakhawe-pro-erp-7",
+  "name": "tripro-erp",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -193,24 +200,27 @@
     "build": "tsc && vite build",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "demo": "vite --mode demo",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "update-memory": "node update_memory.js"
   },
   "dependencies": {
     "@google/genai": "^1.34.0",
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.16",
     "html2canvas": "^1.4.1",
-    "jspdf": "^3.0.4",
+    "jspdf": "^4.0.0",
     "lucide-react": "^0.294.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0",
     "recharts": "^3.6.0",
+    "uuid": "^13.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
+    "@types/uuid": "^10.0.0",
     "@vitejs/plugin-react": "^4.2.0",
     "autoprefixer": "^10.4.16",
     "postcss": "^8.4.31",
@@ -333,6 +343,7 @@ import { Landmark, X, Info } from 'lucide-react';
 import About from './components/About';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
+import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -347,9 +358,9 @@ const PrintHeader = () => {
                     <p className="text-xs text-slate-500">تقرير مطبوع بتاريخ: {new Date().toLocaleDateString('ar-EG')}</p>
                 </div>
                 {settings.logoUrl ? (
-                    <img src={settings.logoUrl} alt="Company Logo" className="w-16 h-16 object-contain" />
+                    <img src={settings.logoUrl} alt="Company Logo" className="w-24 h-24 object-contain" />
                 ) : (
-                    <div className="p-2 bg-slate-100 rounded-lg text-slate-500"><Landmark size={32} /></div>
+                    <img src="/logo.jpg" alt="Company Logo" className="w-24 h-24 object-contain" />
                 )}
             </div>
         </div>
@@ -358,7 +369,7 @@ const PrintHeader = () => {
 
 const PrintFooter = () => (
     <div className="hidden print:block fixed bottom-0 left-0 right-0 p-4 bg-white text-center text-xs text-slate-400 border-t border-slate-200">
-        <p>هذا المستند تم إنشاؤه بواسطة نظام Ledger Pro | الصفحة <span className="page-number"></span> من <span className="total-pages"></span></p>
+        <p>هذا المستند تم إنشاؤه بواسطة نظام TriPro ERP | الصفحة <span className="page-number"></span> من <span className="total-pages"></span></p>
     </div>
 );
 
@@ -401,7 +412,7 @@ const DemoWelcomeModal = () => {
                     <div className="absolute top-0 left-0 w-full h-full bg-white/10 opacity-30 transform -skew-y-12 scale-150"></div>
                     <Landmark size={48} className="mx-auto mb-4 relative z-10 opacity-90" />
                     <h2 className="text-2xl font-black mb-2 relative z-10">مرحباً بك في النسخة التجريبية 👋</h2>
-                    <p className="opacity-90 text-sm font-medium relative z-10">استكشف نظام الرخاوي برو ERP بكل حرية</p>
+                    <p className="opacity-90 text-sm font-medium relative z-10">استكشف نظام TriPro ERP بكل حرية</p>
                 </div>
                 <div className="p-8 space-y-6">
                     <p className="text-slate-600 font-medium leading-relaxed text-center text-sm">
@@ -558,6 +569,7 @@ const MainLayout = () => {
                 <Route path="/sales-reports" element={<SalesReports />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
+                <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
                 <Route path="/item-sales-analysis" element={<ItemSalesAnalysis />} />
                 <Route path="/purchase-analysis" element={<PurchaseAnalysisReport />} />
                 <Route path="/users" element={<UserManager />} />
@@ -721,7 +733,7 @@ const DUMMY_INVOICES = [
         id: 'demo-inv-1', 
         invoiceNumber: 'INV-001001', 
         customerId: 'demo-c1', 
-        customerName: 'شركة الأفق للتجارة', 
+        customerName: 'شركة الأفق للتجارة', customerPhone: '0501234567',
         date: new Date().toISOString().split('T')[0], 
         totalAmount: 9775, taxAmount: 1275, subtotal: 8500, 
         status: 'posted', paid_amount: 5000, warehouseId: 'demo-wh1',
@@ -731,11 +743,21 @@ const DUMMY_INVOICES = [
         id: 'demo-inv-2', 
         invoiceNumber: 'INV-001002', 
         customerId: 'demo-c2', 
-        customerName: 'مؤسسة النور', 
+        customerName: 'مؤسسة النور', customerPhone: '0551234567',
         date: new Date(Date.now() - 86400000).toISOString().split('T')[0], 
         totalAmount: 4887.5, taxAmount: 637.5, subtotal: 4250, 
         status: 'paid', paid_amount: 4887.5, warehouseId: 'demo-wh1',
         items: [{ id: 'di-2', productId: 'demo-p4', productName: 'ورق تصوير A4 (كرتونة)', quantity: 5, unitPrice: 850, total: 4250 }]
+    },
+    { 
+        id: 'demo-inv-3', 
+        invoiceNumber: 'INV-001003', 
+        customerId: 'demo-c3', 
+        customerName: 'عميل نقدي', customerPhone: '',
+        date: new Date().toISOString().split('T')[0], 
+        totalAmount: 1500, taxAmount: 195.65, subtotal: 1304.35, 
+        status: 'posted', paid_amount: 0, warehouseId: 'demo-wh1',
+        items: [{ id: 'di-3', productId: 'demo-p3', productName: 'حبر طابعة HP 85A', quantity: 3, unitPrice: 450, total: 1350 }]
     }
 ];
 
@@ -750,6 +772,63 @@ const DUMMY_PRODUCTS = [
     { id: 'demo-p3', name: 'حبر طابعة HP 85A', sku: 'HP-85A', price: 450, cost: 250, stock: 50, warehouseStock: { 'demo-wh1': 50 }, purchase_price: 250, weighted_average_cost: 250 },
     { id: 'demo-p4', name: 'ورق تصوير A4 (كرتونة)', sku: 'PPR-A4', price: 850, cost: 650, stock: 100, warehouseStock: { 'demo-wh1': 100 }, purchase_price: 650, weighted_average_cost: 650 },
     { id: 'demo-p5', name: 'ماوس لاسلكي Logitech', sku: 'LOG-M170', price: 350, cost: 200, stock: 30, warehouseStock: { 'demo-wh1': 30 }, purchase_price: 200, weighted_average_cost: 200 }
+];
+
+const DUMMY_JOURNAL_ENTRIES = [
+    {
+        id: 'demo-je-1',
+        date: new Date().toISOString().split('T')[0],
+        description: 'شراء أثاث مكتبي نقداً',
+        reference: 'JE-DEMO-001',
+        status: 'posted',
+        is_posted: true,
+        created_at: new Date().toISOString(),
+        userId: 'demo-user',
+        attachments: [],
+        lines: [
+            { id: 'demo-jel-1', accountId: '11301', accountName: 'أثاث وتجهيزات مكتبية', accountCode: '11301', debit: 5000, credit: 0, description: 'شراء مكتب وكرسي' },
+            { id: 'demo-jel-2', accountId: '10101', accountName: 'الصندوق الرئيسي', accountCode: '10101', debit: 0, credit: 5000, description: 'دفع نقدي' }
+        ]
+    },
+    {
+        id: 'demo-je-2',
+        date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
+        description: 'سداد فاتورة كهرباء شهر مايو',
+        reference: 'JE-DEMO-002',
+        status: 'posted',
+        is_posted: true,
+        created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+        userId: 'demo-user',
+        attachments: [],
+        lines: [
+            { id: 'demo-jel-3', accountId: '5202', accountName: 'مصروفات كهرباء ومياه', accountCode: '5202', debit: 750, credit: 0, description: 'فاتورة كهرباء شهر مايو' },
+            { id: 'demo-jel-4', accountId: '10101', accountName: 'الصندوق الرئيسي', accountCode: '10101', debit: 0, credit: 750, description: 'دفع نقدي' }
+        ]
+    }
+];
+
+const DUMMY_QUOTATIONS = [
+    { id: 'demo-qt-1', quotation_number: 'QT-DEMO-001', customer_id: 'demo-c1', customerName: 'شركة الأفق للتجارة', date: new Date().toISOString().split('T')[0], total_amount: 11500, tax_amount: 1500, status: 'sent', items: [{ product_id: 'demo-p1', quantity: 1, unit_price: 10000, total: 10000 }] },
+    { id: 'demo-qt-2', quotation_number: 'QT-DEMO-002', customer_id: 'demo-c2', customerName: 'مؤسسة النور', date: new Date(Date.now() - 86400000).toISOString().split('T')[0], total_amount: 5750, tax_amount: 750, status: 'draft', items: [{ product_id: 'demo-p2', quantity: 1, unit_price: 5000, total: 5000 }] }
+];
+
+const DUMMY_ASSETS = [
+    { id: 'demo-ast-1', name: 'سيارة توصيل تويوتا', purchase_date: '2024-01-01', purchase_cost: 75000, current_value: 65000, status: 'active', useful_life: 5, salvage_value: 10000, asset_account_id: '1', accumulated_depreciation_account_id: '2', depreciation_expense_account_id: '3' },
+    { id: 'demo-ast-2', name: 'لابتوب HP ProBook', purchase_date: '2024-03-15', purchase_cost: 3500, current_value: 2800, status: 'active', useful_life: 3, salvage_value: 0, asset_account_id: '1', accumulated_depreciation_account_id: '2', depreciation_expense_account_id: '3' }
+];
+
+const DUMMY_EMPLOYEES = [
+    { id: 'demo-emp-1', full_name: 'أحمد محمد', position: 'مندوب مبيعات', salary: 4000, phone: '0500000000', status: 'active', join_date: '2023-01-01' },
+    { id: 'demo-emp-2', full_name: 'سارة علي', position: 'محاسب عام', salary: 5500, phone: '0550000000', status: 'active', join_date: '2023-05-01' }
+];
+
+const DUMMY_CHEQUES = [
+    { id: 'demo-chq-1', cheque_number: 'CHQ-1001', amount: 5000, due_date: '2024-12-01', status: 'issued', type: 'outgoing', party_name: 'شركة التوريدات العالمية', bank_name: 'بنك الرياض' },
+    { id: 'demo-chq-2', cheque_number: 'CHQ-2002', amount: 12500, due_date: '2024-12-15', status: 'received', type: 'incoming', party_name: 'مؤسسة النور', bank_name: 'البنك الأهلي' }
+];
+
+const DUMMY_PURCHASE_ORDERS = [
+    { id: 'demo-po-1', po_number: 'PO-DEMO-001', supplier_id: 'demo-s1', date: new Date().toISOString().split('T')[0], total_amount: 15000, status: 'pending', items: [] }
 ];
 
 interface AccountingContextType {
@@ -869,6 +948,7 @@ interface AccountingContextType {
   restoreItem: (table: string, id: string) => Promise<{ success: boolean, message?: string }>;
   permanentDeleteItem: (table: string, id: string) => Promise<{ success: boolean, message?: string }>;
   emptyRecycleBin: (table: string) => Promise<{ success: boolean, message?: string }>;
+  calculateProductPrice: (product: Product) => number;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -883,7 +963,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const { login: authLogin, logout: authLogout } = useAuth();
   const { showToast } = useToast();
   // @ts-ignore
-  const [settings, setSettings] = useState<SystemSettings>({ companyName: 'Ledger Pro', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'ج.م', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500 });
+  const [settings, setSettings] = useState<SystemSettings>({ companyName: 'TriPro ERP', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'ج.م', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500 });
   const [users, setUsers] = useState<User[]>([{ id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', password: '123', role: 'admin', is_active: true }]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set());
@@ -1015,8 +1095,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // 2. معالجة الإعدادات
       if (sysSettings) {
           setSettings({
-              companyName: sysSettings.company_name || 'Ledger Pro',
-              company_name: sysSettings.company_name || 'Ledger Pro',
+              companyName: sysSettings.company_name || 'TriPro ERP',
+              company_name: sysSettings.company_name || 'TriPro ERP',
               taxNumber: sysSettings.tax_number || '',
               tax_number: sysSettings.tax_number || '',
               address: sysSettings.address || '',
@@ -1183,8 +1263,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setProducts(DUMMY_PRODUCTS as any);
         setInvoices(DUMMY_INVOICES as any);
         setVouchers(DUMMY_VOUCHERS as any);
-        setEntries([]);
+        setEntries(DUMMY_JOURNAL_ENTRIES.map(e => ({
+            ...e,
+            createdAt: e.created_at,
+            is_posted: true,
+            lines: e.lines.map(l => ({...l, id: l.id || generateUUID()}))
+        })) as any);
         setPurchaseInvoices([]);
+        setQuotations(DUMMY_QUOTATIONS as any);
+        setAssets(DUMMY_ASSETS.map(a => ({
+            ...a,
+            purchaseDate: a.purchase_date,
+            purchaseCost: a.purchase_cost,
+            currentValue: a.current_value,
+            usefulLife: a.useful_life,
+            salvageValue: a.salvage_value,
+            assetAccountId: a.asset_account_id,
+            accumulatedDepreciationAccountId: a.accumulated_depreciation_account_id,
+            depreciationExpenseAccountId: a.depreciation_expense_account_id,
+            totalDepreciation: a.purchase_cost - a.current_value
+        })) as any);
+        setEmployees(DUMMY_EMPLOYEES as any);
+        setCheques(DUMMY_CHEQUES.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name})) as any);
+        setPurchaseOrders(DUMMY_PURCHASE_ORDERS as any);
+        setCostCenters([{id: 'demo-cc-1', name: 'الفرع الرئيسي', code: 'CC-01'}, {id: 'demo-cc-2', name: 'فرع الرياض', code: 'CC-02'}]);
       } else {
         if (custs) {
           setCustomers(custs.map(c => ({...c, taxId: c.tax_id, customerType: c.customer_type, credit_limit: c.credit_limit })));
@@ -1207,7 +1309,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
-      if (chqs) setCheques(chqs.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name, partyId: c.party_id})));
+      if (chqs && !isDemo) setCheques(chqs.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name, partyId: c.party_id})));
 
       // 5. تحديث باقي البيانات
       if (assetsData) {
@@ -1252,21 +1354,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }));
       }
 
-      if (employeesData) {
-          if (isDemo) {
-              setEmployees([]); // إخفاء الموظفين عن مستخدم الديمو
-          } else {
-              setEmployees(employeesData);
-          }
+      if (employeesData && !isDemo) { // في الديمو تم تعيينهم بالفعل من DUMMY_EMPLOYEES
+          setEmployees(employeesData);
       }
 
-      if (profilesData) {
+      if (profilesData && !isDemo) {
           const mappedUsers = profilesData.map((p: any) => ({
               id: p.id,
               name: p.full_name || p.email || 'مستخدم',
               username: p.email || '',
-              // فرض دور demo للمستخدم المحدد في القائمة العامة أيضاً
-              role: (p.email === 'demo@demo.com' || p.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005') ? 'demo' : (p.role || 'user'),
+              role: p.role || 'user',
               is_active: true
           }));
           
@@ -1275,6 +1372,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const newUsers = mappedUsers.filter((u: any) => !existingIds.has(u.id));
               return [...prev, ...newUsers];
           });
+      } else if (isDemo) {
+          setUsers([
+              { id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', role: 'super_admin', is_active: true },
+              { id: 'demo-u1', name: 'أحمد محمد', username: 'ahmed', role: 'sales', is_active: true },
+              { id: 'demo-u2', name: 'سارة علي', username: 'sara', role: 'sales', is_active: true }
+          ]);
       }
 
       if (salesInvoicesData && !isDemo) {
@@ -1371,10 +1474,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const getInvoicesPaginated = async (page: number, pageSize: number, search?: string, startDate?: string, endDate?: string) => {
     try {
+        // حماية أمنية: إذا كان المستخدم ديمو، نعرض بيانات وهمية فقط
+        if (currentUser?.role === 'demo') {
+            const filtered = DUMMY_INVOICES.filter(inv => 
+                (!search || inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) || inv.customerName.toLowerCase().includes(search.toLowerCase()))
+            );
+            const start = (page - 1) * pageSize;
+            const end = start + pageSize;
+            return { data: filtered.slice(start, end) as any, count: filtered.length };
+        }
+
         let query = supabase
             .from('invoices')
             // الانضمام إلى جدول العملاء لجلب الاسم والبحث فيه
-            .select('*, customers(name)', { count: 'exact' })
+            .select('*, customers(name, phone)', { count: 'exact' })
             .order('invoice_date', { ascending: false })
             .range((page - 1) * pageSize, page * pageSize - 1);
 
@@ -1395,13 +1508,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         
         if (error) throw error;
 
-        const mappedInvoices: Invoice[] = data?.map((inv: any) => ({
+        const mappedInvoices: any[] = data?.map((inv: any) => ({
             id: inv.id,
             invoiceNumber: inv.invoice_number || '',
             invoice_number: inv.invoice_number || '',
             customerId: inv.customer_id || '',
             customer_id: inv.customer_id || '',
             customerName: inv.customers?.name || 'عميل غير معروف', // إضافة اسم العميل
+            customerPhone: inv.customers?.phone,
             salespersonId: inv.salesperson_id || '',
             warehouseId: inv.warehouse_id || '',
             date: inv.invoice_date || new Date().toISOString().split('T')[0],
@@ -1428,6 +1542,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const getJournalEntriesPaginated = async (page: number, pageSize: number, search?: string, userId?: string) => {
     try {
+        // حماية أمنية: منع الديمو من رؤية القيود الحقيقية
+        if (currentUser?.role === 'demo') {
+            const filtered = DUMMY_JOURNAL_ENTRIES.filter(entry => 
+                (!search || (entry.reference && entry.reference.toLowerCase().includes(search.toLowerCase())) || (entry.description && entry.description.toLowerCase().includes(search.toLowerCase())))
+            );
+            const start = (page - 1) * pageSize;
+            const end = start + pageSize;
+            return { data: filtered.slice(start, end) as any, count: filtered.length };
+        }
+
         let query = supabase
             .from('journal_entries')
             .select('*, journal_lines (*), journal_attachments (*)', { count: 'exact' })
@@ -1667,7 +1791,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
       }
       if (Object.keys(changes).length > 0) {
-          logActivity('تعديل صنف', `تعديل بيانات الصنف: ${oldData?.name}`, undefined, { changes });
+          logActivity('تعديل صنف', `تعديل بيانات الصنف: ${oldData?.name}`, undefined, { changes, productId: id });
       }
     } catch (error: any) {
       console.error("Error updating product:", error);
@@ -2089,7 +2213,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { error: itemsError } = await supabase.from('stock_transfer_items').insert(items);
         if (itemsError) throw itemsError;
 
-        await recalculateStock();
+        // تحديث الأرصدة يدوياً لضمان الفورية والدقة
+        for (const item of items) {
+            const { data: product } = await supabase.from('products').select('warehouse_stock').eq('id', item.product_id).single();
+            if (product) {
+                const currentWarehouseStock = product.warehouse_stock || {};
+                const fromQty = Number(currentWarehouseStock[data.fromWarehouseId] || 0);
+                const toQty = Number(currentWarehouseStock[data.toWarehouseId] || 0);
+                
+                const newWarehouseStock = {
+                    ...currentWarehouseStock,
+                    [data.fromWarehouseId]: fromQty - Number(item.quantity),
+                    [data.toWarehouseId]: toQty + Number(item.quantity)
+                };
+
+                await supabase.from('products').update({ warehouse_stock: newWarehouseStock }).eq('id', item.product_id);
+            }
+        }
+
+        await fetchData(); // تحديث الواجهة بالبيانات الجديدة
         showToast('تم التحويل المخزني بنجاح', 'success');
     } catch (error: any) {
         console.error(error);
@@ -3181,6 +3323,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return userPermissions.has(`${module}.${action}`);
   };
 
+  const calculateProductPrice = (product: Product): number => {
+      const today = new Date().toISOString().split('T')[0];
+      if (
+          product.offer_price && 
+          product.offer_price > 0 && 
+          product.offer_start_date && 
+          product.offer_end_date && 
+          today >= product.offer_start_date && 
+          today <= product.offer_end_date
+      ) {
+          return product.offer_price;
+      }
+      return product.sales_price || product.price || 0;
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -3293,7 +3450,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getSystemAccount,
       getInvoicesPaginated,
       getJournalEntriesPaginated,
-      isLoading
+      isLoading,
+      calculateProductPrice
     }}>
       {children}
     </AccountingContext.Provider>

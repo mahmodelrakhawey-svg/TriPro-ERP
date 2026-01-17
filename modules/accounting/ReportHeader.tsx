@@ -11,6 +11,11 @@ const ReportHeader: React.FC<ReportHeaderProps> = ({ title, subtitle }) => {
 
   return (
     <div className="p-8 border-b border-slate-100 flex justify-between items-start print:p-4">
+      {/* إضافة اللوجو في الترويسة */}
+      {settings.logoUrl && (
+        <img src={settings.logoUrl} alt="Logo" className="h-20 object-contain ml-4" />
+      )}
+      
       <div>
         <h1 className="text-2xl font-black text-slate-800 mb-2">{settings.companyName}</h1>
         <div className="text-sm text-slate-500 space-y-1">

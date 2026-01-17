@@ -39,6 +39,7 @@ import CustomerAgingReport from './modules/sales/CustomerAgingReport';
 import SupplierManager from './modules/purchases/SupplierManager';
 import SupplierStatement from './modules/purchases/SupplierStatement';
 import SupplierAgingReport from './modules/purchases/SupplierAgingReport';
+import SupplierBalanceReconciliation from './modules/purchases/SupplierBalanceReconciliation';
 import ItemMovementReport from './modules/inventory/ItemMovementReport';
 import TopSellingReport from './modules/inventory/TopSellingReport';
 import SlowMovingReport from './modules/inventory/SlowMovingReport';
@@ -108,6 +109,8 @@ import About from './components/About';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
+import ChequeMovementReport from './modules/banking/ChequeMovementReport';
+import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -266,6 +269,8 @@ const MainLayout = () => {
                 <Route path="/deficit-report" element={<DeficitReport />} />
                 <Route path="/cash-closing" element={<CashClosingForm />} />
                 <Route path="/cheques" element={<ChequesPage />} />
+                <Route path="/cheque-movement-report" element={<ChequeMovementReport />} />
+                <Route path="/returned-cheques-report" element={<ReturnedChequesReport />} />
                 <Route path="/sales-invoice" element={<SalesInvoiceForm />} />
                 <Route path="/invoices-list" element={<InvoiceList />} />
                 <Route path="/sales-return" element={<SalesReturnForm />} />
@@ -287,6 +292,7 @@ const MainLayout = () => {
                 <Route path="/suppliers" element={<SupplierManager />} />
                 <Route path="/supplier-statement" element={<SupplierStatement />} />
                 <Route path="/supplier-aging" element={<SupplierAgingReport />} />
+                <Route path="/supplier-reconciliation" element={<SupplierBalanceReconciliation />} />
                 <Route path="/warehouses" element={<WarehouseManager />} />
                 <Route path="/products" element={<ProductManager />} />
                 <Route path="/inventory-count" element={<InventoryCountForm />} />

@@ -28,53 +28,82 @@ const SupplierAgingReport = () => {
       // 1. جلب الموردين
       const { data: suppliers } = await supabase.from('suppliers').select('id, name').is('deleted_at', null);
       
-      // 2. جلب فواتير المشتريات غير المدفوعة بالكامل
+      // 2. جلب الفواتير المرحلة (مرتبة من الأحدث للأقدم لتطبيق FIFO)
       const { data: invoices } = await supabase
         .from('purchase_invoices')
-        .select('id, supplier_id, invoice_number, invoice_date, total_amount') // Assuming paid_amount isn't tracked directly on purchase_invoices yet or needs calculation
-        .neq('status', 'paid')
-        .neq('status', 'draft');
+        .select('id, supplier_id, invoice_number, invoice_date, total_amount')
+        .eq('status', 'posted')
+        .order('invoice_date', { ascending: false });
 
-      // Note: For purchase invoices, we might need to calculate paid amount from payment vouchers if not stored directly.
-      // For simplicity here, assuming total_amount is the debt if status is not paid. 
-      // In a real scenario, you'd join with payments or use a 'balance' field.
+      // 3. جلب كافة المدفوعات والخصومات لحساب الرصيد الفعلي
+      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount');
+      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').eq('status', 'posted');
+      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount');
+      const { data: cheques } = await supabase.from('cheques')
+            .select('party_id, amount')
+            .eq('type', 'outgoing')
+            .neq('status', 'rejected');
       
       if (!suppliers || !invoices) return;
 
       const today = new Date();
+      
       const agingData = suppliers.map(supplier => {
+        // حساب إجمالي الفواتير
         const supplierInvoices = invoices.filter(inv => inv.supplier_id === supplier.id);
-        let balance = 0;
+        const totalInvoiced = supplierInvoices.reduce((sum, inv) => sum + Number(inv.total_amount), 0);
+
+        // حساب إجمالي السدادات (سندات + مرتجعات + إشعارات + شيكات)
+        const suppPayments = payments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+        const suppReturns = returns?.filter(r => r.supplier_id === supplier.id).reduce((sum, r) => sum + Number(r.total_amount), 0) || 0;
+        const suppDebitNotes = debitNotes?.filter(d => d.supplier_id === supplier.id).reduce((sum, d) => sum + Number(d.total_amount), 0) || 0;
+        const suppCheques = cheques?.filter(c => c.party_id === supplier.id).reduce((sum, c) => sum + Number(c.amount), 0) || 0;
+
+        const totalCredits = suppPayments + suppReturns + suppDebitNotes + suppCheques;
+        
+        // الرصيد المستحق الحالي
+        let netBalance = totalInvoiced - totalCredits;
+
         let range0_30 = 0;
         let range31_60 = 0;
         let range61_90 = 0;
         let range90_plus = 0;
 
-        supplierInvoices.forEach(inv => {
-          // Simplified: Assuming full amount is due if not marked paid. Ideally calculate remaining balance.
-          const remaining = inv.total_amount; 
-          
-          balance += remaining;
-          const invoiceDate = new Date(inv.invoice_date);
-          const diffTime = Math.abs(today.getTime() - invoiceDate.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+        // توزيع الرصيد على الفترات الزمنية (FIFO)
+        // نفترض أن المدفوعات تسدد الفواتير القديمة أولاً، لذا الرصيد المتبقي يخص الفواتير الجديدة
+        if (netBalance > 1) { // تجاهل الفروقات البسيطة
+            let remainingToAllocate = netBalance;
 
-          if (diffDays <= 30) range0_30 += remaining;
-          else if (diffDays <= 60) range31_60 += remaining;
-          else if (diffDays <= 90) range61_90 += remaining;
-          else range90_plus += remaining;
-        });
+            // نمر على الفواتير من الأحدث للأقدم
+            for (const inv of supplierInvoices) {
+                if (remainingToAllocate <= 0) break;
+
+                // المبلغ المتبقي من هذه الفاتورة هو الأقل بين قيمتها وما تبقى من الرصيد الكلي
+                const amountFromThisInvoice = Math.min(Number(inv.total_amount), remainingToAllocate);
+                
+                const invoiceDate = new Date(inv.invoice_date);
+                const diffTime = Math.abs(today.getTime() - invoiceDate.getTime());
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+
+                if (diffDays <= 30) range0_30 += amountFromThisInvoice;
+                else if (diffDays <= 60) range31_60 += amountFromThisInvoice;
+                else if (diffDays <= 90) range61_90 += amountFromThisInvoice;
+                else range90_plus += amountFromThisInvoice;
+
+                remainingToAllocate -= amountFromThisInvoice;
+            }
+        }
 
         return {
           id: supplier.id,
           name: supplier.name,
-          balance,
+          balance: netBalance,
           range0_30,
           range31_60,
           range61_90,
           range90_plus
         };
-      }).filter(s => s.balance > 0).sort((a, b) => b.balance - a.balance);
+      }).filter(s => s.balance > 1).sort((a, b) => b.balance - a.balance);
 
       setReportData(agingData);
     } catch (error) {

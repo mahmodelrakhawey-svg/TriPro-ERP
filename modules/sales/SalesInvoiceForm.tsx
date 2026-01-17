@@ -9,6 +9,7 @@ import {
 import { InvoiceItem, AccountType, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { SalesInvoicePrint } from './SalesInvoicePrint';
 
 const SalesInvoiceForm = () => {
   const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, settings, can, currentUser, customers, invoices: contextInvoices } = useAccounting();
@@ -45,6 +46,24 @@ const SalesInvoiceForm = () => {
   const [saving, setSaving] = useState(false);
   const [customerBalance, setCustomerBalance] = useState(0);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  // Print State
+  const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+  }, []);
+
+  useEffect(() => {
+    if (invoiceToPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+        setInvoiceToPrint(null);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [invoiceToPrint]);
 
   const treasuryAccounts = useMemo(() => accounts.filter(a => {
     if (a.isGroup) return false;
@@ -516,7 +535,22 @@ const SalesInvoiceForm = () => {
   };
 
   const handlePrint = () => {
-      window.print();
+      const printData = {
+          invoiceNumber: formData.invoiceNumber || 'مسودة',
+          date: formData.date,
+          customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل نقدي',
+          status: formData.status,
+          subtotal: subtotal,
+          taxAmount: taxAmount,
+          totalAmount: totalAmount,
+          items: items.map(item => ({
+              productName: item.productName,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              total: item.total
+          }))
+      };
+      setInvoiceToPrint(printData);
   };
 
   const handleThermalPrint = () => {
@@ -537,6 +571,7 @@ const SalesInvoiceForm = () => {
 
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
+      <div className={invoiceToPrint ? 'print:hidden' : ''}>
       {/* Top Banner & Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
         <div className="flex items-center gap-6">
@@ -1067,6 +1102,13 @@ const SalesInvoiceForm = () => {
                         حفظ وترحيل
                     </button>
                 )}
+                <button 
+                    type="button" 
+                    onClick={handlePrint}
+                    className="mt-4 w-full bg-slate-800 hover:bg-slate-700 text-white py-4 rounded-[24px] font-bold text-lg shadow-lg transition-all flex items-center justify-center gap-3"
+                >
+                    <Printer size={22} /> طباعة الفاتورة
+                </button>
             </div>
             
             {/* Quick Helper Info */}
@@ -1178,6 +1220,7 @@ const SalesInvoiceForm = () => {
               <p className="mt-1">شكراً لزيارتكم</p>
           </div>
       </div>
+      </div>
 
       <style>{`
         @media print {
@@ -1203,6 +1246,7 @@ const SalesInvoiceForm = () => {
             }
         }
       `}</style>
+      <SalesInvoicePrint invoice={invoiceToPrint} companySettings={companySettings} />
     </div>
   );
 };

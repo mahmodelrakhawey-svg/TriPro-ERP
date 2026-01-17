@@ -15,10 +15,9 @@ CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(
     p_credit_account_id uuid
 )
 RETURNS void
-LANGUAGE plpgsql
 AS $$
 DECLARE
-    v_voucher record;
+    v_voucher public.receipt_vouchers%ROWTYPE;
     v_org_id uuid;
     v_journal_id uuid;
     v_exchange_rate numeric;
@@ -69,4 +68,4 @@ BEGIN
     SET related_journal_entry_id = v_journal_id
     WHERE id = p_voucher_id;
 END;
-$$;
+$$ LANGUAGE plpgsql;

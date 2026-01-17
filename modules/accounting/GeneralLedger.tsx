@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Book, Filter, Search, Printer } from 'lucide-react';
 import ReportHeader from '../../components/ReportHeader';
@@ -7,6 +7,8 @@ type Account = {
   id: string;
   code: string;
   name: string;
+  parent_id: string | null;
+  is_group: boolean;
 };
 
 type LedgerEntry = {
@@ -34,22 +36,35 @@ const GeneralLedger = () => {
   // جلب قائمة الحسابات عند التحميل
   useEffect(() => {
     const fetchAccounts = async () => {
-      const { data } = await supabase.from('accounts').select('id, code, name').order('code');
+      const { data } = await supabase.from('accounts').select('id, code, name, parent_id, is_group').order('code');
       if (data) setAccounts(data);
     };
     fetchAccounts();
   }, []);
 
+  // دالة مساعدة لجلب معرفات الحساب والحسابات الفرعية (شجرياً)
+  const getAccountAndChildrenIds = (accountId: string, allAccounts: Account[]): string[] => {
+    let ids = [accountId];
+    const children = allAccounts.filter(a => a.parent_id === accountId);
+    children.forEach(child => {
+      ids = [...ids, ...getAccountAndChildrenIds(child.id, allAccounts)];
+    });
+    return ids;
+  };
+
   const handleSearch = async () => {
     if (!selectedAccount) return;
     setLoading(true);
     try {
+      // تحديد الحسابات المستهدفة (الحساب المختار + أبنائه)
+      const targetAccountIds = getAccountAndChildrenIds(selectedAccount, accounts);
+
       // 1. حساب رصيد ما قبل الفترة (Opening Balance)
       // نجمع كل الحركات المرحلة لهذا الحساب التي تاريخها قبل "تاريخ البداية"
       const { data: openingData, error: openingError } = await supabase
         .from('journal_lines')
         .select('debit, credit, journal_entries!inner(transaction_date, status)')
-        .eq('account_id', selectedAccount)
+        .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
         .eq('journal_entries.status', 'posted') // الاعتماد على status='posted' أدق
         .lt('journal_entries.transaction_date', startDate || '1970-01-01');
 
@@ -68,7 +83,7 @@ const GeneralLedger = () => {
             id, transaction_date, reference, description, status
           )
         `)
-        .eq('account_id', selectedAccount)
+        .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
         .eq('journal_entries.status', 'posted')
         .gte('journal_entries.transaction_date', startDate || '1970-01-01')
         .lte('journal_entries.transaction_date', endDate);
@@ -118,7 +133,9 @@ const GeneralLedger = () => {
             >
                 <option value="">-- اختر حساب --</option>
                 {accounts.map(acc => (
-                    <option key={acc.id} value={acc.id}>{acc.code} - {acc.name}</option>
+                    <option key={acc.id} value={acc.id} className={acc.is_group ? 'font-bold bg-slate-100' : ''}>
+                        {acc.code} - {acc.name} {acc.is_group ? '(رئيسي)' : ''}
+                    </option>
                 ))}
             </select>
         </div>

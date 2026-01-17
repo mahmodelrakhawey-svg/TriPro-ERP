@@ -301,6 +301,7 @@ interface AccountingContextType {
   permanentDeleteItem: (table: string, id: string) => Promise<{ success: boolean, message?: string }>;
   emptyRecycleBin: (table: string) => Promise<{ success: boolean, message?: string }>;
   calculateProductPrice: (product: Product) => number;
+  clearTransactions: () => Promise<void>;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -315,7 +316,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const { login: authLogin, logout: authLogout } = useAuth();
   const { showToast } = useToast();
   // @ts-ignore
-  const [settings, setSettings] = useState<SystemSettings>({ companyName: 'TriPro ERP', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'ج.م', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500 });
+  const [settings, setSettings] = useState<SystemSettings>({ 
+    companyName: 'TriPro ERP', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'ج.م', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500,
+    logoUrl: 'https://placehold.co/400x150/2563eb/ffffff?text=TriPro+ERP' // لوجو افتراضي للهوية البصرية
+  });
   const [users, setUsers] = useState<User[]>([{ id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', password: '123', role: 'admin', is_active: true }]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set());
@@ -461,7 +465,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               footer_text: sysSettings.footer_text || '',
               enableTax: sysSettings.enable_tax ?? true,
               // @ts-ignore
-              logoUrl: sysSettings.logo_url,
+              logoUrl: sysSettings.logo_url || 'https://placehold.co/400x150/2563eb/ffffff?text=TriPro+ERP',
               lastClosedDate: sysSettings.last_closed_date,
               // @ts-ignore
               preventPriceModification: sysSettings.prevent_price_modification ?? false,
@@ -1432,6 +1436,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // حفظ السند في قاعدة البيانات
+      await supabase.from('receipt_vouchers').insert({
+        id: id,
+        voucher_number: vNum,
+        receipt_date: data.date,
+        amount: data.amount,
+        customer_id: data.partyId,
+        treasury_account_id: debitAccount,
+        notes: data.description,
+        related_journal_entry_id: entryId,
+        payment_method: data.paymentMethod || 'cash'
+      });
+
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt' }, ...prev]);
       logActivity('سند قبض', `قبض مبلغ ${data.amount} من ${data.partyName}`, data.amount);
     }
@@ -1463,6 +1480,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // حفظ السند في قاعدة البيانات
+      await supabase.from('receipt_vouchers').insert({
+        id: id,
+        voucher_number: vNum,
+        receipt_date: data.date,
+        amount: data.amount,
+        customer_id: data.partyId, // في حالة التأمين، الطرف هو العميل
+        treasury_account_id: debitAccount,
+        notes: data.description,
+        related_journal_entry_id: entryId,
+        payment_method: 'cash',
+        type: 'deposit' // تمييزه كسند تأمين إذا كان الجدول يدعم ذلك
+      });
+
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt', subType: 'customer_deposit' }, ...prev]);
       logActivity('سند تأمين', `قبض تأمين مبلغ ${data.amount} من ${data.partyName}`, data.amount);
     }
@@ -1518,6 +1549,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // حفظ السند في قاعدة البيانات
+      await supabase.from('payment_vouchers').insert({
+        id: id,
+        voucher_number: vNum,
+        payment_date: data.date,
+        amount: data.amount,
+        supplier_id: data.subType === 'supplier' ? data.partyId : null, // ربط المورد إذا كان سداد مورد
+        treasury_account_id: creditAccount,
+        notes: data.description,
+        related_journal_entry_id: entryId,
+        payment_method: data.paymentMethod || 'cash'
+      });
+
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'payment' }, ...prev]);
       logActivity('سند صرف', `صرف مبلغ ${data.amount} إلى ${data.partyName}`, data.amount);
     }
@@ -1937,6 +1981,39 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                       });
                   } else {
                       showToast('تنبيه: تم تحديث الحالة ولكن لم يتم إنشاء القيد لعدم تحديد حساب البنك أو حساب أوراق القبض (10202).', 'warning');
+                  }
+              }
+              else if (status === 'rejected') {
+                  // رفض الشيك (قيد عكسي)
+                  const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10202' || a.code === '1204');
+                  const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '204' || a.code === '2202');
+                  const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '10201' || a.code === '1102');
+                  const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '2201');
+
+                  if (cheque.type === 'incoming' && notesReceivableAcc && customerAcc) {
+                      // شيك وارد مرفوض: من ح/ العملاء إلى ح/ أوراق القبض (إعادة المديونية للعميل)
+                      await addEntry({
+                          date: actionDate,
+                          reference: `CHQ-REJ-${cheque.cheque_number}`,
+                          description: `شيك مرفوض رقم ${cheque.cheque_number} - ${cheque.party_name}`,
+                          status: 'posted',
+                          lines: [
+                              { accountId: customerAcc.id, debit: cheque.amount, credit: 0, description: `إعادة مديونية (شيك مرفوض)` },
+                              { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `إلغاء ورقة قبض` }
+                          ]
+                      });
+                  } else if (cheque.type === 'outgoing' && notesPayableAcc && supplierAcc) {
+                      // شيك صادر مرفوض: من ح/ أوراق الدفع إلى ح/ الموردين (إعادة الدائنية للمورد)
+                      await addEntry({
+                          date: actionDate,
+                          reference: `CHQ-REJ-${cheque.cheque_number}`,
+                          description: `شيك مرفوض رقم ${cheque.cheque_number} - ${cheque.party_name}`,
+                          status: 'posted',
+                          lines: [
+                              { accountId: notesPayableAcc.id, debit: cheque.amount, credit: 0, description: `إلغاء ورقة دفع` },
+                              { accountId: supplierAcc.id, debit: 0, credit: cheque.amount, description: `إعادة دائنية (شيك مرفوض)` }
+                          ]
+                      });
                   }
               }
           }
@@ -2690,6 +2767,85 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return product.sales_price || product.price || 0;
   };
 
+  const clearTransactions = async () => {
+    if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin') {
+        alert('هذا الإجراء متاح فقط للمدير العام');
+        return;
+    }
+    
+    if (!window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟')) {
+        return;
+    }
+
+    if (!window.confirm('تأكيد نهائي: هل أنت متأكد؟ لا يمكن التراجع عن هذا الإجراء!')) {
+        return;
+    }
+
+    setIsLoading(true);
+    try {        
+        // Step 1: Delete all attachments first.
+        console.log("Step 1: Deleting attachments...");
+        const attachmentTables = ['journal_attachments', 'cheque_attachments', 'receipt_voucher_attachments', 'payment_voucher_attachments'];
+        for (const table of attachmentTables) {
+            const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            if (error) throw new Error(`فشل حذف المرفقات من جدول ${table}: ${error.message}`);
+        }
+
+        // Step 2: Delete all item lines from documents.
+        console.log("Step 2: Deleting item lines...");
+        const itemTables = [
+            'invoice_items', 'purchase_invoice_items', 'purchase_return_items', 'sales_return_items', 
+            'quotation_items', 'purchase_order_items', 'stock_transfer_items', 
+            'stock_adjustment_items', 'inventory_count_items'
+        ];
+        for (const table of itemTables) {
+            const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            if (error) throw new Error(`فشل حذف البنود من جدول ${table}: ${error.message}`);
+        }
+
+        // Step 3: Delete main documents (that might link to journal entries).
+        console.log("Step 3: Deleting main documents...");
+        const documentTables = [
+            'receipt_vouchers', 'payment_vouchers', 'invoices', 'purchase_invoices', 
+            'sales_returns', 'purchase_returns', 'quotations', 'purchase_orders', 
+            'credit_notes', 'debit_notes', 'stock_transfers', 'stock_adjustments', 
+            'inventory_counts', 'cheques', 'assets'
+        ];
+        for (const table of documentTables) {
+            const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            if (error) throw new Error(`فشل حذف المستندات من جدول ${table}: ${error.message}`);
+        }
+
+        // Step 4: Now that documents are gone, delete journal lines.
+        console.log("Step 4: Deleting journal lines...");
+        const { error: jlError } = await supabase.from('journal_lines').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        if (jlError) throw new Error(`فشل حذف أسطر القيود: ${jlError.message}`);
+
+        // Step 5: Finally, delete the journal entries themselves.
+        console.log("Step 5: Deleting journal entries...");
+        const { error: jeError } = await supabase.from('journal_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        if (jeError) throw new Error(`فشل حذف القيود: ${jeError.message}`);
+
+        // Step 6: Reset product stock.
+        console.log("Step 6: Resetting product stock...");
+        await supabase.from('products').update({ stock: 0, warehouse_stock: {} }).neq('id', '00000000-0000-0000-0000-000000000000');
+
+        // Step 7: Clean up logs and notifications.
+        console.log("Step 7: Cleaning logs and notifications...");
+        await supabase.from('notifications').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('security_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+
+        alert('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد.');
+        window.location.reload();
+
+    } catch (error: any) {
+        console.error(error);
+        alert('حدث خطأ أثناء التنظيف: ' + error.message);
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -2803,7 +2959,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getInvoicesPaginated,
       getJournalEntriesPaginated,
       isLoading,
-      calculateProductPrice
+      calculateProductPrice,
+      clearTransactions
     }}>
       {children}
     </AccountingContext.Provider>

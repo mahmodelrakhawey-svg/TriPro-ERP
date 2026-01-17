@@ -1,6 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Save, Loader2, Wallet, Calendar, FileText, DollarSign, AlertCircle, CheckCircle, Building2 } from 'lucide-react';
+import { Save, Loader2, Wallet, Calendar, FileText, DollarSign, AlertCircle, CheckCircle, Building2, Printer, MessageCircle } from 'lucide-react';
+import { supabase } from '../../supabaseClient';
+import { ExpenseVoucherPrint } from './ExpenseVoucherPrint';
 
 const ExpenseVoucherForm = () => {
   const { accounts, addPaymentVoucher, costCenters } = useAccounting();
@@ -15,6 +17,24 @@ const ExpenseVoucherForm = () => {
     expenseAccountId: '',
     costCenterId: ''
   });
+
+  // Print State
+  const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+  }, []);
+
+  useEffect(() => {
+    if (voucherToPrint) {
+      const timer = setTimeout(() => {
+        window.print();
+        setVoucherToPrint(null);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [voucherToPrint]);
 
   // تصفية حسابات الخزينة والبنوك (الأصول المتداولة النقدية)
   const treasuryAccounts = useMemo(() => accounts.filter(a => {
@@ -37,6 +57,20 @@ const ExpenseVoucherForm = () => {
     const code = a.code;
     return type.includes('expense') || type.includes('مصروف') || code.startsWith('5');
   }), [accounts]);
+
+  const handlePrint = () => {
+    const expenseAccountName = accounts.find(a => a.id === formData.expenseAccountId)?.name;
+    setVoucherToPrint({
+        ...formData,
+        expenseAccountName
+    });
+  };
+
+  const handleWhatsApp = () => {
+    const message = `*سند صرف مصروف*\n\nالتاريخ: ${formData.date}\nالمبلغ: *${Number(formData.amount).toLocaleString()} EGP*\nالبيان: ${formData.description}\n\nتم الصرف من النظام.`;
+    const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    window.open(url, '_blank');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +123,7 @@ const ExpenseVoucherForm = () => {
         </div>
 
         <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+            <div className={voucherToPrint ? 'print:hidden' : ''}>
             {success && (
                 <div className="bg-emerald-50 p-4 flex items-center gap-3 text-emerald-700 font-bold border-b border-emerald-100">
                     <CheckCircle size={24} />
@@ -192,11 +227,25 @@ const ExpenseVoucherForm = () => {
                     </div>
                 </div>
 
-                <div className="md:col-span-2 pt-4 border-t border-slate-100">
+                <div className="md:col-span-2 pt-4 border-t border-slate-100 flex gap-4">
+                    <button 
+                        type="button"
+                        onClick={handlePrint}
+                        className="flex-1 bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-700 transition-all flex items-center justify-center gap-2"
+                    >
+                        <Printer size={20} /> طباعة
+                    </button>
+                    <button 
+                        type="button"
+                        onClick={handleWhatsApp}
+                        className="flex-1 bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                    >
+                        <MessageCircle size={20} /> واتساب
+                    </button>
                     <button 
                         type="submit" 
                         disabled={loading}
-                        className="w-full bg-red-600 text-white py-4 rounded-xl font-black text-lg hover:bg-red-700 transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="flex-[2] bg-red-600 text-white py-4 rounded-xl font-black text-lg hover:bg-red-700 transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />}
                         حفظ سند الصرف
@@ -204,7 +253,9 @@ const ExpenseVoucherForm = () => {
                 </div>
 
             </form>
+            </div>
         </div>
+        <ExpenseVoucherPrint voucher={voucherToPrint} companySettings={companySettings} />
     </div>
   );
 };

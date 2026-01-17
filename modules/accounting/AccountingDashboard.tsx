@@ -12,7 +12,8 @@ import {
   FileText,
   PieChart as PieChartIcon,
   Percent,
-  RefreshCw
+  RefreshCw,
+  Trash2
 } from 'lucide-react';
 import { 
   XAxis, 
@@ -31,7 +32,7 @@ import {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 export default function AccountingDashboard() {
-  const { accounts, entries, refreshData, clearCache } = useAccounting();
+  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser } = useAccounting();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -150,17 +151,29 @@ export default function AccountingDashboard() {
           <h1 className="text-2xl font-bold text-slate-800">لوحة التحكم المحاسبية</h1>
           <p className="text-slate-500">نظرة عامة على الأداء المالي للسنة الحالية</p>
         </div>
-        <button 
-            onClick={async () => {
-              setLoading(true);
-              await clearCache();
-              setLoading(false);
-            }}
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm font-bold text-sm"
-        >
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-            تحديث البيانات
-        </button>
+        <div className="flex gap-2">
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
+                <button 
+                    onClick={clearTransactions}
+                    className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 transition-colors shadow-sm font-bold text-sm"
+                    title="حذف جميع العمليات المالية والمخزنية (تصفير النظام)"
+                >
+                    <Trash2 size={16} />
+                    تصفير العمليات
+                </button>
+            )}
+            <button 
+                onClick={async () => {
+                  setLoading(true);
+                  await clearCache();
+                  setLoading(false);
+                }}
+                className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm font-bold text-sm"
+            >
+                <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+                تحديث البيانات
+            </button>
+        </div>
       </div>
 
       {/* Cards */}
