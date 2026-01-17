@@ -422,7 +422,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('warehouses').select('*').is('deleted_at', null),
         supabase.from('company_settings').select('*').limit(1).single(),
         supabase.from('accounts').select('*').is('deleted_at', null),
-        supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).limit(100),
+        supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(100),
         supabase.from('customers').select('*').is('deleted_at', null),
         supabase.from('suppliers').select('*').is('deleted_at', null),
         supabase.from('products').select('*').is('deleted_at', null),
@@ -655,7 +655,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (prods) {
           const processedProds = prods.map(p => ({
               ...p,
-              warehouseStock: p.warehouse_stock,
+              // ضمان أن مخزون المستودعات كائن وليس null لتجنب الأخطاء
+              warehouseStock: p.warehouse_stock || {},
               cost: p.cost,
               purchase_price: p.purchase_price,
               weighted_average_cost: p.weighted_average_cost
@@ -912,6 +913,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .from('journal_entries')
             .select('*, journal_lines (*), journal_attachments (*)', { count: 'exact' })
             .order('transaction_date', { ascending: false })
+            .order('created_at', { ascending: false })
             .range((page - 1) * pageSize, page * pageSize - 1);
 
         if (search) {
@@ -1384,6 +1386,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       if (error) throw error;
       
+      // إعادة احتساب المخزون لضمان دقة الرصيد قبل البيع التالي
+      await supabase.rpc('recalculate_stock_rpc');
+      
       await fetchData();
     } catch (error: any) {
       console.error('Error approving invoice:', error);
@@ -1403,6 +1408,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { error } = await supabase.rpc('approve_purchase_invoice', { p_invoice_id: invoiceId });
       
       if (error) throw error;
+      
+      // إعادة احتساب المخزون لضمان ظهور الكميات المشتراة فوراً
+      await supabase.rpc('recalculate_stock_rpc');
       
       await fetchData();
     } catch (error: any) {

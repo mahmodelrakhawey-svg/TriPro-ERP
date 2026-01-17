@@ -90,6 +90,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           } else if (roleName === 'demo') {
              // صلاحيات الديمو: عرض، إنشاء، تعديل (بدون حذف أو إعدادات)
              setUserPermissions(new Set(['*.view', '*.read', '*.create', '*.update', '*.list', '*.*']));
+          } else if (roleName === 'viewer') {
+             // ✅ إضافة صلاحيات المشاهدة فقط: عرض وقراءة وقوائم فقط لكافة المديولات
+             setUserPermissions(new Set(['*.view', '*.read', '*.list']));
           } else {
             if (profile.role_id) {
                 const { data: rolePerms } = await supabase.from('role_permissions').select('permissions(module, action)').eq('role_id', profile.role_id);
@@ -161,7 +164,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const can = (module: string, action: string): boolean => {
     if (userRole === 'super_admin') return true;
     if (userRole === 'demo' && action !== 'delete') return true; // السماح بكل شيء للديمو ما عدا الحذف
-    return userPermissions.has(`${module}.${action}`);
+    
+    // ✅ دعم الرموز الشاملة (Wildcards) للتحقق من الصلاحيات
+    if (userPermissions.has(`${module}.${action}`)) return true;
+    if (userPermissions.has(`${module}.*`)) return true;
+    if (userPermissions.has(`*.${action}`)) return true;
+    if (userPermissions.has(`*.*`)) return true;
+
+    return false;
   };
 
   const refreshPermissions = async () => {
