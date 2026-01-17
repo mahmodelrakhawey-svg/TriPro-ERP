@@ -2835,6 +2835,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         await supabase.from('notifications').delete().neq('id', '00000000-0000-0000-0000-000000000000');
         await supabase.from('security_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
 
+        // Step 8: Reset account balances in the accounts table
+        console.log("Step 8: Resetting account balances...");
+        await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+
         alert('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد.');
         window.location.reload();
 

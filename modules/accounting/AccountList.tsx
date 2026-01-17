@@ -1,12 +1,13 @@
 ﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2 } from 'lucide-react';
+import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AddAccountModal from './AddAccountModal';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
 
 const AccountList = () => {
-  const { accounts, deleteAccount } = useAccounting();
+  const { accounts, deleteAccount, refreshData, isLoading } = useAccounting();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [showOnlyGroups, setShowOnlyGroups] = useState(false);
@@ -55,6 +56,19 @@ const AccountList = () => {
             if (!result.success) {
                 alert(`فشل حذف الحساب: ${result.message}`);
             }
+        }
+    }
+  };
+
+  const handleResetBalances = async () => {
+    if (window.confirm('تنبيه هام: هذا الإجراء سيقوم بتصفير عمود "الرصيد" لجميع الحسابات في قاعدة البيانات.\n\nاستخدم هذا الخيار فقط إذا قمت بتنظيف البيانات وما زالت هناك أرصدة معلقة في الجدول.')) {
+        try {
+            const { error } = await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+            if (error) throw error;
+            alert('تم تصفير أرصدة الحسابات في قاعدة البيانات بنجاح.');
+            refreshData();
+        } catch (error: any) {
+            alert('فشل تصفير الأرصدة: ' + error.message);
         }
     }
   };
@@ -141,6 +155,23 @@ const AccountList = () => {
             <p className="text-slate-500 text-sm">عرض وإدارة شجرة الحسابات والأرصدة</p>
         </div>
         <div className="flex gap-2">
+            <button 
+              onClick={handleResetBalances}
+              className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 font-bold transition-colors shadow-sm"
+              title="تصفير أرصدة الحسابات في قاعدة البيانات (إصلاح)"
+            >
+              <Trash2 size={18} />
+              <span>تصفير الأرصدة</span>
+            </button>
+            <button 
+              onClick={() => refreshData()} 
+              disabled={isLoading}
+              className="flex items-center gap-2 bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 font-bold transition-colors shadow-sm"
+              title="إعادة تحميل البيانات وحساب الأرصدة من السيرفر"
+            >
+              <RefreshCw size={18} className={isLoading ? 'animate-spin text-blue-600' : ''} />
+              <span>تحديث الأرصدة</span>
+            </button>
             <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 font-bold transition-colors">
                 <Download size={18} /> تصدير Excel
             </button>
