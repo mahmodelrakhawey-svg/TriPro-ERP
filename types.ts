@@ -379,6 +379,8 @@ export interface Cheque {
   related_voucher_id?: string;
   related_journal_entry_id?: string;
   history: { date: string; status: string; description: string }[];
+  created_at?: string;
+  notes?: string;
 }
 
 export interface Asset {
