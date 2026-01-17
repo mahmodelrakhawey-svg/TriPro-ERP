@@ -11,7 +11,7 @@ import { supabase } from '../supabaseClient';
 import { 
   TrendingUp, TrendingDown, Users, ShoppingCart, 
   AlertTriangle, ArrowUpRight, ArrowDownLeft, Activity,
-  Wallet, FileText, Package, Truck, BarChart2, Calendar
+  Wallet, FileText, Package, Truck, BarChart2, Calendar, Loader2
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -373,17 +373,23 @@ const Dashboard = () => {
                       <BarChart2 className="text-blue-500" size={20} /> الأداء الشهري (مبيعات vs مشتريات)
                   </h3>
                   <div className="h-80" dir="ltr">
-                      <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={chartData}>
-                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                              <XAxis dataKey="name" />
-                              <YAxis />
-                              <Tooltip formatter={(value: number) => value.toLocaleString()} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                              <Legend />
-                              <Bar dataKey="sales" name="المبيعات" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                              <Bar dataKey="purchases" name="المشتريات" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                      </ResponsiveContainer>
+                      {loading ? (
+                          <div className="w-full h-full flex items-center justify-center">
+                              <Loader2 className="animate-spin text-blue-500" size={32} />
+                          </div>
+                      ) : (
+                          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                              <BarChart data={chartData}>
+                                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                  <XAxis dataKey="name" />
+                                  <YAxis />
+                                  <Tooltip formatter={(value: number) => value.toLocaleString()} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                  <Legend />
+                                  <Bar dataKey="sales" name="المبيعات" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                                  <Bar dataKey="purchases" name="المشتريات" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                              </BarChart>
+                          </ResponsiveContainer>
+                      )}
                   </div>
               </div>
 
