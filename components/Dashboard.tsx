@@ -17,7 +17,7 @@ import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const Dashboard = () => {
-  const { getSystemAccount, currentUser, accounts } = useAccounting();
+  const { getSystemAccount, currentUser, accounts, settings } = useAccounting();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     monthSales: 0,
@@ -276,7 +276,7 @@ const Dashboard = () => {
         )}
       </div>
       <h3 className="text-slate-500 text-sm font-bold mb-1">{title}</h3>
-      <p className="text-2xl font-black text-slate-800">{value.toLocaleString()} <span className="text-xs text-slate-400 font-normal">ج.م</span></p>
+      <p className="text-2xl font-black text-slate-800">{value.toLocaleString()} <span className="text-xs text-slate-400 font-normal">{settings?.currency || 'EGP'}</span></p>
       {subLabel && <p className="text-xs text-slate-400 mt-2">{subLabel}</p>}
     </div>
   );

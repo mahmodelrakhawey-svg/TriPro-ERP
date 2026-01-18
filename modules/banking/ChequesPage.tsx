@@ -100,7 +100,9 @@ export const ChequesPage = () => {
     if (custs) setCustomers(custs);
 
     // 3. Fetch Bank Accounts
-    const { data: accounts } = await supabase.from('accounts').select('id, name, code').ilike('name', '%بنك%');
+    // جلب الحسابات التي تحتوي على كلمة "بنك" أو "Bank" أو تبدأ بالكود 10102 (كود البنوك القياسي)
+    const { data: accounts } = await supabase.from('accounts').select('id, name, code')
+      .or('code.like.10102%,name.ilike.%بنك%,name.ilike.%bank%');
     if (accounts) setBanks(accounts);
     
     setLoading(false);
@@ -168,10 +170,12 @@ export const ChequesPage = () => {
         
         const { error: updateError } = await supabase.from('cheques').update({
             status: newStatus,
-            transfer_account_number: transferData.accountNumber,
-            transfer_bank_name: transferData.bankName,
+            transfer_account_number: transferData.accountNumber?.trim() || null,
+            transfer_bank_name: transferData.bankName?.trim() || null,
             transfer_date: transferData.date
         }).eq('id', selectedCheque.id);
+
+
 
         if (updateError) throw updateError;
 

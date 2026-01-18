@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٨‏/١‏/٢٠٢٦، ٦:٢٨:٣٢ ص
+📅 تاريخ التحديث: ١٨‏/١‏/٢٠٢٦، ٧:٠٥:٢٣ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -96,6 +96,7 @@
     📄 PurchaseReturnForm.tsx
     📄 SupplierAgingReport.tsx
     📄 SupplierBalanceReconciliation.tsx
+    📄 SupplierBalancesReport.tsx
     📄 SupplierManager.tsx
     📄 SupplierStatement.tsx
   📁 reports/
@@ -118,6 +119,7 @@
     📄 CustomerAgingReport.tsx
     📄 CustomerManager.tsx
     📄 CustomerStatement.tsx
+    📄 FreeReturnsReport.tsx
     📄 index.css
     📄 InvoiceList.tsx
     📄 OfferBeneficiariesReport.tsx
@@ -141,6 +143,7 @@
   📄 LandingPage.tsx
   📄 Login.tsx
   📄 Maintenance.tsx
+  📄 ProductStockViewer.tsx
   📄 ReportHeader.tsx
   📄 search-tool.ts
   📄 SecurityLogs.tsx
@@ -168,8 +171,14 @@
   📄 cash_closing_setup.sql
   📄 factory_reset_complete.sql
   📄 fix_deficit_relationship.sql
+  📄 fix_invoices_schema.sql
+  📄 fix_null_warehouse_returns.sql
+  📄 fix_opening_inventory_schema.sql
+  📄 fix_orphaned_stock.sql
+  📄 fix_schema_inconsistencies.sql
   📄 geminiService.ts
   📄 inventory_costing_setup.sql
+  📄 link_returns_to_invoices.sql
   📄 populate_demo_activity.sql
   📄 recalculate_stock_rpc.sql
   📄 rejected_closings_setup.sql
@@ -183,6 +192,7 @@
   📄 test_receipt_voucher_logic.sql
   📄 test_receipt_voucher_v2.sql
   📄 UserManagement.tsx
+  📄 verify_and_fix_returns_schema.sql
   📄 verify_demo_security.sql
   📄 voucher_attachments_setup.sql
   📄 WhatsAppButton.tsx
@@ -354,6 +364,8 @@ import LandingPage from './components/LandingPage';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
+import FreeReturnsReport from './modules/sales/FreeReturnsReport';
+import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -517,6 +529,7 @@ const MainLayout = () => {
                 <Route path="/sales-invoice" element={<SalesInvoiceForm />} />
                 <Route path="/invoices-list" element={<InvoiceList />} />
                 <Route path="/sales-return" element={<SalesReturnForm />} />
+                <Route path="/free-returns-report" element={<FreeReturnsReport />} />
                 <Route path="/customers" element={<CustomerManager />} />
                 <Route path="/customer-statement" element={<CustomerStatement />} />
                 <Route path="/customer-aging" element={<CustomerAgingReport />} />
@@ -536,6 +549,7 @@ const MainLayout = () => {
                 <Route path="/supplier-statement" element={<SupplierStatement />} />
                 <Route path="/supplier-aging" element={<SupplierAgingReport />} />
                 <Route path="/supplier-reconciliation" element={<SupplierBalanceReconciliation />} />
+                <Route path="/supplier-balances" element={<SupplierBalancesReport />} />
                 <Route path="/warehouses" element={<WarehouseManager />} />
                 <Route path="/products" element={<ProductManager />} />
                 <Route path="/inventory-count" element={<InventoryCountForm />} />
@@ -963,6 +977,7 @@ interface AccountingContextType {
   emptyRecycleBin: (table: string) => Promise<{ success: boolean, message?: string }>;
   calculateProductPrice: (product: Product) => number;
   clearTransactions: () => Promise<void>;
+  addOpeningBalanceTransaction: (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => Promise<void>;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -3519,6 +3534,69 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const addOpeningBalanceTransaction = async (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => {
+      if (amount <= 0) return;
+      
+      const ref = `OB-${entityId.slice(0, 6)}`;
+      // 3999: أرصدة افتتاحية (وسيط) Or 301: رأس المال/حقوق الملكية
+      const openingEquityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية')) || accounts.find(a => a.code === '301');
+      
+      if (!openingEquityAcc) {
+          console.warn("Opening balance account not found");
+          return;
+      }
+
+      if (entityType === 'customer') {
+          const customerAcc = getSystemAccount('CUSTOMERS');
+          if (customerAcc) {
+              await addEntry({
+                  date: date,
+                  description: `رصيد افتتاحي للعميل ${name}`,
+                  reference: ref,
+                  status: 'posted',
+                  lines: [
+                      { accountId: customerAcc.id, debit: amount, credit: 0, description: `رصيد افتتاحي - ${name}` },
+                      { accountId: openingEquityAcc.id, debit: 0, credit: amount, description: `رصيد افتتاحي - ${name}` }
+                  ]
+              });
+              
+              await supabase.from('invoices').insert({
+                  invoice_number: ref,
+                  customer_id: entityId,
+                  invoice_date: date,
+                  total_amount: amount,
+                  subtotal: amount,
+                  status: 'posted',
+                  notes: 'رصيد افتتاحي'
+              });
+          }
+      } else {
+          const supplierAcc = getSystemAccount('SUPPLIERS');
+          if (supplierAcc) {
+              await addEntry({
+                  date: date,
+                  description: `رصيد افتتاحي للمورد ${name}`,
+                  reference: ref,
+                  status: 'posted',
+                  lines: [
+                      { accountId: openingEquityAcc.id, debit: amount, credit: 0, description: `رصيد افتتاحي - ${name}` },
+                      { accountId: supplierAcc.id, debit: 0, credit: amount, description: `رصيد افتتاحي - ${name}` }
+                  ]
+              });
+
+              await supabase.from('purchase_invoices').insert({
+                  invoice_number: ref,
+                  supplier_id: entityId,
+                  invoice_date: date,
+                  total_amount: amount,
+                  subtotal: amount,
+                  status: 'posted',
+                  notes: 'رصيد افتتاحي'
+              });
+          }
+      }
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -3633,7 +3711,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getJournalEntriesPaginated,
       isLoading,
       calculateProductPrice,
-      clearTransactions
+      clearTransactions,
+      addOpeningBalanceTransaction
     }}>
       {children}
     </AccountingContext.Provider>

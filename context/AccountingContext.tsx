@@ -33,24 +33,24 @@ interface FinancialSummary {
 export const SYSTEM_ACCOUNTS = {
   CASH: '10101',
   CUSTOMERS: '10201',
-  NOTES_RECEIVABLE: '10202',
+  NOTES_RECEIVABLE: '1204',
   INVENTORY: '103',
   INVENTORY_RAW_MATERIALS: '10301',
   INVENTORY_FINISHED_GOODS: '10302',
-  ACCUMULATED_DEPRECIATION: '11201',
+  ACCUMULATED_DEPRECIATION: '1399',
   SUPPLIERS: '201',
   VAT: '202',
   VAT_INPUT: '10204', // حساب ضريبة المدخلات (أصول متداولة - تحت العملاء والمدينون)
   CUSTOMER_DEPOSITS: '203',
-  NOTES_PAYABLE: '204',
+  NOTES_PAYABLE: '2202',
   SALES_REVENUE: '401',
   OTHER_REVENUE: '402',
-  SALES_DISCOUNT: '403',
+  SALES_DISCOUNT: '4102',
   COGS: '501',
   SALARIES_EXPENSE: '5201',
-  DEPRECIATION_EXPENSE: '507',
+  DEPRECIATION_EXPENSE: '5202',
   INVENTORY_ADJUSTMENTS: '510',
-  RETAINED_EARNINGS: '302',
+  RETAINED_EARNINGS: '3103',
   EMPLOYEE_BONUSES: '511', // حساب إضافي/مكافآت الموظفين (مصروف)
   EMPLOYEE_DEDUCTIONS: '404', // حساب خصومات/جزاءات الموظفين (إيراد)
   BANK_CHARGES: '508', // مصروفات بنكية
@@ -153,7 +153,7 @@ const DUMMY_JOURNAL_ENTRIES = [
         userId: 'demo-user',
         attachments: [],
         lines: [
-            { id: 'demo-jel-3', accountId: '5202', accountName: 'مصروفات كهرباء ومياه', accountCode: '5202', debit: 750, credit: 0, description: 'فاتورة كهرباء شهر مايو' },
+            { id: 'demo-jel-3', accountId: '5203', accountName: 'مصروفات كهرباء ومياه', accountCode: '5203', debit: 750, credit: 0, description: 'فاتورة كهرباء شهر مايو' },
             { id: 'demo-jel-4', accountId: '10101', accountName: 'الصندوق الرئيسي', accountCode: '10101', debit: 0, credit: 750, description: 'دفع نقدي' }
         ]
     }
@@ -192,7 +192,7 @@ interface AccountingContextType {
   addCostCenter: (cc: Omit<CostCenter, 'id'>) => void;
   deleteCostCenter: (id: string) => void;
   entries: JournalEntry[];
-  addEntry: (entry: Omit<JournalEntry, 'id' | 'created_at' | 'createdAt' | 'status' | 'is_posted'> & { status?: 'posted' | 'draft', attachments?: File[] }) => Promise<string | null>;
+  addEntry: (entry: Omit<JournalEntry, 'id' | 'created_at' | 'createdAt' | 'status' | 'is_posted' | 'lines'> & { lines: any[], status?: 'posted' | 'draft', attachments?: File[] }) => Promise<string | null>;
   customers: Customer[];
   addCustomer: (customer: Omit<Customer, 'id'>) => Promise<any>;
   updateCustomer: (id: string, customer: Partial<Customer>) => Promise<void>;
@@ -303,6 +303,8 @@ interface AccountingContextType {
   calculateProductPrice: (product: Product) => number;
   clearTransactions: () => Promise<void>;
   addOpeningBalanceTransaction: (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => Promise<void>;
+  checkSystemAccounts: () => { missing: string[]; found: string[] };
+  createMissingSystemAccounts: () => Promise<{ success: boolean; message: string; created: string[] }>;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -317,8 +319,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const { login: authLogin, logout: authLogout } = useAuth();
   const { showToast } = useToast();
   // @ts-ignore
-  const [settings, setSettings] = useState<SystemSettings>({ 
-    companyName: 'TriPro ERP', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'ج.م', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500,
+  const [settings, setSettings] = useState<any>({ 
+    companyName: 'TriPro ERP', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'EGP', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500, decimalPlaces: 2,
     logoUrl: 'https://placehold.co/400x150/2563eb/ffffff?text=TriPro+ERP' // لوجو افتراضي للهوية البصرية
   });
   const [users, setUsers] = useState<User[]>([{ id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', password: '123', role: 'admin', is_active: true }]);
@@ -461,7 +463,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               email: sysSettings.email || '',
               vatRate: sysSettings.vat_rate ? (sysSettings.vat_rate <= 1 ? sysSettings.vat_rate * 100 : sysSettings.vat_rate) : 15,
               vat_rate: sysSettings.vat_rate ? (sysSettings.vat_rate <= 1 ? sysSettings.vat_rate * 100 : sysSettings.vat_rate) : 15,
-              currency: sysSettings.currency || 'SAR',
+              currency: sysSettings.currency || 'EGP',
               footerText: sysSettings.footer_text || '',
               footer_text: sysSettings.footer_text || '',
               enableTax: sysSettings.enable_tax ?? true,
@@ -472,6 +474,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               preventPriceModification: sysSettings.prevent_price_modification ?? false,
               // @ts-ignore
               maxCashDeficitLimit: sysSettings.max_cash_deficit_limit ?? 500,
+              // @ts-ignore
+              decimalPlaces: sysSettings.decimal_places !== undefined ? sysSettings.decimal_places : 2,
               account_mappings: sysSettings.account_mappings || {}
           });
       }
@@ -1856,11 +1860,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // فصل المرفقات عن بيانات الشيك لتجنب أخطاء قاعدة البيانات
         const { attachments, ...chequeData } = data;
 
-        // 1. حفظ الشيك
+        // 1. التحقق من الحسابات أولاً (قبل الحفظ)
+        const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10202' || a.code === '1204');
+        const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '204' || a.code === '2202');
+        const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '10201' || a.code === '1102');
+        const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '2201');
+
+        if (data.type === 'incoming') {
+            if (!notesReceivableAcc) throw new Error('حساب أوراق القبض (10202) غير موجود. يرجى إضافته للدليل المحاسبي.');
+            if (!customerAcc) throw new Error('حساب العملاء (10201) غير موجود.');
+        } else if (data.type === 'outgoing') {
+            if (!notesPayableAcc) throw new Error('حساب أوراق الدفع (204) غير موجود. يرجى إضافته للدليل المحاسبي.');
+            if (!supplierAcc) throw new Error('حساب الموردين (201) غير موجود.');
+        }
+
+        // 2. حفظ الشيك
         const { data: newCheque, error } = await supabase.from('cheques').insert(chequeData).select().single();
         if (error) throw error;
 
-        // 1.5 رفع المرفقات (إذا وجدت)
+        // 3. رفع المرفقات (إذا وجدت)
         if (attachments && Array.isArray(attachments) && attachments.length > 0) {
             for (const file of attachments) {
                 const fileExt = file.name.split('.').pop();
@@ -1885,21 +1903,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
         }
 
-        // 2. إنشاء القيد المحاسبي
-        // استخدام البحث الصارم بالأكواد لتجنب الخطأ في الأسماء (مثل الخلط بين العملاء ودفعات العملاء)
-        const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10202' || a.code === '1204');
-        const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '204' || a.code === '2202');
-        
-        const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '10201' || a.code === '1102');
-        const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '2201');
-
+        // 4. إنشاء القيد المحاسبي
         let lines = [];
         let description = '';
         const entryDate = new Date().toISOString().split('T')[0]; // تاريخ تحرير الشيك
 
         if (data.type === 'incoming') {
             // استلام شيك (أوراق قبض): من ح/ أوراق القبض إلى ح/ العملاء
-            if (notesReceivableAcc && customerAcc) {
+            if (notesReceivableAcc && customerAcc) { // تم التحقق مسبقاً، لكن نبقي الشرط للأمان
                 description = `استلام شيك رقم ${data.cheque_number} من ${data.party_name}`;
                 lines = [
                     { accountId: notesReceivableAcc.id, debit: data.amount, credit: 0, description },
@@ -1926,9 +1937,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 lines: lines
             });
 
-            if (entryId) {
+            if (entryId && typeof entryId === 'string') {
                 await supabase.from('cheques').update({ related_journal_entry_id: entryId }).eq('id', newCheque.id);
             }
+
         }
 
         await fetchData();
@@ -1941,89 +1953,96 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const updateChequeStatus = async (id: string, status: Cheque['status'], actionDate: string, depositAccountId?: string) => {
       try {
-          // 1. تحديث حالة الشيك
+          if (!id) throw new Error('معرف الشيك غير موجود');
+          if (!status) throw new Error('حالة الشيك غير صالحة');
+
+          // 1. جلب بيانات الشيك أولاً للتحقق
+          const { data: cheque } = await supabase.from('cheques').select('*').eq('id', id).single();
+          if (!cheque) throw new Error('الشيك غير موجود');
+
+          // 2. التحقق من الحسابات قبل التحديث (لمنع تحديث الحالة بدون قيد)
+          let notesPayableAcc, notesReceivableAcc;
+          
+          if (status === 'cashed' && cheque.type === 'outgoing') {
+              notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '2202');
+              if (!notesPayableAcc) throw new Error('حساب أوراق الدفع (204 أو 2202) غير موجود في الدليل المحاسبي.');
+              if (!depositAccountId) throw new Error('يجب تحديد حساب البنك لإتمام عملية الصرف.');
+          } else if (status === 'collected' && cheque.type === 'incoming') {
+              notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '1204');
+              if (!notesReceivableAcc) throw new Error('حساب أوراق القبض (10202 أو 1204) غير موجود في الدليل المحاسبي.');
+              if (!depositAccountId) throw new Error('يجب تحديد حساب البنك لإتمام عملية التحصيل.');
+          }
+
+          // 3. تحديث حالة الشيك
           const { error: updateError } = await supabase
               .from('cheques')
               .update({ status: status })
               .eq('id', id);
 
-          if (updateError) throw updateError;
+          if (updateError) {
+              console.error("Supabase Update Error:", updateError);
+              // تضمين تفاصيل الخطأ من Supabase لتظهر في التنبيه
+              throw new Error(updateError.message + (updateError.details ? ` - ${updateError.details}` : '') + (updateError.hint ? ` (${updateError.hint})` : ''));
+          }
 
-          // 2. جلب بيانات الشيك لإنشاء القيد
-          const { data: cheque } = await supabase.from('cheques').select('*').eq('id', id).single();
-          
-          if (cheque) {
-              // 3. إنشاء القيد المحاسبي بناءً على الحالة الجديدة
-              if (status === 'cashed' && cheque.type === 'outgoing') {
-                  // صرف شيك صادر (من أوراق الدفع إلى البنك)
-                  const notesPayableAcc = getSystemAccount('NOTES_PAYABLE'); // 204
-                  
-                  if (notesPayableAcc && depositAccountId) {
-                      await addEntry({
-                          date: actionDate,
-                          reference: `CHQ-CASH-${cheque.cheque_number}`,
-                          description: `صرف شيك رقم ${cheque.cheque_number} - ${cheque.party_name}`,
-                          status: 'posted',
-                          lines: [
-                              { accountId: notesPayableAcc.id, debit: cheque.amount, credit: 0, description: `إقفال ورقة دفع - شيك ${cheque.cheque_number}` },
-                              { accountId: depositAccountId, debit: 0, credit: cheque.amount, description: `مسحوب من البنك` }
-                          ]
-                      });
-                  } else {
-                      showToast('تنبيه: تم تحديث الحالة ولكن لم يتم إنشاء القيد لعدم تحديد حساب البنك أو حساب أوراق الدفع (204).', 'warning');
-                  }
-              } 
-              else if (status === 'collected' && cheque.type === 'incoming') {
-                  // تحصيل شيك وارد (من البنك إلى أوراق القبض)
-                  const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE'); // 10202
+          // 4. إنشاء القيد المحاسبي
+          if (status === 'cashed' && cheque.type === 'outgoing' && notesPayableAcc && depositAccountId) {
+              await addEntry({
+                  date: actionDate,
+                  reference: `CHQ-CASH-${cheque.cheque_number}`,
+                  description: `صرف شيك رقم ${cheque.cheque_number} - ${cheque.party_name}`,
+                  status: 'posted',
+                  lines: [
+                      { accountId: notesPayableAcc.id, debit: cheque.amount, credit: 0, description: `إقفال ورقة دفع - شيك ${cheque.cheque_number}` },
+                      { accountId: depositAccountId, debit: 0, credit: cheque.amount, description: `مسحوب من البنك` }
+                  ]
+              });
+          } 
+          else if (status === 'collected' && cheque.type === 'incoming' && notesReceivableAcc && depositAccountId) {
+              await addEntry({
+                  date: actionDate,
+                  reference: `CHQ-COLL-${cheque.cheque_number}`,
+                  description: `تحصيل شيك رقم ${cheque.cheque_number} - ${cheque.party_name}`,
+                  status: 'posted',
+                  lines: [
+                      { accountId: depositAccountId, debit: cheque.amount, credit: 0, description: `إيداع في البنك` },
+                      { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `تحصيل ورقة قبض - شيك ${cheque.cheque_number}` }
+                  ]
+              });
+          }
+          else if (status === 'rejected') {
+              // رفض الشيك (قيد عكسي)
+              const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10202' || a.code === '1204');
+              const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '204' || a.code === '2202');
+              const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '10201' || a.code === '1102');
+              const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '2201');
 
-                  if (notesReceivableAcc && depositAccountId) {
-                      await addEntry({
-                          date: actionDate,
-                          reference: `CHQ-COLL-${cheque.cheque_number}`,
-                          description: `تحصيل شيك رقم ${cheque.cheque_number} - ${cheque.party_name}`,
-                          status: 'posted',
-                          lines: [
-                              { accountId: depositAccountId, debit: cheque.amount, credit: 0, description: `إيداع في البنك` },
-                              { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `تحصيل ورقة قبض - شيك ${cheque.cheque_number}` }
-                          ]
-                      });
-                  } else {
-                      showToast('تنبيه: تم تحديث الحالة ولكن لم يتم إنشاء القيد لعدم تحديد حساب البنك أو حساب أوراق القبض (10202).', 'warning');
-                  }
-              }
-              else if (status === 'rejected') {
-                  // رفض الشيك (قيد عكسي)
-                  const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10202' || a.code === '1204');
-                  const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '204' || a.code === '2202');
-                  const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '10201' || a.code === '1102');
-                  const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '2201');
-
-                  if (cheque.type === 'incoming' && notesReceivableAcc && customerAcc) {
-                      // شيك وارد مرفوض: من ح/ العملاء إلى ح/ أوراق القبض (إعادة المديونية للعميل)
-                      await addEntry({
-                          date: actionDate,
-                          reference: `CHQ-REJ-${cheque.cheque_number}`,
-                          description: `شيك مرفوض رقم ${cheque.cheque_number} - ${cheque.party_name}`,
-                          status: 'posted',
-                          lines: [
-                              { accountId: customerAcc.id, debit: cheque.amount, credit: 0, description: `إعادة مديونية (شيك مرفوض)` },
-                              { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `إلغاء ورقة قبض` }
-                          ]
-                      });
-                  } else if (cheque.type === 'outgoing' && notesPayableAcc && supplierAcc) {
-                      // شيك صادر مرفوض: من ح/ أوراق الدفع إلى ح/ الموردين (إعادة الدائنية للمورد)
-                      await addEntry({
-                          date: actionDate,
-                          reference: `CHQ-REJ-${cheque.cheque_number}`,
-                          description: `شيك مرفوض رقم ${cheque.cheque_number} - ${cheque.party_name}`,
-                          status: 'posted',
-                          lines: [
-                              { accountId: notesPayableAcc.id, debit: cheque.amount, credit: 0, description: `إلغاء ورقة دفع` },
-                              { accountId: supplierAcc.id, debit: 0, credit: cheque.amount, description: `إعادة دائنية (شيك مرفوض)` }
-                          ]
-                      });
-                  }
+              if (cheque.type === 'incoming') {
+                  if (!notesReceivableAcc || !customerAcc) throw new Error('حسابات أوراق القبض أو العملاء غير معرفة');
+                  // شيك وارد مرفوض: من ح/ العملاء إلى ح/ أوراق القبض (إعادة المديونية للعميل)
+                  await addEntry({
+                      date: actionDate,
+                      reference: `CHQ-REJ-${cheque.cheque_number}`,
+                      description: `شيك مرفوض رقم ${cheque.cheque_number} - ${cheque.party_name}`,
+                      status: 'posted',
+                      lines: [
+                          { accountId: customerAcc.id, debit: cheque.amount, credit: 0, description: `إعادة مديونية (شيك مرفوض)` },
+                          { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `إلغاء ورقة قبض` }
+                      ]
+                  });
+              } else if (cheque.type === 'outgoing') {
+                  if (!notesPayableAcc || !supplierAcc) throw new Error('حسابات أوراق الدفع أو الموردين غير معرفة');
+                  // شيك صادر مرفوض: من ح/ أوراق الدفع إلى ح/ الموردين (إعادة الدائنية للمورد)
+                  await addEntry({
+                      date: actionDate,
+                      reference: `CHQ-REJ-${cheque.cheque_number}`,
+                      description: `شيك مرفوض رقم ${cheque.cheque_number} - ${cheque.party_name}`,
+                      status: 'posted',
+                      lines: [
+                          { accountId: notesPayableAcc.id, debit: cheque.amount, credit: 0, description: `إلغاء ورقة دفع` },
+                          { accountId: supplierAcc.id, debit: 0, credit: cheque.amount, description: `إعادة دائنية (شيك مرفوض)` }
+                      ]
+                  });
               }
           }
 
@@ -2922,6 +2941,67 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   };
 
+  const checkSystemAccounts = () => {
+      const missing: string[] = [];
+      const found: string[] = [];
+
+      Object.entries(SYSTEM_ACCOUNTS).forEach(([key, code]) => {
+          const acc = accounts.find(a => a.code === code);
+          if (acc) {
+              found.push(`${key}: ${code} - ${acc.name}`);
+          } else {
+              missing.push(`${key}: ${code}`);
+          }
+      });
+
+      return { missing, found };
+  };
+
+  const createMissingSystemAccounts = async () => {
+      const created: string[] = [];
+      
+      // خريطة لتتبع الأكواد الموجودة (سواء كانت في قاعدة البيانات أو تم إنشاؤها للتو)
+      const codeToId = new Map<string, string>();
+      accounts.forEach(a => codeToId.set(a.code, a.id));
+
+      // نمر على جميع الحسابات المعرفة في الثوابت (INITIAL_ACCOUNTS)
+      // هذا يضمن إضافة أي حساب جديد تم تعريفه في الكود ولم يتم إضافته لقاعدة البيانات
+      for (const accDef of INITIAL_ACCOUNTS) {
+          if (codeToId.has(accDef.code)) continue; // الحساب موجود بالفعل
+
+          // محاولة العثور على معرف الحساب الأب
+          let parentId = null;
+          if (accDef.parent_account) {
+              parentId = codeToId.get(accDef.parent_account) || null;
+          }
+
+          try {
+              const newId = generateUUID();
+              await supabase.from('accounts').insert({
+                  id: newId,
+                  code: accDef.code,
+                  name: accDef.name,
+                  type: accDef.type,
+                  is_group: accDef.is_group,
+                  parent_id: parentId,
+                  is_active: true
+              });
+              
+              codeToId.set(accDef.code, newId); // تحديث الخريطة للحسابات اللاحقة
+              created.push(`${accDef.code} - ${accDef.name}`);
+          } catch (e) {
+              console.error(`Failed to create ${accDef.code}`, e);
+          }
+      }
+
+      await fetchData();
+      if (created.length > 0) {
+          return { success: true, message: `تم إنشاء ${created.length} حساب جديد بنجاح.`, created };
+      } else {
+          return { success: true, message: 'جميع الحسابات متطابقة مع الدليل الافتراضي.', created: [] };
+      }
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -3037,7 +3117,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isLoading,
       calculateProductPrice,
       clearTransactions,
-      addOpeningBalanceTransaction
+      addOpeningBalanceTransaction,
+      checkSystemAccounts,
+      createMissingSystemAccounts
     }}>
       {children}
     </AccountingContext.Provider>

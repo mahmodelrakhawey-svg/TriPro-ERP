@@ -89,7 +89,7 @@ const PurchaseReturnForm = () => {
       for (const item of items) {
         // Insert Item
         await supabase.from('purchase_return_items').insert({
-            return_id: returnHeader.id, // تصحيح: اسم العمود غالباً ما يكون موحداً
+            purchase_return_id: returnHeader.id, // تم التحديث ليتوافق مع قاعدة البيانات
             product_id: item.productId,
             quantity: item.quantity,
             price: item.price,

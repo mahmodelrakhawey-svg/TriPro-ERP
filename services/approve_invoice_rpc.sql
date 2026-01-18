@@ -47,11 +47,11 @@ BEGIN
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
     -- ب. جلب الحسابات (يجب أن تكون الأكواد مطابقة لما في setup_complete_demo.sql)
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '4101' LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2103' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1102' LIMIT 1;
-    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '5101' LIMIT 1;
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '1105' LIMIT 1;
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '401' LIMIT 1;
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '501' LIMIT 1;
+    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '103' LIMIT 1;
     SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
     
     v_treasury_acc_id := v_invoice.treasury_account_id;
@@ -97,7 +97,7 @@ BEGIN
         transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
     ) VALUES (
         v_invoice.invoice_date, 
-        'فاتورة مبيعات رقم ' || COALESCE(v_invoice.invoice_number, '-') || (CASE WHEN v_invoice.currency IS NOT NULL AND v_invoice.currency != 'SAR' THEN ' (' || v_invoice.currency || ')' ELSE '' END), 
+        'فاتورة مبيعات رقم ' || COALESCE(v_invoice.invoice_number, '-') || (CASE WHEN v_invoice.currency IS NOT NULL AND v_invoice.currency != 'EGP' THEN ' (' || v_invoice.currency || ')' ELSE '' END), 
         v_invoice.invoice_number, 
         'posted', 
         v_org_id,

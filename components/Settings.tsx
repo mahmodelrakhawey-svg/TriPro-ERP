@@ -3,24 +3,55 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database } from 'lucide-react';
+
+const ACCOUNT_LABELS: Record<string, string> = {
+  CASH: 'النقدية (الصندوق الرئيسي)',
+  CUSTOMERS: 'العملاء',
+  NOTES_RECEIVABLE: 'أوراق القبض (شيكات واردة)',
+  INVENTORY: 'المخزون العام',
+  INVENTORY_RAW_MATERIALS: 'مخزون المواد الخام',
+  INVENTORY_FINISHED_GOODS: 'مخزون المنتج التام',
+  ACCUMULATED_DEPRECIATION: 'مجمع الإهلاك',
+  SUPPLIERS: 'الموردين',
+  VAT: 'ضريبة القيمة المضافة (مخرجات)',
+  VAT_INPUT: 'ضريبة القيمة المضافة (مدخلات)',
+  CUSTOMER_DEPOSITS: 'تأمينات العملاء',
+  NOTES_PAYABLE: 'أوراق الدفع (شيكات صادرة)',
+  SALES_REVENUE: 'إيراد المبيعات',
+  OTHER_REVENUE: 'إيرادات أخرى',
+  SALES_DISCOUNT: 'خصم مسموح به',
+  COGS: 'تكلفة البضاعة المباعة',
+  SALARIES_EXPENSE: 'مصروف الرواتب والأجور',
+  DEPRECIATION_EXPENSE: 'مصروف الإهلاك',
+  INVENTORY_ADJUSTMENTS: 'تسويات المخزون (عجز/زيادة)',
+  RETAINED_EARNINGS: 'الأرباح المبقاة',
+  EMPLOYEE_BONUSES: 'مكافآت الموظفين',
+  EMPLOYEE_DEDUCTIONS: 'جزاءات وخصومات الموظفين',
+  BANK_CHARGES: 'مصروفات بنكية',
+  BANK_INTEREST_INCOME: 'فوائد بنكية (دائنة)',
+  TAX_AUTHORITY: 'مصلحة الضرائب',
+  SOCIAL_INSURANCE: 'التأمينات الاجتماعية',
+  WITHHOLDING_TAX: 'ضريبة الخصم والتحصيل',
+  EMPLOYEE_ADVANCES: 'سلف الموظفين',
+};
 
 const Settings = () => {
   const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'demo'>('general');
   const [formData, setFormData] = useState({ 
       companyName: '', taxNumber: '', phone: '', address: '', footerText: '', vatRate: 0.14, currency: '', logoUrl: '', 
-      enableTax: true, allowNegativeStock: false, preventPriceModification: false, maxCashDeficitLimit: 500,
+      enableTax: true, allowNegativeStock: false, preventPriceModification: false, maxCashDeficitLimit: 500, decimalPlaces: 2,
       accountMappings: {} as Record<string, string>
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const { closeFinancialYear, exportData, currentUser, accounts } = useAccounting();
+  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts } = useAccounting();
   const currentUserRole = currentUser?.role || '';
 
   const currencies = [
-    { code: 'SAR', label: 'ريال سعودي (SAR)' },
     { code: 'EGP', label: 'جنيه مصري (EGP)' },
+    { code: 'SAR', label: 'ريال سعودي (SAR)' },
     { code: 'USD', label: 'دولار أمريكي (USD)' },
     { code: 'AED', label: 'درهم إماراتي (AED)' },
     { code: 'KWD', label: 'دينار كويتي (KWD)' },
@@ -29,6 +60,7 @@ const Settings = () => {
     { code: 'BHD', label: 'دينار بحريني (BHD)' },
     { code: 'JOD', label: 'دينار أردني (JOD)' },
     { code: 'EUR', label: 'يورو (EUR)' },
+    { code: 'GBP', label: 'جنيه إسترليني (GBP)' },
   ];
   const navigate = useNavigate();
 
@@ -56,6 +88,7 @@ const Settings = () => {
                 allowNegativeStock: data.allow_negative_stock !== undefined ? data.allow_negative_stock : false,
                 preventPriceModification: data.prevent_price_modification !== undefined ? data.prevent_price_modification : false,
                 maxCashDeficitLimit: data.max_cash_deficit_limit !== undefined ? data.max_cash_deficit_limit : 500,
+                decimalPlaces: data.decimal_places !== undefined ? data.decimal_places : 2,
                 accountMappings: data.account_mappings || {}
             });
         }
@@ -96,6 +129,7 @@ const Settings = () => {
             enable_tax: formData.enableTax,
             prevent_price_modification: formData.preventPriceModification,
             max_cash_deficit_limit: formData.maxCashDeficitLimit,
+            decimal_places: formData.decimalPlaces,
             updated_at: new Date().toISOString(),
             account_mappings: formData.accountMappings
         };
@@ -211,6 +245,35 @@ const Settings = () => {
                     .eq('id', settingsId);
               }
           }
+      }
+  };
+
+  const handleCreateMissingAccounts = async () => {
+      if (!window.confirm('سيقوم النظام بفحص الحسابات المفقودة وإنشائها تلقائياً. هل تريد الاستمرار؟')) return;
+      
+      setLoading(true);
+      try {
+          const result = await createMissingSystemAccounts();
+          alert(result.message + (result.created.length > 0 ? `\n\nتم إنشاء:\n${result.created.join('\n')}` : ''));
+      } catch (e: any) {
+          alert('حدث خطأ: ' + e.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleFixDatabaseSchema = async () => {
+      if (!window.confirm('سيقوم النظام بفحص وإصلاح هيكل جداول قاعدة البيانات (خاصة المرتجعات). هل تريد الاستمرار؟')) return;
+      
+      setLoading(true);
+      try {
+          const { data, error } = await supabase.rpc('fix_returns_schema');
+          if (error) throw error;
+          alert(data || 'تم الفحص بنجاح.');
+      } catch (e: any) {
+          alert('حدث خطأ أثناء الصيانة: ' + e.message);
+      } finally {
+          setLoading(false);
       }
   };
 
@@ -443,6 +506,20 @@ const Settings = () => {
                                 </div>
                               </div>
                           </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">عدد الكسور العشرية</label>
+                              <div className="relative">
+                                  <input 
+                                    type="number" 
+                                    min="0"
+                                    max="4"
+                                    value={formData.decimalPlaces}
+                                    onChange={(e) => setFormData({...formData, decimalPlaces: parseInt(e.target.value)})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
+                                  />
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">عدد الأرقام بعد العلامة العشرية (مثال: 2 لـ 10.50)</p>
+                          </div>
                       </div>
                       <div className="pt-4 text-left">
                           <button type="submit" className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg hover:bg-emerald-700 font-bold shadow-md">
@@ -456,6 +533,47 @@ const Settings = () => {
                   <div className="space-y-8 animate-in fade-in">
                       {/* Close Year Section */}
                       <div className="bg-amber-50 border border-amber-100 rounded-xl p-6 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-16 h-16 bg-amber-100 rounded-bl-full -mr-8 -mt-8"></div>
+                          <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2 relative z-10">
+                              <Archive size={20} /> إقفال السنة المالية
+                          </h3>
+                          <p className="text-sm text-amber-800 mb-6 max-w-2xl leading-relaxed">
+                              تستخدم هذه الميزة عند انتهاء السنة المالية. سيقوم النظام بحساب الأرباح والخسائر، ترحيلها لحقوق الملكية، وإنشاء قيد إقفال لتصفير حسابات النتيجة (الإيرادات والمصروفات).
+                          </p>
+                          <button 
+                            onClick={handleCloseYear}
+                            className="flex items-center gap-2 bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md transition-all"
+                          >
+                              <Archive size={18} /> إقفال السنة وفتح سنة جديدة
+                          </button>
+                      </div>
+
+                      {/* System Health Section */}
+                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2">
+                              <ShieldCheck size={20} /> فحص وإصلاح حسابات النظام
+                          </h3>
+                          <p className="text-sm text-indigo-700 mb-6">
+                              يقوم هذا الإجراء بفحص دليل الحسابات للتأكد من وجود جميع الحسابات الأساسية اللازمة لعمل النظام (مثل النقدية، المبيعات، الضريبة، إلخ) وإنشائها تلقائياً في حال فقدانها.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                              <button 
+                                onClick={handleCreateMissingAccounts}
+                                className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 font-bold shadow-md transition-all"
+                              >
+                                  <RotateCcw size={18} /> فحص وإنشاء الحسابات المفقودة
+                              </button>
+                              <button 
+                                onClick={handleFixDatabaseSchema}
+                                className="flex items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 font-bold shadow-md transition-all"
+                              >
+                                  <Database size={18} /> صيانة وإصلاح قاعدة البيانات
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Data Backup Section */}
+                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
                           <div className="absolute top-0 right-0 w-16 h-16 bg-amber-100 rounded-bl-full -mr-8 -mt-8"></div>
                           <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2 relative z-10">
                               <Archive size={20} /> إقفال السنة المالية
@@ -539,7 +657,7 @@ const Settings = () => {
                           {Object.entries(SYSTEM_ACCOUNTS).map(([key, defaultCode]) => (
                               <div key={key}>
                                   <label className="block text-sm font-bold text-slate-700 mb-1">
-                                      {key.replace(/_/g, ' ')} <span className="text-xs font-normal text-slate-400">(افتراضي: {defaultCode})</span>
+                                      {ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} <span className="text-xs font-normal text-slate-400" dir="ltr">({defaultCode})</span>
                                   </label>
                                   <select 
                                       value={formData.accountMappings[key] || ''}
