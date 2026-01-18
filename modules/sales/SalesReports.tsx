@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
     Users, User, Calendar, BarChart3, TrendingUp, 
     Target, Package, Download, Printer, Percent, CircleDollarSign,
-    ListFilter, Award, Store, Smartphone, LayoutGrid, Building2, MapPin
+    ListFilter, Award, Store, Smartphone, LayoutGrid, Building2, MapPin, FileText
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -152,6 +153,9 @@ const SalesReports = () => {
             <p className="text-slate-500 font-medium">تحليل شامل لحركة الأصناف، أداء الفروع، والعمولات</p>
         </div>
         <div className="flex gap-3">
+            <Link to="/free-returns-report" className="bg-white text-red-600 border border-red-100 px-6 py-3 rounded-2xl font-black flex items-center gap-2 hover:bg-red-50 transition-all shadow-sm">
+                <FileText size={20} /> المرتجعات الحرة
+            </Link>
             <button onClick={handleExport} className="bg-emerald-600 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-100">
                 <Download size={20} /> تصدير Excel
             </button>

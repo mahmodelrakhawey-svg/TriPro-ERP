@@ -66,14 +66,14 @@ const ItemMovementReport = () => {
       // 3. جلب مرتجعات المبيعات (Sales Returns) - وارد
       const { data: salesReturns } = await supabase
         .from('sales_return_items')
-        .select('quantity, return_id, sales_returns!inner(return_date, return_number, status)')
+        .select('quantity, sales_return_id, sales_returns!inner(return_date, return_number, status)')
         .eq('product_id', selectedProductId)
         .neq('sales_returns.status', 'draft');
 
       // 4. جلب مرتجعات المشتريات (Purchase Returns) - صادر
       const { data: purchaseReturns } = await supabase
         .from('purchase_return_items')
-        .select('quantity, return_id, purchase_returns!inner(return_date, return_number, status)')
+        .select('quantity, purchase_return_id, purchase_returns!inner(return_date, return_number, status)')
         .eq('product_id', selectedProductId)
         .neq('purchase_returns.status', 'draft');
 

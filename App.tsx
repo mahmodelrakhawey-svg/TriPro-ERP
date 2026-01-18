@@ -111,6 +111,8 @@ import LandingPage from './components/LandingPage';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
+import FreeReturnsReport from './modules/sales/FreeReturnsReport';
+import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -274,6 +276,7 @@ const MainLayout = () => {
                 <Route path="/sales-invoice" element={<SalesInvoiceForm />} />
                 <Route path="/invoices-list" element={<InvoiceList />} />
                 <Route path="/sales-return" element={<SalesReturnForm />} />
+                <Route path="/free-returns-report" element={<FreeReturnsReport />} />
                 <Route path="/customers" element={<CustomerManager />} />
                 <Route path="/customer-statement" element={<CustomerStatement />} />
                 <Route path="/customer-aging" element={<CustomerAgingReport />} />
@@ -293,6 +296,7 @@ const MainLayout = () => {
                 <Route path="/supplier-statement" element={<SupplierStatement />} />
                 <Route path="/supplier-aging" element={<SupplierAgingReport />} />
                 <Route path="/supplier-reconciliation" element={<SupplierBalanceReconciliation />} />
+                <Route path="/supplier-balances" element={<SupplierBalancesReport />} />
                 <Route path="/warehouses" element={<WarehouseManager />} />
                 <Route path="/products" element={<ProductManager />} />
                 <Route path="/inventory-count" element={<InventoryCountForm />} />

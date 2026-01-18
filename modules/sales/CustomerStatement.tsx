@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { Printer, FileText, Loader2, Search, Download, MessageCircle } from 'lucide-react';
@@ -15,9 +16,14 @@ type Transaction = {
   balance: number;
 };
 
-const CustomerStatement = () => {
+interface CustomerStatementProps {
+  initialCustomerId?: string;
+}
+
+const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId }) => {
   const { customers, settings, currentUser } = useAccounting();
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [searchParams] = useSearchParams();
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -26,6 +32,16 @@ const CustomerStatement = () => {
   const [loading, setLoading] = useState(false);
   
   const selectedCustomer = customers.find(c => c.id.toString() === selectedCustomerId.toString());
+
+  // قراءة معرف العميل من الرابط عند التحميل
+  useEffect(() => {
+    if (initialCustomerId) {
+        setSelectedCustomerId(initialCustomerId);
+    } else {
+        const cid = searchParams.get('customerId');
+        if (cid) setSelectedCustomerId(cid);
+    }
+  }, [searchParams, initialCustomerId]);
 
   const fetchStatement = async () => {
     if (!selectedCustomerId) return;

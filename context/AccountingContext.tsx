@@ -302,6 +302,7 @@ interface AccountingContextType {
   emptyRecycleBin: (table: string) => Promise<{ success: boolean, message?: string }>;
   calculateProductPrice: (product: Product) => number;
   clearTransactions: () => Promise<void>;
+  addOpeningBalanceTransaction: (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => Promise<void>;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -2858,6 +2859,69 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const addOpeningBalanceTransaction = async (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => {
+      if (amount <= 0) return;
+      
+      const ref = `OB-${entityId.slice(0, 6)}`;
+      // 3999: أرصدة افتتاحية (وسيط) Or 301: رأس المال/حقوق الملكية
+      const openingEquityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية')) || accounts.find(a => a.code === '301');
+      
+      if (!openingEquityAcc) {
+          console.warn("Opening balance account not found");
+          return;
+      }
+
+      if (entityType === 'customer') {
+          const customerAcc = getSystemAccount('CUSTOMERS');
+          if (customerAcc) {
+              await addEntry({
+                  date: date,
+                  description: `رصيد افتتاحي للعميل ${name}`,
+                  reference: ref,
+                  status: 'posted',
+                  lines: [
+                      { accountId: customerAcc.id, debit: amount, credit: 0, description: `رصيد افتتاحي - ${name}` },
+                      { accountId: openingEquityAcc.id, debit: 0, credit: amount, description: `رصيد افتتاحي - ${name}` }
+                  ]
+              });
+              
+              await supabase.from('invoices').insert({
+                  invoice_number: ref,
+                  customer_id: entityId,
+                  invoice_date: date,
+                  total_amount: amount,
+                  subtotal: amount,
+                  status: 'posted',
+                  notes: 'رصيد افتتاحي'
+              });
+          }
+      } else {
+          const supplierAcc = getSystemAccount('SUPPLIERS');
+          if (supplierAcc) {
+              await addEntry({
+                  date: date,
+                  description: `رصيد افتتاحي للمورد ${name}`,
+                  reference: ref,
+                  status: 'posted',
+                  lines: [
+                      { accountId: openingEquityAcc.id, debit: amount, credit: 0, description: `رصيد افتتاحي - ${name}` },
+                      { accountId: supplierAcc.id, debit: 0, credit: amount, description: `رصيد افتتاحي - ${name}` }
+                  ]
+              });
+
+              await supabase.from('purchase_invoices').insert({
+                  invoice_number: ref,
+                  supplier_id: entityId,
+                  invoice_date: date,
+                  total_amount: amount,
+                  subtotal: amount,
+                  status: 'posted',
+                  notes: 'رصيد افتتاحي'
+              });
+          }
+      }
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -2972,7 +3036,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getJournalEntriesPaginated,
       isLoading,
       calculateProductPrice,
-      clearTransactions
+      clearTransactions,
+      addOpeningBalanceTransaction
     }}>
       {children}
     </AccountingContext.Provider>

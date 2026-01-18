@@ -2,13 +2,76 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { RotateCcw, Save, Plus, Trash2, Loader2, Search } from 'lucide-react';
+import { InvoiceItem } from '../../types';
 
 const SalesReturnForm = () => {
-  const { accounts, addEntry, getSystemAccount, customers, products, currentUser } = useAccounting();
+  const { accounts, addEntry, getSystemAccount, customers, products, currentUser, warehouses } = useAccounting();
   const [items, setItems] = useState<any[]>([]);
-  const [formData, setFormData] = useState({ customerId: '', date: new Date().toISOString().split('T')[0], returnNumber: '', notes: '' });
+  const [formData, setFormData] = useState({ customerId: '', warehouseId: '', date: new Date().toISOString().split('T')[0], returnNumber: '', notes: '' });
   const [saving, setSaving] = useState(false);
   const [productSearch, setProductSearch] = useState('');
+  const [searchInvoiceNumber, setSearchInvoiceNumber] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
+  const [returnPartialQuantities, setReturnPartialQuantities] = useState(false);
+  const [originalInvoiceId, setOriginalInvoiceId] = useState<string | null>(null);
+
+  // تعيين المستودع الافتراضي عند التحميل
+  useEffect(() => {
+    if (warehouses.length > 0 && !formData.warehouseId) {
+      setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+    }
+  }, [warehouses]);
+
+  const handleFetchInvoice = async () => {
+    if (!searchInvoiceNumber.trim()) return;
+    setIsSearching(true);
+    try {
+      const { data: invoice, error } = await supabase
+        .from('invoices')
+        .select('*, invoice_items(*, products(name))')
+        .ilike('invoice_number', `%${searchInvoiceNumber.trim()}%`)
+        .limit(1)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (invoice) {
+        setFormData(prev => ({ 
+            ...prev, 
+            customerId: invoice.customer_id || '', 
+            warehouseId: invoice.warehouse_id || prev.warehouseId, // استخدام مستودع الفاتورة الأصلية
+            notes: `مرتجع من فاتورة رقم ${invoice.invoice_number}` 
+        }));
+        setOriginalInvoiceId(invoice.id);
+        const newItems = invoice.invoice_items.map((item: any) => ({
+
+            productId: item.product_id,
+            name: item.products?.name,
+            quantity: returnPartialQuantities ? 0 : item.quantity, // هنا يتم ضبط الكمية بناءً على خيار الإرجاع الجزئي
+            price: item.price,
+            maxQuantity: item.quantity // نحتفظ بالكمية الأصلية هنا
+        }));
+        setItems(newItems);
+        setInvoiceItems(invoice.invoice_items);
+        
+         //  التركيز على أول حقل إدخال في النموذج
+
+         setTimeout(() => {
+
+          const firstInput = document.querySelector('input[type="number"]');
+          firstInput?.focus();
+        }, 100);
+
+      } else {
+        alert('لم يتم العثور على الفاتورة');
+      }
+    } catch (err: any) {
+      alert('خطأ: ' + err.message);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const addItem = (product: any) => {
     setItems([...items, { productId: product.id, name: product.name, quantity: 1, price: product.sales_price || product.price || 0 }]);
@@ -17,7 +80,18 @@ const SalesReturnForm = () => {
 
   const updateItem = (index: number, field: string, value: any) => {
     const newItems = [...items];
-    newItems[index][field] = value;
+    let processedValue = value;
+
+    if (field === 'quantity') {
+        const item = newItems[index];
+        // التحقق من الكمية القصوى إذا كانت محددة (في حالة الاستيراد من فاتورة)
+        if (item.maxQuantity !== undefined && Number(value) > item.maxQuantity) {
+             alert(`لا يمكنك إرجاع كمية أكبر من الكمية الأصلية (${item.maxQuantity})`);
+             processedValue = item.maxQuantity;
+        }
+    }
+
+    newItems[index][field] = processedValue;
     setItems(newItems);
   };
 
@@ -31,7 +105,7 @@ const SalesReturnForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId || items.length === 0) {
+    if (!formData.customerId || !formData.warehouseId || items.length === 0) {
         alert('أكمل البيانات');
         return;
     }
@@ -57,6 +131,8 @@ const SalesReturnForm = () => {
       // 1. حفظ المرتجع
       const { data: returnDoc, error: retError } = await supabase.from('sales_returns').insert({
         customer_id: formData.customerId,
+        warehouse_id: formData.warehouseId,
+        original_invoice_id: originalInvoiceId,
         return_number: returnNumber,
         return_date: formData.date,
         total_amount: totalAmount,
@@ -72,7 +148,7 @@ const SalesReturnForm = () => {
       // 2. حفظ البنود وتحديث المخزون (زيادة)
       for (const item of items) {
         await supabase.from('sales_return_items').insert({
-          return_id: returnDoc.id,
+          sales_return_id: returnDoc.id,
           product_id: item.productId,
           quantity: item.quantity,
           price: item.price,
@@ -139,6 +215,7 @@ const SalesReturnForm = () => {
       alert('تم حفظ مرتجع المبيعات وتحديث المخزون وإنشاء القيد بنجاح ✅');
       setItems([]);
       setFormData({ ...formData, returnNumber: '', notes: '' });
+      setOriginalInvoiceId(null);
 
     } catch (error: any) {
       alert('خطأ: ' + error.message);
@@ -159,11 +236,35 @@ const SalesReturnForm = () => {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="md:col-span-2 flex items-center justify-start gap-3">
+            <input type="checkbox" className="border-2 border-blue-300 rounded text-blue-600 focus:ring-0 focus:ring-offset-0" id="partialQuantities" checked={returnPartialQuantities} onChange={(e) => setReturnPartialQuantities(e.target.checked)} />
+            <label htmlFor="partialQuantities" className="text-sm font-bold">تحديد الكميات المرتجعة يدوياً</label>
+          </div>
+
+        <div className="md:col-span-2 flex items-end gap-2 mb-2 pb-4 border-b border-slate-100">
+            <div className="flex-1">
+                <label className="block text-sm font-bold mb-1 text-slate-600">جلب من فاتورة سابقة</label>
+                <div className="relative">
+                    <input type="text" className="w-full border rounded-lg p-2 pl-10 bg-slate-50 focus:bg-white transition-colors" placeholder="أدخل رقم الفاتورة (مثال: INV-123456)" value={searchInvoiceNumber} onChange={(e) => setSearchInvoiceNumber(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleFetchInvoice()} />
+                    <Search className="absolute left-3 top-2.5 text-slate-400" size={18} />
+                </div>
+            </div>
+            <button type="button" onClick={handleFetchInvoice} disabled={isSearching} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 h-[42px]">
+                {isSearching ? <Loader2 className="animate-spin" size={18} /> : 'جلب البيانات'}
+            </button>
+        </div>
+
         <div>
           <label className="block text-sm font-bold mb-1">العميل</label>
           <select className="w-full border rounded-lg p-2" value={formData.customerId} onChange={e => setFormData({...formData, customerId: e.target.value})}>
             <option value="">اختر العميل...</option>
             {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-bold mb-1">المستودع (لإرجاع البضاعة)</label>
+          <select className="w-full border rounded-lg p-2" value={formData.warehouseId} onChange={e => setFormData({...formData, warehouseId: e.target.value})}>
+            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </div>
         <div>

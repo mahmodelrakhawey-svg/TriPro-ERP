@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { BarChart3, Calendar, Filter, Download, TrendingUp, Users, Package, UserCheck, Loader2, ShoppingCart } from 'lucide-react';
-import * as XLSX from 'xlsx';
 
 const PurchaseReports = () => {
   const { currentUser } = useAccounting();
@@ -142,6 +142,9 @@ const PurchaseReports = () => {
                 <p className="text-slate-500">تحليل شامل لأداء المشتريات، الموردين، والمنتجات</p>
             </div>
             <div className="flex gap-2">
+                <Link to="/supplier-balances" className="flex items-center gap-2 bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-bold text-sm shadow-sm transition-all">
+                    <Wallet size={16} /> أرصدة الموردين
+                </Link>
                 <button onClick={handleExport} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm">
                     <Download size={16} /> تصدير Excel
                 </button>

@@ -13,7 +13,7 @@ type NewProduct = {
 };
 
 export default function OpeningInventory() {
-  const { currentUser } = useAccounting();
+  const { currentUser, warehouses } = useAccounting();
   const [items, setItems] = useState<NewProduct[]>([
     { id: '1', name: '', sku: '', quantity: 1, cost: 0, price: 0 }
   ]);
@@ -67,6 +67,12 @@ export default function OpeningInventory() {
         throw new Error('أحد الحسابات الأساسية (1105, 3999, 5101, 4101) غير موجود. يرجى مراجعة دليل الحسابات.');
       }
 
+      // تحديد المستودع الافتراضي (أول مستودع متاح)
+      const defaultWarehouseId = warehouses?.[0]?.id;
+      if (!defaultWarehouseId) {
+        throw new Error('لا يوجد مستودعات معرفة في النظام. يرجى إضافة مستودع أولاً.');
+      }
+
       // جلب المؤسسة
       const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
       const orgId = orgData?.id;
@@ -91,8 +97,20 @@ export default function OpeningInventory() {
       });
 
       // 2. إدراج المنتجات في قاعدة البيانات
-      const { error: prodError } = await supabase.from('products').insert(productsToInsert);
+      const { data: newProducts, error: prodError } = await supabase.from('products').insert(productsToInsert).select();
       if (prodError) throw prodError;
+
+      // 2.5 إدراج سجلات في جدول opening_inventories (لضمان بقاء الرصيد عند إعادة الاحتساب)
+      if (newProducts && newProducts.length > 0) {
+        const openingEntries = newProducts.map(p => ({
+            product_id: p.id,
+            warehouse_id: defaultWarehouseId,
+            quantity: p.stock,
+            cost: p.purchase_price
+        }));
+        const { error: openingError } = await supabase.from('opening_inventories').insert(openingEntries);
+        if (openingError) console.error("Failed to save opening inventory records:", openingError);
+      }
 
       // 3. إنشاء القيد الافتتاحي
       if (totalValue > 0) {

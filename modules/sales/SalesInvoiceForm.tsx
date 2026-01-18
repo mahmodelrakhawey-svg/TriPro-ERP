@@ -5,14 +5,17 @@ import {
     Wallet, Search, X, ChevronDown, Check, AlertCircle, Percent,
     CircleDollarSign, Tag, Package, Box, Info, ArrowLeft, ArrowRight,
     ArrowDown, Trash, Calculator, UserCheck, Printer, Barcode, Loader2, CheckCircle
+    , Edit, RefreshCw, FileText
 } from 'lucide-react';
 import { InvoiceItem, AccountType, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
+import { ProductStockViewer } from '../../components/ProductStockViewer';
+import CustomerStatement from './CustomerStatement';
 
 const SalesInvoiceForm = () => {
-  const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, settings, can, currentUser, customers, invoices: contextInvoices } = useAccounting();
+  const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -43,9 +46,17 @@ const SalesInvoiceForm = () => {
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
+  const [newCustomerOpeningBalance, setNewCustomerOpeningBalance] = useState('');
+  const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
+  const [editCustomerData, setEditCustomerData] = useState({ name: '', phone: '' });
   const [saving, setSaving] = useState(false);
   const [customerBalance, setCustomerBalance] = useState(0);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const [activeStockViewer, setActiveStockViewer] = useState<string | null>(null);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
+  const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
 
   // Print State
   const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
@@ -99,37 +110,98 @@ const SalesInvoiceForm = () => {
     if(barcodeInputRef.current) barcodeInputRef.current.focus();
   }, [customers, warehouses, salespeople, treasuryAccounts]);
 
-  // حساب مديونية العميل عند اختياره
+  // تحديث نص البحث عند تغير العميل المختار (مثلاً عند التعديل أو التحميل)
   useEffect(() => {
-    const fetchBalance = async () => {
-        if (!formData.customerId) {
-            setCustomerBalance(0);
-            return;
+    if (formData.customerId) {
+        const selectedCustomer = customers.find(c => c.id === formData.customerId);
+        if (selectedCustomer) {
+            setCustomerSearchTerm(selectedCustomer.name);
         }
+    }
+  }, [formData.customerId, customers]);
 
-        if (currentUser?.role === 'demo') {
-            const bal = contextInvoices
-                .filter(inv => inv.customerId === formData.customerId && inv.status !== 'draft' && inv.status !== 'paid')
-                .reduce((acc, inv) => acc + (inv.totalAmount - (inv.paid_amount || 0)), 0);
-            setCustomerBalance(bal);
-            return;
-        }
-        
-        // جلب الفواتير المرحلة وغير المدفوعة بالكامل
-        const { data } = await supabase
-            .from('invoices')
-            .select('total_amount, paid_amount')
-            .eq('customer_id', formData.customerId)
-            .neq('status', 'draft')
-            .neq('status', 'paid'); 
-        
-        if (data) {
-            const bal = data.reduce((acc, inv) => acc + (inv.total_amount - (inv.paid_amount || 0)), 0);
-            setCustomerBalance(bal);
-        }
-    };
-    fetchBalance();
+  // حساب مديونية العميل عند اختياره
+  const fetchCustomerBalance = async () => {
+      if (!formData.customerId) {
+          setCustomerBalance(0);
+          return;
+      }
+
+      if (currentUser?.role === 'demo') {
+          const bal = contextInvoices
+              .filter(inv => inv.customerId === formData.customerId && inv.status !== 'draft' && inv.status !== 'paid')
+              .reduce((acc, inv) => acc + (inv.totalAmount - (inv.paid_amount || 0)), 0);
+          setCustomerBalance(bal);
+          return;
+      }
+      
+      try {
+          // حساب الرصيد الحقيقي (مطابق لكشف الحساب): فواتير - (سندات + مرتجعات + شيكات)
+          
+          // 1. الفواتير (مدين) - كل الفواتير المرحلة بغض النظر عن حالة الدفع
+          const { data: invoices } = await supabase
+              .from('invoices')
+              .select('total_amount, paid_amount, due_date, status')
+              .eq('customer_id', formData.customerId)
+              .neq('status', 'draft');
+          
+          const totalInvoices = invoices?.reduce((sum, inv) => sum + (inv.total_amount || 0), 0) || 0;
+
+          // 2. المرتجعات (دائن)
+          const { data: returns } = await supabase
+              .from('sales_returns')
+              .select('total_amount')
+              .eq('customer_id', formData.customerId)
+              .eq('status', 'posted');
+          
+          const totalReturns = returns?.reduce((sum, ret) => sum + (ret.total_amount || 0), 0) || 0;
+
+          // 3. سندات القبض (دائن) - استبعاد سندات التأمين DEP
+          const { data: receipts } = await supabase
+              .from('receipt_vouchers')
+              .select('amount')
+              .eq('customer_id', formData.customerId)
+              .not('voucher_number', 'like', 'DEP-%');
+          
+          const totalReceipts = receipts?.reduce((sum, r) => sum + (r.amount || 0), 0) || 0;
+
+          // 4. إشعارات دائنة (دائن)
+          const { data: creditNotes } = await supabase
+              .from('credit_notes')
+              .select('total_amount')
+              .eq('customer_id', formData.customerId);
+
+          const totalCreditNotes = creditNotes?.reduce((sum, cn) => sum + (cn.total_amount || 0), 0) || 0;
+
+          // الرصيد النهائي
+          const balance = totalInvoices - (totalReturns + totalReceipts + totalCreditNotes);
+          setCustomerBalance(balance);
+
+          // التحقق من الفواتير المتأخرة (للتنبيه فقط)
+          const today = new Date().toISOString().split('T')[0];
+          const overdueInvoices = invoices?.filter((inv: any) => inv.status !== 'paid' && inv.due_date && inv.due_date < today && (inv.total_amount - (inv.paid_amount || 0)) > 0) || [];
+          
+          if (overdueInvoices.length > 0) {
+              const overdueTotal = overdueInvoices.reduce((acc, inv) => acc + (inv.total_amount - (inv.paid_amount || 0)), 0);
+              // تأخير التنبيه قليلاً لضمان تحميل الواجهة
+              setTimeout(() => {
+                  alert(`⚠️ تنبيه هام: العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد بإجمالي ${overdueTotal.toLocaleString()}`);
+              }, 500);
+          }
+      } catch (error) {
+          console.error("Error calculating customer balance:", error);
+      }
+  };
+
+  useEffect(() => {
+    fetchCustomerBalance();
   }, [formData.customerId, currentUser, contextInvoices]);
+
+  const handleRefreshBalance = async () => {
+      setIsRefreshingBalance(true);
+      await fetchCustomerBalance();
+      setIsRefreshingBalance(false);
+  };
 
   // Load invoice data if editing
   useEffect(() => {
@@ -290,11 +362,71 @@ const SalesInvoiceForm = () => {
       if(newCustomerName) {
           try {
               const data = await addCustomer({ name: newCustomerName, phone: newCustomerPhone } as any);
+              
+              // معالجة الرصيد الافتتاحي
+              const openingBalance = parseFloat(newCustomerOpeningBalance);
+              if (openingBalance > 0 && data?.id) {
+                  const date = new Date().toISOString().split('T')[0];
+                  const ref = `OB-${data.id.slice(0, 6)}`;
+                  
+                  // 1. إنشاء قيد محاسبي (من ح/ العملاء إلى ح/ الأرصدة الافتتاحية)
+                  const customerAcc = getSystemAccount('CUSTOMERS');
+                  const openingEquityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية')) || accounts.find(a => a.code === '301'); // حقوق الملكية كبديل
+                  
+                  if (customerAcc && openingEquityAcc) {
+                      await addEntry({
+                          date: date,
+                          description: `رصيد افتتاحي للعميل ${newCustomerName}`,
+                          reference: ref,
+                          status: 'posted',
+                          lines: [
+                              { accountId: customerAcc.id, debit: openingBalance, credit: 0, description: `رصيد افتتاحي - ${newCustomerName}` },
+                              { accountId: openingEquityAcc.id, debit: 0, credit: openingBalance, description: `رصيد افتتاحي - ${newCustomerName}` }
+                          ]
+                      });
+                  }
+
+                  // 2. إنشاء سجل في جدول الفواتير (بدون بنود) ليظهر في كشف الحساب والمديونية
+                  // نستخدم حالة 'posted' مباشرة لتظهر في التقارير دون التأثير على المخزون أو المبيعات (لأننا لم نضف بنوداً)
+                  await supabase.from('invoices').insert({
+                      invoice_number: ref,
+                      customer_id: data.id,
+                      invoice_date: date,
+                      total_amount: openingBalance,
+                      subtotal: openingBalance,
+                      status: 'posted',
+                      notes: 'رصيد افتتاحي'
+                  });
+              }
+
               setFormData(prev => ({ ...prev, customerId: data.id })); // اختيار العميل الجديد
               setNewCustomerName('');
               setNewCustomerPhone('');
+              setNewCustomerOpeningBalance('');
               setIsCustomerModalOpen(false);
           } catch (err: any) { alert(err.message); }
+      }
+  };
+
+  const handleEditCustomerClick = () => {
+      const customer = customers.find(c => c.id === formData.customerId);
+      if (customer) {
+          setEditCustomerData({ name: customer.name, phone: customer.phone || '' });
+          setIsEditCustomerModalOpen(true);
+      }
+  };
+
+  const handleUpdateCustomerSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (formData.customerId && editCustomerData.name) {
+          try {
+              await updateCustomer(formData.customerId, { name: editCustomerData.name, phone: editCustomerData.phone });
+              setCustomerSearchTerm(editCustomerData.name);
+              setIsEditCustomerModalOpen(false);
+              alert('تم تحديث بيانات العميل بنجاح');
+          } catch (err: any) {
+              alert(err.message);
+          }
       }
   };
 
@@ -627,28 +759,113 @@ const SalesInvoiceForm = () => {
                             <label className="text-sm font-black text-slate-700 flex items-center gap-2">
                                 <User className="text-blue-500" size={18} /> اختيار العميل
                             </label>
-                            <button 
-                                type="button" 
-                                onClick={() => setIsCustomerModalOpen(true)}
-                                className="text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-blue-100"
-                            >
-                                + عميل جديد
-                            </button>
+                            <div className="flex gap-2">
+                                {formData.customerId && (
+                                    <button 
+                                        type="button" 
+                                        onClick={handleEditCustomerClick}
+                                        className="text-amber-600 hover:bg-amber-50 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-amber-100 flex items-center gap-1"
+                                    >
+                                        <Edit size={14} /> تعديل
+                                    </button>
+                                )}
+                                <button 
+                                    type="button" 
+                                    onClick={() => setIsCustomerModalOpen(true)}
+                                    className="text-blue-600 hover:bg-blue-50 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-blue-100"
+                                >
+                                    + عميل جديد
+                                </button>
+                            </div>
                         </div>
                         <div className="relative group">
-                            <select 
-                                required
-                                value={formData.customerId}
-                                onChange={(e) => setFormData({...formData, customerId: e.target.value})}
-                                className="w-full border-2 border-slate-100 group-hover:border-slate-200 rounded-2xl px-4 py-4 text-lg font-bold focus:outline-none focus:border-blue-500 bg-slate-50 transition-all appearance-none pr-12 shadow-inner"
-                            >
-                                <option value="">اختر العميل...</option>
-                                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                            </select>
-                            <User className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-                            <ChevronDown className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={customerSearchTerm}
+                                    onChange={(e) => {
+                                        setCustomerSearchTerm(e.target.value);
+                                        setShowCustomerDropdown(true);
+                                        if (e.target.value === '') setFormData(prev => ({ ...prev, customerId: '' }));
+                                    }}
+                                    onFocus={() => setShowCustomerDropdown(true)}
+                                    onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
+                                    placeholder="ابحث باسم العميل أو رقم الهاتف..."
+                                    className="w-full border-2 border-slate-100 group-hover:border-slate-200 rounded-2xl px-4 py-4 text-lg font-bold focus:outline-none focus:border-blue-500 bg-slate-50 transition-all pr-12 shadow-inner"
+                                />
+                                <User className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+                                {formData.customerId ? (
+                                    <button 
+                                        type="button"
+                                        onClick={() => {
+                                            setFormData(prev => ({ ...prev, customerId: '' }));
+                                            setCustomerSearchTerm('');
+                                        }}
+                                        className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500"
+                                    >
+                                        <X size={20} />
+                                    </button>
+                                ) : (
+                                    <ChevronDown className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+                                )}
+                            </div>
+
+                            {showCustomerDropdown && (
+                                <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-y-auto animate-in fade-in slide-in-from-top-2">
+                                    {customers.filter(c => 
+                                        c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) ||
+                                        (c.phone && c.phone.includes(customerSearchTerm))
+                                    ).map(c => (
+                                        <div 
+                                            key={c.id}
+                                            onMouseDown={() => {
+                                                setFormData(prev => ({ ...prev, customerId: c.id }));
+                                                setCustomerSearchTerm(c.name);
+                                                setShowCustomerDropdown(false);
+                                            }}
+                                            className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center"
+                                        >
+                                            <div>
+                                                <div className="font-bold text-slate-800">{c.name}</div>
+                                                {c.phone && <div className="text-xs text-slate-500 font-mono">{c.phone}</div>}
+                                            </div>
+                                            {c.id === formData.customerId && <Check size={16} className="text-blue-600" />}
+                                        </div>
+                                    ))}
+                                    {customers.filter(c => c.name.toLowerCase().includes(customerSearchTerm.toLowerCase()) || (c.phone && c.phone.includes(customerSearchTerm))).length === 0 && (
+                                        <div className="p-4 text-center text-slate-500 text-sm">لا توجد نتائج</div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         
+                        {/* Customer Balance & Refresh */}
+                        {formData.customerId && (
+                            <div className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500 px-1 animate-in fade-in">
+                                <span>الرصيد الحالي:</span>
+                                <span className={`font-black ${customerBalance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                    {customerBalance.toLocaleString()}
+                                </span>
+                                <button 
+                                    type="button" 
+                                    onClick={handleRefreshBalance}
+                                    disabled={isRefreshingBalance}
+                                    className="p-1 hover:bg-slate-100 rounded-full text-blue-600 transition-colors disabled:opacity-50"
+                                    title="تحديث الرصيد"
+                                >
+                                    <RefreshCw size={14} className={isRefreshingBalance ? 'animate-spin' : ''} />
+                                </button>
+                                <button 
+                                    type="button" 
+                                    onClick={() => setIsStatementModalOpen(true)}
+                                    className="p-1 hover:bg-slate-100 rounded-full text-purple-600 transition-colors"
+                                    title="عرض كشف حساب"
+                                >
+                                    <FileText size={14} />
+                                </button>
+                            </div>
+                        )}
+
                         {/* تنبيه تجاوز حد الائتمان */}
                         {isOverLimit && (
                             <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-start gap-3 animate-in fade-in slide-in-from-top-2">
@@ -874,10 +1091,15 @@ const SalesInvoiceForm = () => {
                                             <tr key={item.id} className="group hover:bg-slate-50/50 transition-colors">
                                                 <td className="py-4 pr-4">
                                                     <div className="flex items-center gap-3">
-                                                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${isLowStock ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
+                                                        <button 
+                                                            type="button"
+                                                            onClick={() => setActiveStockViewer(activeStockViewer === item.id ? null : item.id)}
+                                                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${isLowStock ? 'bg-red-50 text-red-500 hover:bg-red-100' : 'bg-blue-50 text-blue-500 hover:bg-blue-100'}`}
+                                                            title="عرض تفاصيل المخزون"
+                                                        >
                                                             {isLowStock ? <AlertCircle size={16} /> : <Box size={16} />}
-                                                        </div>
-                                                        <div>
+                                                        </button>
+                                                        <div className="relative">
                                                             <p className="font-bold text-slate-800 text-sm">{item.productName}</p>
                                                             <div className="flex items-center gap-2 mt-0.5">
                                                                 <span className="text-[10px] font-mono text-slate-400">{item.productSku || 'بدون كود'}</span>
@@ -885,6 +1107,13 @@ const SalesInvoiceForm = () => {
                                                                     مخزون: {stock}
                                                                 </span>
                                                             </div>
+                                                            {activeStockViewer === item.id && (
+                                                                <ProductStockViewer 
+                                                                    productId={item.productId} 
+                                                                    currentWarehouseId={formData.warehouseId}
+                                                                    onClose={() => setActiveStockViewer(null)}
+                                                                />
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </td>
@@ -1145,8 +1374,54 @@ const SalesInvoiceForm = () => {
                         <label className="text-xs font-black text-slate-400 pr-2 uppercase">رقم الجوال</label>
                         <input type="text" placeholder="05xxxxxxxx" value={newCustomerPhone} onChange={e => setNewCustomerPhone(e.target.value)} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-500 bg-slate-50 font-bold" />
                       </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">الرصيد الافتتاحي (عليه)</label>
+                        <input type="number" min="0" placeholder="0.00" value={newCustomerOpeningBalance} onChange={e => setNewCustomerOpeningBalance(e.target.value)} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-500 bg-slate-50 font-bold" />
+                      </div>
                       <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all transform active:scale-95">إضافة العميل</button>
                   </form>
+              </div>
+          </div>
+      )}
+
+      {/* Edit Customer Modal */}
+      {isEditCustomerModalOpen && (
+          <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-md">
+              <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-300">
+                  <div className="bg-slate-50 px-8 py-6 border-b border-slate-100 flex justify-between items-center">
+                      <h3 className="font-black text-xl text-slate-800">تعديل بيانات العميل</h3>
+                      <button onClick={() => setIsEditCustomerModalOpen(false)} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors">
+                        <X size={20} />
+                      </button>
+                  </div>
+                  <form onSubmit={handleUpdateCustomerSubmit} className="p-8 space-y-6">
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">اسم العميل بالكامل</label>
+                        <input type="text" required value={editCustomerData.name} onChange={e => setEditCustomerData({...editCustomerData, name: e.target.value})} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-amber-500 bg-slate-50 font-bold" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">رقم الجوال</label>
+                        <input type="text" value={editCustomerData.phone} onChange={e => setEditCustomerData({...editCustomerData, phone: e.target.value})} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-amber-500 bg-slate-50 font-bold" />
+                      </div>
+                      <button type="submit" className="w-full bg-amber-500 text-white py-4 rounded-2xl font-black shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all transform active:scale-95">حفظ التعديلات</button>
+                  </form>
+              </div>
+          </div>
+      )}
+
+      {/* Customer Statement Modal */}
+      {isStatementModalOpen && (
+          <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4 backdrop-blur-md">
+              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
+                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
+                      <h3 className="font-black text-xl text-slate-800">كشف حساب العميل</h3>
+                      <button onClick={() => setIsStatementModalOpen(false)} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors">
+                        <X size={24} />
+                      </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                      <CustomerStatement initialCustomerId={formData.customerId} />
+                  </div>
               </div>
           </div>
       )}

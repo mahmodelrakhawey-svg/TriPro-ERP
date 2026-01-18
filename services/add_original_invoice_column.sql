@@ -1,7 +1,14 @@
--- إضافة عمود رقم الفاتورة الأصلية لجداول الإشعارات
+-- 🛠️ إضافة عمود original_invoice_id لجدول مرتجعات المبيعات
+-- هذا العمود ضروري لربط المرتجع بالفاتورة الأصلية وتمييز المرتجعات الحرة
 
-ALTER TABLE public.credit_notes 
-ADD COLUMN IF NOT EXISTS original_invoice_number text;
-
-ALTER TABLE public.debit_notes 
-ADD COLUMN IF NOT EXISTS original_invoice_number text;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'sales_returns'
+        AND column_name = 'original_invoice_id'
+    ) THEN
+        ALTER TABLE public.sales_returns ADD COLUMN original_invoice_id uuid REFERENCES public.invoices(id) ON DELETE SET NULL;
+    END IF;
+END $$;

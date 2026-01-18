@@ -66,6 +66,12 @@ BEGIN
             JOIN stock_transfers st ON st.id = sti.stock_transfer_id
             WHERE sti.product_id = prod_record.id AND st.to_warehouse_id = wh_record.id AND st.status != 'draft';
 
+            -- 7. رصيد أول المدة (Opening Inventory)
+            -- إضافة الكميات من جدول الأرصدة الافتتاحية إذا وجد
+            SELECT wh_qty + COALESCE(SUM(oi.quantity), 0) INTO wh_qty
+            FROM opening_inventories oi
+            WHERE oi.product_id = prod_record.id AND oi.warehouse_id = wh_record.id;
+
             -- تجميع الإجمالي العام للمنتج
             total_qty := total_qty + wh_qty;
             
