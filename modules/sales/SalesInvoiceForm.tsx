@@ -15,7 +15,7 @@ import { ProductStockViewer } from '../../components/ProductStockViewer';
 import CustomerStatement from './CustomerStatement';
 
 const SalesInvoiceForm = () => {
-  const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices } = useAccounting();
+  const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
 

@@ -1,13 +1,14 @@
 import React from 'react';
-import { Warehouse, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Warehouse, AlertCircle, CheckCircle2, X } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 
 interface ProductStockViewerProps {
   productId: string | null | undefined;
   currentWarehouseId?: string;
+  onClose?: () => void;
 }
 
-export const ProductStockViewer: React.FC<ProductStockViewerProps> = ({ productId, currentWarehouseId }) => {
+export const ProductStockViewer: React.FC<ProductStockViewerProps> = ({ productId, currentWarehouseId, onClose }) => {
   const { products, warehouses } = useAccounting();
   
   if (!productId) return null;
@@ -28,9 +29,14 @@ export const ProductStockViewer: React.FC<ProductStockViewerProps> = ({ productI
         <h4 className="font-bold text-slate-700 flex items-center gap-2 text-sm">
           <Warehouse size={16} className="text-blue-600" /> توزيع المخزون بالمستودعات
         </h4>
-        <span className="bg-slate-200 text-slate-700 px-2 py-1 rounded-md text-xs font-bold">
-          الإجمالي: {totalStock}
-        </span>
+        <div className="flex items-center gap-2">
+            <span className="bg-slate-200 text-slate-700 px-2 py-1 rounded-md text-xs font-bold">
+            الإجمالي: {totalStock}
+            </span>
+            {onClose && (
+                <button onClick={onClose} className="text-slate-400 hover:text-red-500 transition-colors"><X size={16} /></button>
+            )}
+        </div>
       </div>
       
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto pr-1 custom-scrollbar">

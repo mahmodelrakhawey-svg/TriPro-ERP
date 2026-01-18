@@ -59,7 +59,7 @@ const SalesReturnForm = () => {
 
          setTimeout(() => {
 
-          const firstInput = document.querySelector('input[type="number"]');
+          const firstInput = document.querySelector('input[type="number"]') as HTMLInputElement;
           firstInput?.focus();
         }, 100);
 
