@@ -51,6 +51,11 @@ const UserProfile = () => {
   }, []);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (profile?.role === 'demo' || user?.email === 'demo@demo.com') {
+        alert('تغيير الصورة غير متاح في النسخة التجريبية');
+        return;
+    }
+
     if (!e.target.files || e.target.files.length === 0) return;
     
     try {
@@ -79,6 +84,12 @@ const UserProfile = () => {
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (profile?.role === 'demo' || user?.email === 'demo@demo.com') {
+        alert('تم تحديث الملف الشخصي بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)');
+        return;
+    }
+
     setSaving(true);
     try {
       // 1. تحديث بيانات الملف الشخصي (الاسم والصورة)

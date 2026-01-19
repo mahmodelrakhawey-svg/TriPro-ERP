@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2 } from 'lucide-react';
 
 const ACCOUNT_LABELS: Record<string, string> = {
   CASH: 'النقدية (الصندوق الرئيسي)',
@@ -115,6 +115,11 @@ const Settings = () => {
 
   const handleSave = async (e: React.FormEvent) => {
       e.preventDefault();
+      if (currentUserRole === 'demo') {
+          alert("تم حفظ الإعدادات بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)");
+          return;
+      }
+
       try {
         const payload = {
             company_name: formData.companyName,
@@ -150,6 +155,11 @@ const Settings = () => {
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
+
+    if (currentUserRole === 'demo') {
+        alert('تم رفع الشعار بنجاح! لا تنس حفظ الإعدادات. (محاكاة)');
+        return;
+    }
     
     const file = e.target.files[0];
     const fileExt = file.name.split('.').pop();
@@ -200,6 +210,17 @@ const Settings = () => {
   };
 
   const handleResetDemoData = async () => {
+      if (currentUserRole === 'demo') {
+          if (window.confirm("هل أنت متأكد من إعادة ضبط بيانات الديمو؟ (محاكاة)")) {
+              setLoading(true);
+              setTimeout(() => {
+                  alert("تم إعادة ضبط بيانات الديمو بنجاح ✅ (محاكاة)");
+                  setLoading(false);
+                  window.location.reload();
+              }, 1000);
+          }
+          return;
+      }
       if (window.confirm("هل أنت متأكد من إعادة ضبط بيانات الديمو؟\nسيتم مسح جميع الفواتير والقيود والعودة للوضع الافتراضي.")) {
           try {
               setLoading(true);
@@ -229,6 +250,11 @@ const Settings = () => {
   };
 
   const handleCloseYear = async () => {
+      if (currentUserRole === 'demo') {
+          alert("تم إغلاق السنة المالية بنجاح ✅ (محاكاة)");
+          return;
+      }
+
       const confirm1 = window.confirm("هل أنت متأكد من إقفال السنة المالية؟\n\nسيقوم النظام بـ:\n1. ترحيل صافي الربح/الخسارة إلى الأرباح المبقاة.\n2. إنشاء قيد إقفال للمصروفات والإيرادات.\n\nملاحظة: هذا الإجراء محاسبي ولا يقوم بمسح البيانات.");
       if (confirm1) {
           const confirm2 = window.prompt("للتأكيد، يرجى كتابة 'اقفال السنة' في المربع أدناه:");
@@ -249,6 +275,11 @@ const Settings = () => {
   };
 
   const handleCreateMissingAccounts = async () => {
+      if (currentUserRole === 'demo') {
+          alert("تم فحص وإنشاء الحسابات المفقودة بنجاح. ✅ (محاكاة)");
+          return;
+      }
+
       if (!window.confirm('سيقوم النظام بفحص الحسابات المفقودة وإنشائها تلقائياً. هل تريد الاستمرار؟')) return;
       
       setLoading(true);
@@ -263,6 +294,11 @@ const Settings = () => {
   };
 
   const handleFixDatabaseSchema = async () => {
+      if (currentUserRole === 'demo') {
+          alert("تم فحص وإصلاح قاعدة البيانات بنجاح. ✅ (محاكاة)");
+          return;
+      }
+
       if (!window.confirm('سيقوم النظام بفحص وإصلاح هيكل جداول قاعدة البيانات (خاصة المرتجعات). هل تريد الاستمرار؟')) return;
       
       setLoading(true);
@@ -272,6 +308,41 @@ const Settings = () => {
           alert(data || 'تم الفحص بنجاح.');
       } catch (e: any) {
           alert('حدث خطأ أثناء الصيانة: ' + e.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleClearDemoData = async () => {
+      if (currentUserRole === 'demo') {
+          if (!window.confirm('⚠️ تحذير هام جداً: سيتم حذف جميع البيانات التشغيلية (فواتير، منتجات، عملاء)! (محاكاة)')) return;
+          const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه: (محاكاة)');
+          if (confirmation !== 'حذف') {
+              alert('تم إلغاء العملية.');
+              return;
+          }
+          alert('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅ (محاكاة)');
+          window.location.reload();
+          return;
+      }
+
+      if (!window.confirm('⚠️ تحذير هام جداً: سيتم حذف جميع البيانات التشغيلية (فواتير، منتجات، عملاء)!\n\nسيتم الاحتفاظ فقط بالإعدادات ودليل الحسابات.\n\nهل أنت متأكد من رغبتك في تنظيف النظام للبدء الفعلي؟')) return;
+      
+      const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') {
+          alert('تم إلغاء العملية.');
+          return;
+      }
+
+      setLoading(true);
+      try {
+          const { error } = await supabase.rpc('clear_demo_data');
+          if (error) throw error;
+          
+          alert('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅');
+          window.location.reload();
+      } catch (e: any) {
+          alert('حدث خطأ أثناء التنظيف: ' + e.message);
       } finally {
           setLoading(false);
       }
@@ -570,6 +641,24 @@ const Settings = () => {
                                   <Database size={18} /> صيانة وإصلاح قاعدة البيانات
                               </button>
                           </div>
+                      </div>
+
+
+
+                      {/* Clear Demo Data Section */}
+                      <div className="bg-orange-50 border border-orange-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-orange-800 mb-4 flex items-center gap-2">
+                              <RotateCcw size={20} /> تنظيف البيانات التجريبية (بدء التشغيل)
+                          </h3>
+                          <p className="text-sm text-orange-700 mb-6">
+                              استخدم هذا الخيار عند الانتهاء من تجربة النظام والرغبة في البدء الفعلي. سيتم حذف جميع الفواتير، المنتجات، والعملاء، مع الاحتفاظ بالإعدادات ودليل الحسابات.
+                          </p>
+                          <button 
+                            onClick={handleClearDemoData}
+                            className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 font-bold shadow-md transition-all"
+                          >
+                              <Trash2 size={18} /> حذف البيانات التجريبية
+                          </button>
                       </div>
 
                       {/* Data Backup Section */}

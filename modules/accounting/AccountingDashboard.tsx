@@ -32,7 +32,7 @@ import {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
 export default function AccountingDashboard() {
-  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser } = useAccounting();
+  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin } = useAccounting();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -144,6 +144,52 @@ export default function AccountingDashboard() {
     return <div className="flex justify-center items-center h-96"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
   }
 
+  const handleClearTransactions = async () => {
+      if (currentUser?.role === 'demo') {
+          if (window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟ (محاكاة)')) {
+             if (window.confirm('تأكيد نهائي: هل أنت متأكد؟ لا يمكن التراجع عن هذا الإجراء! (محاكاة)')) {
+                 setLoading(true);
+                 setTimeout(() => {
+                     alert('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد. ✅ (محاكاة)');
+                     setLoading(false);
+                     window.location.reload();
+                 }, 1000);
+             }
+          }
+          return;
+      }
+      await clearTransactions();
+  };
+
+  const handleEmptyRecycleBin = async () => {
+      if (currentUser?.role === 'demo') {
+          if (window.confirm('هل أنت متأكد من تفريغ سلة المحذوفات بالكامل؟ (محاكاة)')) {
+             setLoading(true);
+             setTimeout(() => {
+                 alert('تم تفريغ سلة المحذوفات بنجاح ✅ (محاكاة)');
+                 setLoading(false);
+             }, 1000);
+          }
+          return;
+      }
+
+      if (!window.confirm('تحذير: سيتم حذف جميع العناصر الموجودة في سلة المحذوفات نهائياً لجميع الأقسام (العملاء، الموردين، الأصناف...). هل أنت متأكد؟')) return;
+
+      setLoading(true);
+      try {
+          const tables = ['accounts', 'customers', 'suppliers', 'products', 'warehouses', 'assets', 'employees'];
+          for (const table of tables) {
+              await emptyRecycleBin(table);
+          }
+          alert('تم تفريغ سلة المحذوفات بنجاح.');
+      } catch (e: any) {
+          console.error(e);
+          alert('حدث خطأ: ' + e.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto animate-in fade-in space-y-6">
       <div className="flex justify-between items-center">
@@ -152,15 +198,25 @@ export default function AccountingDashboard() {
           <p className="text-slate-500">نظرة عامة على الأداء المالي للسنة الحالية</p>
         </div>
         <div className="flex gap-2">
-            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin') && (
-                <button 
-                    onClick={clearTransactions}
-                    className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 transition-colors shadow-sm font-bold text-sm"
-                    title="حذف جميع العمليات المالية والمخزنية (تصفير النظام)"
-                >
-                    <Trash2 size={16} />
-                    تصفير العمليات
-                </button>
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'demo') && (
+                <>
+                    <button 
+                        onClick={handleClearTransactions}
+                        className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 transition-colors shadow-sm font-bold text-sm"
+                        title="حذف جميع العمليات المالية والمخزنية (تصفير النظام)"
+                    >
+                        <Trash2 size={16} />
+                        تصفير العمليات
+                    </button>
+                    <button 
+                        onClick={handleEmptyRecycleBin}
+                        className="flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-100 transition-colors shadow-sm font-bold text-sm"
+                        title="حذف جميع العناصر في سلة المحذوفات نهائياً"
+                    >
+                        <Trash2 size={16} />
+                        تفريغ السلة
+                    </button>
+                </>
             )}
             <button 
                 onClick={async () => {

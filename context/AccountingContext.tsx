@@ -2357,7 +2357,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   
   // دالة تسجيل الدخول المحدثة
   const login = async (u: string, p: string) => {
-      if (u === 'admin' && p === '123') { setCurrentUser({ id: '00000000-0000-0000-0000-000000000000', name: 'Admin', username: 'admin', role: 'super_admin', isActive: true } as any); return { success: true }; }
+      // 🔒 تم تعطيل الدخول الافتراضي لنسخة الإنتاج
+      // if (u === 'admin' && p === '123') { setCurrentUser({ id: '00000000-0000-0000-0000-000000000000', name: 'Admin', username: 'admin', role: 'super_admin', isActive: true } as any); return { success: true }; }
       
       try {
         const result = await authLogin(u, p);

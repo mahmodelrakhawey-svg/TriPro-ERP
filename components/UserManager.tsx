@@ -96,6 +96,12 @@ const UserManager = () => {
 
   // تحديث دور المستخدم
   const updateUserRole = async (userId: string, newRole: string) => {
+    if (currentUserRole === 'demo') {
+        alert('تم تحديث صلاحيات المستخدم بنجاح (محاكاة)');
+        // تحديث الحالة محلياً فقط للعرض
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole as any } : u));
+        return;
+    }
     if (currentUserRole !== 'super_admin') {
       alert('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط');
       return;
@@ -112,6 +118,11 @@ const UserManager = () => {
 
   // تفعيل/تعطيل المستخدم
   const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
+    if (currentUserRole === 'demo') {
+        alert(`تم ${currentStatus ? 'تعطيل' : 'تفعيل'} المستخدم بنجاح (محاكاة)`);
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !currentStatus } : u));
+        return;
+    }
     if (currentUserRole !== 'super_admin') {
       alert('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط');
       return;
@@ -128,6 +139,11 @@ const UserManager = () => {
 
   // تحديث اسم المستخدم
   const handleNameUpdate = async (userId: string) => {
+    if (currentUserRole === 'demo') {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, full_name: editingName } : u));
+        setEditingUserId(null);
+        return;
+    }
     if (!editingName.trim()) {
         setEditingUserId(null);
         return;
@@ -152,6 +168,18 @@ const UserManager = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
+
+    if (currentUserRole === 'demo') {
+        setTimeout(() => {
+            alert('تم إنشاء المستخدم بنجاح! ✅ (محاكاة)');
+            const fakeUser: UserProfile = { id: `new-demo-${Date.now()}`, email: newUserData.email, full_name: newUserData.fullName, role: newUserData.role as any, is_active: true, created_at: new Date().toISOString() };
+            setUsers(prev => [fakeUser, ...prev]);
+            setIsAddModalOpen(false);
+            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer' });
+            setCreating(false);
+        }, 1000);
+        return;
+    }
 
     try {
       // 1. استخدام دالة التسجيل العامة لإنشاء المستخدم
@@ -192,6 +220,13 @@ const UserManager = () => {
   };
 
   const handleDeleteUser = async (userId: string, userName: string) => {
+    if (currentUserRole === 'demo') {
+        if (window.confirm(`هل أنت متأكد من حذف المستخدم "${userName}"؟ (محاكاة)`)) {
+            setUsers(prev => prev.filter(u => u.id !== userId));
+            alert('تم حذف المستخدم بنجاح (محاكاة).');
+        }
+        return;
+    }
     if (currentUserRole !== 'super_admin') {
       alert('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط');
       return;
@@ -215,6 +250,12 @@ const UserManager = () => {
     e.preventDefault();
     if (!resetPasswordData.newPassword || resetPasswordData.newPassword.length < 6) {
         alert('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+        return;
+    }
+    if (currentUserRole === 'demo') {
+        alert('تم إعادة تعيين كلمة المرور بنجاح ✅ (محاكاة)');
+        setIsResetPasswordModalOpen(false);
+        setResetPasswordData({ userId: '', newPassword: '' });
         return;
     }
     setResetting(true);

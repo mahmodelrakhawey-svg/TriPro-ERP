@@ -4,7 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { Trash2, RotateCcw, AlertTriangle, Loader2, RefreshCw, Archive } from 'lucide-react';
 
 const RecycleBin = () => {
-  const { restoreItem, permanentDeleteItem } = useAccounting();
+  const { restoreItem, permanentDeleteItem, currentUser } = useAccounting();
   const [activeTab, setActiveTab] = useState('accounts');
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,6 +48,14 @@ const RecycleBin = () => {
     const currentTab = tabs.find(t => t.id === activeTab);
     if (!currentTab) return;
     
+    if (currentUser?.role === 'demo') {
+        if (window.confirm('هل أنت متأكد من استعادة هذا العنصر؟ (محاكاة)')) {
+             alert('تم استعادة العنصر بنجاح ✅ (محاكاة)');
+             setItems(prev => prev.filter(item => item.id !== id));
+        }
+        return;
+    }
+
     if (window.confirm('هل أنت متأكد من استعادة هذا العنصر؟')) {
         const result = await restoreItem(currentTab.table, id);
         if (result.success) {
@@ -61,6 +69,14 @@ const RecycleBin = () => {
   const handlePermanentDelete = async (id: string) => {
     const currentTab = tabs.find(t => t.id === activeTab);
     if (!currentTab) return;
+
+    if (currentUser?.role === 'demo') {
+        if (window.confirm('تحذير: هل أنت متأكد من الحذف النهائي؟ لا يمكن التراجع عن هذا الإجراء! (محاكاة)')) {
+             alert('تم الحذف النهائي بنجاح ✅ (محاكاة)');
+             setItems(prev => prev.filter(item => item.id !== id));
+        }
+        return;
+    }
 
     if (window.confirm('تحذير: هل أنت متأكد من الحذف النهائي؟ لا يمكن التراجع عن هذا الإجراء!')) {
         const result = await permanentDeleteItem(currentTab.table, id);

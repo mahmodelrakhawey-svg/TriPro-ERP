@@ -110,6 +110,12 @@ const PermissionsManager = () => {
 
   const handleSave = async () => {
       if (!selectedRoleId) return;
+
+      if (currentUser?.role === 'demo') {
+          alert('تم حفظ الصلاحيات بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)');
+          return;
+      }
+
       setSaving(true);
       try {
           // 1. Delete existing permissions for this role
