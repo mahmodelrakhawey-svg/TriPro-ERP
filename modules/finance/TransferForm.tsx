@@ -17,7 +17,7 @@ const TransferForm = () => {
   // تصفية حسابات النقدية والبنوك (الأصول المتداولة - النقدية وما في حكمها)
   const treasuryAccounts = useMemo(() => accounts.filter(a => 
     !a.isGroup && (
-      a.code.startsWith('101') || 
+      a.code.startsWith('123') || a.code.startsWith('101') || 
       a.name.includes('خزينة') || 
       a.name.includes('نقد') || 
       a.name.includes('بنك') ||

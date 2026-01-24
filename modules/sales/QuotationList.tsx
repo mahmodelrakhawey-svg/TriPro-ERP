@@ -28,11 +28,11 @@ const QuotationList = () => {
     const name = a.name.toLowerCase();
     const code = a.code;
 
-    if (code.startsWith('10201') || code.startsWith('201') || code.startsWith('103')) return false;
+    if (code.startsWith('1221') || code.startsWith('221') || code.startsWith('121') || code.startsWith('10201') || code.startsWith('201') || code.startsWith('103')) return false;
 
     const isAsset = type.includes('asset') || type.includes('أصول') || type === '';
     const hasKeyword = name.includes('نقد') || name.includes('خزينة') || name.includes('بنك') || name.includes('صندوق') || name.includes('cash') || name.includes('bank');
-    const hasCode = code.startsWith('101');
+    const hasCode = code.startsWith('123') || code.startsWith('101');
 
     return isAsset && (hasKeyword || hasCode);
   }), [accounts]);
@@ -142,12 +142,12 @@ const QuotationList = () => {
 
               // 4. إنشاء القيد المحاسبي
               const normalizeCode = (code: string | number) => String(code).trim();
-              const salesAcc = getSystemAccount('SALES_REVENUE') || accounts.find(a => normalizeCode(a.code) === '401');
-              const taxAcc = getSystemAccount('VAT') || accounts.find(a => normalizeCode(a.code) === '202');
-              const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => normalizeCode(a.code) === '10201');
-              const cogsAcc = getSystemAccount('COGS') || accounts.find(a => normalizeCode(a.code) === '501');
-              // التعديل: استخدام حساب مخزون المنتج التام (10302) بدلاً من الرئيسي
-              const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => normalizeCode(a.code) === '10302') || accounts.find(a => normalizeCode(a.code) === '103');
+              const salesAcc = getSystemAccount('SALES_REVENUE') || accounts.find(a => normalizeCode(a.code) === '411' || normalizeCode(a.code) === '401');
+              const taxAcc = getSystemAccount('VAT') || accounts.find(a => normalizeCode(a.code) === '2231' || normalizeCode(a.code) === '202');
+              const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => normalizeCode(a.code) === '1221' || normalizeCode(a.code) === '10201');
+              const cogsAcc = getSystemAccount('COGS') || accounts.find(a => normalizeCode(a.code) === '511' || normalizeCode(a.code) === '501');
+              // التعديل: استخدام حساب مخزون المنتج التام (1213) بدلاً من الرئيسي
+              const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => normalizeCode(a.code) === '1213' || normalizeCode(a.code) === '10302') || accounts.find(a => normalizeCode(a.code) === '103');
 
               if (salesAcc && customerAcc) {
                   // حساب التكلفة

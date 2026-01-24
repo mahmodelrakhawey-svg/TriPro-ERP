@@ -120,8 +120,8 @@ const StockAdjustmentForm = () => {
         });
 
         if (totalValue !== 0) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '10302' || a.code === '103');
-            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => a.code === '510');
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '1213' || a.code === '121');
+            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => a.code === '512');
 
             if (inventoryAcc && adjustmentAcc) {
                 const lines = [];

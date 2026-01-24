@@ -28,7 +28,7 @@ const BankReconciliationForm = () => {
   // تصفية حسابات البنوك (الأصول التي تحتوي على كلمة بنك أو كود يبدأ بـ 102)
   const bankAccounts = useMemo(() => accounts.filter(a => {
     const type = (a.type || '').toUpperCase();
-    return (type === 'ASSET' || type === 'أصول') && (a.name.includes('بنك') || a.name.includes('Bank') || a.code.startsWith('102') || a.code.startsWith('1103'));
+    return (type === 'ASSET' || type === 'أصول') && (a.name.includes('بنك') || a.name.includes('Bank') || a.code.startsWith('1232') || a.code.startsWith('102') || a.code.startsWith('1103'));
   }), [accounts]);
 
   // جلب تاريخ التسويات للحساب المختار
@@ -188,15 +188,15 @@ const BankReconciliationForm = () => {
   const handleCreateAdjustment = async () => {
       if (!selectedAccountId || adjAmount <= 0) return;
       
-      const bankChargesAcc = accounts.find(a => a.code === '5203');
-      const bankInterestAcc = accounts.find(a => a.code === '4202');
+      const bankChargesAcc = accounts.find(a => a.code === '534'); // مصروفات بنكية
+      const bankInterestAcc = accounts.find(a => a.code === '423'); // فوائد بنكية دائنة
 
       if (adjType === 'expense' && !bankChargesAcc) {
-          alert('حساب المصروفات البنكية (5203) غير موجود في الدليل. يرجى تحديث الصفحة.');
+          alert('حساب المصروفات البنكية (534) غير موجود في الدليل. يرجى تحديث الصفحة.');
           return;
       }
       if (adjType === 'income' && !bankInterestAcc) {
-          alert('حساب الفوائد البنكية (4202) غير موجود في الدليل. يرجى تحديث الصفحة.');
+          alert('حساب الفوائد البنكية (423) غير موجود في الدليل. يرجى تحديث الصفحة.');
           return;
       }
 

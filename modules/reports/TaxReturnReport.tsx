@@ -12,10 +12,10 @@ const TaxReturnReport = () => {
 
     const reportData = useMemo(() => {
         // البحث عن حسابات الضريبة
-        // 2103: ضريبة المخرجات (التزام - دائن)
-        const outputVatAcc = accounts.find(a => a.code === '2103');
-        // 1205: ضريبة المدخلات (أصل - مدين)
-        const inputVatAcc = accounts.find(a => a.code === '1205');
+        // 2231: ضريبة المخرجات (التزام - دائن) - الدليل المصري
+        const outputVatAcc = accounts.find(a => a.code === '2231' || a.code === '2103');
+        // 1241: ضريبة المدخلات (أصل - مدين) - الدليل المصري
+        const inputVatAcc = accounts.find(a => a.code === '1241' || a.code === '1205');
 
         if (!outputVatAcc || !inputVatAcc) return null;
 
@@ -59,9 +59,9 @@ const TaxReturnReport = () => {
         if (window.confirm('هل أنت متأكد من إغلاق الفترة الضريبية؟\nسيتم إنشاء قيد تسوية آلي يصفر حسابات الضريبة ويرحل الفرق لحساب التسوية (2105).')) {
             setClosing(true);
             try {
-                let settlementAcc = accounts.find(a => a.code === '2105');
+                let settlementAcc = accounts.find(a => a.code === '2239' || a.code === '2105'); // 2239: تسوية ضرائب (مقترح)
                 if (!settlementAcc) {
-                     alert('لم يتم العثور على حساب "هيئة الزكاة والضريبة (تسوية)" بالكود 2105. يرجى إضافته في دليل الحسابات أولاً.');
+                     alert('لم يتم العثور على حساب تسوية الضرائب (2239 أو 2105). يرجى إضافته في دليل الحسابات أولاً.');
                      setClosing(false);
                      return;
                 }
@@ -188,7 +188,7 @@ const TaxReturnReport = () => {
                     </div>
                 </div>
             ) : (
-                <div className="p-12 text-center bg-white rounded-xl border border-slate-200 text-slate-500">لم يتم العثور على حسابات الضريبة (2103, 1205). يرجى التأكد من دليل الحسابات.</div>
+                <div className="p-12 text-center bg-white rounded-xl border border-slate-200 text-slate-500">لم يتم العثور على حسابات الضريبة (2231, 1241). يرجى التأكد من دليل الحسابات.</div>
             )}
         </div>
     );

@@ -54,7 +54,7 @@ const ReceiptVoucherForm = () => {
         a.name.includes('نقد') ||
         a.name.includes('Cash') ||
         a.name.includes('Bank') ||
-        a.code.startsWith('101')
+        a.code.startsWith('123') || a.code.startsWith('101')
       )
     );
   }, [accounts]);

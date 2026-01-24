@@ -31,34 +31,34 @@ interface FinancialSummary {
 }
 
 export const SYSTEM_ACCOUNTS = {
-  CASH: '10101',
-  CUSTOMERS: '10201',
-  NOTES_RECEIVABLE: '1204',
-  INVENTORY: '103',
-  INVENTORY_RAW_MATERIALS: '10301',
-  INVENTORY_FINISHED_GOODS: '10302',
-  ACCUMULATED_DEPRECIATION: '1399',
-  SUPPLIERS: '201',
-  VAT: '202',
-  VAT_INPUT: '10204', // حساب ضريبة المدخلات (أصول متداولة - تحت العملاء والمدينون)
-  CUSTOMER_DEPOSITS: '203',
-  NOTES_PAYABLE: '2202',
-  SALES_REVENUE: '401',
-  OTHER_REVENUE: '402',
-  SALES_DISCOUNT: '4102',
-  COGS: '501',
-  SALARIES_EXPENSE: '5201',
-  DEPRECIATION_EXPENSE: '5202',
-  INVENTORY_ADJUSTMENTS: '510',
-  RETAINED_EARNINGS: '3103',
-  EMPLOYEE_BONUSES: '511', // حساب إضافي/مكافآت الموظفين (مصروف)
-  EMPLOYEE_DEDUCTIONS: '404', // حساب خصومات/جزاءات الموظفين (إيراد)
-  BANK_CHARGES: '508', // مصروفات بنكية
-  BANK_INTEREST_INCOME: '405', // فوائد بنكية (إيراد)
-  TAX_AUTHORITY: '206', // مصلحة الضرائب المصرية
-  SOCIAL_INSURANCE: '207', // هيئة التأمينات الاجتماعية
-  WITHHOLDING_TAX: '208', // ضريبة الخصم والتحصيل
-  EMPLOYEE_ADVANCES: '10203', // سلف الموظفين
+  CASH: '1231', // النقدية بالصندوق
+  CUSTOMERS: '1221', // العملاء
+  NOTES_RECEIVABLE: '1222', // أوراق القبض
+  INVENTORY: '121', // المخزون (مجموعة)
+  INVENTORY_RAW_MATERIALS: '1211', // خامات
+  INVENTORY_FINISHED_GOODS: '1213', // منتج تام
+  ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
+  SUPPLIERS: '221', // الموردين
+  VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
+  VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
+  CUSTOMER_DEPOSITS: '226', // تأمينات العملاء
+  NOTES_PAYABLE: '222', // أوراق الدفع
+  SALES_REVENUE: '411', // إيراد المبيعات
+  OTHER_REVENUE: '421', // إيرادات متنوعة
+  SALES_DISCOUNT: '413', // خصم مسموح به
+  COGS: '511', // تكلفة البضاعة المباعة
+  SALARIES_EXPENSE: '531', // الرواتب والأجور
+  DEPRECIATION_EXPENSE: '533', // مصروف الإهلاك
+  INVENTORY_ADJUSTMENTS: '512', // تسويات الجرد
+  RETAINED_EARNINGS: '32', // الأرباح المبقاة
+  EMPLOYEE_BONUSES: '5312', // مكافآت وحوافز
+  EMPLOYEE_DEDUCTIONS: '422', // إيراد خصومات وجزاءات
+  BANK_CHARGES: '534', // مصروفات بنكية
+  BANK_INTEREST_INCOME: '423', // فوائد بنكية دائنة
+  TAX_AUTHORITY: '223', // مصلحة الضرائب (التزام)
+  SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
+  WITHHOLDING_TAX: '2232', // ضريبة الخصم والتحصيل
+  EMPLOYEE_ADVANCES: '1223', // سلف الموظفين
 };
 
 // ------------------------------------------------------------------
@@ -1861,17 +1861,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { attachments, ...chequeData } = data;
 
         // 1. التحقق من الحسابات أولاً (قبل الحفظ)
-        const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10202' || a.code === '1204');
-        const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '204' || a.code === '2202');
-        const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '10201' || a.code === '1102');
-        const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '2201');
+        const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '1222' || a.code === '1204');
+        const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '222' || a.code === '2202');
+        const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '1221' || a.code === '10201');
+        const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '221' || a.code === '201');
 
         if (data.type === 'incoming') {
-            if (!notesReceivableAcc) throw new Error('حساب أوراق القبض (10202) غير موجود. يرجى إضافته للدليل المحاسبي.');
-            if (!customerAcc) throw new Error('حساب العملاء (10201) غير موجود.');
+            if (!notesReceivableAcc) throw new Error('حساب أوراق القبض (1222) غير موجود. يرجى إضافته للدليل المحاسبي.');
+            if (!customerAcc) throw new Error('حساب العملاء (1221) غير موجود.');
         } else if (data.type === 'outgoing') {
-            if (!notesPayableAcc) throw new Error('حساب أوراق الدفع (204) غير موجود. يرجى إضافته للدليل المحاسبي.');
-            if (!supplierAcc) throw new Error('حساب الموردين (201) غير موجود.');
+            if (!notesPayableAcc) throw new Error('حساب أوراق الدفع (222) غير موجود. يرجى إضافته للدليل المحاسبي.');
+            if (!supplierAcc) throw new Error('حساب الموردين (221) غير موجود.');
         }
 
         // 2. حفظ الشيك
@@ -1964,12 +1964,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           let notesPayableAcc, notesReceivableAcc;
           
           if (status === 'cashed' && cheque.type === 'outgoing') {
-              notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '2202');
-              if (!notesPayableAcc) throw new Error('حساب أوراق الدفع (204 أو 2202) غير موجود في الدليل المحاسبي.');
+              notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '222' || a.code === '2202');
+              if (!notesPayableAcc) throw new Error('حساب أوراق الدفع (222) غير موجود في الدليل المحاسبي.');
               if (!depositAccountId) throw new Error('يجب تحديد حساب البنك لإتمام عملية الصرف.');
           } else if (status === 'collected' && cheque.type === 'incoming') {
-              notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '1204');
-              if (!notesReceivableAcc) throw new Error('حساب أوراق القبض (10202 أو 1204) غير موجود في الدليل المحاسبي.');
+              notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '1222' || a.code === '1204');
+              if (!notesReceivableAcc) throw new Error('حساب أوراق القبض (1222) غير موجود في الدليل المحاسبي.');
               if (!depositAccountId) throw new Error('يجب تحديد حساب البنك لإتمام عملية التحصيل.');
           }
 
@@ -2012,10 +2012,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
           else if (status === 'rejected') {
               // رفض الشيك (قيد عكسي)
-              const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10202' || a.code === '1204');
-              const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '204' || a.code === '2202');
-              const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '10201' || a.code === '1102');
-              const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '2201');
+              const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '1222' || a.code === '1204');
+              const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '222' || a.code === '2202');
+              const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '1221' || a.code === '10201');
+              const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '221' || a.code === '201');
 
               if (cheque.type === 'incoming') {
                   if (!notesReceivableAcc || !customerAcc) throw new Error('حسابات أوراق القبض أو العملاء غير معرفة');
@@ -2084,7 +2084,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           
           // إذا لم يتم تحديد حساب دائن، نستخدم الأرصدة الافتتاحية كافتراضي
           if (!creditAccountId) {
-              const contra = accounts.find(a => a.code === '3999' || a.code === '3101');
+              const contra = accounts.find(a => a.code === '3999' || a.code === '301' || a.code === '3101');
               creditAccountId = contra?.id;
           }
 

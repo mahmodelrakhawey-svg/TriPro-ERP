@@ -84,11 +84,11 @@ const SalesInvoiceForm = () => {
     const code = a.code;
 
     // استبعاد حسابات العملاء والموردين والمخزون بشكل صريح لتجنب الخطأ
-    if (code.startsWith('10201') || code.startsWith('201') || code.startsWith('103')) return false;
+    if (code.startsWith('1221') || code.startsWith('221') || code.startsWith('121') || code.startsWith('10201') || code.startsWith('201') || code.startsWith('103')) return false;
 
     const isAsset = type.includes('asset') || type.includes('أصول') || type === '';
     const hasKeyword = name.includes('نقد') || name.includes('خزينة') || name.includes('بنك') || name.includes('صندوق') || name.includes('cash') || name.includes('bank');
-    const hasCode = code.startsWith('101'); // 101: النقدية وما في حكمها
+    const hasCode = code.startsWith('123') || code.startsWith('101'); // 123: النقدية وما في حكمها (الدليل المصري)
 
     return isAsset && (hasKeyword || hasCode);
   }), [accounts]);

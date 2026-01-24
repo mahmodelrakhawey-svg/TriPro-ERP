@@ -27,7 +27,7 @@ export default function CashFlowReport() {
     return accounts.filter(acc => 
       !acc.isGroup &&
       (String(acc.type).toLowerCase() === 'asset') &&
-      (acc.name.includes('صندوق') || acc.name.includes('بنك') || acc.name.includes('نقد'))
+      (acc.code.startsWith('123') || acc.name.includes('صندوق') || acc.name.includes('بنك') || acc.name.includes('نقد'))
     );
   }, [accounts]);
 

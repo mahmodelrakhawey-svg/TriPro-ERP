@@ -100,9 +100,9 @@ export const ChequesPage = () => {
     if (custs) setCustomers(custs);
 
     // 3. Fetch Bank Accounts
-    // جلب الحسابات التي تحتوي على كلمة "بنك" أو "Bank" أو تبدأ بالكود 10102 (كود البنوك القياسي)
+    // جلب الحسابات التي تحتوي على كلمة "بنك" أو "Bank" أو تبدأ بالكود 1232 (كود البنوك في الدليل المصري)
     const { data: accounts } = await supabase.from('accounts').select('id, name, code')
-      .or('code.like.10102%,name.ilike.%بنك%,name.ilike.%bank%');
+      .or('code.like.1232%,code.like.10102%,name.ilike.%بنك%,name.ilike.%bank%');
     if (accounts) setBanks(accounts);
     
     setLoading(false);

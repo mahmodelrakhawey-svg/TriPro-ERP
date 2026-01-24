@@ -171,14 +171,14 @@ const SalesReturnForm = () => {
            return accounts?.find(a => nameKeywords.some(k => normalizeText(a.name).includes(k)));
       };
 
-      const salesReturnAcc = getSystemAccount('SALES_REVENUE') || findAccount(['401'], ['مردودات مبيعات', 'sales return']); 
-      const salesAcc = getSystemAccount('SALES_REVENUE') || findAccount(['401'], ['مبيعات', 'sales']);
+      const salesReturnAcc = getSystemAccount('SALES_REVENUE') || findAccount(['412', '401'], ['مردودات مبيعات', 'sales return']); 
+      const salesAcc = getSystemAccount('SALES_REVENUE') || findAccount(['411', '401'], ['مبيعات', 'sales']);
       const targetSalesAcc = salesReturnAcc || salesAcc;
 
-      const taxAcc = getSystemAccount('VAT') || findAccount(['202'], ['ضريبة', 'tax', 'vat']); 
-      const customerAcc = getSystemAccount('CUSTOMERS') || findAccount(['10201'], ['عملاء', 'customer']); 
-      const cogsAcc = getSystemAccount('COGS') || findAccount(['501'], ['تكلفة', 'cogs']);
-      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || findAccount(['10302', '103'], ['مخزون', 'inventory']);
+      const taxAcc = getSystemAccount('VAT') || findAccount(['2231', '202'], ['ضريبة', 'tax', 'vat']); 
+      const customerAcc = getSystemAccount('CUSTOMERS') || findAccount(['1221', '10201'], ['عملاء', 'customer']); 
+      const cogsAcc = getSystemAccount('COGS') || findAccount(['511', '501'], ['تكلفة', 'cogs']);
+      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || findAccount(['1213', '10302', '103'], ['مخزون', 'inventory']);
 
       if (targetSalesAcc && customerAcc) {
         // حساب تكلفة البضاعة المرتجعة

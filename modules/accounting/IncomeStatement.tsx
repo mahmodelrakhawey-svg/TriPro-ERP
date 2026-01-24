@@ -85,7 +85,7 @@ const IncomeStatement = () => {
       const type = (acc.type || '').toLowerCase();
       const isRevenue = type.includes('revenue') || type.includes('إيراد') || acc.code.startsWith('4');
       // تحديد تكلفة البضاعة المباعة (تبدأ بـ 501 أو تحتوي على كلمة تكلفة)
-      const isCogs = acc.code.startsWith('501') || acc.name.includes('تكلفة') || acc.name.toLowerCase().includes('cost');
+      const isCogs = acc.code.startsWith('511') || acc.code.startsWith('501') || acc.name.includes('تكلفة') || acc.name.toLowerCase().includes('cost');
 
       if (isRevenue) {
         // الإيرادات دائنة، لذا الرصيد (مدين - دائن) سيكون سالباً، نعكسه ليظهر موجب

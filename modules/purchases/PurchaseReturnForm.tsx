@@ -115,11 +115,10 @@ const PurchaseReturnForm = () => {
       // Credit: Inventory (103)
       // Credit: VAT Input (10204) - Reversing input tax
 
-      const normalizeCode = (code: string | number) => String(code).trim();
-      const supplierAcc = accounts.find(a => normalizeCode(a.code) === '201');
-      // تصحيح: استخدام حساب مخزون المنتج التام (10302) بدلاً من الحساب الرئيسي (103)
-      const inventoryAcc = accounts.find(a => normalizeCode(a.code) === '10302') || accounts.find(a => normalizeCode(a.code) === '103');
-      const vatInputAcc = accounts.find(a => normalizeCode(a.code) === '10204'); // ضريبة المدخلات
+      // استخدام الحسابات من النظام بدلاً من الأكواد الثابتة
+      const supplierAcc = getSystemAccount('SUPPLIERS');
+      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY');
+      const vatInputAcc = getSystemAccount('VAT_INPUT');
 
       if (supplierAcc && inventoryAcc) {
           const lines = [
@@ -142,7 +141,7 @@ const PurchaseReturnForm = () => {
               lines: lines as any[]
           });
       } else {
-          alert('تنبيه: تم حفظ المرتجع ولكن لم يتم إنشاء القيد لعدم العثور على الحسابات (201, 103, 10204).');
+          alert('تنبيه: تم حفظ المرتجع ولكن لم يتم إنشاء القيد لعدم العثور على الحسابات الأساسية (الموردين، المخزون، الضريبة).');
       }
 
       alert('تم حفظ مرتجع المشتريات وتحديث المخزون وإنشاء القيد بنجاح ✅');

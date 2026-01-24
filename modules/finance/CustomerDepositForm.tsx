@@ -12,7 +12,7 @@ const CustomerDepositForm = () => {
   // تصفية حسابات النقدية والبنوك فقط
   const treasuryAccounts = useMemo(() => accounts.filter(a => 
     !a.isGroup && (
-      a.code.startsWith('101') || 
+      a.code.startsWith('123') || a.code.startsWith('101') || 
       a.name.includes('صندوق') || 
       a.name.includes('خزينة') || 
       a.name.includes('بنك') || 

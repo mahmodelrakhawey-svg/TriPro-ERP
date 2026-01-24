@@ -186,8 +186,8 @@ const InventoryCountList = () => {
 
         // 4. إنشاء القيد المحاسبي (Journal Entry)
         if (Math.abs(totalAdjustmentValue) > 0.01) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '10302' || a.code === '103');
-            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => a.code === '510');
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '1213' || a.code === '121');
+            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => a.code === '512');
 
             if (inventoryAcc && adjustmentAcc) {
                 const lines = [];
@@ -201,7 +201,7 @@ const InventoryCountList = () => {
                 
                 await addEntry({ date: new Date().toISOString().split('T')[0], reference: `ADJ-CNT-${count.count_number}`, description: `تسوية فروقات جرد رقم ${count.count_number}`, status: 'posted', lines: lines });
             } else {
-                alert('تنبيه: تم ترحيل الجرد ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على حسابات المخزون (10302) أو التسويات (510).');
+                alert('تنبيه: تم ترحيل الجرد ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على حسابات المخزون (1213) أو التسويات (512).');
             }
         } else if (adjustmentItems.length > 0) {
             alert('تنبيه: تم ترحيل الجرد وتحديث الكميات، ولكن لم يتم إنشاء قيد محاسبي لأن تكلفة الأصناف المعدلة تساوي صفر.');

@@ -18,7 +18,7 @@ const CashClosingForm = () => {
   const cashAccounts = useMemo(() => {
     return accounts.filter(a => 
       !a.isGroup && 
-      (a.code.startsWith('1101') || a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('Cash'))
+      (a.code.startsWith('123') || a.code.startsWith('1101') || a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('Cash'))
     );
   }, [accounts]);
 
@@ -134,8 +134,8 @@ const CashClosingForm = () => {
       // 🌟 إنشاء قيد تسوية آلي في حال وجود فرق (عجز أو زيادة)
       if (Math.abs(difference) > 0.01) {
         const isOverage = difference > 0;
-        // 4201: إيرادات أخرى (للزيادة)، 5301: فروقات جرد (للعجز)
-        const adjustmentCode = isOverage ? '4201' : '5301';
+        // 421: إيرادات متنوعة (للزيادة)، 512: تسويات الجرد (للعجز)
+        const adjustmentCode = isOverage ? '421' : '512';
         let adjustmentAccount = accounts.find(a => a.code === adjustmentCode);
         
         // محاولة البحث بالاسم في حال عدم تطابق الكود
@@ -165,7 +165,7 @@ const CashClosingForm = () => {
                 lines: lines as any[]
             });
         } else {
-            alert('تنبيه: تم حفظ الإقفال ولكن لم يتم إنشاء قيد التسوية لعدم العثور على حسابات التسوية (5301 أو 4201).');
+            alert('تنبيه: تم حفظ الإقفال ولكن لم يتم إنشاء قيد التسوية لعدم العثور على حسابات التسوية (512 أو 421).');
         }
       }
 

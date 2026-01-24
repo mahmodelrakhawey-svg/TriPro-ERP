@@ -137,20 +137,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [handleAuthChange, fetchUsers]);
 
   const login = async (email: string, password: string) => {
-    // 1. التحقق من المستخدم الافتراضي (Admin Hardcoded)
-    if (email === 'admin' && password === '123') {
-      setCurrentUser({
-        id: '00000000-0000-0000-0000-000000000000',
-        name: 'المدير العام',
-        username: 'admin',
-        role: 'super_admin',
-        is_active: true
-      } as any);
-      setUserRole('super_admin'); // تعيين الدور في الحالة
-      setUserPermissions(new Set(['*.*'])); // منح كافة الصلاحيات
-      return { success: true };
-    }
-
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { success: false, message: error.message };
     return { success: true };

@@ -26,7 +26,7 @@ const PurchaseInvoiceList = () => {
 
   // تصفية حسابات النقدية والبنوك للدفع
   const treasuryAccounts = useMemo(() => {
-    return accounts.filter(a => !a.isGroup && (a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('بنك') || a.type === 'ASSET'));
+    return accounts.filter(a => !a.isGroup && (a.code.startsWith('123') || a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('بنك') || a.type === 'ASSET'));
   }, [accounts]);
 
   const fetchInvoices = async () => {

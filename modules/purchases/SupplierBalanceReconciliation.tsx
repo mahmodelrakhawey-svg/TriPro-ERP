@@ -1,19 +1,20 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAccounting } from '../../context/AccountingContext';
+import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { Scale, AlertTriangle, CheckCircle, Search, Loader2, ArrowRight, RefreshCw, Trash2, Plus, Save, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const SupplierBalanceReconciliation = () => {
-  const { accounts, suppliers } = useAccounting();
+  const { accounts, suppliers, getSystemAccount } = useAccounting();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [glBalance, setGlBalance] = useState(0);
   const [subLedgerBalance, setSubLedgerBalance] = useState(0);
   const [discrepancyEntries, setDiscrepancyEntries] = useState<any[]>([]);
   
-  // تحديد حساب الموردين الرئيسي (عادة 201)
-  const supplierAccountCode = '201';
+  // تحديد حساب الموردين الرئيسي (221 في الدليل المصري)
+  const supplierAcc = getSystemAccount('SUPPLIERS');
+  const supplierAccountCode = supplierAcc ? supplierAcc.code : '221';
 
   // حالة نافذة الإصلاح (إنشاء سند)
   const [fixModalOpen, setFixModalOpen] = useState(false);
@@ -25,7 +26,7 @@ const SupplierBalanceReconciliation = () => {
   });
 
   // تصفية حسابات النقدية والبنوك
-  const treasuryAccounts = useMemo(() => accounts.filter(a => !a.isGroup && (a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('بنك'))), [accounts]);
+  const treasuryAccounts = useMemo(() => accounts.filter(a => !a.isGroup && (a.code.startsWith('123') || a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('بنك'))), [accounts]);
 
   const fetchReconciliation = async () => {
     setLoading(true);

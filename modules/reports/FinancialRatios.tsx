@@ -50,10 +50,10 @@ const FinancialRatios = () => {
         }
 
         // المخزون (103)
-        if (code.startsWith('103') || acc.name.includes('مخزون')) inventory += balance;
+        if (code.startsWith('121') || code.startsWith('103') || acc.name.includes('مخزون')) inventory += balance;
 
         // العملاء (102)
-        if (code.startsWith('102') || acc.name.includes('عملاء')) receivables += balance;
+        if (code.startsWith('122') || code.startsWith('102') || acc.name.includes('عملاء')) receivables += balance;
 
         // حقوق الملكية
         if (code.startsWith('3') || type === 'equity') totalEquity += Math.abs(balance);
@@ -65,7 +65,7 @@ const FinancialRatios = () => {
         if (code.startsWith('5') || type === 'expense') {
             totalExpenses += balance;
             // تكلفة البضاعة (501)
-            if (code.startsWith('501') || acc.name.includes('تكلفة')) cogs += balance;
+            if (code.startsWith('511') || code.startsWith('501') || acc.name.includes('تكلفة')) cogs += balance;
         }
     });
 

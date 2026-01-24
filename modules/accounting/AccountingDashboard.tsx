@@ -95,6 +95,7 @@ export default function AccountingDashboard() {
 
       const cashBalance = accounts
           .filter(a => !a.isGroup && (
+              a.code.startsWith('123') || 
               a.code.startsWith('1101') || 
               a.name.includes('صندوق') || 
               a.name.includes('خزينة') || 

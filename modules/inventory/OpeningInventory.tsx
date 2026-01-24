@@ -51,20 +51,20 @@ export default function OpeningInventory() {
     }
 
     try {
-      // 1. جلب الحسابات اللازمة للقيد (المخزون 1105، الأرصدة الافتتاحية 3999)
+      // 1. جلب الحسابات اللازمة للقيد (المخزون 1213، الأرصدة الافتتاحية 3999)
       // + حسابات الصنف الافتراضية
       const { data: accounts } = await supabase
         .from('accounts')
         .select('id, code')
-        .in('code', ['1105', '3999', '5101', '4101']);
+        .in('code', ['1213', '121', '3999', '511', '411']);
 
-      const inventoryAcc = accounts?.find(a => a.code === '1105');
+      const inventoryAcc = accounts?.find(a => a.code === '1213') || accounts?.find(a => a.code === '121');
       const openingAcc = accounts?.find(a => a.code === '3999');
-      const cogsAcc = accounts?.find(a => a.code === '5101');
-      const salesAcc = accounts?.find(a => a.code === '4101');
+      const cogsAcc = accounts?.find(a => a.code === '511');
+      const salesAcc = accounts?.find(a => a.code === '411');
 
       if (!inventoryAcc || !openingAcc || !cogsAcc || !salesAcc) {
-        throw new Error('أحد الحسابات الأساسية (1105, 3999, 5101, 4101) غير موجود. يرجى مراجعة دليل الحسابات.');
+        throw new Error('أحد الحسابات الأساسية (1213, 3999, 511, 411) غير موجود. يرجى مراجعة دليل الحسابات.');
       }
 
       // تحديد المستودع الافتراضي (أول مستودع متاح)

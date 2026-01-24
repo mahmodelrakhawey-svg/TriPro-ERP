@@ -139,7 +139,8 @@ export default function ChartOfAccounts() {
     const PROTECTED_CODES: string[] = [
       '1', '2', '3', '4', '5', // Main groups
       '101', '102', '11', // Important subgroups
-      '10101', '10201', '103', '201', '202', '401', '403', '501', '502', '507', '510', '302', '10204', '10203', '203', '11201' // System accounts
+      '1231', '1221', '121', '221', '2231', '411', '511', '531', '533', '512', '32', '1241', '1223', '226', '1119', // New Egyptian COA
+      '10101', '10201', '103', '201', '202', '401', '501' // Old codes
     ];
 
     if (PROTECTED_CODES.includes(code)) {

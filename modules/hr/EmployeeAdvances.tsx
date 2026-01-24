@@ -39,7 +39,7 @@ const EmployeeAdvances = () => {
         .from('accounts')
         .select('id, name')
         .ilike('type', '%asset%')
-        .or('name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
+        .or('code.like.123%,code.like.101%,name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
       if (accData) setTreasuryAccounts(accData);
 
     } catch (error: any) {
@@ -80,7 +80,7 @@ const EmployeeAdvances = () => {
       // 2. إنشاء القيد المحاسبي
       // من ح/ سلف العاملين (10203)
       // إلى ح/ الصندوق أو البنك
-      const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1208');
+      const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
 
       if (advancesAcc) {
           await addEntry({
@@ -94,7 +94,7 @@ const EmployeeAdvances = () => {
             ]
           });
       } else {
-          alert('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (10203).');
+          alert('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (1223).');
       }
       
       alert('تم حفظ السلفة وترحيل القيد بنجاح ✅');

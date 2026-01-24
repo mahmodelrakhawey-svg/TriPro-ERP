@@ -45,7 +45,7 @@ const ExpenseVoucherForm = () => {
     
     const isAsset = type.includes('asset') || type.includes('أصول') || type === '';
     const hasKeyword = name.includes('نقد') || name.includes('خزينة') || name.includes('بنك') || name.includes('صندوق') || name.includes('cash') || name.includes('bank');
-    const hasCode = code.startsWith('101');
+    const hasCode = code.startsWith('123') || code.startsWith('101');
 
     return isAsset && (hasKeyword || hasCode);
   }), [accounts]);

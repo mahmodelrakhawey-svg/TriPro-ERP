@@ -136,10 +136,10 @@ const ProductManager = () => {
     } else {
       setEditingId(null);
       // تعيين قيم افتراضية للحسابات إذا وجدت لتسهيل الإدخال
-      // التعديل: البحث عن حساب "مخزون المنتج التام" (10302) أولاً، ثم الرئيسي (103)
-      const defaultInventory = accounts.assets.find(a => a.code === '10302')?.id || accounts.assets.find(a => a.code === '103')?.id || '';
-      const defaultCogs = accounts.expenses.find(a => a.code === '5101')?.id || '';
-      const defaultSales = accounts.revenue.find(a => a.code === '4101')?.id || '';
+      // التعديل: البحث عن حساب "مخزون المنتج التام" (1213) أولاً، ثم الرئيسي (121)
+      const defaultInventory = accounts.assets.find(a => a.code === '1213')?.id || accounts.assets.find(a => a.code === '121')?.id || '';
+      const defaultCogs = accounts.expenses.find(a => a.code === '511')?.id || '';
+      const defaultSales = accounts.revenue.find(a => a.code === '411')?.id || '';
 
       setFormData({ 
         name: '', 

@@ -30,7 +30,7 @@ const PayrollRun = () => {
         .from('accounts')
         .select('id, name')
         .ilike('type', '%asset%')
-        .or('name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
+        .or('code.like.123%,code.like.101%,name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
       if (data) setTreasuryAccounts(data);
     };
     fetchTreasuries();
