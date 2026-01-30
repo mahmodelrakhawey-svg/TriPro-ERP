@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -6,7 +6,7 @@ import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package } from 'luc
 
 const StockAdjustmentForm = () => {
   const location = useLocation();
-  const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount } = useAccounting();
+  const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, currentUser } = useAccounting();
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [reason, setReason] = useState('');
@@ -91,7 +91,8 @@ const StockAdjustmentForm = () => {
             adjustment_date: date,
             reason: reason,
             adjustment_number: adjustmentNumber,
-            status: 'posted' // Direct posting for simplicity, or draft
+            status: 'posted', // Direct posting for simplicity, or draft
+            created_by: currentUser?.id
         }).select().single();
 
         if (headerError) throw headerError;

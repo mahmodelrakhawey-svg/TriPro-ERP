@@ -9,7 +9,7 @@ import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const PurchaseInvoiceForm = () => {
-  const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can } = useAccounting();
+  const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -163,7 +163,8 @@ const PurchaseInvoiceForm = () => {
         notes: formData.notes,
         status: 'draft',
         currency: formData.currency,
-        exchange_rate: formData.exchangeRate
+        exchange_rate: formData.exchangeRate,
+        created_by: currentUser?.id
       };
 
       let invoiceId = editingId;

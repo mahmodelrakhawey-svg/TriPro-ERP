@@ -240,6 +240,104 @@ const DetailedStockMovementReport = () => {
         });
       });
 
+      // 7. التحويلات المخزنية (Stock Transfers)
+      let transfersQuery = supabase
+        .from('stock_transfer_items')
+        .select('quantity, product_id, products(name), stock_transfers!inner(transfer_number, transfer_date, from_warehouse_id, to_warehouse_id, status, notes)')
+        .eq('stock_transfers.status', 'posted')
+        .gte('stock_transfers.transfer_date', startDate)
+        .lte('stock_transfers.transfer_date', endDate);
+
+      if (selectedProduct) transfersQuery = transfersQuery.eq('product_id', selectedProduct);
+      
+      const { data: transfers } = await transfersQuery;
+      const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
+
+      transfers?.forEach((item: any) => {
+          const t = item.stock_transfers;
+          
+          // إذا تم تحديد مستودع، نعرض الحركة الخاصة به فقط
+          if (selectedWarehouse) {
+              if (t.from_warehouse_id === selectedWarehouse) {
+                  allMovements.push({
+                      id: `TRN-OUT-${t.transfer_number}-${item.product_id}`,
+                      date: t.transfer_date,
+                      type: 'OUT',
+                      docType: 'تحويل صادر',
+                      docNumber: t.transfer_number,
+                      productName: item.products?.name,
+                      quantity: item.quantity,
+                      warehouseName: getWName(t.from_warehouse_id),
+                      notes: `إلى: ${getWName(t.to_warehouse_id)} - ${t.notes || ''}`
+                  });
+              } else if (t.to_warehouse_id === selectedWarehouse) {
+                  allMovements.push({
+                      id: `TRN-IN-${t.transfer_number}-${item.product_id}`,
+                      date: t.transfer_date,
+                      type: 'IN',
+                      docType: 'تحويل وارد',
+                      docNumber: t.transfer_number,
+                      productName: item.products?.name,
+                      quantity: item.quantity,
+                      warehouseName: getWName(t.to_warehouse_id),
+                      notes: `من: ${getWName(t.from_warehouse_id)} - ${t.notes || ''}`
+                  });
+              }
+          } else {
+              // عرض عام (بدون فلتر مستودع): نعرض التحويل كحركتين (أو حركة واحدة توضيحية)
+              // الأفضل عرضها كحركة "نقل" ولكن الهيكل الحالي يدعم IN/OUT.
+              // سنعرضها كحركة OUT من المصدر وحركة IN للمستلم ليكون التقرير دقيقاً وتفصيلياً
+              allMovements.push({
+                  id: `TRN-OUT-${t.transfer_number}-${item.product_id}`,
+                  date: t.transfer_date,
+                  type: 'OUT',
+                  docType: 'تحويل صادر',
+                  docNumber: t.transfer_number,
+                  productName: item.products?.name,
+                  quantity: item.quantity,
+                  warehouseName: getWName(t.from_warehouse_id),
+                  notes: `إلى: ${getWName(t.to_warehouse_id)}`
+              });
+              allMovements.push({
+                  id: `TRN-IN-${t.transfer_number}-${item.product_id}`,
+                  date: t.transfer_date,
+                  type: 'IN',
+                  docType: 'تحويل وارد',
+                  docNumber: t.transfer_number,
+                  productName: item.products?.name,
+                  quantity: item.quantity,
+                  warehouseName: getWName(t.to_warehouse_id),
+                  notes: `من: ${getWName(t.from_warehouse_id)}`
+              });
+          }
+      });
+
+      // 8. رصيد أول المدة (Opening Inventory)
+      let openingQuery = supabase
+        .from('opening_inventories')
+        .select('quantity, product_id, products(name), warehouse_id, created_at')
+        // ملاحظة: تاريخ الإنشاء هو تاريخ الحركة هنا تقريباً
+        .gte('created_at', `${startDate}T00:00:00`)
+        .lte('created_at', `${endDate}T23:59:59`);
+
+      if (selectedProduct) openingQuery = openingQuery.eq('product_id', selectedProduct);
+      if (selectedWarehouse) openingQuery = openingQuery.eq('warehouse_id', selectedWarehouse);
+
+      const { data: opening } = await openingQuery;
+      opening?.forEach((item: any) => {
+          allMovements.push({
+              id: `OPEN-${item.product_id}-${item.created_at}`,
+              date: item.created_at.split('T')[0],
+              type: 'IN',
+              docType: 'رصيد افتتاحي',
+              docNumber: '-',
+              productName: item.products?.name,
+              quantity: item.quantity,
+              warehouseName: getWName(item.warehouse_id),
+              notes: 'بضاعة أول المدة'
+          });
+      });
+
       // ترتيب الحركات حسب التاريخ
       allMovements.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       setMovements(allMovements);

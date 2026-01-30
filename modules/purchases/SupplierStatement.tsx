@@ -45,7 +45,7 @@ const SupplierStatement = () => {
     try {
         // 1. جلب الفواتير (دائن - تزيد الرصيد)
         const { data: invoices } = await supabase.from('purchase_invoices')
-            .select('id, invoice_number, invoice_date, total_amount, notes')
+            .select('id, invoice_number, invoice_date, total_amount, paid_amount, notes')
             .eq('supplier_id', selectedSupplierId)
             .neq('status', 'draft'); // فقط الفواتير المرحلة
 
@@ -76,10 +76,19 @@ const SupplierStatement = () => {
         // تجميع كل الحركات
         let allTrans: any[] = [];
 
-        invoices?.forEach(inv => allTrans.push({
-            date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مشتريات', 
-            credit: inv.total_amount, debit: 0 
-        }));
+        invoices?.forEach(inv => {
+            allTrans.push({
+                date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مشتريات', 
+                credit: inv.total_amount, debit: 0 
+            });
+            // إضافة سطر سداد إذا كان هناك مبلغ مدفوع مقدماً في الفاتورة
+            if (inv.paid_amount && inv.paid_amount > 0) {
+                allTrans.push({
+                    date: inv.invoice_date, type: 'payment', ref: inv.invoice_number, desc: 'دفعة مقدمة مع الفاتورة', 
+                    credit: 0, debit: inv.paid_amount 
+                });
+            }
+        });
 
         returns?.forEach(ret => allTrans.push({
             date: ret.return_date, type: 'return', ref: ret.return_number, desc: 'مرتجع مشتريات', 

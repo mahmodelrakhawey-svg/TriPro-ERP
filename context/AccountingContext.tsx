@@ -51,7 +51,7 @@ export const SYSTEM_ACCOUNTS = {
   DEPRECIATION_EXPENSE: '5202',
   INVENTORY_ADJUSTMENTS: '510',
   RETAINED_EARNINGS: '3103',
-  EMPLOYEE_BONUSES: '511', // حساب إضافي/مكافآت الموظفين (مصروف)
+  EMPLOYEE_BONUSES: '5312', // حساب إضافي/مكافآت الموظفين (مصروف)
   EMPLOYEE_DEDUCTIONS: '404', // حساب خصومات/جزاءات الموظفين (إيراد)
   BANK_CHARGES: '508', // مصروفات بنكية
   BANK_INTEREST_INCOME: '405', // فوائد بنكية (إيراد)
@@ -377,8 +377,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const fetchData = async () => {
     setIsLoading(true);
     // التحقق من هوية المستخدم (لإخفاء التكلفة عن الديمو)
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+    // معالجة خطأ التوكن غير الصالح (يحدث عند مسح قاعدة البيانات أو انتهاء الجلسة)
+    if (sessionError && (sessionError.message.includes('Refresh Token') || sessionError.status === 400)) {
+        console.warn("Invalid session detected, signing out...", sessionError);
+        await supabase.auth.signOut();
+        setIsLoading(false);
+        return;
+    }
+
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === 'demo@demo.com' || session?.user?.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005';
+    // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
+    const shouldFetchProtected = !!session;
 
     // محاولة استرجاع البيانات من التخزين المؤقت أولاً
     const cachedAccounts = localStorage.getItem('cached_accounts');
@@ -422,24 +433,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: depreciationData },
         { data: allBalances } // جلب أرصدة جميع الحسابات من السيرفر
       ] = await Promise.all([
-        supabase.from('warehouses').select('*').is('deleted_at', null),
+        shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         supabase.from('company_settings').select('*').limit(1).single(),
-        supabase.from('accounts').select('*').is('deleted_at', null),
-        supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(100),
-        supabase.from('customers').select('*').is('deleted_at', null),
-        supabase.from('suppliers').select('*').is('deleted_at', null),
-        supabase.from('products').select('*').is('deleted_at', null),
-        supabase.from('cheques').select('*'),
-        supabase.from('assets').select('*').is('deleted_at', null),
-        supabase.from('employees').select('*').is('deleted_at', null),
-        supabase.from('profiles').select('*'),
-        supabase.from('invoices').select('*').order('invoice_date', { ascending: false }).limit(50),
-        supabase.from('purchase_invoices').select('*').order('invoice_date', { ascending: false }).limit(50),
-        supabase.from('receipt_vouchers').select('*').order('receipt_date', { ascending: false }).limit(50),
-        supabase.from('payment_vouchers').select('*').order('payment_date', { ascending: false }).limit(50),
-        supabase.from('notifications').select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20),
-        supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('related_document_type', 'asset_depreciation').eq('status', 'posted'),
-        supabase.rpc('get_all_account_balances')
+        shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(100) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('customers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('suppliers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('products').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('cheques').select('*') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('assets').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('employees').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('profiles').select('*') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('invoices').select('*').order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('purchase_invoices').select('*').order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('payment_vouchers').select('*').order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('notifications').select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null })
       ]);
 
       // 1. معالجة المستودعات
@@ -485,6 +496,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       if (accError) {
           console.error("Error fetching accounts:", accError);
+          // معالجة خطأ انتهاء الجلسة (401 Unauthorized / JWT Expired)
+          // تم توسيع الشرط ليشمل رسائل Unauthorized
+          if (accError.code === 'PGRST301' || accError.message?.includes('JWT') || accError.code === '401' || accError.message?.includes('Unauthorized')) {
+              console.warn("Session expired (401), signing out...");
+              await supabase.auth.signOut();
+              localStorage.clear(); // تنظيف كامل للذاكرة المحلية لإزالة الجلسة الفاسدة
+              window.location.reload();
+              return;
+          }
           // Database seeding is now handled by SQL script
       }
 
@@ -614,7 +634,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         setAccounts(accountsWithBalances);
         localStorage.setItem('cached_accounts', JSON.stringify(accs)); // تحديث الكاش
-      } else if (!accError && (!accs || accs.length === 0)) {
+      } else if (shouldFetchProtected && !accError && (!accs || accs.length === 0)) {
         console.error("Chart of Accounts is empty. Please run the setup SQL script on your database.");
       }
 
@@ -1608,7 +1628,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             transfer_date: data.date,
             transfer_number: transferNumber,
             notes: data.notes,
-            status: 'posted'
+            status: 'posted',
+            created_by: currentUser?.id
         }).select().single();
 
         if (headerError) throw headerError;
