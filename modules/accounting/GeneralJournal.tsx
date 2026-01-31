@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -51,11 +51,63 @@ const GeneralJournal = () => {
 
   const fetchEntries = async () => {
       setLoading(true);
-      const { data, count } = await getJournalEntriesPaginated(page, ITEMS_PER_PAGE, searchTerm, selectedUser);
-      setJournalEntries(data);
-      setTotalCount(count);
-      setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
-      setLoading(false);
+      try {
+        let query = supabase
+          .from('journal_entries')
+          .select(`
+            *,
+            journal_lines (
+              id,
+              debit,
+              credit,
+              description,
+              account_id,
+              accounts (
+                id,
+                code,
+                name
+              )
+            ),
+            journal_attachments (
+              id,
+              file_name,
+              file_path
+            )
+          `, { count: 'exact' });
+
+        if (searchTerm) {
+            query = query.or(`description.ilike.%${searchTerm}%,reference.ilike.%${searchTerm}%`);
+        }
+
+        if (selectedUser) {
+            query = query.eq('user_id', selectedUser);
+        }
+
+        const { data, count, error } = await query
+            .order('transaction_date', { ascending: false })
+            .order('created_at', { ascending: false })
+            .range((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE - 1);
+
+        if (error) throw error;
+
+        const formattedData = (data || []).map((entry: any) => {
+            const rawLines = entry.journal_lines || [];
+            const normalizedLines = rawLines.map((line: any) => ({
+                ...line,
+                accountName: line.accounts?.name || 'حساب غير معروف',
+                accountCode: line.accounts?.code || '',
+            }));
+            return { ...entry, lines: normalizedLines };
+        });
+
+        setJournalEntries(formattedData);
+        setTotalCount(count || 0);
+        setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
+      } catch (error) {
+          console.error('Error fetching entries:', error);
+      } finally {
+          setLoading(false);
+      }
   };
 
   useEffect(() => {
@@ -269,8 +321,6 @@ const GeneralJournal = () => {
               const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
               const source = getEntrySource(entry.reference || '');
 
-              if (!isBalanced && entry.status === 'posted') {
-              }
               return (
             <div key={entry.id} className="border border-slate-200 rounded-lg overflow-hidden">
                 <div className="bg-slate-50 p-3 flex justify-between items-center text-sm gap-4">
@@ -330,6 +380,11 @@ const GeneralJournal = () => {
                     <span className="font-bold">البيان:</span> {entry.description}
                 </div>
                 <div className="p-3 text-sm font-bold text-slate-800 border-b border-slate-100 bg-slate-50/50">قيمة القيد: {totalDebit.toLocaleString()}</div>
+                {(entry.lines || []).length === 0 ? (
+                    <div className="p-4 text-center text-red-500 bg-red-50 text-sm font-bold border-b border-slate-100">
+                        ⚠️ تنبيه: هذا القيد لا يحتوي على تفاصيل (أسطر). قد يكون ناتجاً عن خطأ سابق في الحفظ أو بيانات تالفة.
+                    </div>
+                ) : (
                 <table className="w-full text-sm text-right">
                 <thead className="bg-slate-100 text-slate-500">
                     <tr>
@@ -348,6 +403,7 @@ const GeneralJournal = () => {
                     ))}
                 </tbody>
                 </table>
+                )}
 
                 {/* Attachments Section */}
                 {entry.journal_attachments && entry.journal_attachments.length > 0 && (

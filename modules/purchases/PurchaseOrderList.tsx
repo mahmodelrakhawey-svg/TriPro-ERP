@@ -122,6 +122,7 @@ const PurchaseOrderList = () => {
     setIsModalOpen(false);
     setSelectedOrder(null);
     fetchOrders();
+    alert('تم إنشاء فاتورة المشتريات كمسودة. يرجى الذهاب إلى "فواتير المشتريات" لمراجعتها وترحيلها لإنشاء القيد المحاسبي.');
   };
 
   const handleDelete = async (id: string) => {
@@ -392,8 +393,12 @@ const PurchaseOrderList = () => {
                   ))}
                 </tbody>
                 <tfoot className="font-bold">
-                  <tr><td colSpan={5} className="p-2 text-left">الإجمالي قبل الضريبة:</td><td className="p-2">{orderToPrint.subtotal?.toLocaleString()}</td></tr>
-                  <tr><td colSpan={5} className="p-2 text-left">الضريبة:</td><td className="p-2">{orderToPrint.tax_amount?.toLocaleString()}</td></tr>
+                  {settings.enableTax && (
+                    <>
+                      <tr><td colSpan={5} className="p-2 text-left">الإجمالي قبل الضريبة:</td><td className="p-2">{orderToPrint.subtotal?.toLocaleString()}</td></tr>
+                      <tr><td colSpan={5} className="p-2 text-left">الضريبة:</td><td className="p-2">{orderToPrint.tax_amount?.toLocaleString()}</td></tr>
+                    </>
+                  )}
                   <tr className="bg-slate-100 text-lg border-t-2 border-black"><td colSpan={5} className="p-2 text-left">الإجمالي النهائي:</td><td className="p-2">{orderToPrint.total_amount?.toLocaleString()}</td></tr>
                 </tfoot>
               </table>

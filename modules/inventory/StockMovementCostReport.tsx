@@ -367,6 +367,9 @@ const StockMovementCostReport = () => {
                 {loading ? <Loader2 className="animate-spin" /> : <Filter size={18} />} عرض التقرير
             </button>
         </div>
+        <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2">
+            * ملاحظة: "رصيد ما قبل الفترة" يشمل جميع الحركات (فواتير، أرصدة افتتاحية، تسويات) التي تاريخها يسبق "من تاريخ" المحدد أعلاه.
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -385,7 +388,7 @@ const StockMovementCostReport = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
                 <tr className="bg-purple-50/50 font-bold text-slate-700">
-                    <td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4">الرصيد الافتراضي</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center font-mono" dir="ltr">{openingBalance}</td>
+                    <td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4">رصيد ما قبل الفترة (افتتاحي)</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center font-mono" dir="ltr">{openingBalance}</td>
                 </tr>
                 {movements.map((mov) => (
                     <tr key={mov.id} className="hover:bg-slate-50 transition-colors">

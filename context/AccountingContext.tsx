@@ -2859,7 +2859,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             'receipt_vouchers', 'payment_vouchers', 'invoices', 'purchase_invoices', 
             'sales_returns', 'purchase_returns', 'quotations', 'purchase_orders', 
             'credit_notes', 'debit_notes', 'stock_transfers', 'stock_adjustments', 
-            'inventory_counts', 'cheques', 'assets'
+            'inventory_counts', 'cheques', 'assets', 'opening_inventories', 'work_orders'
         ];
         for (const table of documentTables) {
             const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');

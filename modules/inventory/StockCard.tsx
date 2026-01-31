@@ -1,8 +1,8 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle } from 'lucide-react';
+import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -39,6 +39,7 @@ const StockCard = () => {
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
   const [openingFormData, setOpeningFormData] = useState({ warehouseId: '', quantity: 0, cost: 0 });
+  const [existingOpeningId, setExistingOpeningId] = useState<string | null>(null);
   
   // جلب الحركات عند تغيير الصنف أو المستودع
   useEffect(() => {
@@ -411,6 +412,27 @@ const StockCard = () => {
     }
   };
 
+  const handleDeleteOpeningBalance = async () => {
+      if (!existingOpeningId) return;
+      if (!window.confirm('هل أنت متأكد من حذف رصيد أول المدة لهذا الصنف؟')) return;
+
+      setLoading(true);
+      try {
+          const { error } = await supabase.from('opening_inventories').delete().eq('id', existingOpeningId);
+          if (error) throw error;
+
+          await recalculateStock();
+          await refreshData();
+          await fetchTransactions();
+          setIsOpeningModalOpen(false);
+          alert('تم حذف رصيد أول المدة بنجاح');
+      } catch (error: any) {
+          alert('خطأ: ' + error.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
   // دالة حفظ رصيد أول المدة
   const handleSaveOpeningBalance = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -453,6 +475,29 @@ const StockCard = () => {
           setLoading(false);
       }
   };
+
+  // عند فتح نافذة الرصيد الافتتاحي، نحاول جلب الرصيد الحالي
+  useEffect(() => {
+      if (isOpeningModalOpen && selectedProductId && openingFormData.warehouseId) {
+          const fetchExisting = async () => {
+              const { data } = await supabase
+                  .from('opening_inventories')
+                  .select('id, quantity, cost')
+                  .eq('product_id', selectedProductId)
+                  .eq('warehouse_id', openingFormData.warehouseId)
+                  .maybeSingle();
+              
+              if (data) {
+                  setOpeningFormData(prev => ({ ...prev, quantity: data.quantity, cost: data.cost || 0 }));
+                  setExistingOpeningId(data.id);
+              } else {
+                  setExistingOpeningId(null);
+                  // لا نصفر الكمية هنا لنسمح للمستخدم بإدخال جديد بسهولة
+              }
+          };
+          fetchExisting();
+      }
+  }, [isOpeningModalOpen, selectedProductId, openingFormData.warehouseId]);
 
   const priceChartData = useMemo(() => {
       return [...priceHistory].reverse().map(log => ({
@@ -851,9 +896,16 @@ const StockCard = () => {
                         <label className="block text-sm font-bold text-slate-700 mb-1">تكلفة الوحدة</label>
                         <input type="number" required min="0" step="0.01" value={openingFormData.cost} onChange={e => setOpeningFormData({...openingFormData, cost: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5" />
                     </div>
-                    <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mt-2">
-                        {loading ? <Loader2 className="animate-spin mx-auto" /> : 'حفظ وتحديث الرصيد'}
-                    </button>
+                    <div className="flex gap-2 mt-4">
+                        <button type="submit" disabled={loading} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">
+                            {loading ? <Loader2 className="animate-spin mx-auto" /> : 'حفظ وتحديث'}
+                        </button>
+                        {existingOpeningId && (
+                            <button type="button" onClick={handleDeleteOpeningBalance} disabled={loading} className="bg-red-50 text-red-600 px-4 py-3 rounded-lg font-bold hover:bg-red-100 border border-red-200" title="حذف الرصيد الافتتاحي">
+                                <Trash2 size={20} />
+                            </button>
+                        )}
+                    </div>
                 </form>
             </div>
         </div>

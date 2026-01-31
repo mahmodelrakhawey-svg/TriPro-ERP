@@ -8,7 +8,7 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const QuotationList = () => {
-  const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser } = useAccounting();
+  const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser, settings } = useAccounting();
   const [quotations, setQuotations] = useState<any[]>([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [convertModalOpen, setConvertModalOpen] = useState(false);
@@ -264,7 +264,11 @@ const QuotationList = () => {
                         <tbody>
                             ${items.map((item: any) => `<tr><td>${item.products?.name || 'منتج'}</td><td>${item.quantity}</td><td>${item.unit_price.toLocaleString()}</td><td>${item.total.toLocaleString()}</td></tr>`).join('')}
                         </tbody>
-                        <tfoot><tr><td colspan="3"><strong>الإجمالي</strong></td><td><strong>${quote.totalAmount.toLocaleString()}</strong></td></tr></tfoot>
+                        <tfoot>
+                            ${settings.enableTax ? `<tr><td colspan="3">الإجمالي قبل الضريبة</td><td>${(quote.subtotal || (quote.totalAmount - quote.taxAmount)).toLocaleString()}</td></tr>
+                            <tr><td colspan="3">الضريبة</td><td>${quote.taxAmount.toLocaleString()}</td></tr>` : ''}
+                            <tr><td colspan="3"><strong>الإجمالي النهائي</strong></td><td><strong>${quote.totalAmount.toLocaleString()}</strong></td></tr>
+                        </tfoot>
                     </table>
                     <div class="footer"><p>شكراً لتعاملكم معنا</p></div>
                     <script>window.onload = function() { window.print(); }</script>
