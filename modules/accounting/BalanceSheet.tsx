@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { useToastNotification } from '../../utils/toastUtils';
 import { Landmark, Filter, Printer, Loader2, AlertTriangle, CheckCircle, Download, Search, RefreshCw } from 'lucide-react';
 
 type Account = {
@@ -17,6 +18,7 @@ type BalanceRow = {
 
 const BalanceSheet = () => {
   const { accounts, currentUser } = useAccounting();
+  const toast = useToastNotification();
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,7 +44,7 @@ const BalanceSheet = () => {
       setLedgerLines(data || []);
     } catch (err: any) {
       console.error('Error fetching balance sheet data:', err);
-      alert('فشل جلب البيانات: ' + err.message);
+      toast.error('فشل جلب البيانات: ' + err.message);
     } finally {
       setLoading(false);
     }

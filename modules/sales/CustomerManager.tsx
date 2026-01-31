@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Users, Plus, Search, Edit2, Trash2, Save, X, Phone, MapPin, FileText, Mail, CircleDollarSign, Loader2 } from 'lucide-react';
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
@@ -17,6 +18,7 @@ type Customer = {
 const CustomerManager = () => {
   const queryClient = useQueryClient();
   const { addCustomer, updateCustomer, deleteCustomer, can, currentUser, customers: contextCustomers } = useAccounting();
+  const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -50,9 +52,10 @@ const CustomerManager = () => {
         }
         queryClient.invalidateQueries({ queryKey: ['customers'] }); // تحديث القائمة فوراً
         setIsModalOpen(false);
-        alert('تم حفظ بيانات العميل بنجاح ✅');
+        showToast('تم حفظ بيانات العميل بنجاح ✅', 'success');
     } catch (error: any) {
-        alert('حدث خطأ: ' + error.message);
+        console.error(error);
+        showToast('حدث خطأ: ' + error.message, 'error');
     }
   };
 
@@ -64,7 +67,8 @@ const CustomerManager = () => {
           await deleteCustomer(id, reason);
           queryClient.invalidateQueries({ queryKey: ['customers'] }); // تحديث القائمة فوراً
         } catch (error: any) {
-          alert('لا يمكن حذف العميل، قد يكون مرتبطاً بفواتير. الخطأ: ' + error.message);
+          console.error(error);
+          showToast('لا يمكن حذف العميل, قد يكون مرتبطاً بفواتير. الخطأ: ' + error.message, 'error');
         }
       }
     }

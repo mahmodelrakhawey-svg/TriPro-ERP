@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Save, User, Calendar, Plus, Trash2, FileText, CheckCircle, Tag } from 'lucide-react';
 import { InvoiceItem } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -81,7 +82,7 @@ const QuotationForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId) { alert('الرجاء اختيار العميل'); return; }
+    if (!formData.customerId) { showToast('الرجاء اختيار العميل', 'warning'); return; }
 
     if (currentUser?.role === 'demo') {
         setSavedQuote("تم الحفظ (محاكاة)");
@@ -127,7 +128,8 @@ const QuotationForm = () => {
         setTimeout(() => setSavedQuote(null), 3000);
 
     } catch (error: any) {
-        alert('خطأ في حفظ العرض: ' + error.message);
+        console.error(error);
+        showToast('خطأ في حفظ العرض: ' + error.message, 'error');
     }
   };
 

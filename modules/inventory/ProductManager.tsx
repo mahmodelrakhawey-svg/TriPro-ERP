@@ -2,6 +2,7 @@
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { useProducts } from '../hooks/usePermissions'; // استيراد الخطاف الجديد
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -29,6 +30,7 @@ type Item = {
 const ProductManager = () => {
   const queryClient = useQueryClient();
   const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts } = useAccounting();
+  const { showToast } = useToast();
   // استبدال الحالة اليدوية بـ React Query
   const { data: serverItems = [], isLoading: serverLoading } = useProducts();
 
@@ -169,7 +171,7 @@ const ProductManager = () => {
     // التحقق الصارم من الحسابات
     if (formData.item_type === 'STOCK') {
       if (!formData.inventory_account_id || !formData.cogs_account_id || !formData.sales_account_id) {
-        alert('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون، التكلفة، المبيعات) للأصناف المخزنية.');
+        showToast('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون, التكلفة, المبيعات) للأصناف المخزنية.', 'error');
         return;
       }
     }
@@ -181,7 +183,7 @@ const ProductManager = () => {
     }
 
     if (currentUser?.role === 'demo') {
-        alert('تم حفظ الصنف بنجاح وتوجيهه محاسبياً ✅ (محاكاة)');
+        showToast('تم حفظ الصنف بنجاح وتوجيهه محاسبياً ✅ (محاكاة)', 'success');
         setIsModalOpen(false);
         return;
     }
@@ -240,13 +242,14 @@ const ProductManager = () => {
         }
       }
       
-      alert('تم حفظ الصنف بنجاح وتوجيهه محاسبياً ✅');
+      showToast('تم حفظ الصنف بنجاح وتوجيهه محاسبياً ✅', 'success');
       // تحديث الكاش في React Query ليظهر الصنف الجديد فوراً
       queryClient.invalidateQueries({ queryKey: ['products'] });
       await refreshData(); // تحديث الأرصدة المحاسبية في النظام بالكامل
       setIsModalOpen(false);
     } catch (error: any) {
-      alert('فشل حفظ الصنف: ' + error.message);
+      console.error(error);
+      showToast('فشل حفظ الصنف: ' + error.message, 'error');
     }
   };
 
@@ -257,7 +260,7 @@ const ProductManager = () => {
     if (!reason) return;
 
     if (currentUser?.role === 'demo') {
-        alert('تم حذف الصنف بنجاح (محاكاة)');
+        showToast('تم حذف الصنف بنجاح (محاكاة)', 'success');
         return;
     }
 
@@ -266,7 +269,8 @@ const ProductManager = () => {
       await deleteProduct(id, reason);
       queryClient.invalidateQueries({ queryKey: ['products'] }); // تحديث القائمة
     } catch (error: any) {
-      alert('حدث خطأ أثناء الحذف: ' + error.message);
+      console.error(error);
+      showToast('حدث خطأ أثناء الحذف: ' + error.message, 'error');
     }
   };
 
@@ -274,7 +278,7 @@ const ProductManager = () => {
     if (!e.target.files || e.target.files.length === 0) return;
     
     if (currentUser?.role === 'demo') {
-        alert('رفع الصور غير متاح في النسخة التجريبية');
+        showToast('رفع الصور غير متاح في النسخة التجريبية', 'warning');
         return;
     }
 
@@ -290,7 +294,8 @@ const ProductManager = () => {
       const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
       setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
     } catch (error: any) {
-      alert('فشل رفع الصورة: ' + error.message);
+      console.error(error);
+      showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
       setUploading(false);
     }
@@ -433,7 +438,7 @@ const ProductManager = () => {
     if (selectedIds.size === 0) return;
     
     if (currentUser?.role === 'demo') {
-        alert(`تم تطبيق العرض على ${selectedIds.size} صنف بنجاح (محاكاة)`);
+        showToast(`تم تطبيق العرض على ${selectedIds.size} صنف بنجاح (محاكاة)`, 'success');
         setIsBulkOfferModalOpen(false);
         setSelectedIds(new Set());
         return;
@@ -466,12 +471,13 @@ const ProductManager = () => {
 
         await Promise.all(updates);
         
-        alert('تم تطبيق العرض الجماعي بنجاح ✅');
+        showToast('تم تطبيق العرض الجماعي بنجاح ✅', 'success');
         queryClient.invalidateQueries({ queryKey: ['products'] });
         setIsBulkOfferModalOpen(false);
         setSelectedIds(new Set());
     } catch (error: any) {
-        alert('حدث خطأ: ' + error.message);
+        console.error(error);
+        showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setIsBulkSaving(false);
     }

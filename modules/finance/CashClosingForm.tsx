@@ -112,7 +112,10 @@ const CashClosingForm = () => {
             console.error("Failed to log rejected cash closing:", logError);
         }
 
-        alert(`⚠️ تنبيه أمني:\nلا يمكن إتمام عملية الإقفال لأن العجز (${Math.abs(difference).toLocaleString()}) يتجاوز الحد المسموح به للموظفين (${MAX_ALLOWED_DEFICIT}).\n\nتم تسجيل هذه المحاولة للمراجعة.`);
+        showToast(
+          `لا يمكن إتمام عملية الإقفال لأن العجز (${Math.abs(difference).toLocaleString()}) يتجاوز الحد المسموح به`,
+          'warning'
+        );
         return;
     }
 
@@ -134,8 +137,8 @@ const CashClosingForm = () => {
       // 🌟 إنشاء قيد تسوية آلي في حال وجود فرق (عجز أو زيادة)
       if (Math.abs(difference) > 0.01) {
         const isOverage = difference > 0;
-        // 421: إيرادات متنوعة (للزيادة)، 512: تسويات الجرد (للعجز)
-        const adjustmentCode = isOverage ? '421' : '512';
+        // 421: إيرادات متنوعة (للزيادة)، 541: تسويات الجرد (للعجز)
+        const adjustmentCode = isOverage ? '421' : '541';
         let adjustmentAccount = accounts.find(a => a.code === adjustmentCode);
         
         // محاولة البحث بالاسم في حال عدم تطابق الكود
