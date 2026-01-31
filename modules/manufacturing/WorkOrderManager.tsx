@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Factory, Plus, Play, CheckCircle, XCircle, Clock, Save, DollarSign, Package, Calendar, Trash2, Loader2, Eye } from 'lucide-react';
 
 const WorkOrderManager = () => {
@@ -66,6 +67,7 @@ const WorkOrderManager = () => {
         setIsModalOpen(false);
         fetchOrders();
     } catch (error: any) {
+        console.error(error);
         alert('خطأ: ' + error.message);
     }
   };

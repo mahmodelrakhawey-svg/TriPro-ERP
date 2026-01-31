@@ -90,7 +90,7 @@ const MultiCurrencyStatement = () => {
 
     } catch (error: any) {
       console.error(error);
-      alert('حدث خطأ: ' + error.message);
+      console.error('حدث خطأ: ' + error.message);
     } finally {
       setLoading(false);
     }

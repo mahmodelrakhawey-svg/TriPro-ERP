@@ -5,6 +5,7 @@ import { supabase } from './supabaseClient';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { ToastProvider } from './context/ToastContext';
+import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
@@ -235,6 +236,19 @@ const DemoWatermark = () => {
 };
 
 const MainLayout = () => {
+    useEffect(() => {
+        // بدء جدول الإخطارات الذكية
+        NotificationScheduler.start({
+            intervalMinutes: 30, // تشغيل الفحوصات كل 30 دقيقة
+            autoStart: true, // تشغيل الفحص الأول فوراً
+        });
+
+        // إيقاف جدول الإخطارات عند تفريغ المكون
+        return () => {
+            NotificationScheduler.stop();
+        };
+    }, []);
+
     return (
         <div className="flex min-h-screen bg-slate-50 font-sans text-right print:block print:h-auto" dir="rtl">
             <Sidebar />

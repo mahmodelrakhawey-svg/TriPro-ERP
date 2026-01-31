@@ -43,7 +43,7 @@ const DeficitReport = () => {
       setLogs(data || []);
     } catch (err: any) {
       console.error('Error fetching deficit logs:', err);
-      alert('فشل تحميل السجلات: ' + err.message);
+      console.error('فشل تحميل السجلات: ' + err.message);
     } finally {
       setLoading(false);
     }

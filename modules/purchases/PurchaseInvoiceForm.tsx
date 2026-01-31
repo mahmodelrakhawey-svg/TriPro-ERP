@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { 
     Plus, Trash2, Save, Truck, Calendar, ShoppingCart, Warehouse,
     Search, X, Check, AlertCircle, CircleDollarSign, Package, Box, Info, Loader2, CheckCircle
@@ -10,6 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can } = useAccounting();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -206,6 +208,7 @@ const PurchaseInvoiceForm = () => {
       setTimeout(() => setSuccessMessage(null), 4000);
 
     } catch (error: any) {
+      console.error(error);
       alert('فشل حفظ الفاتورة: ' + error.message);
     } finally {
       setSaving(false);

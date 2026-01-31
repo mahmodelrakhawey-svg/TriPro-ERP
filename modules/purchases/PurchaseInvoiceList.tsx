@@ -3,10 +3,12 @@ import { supabase } from '../../supabaseClient';
 import { FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, Edit, CheckCircle, DollarSign, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 
 const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
   const { approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, accounts } = useAccounting();
+  const { showToast } = useToast();
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -73,10 +75,11 @@ const PurchaseInvoiceList = () => {
     if (!window.confirm('هل أنت متأكد من ترحيل فاتورة المشتريات؟ سيتم إنشاء القيد وتحديث المخزون.')) return;
     try {
       await approvePurchaseInvoice(id);
-      alert('تم ترحيل الفاتورة بنجاح ✅');
+      showToast('تم ترحيل الفاتورة بنجاث ✅', 'success');
       fetchInvoices();
     } catch (err: any) {
-      alert('فشل الترحيل: ' + err.message);
+      console.error(err);
+      showToast('فشل الترحيل: ' + err.message, 'error');
     }
   };
 
@@ -94,7 +97,7 @@ const PurchaseInvoiceList = () => {
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!paymentFormData.treasuryAccountId) {
-        alert('الرجاء اختيار حساب الخزينة/البنك');
+        showToast('الرجاء اختيار حساب الخزينة/البنك', 'warning');
         return;
     }
     
@@ -108,10 +111,11 @@ const PurchaseInvoiceList = () => {
             description: paymentFormData.notes,
             subType: 'supplier',
         });
-        alert('تم إنشاء سند الصرف بنجاح ✅');
+        showToast('تم إنشاء سند الصرف بنجاح ✅', 'success');
         setIsPaymentModalOpen(false);
     } catch (err: any) {
-        alert('حدث خطأ: ' + err.message);
+        console.error(err);
+        showToast('حدث خطأ: ' + err.message, 'error');
     }
   };
 

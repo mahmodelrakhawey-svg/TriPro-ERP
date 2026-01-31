@@ -3,6 +3,8 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart } from 'lucide-react';
 import { supabase } from '../supabaseClient';
+import NotificationCenter from './NotificationCenter';
+import { useNotifications } from '../utils/useNotifications';
 
 // خريطة بسيطة لأسماء الصفحات بناءً على المسار
 const routeTitles: Record<string, string> = {
@@ -24,39 +26,14 @@ const Header = () => {
     const location = useLocation();
     const { lastUpdated, refreshData, clearCache, settings } = useAccounting();
     const navigate = useNavigate();
-    const [notifications, setNotifications] = useState<any[]>([]);
-    const [showNotifications, setShowNotifications] = useState(false);
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef<HTMLDivElement>(null);
     const [timeLeft, setTimeLeft] = useState('');
+    const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
+    const { unreadCount, refreshNotifications } = useNotifications();
 
     const pageTitle = routeTitles[location.pathname] || 'TriPro ERP';
-    const unreadCount = notifications.filter(n => !n.is_read).length;
-
-    const fetchNotifications = async () => {
-        const { data } = await supabase
-            .from('notifications')
-            .select('*')
-            .eq('is_read', false)
-            .order('created_at', { ascending: false })
-            .limit(10);
-        
-        if (data) setNotifications(data);
-    };
-
-    useEffect(() => {
-        fetchNotifications();
-    }, []);
-
-    const markAsRead = async (id: string) => {
-        await supabase
-            .from('notifications')
-            .update({ is_read: true })
-            .eq('id', id);
-        
-        setNotifications(prev => prev.filter(n => n.id !== id));
-    };
 
     // Fetch user data
     useEffect(() => {
@@ -76,20 +53,6 @@ const Header = () => {
           }
         };
         fetchUserData();
-    }, []);
-
-    // Subscribe to new notifications
-    useEffect(() => {
-        const subscription = supabase
-            .channel('public:notifications')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, (payload) => {
-                fetchNotifications();
-            })
-            .subscribe();
-
-        return () => {
-            subscription.unsubscribe();
-        };
     }, []);
 
     // Logout function
@@ -195,41 +158,20 @@ const Header = () => {
                     </button>
                 </div>
 
-                {/* Notification Bell */}
+                {/* Smart Notification Bell */}
                 <div className="relative">
-                    <button onClick={() => setShowNotifications(!showNotifications)} className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">
+                    <button 
+                        onClick={() => setNotificationCenterOpen(true)}
+                        className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
+                        title="الإخطارات الذكية"
+                    >
                         <Bell size={20} />
                         {unreadCount > 0 && (
-                            <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
+                            <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-white shadow-sm animate-pulse">
                                 {unreadCount}
                             </div>
                         )}
                     </button>
-
-                    {/* Notifications Dropdown */}
-                    {showNotifications && (
-                        <div className="absolute top-full mt-2 right-0 w-80 bg-white rounded-xl shadow-xl border border-slate-100 z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                                <h3 className="font-bold text-sm text-slate-700">التنبيهات</h3>
-                                <button onClick={() => setShowNotifications(false)}><X size={14} className="text-slate-400 hover:text-red-500" /></button>
-                            </div>
-                            <div className="max-h-80 overflow-y-auto">
-                                {notifications.length === 0 ? (
-                                    <div className="p-4 text-center text-xs text-slate-400">لا توجد تنبيهات جديدة</div>
-                                ) : (
-                                    notifications.map(n => (
-                                        <div key={n.id} className="p-3 border-b border-slate-50 hover:bg-blue-50 transition-colors cursor-pointer" onClick={() => markAsRead(n.id)}>
-                                            <div className="flex justify-between items-start mb-1">
-                                                <span className={`text-xs font-bold ${n.type === 'warning' ? 'text-amber-600' : n.type === 'error' ? 'text-red-600' : 'text-blue-600'}`}>{n.title}</span>
-                                                <span className="text-[10px] text-slate-400">{new Date(n.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                            </div>
-                                            <p className="text-xs text-slate-600 line-clamp-2">{n.message}</p>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
-                    )}
                 </div>
 
                 <div className="w-px h-6 bg-slate-200 mx-2"></div>
@@ -276,6 +218,15 @@ const Header = () => {
                     )}
                 </div>
             </div>
+
+            {/* Notification Center Modal */}
+            <NotificationCenter 
+                isOpen={notificationCenterOpen} 
+                onClose={() => {
+                    setNotificationCenterOpen(false);
+                    refreshNotifications();
+                }}
+            />
         </header>
     );
 };

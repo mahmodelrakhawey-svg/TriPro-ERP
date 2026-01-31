@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileCheck, Save, Plus, Trash2, Loader2, Search, Calendar } from 'lucide-react';
 
 const PurchaseOrderForm = () => {
@@ -78,6 +79,7 @@ const PurchaseOrderForm = () => {
       setFormData({ ...formData, orderNumber: '', notes: '' });
 
     } catch (error: any) {
+      console.error(error);
       alert('خطأ: ' + error.message);
     } finally {
       setSaving(false);

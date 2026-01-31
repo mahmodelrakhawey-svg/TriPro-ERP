@@ -268,12 +268,13 @@ const PaymentVoucherForm = () => {
             });
         }
 
-        alert('تم حفظ سند الصرف وترحيل القيد بنجاح ✅');
+        showToast('تم حفظ سند الصرف وترحيل القيد بنجاح', 'success');
         handleNew();
         setAttachments([]);
 
     } catch (error: any) {
-        alert('خطأ: ' + error.message);
+        console.error('Error saving payment voucher:', error);
+        showToast(error?.message || 'فشل حفظ سند الصرف', 'error');
     } finally {
         setLoading(false);
     }

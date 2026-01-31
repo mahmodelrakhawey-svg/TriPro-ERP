@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
 import { Scale, AlertTriangle, CheckCircle, Search, Loader2, ArrowRight, RefreshCw, Trash2, Plus, Save, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -156,10 +157,11 @@ const SupplierBalanceReconciliation = () => {
     try {
         const { error } = await supabase.from('journal_entries').delete().eq('id', entryId);
         if (error) throw error;
-        alert('تم حذف القيد بنجاح.');
+        showToast('تم حذف القيد بنجاح.', 'success');
         fetchReconciliation(); // تحديث البيانات فوراً
     } catch (err: any) {
-        alert('فشل حذف القيد: ' + err.message);
+        console.error(err);
+        showToast('فشل حذف القيد: ' + err.message, 'error');
     }
   };
 
@@ -176,7 +178,7 @@ const SupplierBalanceReconciliation = () => {
   const handleFixSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fixFormData.supplierId || !fixFormData.treasuryAccountId) {
-        alert('الرجاء اختيار المورد وحساب الدفع');
+        showToast('الرجاء اختيار المورد وحساب الدفع', 'warning');
         return;
     }
 
@@ -194,11 +196,12 @@ const SupplierBalanceReconciliation = () => {
 
         if (error) throw error;
         
-        alert('تم إنشاء سند الصرف وربطه بالقيد بنجاح ✅');
+        showToast('تم إنشاء سند الصرف وربطه بالقيد بنجاح ✅', 'success');
         setFixModalOpen(false);
         fetchReconciliation();
     } catch (err: any) {
-        alert('خطأ: ' + err.message);
+        console.error(err);
+        showToast('خطأ: ' + err.message, 'error');
     }
   };
 

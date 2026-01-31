@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileText, ArrowRight, CheckCircle, Printer, Filter, Calendar, FileDown, Copy } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
@@ -9,6 +10,7 @@ import html2canvas from 'html2canvas';
 
 const QuotationList = () => {
   const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [quotations, setQuotations] = useState<any[]>([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [convertModalOpen, setConvertModalOpen] = useState(false);
@@ -90,7 +92,7 @@ const QuotationList = () => {
   const confirmConvert = async () => {
       if(selectedQuoteId && convertData.warehouseId) {
           if (convertData.paidAmount > 0 && !convertData.treasuryId) {
-              alert('يرجى اختيار الخزينة/البنك لاستلام الدفعة المقدمة');
+              showToast('يرجى اختيار الخزينة/البنك لاستلام الدفعة المقدمة', 'warning');
               return;
           }
 
@@ -188,18 +190,19 @@ const QuotationList = () => {
                       lines: journalLines as any[]
                   });
               } else {
-                  alert('تنبيه: تم إنشاء الفاتورة ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات (1102, 4101).');
+                  showToast('تنبيه: تم إنشاء الفاتورة ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات (1102, 4101).', 'warning');
               }
 
               // 5. تحديث حالة العرض
               await supabase.from('quotations').update({ status: 'converted' }).eq('id', selectedQuoteId);
               
               setConvertModalOpen(false);
-              alert('تم تحويل العرض إلى فاتورة وإنشاء القيد بنجاح ✅');
+              showToast('تم تحويل العرض إلى فاتورة وإنشاء القيد بنجاح ✅', 'success');
               fetchQuotations();
 
           } catch (error: any) {
-              alert('خطأ في التحويل: ' + error.message);
+              console.error(error);
+              showToast('خطأ في التحويل: ' + error.message, 'error');
           }
       }
   };
@@ -222,7 +225,7 @@ const QuotationList = () => {
 
   const handlePrintQuotation = async (quote: any) => {
     if (currentUser?.role === 'demo') {
-        alert('الطباعة غير متاحة في النسخة التجريبية');
+        showToast('الطباعة غير متاحة في النسخة التجريبية', 'warning');
         return;
     }
 
@@ -277,7 +280,7 @@ const QuotationList = () => {
 
   const handleExportPDF = async (quote: any) => {
       if (currentUser?.role === 'demo') {
-          alert('تصدير PDF غير متاح في النسخة التجريبية');
+          showToast('تصدير PDF غير متاح في النسخة التجريبية', 'warning');
           return;
       }
       
@@ -309,7 +312,7 @@ const QuotationList = () => {
 
   const handleDuplicateQuotation = async (quote: any) => {
     if (currentUser?.role === 'demo') {
-      alert('تكرار عروض الأسعار غير متاح في النسخة التجريبية');
+      showToast('تكرار عروض الأسعار غير متاح في النسخة التجريبية', 'warning');
       return;
     }
 
@@ -324,10 +327,11 @@ const QuotationList = () => {
 
       if(error) throw error;
 
-      alert(`تم إنشاء نسخة من عرض السعر برقم ${newQuotationNumber}`);
+      showToast(`تم إنشاء نسخة من عرض السعر برقم ${newQuotationNumber}`, 'success');
       fetchQuotations();
     } catch (error: any) {
-      alert('فشل نسخ عرض السعر: ' + error.message);
+      console.error(error);
+      showToast('فشل نسخ عرض السعر: ' + error.message, 'error');
     }
   };
 
