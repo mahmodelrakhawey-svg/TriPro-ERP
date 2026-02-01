@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileText, Calendar, Download, Printer, Filter, Calculator, ArrowRightLeft, Lock, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 
 const TaxReturnReport = () => {
     const { accounts, getAccountBalanceInPeriod, settings, addEntry } = useAccounting();
+    const { showToast } = useToast();
     const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [closing, setClosing] = useState(false);
@@ -61,7 +63,7 @@ const TaxReturnReport = () => {
             try {
                 let settlementAcc = accounts.find(a => a.code === '2239' || a.code === '2105'); // 2239: تسوية ضرائب (مقترح)
                 if (!settlementAcc) {
-                     alert('لم يتم العثور على حساب تسوية الضرائب (2239 أو 2105). يرجى إضافته في دليل الحسابات أولاً.');
+                     showToast('لم يتم العثور على حساب تسوية الضرائب (2239 أو 2105). يرجى إضافته في دليل الحسابات أولاً.', 'error');
                      setClosing(false);
                      return;
                 }
@@ -125,12 +127,13 @@ const TaxReturnReport = () => {
                         status: 'posted', 
                         lines: lines 
                     });
-                    alert('تم إنشاء قيد الإغلاق بنجاح ✅');
+                    showToast('تم إنشاء قيد الإغلاق بنجاح ✅', 'success');
                 } else {
-                    alert('لا توجد مبالغ لإنشاء قيد إغلاق.');
+                    showToast('لا توجد مبالغ لإنشاء قيد إغلاق.', 'warning');
                 }
             } catch (error: any) {
-                alert('حدث خطأ: ' + error.message);
+                console.error(error);
+                showToast('حدث خطأ: ' + error.message, 'error');
             } finally {
                 setClosing(false);
             }

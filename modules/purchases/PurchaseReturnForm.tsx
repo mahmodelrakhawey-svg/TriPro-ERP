@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { RotateCcw, Save, Loader2, Truck, Calendar, Package, Warehouse, Plus, Trash2, FileText } from 'lucide-react';
 
 const PurchaseReturnForm = () => {
   const { suppliers, products, warehouses, settings, purchaseInvoices, accounts, addEntry, getSystemAccount } = useAccounting();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     supplierId: '',
     originalInvoiceId: '',
@@ -62,7 +64,7 @@ const PurchaseReturnForm = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.supplierId || !formData.warehouseId || items.length === 0 || items.some(i => !i.productId)) {
-      alert('يرجى إكمال جميع البيانات المطلوبة.');
+      showToast('يرجى إكمال جميع البيانات المطلوبة.', 'warning');
       return;
     }
 
@@ -141,16 +143,16 @@ const PurchaseReturnForm = () => {
               lines: lines as any[]
           });
       } else {
-          alert('تنبيه: تم حفظ المرتجع ولكن لم يتم إنشاء القيد لعدم العثور على الحسابات الأساسية (الموردين، المخزون، الضريبة).');
+          showToast('تنبيه: تم حفظ المرتجع ولكن لم يتم إنشاء القيد لعدم العثور على الحسابات الأساسية (الموردين, المخزون, الضريبة).', 'warning');
       }
 
-      alert('تم حفظ مرتجع المشتريات وتحديث المخزون وإنشاء القيد بنجاح ✅');
-      // Reset form
+      showToast('تم حفظ مرتجع المشتريات وتحديث المخزون وإنشاء القيد بنجاح ✅', 'success');
       setFormData(prev => ({ ...prev, supplierId: '', originalInvoiceId: '', returnNumber: '', notes: '' }));
       setItems([]);
 
     } catch (error: any) {
-      alert('فشل حفظ المرتجع: ' + error.message);
+      console.error(error);
+      showToast('فشل حفظ المرتجع: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

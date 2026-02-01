@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FilePlus, Save, Loader2, Truck, Calendar, FileText, Calculator, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
 const DebitNoteForm = () => {
   const { settings, suppliers, currentUser } = useAccounting();
   const location = useLocation();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     supplierId: '',
     date: new Date().toISOString().split('T')[0],
@@ -69,11 +71,12 @@ const DebitNoteForm = () => {
       
       if (rpcError) throw rpcError;
 
-      alert('تم حفظ الإشعار المدين وترحيل القيد بنجاح ✅');
+      showToast('تم حفظ الإشعار المدين وترحيل القيد بنجاح', 'success');
       setFormData({ supplierId: '', date: new Date().toISOString().split('T')[0], amount: 0, notes: '', noteNumber: '', originalInvoiceNumber: '' });
 
     } catch (error: any) {
-      alert('خطأ: ' + error.message);
+      console.error('Error saving debit note:', error);
+      showToast(error?.message || 'فشل حفظ الإشعار المدين', 'error');
     } finally {
       setSaving(false);
     }

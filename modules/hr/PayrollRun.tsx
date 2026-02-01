@@ -1,6 +1,7 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Banknote, Play, Loader2, Save, User, Wallet } from 'lucide-react';
 
 type PayrollItem = {
@@ -16,6 +17,7 @@ type PayrollItem = {
 
 const PayrollRun = () => {
   const { runPayroll: runPayrollFromContext, currentUser } = useAccounting(); // Renamed to avoid conflict
+  const { showToast } = useToast();
   const [payrollData, setPayrollData] = useState<PayrollItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -79,7 +81,8 @@ const PayrollRun = () => {
       });
       setPayrollData(preparedData);
     } catch (error: any) {
-      alert('فشل تجهيز المسير: ' + error.message);
+      console.error(error);
+      showToast('فشل تجهيز المسير: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -106,8 +109,8 @@ const PayrollRun = () => {
   };
 
   const handleRunPayroll = async () => {
-    if (!treasuryId) return alert('يرجى اختيار حساب الصرف (الخزينة/البنك)');
-    if (payrollData.length === 0) return alert('لا يوجد بيانات في المسير');
+    if (!treasuryId) return showToast('يرجى اختيار حساب الصرف (الخزينة/البنك)', 'warning');
+    if (payrollData.length === 0) return showToast('لا يوجد بيانات في المسير', 'warning');
 
     setSaving(true);
     try {
@@ -119,10 +122,11 @@ const PayrollRun = () => {
         payrollData
       );
 
-      alert('تم تنفيذ مسير الرواتب وترحيل القيد بنجاح ✅');
+      showToast('تم تنفيذ مسير الرواتب وترحيل القيد بنجاح ✅', 'success');
       setPayrollData([]);
     } catch (error: any) {
-      alert('فشل تنفيذ المسير: ' + error.message);
+      console.error(error);
+      showToast('فشل تنفيذ المسير: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

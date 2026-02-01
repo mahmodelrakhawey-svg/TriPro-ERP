@@ -32,13 +32,13 @@ interface FinancialSummary {
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
-  CUSTOMERS: '1221', // العملاء
+  CUSTOMERS: '10201', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
   INVENTORY: '121', // المخزون (مجموعة)
   INVENTORY_RAW_MATERIALS: '1211', // خامات
   INVENTORY_FINISHED_GOODS: '1213', // منتج تام
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
-  SUPPLIERS: '221', // الموردين
+  SUPPLIERS: '201', // الموردين
   VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
   VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
   CUSTOMER_DEPOSITS: '226', // تأمينات العملاء
@@ -1020,7 +1020,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         document.body.removeChild(link);
     } catch (error: any) {
         console.error("Export Error:", error);
-        alert("حدث خطأ أثناء التصدير: " + error.message);
+        showToast("حدث خطأ أثناء التصدير: " + error.message, 'error');
     }
   };
 
@@ -2234,11 +2234,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         if (error) throw error;
 
-        alert("تم ترحيل الرواتب بنجاح ✅");
+        showToast("تم ترحيل الرواتب بنجاح ✅", 'success');
         await fetchData();
     } catch (error: any) {
         console.error(error);
-        alert("خطأ في ترحيل الرواتب: " + error.message);
+        showToast("خطأ في ترحيل الرواتب: " + error.message, 'error');
     }
   };
 
@@ -2431,7 +2431,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return data;
     } catch (err: any) {
       console.error("Error adding warehouse:", err);
-      alert('فشل إضافة المستودع: ' + err.message);
+      showToast('فشل إضافة المستودع: ' + err.message, 'error');
     }
   };
 
@@ -2798,7 +2798,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const clearTransactions = async () => {
     if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin') {
-        alert('هذا الإجراء متاح فقط للمدير العام');
+        showToast('هذا الإجراء متاح فقط للمدير العام', 'warning');
         return;
     }
     
@@ -2868,12 +2868,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.log("Step 8: Resetting account balances...");
         await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
 
-        alert('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد.');
+        showToast('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد.', 'success');
         window.location.reload();
 
     } catch (error: any) {
         console.error(error);
-        alert('حدث خطأ أثناء التنظيف: ' + error.message);
+        showToast('حدث خطأ أثناء التنظيف: ' + error.message, 'error');
     } finally {
         setIsLoading(false);
     }
@@ -3060,7 +3060,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings, updateSettings: (s) => setSettings(s), 
       exportData: () => {
         if (currentUser?.role === 'demo') {
-            alert('تصدير البيانات غير متاح في النسخة التجريبية');
+            showToast('تصدير البيانات غير متاح في النسخة التجريبية', 'warning');
             return;
         }
         const data = {
@@ -3092,7 +3092,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       importData: (j) => true, 
       factoryReset: () => { 
           if (currentUser?.role === 'demo') {
-              alert('إعادة ضبط المصنع غير متاحة في النسخة التجريبية');
+              showToast('إعادة ضبط المصنع غير متاحة في النسخة التجريبية', 'warning');
               return;
           }
           localStorage.clear(); window.location.reload(); 
@@ -3106,7 +3106,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       clearCache,
       exportJournalToCSV: () => {
           if (currentUser?.role === 'demo') {
-              alert('تصدير البيانات غير متاح في النسخة التجريبية');
+              showToast('تصدير البيانات غير متاح في النسخة التجريبية', 'warning');
               return;
           }
           exportJournalToCSV();

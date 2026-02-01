@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Banknote, Plus, Search, CheckCircle, XCircle, Loader2, User } from 'lucide-react';
 
 const EmployeeAdvances = () => {
   const { addEntry, getSystemAccount, accounts, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [advances, setAdvances] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([]);
@@ -43,7 +45,8 @@ const EmployeeAdvances = () => {
       if (accData) setTreasuryAccounts(accData);
 
     } catch (error: any) {
-      alert('خطأ في جلب البيانات: ' + error.message);
+      console.error(error);
+      showToast('خطأ في جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -56,7 +59,7 @@ const EmployeeAdvances = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.employeeId || formData.amount <= 0 || !formData.treasuryId) {
-        return alert('يرجى تعبئة جميع البيانات المطلوبة');
+        return showToast('يرجى تعبئة جميع البيانات المطلوبة', 'warning');
     }
     
     setSaving(true);
@@ -94,16 +97,17 @@ const EmployeeAdvances = () => {
             ]
           });
       } else {
-          alert('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (1223).');
+          showToast('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (1223).', 'warning');
       }
       
-      alert('تم حفظ السلفة وترحيل القيد بنجاح ✅');
+      showToast('تم حفظ السلفة وترحيل القيد بنجاح ✅', 'success');
       setIsModalOpen(false);
       setFormData({ employeeId: '', amount: 0, date: new Date().toISOString().split('T')[0], treasuryId: '', notes: '' });
       fetchData();
 
     } catch (error: any) {
-      alert('حدث خطأ: ' + error.message);
+      console.error(error);
+      showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

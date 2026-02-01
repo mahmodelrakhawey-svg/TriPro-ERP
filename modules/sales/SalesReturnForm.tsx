@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { RotateCcw, Save, Plus, Trash2, Loader2, Search } from 'lucide-react';
+import { useToast } from '../../context/ToastContext';
 import { InvoiceItem } from '../../types';
 
 const SalesReturnForm = () => {
   const { accounts, addEntry, getSystemAccount, customers, products, currentUser, warehouses } = useAccounting();
+  const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [formData, setFormData] = useState({ customerId: '', warehouseId: '', date: new Date().toISOString().split('T')[0], returnNumber: '', notes: '' });
   const [saving, setSaving] = useState(false);
@@ -64,10 +66,11 @@ const SalesReturnForm = () => {
         }, 100);
 
       } else {
-        alert('لم يتم العثور على الفاتورة');
+        showToast('لم يتم العثور على الفاتورة', 'error');
       }
     } catch (err: any) {
-      alert('خطأ: ' + err.message);
+      console.error('Error loading invoice:', err);
+      showToast(err?.message || 'فشل تحميل الفاتورة', 'error');
     } finally {
       setIsSearching(false);
     }
@@ -86,7 +89,7 @@ const SalesReturnForm = () => {
         const item = newItems[index];
         // التحقق من الكمية القصوى إذا كانت محددة (في حالة الاستيراد من فاتورة)
         if (item.maxQuantity !== undefined && Number(value) > item.maxQuantity) {
-             alert(`لا يمكنك إرجاع كمية أكبر من الكمية الأصلية (${item.maxQuantity})`);
+             showToast(`لا يمكنك إرجاع كمية أكبر من ${item.maxQuantity}`, 'warning');
              processedValue = item.maxQuantity;
         }
     }
@@ -106,13 +109,13 @@ const SalesReturnForm = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.customerId || !formData.warehouseId || items.length === 0) {
-        alert('أكمل البيانات');
+        showToast('يرجى ملء جميع البيانات المطلوبة', 'warning');
         return;
     }
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
-        alert('تم حفظ مرتجع المبيعات وتحديث المخزون وإنشاء القيد بنجاح ✅ (محاكاة)');
+        showToast('تم حفظ مرتجع المبيعات بنجاح (محاكاة)', 'success');
         setItems([]);
         setFormData({ ...formData, returnNumber: '', notes: '' });
         setSaving(false);
@@ -212,13 +215,14 @@ const SalesReturnForm = () => {
         });
       }
 
-      alert('تم حفظ مرتجع المبيعات وتحديث المخزون وإنشاء القيد بنجاح ✅');
+      showToast('تم حفظ مرتجع المبيعات بنجاح', 'success');
       setItems([]);
       setFormData({ ...formData, returnNumber: '', notes: '' });
       setOriginalInvoiceId(null);
 
     } catch (error: any) {
-      alert('خطأ: ' + error.message);
+      console.error('Error saving return:', error);
+      showToast(error?.message || 'فشل حفظ المرتجع', 'error');
     } finally {
       setSaving(false);
     }

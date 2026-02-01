@@ -12,12 +12,14 @@ import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { ProductStockViewer } from '../../components/ProductStockViewer';
+import { useToast } from '../../context/ToastContext';
 import CustomerStatement from './CustomerStatement';
 
 const SalesInvoiceForm = () => {
   const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
+  const { showToast } = useToast();
 
   const [formData, setFormData] = useState({
     customerId: '',
@@ -185,7 +187,7 @@ const SalesInvoiceForm = () => {
               const overdueTotal = overdueInvoices.reduce((acc, inv) => acc + (inv.total_amount - (inv.paid_amount || 0)), 0);
               // تأخير التنبيه قليلاً لضمان تحميل الواجهة
               setTimeout(() => {
-                  alert(`⚠️ تنبيه هام: العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد بإجمالي ${overdueTotal.toLocaleString()}`);
+                  showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
               }, 500);
           }
       } catch (error) {
@@ -213,7 +215,7 @@ const SalesInvoiceForm = () => {
           
           if (fullInv) {
               if (fullInv.status !== 'draft' && !can('sales', 'update')) {
-                  alert('تنبيه: هذه الفاتورة مرحلة ولا يمكن تعديلها. يمكنك إنشاء إشعار دائن (مرتجع) لتصحيحها.');
+                  showToast('هذه الفاتورة مرحلة ولا يمكن تعديلها. يمكنك إنشاء إشعار دائن', 'warning');
               }
 
               setEditingId(fullInv.id);
@@ -337,7 +339,7 @@ const SalesInvoiceForm = () => {
         addProductToInvoice(product);
         e.currentTarget.value = ''; 
       } else {
-        alert('المنتج غير موجود أو الباركود غير صحيح');
+        showToast('المنتج غير موجود أو الباركود غير صحيح', 'error');
       }
     }
   };
@@ -404,7 +406,10 @@ const SalesInvoiceForm = () => {
               setNewCustomerPhone('');
               setNewCustomerOpeningBalance('');
               setIsCustomerModalOpen(false);
-          } catch (err: any) { alert(err.message); }
+          } catch (err: any) { 
+              console.error('Error creating customer:', err);
+              showToast(err?.message || 'فشل إنشاء العميل', 'error');
+          }
       }
   };
 
@@ -423,9 +428,10 @@ const SalesInvoiceForm = () => {
               await updateCustomer(formData.customerId, { name: editCustomerData.name, phone: editCustomerData.phone });
               setCustomerSearchTerm(editCustomerData.name);
               setIsEditCustomerModalOpen(false);
-              alert('تم تحديث بيانات العميل بنجاح');
+              showToast('تم تحديث بيانات العميل بنجاح', 'success');
           } catch (err: any) {
-              alert(err.message);
+              console.error('Error updating customer:', err);
+              showToast(err?.message || 'فشل تحديث العميل', 'error');
           }
       }
   };
@@ -436,17 +442,17 @@ const SalesInvoiceForm = () => {
     const isPosted = formData.status === 'posted' || formData.status === 'paid';
 
     if (editingId && isPosted && !can('sales', 'update')) {
-        alert('عذراً، لا تملك صلاحية تعديل الفواتير المرحلة. يرجى إنشاء إشعار دائن.');
+        showToast('لا تملك صلاحية تعديل الفواتير المرحلة. يرجى إنشاء إشعار دائن', 'warning');
         return;
     }
 
     if (!formData.customerId || items.length === 0) {
-        alert('الرجاء التأكد من اختيار العميل وإضافة أصناف للفاتورة.');
+        showToast('يرجى اختيار العميل وإضافة منتجات للفاتورة', 'warning');
         return;
     }
 
     if (formData.paidAmount > 0 && !formData.treasuryId) {
-        alert('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع.');
+        showToast('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع', 'warning');
         return;
     }
     
@@ -456,7 +462,7 @@ const SalesInvoiceForm = () => {
             const product = products.find(p => p.id === item.productId);
             const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
             if (item.quantity > stockInWarehouse) {
-                alert(`رصيد غير كافٍ للصنف "${item.productName}".\nالمتوفر: ${stockInWarehouse}, المطلوب: ${item.quantity}`);
+                showToast(`رصيد غير كافٍ للصنف "${item.productName}" - المتوفر: ${stockInWarehouse}`, 'error');
                 setSaving(false);
                 return;
             }
@@ -559,7 +565,7 @@ const SalesInvoiceForm = () => {
 
     } catch (err: any) {
         console.error("فشل حفظ الفاتورة", err);
-        alert("حدث خطأ أثناء حفظ الفاتورة: " + err.message);
+        showToast(err?.message || 'فشل حفظ الفاتورة', 'error');
     } finally {
         setSaving(false);
     }
@@ -568,15 +574,15 @@ const SalesInvoiceForm = () => {
   const handleSaveAndPost = async () => {
     // Same validations as handleSubmit
     if (editingId) {
-        alert('لا يمكن ترحيل فاتورة معدلة مباشرة. يرجى الحفظ كمسودة ثم الترحيل من سجل الفواتير.');
+        showToast('لا يمكن ترحيل فاتورة معدلة. يرجى الحفظ كمسودة أولاً', 'warning');
         return;
     }
     if (!formData.customerId || items.length === 0) {
-        alert('الرجاء التأكد من اختيار العميل وإضافة أصناف للفاتورة.');
+        showToast('يرجى اختيار العميل وإضافة منتجات للفاتورة', 'warning');
         return;
     }
     if (formData.paidAmount > 0 && !formData.treasuryId) {
-        alert('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع.');
+        showToast('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع', 'warning');
         return;
     }
     if (!settings.allowNegativeStock) {
@@ -584,7 +590,7 @@ const SalesInvoiceForm = () => {
             const product = products.find(p => p.id === item.productId);
             const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
             if (item.quantity > stockInWarehouse) {
-                alert(`رصيد غير كافٍ للصنف "${item.productName}".\nالمتوفر: ${stockInWarehouse}, المطلوب: ${item.quantity}`);
+                showToast(`رصيد غير كافٍ للصنف "${item.productName}"`, 'error');
                 return;
             }
         }
@@ -652,7 +658,7 @@ const SalesInvoiceForm = () => {
 
     } catch (err: any) {
         console.error("فشل الحفظ والترحيل", err);
-        alert("حدث خطأ أثناء الحفظ والترحيل: " + err.message);
+        showToast(err?.message || 'فشل الحفظ والترحيل', 'error');
     } finally {
         setSaving(false);
     }

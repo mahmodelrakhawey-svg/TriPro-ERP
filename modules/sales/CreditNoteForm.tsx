@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileMinus, Save, Loader2, User, Calendar, FileText, Calculator, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
 const CreditNoteForm = () => {
   const { settings, customers, currentUser } = useAccounting();
   const location = useLocation();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     customerId: '',
     date: new Date().toISOString().split('T')[0],
@@ -35,12 +37,12 @@ const CreditNoteForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId || formData.amount <= 0) return alert('يرجى إكمال البيانات');
+    if (!formData.customerId || formData.amount <= 0) return showToast('يرجى إكمال البيانات', 'warning');
     
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
-        alert('تم حفظ الإشعار الدائن وترحيل القيد بنجاح ✅ (محاكاة)');
+        showToast('تم حفظ الإشعار الدائن وترحيل القيد بنجاح ✅ (محاكاة)', 'success');
         setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], amount: 0, notes: '', noteNumber: '', originalInvoiceNumber: '' });
         setSaving(false);
         return;
@@ -69,11 +71,12 @@ const CreditNoteForm = () => {
       
       if (rpcError) throw rpcError;
 
-      alert('تم حفظ الإشعار الدائن وترحيل القيد بنجاح ✅');
+      showToast('تم حفظ الإشعار الدائن وترحيل القيد بنجاح ✅', 'success');
       setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], amount: 0, notes: '', noteNumber: '', originalInvoiceNumber: '' });
 
     } catch (error: any) {
-      alert('خطأ: ' + error.message);
+      console.error(error);
+      showToast('خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

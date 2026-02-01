@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import {
     Search, Plus, FileCheck, Printer, Edit, Trash2,
     ChevronLeft, ChevronRight, Loader2, Eye, ArrowRightLeft,
@@ -11,6 +12,7 @@ import { supabase } from '../../supabaseClient';
 const PurchaseOrderList = () => {
   const navigate = useNavigate();
   const { can, convertPoToInvoice, warehouses, settings, currentUser } = useAccounting();
+  const { showToast } = useToast();
   
   // Pagination & Search State
   const [page, setPage] = useState(1);
@@ -89,7 +91,7 @@ const PurchaseOrderList = () => {
 
   const handleEdit = (order: any) => {
     if (order.status && order.status !== 'draft' && order.status !== 'sent') {
-        alert('لا يمكن تعديل أمر الشراء بعد إرساله أو تحويله.');
+        showToast('لا يمكن تعديل أمر الشراء بعد إرساله أو تحويله.', 'warning');
         return;
     }
     navigate('/purchase-order-new', { state: { orderToEdit: order } });
@@ -115,7 +117,7 @@ const PurchaseOrderList = () => {
 
   const confirmConversion = async () => {
     if (!selectedOrder || !selectedWarehouseId) {
-      alert('يرجى اختيار المستودع.');
+      showToast('يرجى اختيار المستودع.', 'warning');
       return;
     }
     await convertPoToInvoice(selectedOrder.id, selectedWarehouseId);
@@ -130,9 +132,10 @@ const PurchaseOrderList = () => {
         const { error } = await supabase.from('purchase_orders').delete().eq('id', id);
         if (error) throw error;
         fetchOrders();
-        alert('تم حذف أمر الشراء بنجاح');
+        showToast('تم حذف أمر الشراء بنجاح', 'success');
     } catch (error: any) {
-        alert('فشل الحذف: ' + error.message);
+        console.error(error);
+        showToast('فشل الحذف: ' + error.message, 'error');
     }
   };
 

@@ -41,7 +41,7 @@ const DebitNoteList = () => {
 
   const handleEdit = (note: any) => {
     if (note.status === 'posted') {
-      alert('لا يمكن تعديل إشعار مرحل.');
+      showToast('لا يمكن تعديل إشعار مرحل.', 'error');
       return;
     }
     navigate('/debit-note', { state: { noteToEdit: note } });

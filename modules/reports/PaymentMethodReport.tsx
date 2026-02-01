@@ -73,7 +73,7 @@ const PaymentMethodReport = () => {
 
     } catch (error: any) {
       console.error('Error fetching report:', error);
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      console.error('حدث خطأ أثناء جلب البيانات: ' + error.message);
     } finally {
       setLoading(false);
     }

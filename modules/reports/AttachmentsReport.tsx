@@ -119,7 +119,7 @@ const AttachmentsReport = () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error downloading:', err);
-      alert('فشل تحميل الملف');
+      console.error('فشل تحميل الملف');
     }
   };
 

@@ -204,7 +204,7 @@ const Settings = () => {
       if(confirm1) {
           const confirm2 = window.prompt("هذا الإجراء سيحذف جميع الفواتير، العملاء، المنتجات، والقيود. لا يمكن التراجع. \n\nللتأكيد، اكتب 'حذف الكل' في المربع أدناه:");
           if(confirm2 === 'حذف الكل') {
-              alert("تم تعطيل إعادة الضبط مؤقتاً.");
+              showToast('تم تعطيل إعادة الضبط مؤقتاً', 'info');
           }
       }
   };
@@ -214,7 +214,7 @@ const Settings = () => {
           if (window.confirm("هل أنت متأكد من إعادة ضبط بيانات الديمو؟ (محاكاة)")) {
               setLoading(true);
               setTimeout(() => {
-                  alert("تم إعادة ضبط بيانات الديمو بنجاح ✅ (محاكاة)");
+                  showToast("تم إعادة ضبط بيانات الديمو بنجاح", 'success');
                   setLoading(false);
                   window.location.reload();
               }, 1000);
