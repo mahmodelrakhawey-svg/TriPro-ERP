@@ -51,7 +51,7 @@ BEGIN
         v_treasury_acc_id,
         'cash',
         1,
-        'SAR'
+        'EGP'
     ) RETURNING id INTO v_voucher_id;
 
     RAISE NOTICE '✅ تم إنشاء السند التجريبي برقم المعرف: %', v_voucher_id;

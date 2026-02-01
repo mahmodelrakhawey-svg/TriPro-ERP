@@ -51,7 +51,7 @@ BEGIN
         v_treasury_acc_id,
         'cash',
         1,
-        'SAR'
+        'EGP'
     ) RETURNING id INTO v_voucher_id;
 
     -- 5. تنفيذ الاعتماد

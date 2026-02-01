@@ -33,6 +33,23 @@ ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uui
 ALTER TABLE public.sales_returns ADD COLUMN IF NOT EXISTS original_invoice_id uuid REFERENCES public.invoices(id);
 ALTER TABLE public.purchase_returns ADD COLUMN IF NOT EXISTS original_invoice_id uuid REFERENCES public.purchase_invoices(id);
 
+-- إضافة الرقم الضريبي للموردين
+ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS tax_number text;
+
+-- إضافة عمود المسؤول عن العميل (لحل مشكلة 400 Bad Request)
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS responsible_user_id uuid REFERENCES auth.users(id);
+
+-- تعيين القيمة الافتراضية للمستخدم الحالي (يجعل الحقل ممتلئاً تلقائياً للعملاء الجدد)
+ALTER TABLE public.customers ALTER COLUMN responsible_user_id SET DEFAULT auth.uid();
+
+-- محاولة جعل العمود إلزامياً (NOT NULL) إذا لم تكن هناك بيانات متعارضة (أي لا يوجد عملاء حاليين بدون مسؤول)
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM public.customers WHERE responsible_user_id IS NULL) THEN
+        ALTER TABLE public.customers ALTER COLUMN responsible_user_id SET NOT NULL;
+    END IF;
+END $$;
+
 -- 3. التأكد من وجود الحسابات المحاسبية الحرجة (لتجنب أخطاء القيود الآلية)
 -- أوراق القبض (1204)
 INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active)
@@ -43,6 +60,45 @@ WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE code = '1204') AND EXISTS (SELECT
 INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active)
 SELECT gen_random_uuid(), '2202', 'أوراق الدفع', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '2' LIMIT 1), true
 WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE code = '2202') AND EXISTS (SELECT 1 FROM accounts WHERE code = '2');
+
+-- 4. إصلاح صلاحيات الإشعارات (لحل مشكلة 403 Forbidden)
+-- السماح للمستخدمين بإنشاء إشعارات (ضروري للعمليات التلقائية التي تعمل من طرف العميل)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies 
+        WHERE tablename = 'notifications' AND policyname = 'Users can create notifications'
+    ) THEN
+        CREATE POLICY "Users can create notifications" ON public.notifications FOR INSERT TO authenticated WITH CHECK (true);
+    END IF;
+END $$;
+
+-- 5. إصلاح تعارض أسماء الأعمدة في جدول الإشعارات
+-- الخطأ: null value in column "notification_type" ...
+-- السبب: الجدول يحتوي على 'notification_type' بينما التطبيق يرسل 'type'
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notifications' AND column_name = 'notification_type') THEN
+        -- إذا كان العمود type موجوداً بالفعل، نقوم فقط بإلغاء قيد NOT NULL عن notification_type لتجنب الخطأ
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notifications' AND column_name = 'type') THEN
+            ALTER TABLE public.notifications ALTER COLUMN notification_type DROP NOT NULL;
+        ELSE
+            -- إذا لم يكن type موجوداً، نقوم بإعادة تسمية notification_type إلى type
+            ALTER TABLE public.notifications RENAME COLUMN notification_type TO "type";
+        END IF;
+    END IF;
+END $$;
+
+-- 6. تحديث العملة الافتراضية إلى الجنيه المصري (EGP)
+-- هذا يضمن أن الفواتير والمستندات الجديدة تبدأ بالجنيه المصري
+UPDATE public.company_settings 
+SET currency = 'EGP' 
+WHERE currency = 'SAR' OR currency IS NULL;
+
+-- 7. تحديث نسبة الضريبة الافتراضية إلى 14% (مصر)
+UPDATE public.company_settings 
+SET vat_rate = 0.14 
+WHERE vat_rate = 0.15;
 
 -- 4. تنظيف البيانات الفاسدة (اختياري - يحذف التفاصيل التي ليس لها رأس)
 -- DELETE FROM public.invoice_items WHERE invoice_id NOT IN (SELECT id FROM public.invoices);

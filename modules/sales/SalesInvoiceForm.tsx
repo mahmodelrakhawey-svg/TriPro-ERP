@@ -138,48 +138,24 @@ const SalesInvoiceForm = () => {
       }
       
       try {
-          // حساب الرصيد الحقيقي (مطابق لكشف الحساب): فواتير - (سندات + مرتجعات + شيكات)
+          // الاعتماد على الرصيد المحسوب تلقائياً في قاعدة البيانات (Smart Engine)
+          const { data, error } = await supabase
+              .from('customers')
+              .select('balance')
+              .eq('id', formData.customerId)
+              .single();
           
-          // 1. الفواتير (مدين) - كل الفواتير المرحلة بغض النظر عن حالة الدفع
+          if (data) {
+              setCustomerBalance(data.balance || 0);
+          }
+
+          // التحقق من الفواتير المتأخرة (للتنبيه فقط)
           const { data: invoices } = await supabase
               .from('invoices')
               .select('total_amount, paid_amount, due_date, status')
               .eq('customer_id', formData.customerId)
               .neq('status', 'draft');
-          
-          const totalInvoices = invoices?.reduce((sum, inv) => sum + (inv.total_amount || 0), 0) || 0;
 
-          // 2. المرتجعات (دائن)
-          const { data: returns } = await supabase
-              .from('sales_returns')
-              .select('total_amount')
-              .eq('customer_id', formData.customerId)
-              .eq('status', 'posted');
-          
-          const totalReturns = returns?.reduce((sum, ret) => sum + (ret.total_amount || 0), 0) || 0;
-
-          // 3. سندات القبض (دائن) - استبعاد سندات التأمين DEP
-          const { data: receipts } = await supabase
-              .from('receipt_vouchers')
-              .select('amount')
-              .eq('customer_id', formData.customerId)
-              .not('voucher_number', 'like', 'DEP-%');
-          
-          const totalReceipts = receipts?.reduce((sum, r) => sum + (r.amount || 0), 0) || 0;
-
-          // 4. إشعارات دائنة (دائن)
-          const { data: creditNotes } = await supabase
-              .from('credit_notes')
-              .select('total_amount')
-              .eq('customer_id', formData.customerId);
-
-          const totalCreditNotes = creditNotes?.reduce((sum, cn) => sum + (cn.total_amount || 0), 0) || 0;
-
-          // الرصيد النهائي
-          const balance = totalInvoices - (totalReturns + totalReceipts + totalCreditNotes);
-          setCustomerBalance(balance);
-
-          // التحقق من الفواتير المتأخرة (للتنبيه فقط)
           const today = new Date().toISOString().split('T')[0];
           const overdueInvoices = invoices?.filter((inv: any) => inv.status !== 'paid' && inv.due_date && inv.due_date < today && (inv.total_amount - (inv.paid_amount || 0)) > 0) || [];
           
@@ -1321,7 +1297,7 @@ const SalesInvoiceForm = () => {
                 ) : (
                     <button 
                         type="submit" 
-                        disabled={items.length === 0 || saving}
+                        disabled={items.length === 0 || saving || isRefreshingBalance}
                         className="mt-8 w-full bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:opacity-50 text-white py-5 rounded-[24px] font-black text-xl shadow-2xl shadow-blue-600/30 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3"
                     >
                         {saving ? <Loader2 className="animate-spin" /> : <Save size={24} />}
@@ -1332,7 +1308,7 @@ const SalesInvoiceForm = () => {
                     <button 
                         type="button" 
                         onClick={handleSaveAndPost}
-                        disabled={items.length === 0 || saving}
+                        disabled={items.length === 0 || saving || isRefreshingBalance}
                         className="mt-4 w-full bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 disabled:opacity-50 text-white py-4 rounded-[24px] font-bold text-lg shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-3"
                     >
                         {saving ? <Loader2 className="animate-spin" /> : <CheckCircle size={22} />}

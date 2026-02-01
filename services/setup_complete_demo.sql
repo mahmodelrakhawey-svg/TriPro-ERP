@@ -25,8 +25,8 @@ CREATE TABLE public.company_settings (
     address text,
     footer_text text,
     logo_url text,
-    vat_rate numeric DEFAULT 0.15,
-    currency text DEFAULT 'SAR',
+    vat_rate numeric DEFAULT 0.14,
+    currency text DEFAULT 'EGP',
     enable_tax boolean DEFAULT true,
     allow_negative_stock boolean DEFAULT false,
     prevent_price_modification boolean DEFAULT false,
@@ -134,6 +134,7 @@ CREATE TABLE public.customers (
     tax_id text, -- alias for tax_number
     address text,
     credit_limit numeric DEFAULT 0,
+    balance numeric DEFAULT 0,
     customer_type text DEFAULT 'individual',
     deleted_at timestamptz,
     deletion_reason text,
@@ -149,6 +150,7 @@ CREATE TABLE public.suppliers (
     tax_id text, -- alias
     address text,
     contact_person text,
+    balance numeric DEFAULT 0,
     deleted_at timestamptz,
     deletion_reason text,
     created_at timestamptz DEFAULT now() NOT NULL
@@ -546,6 +548,78 @@ BEGIN
 END;
 $$;
 
+-- دالة إعادة احتساب أرصدة الشركاء (عملاء وموردين)
+CREATE OR REPLACE FUNCTION public.recalculate_partner_balances()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    partner RECORD;
+    v_balance numeric;
+BEGIN
+    -- أ) إعادة احتساب أرصدة العملاء
+    FOR partner IN SELECT id FROM public.customers LOOP
+        v_balance := 0;
+        
+        -- 1. الفواتير (مدين +) - (المبلغ المدفوع مقدماً فيها)
+        SELECT v_balance + COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) INTO v_balance
+        FROM public.invoices 
+        WHERE customer_id = partner.id AND status NOT IN ('draft', 'cancelled');
+
+        -- 2. سندات القبض (دائن -)
+        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
+        FROM public.receipt_vouchers 
+        WHERE customer_id = partner.id;
+
+        -- 3. مرتجعات المبيعات (دائن -)
+        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.sales_returns 
+        WHERE customer_id = partner.id AND status = 'posted';
+
+        -- 4. الإشعارات الدائنة (دائن -)
+        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.credit_notes 
+        WHERE customer_id = partner.id AND status = 'posted';
+
+        -- 5. الشيكات المحصلة (دائن -)
+        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
+        FROM public.cheques 
+        WHERE party_id = partner.id AND type = 'incoming' AND status = 'collected';
+
+        -- تحديث رصيد العميل
+        UPDATE public.customers SET balance = v_balance WHERE id = partner.id;
+    END LOOP;
+
+    -- ب) إعادة احتساب أرصدة الموردين
+    FOR partner IN SELECT id FROM public.suppliers LOOP
+        v_balance := 0;
+
+        -- 1. فواتير المشتريات (دائن +)
+        SELECT v_balance + COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.purchase_invoices 
+        WHERE supplier_id = partner.id AND status NOT IN ('draft', 'cancelled');
+
+        -- 2. سندات الصرف (مدين -)
+        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
+        FROM public.payment_vouchers 
+        WHERE supplier_id = partner.id;
+
+        -- 3. مرتجعات المشتريات (مدين -)
+        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.purchase_returns 
+        WHERE supplier_id = partner.id AND status = 'posted';
+
+        -- 4. الإشعارات المدينة (مدين -)
+        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.debit_notes 
+        WHERE supplier_id = partner.id AND status = 'posted';
+
+        -- تحديث رصيد المورد
+        UPDATE public.suppliers SET balance = v_balance WHERE id = partner.id;
+    END LOOP;
+END;
+$$;
+
 -- ========= 3. البيانات الأولية (Seeding) =========
 
 DO $$
@@ -560,7 +634,7 @@ DECLARE
 BEGIN
     -- 1. المنظمة والإعدادات
     INSERT INTO public.organizations (name) VALUES ('الشركة النموذجية للتجارة') RETURNING id INTO v_org_id;
-    INSERT INTO public.company_settings (company_name, currency, enable_tax) VALUES ('الشركة النموذجية للتجارة', 'SAR', true);
+    INSERT INTO public.company_settings (company_name, currency, enable_tax) VALUES ('الشركة النموذجية للتجارة', 'EGP', true);
     INSERT INTO public.warehouses (name, location) VALUES ('المستودع الرئيسي', 'الرياض') RETURNING id INTO v_warehouse_id;
 
     -- 2. دليل الحسابات (مختصر)
