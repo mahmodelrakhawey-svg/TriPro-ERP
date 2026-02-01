@@ -218,7 +218,7 @@ const OfferBeneficiariesReport = () => {
 
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
               <h3 className="text-sm font-bold text-slate-700 mb-2 text-center">نسبة مبيعات العروض</h3>
-              <div className="h-40" dir="ltr">
+              <div className="h-40 w-full" dir="ltr">
                   <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                           <Pie
@@ -242,7 +242,7 @@ const OfferBeneficiariesReport = () => {
 
           <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
               <h3 className="text-sm font-bold text-slate-700 mb-2 text-center">الأكثر مبيعاً في العروض</h3>
-              <div className="h-40" dir="ltr">
+              <div className="h-40 w-full" dir="ltr">
                   <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={topSellingOffers}>
                           <XAxis dataKey="name" tick={{fontSize: 10}} />

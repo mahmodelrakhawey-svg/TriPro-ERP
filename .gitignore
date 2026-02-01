@@ -23,3 +23,20 @@ yarn-error.log*
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Archives & Compressed files (To save space)
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# Large Media & Design files
+*.mp4
+*.mov
+*.psd
+*.ai
+
+# Local Backups
+*.bak
+backup_*.json

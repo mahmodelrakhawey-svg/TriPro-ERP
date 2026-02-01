@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Save, Calculator, AlertCircle, CheckCircle, History, Wallet, Loader2 } from 'lucide-react';
 
 const CashClosingForm = () => {
@@ -13,6 +14,7 @@ const CashClosingForm = () => {
   const [notes, setNotes] = useState('');
   const [todayMovement, setTodayMovement] = useState({ in: 0, out: 0 });
   const [lastClosings, setLastClosings] = useState<any[]>([]);
+  const { showToast } = useToast();
 
   // تصفية حسابات النقدية/الصناديق فقط
   const cashAccounts = useMemo(() => {

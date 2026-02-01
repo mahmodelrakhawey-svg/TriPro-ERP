@@ -7,6 +7,7 @@ import { supabase } from '../../supabaseClient';
 
 const QuotationForm = () => {
   const { products, customers, currentUser, settings } = useAccounting();
+  const { showToast } = useToast();
   
   const [formData, setFormData] = useState({
     customerId: '',

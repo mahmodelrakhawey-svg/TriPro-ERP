@@ -202,10 +202,12 @@ class NotificationService {
   static async checkOverduePayments(): Promise<void> {
     try {
       const { data: overdueInvoices, error } = await supabase
-        .from('sales_invoices')
-        .select('id, customer_id, due_date, reference')
+        .from('invoices')
+        .select('id, customer_id, due_date, invoice_number')
         .lt('due_date', new Date().toISOString().split('T')[0])
-        .eq('payment_status', 'pending');
+        .neq('status', 'paid')
+        .neq('status', 'draft')
+        .neq('status', 'cancelled');
 
       if (error || !overdueInvoices) return;
 
@@ -225,11 +227,11 @@ class NotificationService {
           await this.createNotification(
             customer.responsible_user_id,
             `دفعة مستحقة منذ ${daysOverdue} يوم`,
-            `الفاتورة رقم ${invoice.reference} استحقت منذ ${daysOverdue} يوم`,
+            `الفاتورة رقم ${invoice.invoice_number} استحقت منذ ${daysOverdue} يوم`,
             'overdue_payment',
             daysOverdue > 30 ? 'high' : 'medium',
             invoice.id,
-            `/invoice/${invoice.id}`
+            `/sales-invoice?id=${invoice.id}`
           );
         }
       }
@@ -243,38 +245,34 @@ class NotificationService {
    */
   static async checkLowInventory(): Promise<void> {
     try {
-      const { data: lowStockItems, error } = await supabase
-        .from('inventory_items')
-        .select('id, product_code, product_name, quantity, minimum_level, warehouse_id')
-        .lt('quantity', 'minimum_level:value');
+      const { data: products, error } = await supabase
+        .from('products')
+        .select('id, sku, name, stock, min_stock');
 
-      if (error || !lowStockItems) return;
+      if (error || !products) return;
 
-      // جلب معرّفات مدراء المخزن
-      const { data: warehouseManagers } = await supabase
-        .from('warehouse_staff')
-        .select('warehouse_id, user_id')
-        .eq('role', 'manager');
+      // جلب معرّفات المسؤولين (المدير العام)
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'super_admin']);
 
-      const managerMap = new Map<string, string>();
-      if (warehouseManagers) {
-        warehouseManagers.forEach((staff) => {
-          managerMap.set(staff.warehouse_id, staff.user_id);
-        });
-      }
+      if (!admins) return;
 
-      for (const item of lowStockItems) {
-        const managerId = managerMap.get(item.warehouse_id);
-        if (managerId) {
-          await this.createNotification(
-            managerId,
-            `مخزون منخفض: ${item.product_name}`,
-            `المخزون الحالي: ${item.quantity} والحد الأدنى: ${item.minimum_level}`,
+      for (const item of products) {
+        const minLevel = item.min_stock || 5;
+        if ((item.stock || 0) <= minLevel) {
+           for (const admin of admins) {
+              await this.createNotification(
+                admin.id,
+                `مخزون منخفض: ${item.name}`,
+                `المخزون الحالي: ${item.stock} والحد الأدنى: ${minLevel}`,
             'low_inventory',
             'medium',
             item.id,
-            `/inventory/${item.id}`
+            `/products`
           );
+           }
         }
       }
     } catch (err) {
@@ -287,27 +285,42 @@ class NotificationService {
    */
   static async checkHighDebt(): Promise<void> {
     try {
-      const { data: customers, error } = await supabase
-        .from('customers')
-        .select('id, name, credit_limit, total_debt, responsible_user_id')
-        .gt('total_debt', 'credit_limit:value');
+      // استخدام RPC لتجنب خطأ 400 في المقارنة بين الأعمدة
+      const { data: customers, error } = await supabase.rpc('get_over_limit_customers');
+
+      if (error) {
+          console.warn('RPC get_over_limit_customers failed or not found.', error);
+          return;
+      }
 
       if (error || !customers) return;
 
+      // جلب المسؤولين كاحتياطي
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'super_admin'])
+        .limit(1);
+      const adminId = admins?.[0]?.id;
+
       for (const customer of customers) {
-        if (customer.responsible_user_id) {
+        // محاولة جلب المستخدم المسؤول
+        const { data: custDetails } = await supabase.from('customers').select('responsible_user_id').eq('id', customer.id).single();
+        const targetUser = custDetails?.responsible_user_id || adminId;
+
+        if (targetUser) {
           const exceedPercentage = Math.round(
             ((customer.total_debt - customer.credit_limit) / customer.credit_limit) * 100
           );
 
           await this.createNotification(
-            customer.responsible_user_id,
+            targetUser,
             `تجاوز حد الائتمان: ${customer.name}`,
-            `الدين الحالي يتجاوز الحد بنسبة ${exceedPercentage}%`,
+            `الدين الحالي (${customer.total_debt}) يتجاوز الحد (${customer.credit_limit}) بنسبة ${exceedPercentage}%`,
             'high_debt',
             'high',
             customer.id,
-            `/customer/${customer.id}`
+            `/customers`
           );
         }
       }
@@ -321,45 +334,30 @@ class NotificationService {
    */
   static async checkPendingApprovals(): Promise<void> {
     try {
-      // فواتير مبيعات معلقة
+      // فواتير مبيعات معلقة (مسودات قديمة)
       const { data: pendingInvoices } = await supabase
-        .from('sales_invoices')
-        .select('id, reference, approver_id')
-        .eq('status', 'pending_approval');
+        .from('invoices')
+        .select('id, invoice_number, created_by')
+        .eq('status', 'draft')
+        .lt('invoice_date', new Date(Date.now() - 86400000).toISOString().split('T')[0]);
 
-      if (pendingInvoices) {
+      // إرسال تنبيه للمدراء
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .in('role', ['admin', 'super_admin']);
+
+      if (pendingInvoices && admins) {
         for (const invoice of pendingInvoices) {
-          if (invoice.approver_id) {
-            await this.createNotification(
-              invoice.approver_id,
-              `الفاتورة ${invoice.reference} تنتظر الموافقة`,
-              `يرجى مراجعة وعتماد الفاتورة رقم ${invoice.reference}`,
+          for (const admin of admins) {
+             await this.createNotification(
+              admin.id,
+              `مسودة فاتورة معلقة: ${invoice.invoice_number}`,
+              `الفاتورة لا تزال مسودة منذ أكثر من 24 ساعة`,
               'pending_approval',
-              'high',
+              'medium',
               invoice.id,
-              `/invoice/${invoice.id}/approve`
-            );
-          }
-        }
-      }
-
-      // فواتير مشتريات معلقة
-      const { data: pendingPurchases } = await supabase
-        .from('purchase_invoices')
-        .select('id, reference, approver_id')
-        .eq('status', 'pending_approval');
-
-      if (pendingPurchases) {
-        for (const purchase of pendingPurchases) {
-          if (purchase.approver_id) {
-            await this.createNotification(
-              purchase.approver_id,
-              `فاتورة شراء ${purchase.reference} تنتظر الموافقة`,
-              `يرجى مراجعة واعتماد فاتورة الشراء رقم ${purchase.reference}`,
-              'pending_approval',
-              'high',
-              purchase.id,
-              `/purchase-invoice/${purchase.id}/approve`
+              `/sales-invoice?id=${invoice.id}`
             );
           }
         }
@@ -383,11 +381,13 @@ class NotificationService {
       const nextWeekStr = nextWeek.toISOString().split('T')[0];
 
       const { data: upcomingPayments } = await supabase
-        .from('sales_invoices')
-        .select('id, customer_id, due_date, reference')
+        .from('invoices')
+        .select('id, customer_id, due_date, invoice_number')
         .gte('due_date', tomorrowStr)
         .lte('due_date', nextWeekStr)
-        .eq('payment_status', 'pending');
+        .neq('status', 'paid')
+        .neq('status', 'draft')
+        .neq('status', 'cancelled');
 
       if (upcomingPayments) {
         for (const invoice of upcomingPayments) {
@@ -404,12 +404,12 @@ class NotificationService {
 
             await this.createNotification(
               customer.responsible_user_id,
-              `تاريخ دفع قريب: ${invoice.reference}`,
-              `ستستحق الفاتورة رقم ${invoice.reference} بعد ${daysUntilDue} يوم`,
+              `تاريخ دفع قريب: ${invoice.invoice_number}`,
+              `ستستحق الفاتورة رقم ${invoice.invoice_number} بعد ${daysUntilDue} يوم`,
               'due_date_approaching',
               'medium',
               invoice.id,
-              `/invoice/${invoice.id}`
+              `/sales-invoice?id=${invoice.id}`
             );
           }
         }

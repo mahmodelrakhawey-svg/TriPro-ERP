@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
+import { useToast } from '../context/ToastContext';
 import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2 } from 'lucide-react';
 
 const ACCOUNT_LABELS: Record<string, string> = {
@@ -44,6 +45,7 @@ const Settings = () => {
       accountMappings: {} as Record<string, string>
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts } = useAccounting();

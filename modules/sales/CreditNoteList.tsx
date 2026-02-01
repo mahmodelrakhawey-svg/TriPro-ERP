@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileMinus, Loader2, Edit, Trash2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const CreditNoteList = () => {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [notes, setNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
