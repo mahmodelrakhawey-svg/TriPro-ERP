@@ -141,7 +141,8 @@ const SalesReturnForm = () => {
         total_amount: totalAmount,
         tax_amount: taxAmount,
         notes: formData.notes,
-        status: 'posted'
+        status: 'posted',
+        created_by: currentUser?.id
       }).select().single();
 
       if (retError) throw retError;

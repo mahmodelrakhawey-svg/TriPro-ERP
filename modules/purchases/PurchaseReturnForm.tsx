@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { RotateCcw, Save, Loader2, Truck, Calendar, Package, Warehouse, Plus, Trash2, FileText } from 'lucide-react';
 
 const PurchaseReturnForm = () => {
-  const { suppliers, products, warehouses, settings, purchaseInvoices, accounts, addEntry, getSystemAccount } = useAccounting();
+  const { suppliers, products, warehouses, settings, purchaseInvoices, accounts, addEntry, getSystemAccount, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     supplierId: '',
@@ -82,7 +82,8 @@ const PurchaseReturnForm = () => {
         total_amount: totalAmount,
         tax_amount: taxAmount,
         notes: formData.notes,
-        status: 'posted' // Save as posted directly since we handle logic here
+        status: 'posted', // Save as posted directly since we handle logic here
+        created_by: currentUser?.id
       }).select().single();
 
       if (headerError) throw headerError;

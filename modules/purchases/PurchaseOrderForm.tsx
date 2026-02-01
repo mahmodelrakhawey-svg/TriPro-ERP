@@ -5,7 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { FileCheck, Save, Plus, Trash2, Loader2, Search, Calendar } from 'lucide-react';
 
 const PurchaseOrderForm = () => {
-  const { suppliers, products, currentUser } = useAccounting();
+  const { suppliers, products, currentUser, settings } = useAccounting();
   const [items, setItems] = useState<any[]>([]);
   const [formData, setFormData] = useState({ 
       supplierId: '', 
@@ -44,7 +44,8 @@ const PurchaseOrderForm = () => {
 
     try {
       const total = calculateTotal();
-      const tax = total * 0.15;
+      const taxRate = settings.enableTax ? (settings.vatRate ? settings.vatRate / 100 : 0.15) : 0;
+      const tax = total * taxRate;
       const grandTotal = total + tax;
       const orderNumber = formData.orderNumber || `PO-${Date.now().toString().slice(-6)}`;
 
@@ -159,7 +160,7 @@ const PurchaseOrderForm = () => {
           <tfoot className="font-bold text-lg">
             <tr className="bg-slate-50">
               <td colSpan={3} className="p-4 text-left text-blue-600">الإجمالي التقديري:</td>
-              <td className="p-4 text-blue-600">{(calculateTotal() * 1.15).toLocaleString()}</td>
+              <td className="p-4 text-blue-600">{(calculateTotal() + (calculateTotal() * (settings.enableTax ? (settings.vatRate ? settings.vatRate / 100 : 0.15) : 0))).toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>

@@ -106,7 +106,8 @@ export default function OpeningInventory() {
             product_id: p.id,
             warehouse_id: defaultWarehouseId,
             quantity: p.stock,
-            cost: p.purchase_price
+            cost: p.purchase_price,
+            created_by: currentUser?.id
         }));
         const { error: openingError } = await supabase.from('opening_inventories').insert(openingEntries);
         if (openingError) console.error("Failed to save opening inventory records:", openingError);

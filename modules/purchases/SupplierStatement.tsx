@@ -76,10 +76,12 @@ const SupplierStatement = () => {
         // تجميع كل الحركات
         let allTrans: any[] = [];
 
-        invoices?.forEach(inv => allTrans.push({
-            date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مشتريات', 
-            credit: inv.total_amount, debit: 0 
-        }));
+        invoices?.forEach(inv => {
+            allTrans.push({
+                date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مشتريات', 
+                credit: inv.total_amount, debit: 0 
+            });
+        });
 
         returns?.forEach(ret => allTrans.push({
             date: ret.return_date, type: 'return', ref: ret.return_number, desc: 'مرتجع مشتريات', 

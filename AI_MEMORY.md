@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٢٤‏/١‏/٢٠٢٦، ١٠:٥٥:٢٦ ص
+📅 تاريخ التحديث: ٢٩‏/١‏/٢٠٢٦، ١٠:١٩:٤٦ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -143,6 +143,7 @@
   📄 LandingPage.tsx
   📄 Login.tsx
   📄 Maintenance.tsx
+  📄 NotificationCenter.tsx
   📄 ProductStockViewer.tsx
   📄 ReportHeader.tsx
   📄 search-tool.ts
@@ -172,6 +173,7 @@
   📄 cash_closing_setup.sql
   📄 create_fix_schema_function.sql
   📄 deploy_all_functions.sql
+  📄 egyptian_coa_full.sql
   📄 ensure_returns_columns.sql
   📄 factory_reset_complete.sql
   📄 fix_deficit_relationship.sql
@@ -183,16 +185,21 @@
   📄 geminiService.ts
   📄 inventory_costing_setup.sql
   📄 link_returns_to_invoices.sql
+  📄 NotificationScheduler.ts
+  📄 notificationService.ts
+  📄 notificationTestUtils.ts
   📄 populate_demo_activity.sql
   📄 recalculate_stock_rpc.sql
   📄 rejected_closings_setup.sql
   📄 reset_database_clean.sql
   📄 run_period_depreciation_rpc.sql
+  📄 secure_tables.sql
   📄 setup_client_admin.sql
   📄 setup_complete_demo.sql
   📄 setup_demo_environment.sql
   📄 setup_demo_protection.sql
   📄 setup_new_client_db.sql
+  📄 setup_notifications.sql
   📄 supabaseClient.ts
   📄 sync_missing_accounts.sql
   📄 system_stabilization.sql
@@ -206,6 +213,7 @@
   📄 verify_demo_security.sql
   📄 verify_functions.sql
   📄 verify_reset.sql
+  📄 verify_rls_status.sql
   📄 voucher_attachments_setup.sql
   📄 WhatsAppButton.tsx
 📁 context/
@@ -3836,4 +3844,3 @@ if (!supabaseUrl || !supabaseKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseKey);
 ```
-

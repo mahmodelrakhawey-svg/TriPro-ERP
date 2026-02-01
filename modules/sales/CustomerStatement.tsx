@@ -62,7 +62,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     try {
         // 1. Fetch Invoices (Debit)
         const { data: invoices } = await supabase.from('invoices')
-            .select('id, invoice_number, invoice_date, total_amount')
+            .select('id, invoice_number, invoice_date, total_amount, paid_amount')
             .eq('customer_id', selectedCustomerId)
             .neq('status', 'draft');
 
@@ -94,10 +94,19 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         // Combine all transactions
         let allTrans: any[] = [];
 
-        invoices?.forEach(inv => allTrans.push({
-            date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مبيعات', 
-            debit: inv.total_amount, credit: 0 
-        }));
+        invoices?.forEach(inv => {
+            allTrans.push({
+                date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مبيعات', 
+                debit: inv.total_amount, credit: 0 
+            });
+            // إضافة سطر سداد إذا كان هناك مبلغ مدفوع مقدماً في الفاتورة
+            if (inv.paid_amount && inv.paid_amount > 0) {
+                allTrans.push({
+                    date: inv.invoice_date, type: 'receipt', ref: inv.invoice_number, desc: 'دفعة مقدمة مع الفاتورة', 
+                    debit: 0, credit: inv.paid_amount 
+                });
+            }
+        });
 
         returns?.forEach(ret => allTrans.push({
             date: ret.return_date, type: 'return', ref: ret.return_number, desc: 'مرتجع مبيعات', 

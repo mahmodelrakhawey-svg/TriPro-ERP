@@ -6,7 +6,7 @@ import { InvoiceItem } from '../../types';
 import { supabase } from '../../supabaseClient';
 
 const QuotationForm = () => {
-  const { products, customers, currentUser } = useAccounting();
+  const { products, customers, currentUser, settings } = useAccounting();
   
   const [formData, setFormData] = useState({
     customerId: '',
@@ -25,7 +25,8 @@ const QuotationForm = () => {
   const [savedQuote, setSavedQuote] = useState<string | null>(null);
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-  const taxAmount = subtotal * 0.15;
+  const taxRate = settings.enableTax ? (settings.vatRate ? settings.vatRate / 100 : 0.15) : 0;
+  const taxAmount = subtotal * taxRate;
   const totalAmount = subtotal + taxAmount;
 
   const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {

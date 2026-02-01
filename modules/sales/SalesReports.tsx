@@ -4,12 +4,12 @@ import { useAccounting } from '../../context/AccountingContext';
 import { 
     Users, User, Calendar, BarChart3, TrendingUp, 
     Target, Package, Download, Printer, Percent, CircleDollarSign,
-    ListFilter, Award, Store, Smartphone, LayoutGrid, Building2, MapPin, FileText
+    ListFilter, Award, Store, Smartphone, LayoutGrid, Building2, MapPin, FileText, RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const SalesReports = () => {
-  const { invoices, salespeople, customers, settings, warehouses } = useAccounting();
+  const { invoices, salespeople, customers, settings, warehouses, recalculateStock } = useAccounting();
   
   // Tab State
   const [activeView, setActiveView] = useState<'products' | 'branches' | 'commissions'>('products');
@@ -21,6 +21,7 @@ const SalesReports = () => {
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [commissionRate, setCommissionRate] = useState(2); 
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // --- CORE LOGIC ---
   const analytics = useMemo(() => {
@@ -153,6 +154,18 @@ const SalesReports = () => {
             <p className="text-slate-500 font-medium">تحليل شامل لحركة الأصناف، أداء الفروع، والعمولات</p>
         </div>
         <div className="flex gap-3">
+            <button 
+                onClick={async () => {
+                    setIsRefreshing(true);
+                    await recalculateStock();
+                    setIsRefreshing(false);
+                }}
+                disabled={isRefreshing}
+                className="bg-white text-slate-600 border border-slate-200 px-4 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
+            >
+                <RefreshCw size={20} className={isRefreshing ? 'animate-spin' : ''} />
+                <span className="hidden md:inline">تحديث</span>
+            </button>
             <Link to="/free-returns-report" className="bg-white text-red-600 border border-red-100 px-6 py-3 rounded-2xl font-black flex items-center gap-2 hover:bg-red-50 transition-all shadow-sm">
                 <FileText size={20} /> المرتجعات الحرة
             </Link>

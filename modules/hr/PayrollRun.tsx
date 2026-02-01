@@ -1,6 +1,6 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { useAccounting } from '../../context/AccountingContext';
+import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Banknote, Play, Loader2, Save, User, Wallet } from 'lucide-react';
 
@@ -16,7 +16,7 @@ type PayrollItem = {
 };
 
 const PayrollRun = () => {
-  const { runPayroll: runPayrollFromContext, currentUser } = useAccounting(); // Renamed to avoid conflict
+  const { runPayroll: runPayrollFromContext, currentUser, accounts, createMissingSystemAccounts } = useAccounting(); // Renamed to avoid conflict
   const { showToast } = useToast();
   const [payrollData, setPayrollData] = useState<PayrollItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -111,6 +111,36 @@ const PayrollRun = () => {
   const handleRunPayroll = async () => {
     if (!treasuryId) return showToast('يرجى اختيار حساب الصرف (الخزينة/البنك)', 'warning');
     if (payrollData.length === 0) return showToast('لا يوجد بيانات في المسير', 'warning');
+
+    // التحقق من وجود الحسابات المحاسبية اللازمة للقيد
+    const requiredAccounts = [
+        { code: SYSTEM_ACCOUNTS.SALARIES_EXPENSE, name: 'الرواتب والأجور' },
+        { code: SYSTEM_ACCOUNTS.EMPLOYEE_BONUSES, name: 'مكافآت وحوافز' },
+        { code: SYSTEM_ACCOUNTS.EMPLOYEE_DEDUCTIONS, name: 'خصومات وجزاءات' },
+        { code: SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, name: 'سلف الموظفين' }
+    ];
+
+    const missingAccounts = requiredAccounts.filter(req => !accounts.find(a => a.code === req.code));
+
+    if (missingAccounts.length > 0) {
+        const confirmCreate = window.confirm(
+            `عذراً، لا يمكن إتمام العملية.\nالحسابات التالية غير موجودة في الدليل المحاسبي:\n${missingAccounts.map(a => `- ${a.name} (كود: ${a.code})`).join('\n')}\n\nهل تريد إنشاء هذه الحسابات تلقائياً الآن؟`
+        );
+
+        if (confirmCreate) {
+            try {
+                const result = await createMissingSystemAccounts();
+                if (result.success) {
+                    alert(result.message + "\nتم تحديث الحسابات بنجاح. يمكنك الآن إعادة المحاولة.");
+                } else {
+                    alert('تم تحديث دليل الحسابات. يرجى المحاولة مرة أخرى.');
+                }
+            } catch (error: any) {
+                alert('حدث خطأ أثناء إنشاء الحسابات: ' + error.message);
+            }
+        }
+        return;
+    }
 
     setSaving(true);
     try {

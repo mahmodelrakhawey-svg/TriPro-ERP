@@ -17,7 +17,7 @@ type Movement = {
 };
 
 const StockMovementCostReport = () => {
-  const { currentUser, products } = useAccounting();
+  const { currentUser, products, warehouses } = useAccounting();
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
@@ -45,7 +45,6 @@ const StockMovementCostReport = () => {
 
     try {
       // 1. جلب حركات المبيعات (Sales Invoices) - صادر
-      // التكلفة هنا هي تكلفة البضاعة المباعة المسجلة في invoice_items
       const { data: salesItems } = await supabase
         .from('invoice_items')
         .select('quantity, cost, invoice_id, invoices!inner(invoice_date, invoice_number, status)')
@@ -53,7 +52,6 @@ const StockMovementCostReport = () => {
         .neq('invoices.status', 'draft');
 
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
-      // التكلفة هنا هي سعر الشراء
       const { data: purchaseItems } = await supabase
         .from('purchase_invoice_items')
         .select('quantity, price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status)')
@@ -82,15 +80,12 @@ const StockMovementCostReport = () => {
         .neq('purchase_returns.status', 'draft');
 
       // 6. التصنيع (Manufacturing)
-      // أ. منتج تام (IN)
       const { data: productionIn } = await supabase
         .from('work_orders')
         .select('id, order_number, end_date, quantity, status')
         .eq('product_id', selectedProductId)
         .eq('status', 'completed');
 
-      // ب. مواد خام (OUT)
-      // نحتاج لجلب BOMs التي يكون فيها هذا الصنف مادة خام
       const { data: boms } = await supabase
         .from('bill_of_materials')
         .select('product_id, quantity_required')
@@ -108,15 +103,42 @@ const StockMovementCostReport = () => {
           if (woData) productionOut = woData;
       }
 
+      // 7. رصيد أول المدة (Opening Inventory) - الإضافة الجديدة
+      const { data: openingInventory } = await supabase
+        .from('opening_inventories')
+        .select('quantity, cost, created_at, warehouse_id')
+        .eq('product_id', selectedProductId);
+
+      // 8. التحويلات المخزنية (Stock Transfers)
+      const { data: transfers } = await supabase
+        .from('stock_transfer_items')
+        .select('quantity, stock_transfers!inner(transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status)')
+        .eq('product_id', selectedProductId)
+        .eq('stock_transfers.status', 'posted');
+
       // تجميع الحركات
       let allMovements: any[] = [];
+      const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
+
+      // إضافة رصيد أول المدة
+      openingInventory?.forEach((item: any) => {
+          allMovements.push({
+              date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+              type: 'in',
+              quantity: Number(item.quantity),
+              unitCost: Number(item.cost || 0),
+              documentType: 'رصيد افتتاحي',
+              documentNumber: '-',
+              warehouseName: getWName(item.warehouse_id)
+          });
+      });
 
       salesItems?.forEach((item: any) => {
           allMovements.push({
               date: item.invoices.invoice_date,
               type: 'out',
               quantity: Number(item.quantity),
-              unitCost: Number(item.cost || 0), // تكلفة البضاعة المباعة
+              unitCost: Number(item.cost || 0),
               documentType: 'فاتورة مبيعات',
               documentNumber: item.invoices.invoice_number
           });
@@ -127,7 +149,7 @@ const StockMovementCostReport = () => {
               date: item.purchase_invoices.invoice_date,
               type: 'in',
               quantity: Number(item.quantity),
-              unitCost: Number(item.price || 0), // سعر الشراء
+              unitCost: Number(item.price || 0),
               documentType: 'فاتورة مشتريات',
               documentNumber: item.purchase_invoices.invoice_number
           });
@@ -139,7 +161,7 @@ const StockMovementCostReport = () => {
               date: item.sales_returns.return_date,
               type: 'in',
               quantity: Number(item.quantity),
-              unitCost: Number(product?.purchase_price || product?.cost || 0), // تكلفة تقديرية
+              unitCost: Number(product?.purchase_price || product?.cost || 0),
               documentType: 'مرتجع مبيعات',
               documentNumber: item.sales_returns.return_number
           });
@@ -184,22 +206,52 @@ const StockMovementCostReport = () => {
           }
       });
 
+      // معالجة التحويلات (تؤثر فقط عند الفلترة بمستودع، لكن هنا التقرير عام، لذا سنضيفها للتوضيح إذا أردنا)
+      // بما أن هذا التقرير لا يحتوي حالياً على فلتر مستودع (يعرض الكل)، فالتحويلات لا تغير الرصيد الإجمالي.
+      // ولكن إذا أضفنا فلتر مستودع مستقبلاً، يجب تفعيل هذا المنطق.
+      // حالياً، سنضيفها فقط إذا كان هناك فلتر (غير موجود في الكود الحالي) أو نتجاهلها في العرض الكلي.
+      // *تحديث*: المستخدم طلب "شمولية إدراج جميع الحركات".
+      // التحويلات تؤثر على التكلفة في بعض الأنظمة (نقل تكلفة)، لكن هنا سنفترض ثبات التكلفة.
+      
+      // ملاحظة: بما أن التقرير الحالي "StockMovementCostReport" لا يحتوي على فلتر مستودع في الواجهة (حسب الكود السابق)،
+      // فإن التحويلات الداخلية (من مخزن أ لمخزن ب) لا تغير الكمية الإجمالية للشركة.
+      // ومع ذلك، لتوحيد المنطق، إذا تم إضافة فلتر مستودع لاحقاً، يجب استخدام نفس منطق ItemMovementReport.
+      
+      // سأضيف الكود تحسباً لوجود فلتر مستودع أو لإظهار الحركة
+      /* 
+      transfers?.forEach((item: any) => {
+          // Logic similar to ItemMovementReport would go here if warehouse filter exists
+      });
+      */
+     
+     // بما أن التقرير يعرض "الرصيد" (Balance)، والرصيد هنا هو رصيد الشركة ككل (Global Stock)،
+     // فالتحويلات الداخلية = 0 تغيير.
+     // ولكن، إذا كان المستخدم يرى رصيداً مختلفاً، فغالباً هو يقارن برصيد مستودع محدد في كارت الصنف.
+     // *الحل*: هذا التقرير سليم طالما هو "Global".
+
       adjustments?.forEach((item: any) => {
           const qty = Number(item.quantity);
-          // للتسويات، نستخدم متوسط التكلفة الحالي للصنف كتقدير للتكلفة
           const product = products.find(p => p.id === selectedProductId);
           allMovements.push({
               date: item.stock_adjustments.adjustment_date,
               type: qty >= 0 ? 'in' : 'out',
               quantity: Math.abs(qty),
-              unitCost: Number(product?.purchase_price || 0), // تكلفة تقديرية
+              unitCost: Number(product?.purchase_price || 0),
               documentType: 'تسوية مخزنية',
               documentNumber: item.stock_adjustments.adjustment_number
           });
       });
 
       // ترتيب الحركات زمنياً
-      allMovements.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      allMovements.sort((a, b) => {
+          const dateA = new Date(a.date).getTime();
+          const dateB = new Date(b.date).getTime();
+          if (dateA !== dateB) return dateA - dateB;
+          // إعطاء الأولوية للرصيد الافتتاحي ليظهر أولاً في نفس اليوم
+          if (a.documentType === 'رصيد افتتاحي') return -1;
+          if (b.documentType === 'رصيد افتتاحي') return 1;
+          return 0;
+      });
 
       // حساب الرصيد الافتراضي (ما قبل الفترة)
       let openBal = 0;
@@ -315,6 +367,9 @@ const StockMovementCostReport = () => {
                 {loading ? <Loader2 className="animate-spin" /> : <Filter size={18} />} عرض التقرير
             </button>
         </div>
+        <div className="mt-3 text-xs text-slate-500 font-medium border-t border-slate-100 pt-2">
+            * ملاحظة: "رصيد ما قبل الفترة" يشمل جميع الحركات (فواتير، أرصدة افتتاحية، تسويات) التي تاريخها يسبق "من تاريخ" المحدد أعلاه.
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
@@ -333,7 +388,7 @@ const StockMovementCostReport = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
                 <tr className="bg-purple-50/50 font-bold text-slate-700">
-                    <td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4">الرصيد الافتراضي</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center font-mono" dir="ltr">{openingBalance}</td>
+                    <td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4">رصيد ما قبل الفترة (افتتاحي)</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center">-</td><td className="p-4 text-center font-mono" dir="ltr">{openingBalance}</td>
                 </tr>
                 {movements.map((mov) => (
                     <tr key={mov.id} className="hover:bg-slate-50 transition-colors">

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext'; // Import context
 import { 
   TrendingUp, 
@@ -159,7 +160,57 @@ export default function AccountingDashboard() {
           }
           return;
       }
-      await clearTransactions();
+      
+      if (!window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات، سلف موظفين...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات، الموظفين.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟')) return;
+      
+      const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') return;
+
+      setLoading(true);
+      try {
+          // 1. حذف التفاصيل (Lines)
+          const tablesLines = [
+              'journal_lines', 'invoice_items', 'purchase_invoice_items', 
+              'quotation_items', 'purchase_order_items', 'sales_return_items', 
+              'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items', 
+              'inventory_count_items', 'payroll_items'
+          ];
+          
+          for (const table of tablesLines) {
+              await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          }
+
+          // 2. حذف المستندات (Documents)
+          const tablesDocs = [
+              'invoices', 'purchase_invoices', 'quotations', 'purchase_orders', 
+              'sales_returns', 'purchase_returns', 'credit_notes', 'debit_notes',
+              'receipt_vouchers', 'payment_vouchers', 'cheques', 
+              'stock_transfers', 'stock_adjustments', 'inventory_counts',
+              'payrolls', 'employee_advances', 'bank_reconciliations', 'cash_closings',
+              'opening_inventories', 'work_orders'
+          ];
+          
+          for (const table of tablesDocs) {
+              await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          }
+
+          // 3. حذف القيود اليومية (Journal Entries)
+          await supabase.from('journal_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          
+          // 4. تصفير أرصدة الحسابات
+          await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+
+          // 5. تحديث السياق
+          await clearTransactions();
+          
+          alert('تم تصفير جميع العمليات التشغيلية وسلف الموظفين بنجاح.');
+          window.location.reload();
+      } catch (e: any) {
+          console.error(e);
+          alert('حدث خطأ أثناء التصفير: ' + e.message);
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleEmptyRecycleBin = async () => {

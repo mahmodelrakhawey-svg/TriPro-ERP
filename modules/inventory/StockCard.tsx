@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle } from 'lucide-react';
+import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -21,7 +21,7 @@ type Transaction = {
 
 const StockCard = () => {
   const navigate = useNavigate();
-  const { currentUser, warehouses, products, refreshData, updateProduct, users } = useAccounting();
+  const { currentUser, warehouses, products, refreshData, updateProduct, users, recalculateStock } = useAccounting();
   const [selectedProductId, setSelectedProductId] = useState('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -36,6 +36,10 @@ const StockCard = () => {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [priceHistory, setPriceHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [isRecalculating, setIsRecalculating] = useState(false);
+  const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
+  const [openingFormData, setOpeningFormData] = useState({ warehouseId: '', quantity: 0, cost: 0 });
+  const [existingOpeningId, setExistingOpeningId] = useState<string | null>(null);
   
   // جلب الحركات عند تغيير الصنف أو المستودع
   useEffect(() => {
@@ -47,6 +51,7 @@ const StockCard = () => {
   }, [selectedProductId, selectedWarehouseId]);
 
   const fetchTransactions = async () => {
+    if (!selectedProductId) return;
     setLoading(true);
     if (currentUser?.role === 'demo') {
         setTransactions([
@@ -59,12 +64,14 @@ const StockCard = () => {
 
     try {
       // بناء الاستعلامات لجلب الحركات من جداول مختلفة
-      let querySales = supabase.from('invoice_items').select('quantity, invoices!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes)').eq('product_id', selectedProductId);
-      let queryPurchases = supabase.from('purchase_invoice_items').select('quantity, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes)').eq('product_id', selectedProductId);
-      let querySalesReturns = supabase.from('sales_return_items').select('quantity, sales_returns!inner(id, return_date, return_number, warehouse_id, created_at, notes)').eq('product_id', selectedProductId);
-      let queryPurchaseReturns = supabase.from('purchase_return_items').select('quantity, purchase_returns!inner(id, return_date, return_number, warehouse_id, created_at, notes)').eq('product_id', selectedProductId);
-      let queryAdjustments = supabase.from('stock_adjustment_items').select('quantity, stock_adjustments!inner(id, adjustment_date, adjustment_number, warehouse_id, created_at, reason)').eq('product_id', selectedProductId);
-      let queryTransfers = supabase.from('stock_transfer_items').select('quantity, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, created_at, notes)').eq('product_id', selectedProductId);
+      let querySales = supabase.from('invoice_items').select('quantity, invoices!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('invoices.status', 'draft').neq('invoices.status', 'cancelled');
+      let queryPurchases = supabase.from('purchase_invoice_items').select('quantity, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('purchase_invoices.status', 'draft').neq('purchase_invoices.status', 'cancelled');
+      let querySalesReturns = supabase.from('sales_return_items').select('quantity, sales_returns!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('sales_returns.status', 'draft').neq('sales_returns.status', 'cancelled');
+      let queryPurchaseReturns = supabase.from('purchase_return_items').select('quantity, purchase_returns!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('purchase_returns.status', 'draft').neq('purchase_returns.status', 'cancelled');
+      let queryAdjustments = supabase.from('stock_adjustment_items').select('quantity, stock_adjustments!inner(id, adjustment_date, adjustment_number, warehouse_id, created_at, reason, status)').eq('product_id', selectedProductId).neq('stock_adjustments.status', 'draft').neq('stock_adjustments.status', 'cancelled');
+      let queryTransfers = supabase.from('stock_transfer_items').select('quantity, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('stock_transfers.status', 'draft').neq('stock_transfers.status', 'cancelled');
+      // إضافة استعلام الرصيد الافتتاحي
+      let queryOpening = supabase.from('opening_inventories').select('id, quantity, warehouse_id, created_at').eq('product_id', selectedProductId);
 
       // تطبيق فلتر المستودع إذا تم اختياره
       if (selectedWarehouseId) {
@@ -73,15 +80,31 @@ const StockCard = () => {
         querySalesReturns = querySalesReturns.eq('sales_returns.warehouse_id', selectedWarehouseId);
         queryPurchaseReturns = queryPurchaseReturns.eq('purchase_returns.warehouse_id', selectedWarehouseId);
         queryAdjustments = queryAdjustments.eq('stock_adjustments.warehouse_id', selectedWarehouseId);
+        queryOpening = queryOpening.eq('warehouse_id', selectedWarehouseId);
       }
 
       // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers] = await Promise.all([
-        querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening] = await Promise.all([
+        querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening
       ]);
 
       const allTxns: Transaction[] = [];
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
+
+      // معالجة الرصيد الافتتاحي
+      opening.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `OPEN-${item.id}`,
+          date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+          type: 'IN',
+          quantity: item.quantity,
+          documentType: 'رصيد افتتاحي',
+          documentNumber: '-',
+          warehouseName: getWName(item.warehouse_id),
+          createdAt: item.created_at,
+          notes: 'بضاعة أول المدة'
+        });
+      });
 
       // معالجة المبيعات (صادر)
       sales.data?.forEach((item: any) => {
@@ -159,35 +182,44 @@ const StockCard = () => {
       });
 
       // معالجة التحويلات المخزنية (تظهر فقط عند اختيار مستودع محدد)
-      if (selectedWarehouseId && transfers.data) {
+      if (transfers.data) {
         transfers.data.forEach((item: any) => {
             const t = item.stock_transfers;
-            if (t.from_warehouse_id === selectedWarehouseId) {
-                // تحويل صادر من هذا المستودع
-                allTxns.push({
-                    id: `TRN-OUT-${t.id}`,
-                    date: t.transfer_date,
-                    type: 'OUT',
-                    quantity: item.quantity,
-                    documentType: 'تحويل صادر',
-                    documentNumber: t.transfer_number,
-                    warehouseName: `إلى: ${getWName(t.to_warehouse_id)}`,
-                    createdAt: t.created_at,
-                    notes: t.notes
-                });
-            } else if (t.to_warehouse_id === selectedWarehouseId) {
-                // تحويل وارد لهذا المستودع
-                allTxns.push({
-                    id: `TRN-IN-${t.id}`,
-                    date: t.transfer_date,
-                    type: 'IN',
-                    quantity: item.quantity,
-                    documentType: 'تحويل وارد',
-                    documentNumber: t.transfer_number,
-                    warehouseName: `من: ${getWName(t.from_warehouse_id)}`,
-                    createdAt: t.created_at,
-                    notes: t.notes
-                });
+            
+            // إذا تم اختيار مستودع محدد، نعرض الحركات الخاصة به فقط
+            if (selectedWarehouseId) {
+                if (t.from_warehouse_id === selectedWarehouseId) {
+                    // تحويل صادر من هذا المستودع
+                    allTxns.push({
+                        id: `TRN-OUT-${t.id}`,
+                        date: t.transfer_date,
+                        type: 'OUT',
+                        quantity: item.quantity,
+                        documentType: 'تحويل صادر',
+                        documentNumber: t.transfer_number,
+                        warehouseName: `إلى: ${getWName(t.to_warehouse_id)}`,
+                        createdAt: t.created_at,
+                        notes: t.notes
+                    });
+                } else if (t.to_warehouse_id === selectedWarehouseId) {
+                    // تحويل وارد لهذا المستودع
+                    allTxns.push({
+                        id: `TRN-IN-${t.id}`,
+                        date: t.transfer_date,
+                        type: 'IN',
+                        quantity: item.quantity,
+                        documentType: 'تحويل وارد',
+                        documentNumber: t.transfer_number,
+                        warehouseName: `من: ${getWName(t.from_warehouse_id)}`,
+                        createdAt: t.created_at,
+                        notes: t.notes
+                    });
+                }
+            } else {
+                // إذا كان العرض "كل المستودعات"، التحويلات الداخلية لا تؤثر على الرصيد الإجمالي للشركة
+                // ولكن يمكن عرضها كمعلومة. هنا سنستبعدها من الحساب الإجمالي لتجنب الازدواجية في العرض
+                // أو يمكن عرضها كحركتين (واحدة وارد وواحدة صادر)
+                // للخيار الأبسط: لا نعرض التحويلات في العرض الإجمالي لأنها Net Zero
             }
         });
       }
@@ -197,6 +229,11 @@ const StockCard = () => {
         const dateA = new Date(a.date).getTime();
         const dateB = new Date(b.date).getTime();
         if (dateA !== dateB) return dateA - dateB;
+        
+        // إعطاء الأولوية للرصيد الافتتاحي ليظهر أولاً في نفس اليوم
+        if (a.documentType === 'رصيد افتتاحي') return -1;
+        if (b.documentType === 'رصيد افتتاحي') return 1;
+
         const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return createdA - createdB;
@@ -359,6 +396,109 @@ const StockCard = () => {
       }
   };
 
+  // دالة إعادة احتساب الأرصدة
+  const handleRecalculate = async () => {
+    if (window.confirm('هل تريد إعادة احتساب أرصدة المخزون بناءً على الحركات المسجلة؟ سيتم تصحيح أي فروقات.')) {
+        setIsRecalculating(true);
+        try {
+            await recalculateStock();
+            await refreshData(); // تحديث بيانات المنتجات في السياق
+            await fetchTransactions(); // تحديث الجدول الحالي
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsRecalculating(false);
+        }
+    }
+  };
+
+  const handleDeleteOpeningBalance = async () => {
+      if (!existingOpeningId) return;
+      if (!window.confirm('هل أنت متأكد من حذف رصيد أول المدة لهذا الصنف؟')) return;
+
+      setLoading(true);
+      try {
+          const { error } = await supabase.from('opening_inventories').delete().eq('id', existingOpeningId);
+          if (error) throw error;
+
+          await recalculateStock();
+          await refreshData();
+          await fetchTransactions();
+          setIsOpeningModalOpen(false);
+          alert('تم حذف رصيد أول المدة بنجاح');
+      } catch (error: any) {
+          alert('خطأ: ' + error.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  // دالة حفظ رصيد أول المدة
+  const handleSaveOpeningBalance = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedProductId || !openingFormData.warehouseId) return;
+
+      setLoading(true);
+      try {
+          // 1. التحقق مما إذا كان هناك رصيد افتتاحي سابق لهذا الصنف في هذا المستودع
+          const { data: existing } = await supabase
+              .from('opening_inventories')
+              .select('id')
+              .eq('product_id', selectedProductId)
+              .eq('warehouse_id', openingFormData.warehouseId)
+              .maybeSingle();
+
+          if (existing) {
+              // تحديث الموجود
+              await supabase.from('opening_inventories').update({
+                  quantity: openingFormData.quantity,
+                  cost: openingFormData.cost
+              }).eq('id', existing.id);
+          } else {
+              // إنشاء جديد
+              await supabase.from('opening_inventories').insert({
+                  product_id: selectedProductId,
+                  warehouse_id: openingFormData.warehouseId,
+                  quantity: openingFormData.quantity,
+                  cost: openingFormData.cost
+              });
+          }
+
+          await recalculateStock(); // إعادة احتساب الأرصدة لتنعكس التغييرات
+          await refreshData();
+          await fetchTransactions();
+          setIsOpeningModalOpen(false);
+          alert('تم تحديث رصيد أول المدة بنجاح ✅');
+      } catch (error: any) {
+          alert('خطأ: ' + error.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  // عند فتح نافذة الرصيد الافتتاحي، نحاول جلب الرصيد الحالي
+  useEffect(() => {
+      if (isOpeningModalOpen && selectedProductId && openingFormData.warehouseId) {
+          const fetchExisting = async () => {
+              const { data } = await supabase
+                  .from('opening_inventories')
+                  .select('id, quantity, cost')
+                  .eq('product_id', selectedProductId)
+                  .eq('warehouse_id', openingFormData.warehouseId)
+                  .maybeSingle();
+              
+              if (data) {
+                  setOpeningFormData(prev => ({ ...prev, quantity: data.quantity, cost: data.cost || 0 }));
+                  setExistingOpeningId(data.id);
+              } else {
+                  setExistingOpeningId(null);
+                  // لا نصفر الكمية هنا لنسمح للمستخدم بإدخال جديد بسهولة
+              }
+          };
+          fetchExisting();
+      }
+  }, [isOpeningModalOpen, selectedProductId, openingFormData.warehouseId]);
+
   const priceChartData = useMemo(() => {
       return [...priceHistory].reverse().map(log => ({
           date: new Date(log.created_at).toLocaleDateString('ar-EG'),
@@ -380,6 +520,21 @@ const StockCard = () => {
           <p className="text-slate-500">تتبع حركات الوارد والصادر والرصيد لكل صنف</p>
         </div>
         <div className="flex gap-2">
+            <button 
+                onClick={() => { setOpeningFormData({ warehouseId: warehouses[0]?.id || '', quantity: 0, cost: 0 }); setIsOpeningModalOpen(true); }}
+                disabled={!selectedProductId}
+                className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 font-bold disabled:opacity-50"
+            >
+                <PlusCircle size={18} /> رصيد أول المدة
+            </button>
+            <button 
+                onClick={handleRecalculate}
+                disabled={isRecalculating}
+                className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 font-bold"
+                title="إصلاح فروقات الأرصدة"
+            >
+                <RefreshCw size={18} className={isRecalculating ? 'animate-spin' : ''} /> إعادة احتساب
+            </button>
             <button 
                 onClick={() => navigate('/stock-transfer', { state: { productId: selectedProductId } })}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
@@ -714,6 +869,44 @@ const StockCard = () => {
                         </>
                     )}
                 </div>
+            </div>
+        </div>
+      )}
+
+      {/* Opening Balance Modal */}
+      {isOpeningModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg text-slate-800">تعديل رصيد أول المدة</h3>
+                    <button onClick={() => setIsOpeningModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                <form onSubmit={handleSaveOpeningBalance} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">المستودع</label>
+                        <select required className="w-full border rounded-lg p-2.5" value={openingFormData.warehouseId} onChange={e => setOpeningFormData({...openingFormData, warehouseId: e.target.value})}>
+                            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">الكمية الافتتاحية</label>
+                        <input type="number" required value={openingFormData.quantity} onChange={e => setOpeningFormData({...openingFormData, quantity: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">تكلفة الوحدة</label>
+                        <input type="number" required min="0" step="0.01" value={openingFormData.cost} onChange={e => setOpeningFormData({...openingFormData, cost: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5" />
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                        <button type="submit" disabled={loading} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">
+                            {loading ? <Loader2 className="animate-spin mx-auto" /> : 'حفظ وتحديث'}
+                        </button>
+                        {existingOpeningId && (
+                            <button type="button" onClick={handleDeleteOpeningBalance} disabled={loading} className="bg-red-50 text-red-600 px-4 py-3 rounded-lg font-bold hover:bg-red-100 border border-red-200" title="حذف الرصيد الافتتاحي">
+                                <Trash2 size={20} />
+                            </button>
+                        )}
+                    </div>
+                </form>
             </div>
         </div>
       )}

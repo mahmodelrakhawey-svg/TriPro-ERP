@@ -513,7 +513,8 @@ const SalesInvoiceForm = () => {
             treasury_account_id: formData.paidAmount > 0 ? formData.treasuryId : null,
             currency: formData.currency,
             exchange_rate: formData.exchangeRate,
-            cost_center_id: formData.costCenterId || null
+            cost_center_id: formData.costCenterId || null,
+            created_by: currentUser?.id
         };
 
         let invoiceId = editingId;
@@ -626,7 +627,8 @@ const SalesInvoiceForm = () => {
             treasury_account_id: formData.paidAmount > 0 ? formData.treasuryId : null,
             currency: formData.currency,
             exchange_rate: formData.exchangeRate,
-            cost_center_id: formData.costCenterId || null
+            cost_center_id: formData.costCenterId || null,
+            created_by: currentUser?.id
         };
 
         const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();

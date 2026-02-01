@@ -1,10 +1,12 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { History, Eye, CheckCircle, Clock, X, Package, AlertTriangle, Check, Loader2 } from 'lucide-react';
 
 // --- Modal Component to show count details ---
 const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count: any, items: any[], onClose: () => void, onPost: (id: string) => void, isLoading: boolean }) => {
+  const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
+
   if (!count) return null;
 
   const totalValueDiff = items.reduce((sum, item) => {
@@ -12,6 +14,10 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
     const cost = item.products?.purchase_price || 0;
     return sum + (diff * cost);
   }, 0);
+
+  const filteredItems = showDiscrepanciesOnly 
+    ? items.filter(item => ((item.actual_qty || 0) - (item.system_qty || 0)) !== 0)
+    : items;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -21,7 +27,18 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
             <h3 className="font-bold text-lg text-slate-800">تفاصيل الجرد: {count.count_number}</h3>
             <p className="text-sm text-slate-500">المستودع: {count.warehouses?.name} | التاريخ: {count.count_date}</p>
           </div>
-          <button onClick={onClose}><X className="text-slate-400 hover:text-red-500" /></button>
+          <div className="flex items-center gap-3">
+             <label className={`flex items-center gap-2 text-xs font-bold cursor-pointer select-none px-3 py-2 rounded-lg border transition-all shadow-sm ${showDiscrepanciesOnly ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'}`}>
+                <input 
+                    type="checkbox" 
+                    checked={showDiscrepanciesOnly} 
+                    onChange={(e) => setShowDiscrepanciesOnly(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 border-gray-300 cursor-pointer accent-blue-600"
+                />
+                عرض الفروقات فقط
+             </label>
+             <button onClick={onClose} className="p-1 hover:bg-red-50 rounded-full transition-colors"><X className="text-slate-400 hover:text-red-500" /></button>
+          </div>
         </div>
         
         <div className="p-6 max-h-[70vh] overflow-y-auto">
@@ -39,7 +56,7 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {items.map(item => {
+                {filteredItems.map(item => {
                   const diff = (item.actual_qty || 0) - (item.system_qty || 0);
                   const cost = item.products?.purchase_price || 0;
                   const valueDiff = diff * cost;
@@ -55,6 +72,9 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
                     </tr>
                   );
                 })}
+                {filteredItems.length === 0 && (
+                    <tr><td colSpan={5} className="p-8 text-center text-slate-400">لا توجد أصناف للعرض</td></tr>
+                )}
               </tbody>
             </table>
           )}
