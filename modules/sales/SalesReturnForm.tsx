@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { InvoiceItem } from '../../types';
 
 const SalesReturnForm = () => {
-  const { accounts, addEntry, getSystemAccount, customers, products, currentUser, warehouses } = useAccounting();
+  const { accounts, addEntry, getSystemAccount, customers, products, currentUser, warehouses, settings } = useAccounting();
   const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [formData, setFormData] = useState({ customerId: '', warehouseId: '', date: new Date().toISOString().split('T')[0], returnNumber: '', notes: '' });
@@ -124,7 +124,7 @@ const SalesReturnForm = () => {
 
     try {
       const subtotal = calculateTotal();
-      const taxRate = 0.15;
+      const taxRate = settings.enableTax ? (settings.vatRate || 0.15) : 0;
       const taxAmount = subtotal * taxRate;
       const totalAmount = subtotal + taxAmount;
       
@@ -325,8 +325,8 @@ const SalesReturnForm = () => {
           </tbody>
           <tfoot className="font-bold text-lg">
             <tr className="bg-slate-50">
-              <td colSpan={3} className="p-4 text-left text-red-600">إجمالي المرتجع (شامل الضريبة):</td>
-              <td className="p-4 text-red-600">{(calculateTotal() * 1.15).toLocaleString()}</td>
+              <td colSpan={3} className="p-4 text-left text-red-600">إجمالي المرتجع {settings.enableTax ? '(شامل الضريبة)' : ''}:</td>
+              <td className="p-4 text-red-600">{(calculateTotal() * (1 + (settings.enableTax ? (settings.vatRate || 0.15) : 0))).toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>

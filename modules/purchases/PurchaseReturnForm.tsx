@@ -230,13 +230,15 @@ const PurchaseReturnForm = () => {
 
         <div className="border-t pt-4 space-y-2">
           <div className="flex justify-end gap-4 font-bold">
-            <span className="text-slate-500">الإجمالي قبل الضريبة:</span>
+            <span className="text-slate-500">الإجمالي {settings.enableTax ? 'قبل الضريبة' : ''}:</span>
             <span>{subtotal.toLocaleString()}</span>
           </div>
+          {settings.enableTax && (
           <div className="flex justify-end gap-4 font-bold">
             <span className="text-slate-500">الضريبة:</span>
             <span>{taxAmount.toLocaleString()}</span>
           </div>
+          )}
           <div className="flex justify-end gap-4 font-bold text-xl">
             <span className="text-slate-500">الإجمالي النهائي:</span>
             <span className="text-red-600">{totalAmount.toLocaleString()}</span>

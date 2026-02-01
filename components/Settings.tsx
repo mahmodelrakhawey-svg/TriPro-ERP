@@ -35,6 +35,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   SOCIAL_INSURANCE: 'التأمينات الاجتماعية',
   WITHHOLDING_TAX: 'ضريبة الخصم والتحصيل',
   EMPLOYEE_ADVANCES: 'سلف الموظفين',
+  CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
 };
 
 const Settings = () => {
@@ -745,7 +746,7 @@ const Settings = () => {
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {Object.entries(SYSTEM_ACCOUNTS).map(([key, defaultCode]) => (
+                          {Object.entries({ ...SYSTEM_ACCOUNTS, CASH_SHORTAGE: '541' }).map(([key, defaultCode]) => (
                               <div key={key}>
                                   <label className="block text-sm font-bold text-slate-700 mb-1">
                                       {ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} <span className="text-xs font-normal text-slate-400" dir="ltr">({defaultCode})</span>

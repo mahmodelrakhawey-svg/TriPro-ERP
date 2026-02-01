@@ -139,11 +139,21 @@ const CashClosingForm = () => {
       // 🌟 إنشاء قيد تسوية آلي في حال وجود فرق (عجز أو زيادة)
       if (Math.abs(difference) > 0.01) {
         const isOverage = difference > 0;
-        // 421: إيرادات متنوعة (للزيادة)، 541: تسويات الجرد (للعجز)
-        const adjustmentCode = isOverage ? '421' : '541';
-        let adjustmentAccount = accounts.find(a => a.code === adjustmentCode);
         
-        // محاولة البحث بالاسم في حال عدم تطابق الكود
+        let adjustmentAccount;
+
+        // 1. البحث في إعدادات الربط (للعجز)
+        if (!isOverage && settings.accountMappings?.CASH_SHORTAGE) {
+            adjustmentAccount = accounts.find(a => a.id === settings.accountMappings.CASH_SHORTAGE);
+        }
+
+        // 2. البحث بالكود الافتراضي: 421 (زيادة) أو 541 (عجز)
+        if (!adjustmentAccount) {
+            const adjustmentCode = isOverage ? '421' : '541';
+            adjustmentAccount = accounts.find(a => a.code === adjustmentCode);
+        }
+        
+        // 3. محاولة البحث بالاسم في حال عدم تطابق الكود
         if (!adjustmentAccount) {
            adjustmentAccount = accounts.find(a => a.name.includes(isOverage ? 'إيرادات أخرى' : 'فروقات') || a.name.includes('تسوية'));
         }
