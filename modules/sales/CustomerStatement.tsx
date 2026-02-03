@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { Printer, FileText, Loader2, Search, Download, MessageCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useToast } from '../../context/ToastContext';
 
 type Transaction = {
   id: string;
@@ -30,6 +31,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   const [openingBalance, setOpeningBalance] = useState(0);
   const [closingBalance, setClosingBalance] = useState(0);
   const [loading, setLoading] = useState(false);
+  const { showToast } = useToast();
   
   const selectedCustomer = customers.find(c => c.id.toString() === selectedCustomerId.toString());
 
@@ -169,7 +171,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
     } catch (error) {
         console.error(error);
-        alert('حدث خطأ أثناء جلب البيانات');
+        showToast('حدث خطأ أثناء جلب البيانات', 'error');
     } finally {
         setLoading(false);
     }
@@ -206,7 +208,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
       if (!selectedCustomer) return;
       const phone = selectedCustomer.phone;
       if (!phone) {
-          alert('لا يوجد رقم هاتف لهذا العميل');
+          showToast('لا يوجد رقم هاتف لهذا العميل', 'warning');
           return;
       }
       

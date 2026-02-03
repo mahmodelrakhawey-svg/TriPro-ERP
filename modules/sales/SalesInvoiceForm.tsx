@@ -537,6 +537,7 @@ const SalesInvoiceForm = () => {
             discountValue: 0,
             invoiceNumber: ''
         }));
+        setEditingId(null);
         setTimeout(() => setSuccessMessage(null), 4000);
         if(barcodeInputRef.current) barcodeInputRef.current.focus();
 
@@ -631,6 +632,7 @@ const SalesInvoiceForm = () => {
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');
         setItems([]);
         setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
+        setEditingId(null);
         setTimeout(() => setSuccessMessage(null), 4000);
         if(barcodeInputRef.current) barcodeInputRef.current.focus();
 

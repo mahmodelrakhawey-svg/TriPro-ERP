@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { useToast } from '../../context/ToastContext';
 
 const FreeReturnsReport = () => {
   const { currentUser, warehouses } = useAccounting();
@@ -16,6 +17,7 @@ const FreeReturnsReport = () => {
   const [showAll, setShowAll] = useState(false);
   const [returns, setReturns] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const { showToast } = useToast();
 
   const fetchReport = async () => {
     setLoading(true);
@@ -50,7 +52,7 @@ const FreeReturnsReport = () => {
       setReturns(data || []);
     } catch (error: any) {
       console.error('Error fetching free returns:', error);
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -100,7 +102,7 @@ const FreeReturnsReport = () => {
       pdf.save(`Free_Returns_${startDate}.pdf`);
     } catch (error) {
       console.error('Error exporting PDF:', error);
-      alert('حدث خطأ أثناء تصدير PDF');
+      showToast('حدث خطأ أثناء تصدير PDF', 'error');
     }
   };
 

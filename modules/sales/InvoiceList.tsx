@@ -6,6 +6,7 @@ import { Invoice } from '../../types';
 import { Search, Loader2, Edit, Plus, ChevronLeft, ChevronRight, AlertCircle, FileText, CheckCircle, MessageCircle, Printer } from 'lucide-react';
 import { useDebounce } from '../../context/useDebounce';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
+import { useToast } from '../../context/ToastContext';
 
 const InvoiceList = () => {
   const { getInvoicesPaginated, settings, approveSalesInvoice } = useAccounting();
@@ -24,6 +25,7 @@ const InvoiceList = () => {
   // Print State
   const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
+  const { showToast } = useToast();
 
   useEffect(() => {
     supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
@@ -80,7 +82,7 @@ const InvoiceList = () => {
             await approveSalesInvoice(invoice.id);
             fetchInvoices(currentPage, debouncedSearchTerm, startDate, endDate);
         } catch (err: any) {
-            alert(err.message);
+            showToast(err.message || 'فشل ترحيل الفاتورة', 'error');
         }
     }
   };
@@ -119,7 +121,7 @@ const InvoiceList = () => {
         setInvoiceToPrint(fullInvoice);
     } catch (err) {
         console.error("Error fetching invoice details:", err);
-        alert("فشل تحميل تفاصيل الفاتورة للطباعة");
+        showToast("فشل تحميل تفاصيل الفاتورة للطباعة", 'error');
     }
   };
 

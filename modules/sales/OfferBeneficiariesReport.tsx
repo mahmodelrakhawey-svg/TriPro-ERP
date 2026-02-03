@@ -4,9 +4,11 @@ import { Users, Calendar, Filter, Download, Printer, Percent, List, Layers, Mess
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis } from 'recharts';
+import { useToast } from '../../context/ToastContext';
 
 const OfferBeneficiariesReport = () => {
   const { invoices, customers, products, settings } = useAccounting();
+  const { showToast } = useToast();
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [viewMode, setViewMode] = useState<'detailed' | 'grouped'>('grouped');
@@ -146,7 +148,7 @@ const OfferBeneficiariesReport = () => {
 
   const handleWhatsApp = (phone: string | undefined, name: string, savings: number) => {
     if (!phone) {
-        alert('لا يوجد رقم هاتف مسجل لهذا العميل');
+        showToast('لا يوجد رقم هاتف مسجل لهذا العميل', 'warning');
         return;
     }
     const message = `مرحباً ${name}،\nسعدنا بتعاملك معنا! لقد وفرت ${savings.toLocaleString()} ${settings.currency} من خلال عروضنا.\nتابعنا للمزيد من العروض الحصرية!`;
