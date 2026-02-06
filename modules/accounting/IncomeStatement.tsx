@@ -16,7 +16,6 @@ const IncomeStatement = () => {
   const fetchData = async () => {
     setLoading(true);
     if (currentUser?.role === 'demo') {
-        setLedgerLines([]);
         setLoading(false);
         return;
     }
@@ -61,15 +60,25 @@ const IncomeStatement = () => {
     // 2. حساب الأرصدة من البيانات المجلوبة
     const accountBalances: Record<string, number> = {};
     
-    ledgerLines.forEach(line => {
-      // استبعاد قيود الإقفال (CLOSE-) لعرض الأداء الفعلي قبل التصفير
-      if (line.journal_entries?.reference?.startsWith('CLOSE-')) return;
-
-      if (accountBalances[line.account_id] === undefined) accountBalances[line.account_id] = 0;
-      
-      // تجميع الحركات (مدين - دائن)
-      accountBalances[line.account_id] += (line.debit - line.credit);
-    });
+    if (currentUser?.role === 'demo') {
+        accounts.forEach(acc => {
+             const type = String(acc.type || '').toLowerCase();
+             const isDebitNature = type.includes('asset') || type.includes('expense') || type.includes('أصول') || type.includes('مصروفات') || type.includes('تكلفة');
+             // في الديمو، الرصيد في السياق موجب دائماً حسب الطبيعة.
+             // نحوله إلى (مدين - دائن) ليتوافق مع المنطق أدناه
+             if (isDebitNature) {
+                 accountBalances[acc.id] = acc.balance || 0;
+             } else {
+                 accountBalances[acc.id] = -(acc.balance || 0);
+             }
+        });
+    } else {
+        ledgerLines.forEach(line => {
+          if (line.journal_entries?.reference?.startsWith('CLOSE-')) return;
+          if (accountBalances[line.account_id] === undefined) accountBalances[line.account_id] = 0;
+          accountBalances[line.account_id] += (line.debit - line.credit);
+        });
+    }
 
     const revenues: any[] = [];
     const cogs: any[] = []; // تكلفة البضاعة المباعة
@@ -117,7 +126,7 @@ const IncomeStatement = () => {
       totalExpense,
       netIncome: grossProfit - totalExpense
     };
-  }, [accounts, ledgerLines]);
+  }, [accounts, ledgerLines, currentUser]);
 
   const handlePrint = () => {
     window.print();

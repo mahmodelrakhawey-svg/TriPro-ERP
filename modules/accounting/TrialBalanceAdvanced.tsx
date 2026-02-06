@@ -8,7 +8,7 @@ import html2canvas from 'html2canvas';
 import ReportHeader from '../../components/ReportHeader';
 
 const TrialBalanceAdvanced = () => {
-  const { accounts, settings, refreshData, currentUser } = useAccounting();
+  const { accounts, settings, refreshData, currentUser, entries } = useAccounting();
   const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -21,7 +21,20 @@ const TrialBalanceAdvanced = () => {
   const fetchLedgerData = async () => {
     setLoading(true);
     if (currentUser?.role === 'demo') {
-        setLedgerLines([]);
+        const demoLines = entries
+            .filter(e => e.status === 'posted')
+            .flatMap(entry => 
+            entry.lines.map(line => ({
+                account_id: line.accountId || line.account_id, // التأكد من قراءة المعرف بشكل صحيح
+                debit: line.debit,
+                credit: line.credit,
+                journal_entries: {
+                    transaction_date: entry.date,
+                    status: entry.status
+                }
+            }))
+        );
+        setLedgerLines(demoLines);
         setLoading(false);
         return;
     }

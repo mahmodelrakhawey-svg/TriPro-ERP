@@ -119,7 +119,7 @@ const Settings = () => {
   const handleSave = async (e: React.FormEvent) => {
       e.preventDefault();
       if (currentUserRole === 'demo') {
-          alert("تم حفظ الإعدادات بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)");
+          alert("تم تحديث إعدادات الجلسة الحالية بنجاح ✅");
           return;
       }
 
@@ -160,7 +160,7 @@ const Settings = () => {
     if (!e.target.files || e.target.files.length === 0) return;
 
     if (currentUserRole === 'demo') {
-        alert('تم رفع الشعار بنجاح! لا تنس حفظ الإعدادات. (محاكاة)');
+        alert('تم رفع الشعار بنجاح! سيظهر في الفواتير المطبوعة خلال هذه الجلسة.');
         return;
     }
     
@@ -214,7 +214,7 @@ const Settings = () => {
 
   const handleResetDemoData = async () => {
       if (currentUserRole === 'demo') {
-          if (window.confirm("هل أنت متأكد من إعادة ضبط بيانات الديمو؟ (محاكاة)")) {
+          if (window.confirm("هل أنت متأكد من إعادة ضبط البيانات الافتراضية؟")) {
               setLoading(true);
               setTimeout(() => {
                   showToast("تم إعادة ضبط بيانات الديمو بنجاح", 'success');
@@ -254,7 +254,7 @@ const Settings = () => {
 
   const handleCloseYear = async () => {
       if (currentUserRole === 'demo') {
-          alert("تم إغلاق السنة المالية بنجاح ✅ (محاكاة)");
+          alert("تم إغلاق السنة المالية وترحيل الأرصدة بنجاح ✅");
           return;
       }
 
@@ -279,7 +279,7 @@ const Settings = () => {
 
   const handleCreateMissingAccounts = async () => {
       if (currentUserRole === 'demo') {
-          alert("تم فحص وإنشاء الحسابات المفقودة بنجاح. ✅ (محاكاة)");
+          alert("تم فحص الدليل المحاسبي وإنشاء الحسابات المفقودة بنجاح. ✅");
           return;
       }
 
@@ -298,7 +298,7 @@ const Settings = () => {
 
   const handleFixDatabaseSchema = async () => {
       if (currentUserRole === 'demo') {
-          alert("تم فحص وإصلاح قاعدة البيانات بنجاح. ✅ (محاكاة)");
+          alert("تم فحص وإصلاح جداول قاعدة البيانات بنجاح. ✅");
           return;
       }
 
@@ -318,13 +318,13 @@ const Settings = () => {
 
   const handleClearDemoData = async () => {
       if (currentUserRole === 'demo') {
-          if (!window.confirm('⚠️ تحذير هام جداً: سيتم حذف جميع البيانات التشغيلية (فواتير، منتجات، عملاء)! (محاكاة)')) return;
-          const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه: (محاكاة)');
+          if (!window.confirm('⚠️ تحذير هام جداً: سيتم حذف جميع البيانات التشغيلية (فواتير، منتجات، عملاء)!')) return;
+          const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
           if (confirmation !== 'حذف') {
               alert('تم إلغاء العملية.');
               return;
           }
-          alert('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅ (محاكاة)');
+          alert('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅');
           window.location.reload();
           return;
       }

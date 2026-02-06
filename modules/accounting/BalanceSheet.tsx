@@ -27,12 +27,6 @@ const BalanceSheet = () => {
   // دالة لجلب الأرصدة التراكمية من قاعدة البيانات مباشرة
   const fetchData = async () => {
     setLoading(true);
-    if (currentUser?.role === 'demo') {
-        setLedgerLines([]);
-        setLoading(false);
-        return;
-    }
-
     try {
       const { data, error } = await supabase
         .from('journal_lines')
@@ -51,52 +45,65 @@ const BalanceSheet = () => {
   };
 
   useEffect(() => {
-    fetchData();
-  }, [asOfDate]);
+    if (currentUser?.role !== 'demo') {
+      fetchData();
+    } else {
+      setLoading(false); // Demo data is already in context
+    }
+  }, [asOfDate, currentUser]);
 
   const { assetRows, liabilityRows, equityRows, netIncome } = useMemo(() => {
-    // 1. حساب الأرصدة الخام لكل حساب (مدين - دائن)
+    if (currentUser?.role === 'demo') {
+        const assets: BalanceRow[] = [];
+        const liabilities: BalanceRow[] = [];
+        const equity: BalanceRow[] = [];
+        let currentNetIncome = 0;
+
+        accounts.forEach(acc => {
+            if (acc.isGroup || Math.abs(acc.balance || 0) < 0.01) return;
+
+            const type = (acc.type || '').toLowerCase().trim();
+            const balance = acc.balance || 0;
+
+            if (type.includes('asset') || type.includes('أصول')) {
+                assets.push({ account: acc, amount: balance });
+            } else if (type.includes('liability') || type.includes('خصوم')) {
+                liabilities.push({ account: acc, amount: -balance });
+            } else if (type.includes('equity') || type.includes('ملكية')) {
+                equity.push({ account: acc, amount: -balance });
+            } else if (type.includes('revenue') || type.includes('إيراد')) {
+                currentNetIncome += -balance;
+            } else if (type.includes('expense') || type.includes('مصروف')) {
+                currentNetIncome -= balance;
+            }
+        });
+        return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: currentNetIncome };
+    }
+
+    // Logic for real users
     const accountBalances: Record<string, number> = {};
     ledgerLines.forEach(line => {
-        if (!accountBalances[line.account_id]) accountBalances[line.account_id] = 0;
-        accountBalances[line.account_id] += (line.debit - line.credit);
+      if (!accountBalances[line.account_id]) accountBalances[line.account_id] = 0;
+      accountBalances[line.account_id] += (line.debit - line.credit);
     });
 
     const assets: BalanceRow[] = [];
     const liabilities: BalanceRow[] = [];
     const equity: BalanceRow[] = [];
-    let pnlSum = 0; // مجموع أرصدة حسابات قائمة الدخل (لحساب صافي الربح/الخسارة)
+    let pnlSum = 0;
 
     accounts.forEach(acc => {
-        if (acc.isGroup) return; // تجاهل الحسابات الرئيسية
-
-        const rawBalance = accountBalances[acc.id] || 0;
-        // تجاهل الحسابات الصفرية
-        if (Math.abs(rawBalance) < 0.01) return;
-
-        const type = acc.type ? acc.type.toLowerCase().trim() : '';
-        
-        if (type.includes('asset') || type.includes('أصول')) {
-            assets.push({ account: acc, amount: rawBalance }); // الأصول مدينة (موجب)
-        } 
-        else if (type.includes('liability') || type.includes('خصوم')) {
-            liabilities.push({ account: acc, amount: -rawBalance }); // الخصوم دائنة (سالب)، نعكسها للعرض
-        } 
-        else if (type.includes('equity') || type.includes('ملكية')) {
-            equity.push({ account: acc, amount: -rawBalance }); // حقوق الملكية دائنة
-        } 
-        else if (type.includes('revenue') || type.includes('expense') || type.includes('إيراد') || type.includes('مصروف') || type.includes('تكلفة') || acc.code.startsWith('4') || acc.code.startsWith('5')) {
-            // تجميع حسابات النتيجة (إيرادات ومصروفات)
-            pnlSum += rawBalance;
-        }
+      if (acc.isGroup || !accountBalances[acc.id]) return;
+      const rawBalance = accountBalances[acc.id];
+      const type = (acc.type || '').toLowerCase().trim();
+      if (type.includes('asset')) assets.push({ account: acc, amount: rawBalance });
+      else if (type.includes('liability')) liabilities.push({ account: acc, amount: -rawBalance });
+      else if (type.includes('equity')) equity.push({ account: acc, amount: -rawBalance });
+      else if (type.includes('revenue') || type.includes('expense')) pnlSum += rawBalance;
     });
 
-    // صافي الدخل = الإيرادات (دائن) - المصروفات (مدين)
-    // بما أن pnlSum = (مدين - دائن)، فإن صافي الدخل = -pnlSum
-    const calculatedNetIncome = -pnlSum;
-
-    return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: calculatedNetIncome };
-  }, [accounts, ledgerLines]);
+    return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: -pnlSum };
+  }, [accounts, ledgerLines, currentUser]);
 
   const filterRows = (rows: BalanceRow[]) => {
     if (!searchTerm) return rows;

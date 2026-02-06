@@ -16,7 +16,7 @@ import { useToast } from '../../context/ToastContext';
 import CustomerStatement from './CustomerStatement';
 
 const SalesInvoiceForm = () => {
-  const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry } = useAccounting();
+  const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
@@ -448,15 +448,27 @@ const SalesInvoiceForm = () => {
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
+        await new Promise(resolve => setTimeout(resolve, 600));
+        
+        const demoInvoiceNumber = formData.invoiceNumber || `INV-DEMO-${Math.floor(Math.random() * 10000)}`;
+        const demoInvoice = {
+            id: `demo-inv-${Date.now()}`,
+            invoiceNumber: demoInvoiceNumber,
+            customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل ديمو',
+            customerId: formData.customerId,
+            date: formData.date,
+            totalAmount: totalAmount,
+            taxAmount: taxAmount,
+            subtotal: subtotal,
+            status: 'draft',
+            items: items,
+            paid_amount: formData.paidAmount,
+        };
+        
+        addDemoInvoice(demoInvoice);
         setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح! (محاكاة)');
         setItems([]);
-        setFormData(prev => ({
-            ...prev,
-            notes: '',
-            paidAmount: 0,
-            discountValue: 0,
-            invoiceNumber: ''
-        }));
+        setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
         setTimeout(() => setSuccessMessage(null), 4000);
         setSaving(false);
         return;
@@ -577,7 +589,25 @@ const SalesInvoiceForm = () => {
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
-        setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح! (محاكاة)');
+        await new Promise(resolve => setTimeout(resolve, 600));
+        
+        const demoInvoiceNumber = formData.invoiceNumber || `INV-DEMO-${Math.floor(Math.random() * 10000)}`;
+        const demoInvoice = {
+            id: `demo-inv-${Date.now()}`,
+            invoiceNumber: demoInvoiceNumber,
+            customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل ديمو',
+            customerId: formData.customerId,
+            date: formData.date,
+            totalAmount: totalAmount,
+            taxAmount: taxAmount,
+            subtotal: subtotal,
+            items: items,
+            paid_amount: formData.paidAmount,
+            treasuryId: formData.treasuryId
+        };
+        
+        postDemoSalesInvoice(demoInvoice);
+        setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');
         setItems([]);
         setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
         setTimeout(() => setSuccessMessage(null), 4000);

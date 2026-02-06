@@ -26,7 +26,6 @@ const TrialBalance = () => {
   const fetchData = async () => {
     setLoading(true);
     if (currentUser?.role === 'demo') {
-        setLedgerLines([]);
         setLoading(false);
         return;
     }
@@ -55,6 +54,31 @@ const TrialBalance = () => {
 
   // إعادة حساب الصفوف عند تغير الحسابات في السياق
   const rows = useMemo<TrialBalanceRow[]>(() => {
+    if (currentUser?.role === 'demo') {
+        return accounts
+          .filter(acc => !acc.isGroup)
+          .map(acc => {
+            const balance = acc.balance || 0;
+            if (Math.abs(balance) < 0.01) return null;
+
+            const type = String(acc.type || '').toLowerCase();
+            const isDebitNature = type.includes('asset') || type.includes('expense') || type.includes('أصول') || type.includes('مصروفات') || type.includes('تكلفة');
+            
+            let netDebit = 0;
+            let netCredit = 0;
+
+            if (isDebitNature) {
+                if (balance >= 0) netDebit = balance;
+                else netCredit = -balance;
+            } else {
+                if (balance >= 0) netCredit = balance;
+                else netDebit = -balance;
+            }
+            
+            return { account: acc, netDebit, netCredit };
+          }).filter(Boolean) as TrialBalanceRow[];
+    }
+
     const balances: Record<string, number> = {};
     ledgerLines.forEach(l => {
         if (!balances[l.account_id]) balances[l.account_id] = 0;
@@ -77,7 +101,7 @@ const TrialBalance = () => {
         };
       })
       .filter(Boolean) as TrialBalanceRow[];
-  }, [accounts, ledgerLines]);
+  }, [accounts, ledgerLines, currentUser]);
 
   const filteredRows = rows.filter(row => 
     row.account.code.toLowerCase().includes(searchTerm.toLowerCase()) ||

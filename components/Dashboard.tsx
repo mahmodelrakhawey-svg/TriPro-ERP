@@ -17,7 +17,7 @@ import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const Dashboard = () => {
-  const { getSystemAccount, currentUser, accounts, settings } = useAccounting();
+  const { currentUser, settings } = useAccounting();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     monthSales: 0,
@@ -98,160 +98,36 @@ const Dashboard = () => {
           return;
       }
 
-      const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString();
-
-      // لحساب الرسم البياني (آخر 6 أشهر)
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(now.getMonth() - 5);
-      sixMonthsAgo.setDate(1);
-      const startOfChart = sixMonthsAgo.toISOString();
-
       try {
-        // 1. المبيعات الشهرية (من الفواتير المرحلة)
-        const { data: sales } = await supabase
-          .from('invoices')
-          .select('total_amount')
-          .gte('invoice_date', startOfMonth)
-          .lte('invoice_date', endOfMonth)
-          .neq('status', 'draft');
+        // استدعاء دالة RPC واحدة لجلب كل البيانات
+        const { data, error } = await supabase.rpc('get_dashboard_stats');
         
-        const monthSales = sales?.reduce((sum, inv) => sum + (inv.total_amount || 0), 0) || 0;
-
-        // 2. المشتريات الشهرية
-        const { data: purchases } = await supabase
-          .from('purchase_invoices')
-          .select('total_amount')
-          .gte('invoice_date', startOfMonth)
-          .lte('invoice_date', endOfMonth)
-          .neq('status', 'draft');
-
-        const monthPurchases = purchases?.reduce((sum, inv) => sum + (inv.total_amount || 0), 0) || 0;
-
-        // 3. المستحقات (من أرصدة الحسابات في السياق - التي تم تحديثها لتكون دقيقة)
-        const customersAcc = getSystemAccount('CUSTOMERS');
-        const suppliersAcc = getSystemAccount('SUPPLIERS');
-        
-        // استخدام الرصيد من السياق (الذي يجلبه الآن من السيرفر بدقة)
-        const receivables = customersAcc?.balance || 0;
-        const payables = Math.abs(suppliersAcc?.balance || 0);
-
-        // 4. التدفق النقدي الشهري (مقبوضات ومدفوعات)
-        const { data: receipts } = await supabase
-          .from('receipt_vouchers')
-          .select('amount')
-          .gte('receipt_date', startOfMonth)
-          .lte('receipt_date', endOfMonth);
-        
-        const totalReceipts = receipts?.reduce((sum, r) => sum + (r.amount || 0), 0) || 0;
-
-        const { data: payments } = await supabase
-          .from('payment_vouchers')
-          .select('amount')
-          .gte('payment_date', startOfMonth)
-          .lte('payment_date', endOfMonth);
-        
-        const totalPayments = payments?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
-
-        // 5. تنبيهات المخزون الحرج
-        // جلب المنتجات التي رصيدها أقل من الحد الأدنى
-        let criticalStock: any[] = [];
-        try {
-            const { data: allProds } = await supabase
-                .from('products')
-                .select('id, name, sku, stock, min_stock_level')
-                // نلغي الفلتر من السيرفر مؤقتاً لتجنب الخطأ 400 إذا كان العمود غير مفهرس أو به مشكلة
-                // ونقوم بالتصفية في الذاكرة
-                .not('min_stock_level', 'is', null); 
-                
-            criticalStock = allProds?.filter((p: any) => p.min_stock_level > 0 && p.stock <= p.min_stock_level) || [];
-        } catch (e) {
-            console.warn("Low stock alert fetch failed", e);
+        if (error) {
+            // معالجة الخطأ في حال عدم وجود الدالة بعد
+            if (error.message.includes('function get_dashboard_stats() does not exist')) {
+                console.error("Dashboard RPC function not found. Please run the SQL script from the documentation to create it.");
+                throw new Error("دالة `get_dashboard_stats()` غير موجودة. يرجى تنفيذ سكربت SQL لإنشائها.");
+            }
+            throw error;
         }
 
-        // 6. أحدث القيود
-        const { data: recentJ } = await supabase
-            .from('journal_entries')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-        // 7. أحدث الفواتير
-        const { data: recentInv } = await supabase
-            .from('invoices')
-            .select('*, customers(name)')
-            .order('created_at', { ascending: false })
-            .limit(5);
-
-        // 8. أعلى العملاء (بناءً على الفواتير المرحلة)
-        const { data: topCust } = await supabase
-            .from('invoices')
-            .select('customer_id, total_amount, customers(name)')
-            .eq('status', 'posted')
-            .order('total_amount', { ascending: false })
-            .limit(5);
-        
-        // تجميع مبيعات العملاء (تقريبي لأغراض العرض السريع)
-        const custMap: Record<string, any> = {};
-        topCust?.forEach((inv: any) => {
-            if (!custMap[inv.customer_id]) custMap[inv.customer_id] = { name: inv.customers?.name, total: 0 };
-            custMap[inv.customer_id].total += inv.total_amount;
-        });
-        const topCustomersList = Object.values(custMap).sort((a: any, b: any) => b.total - a.total).slice(0, 5);
-
-        // 9. بيانات الرسم البياني (آخر 6 أشهر)
-        const { data: chartSales } = await supabase
-            .from('invoices')
-            .select('invoice_date, total_amount')
-            .gte('invoice_date', startOfChart)
-            .neq('status', 'draft');
-            
-        const { data: chartPurchases } = await supabase
-            .from('purchase_invoices')
-            .select('invoice_date, total_amount')
-            .gte('invoice_date', startOfChart)
-            .neq('status', 'draft');
-
-        // معالجة بيانات الرسم البياني
-        const months = [];
-        for (let i = 0; i < 6; i++) {
-            const d = new Date(sixMonthsAgo);
-            d.setMonth(d.getMonth() + i);
-            months.push({
-                name: d.toLocaleDateString('ar-EG', { month: 'long' }),
-                key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-                sales: 0,
-                purchases: 0
+        if (data) {
+            setStats({
+                monthSales: data.monthSales,
+                monthPurchases: data.monthPurchases,
+                receivables: data.receivables,
+                payables: data.payables,
+                totalReceipts: data.totalReceipts,
+                totalPayments: data.totalPayments,
+                lowStockCount: data.lowStockCount
             });
+            setChartData(data.chartData || []);
+            // تحويل البيانات لتناسب شكل العرض في الواجهة
+            setRecentInvoices(data.recentInvoices?.map((inv: any) => ({...inv, customers: { name: inv.customer_name }})) || []);
+            setRecentJournals(data.recentJournals || []);
+            setTopCustomers(data.topCustomers || []);
+            setLowStockItems(data.lowStockItems || []);
         }
-
-        chartSales?.forEach((inv: any) => {
-            const key = inv.invoice_date.slice(0, 7);
-            const month = months.find(m => m.key === key);
-            if (month) month.sales += inv.total_amount;
-        });
-
-        chartPurchases?.forEach((inv: any) => {
-            const key = inv.invoice_date.slice(0, 7);
-            const month = months.find(m => m.key === key);
-            if (month) month.purchases += inv.total_amount;
-        });
-
-        setChartData(months);
-        setStats({
-            monthSales,
-            monthPurchases,
-            receivables,
-            payables,
-            totalReceipts,
-            totalPayments,
-            lowStockCount: criticalStock.length
-        });
-        setLowStockItems(criticalStock.slice(0, 5));
-        setRecentJournals(recentJ || []);
-        setRecentInvoices(recentInv || []);
-        setTopCustomers(topCustomersList);
 
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
@@ -261,7 +137,7 @@ const Dashboard = () => {
     };
 
     fetchDashboardData();
-  }, [accounts]); // إعادة الجلب عند تحديث الحسابات
+  }, [currentUser]); // إعادة الجلب عند تغير المستخدم (مثلاً، عند تسجيل الدخول)
 
   const StatCard = ({ title, value, icon: Icon, color, subValue, subLabel }: any) => (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow">

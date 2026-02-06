@@ -4,7 +4,7 @@ import { useToast } from './ToastContext';
 import { supabase } from '../supabaseClient';
 import { 
   Account, JournalEntry, Invoice, Product, Customer, Supplier, 
-  PurchaseInvoice, SalesReturn, PurchaseReturn, StockTransaction, 
+  PurchaseInvoice, SalesReturn, PurchaseReturn, StockTransaction,
   Voucher, Warehouse, Category, Salesperson, AccountType, JournalEntryLine as JournalLine, User, SystemSettings, CostCenter,
   Cheque, Asset, Employee, PayrollRun, Quotation, PurchaseOrder, InventoryCount, Budget, AppNotification, ActivityLogEntry
 } from '../types';
@@ -138,8 +138,8 @@ const DUMMY_JOURNAL_ENTRIES = [
         userId: 'demo-user',
         attachments: [],
         lines: [
-            { id: 'demo-jel-1', accountId: '11301', accountName: 'أثاث وتجهيزات مكتبية', accountCode: '11301', debit: 5000, credit: 0, description: 'شراء مكتب وكرسي' },
-            { id: 'demo-jel-2', accountId: '10101', accountName: 'الصندوق الرئيسي', accountCode: '10101', debit: 0, credit: 5000, description: 'دفع نقدي' }
+            { id: 'demo-jel-1', accountId: '1115', accountName: 'الأثاث والتجهيزات المكتبية', accountCode: '1115', debit: 5000, credit: 0, description: 'شراء مكتب وكرسي' },
+            { id: 'demo-jel-2', accountId: SYSTEM_ACCOUNTS.CASH, accountName: 'النقدية بالصندوق', accountCode: SYSTEM_ACCOUNTS.CASH, debit: 0, credit: 5000, description: 'دفع نقدي' }
         ]
     },
     {
@@ -153,8 +153,8 @@ const DUMMY_JOURNAL_ENTRIES = [
         userId: 'demo-user',
         attachments: [],
         lines: [
-            { id: 'demo-jel-3', accountId: '5203', accountName: 'مصروفات كهرباء ومياه', accountCode: '5203', debit: 750, credit: 0, description: 'فاتورة كهرباء شهر مايو' },
-            { id: 'demo-jel-4', accountId: '10101', accountName: 'الصندوق الرئيسي', accountCode: '10101', debit: 0, credit: 750, description: 'دفع نقدي' }
+            { id: 'demo-jel-3', accountId: '535', accountName: 'كهرباء ومياه وغاز', accountCode: '535', debit: 750, credit: 0, description: 'فاتورة كهرباء' },
+            { id: 'demo-jel-4', accountId: SYSTEM_ACCOUNTS.CASH, accountName: 'النقدية بالصندوق', accountCode: SYSTEM_ACCOUNTS.CASH, debit: 0, credit: 750, description: 'دفع نقدي' }
         ]
     }
 ];
@@ -182,6 +182,14 @@ const DUMMY_CHEQUES = [
 const DUMMY_PURCHASE_ORDERS = [
     { id: 'demo-po-1', po_number: 'PO-DEMO-001', supplier_id: 'demo-s1', date: new Date().toISOString().split('T')[0], total_amount: 15000, status: 'pending', items: [] }
 ];
+
+const DUMMY_ACCOUNTS = INITIAL_ACCOUNTS.map(acc => ({
+    ...acc,
+    id: acc.code, // Use code as ID for simplicity in demo
+    balance: 0,
+    isGroup: acc.is_group,
+    parentAccount: acc.parent_account
+})) as Account[];
 
 interface AccountingContextType {
   accounts: Account[];
@@ -305,6 +313,9 @@ interface AccountingContextType {
   addOpeningBalanceTransaction: (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => Promise<void>;
   checkSystemAccounts: () => { missing: string[]; found: string[] };
   createMissingSystemAccounts: () => Promise<{ success: boolean; message: string; created: string[] }>;
+  addDemoInvoice: (invoice: any) => void;
+  addDemoEntry: (entryData: any) => void;
+  postDemoSalesInvoice: (invoiceData: any) => void;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -372,6 +383,78 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 2. البحث بالكود الافتراضي
     const defaultCode = SYSTEM_ACCOUNTS[key];
     return accounts.find(a => a.code === defaultCode);
+  };
+
+  const calculateInitialDemoState = () => {
+    let demoAccounts = [...DUMMY_ACCOUNTS];
+    const accountBalances: Record<string, number> = {};
+    let allDemoEntries: any[] = [...DUMMY_JOURNAL_ENTRIES.map(e => ({...e, is_posted: true, lines: e.lines.map(l => ({...l, accountId: l.accountId || l.accountCode}))}))];
+
+    const processLines = (lines: any[]) => {
+        lines.forEach(line => {
+            const change = (line.debit || 0) - (line.credit || 0);
+            const accId = line.accountId || line.account_id;
+            if (accId) {
+                accountBalances[accId] = (accountBalances[accId] || 0) + change;
+            }
+        });
+    };
+
+    DUMMY_JOURNAL_ENTRIES.forEach(entry => processLines(entry.lines));
+
+    DUMMY_INVOICES.forEach(inv => {
+        if (inv.status !== 'draft') {
+            const lines = [
+                { account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: inv.totalAmount, credit: 0 },
+                { account_id: SYSTEM_ACCOUNTS.SALES_REVENUE, debit: 0, credit: inv.subtotal },
+                { account_id: SYSTEM_ACCOUNTS.VAT, debit: 0, credit: inv.taxAmount },
+            ];
+            if (inv.paid_amount && inv.paid_amount > 0) {
+                lines.push({ account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: 0, credit: inv.paid_amount });
+                lines.push({ account_id: SYSTEM_ACCOUNTS.CASH, debit: inv.paid_amount, credit: 0 });
+            }
+            processLines(lines);
+            allDemoEntries.push({
+                id: `demo-je-inv-${inv.id}`, date: inv.date, description: `فاتورة مبيعات ${inv.customerName}`,
+                reference: inv.invoiceNumber, status: 'posted', is_posted: true,
+                lines: lines.map(l => ({ accountId: l.account_id, debit: l.debit, credit: l.credit }))
+            });
+        }
+    });
+    
+    DUMMY_VOUCHERS.forEach(v => {
+        let lines: any[] = [];
+        if (v.type === 'receipt') {
+             lines = [ { account_id: SYSTEM_ACCOUNTS.CASH, debit: v.amount, credit: 0 }, { account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: 0, credit: v.amount } ];
+        } else if (v.type === 'payment') {
+            lines = [ { account_id: SYSTEM_ACCOUNTS.SUPPLIERS, debit: v.amount, credit: 0 }, { account_id: SYSTEM_ACCOUNTS.CASH, debit: 0, credit: v.amount } ];
+        }
+        processLines(lines);
+        allDemoEntries.push({
+            id: `demo-je-v-${v.id}`, date: v.date, description: v.description, reference: v.voucherNumber, status: 'posted', is_posted: true,
+            lines: lines.map(l => ({ accountId: l.account_id, debit: l.debit, credit: l.credit }))
+        });
+    });
+
+    demoAccounts = demoAccounts.map(acc => {
+        const rawBalance = accountBalances[acc.code] || 0;
+        const type = String(acc.type || '').toLowerCase();
+        const isDebitNature = ['asset', 'expense', 'أصول', 'مصروفات', 'تكلفة المبيعات', 'cost of goods sold'].some(t => type.includes(t));
+        const finalBalance = isDebitNature ? rawBalance : -rawBalance;
+        return { ...acc, balance: finalBalance };
+    });
+
+    let changed = true;
+    while (changed) {
+        changed = false;
+        demoAccounts.forEach(parent => {
+            if (parent.is_group) {
+                const childrenBalance = demoAccounts.filter(child => child.parent_account === parent.code).reduce((sum, child) => sum + (child.balance || 0), 0);
+                if (parent.balance !== childrenBalance) { parent.balance = childrenBalance; changed = true; }
+            }
+        });
+    }
+    return { demoAccounts, allDemoEntries };
   };
 
   const fetchData = async () => {
@@ -562,7 +645,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // إخفاء القيود عن مستخدم الديمو
       if (isDemo) {
-          formattedEntries = [];
+          // This will be overwritten below
       } else if (jEntries) {
         formattedEntries = jEntries.map((entry: any) => ({
           id: entry.id,
@@ -616,7 +699,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // 2. تجميع الأرصدة للحسابات الرئيسية (الآباء)
         // نقوم بتكرار العملية لضمان تجميع المستويات المتعددة (شجرة الحسابات)
         let changed = true;
-        while (changed) {
+        while (changed && accountsWithBalances.length > 0) {
             changed = false;
             accountsWithBalances.forEach(parent => {
                 if (parent.is_group) {
@@ -639,17 +722,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       if (isDemo) {
+        const { demoAccounts, allDemoEntries } = calculateInitialDemoState();
+        setAccounts(demoAccounts);
+        setEntries(allDemoEntries);
         setCustomers(DUMMY_CUSTOMERS as any);
         setSuppliers(DUMMY_SUPPLIERS as any);
         setProducts(DUMMY_PRODUCTS as any);
         setInvoices(DUMMY_INVOICES as any);
         setVouchers(DUMMY_VOUCHERS as any);
-        setEntries(DUMMY_JOURNAL_ENTRIES.map(e => ({
-            ...e,
-            createdAt: e.created_at,
-            is_posted: true,
-            lines: e.lines.map(l => ({...l, id: l.id || generateUUID()}))
-        })) as any);
         setPurchaseInvoices([]);
         setQuotations(DUMMY_QUOTATIONS as any);
         setAssets(DUMMY_ASSETS.map(a => ({
@@ -854,11 +934,90 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  // دالة لإضافة فاتورة وهمية للحالة المحلية (لتحسين تجربة الديمو)
+  const addDemoInvoice = (invoice: any) => {
+      setInvoices(prev => [invoice, ...prev]);
+  };
+
+  const addDemoEntry = useCallback((entryData: any) => {
+    const newEntry: JournalEntry = {
+      id: `demo-je-${Date.now()}`,
+      date: entryData.date,
+      description: entryData.description,
+      reference: entryData.reference,
+      status: 'posted',
+      is_posted: true,
+      created_at: new Date().toISOString(),
+      lines: entryData.lines.map((l: any, i: number) => ({
+        ...l,
+        id: `demo-jel-${Date.now()}-${i}`,
+        accountName: accounts.find(a => a.id === l.accountId)?.name || 'حساب غير معروف',
+        accountCode: accounts.find(a => a.id === l.accountId)?.code || '',
+      }))
+    };
+    setEntries(prev => [newEntry, ...prev]);
+
+    setAccounts(prevAccounts => {
+        const newAccounts = JSON.parse(JSON.stringify(prevAccounts));
+
+        entryData.lines.forEach((line: any) => {
+            const accountIndex = newAccounts.findIndex((a: Account) => a.id === line.accountId);
+            if (accountIndex > -1) {
+                const acc = newAccounts[accountIndex];
+                const change = (line.debit || 0) - (line.credit || 0);
+                
+                const type = String(acc.type || '').toLowerCase();
+                const isDebitNature = ['asset', 'expense', 'أصول', 'مصروفات', 'تكلفة المبيعات', 'cost of goods sold'].some(t => type.includes(t));
+                
+                const balanceChange = isDebitNature ? change : -change;
+                acc.balance = (acc.balance || 0) + balanceChange;
+            }
+        });
+
+        let changed = true;
+        while (changed) {
+            changed = false;
+            newAccounts.forEach((parent: Account) => {
+                if (parent.is_group) {
+                    const childrenBalance = newAccounts.filter((child: Account) => child.parent_account === parent.id).reduce((sum: number, child: Account) => sum + (child.balance || 0), 0);
+                    if (parent.balance !== childrenBalance) { parent.balance = childrenBalance; changed = true; }
+                }
+            });
+        }
+        return newAccounts;
+    });
+  }, [accounts]);
+
+  const postDemoSalesInvoice = (invoiceData: any) => {
+    addDemoInvoice(invoiceData);
+    const { totalAmount, subtotal, taxAmount, paidAmount, customerName, invoiceNumber, date, treasuryId, items } = invoiceData;
+    
+    const salesAcc = getSystemAccount('SALES_REVENUE');
+    const customerAcc = getSystemAccount('CUSTOMERS');
+    const taxAcc = getSystemAccount('VAT');
+    const cashAcc = treasuryId ? accounts.find(a => a.id === treasuryId) : getSystemAccount('CASH');
+    const cogsAcc = getSystemAccount('COGS');
+    const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS');
+
+    let totalCost = 0;
+    items.forEach((item: any) => { totalCost += (products.find(p => p.id === item.productId)?.cost || 0) * item.quantity; });
+
+    if (customerAcc && salesAcc) {
+        const lines = [ { accountId: customerAcc.id, debit: totalAmount, credit: 0, description: `فاتورة مبيعات ديمو للعميل ${customerName}` }, { accountId: salesAcc.id, debit: 0, credit: subtotal, description: 'إيراد مبيعات' }, ];
+        if (taxAmount > 0 && taxAcc) { lines.push({ accountId: taxAcc.id, debit: 0, credit: taxAmount, description: 'ضريبة القيمة المضافة' }); }
+        if (paidAmount > 0 && cashAcc) { lines.push({ accountId: cashAcc.id, debit: paidAmount, credit: 0, description: 'تحصيل نقدي' }); lines.push({ accountId: customerAcc.id, debit: 0, credit: paidAmount, description: 'دفعة من العميل' }); }
+        if (totalCost > 0 && cogsAcc && inventoryAcc) { lines.push({ accountId: cogsAcc.id, debit: totalCost, credit: 0, description: 'تكلفة البضاعة المباعة' }); lines.push({ accountId: inventoryAcc.id, debit: 0, credit: totalCost, description: 'صرف من المخزون' }); }
+        addDemoEntry({ date: date, description: `فاتورة مبيعات ديمو: ${customerName}`, reference: invoiceNumber, lines: lines });
+    }
+  };
+
   const getInvoicesPaginated = async (page: number, pageSize: number, search?: string, startDate?: string, endDate?: string) => {
     try {
         // حماية أمنية: إذا كان المستخدم ديمو، نعرض بيانات وهمية فقط
         if (currentUser?.role === 'demo') {
-            const filtered = DUMMY_INVOICES.filter(inv => 
+            // استخدام الحالة المحلية لعرض الفواتير المضافة حديثاً
+            const source = invoices.length > 0 ? invoices : DUMMY_INVOICES;
+            const filtered = source.filter(inv => 
                 (!search || inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) || inv.customerName.toLowerCase().includes(search.toLowerCase()))
             );
             const start = (page - 1) * pageSize;
@@ -926,7 +1085,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
         // حماية أمنية: منع الديمو من رؤية القيود الحقيقية
         if (currentUser?.role === 'demo') {
-            const filtered = DUMMY_JOURNAL_ENTRIES.filter(entry => 
+            const source = entries.length > 0 ? entries : DUMMY_JOURNAL_ENTRIES;
+            const filtered = source.filter((entry: any) => 
                 (!search || (entry.reference && entry.reference.toLowerCase().includes(search.toLowerCase())) || (entry.description && entry.description.toLowerCase().includes(search.toLowerCase())))
             );
             const start = (page - 1) * pageSize;
@@ -2525,6 +2685,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // --- Customer Actions ---
   const addCustomer = async (customerData: Omit<Customer, 'id'>) => {
+    if (currentUser?.role === 'demo') {
+        const newCustomer = { ...customerData, id: `demo-c-${Date.now()}`, balance: 0 } as Customer;
+        setCustomers(prev => [newCustomer, ...prev]);
+        return newCustomer;
+    }
     try {
       const { data, error } = await supabase.from('customers').insert([customerData]).select().single();
       if (error) throw error;
@@ -2537,6 +2702,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const updateCustomer = async (id: string, updates: Partial<Customer>) => {
+    if (currentUser?.role === 'demo') {
+        setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+        return;
+    }
     try {
       const oldData = customers.find(c => c.id === id);
       const { error } = await supabase.from('customers').update(updates).eq('id', id);
@@ -2564,7 +2733,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const deleteCustomer = async (id: string, reason?: string) => {
     if (currentUser?.role === 'demo') {
-        throw new Error('غير مسموح بحذف العملاء في النسخة التجريبية');
+        setCustomers(prev => prev.filter(c => c.id !== id));
+        return;
     }
     try {
       const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
@@ -3141,7 +3311,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       clearTransactions,
       addOpeningBalanceTransaction,
       checkSystemAccounts,
-      createMissingSystemAccounts
+      createMissingSystemAccounts,
+      addDemoInvoice,
+      addDemoEntry,
+      postDemoSalesInvoice
     }}>
       {children}
     </AccountingContext.Provider>

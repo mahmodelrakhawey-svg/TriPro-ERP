@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -52,57 +52,12 @@ const GeneralJournal = () => {
   const fetchEntries = async () => {
       setLoading(true);
       try {
-        let query = supabase
-          .from('journal_entries')
-          .select(`
-            *,
-            journal_lines (
-              id,
-              debit,
-              credit,
-              description,
-              account_id,
-              accounts (
-                id,
-                code,
-                name
-              )
-            ),
-            journal_attachments (
-              id,
-              file_name,
-              file_path
-            )
-          `, { count: 'exact' });
+        // استخدام الدالة المركزية من السياق لضمان دعم الديمو والأمان
+        const { data, count } = await getJournalEntriesPaginated(page, ITEMS_PER_PAGE, searchTerm, selectedUser);
 
-        if (searchTerm) {
-            query = query.or(`description.ilike.%${searchTerm}%,reference.ilike.%${searchTerm}%`);
-        }
-
-        if (selectedUser) {
-            query = query.eq('user_id', selectedUser);
-        }
-
-        const { data, count, error } = await query
-            .order('transaction_date', { ascending: false })
-            .order('created_at', { ascending: false })
-            .range((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE - 1);
-
-        if (error) throw error;
-
-        const formattedData = (data || []).map((entry: any) => {
-            const rawLines = entry.journal_lines || [];
-            const normalizedLines = rawLines.map((line: any) => ({
-                ...line,
-                accountName: line.accounts?.name || 'حساب غير معروف',
-                accountCode: line.accounts?.code || '',
-            }));
-            return { ...entry, lines: normalizedLines };
-        });
-
-        setJournalEntries(formattedData);
-        setTotalCount(count || 0);
-        setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
+        setJournalEntries(data);
+        setTotalCount(count);
+        setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
       } catch (error) {
           console.error('Error fetching entries:', error);
       } finally {
