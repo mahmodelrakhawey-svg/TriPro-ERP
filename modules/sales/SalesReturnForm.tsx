@@ -124,7 +124,7 @@ const SalesReturnForm = () => {
 
     try {
       const subtotal = calculateTotal();
-      const taxRate = settings.enableTax ? (settings.vatRate || 0.15) : 0;
+      const taxRate = settings.enableTax ? (settings.vatRate ?? 0.15) : 0;
       const taxAmount = subtotal * taxRate;
       const totalAmount = subtotal + taxAmount;
       
@@ -326,7 +326,7 @@ const SalesReturnForm = () => {
           <tfoot className="font-bold text-lg">
             <tr className="bg-slate-50">
               <td colSpan={3} className="p-4 text-left text-red-600">إجمالي المرتجع {settings.enableTax ? '(شامل الضريبة)' : ''}:</td>
-              <td className="p-4 text-red-600">{(calculateTotal() * (1 + (settings.enableTax ? (settings.vatRate || 0.15) : 0))).toLocaleString()}</td>
+              <td className="p-4 text-red-600">{(calculateTotal() * (1 + (settings.enableTax ? (settings.vatRate ?? 0.15) : 0))).toLocaleString()}</td>
             </tr>
           </tfoot>
         </table>

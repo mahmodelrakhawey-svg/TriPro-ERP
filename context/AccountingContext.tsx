@@ -113,6 +113,22 @@ const DUMMY_INVOICES = [
     }
 ];
 
+const DUMMY_PURCHASE_INVOICES = [
+    {
+        id: 'demo-pinv-1',
+        invoiceNumber: 'PINV-001',
+        supplierId: 'demo-s1',
+        supplierName: 'شركة التوريدات العالمية',
+        date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0],
+        totalAmount: 5750,
+        taxAmount: 750,
+        subtotal: 5000,
+        status: 'posted',
+        warehouseId: 'demo-wh1',
+        items: [{ id: 'dpi-1', productId: 'demo-p1', quantity: 1, unitPrice: 5000, total: 5000 }]
+    }
+];
+
 const DUMMY_VOUCHERS = [
     { id: 'demo-rct-1', voucherNumber: 'RCT-00501', date: new Date().toISOString().split('T')[0], amount: 5000, description: 'دفعة من الحساب', type: 'receipt', partyId: 'demo-c1', partyName: 'شركة الأفق للتجارة' },
     { id: 'demo-pay-1', voucherNumber: 'PAY-00201', date: new Date().toISOString().split('T')[0], amount: 2000, description: 'سداد دفعة لمورد', type: 'payment', partyId: 'demo-s1', partyName: 'شركة التوريدات العالمية' }
@@ -183,9 +199,40 @@ const DUMMY_PURCHASE_ORDERS = [
     { id: 'demo-po-1', po_number: 'PO-DEMO-001', supplier_id: 'demo-s1', date: new Date().toISOString().split('T')[0], total_amount: 15000, status: 'pending', items: [] }
 ];
 
-const DUMMY_ACCOUNTS = INITIAL_ACCOUNTS.map(acc => ({
-    ...acc,
-    id: acc.code, // Use code as ID for simplicity in demo
+const FULL_DEMO_ACCOUNTS_RAW = [
+  { code: '1', name: 'الأصول', type: 'ASSET', is_group: true, parent_account: null },
+  { code: '11', name: 'الأصول غير المتداولة', type: 'ASSET', is_group: true, parent_account: '1' },
+  { code: '1115', name: 'الأثاث والتجهيزات المكتبية', type: 'ASSET', is_group: false, parent_account: '11' },
+  { code: '12', name: 'الأصول المتداولة', type: 'ASSET', is_group: true, parent_account: '1' },
+  { code: '121', name: 'المخزون', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '1211', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_account: '121' },
+  { code: '1213', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_account: '121' },
+  { code: '123', name: 'النقدية وما في حكمها', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_account: '123' },
+  { code: '1232', name: 'البنك الأهلي', type: 'ASSET', is_group: false, parent_account: '123' },
+  { code: '10201', name: 'العملاء', type: 'ASSET', is_group: false, parent_account: '12' },
+  { code: '1241', name: 'ضريبة القيمة المضافة (مدخلات)', type: 'ASSET', is_group: false, parent_account: '12' },
+  { code: '1222', name: 'أوراق القبض', type: 'ASSET', is_group: false, parent_account: '12' },
+  { code: '2', name: 'الخصوم', type: 'LIABILITY', is_group: true, parent_account: null },
+  { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_account: '2' },
+  { code: '222', name: 'أوراق الدفع', type: 'LIABILITY', is_group: false, parent_account: '2' },
+  { code: '2231', name: 'ضريبة القيمة المضافة (مخرجات)', type: 'LIABILITY', is_group: false, parent_account: '2' },
+  { code: '3', name: 'حقوق الملكية', type: 'EQUITY', is_group: true, parent_account: null },
+  { code: '3101', name: 'رأس المال', type: 'EQUITY', is_group: false, parent_account: '3' },
+  { code: '32', name: 'الأرباح المبقاة', type: 'EQUITY', is_group: false, parent_account: '3' },
+  { code: '4', name: 'الإيرادات', type: 'REVENUE', is_group: true, parent_account: null },
+  { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_account: '4' },
+  { code: '421', name: 'إيرادات متنوعة', type: 'REVENUE', is_group: false, parent_account: '4' },
+  { code: '5', name: 'المصروفات', type: 'EXPENSE', is_group: true, parent_account: null },
+  { code: '511', name: 'تكلفة البضاعة المباعة', type: 'EXPENSE', is_group: false, parent_account: '5' },
+  { code: '531', name: 'الرواتب والأجور', type: 'EXPENSE', is_group: false, parent_account: '5' },
+  { code: '535', name: 'كهرباء ومياه وغاز', type: 'EXPENSE', is_group: false, parent_account: '5' },
+];
+const DUMMY_ACCOUNTS = FULL_DEMO_ACCOUNTS_RAW.map(acc => ({
+    id: acc.code,
+    code: acc.code,
+    name: acc.name,
+    type: acc.type,
     balance: 0,
     isGroup: acc.is_group,
     parentAccount: acc.parent_account
@@ -386,14 +433,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const calculateInitialDemoState = () => {
-    let demoAccounts = [...DUMMY_ACCOUNTS];
+    let demoAccounts = JSON.parse(JSON.stringify(DUMMY_ACCOUNTS)); // Deep copy to avoid reference issues
     const accountBalances: Record<string, number> = {};
     let allDemoEntries: any[] = [...DUMMY_JOURNAL_ENTRIES.map(e => ({...e, is_posted: true, lines: e.lines.map(l => ({...l, accountId: l.accountId || l.accountCode}))}))];
 
     const processLines = (lines: any[]) => {
         lines.forEach(line => {
-            const change = (line.debit || 0) - (line.credit || 0);
-            const accId = line.accountId || line.account_id;
+            const change = (Number(line.debit) || 0) - (Number(line.credit) || 0);
+            const accId = String(line.accountId || line.account_id || '').trim();
             if (accId) {
                 accountBalances[accId] = (accountBalances[accId] || 0) + change;
             }
@@ -422,6 +469,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
     });
     
+    DUMMY_PURCHASE_INVOICES.forEach(inv => {
+        if (inv.status !== 'draft') {
+            const lines = [
+                { account_id: SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, debit: inv.subtotal, credit: 0 },
+                { account_id: SYSTEM_ACCOUNTS.VAT_INPUT, debit: inv.taxAmount, credit: 0 },
+                { account_id: SYSTEM_ACCOUNTS.SUPPLIERS, debit: 0, credit: inv.totalAmount },
+            ];
+            processLines(lines);
+            allDemoEntries.push({
+                id: `demo-je-pinv-${inv.id}`, date: inv.date, description: `فاتورة مشتريات ${inv.supplierName}`,
+                reference: inv.invoiceNumber, status: 'posted', is_posted: true,
+                lines: lines.map(l => ({ accountId: l.account_id, debit: l.debit, credit: l.credit }))
+            });
+        }
+    });
+
     DUMMY_VOUCHERS.forEach(v => {
         let lines: any[] = [];
         if (v.type === 'receipt') {
@@ -437,7 +500,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     demoAccounts = demoAccounts.map(acc => {
-        const rawBalance = accountBalances[acc.code] || 0;
+        const accId = String(acc.id || acc.code).trim();
+        const rawBalance = accountBalances[accId] || 0;
         const type = String(acc.type || '').toLowerCase();
         const isDebitNature = ['asset', 'expense', 'أصول', 'مصروفات', 'تكلفة المبيعات', 'cost of goods sold'].some(t => type.includes(t));
         const finalBalance = isDebitNature ? rawBalance : -rawBalance;
@@ -473,6 +537,66 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === 'demo@demo.com' || session?.user?.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005';
     // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
     const shouldFetchProtected = !!session;
+
+    // --- معالجة وضع الديمو بشكل منفصل تماماً لمنع التضارب ---
+    if (isDemo) {
+        const { demoAccounts, allDemoEntries } = calculateInitialDemoState();
+        setAccounts(demoAccounts);
+        setEntries(allDemoEntries);
+        setCustomers(DUMMY_CUSTOMERS as any);
+        setSuppliers(DUMMY_SUPPLIERS as any);
+        setProducts(DUMMY_PRODUCTS as any);
+        setInvoices(DUMMY_INVOICES as any);
+        setVouchers(DUMMY_VOUCHERS as any);
+        setPurchaseInvoices(DUMMY_PURCHASE_INVOICES as any);
+        setQuotations(DUMMY_QUOTATIONS as any);
+        setAssets(DUMMY_ASSETS.map(a => ({
+            ...a,
+            purchaseDate: a.purchase_date,
+            purchaseCost: a.purchase_cost,
+            currentValue: a.current_value,
+            usefulLife: a.useful_life,
+            salvageValue: a.salvage_value,
+            assetAccountId: a.asset_account_id,
+            accumulatedDepreciationAccountId: a.accumulated_depreciation_account_id,
+            depreciationExpenseAccountId: a.depreciation_expense_account_id,
+            totalDepreciation: a.purchase_cost - a.current_value
+        })) as any);
+        setEmployees(DUMMY_EMPLOYEES as any);
+        setCheques(DUMMY_CHEQUES.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name})) as any);
+        setPurchaseOrders(DUMMY_PURCHASE_ORDERS as any);
+        setCostCenters([{id: 'demo-cc-1', name: 'الفرع الرئيسي', code: 'CC-01'}, {id: 'demo-cc-2', name: 'فرع الرياض', code: 'CC-02'}]);
+        
+        // تعيين المستخدمين للديمو
+        setUsers([
+            { id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', role: 'super_admin', is_active: true },
+            { id: 'demo-u1', name: 'أحمد محمد', username: 'ahmed', role: 'sales', is_active: true },
+            { id: 'demo-u2', name: 'سارة علي', username: 'sara', role: 'sales', is_active: true }
+        ]);
+
+        setWarehouses(DUMMY_WAREHOUSES as any);
+        
+        // إعدادات افتراضية للديمو
+        setSettings({
+            companyName: 'مؤسسة الرخاوي (نسخة تجريبية)',
+            taxNumber: '300123456700003',
+            address: 'الرياض - المملكة العربية السعودية',
+            phone: '0501234567',
+            email: 'info@demo.com',
+            vatRate: 15,
+            currency: 'SAR',
+            footerText: 'نسخة تجريبية - جميع البيانات وهمية',
+            enableTax: true,
+            logoUrl: 'https://placehold.co/400x150/2563eb/ffffff?text=TriPro+Demo'
+        });
+
+        setIsLoading(false);
+        return; // الخروج فوراً لمنع تنفيذ باقي الكود
+    }
+
+    // =================================================================================
+    // 🔒 منطق النسخة الأصلية (Production Logic) - يبدأ من هنا للمستخدمين الحقيقيين
+    // =================================================================================
 
     // محاولة استرجاع البيانات من التخزين المؤقت أولاً
     const cachedAccounts = localStorage.getItem('cached_accounts');
@@ -537,9 +661,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ]);
 
       // 1. معالجة المستودعات
-      if (isDemo) {
-        setWarehouses(DUMMY_WAREHOUSES as any);
-      } else if (whs && whs.length > 0 && !isDemo) {
+      if (whs && whs.length > 0) {
         setWarehouses(whs);
       } else if (warehouses.length === 0) {
         if (warehouses.length === 0) setWarehouses([{id: generateUUID(), name: 'المستودع الرئيسي', type: 'warehouse'}]);
@@ -644,9 +766,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       let formattedEntries: JournalEntry[] = [];
 
       // إخفاء القيود عن مستخدم الديمو
-      if (isDemo) {
-          // This will be overwritten below
-      } else if (jEntries) {
+      if (jEntries) {
         formattedEntries = jEntries.map((entry: any) => ({
           id: entry.id,
           date: entry.transaction_date || entry.created_at?.split('T')[0],
@@ -721,34 +841,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.error("Chart of Accounts is empty. Please run the setup SQL script on your database.");
       }
 
-      if (isDemo) {
-        const { demoAccounts, allDemoEntries } = calculateInitialDemoState();
-        setAccounts(demoAccounts);
-        setEntries(allDemoEntries);
-        setCustomers(DUMMY_CUSTOMERS as any);
-        setSuppliers(DUMMY_SUPPLIERS as any);
-        setProducts(DUMMY_PRODUCTS as any);
-        setInvoices(DUMMY_INVOICES as any);
-        setVouchers(DUMMY_VOUCHERS as any);
-        setPurchaseInvoices([]);
-        setQuotations(DUMMY_QUOTATIONS as any);
-        setAssets(DUMMY_ASSETS.map(a => ({
-            ...a,
-            purchaseDate: a.purchase_date,
-            purchaseCost: a.purchase_cost,
-            currentValue: a.current_value,
-            usefulLife: a.useful_life,
-            salvageValue: a.salvage_value,
-            assetAccountId: a.asset_account_id,
-            accumulatedDepreciationAccountId: a.accumulated_depreciation_account_id,
-            depreciationExpenseAccountId: a.depreciation_expense_account_id,
-            totalDepreciation: a.purchase_cost - a.current_value
-        })) as any);
-        setEmployees(DUMMY_EMPLOYEES as any);
-        setCheques(DUMMY_CHEQUES.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name})) as any);
-        setPurchaseOrders(DUMMY_PURCHASE_ORDERS as any);
-        setCostCenters([{id: 'demo-cc-1', name: 'الفرع الرئيسي', code: 'CC-01'}, {id: 'demo-cc-2', name: 'فرع الرياض', code: 'CC-02'}]);
-      } else {
+      if (!isDemo) {
         if (custs) {
           setCustomers(custs.map(c => ({...c, taxId: c.tax_id, customerType: c.customer_type, credit_limit: c.credit_limit })));
           localStorage.setItem('cached_customers', JSON.stringify(custs));
@@ -771,7 +864,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
 
-      if (chqs && !isDemo) setCheques(chqs.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name, partyId: c.party_id})));
+      if (chqs) setCheques(chqs.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name, partyId: c.party_id})));
 
       // 5. تحديث باقي البيانات
       if (assetsData) {
@@ -816,11 +909,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }));
       }
 
-      if (employeesData && !isDemo) { // في الديمو تم تعيينهم بالفعل من DUMMY_EMPLOYEES
+      if (employeesData) {
           setEmployees(employeesData);
       }
 
-      if (profilesData && !isDemo) {
+      if (profilesData) {
           const mappedUsers = profilesData.map((p: any) => ({
               id: p.id,
               name: p.full_name || p.email || 'مستخدم',
@@ -834,15 +927,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const newUsers = mappedUsers.filter((u: any) => !existingIds.has(u.id));
               return [...prev, ...newUsers];
           });
-      } else if (isDemo) {
-          setUsers([
-              { id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', role: 'super_admin', is_active: true },
-              { id: 'demo-u1', name: 'أحمد محمد', username: 'ahmed', role: 'sales', is_active: true },
-              { id: 'demo-u2', name: 'سارة علي', username: 'sara', role: 'sales', is_active: true }
-          ]);
       }
 
-      if (salesInvoicesData && !isDemo) {
+      if (salesInvoicesData) {
           setInvoices(salesInvoicesData.map((inv: any) => ({
               id: inv.id,
               invoiceNumber: inv.invoice_number || '',
@@ -869,7 +956,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           })));
       }
 
-      if (purchaseInvoicesData && !isDemo) {
+      if (purchaseInvoicesData) {
           setPurchaseInvoices(purchaseInvoicesData.map((inv: any) => ({
               id: inv.id,
               invoiceNumber: inv.invoice_number,
@@ -890,7 +977,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       let allVouchers: Voucher[] = [];
       
-      if (!isDemo) {
           if (rVouchers) {
             allVouchers = [...allVouchers, ...rVouchers.map((v: any) => ({
               id: v.id,
@@ -922,7 +1008,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }))];
           }
           setVouchers(allVouchers.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-      }
 
       if (notificationsData) setNotifications(notificationsData);
 
@@ -3230,91 +3315,68 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       products, addProduct: (d) => setProducts(prev => [...prev, { ...d, id: generateUUID(), warehouseStock: {} }]),
       updateProduct, 
       deleteProduct,
-      restoreItem,
-      permanentDeleteItem,
-      emptyRecycleBin,
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
       produceItem,
       categories, addCategory: (n) => setCategories(prev => [...prev, { id: generateUUID(), name: n }]), deleteCategory: (id) => setCategories(prev => prev.filter(c => c.id !== id)),
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
+      quotations, addQuotation, convertQuotationToInvoice, updateQuotationStatus,
+      purchaseOrders, addPurchaseOrder, updatePurchaseOrder, convertPoToInvoice,
       inventoryCounts, addInventoryCount: (c) => setInventoryCounts(prev => [{...c, id: generateUUID(), countNumber: `CNT-${Date.now().toString().slice(-4)}`}, ...prev]), 
       postInventoryCount: (id) => setInventoryCounts(prev => prev.map(c => c.id === id ? {...c, status: 'posted'} : c)),
       addInventoryAdjustment: (adj) => {}, 
       cheques, addCheque, updateChequeStatus, 
-      assets, addAsset, runDepreciation, revaluateAsset, employees, addEmployee, updateEmployee, runPayroll, payrollHistory, 
-      budgets, saveBudget: (b) => setBudgets(prev => [{...b, id: generateUUID()}, ...prev]),
+      assets, addAsset, runDepreciation, revaluateAsset, employees, addEmployee, updateEmployee, deleteEmployee, runPayroll, payrollHistory, 
+      budgets, saveBudget: (budget) => setBudgets(prev => {
+          const existingIdx = prev.findIndex(b => b.year === budget.year && b.month === budget.month);
+          if (existingIdx >= 0) {
+              const newBudgets = [...prev];
+              newBudgets[existingIdx] = { ...budget, id: prev[existingIdx].id };
+              return newBudgets;
+          }
+          return [...prev, { ...budget, id: generateUUID() }];
+      }),
       notifications, markNotificationAsRead, clearAllNotifications,
       activityLog,
-      transfers, addTransfer, addStockTransfer, bankReconciliations, addBankReconciliation: (r) => setBankReconciliations(prev => [...prev, { ...r, id: generateUUID() }]), 
-      getBookBalanceAtDate, getAccountBalanceInPeriod, salespeople, currentUser, users, login, logout, addUser, updateUser, deleteUser: (id) => setUsers(prev => prev.filter(u => u.id !== id)), deleteEmployee,
-      settings, updateSettings: (s) => setSettings(s), 
-      exportData: () => {
-        if (currentUser?.role === 'demo') {
-            showToast('تصدير البيانات غير متاح في النسخة التجريبية', 'warning');
-            return;
-        }
-        const data = {
-            accounts,
-            customers,
-            suppliers,
-            products,
-            warehouses,
-            invoices,
-            purchaseInvoices,
-            entries,
-            vouchers,
-            cheques,
-            assets,
-            employees,
-            settings,
-            users
-        };
-        const jsonString = JSON.stringify(data, null, 2);
-        const blob = new Blob([jsonString], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `backup_${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-      },
-      importData: (j) => true, 
-      factoryReset: () => { 
-          if (currentUser?.role === 'demo') {
-              showToast('إعادة ضبط المصنع غير متاحة في النسخة التجريبية', 'warning');
-              return;
-          }
-          localStorage.clear(); window.location.reload(); 
-      }, closeFinancialYear,
-      getFinancialSummary, quotations, addQuotation, updateQuotationStatus, convertQuotationToInvoice, purchaseOrders, addPurchaseOrder, updatePurchaseOrder, convertPoToInvoice,
-      refreshData: fetchData,
-      lastUpdated,
-      userPermissions,
-      can,
-      recalculateStock,
-      clearCache,
-      exportJournalToCSV: () => {
-          if (currentUser?.role === 'demo') {
-              showToast('تصدير البيانات غير متاح في النسخة التجريبية', 'warning');
-              return;
-          }
-          exportJournalToCSV();
-      },
-      authInitialized,
+      transfers, addTransfer, addStockTransfer,
+      bankReconciliations, addBankReconciliation: (rec) => setBankReconciliations(prev => [...prev, rec]),
+      getBookBalanceAtDate, getAccountBalanceInPeriod,
+      salespeople,
       getSystemAccount,
-      getInvoicesPaginated,
-      getJournalEntriesPaginated,
-      isLoading,
-      calculateProductPrice,
-      clearTransactions,
-      addOpeningBalanceTransaction,
-      checkSystemAccounts,
-      createMissingSystemAccounts,
-      addDemoInvoice,
-      addDemoEntry,
-      postDemoSalesInvoice
+      currentUser, users, login, logout, addUser, updateUser, deleteUser: (id) => setUsers(prev => prev.filter(u => u.id !== id)),
+      settings, updateSettings: (newSettings) => {
+          setSettings(newSettings);
+          supabase.from('company_settings').upsert({
+              id: '00000000-0000-0000-0000-000000000000',
+              company_name: newSettings.companyName,
+              tax_number: newSettings.taxNumber,
+              address: newSettings.address,
+              phone: newSettings.phone,
+              email: newSettings.email,
+              vat_rate: newSettings.vatRate,
+              currency: newSettings.currency,
+              footer_text: newSettings.footerText,
+              enable_tax: newSettings.enableTax,
+              logo_url: newSettings.logoUrl,
+              last_closed_date: newSettings.lastClosedDate,
+              prevent_price_modification: newSettings.preventPriceModification,
+              max_cash_deficit_limit: newSettings.maxCashDeficitLimit,
+              // @ts-ignore
+              decimal_places: newSettings.decimalPlaces,
+              account_mappings: newSettings.account_mappings
+          }).then(({ error }) => {
+              if (error) console.error("Failed to save settings:", error);
+          });
+      },
+      exportData: () => {}, importData: () => true, factoryReset: () => {},
+      closeFinancialYear, getFinancialSummary, refreshData: fetchData,
+      userPermissions, can, lastUpdated, recalculateStock, clearCache, exportJournalToCSV,
+      authInitialized, isLoading,
+      getInvoicesPaginated, getJournalEntriesPaginated,
+      restoreItem, permanentDeleteItem, emptyRecycleBin,
+      calculateProductPrice, clearTransactions, addOpeningBalanceTransaction,
+      checkSystemAccounts, createMissingSystemAccounts,
+      addDemoInvoice, addDemoEntry, postDemoSalesInvoice
     }}>
       {children}
     </AccountingContext.Provider>

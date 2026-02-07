@@ -40,7 +40,7 @@ const IncomeStatement = () => {
 
   useEffect(() => {
     fetchData();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, accounts, currentUser]); // إضافة الاعتمادات الناقصة
 
   const reportData = useMemo(() => {
     // 1. تحديد حسابات الإيرادات والمصروفات

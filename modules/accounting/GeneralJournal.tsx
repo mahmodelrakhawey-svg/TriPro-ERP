@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -25,7 +25,7 @@ const getEntrySource = (reference: string) => {
 };
 
 const GeneralJournal = () => {
-  const { refreshData, can, clearCache, exportJournalToCSV, users, getJournalEntriesPaginated } = useAccounting();
+  const { refreshData, can, clearCache, exportJournalToCSV, users, getJournalEntriesPaginated, currentUser } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -54,6 +54,40 @@ const GeneralJournal = () => {
       try {
         // استخدام الدالة المركزية من السياق لضمان دعم الديمو والأمان
         const { data, count } = await getJournalEntriesPaginated(page, ITEMS_PER_PAGE, searchTerm, selectedUser);
+
+        // إصلاح بيانات الديمو للعرض فقط
+        if (currentUser?.role === 'demo' && data) {
+            data.forEach(entry => {
+                const ref = (entry.reference || '').toUpperCase();
+                if (entry.lines) {
+                    entry.lines.forEach(line => {
+                        if (!line.accountName || line.accountName === 'حساب غير معروف') {
+                            // منطق تعويض الأسماء المفقودة للديمو
+                            if (line.debit > 0) {
+                                if (ref.startsWith('INV')) { line.accountName = 'العملاء'; line.accountCode = '10201'; }
+                                else if (ref.startsWith('RCT')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
+                                else if (ref.startsWith('PAY')) { line.accountName = 'الموردين'; line.accountCode = '20101'; }
+                                else if (ref.startsWith('PUR')) { line.accountName = 'المشتريات'; line.accountCode = '50101'; }
+                                else if (ref.includes('DEMO-001')) { line.accountName = 'الأثاث والتجهيزات'; line.accountCode = '11101'; }
+                                else if (ref.includes('DEMO-002')) { line.accountName = 'كهرباء ومياه'; line.accountCode = '50201'; }
+                                else { line.accountName = 'مصروفات متنوعة'; line.accountCode = '50301'; }
+                            } else {
+                                if (ref.startsWith('INV')) { line.accountName = 'المبيعات'; line.accountCode = '40101'; }
+                                else if (ref.startsWith('RCT')) { line.accountName = 'العملاء'; line.accountCode = '10201'; }
+                                else if (ref.startsWith('PAY')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
+                                else if (ref.startsWith('PUR')) { line.accountName = 'الموردين'; line.accountCode = '20101'; }
+                                else if (ref.includes('DEMO-001')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
+                                else if (ref.includes('DEMO-002')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
+                                else { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
+                            }
+                        }
+                        // إصلاح القيم السالبة إن وجدت في الديمو
+                        if (line.debit < 0) line.debit = Math.abs(line.debit);
+                        if (line.credit < 0) line.credit = Math.abs(line.credit);
+                    });
+                }
+            });
+        }
 
         setJournalEntries(data);
         setTotalCount(count);

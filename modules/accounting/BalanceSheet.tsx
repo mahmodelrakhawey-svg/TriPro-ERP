@@ -50,7 +50,7 @@ const BalanceSheet = () => {
     } else {
       setLoading(false); // Demo data is already in context
     }
-  }, [asOfDate, currentUser]);
+  }, [asOfDate, currentUser, accounts]); // إضافة accounts لضمان التحديث عند تحميل البيانات
 
   const { assetRows, liabilityRows, equityRows, netIncome } = useMemo(() => {
     if (currentUser?.role === 'demo') {
@@ -68,11 +68,11 @@ const BalanceSheet = () => {
             if (type.includes('asset') || type.includes('أصول')) {
                 assets.push({ account: acc, amount: balance });
             } else if (type.includes('liability') || type.includes('خصوم')) {
-                liabilities.push({ account: acc, amount: -balance });
+                liabilities.push({ account: acc, amount: balance });
             } else if (type.includes('equity') || type.includes('ملكية')) {
-                equity.push({ account: acc, amount: -balance });
+                equity.push({ account: acc, amount: balance });
             } else if (type.includes('revenue') || type.includes('إيراد')) {
-                currentNetIncome += -balance;
+                currentNetIncome += balance;
             } else if (type.includes('expense') || type.includes('مصروف')) {
                 currentNetIncome -= balance;
             }
@@ -80,7 +80,9 @@ const BalanceSheet = () => {
         return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: currentNetIncome };
     }
 
-    // Logic for real users
+    // =================================================================================
+    // 🔒 منطق النسخة الأصلية (Production Logic) - للمستخدمين الحقيقيين
+    // =================================================================================
     const accountBalances: Record<string, number> = {};
     ledgerLines.forEach(line => {
       if (!accountBalances[line.account_id]) accountBalances[line.account_id] = 0;

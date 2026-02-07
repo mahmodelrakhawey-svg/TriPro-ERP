@@ -21,24 +21,55 @@ const TrialBalanceAdvanced = () => {
   const fetchLedgerData = async () => {
     setLoading(true);
     if (currentUser?.role === 'demo') {
+        // تحسين بيانات الديمو لتكون منطقية ومتزنة
         const demoLines = entries
             .filter(e => e.status === 'posted')
-            .flatMap(entry => 
-            entry.lines.map(line => ({
-                account_id: line.accountId || line.account_id, // التأكد من قراءة المعرف بشكل صحيح
-                debit: line.debit,
-                credit: line.credit,
-                journal_entries: {
-                    transaction_date: entry.date,
-                    status: entry.status
-                }
-            }))
-        );
+            .flatMap(entry => {
+                // استنتاج نوع الحساب بناءً على نوع القيد لضمان عرض بيانات واقعية
+                const ref = (entry.reference || '').toUpperCase();
+                
+                return entry.lines.map((line, idx) => {
+                    let smartAccountId = line.accountId || line.account_id;
+                    
+                    // إذا كان الحساب غير معروف في الديمو، نمنحه هوية بناءً على السياق
+                    if (!smartAccountId || smartAccountId === 'UNKNOWN') {
+                        if (line.debit > 0) {
+                            if (ref.startsWith('INV')) smartAccountId = '10201'; // عملاء
+                            else if (ref.startsWith('RCT')) smartAccountId = '10101'; // صندوق
+                            else if (ref.startsWith('PAY')) smartAccountId = '20101'; // موردين
+                            else if (ref.startsWith('PUR')) smartAccountId = '50101'; // مشتريات
+                            else if (ref.includes('DEMO-001')) smartAccountId = '11101'; // أثاث (حسب نصك)
+                            else if (ref.includes('DEMO-002')) smartAccountId = '50201'; // كهرباء (حسب نصك)
+                            else smartAccountId = '50301'; // مصروفات عامة
+                        } else {
+                            if (ref.startsWith('INV')) smartAccountId = '40101'; // مبيعات
+                            else if (ref.startsWith('RCT')) smartAccountId = '10201'; // عملاء
+                            else if (ref.startsWith('PAY')) smartAccountId = '10101'; // صندوق
+                            else if (ref.startsWith('PUR')) smartAccountId = '20101'; // موردين
+                            else if (ref.includes('DEMO-001')) smartAccountId = '10101'; // صندوق
+                            else if (ref.includes('DEMO-002')) smartAccountId = '10101'; // صندوق
+                            else smartAccountId = '10101'; // صندوق
+                        }
+                    }
+
+                    return {
+                        account_id: smartAccountId,
+                        debit: line.debit,
+                        credit: line.credit,
+                        journal_entries: {
+                            transaction_date: entry.date,
+                            status: entry.status
+                        }
+                    };
+                });
+            });
+            
         setLedgerLines(demoLines);
         setLoading(false);
         return;
     }
 
+    // 🔒 منطق النسخة الأصلية: جلب البيانات الفعلية من قاعدة البيانات
     try {
       const { data, error } = await supabase
         .from('journal_lines')
@@ -65,7 +96,7 @@ const TrialBalanceAdvanced = () => {
 
   useEffect(() => {
     fetchLedgerData();
-  }, [endDate]); // إعادة الجلب عند تغيير تاريخ النهاية
+  }, [endDate, entries, currentUser]); // إعادة الجلب عند تغيير البيانات أو المستخدم
 
   // حساب الأرصدة
   const reportData = useMemo(() => {
@@ -78,6 +109,26 @@ const TrialBalanceAdvanced = () => {
         accStats[a.id] = { open: 0, transDr: 0, transCr: 0 };
         allAccountsMap.set(a.id, a);
     });
+
+    // حقن حسابات الديمو إذا كنا في وضع الديمو لضمان ظهور الأسماء
+    if (currentUser?.role === 'demo') {
+        const demoAccountsList = [
+            { id: '10101', code: '10101', name: 'النقدية بالصندوق', isGroup: false, parentAccount: '101' },
+            { id: '10201', code: '10201', name: 'العملاء', isGroup: false, parentAccount: '102' },
+            { id: '11101', code: '11101', name: 'الأثاث والتجهيزات', isGroup: false, parentAccount: '111' },
+            { id: '20101', code: '20101', name: 'الموردين', isGroup: false, parentAccount: '201' },
+            { id: '40101', code: '40101', name: 'المبيعات', isGroup: false, parentAccount: '401' },
+            { id: '50101', code: '50101', name: 'المشتريات', isGroup: false, parentAccount: '501' },
+            { id: '50201', code: '50201', name: 'كهرباء ومياه', isGroup: false, parentAccount: '502' },
+            { id: '50301', code: '50301', name: 'مصروفات إدارية', isGroup: false, parentAccount: '503' },
+        ];
+        demoAccountsList.forEach(da => {
+            if (!allAccountsMap.has(da.id)) {
+                allAccountsMap.set(da.id, da);
+                accStats[da.id] = { open: 0, transDr: 0, transCr: 0 };
+            }
+        });
+    }
 
     // 2. تجميع البيانات من الخطوط المجلوبة من قاعدة البيانات
     ledgerLines.forEach(line => {
