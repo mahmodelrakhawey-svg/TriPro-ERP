@@ -1,6 +1,6 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { JournalEntry } from '../../types';
@@ -236,6 +236,11 @@ const GeneralJournal = () => {
     navigate('/journal', { state: { entryToEdit: entry } });
   };
 
+  const handleViewEntry = (entryId: string) => {
+    const entryIds = journalEntries.map(e => e.id);
+    navigate(`/journal-entry/${entryId}`, { state: { ids: entryIds, page, searchTerm, selectedUser } });
+  };
+
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200">
@@ -348,6 +353,9 @@ const GeneralJournal = () => {
                             ترحيل
                         </button>
                     )}
+                    <button onClick={() => handleViewEntry(entry.id)} className="p-2 text-slate-400 hover:text-green-600 rounded-full hover:bg-slate-100 transition-colors" title="عرض التفاصيل">
+                        <Eye size={16} />
+                    </button>
                     <button onClick={() => handlePrint(entry)} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-slate-100 transition-colors" title="طباعة السند">
                         <Printer size={16} />
                     </button>

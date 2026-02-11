@@ -45,7 +45,7 @@ export default function AccountingDashboard() {
     load();
   }, []);
 
-  const { metrics, monthlyData, expenseData, recentEntries } = useMemo(() => {
+  const { metrics, monthlyData, expenseData, weeklyCashData, recentEntries } = useMemo(() => {
       const currentYear = new Date().getFullYear();
       const startDate = `${currentYear}-01-01`;
       const endDate = `${currentYear}-12-31`;
@@ -96,12 +96,14 @@ export default function AccountingDashboard() {
 
       const cashBalance = accounts
           .filter(a => !a.isGroup && (
-              a.code.startsWith('123') || 
+              // التأكد من أن الحساب أصل (يبدأ بـ 1) لاستبعاد حسابات المصروفات مثل "عجز الصندوق"
+              (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
+              (a.code.startsWith('123') || 
               a.code.startsWith('1101') || 
               a.name.includes('صندوق') || 
               a.name.includes('خزينة') || 
               a.name.includes('بنك') ||
-              a.name.includes('نقد')
+              a.name.includes('نقد'))
           ))
           .reduce((sum, a) => sum + (a.balance || 0), 0);
 
@@ -118,6 +120,55 @@ export default function AccountingDashboard() {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 5);
+
+      // --- حساب تطور السيولة الأسبوعي ---
+      const cashAccountIds = accounts
+          .filter(a => !a.isGroup && (
+              (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
+              (a.code.startsWith('123') || 
+              a.code.startsWith('1101') || 
+              a.name.includes('صندوق') || 
+              a.name.includes('خزينة') || 
+              a.name.includes('بنك') ||
+              a.name.includes('نقد'))
+          ))
+          .map(a => a.id);
+
+      const allCashTransactions = entries.flatMap(entry => 
+          entry.lines
+              .filter(line => cashAccountIds.includes(line.accountId))
+              .map(line => ({
+                  date: new Date(entry.date),
+                  amount: (line.debit || 0) - (line.credit || 0)
+              }))
+      );
+
+      const openingCashBalanceForYear = allCashTransactions
+          .filter(t => t.date < new Date(startDate))
+          .reduce((sum, t) => sum + t.amount, 0);
+
+      const getWeekOfYear = (date: Date) => {
+          const start = new Date(date.getFullYear(), 0, 1);
+          const diff = (date.getTime() - start.getTime() + ((start.getTimezoneOffset() - date.getTimezoneOffset()) * 60 * 1000));
+          const oneDay = 1000 * 60 * 60 * 24;
+          const day = Math.floor(diff / oneDay);
+          return Math.ceil((day + start.getDay() + 1) / 7);
+      };
+
+      const weeklyMovements: Record<number, number> = {};
+      allCashTransactions
+          .filter(t => t.date >= new Date(startDate) && t.date <= new Date(endDate))
+          .forEach(t => {
+              const week = getWeekOfYear(t.date);
+              weeklyMovements[week] = (weeklyMovements[week] || 0) + t.amount;
+          });
+
+      let runningCashBalance = openingCashBalanceForYear;
+      const weeklyData = Array.from({ length: 52 }, (_, i) => {
+          const weekNum = i + 1;
+          runningCashBalance += weeklyMovements[weekNum] || 0;
+          return { name: `أ ${weekNum}`, balance: runningCashBalance };
+      });
 
       const recent = entries.slice(0, 5).map(e => ({
           id: e.id,
@@ -137,6 +188,7 @@ export default function AccountingDashboard() {
           },
           monthlyData: chartData,
           expenseData: expenseChartData,
+          weeklyCashData: weeklyData,
           recentEntries: recent
       };
 
@@ -324,9 +376,9 @@ export default function AccountingDashboard() {
       </div>
 
       {/* Charts & Recent */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
         {/* Main Chart */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6">تحليل الإيرادات والمصروفات (شهري)</h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -354,7 +406,9 @@ export default function AccountingDashboard() {
             </ResponsiveContainer>
           </div>
         </div>
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Expense Breakdown Pie Chart */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
@@ -379,6 +433,33 @@ export default function AccountingDashboard() {
                 <Tooltip formatter={(value: number) => value.toLocaleString()} />
                 <Legend layout="horizontal" verticalAlign="bottom" align="center" />
               </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Weekly Cash Flow Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <Wallet size={18} className="text-slate-400" /> تطور السيولة النقدية الأسبوعي
+          </h3>
+          <div className="h-80 w-full" style={{ minHeight: '320px' }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={weeklyCashData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.1}/>
+                    <stop offset="95%" stopColor="#8884d8" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
+                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
+                <CartesianGrid vertical={false} stroke="#f1f5f9" />
+                <Tooltip 
+                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                  formatter={(value: number) => value.toLocaleString('ar-EG', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                />
+                <Area type="monotone" dataKey="balance" stroke="#8884d8" fillOpacity={1} fill="url(#colorCash)" name="رصيد النقدية" strokeWidth={2} />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>

@@ -101,7 +101,7 @@ const CashFlowStatement = () => {
         // استبعاد حسابات النقدية والبنوك من الأنشطة (لأنها النتيجة النهائية)
         const isCash = type.includes('cash') || type.includes('bank') || 
                        name.includes('صندوق') || name.includes('خزينة') || name.includes('نقد') || name.includes('بنك') ||
-                       code.startsWith('123') || code.startsWith('1101') || code.startsWith('101') || code.startsWith('102');
+                       code.startsWith('123') || code.startsWith('1101') || code.startsWith('101');
 
         if (isCash) return;
 
@@ -158,7 +158,7 @@ const CashFlowStatement = () => {
           const name = String(acc.name || '');
           const type = String(acc.type || '').toLowerCase();
           if (type.includes('liability') || type.includes('equity') || type.includes('revenue') || type.includes('expense')) return false;
-          return code.startsWith('123') || code.startsWith('1101') || code.startsWith('101') || code.startsWith('102') || name.includes('صندوق') || name.includes('بنك') || name.includes('نقد');
+          return code.startsWith('123') || code.startsWith('1101') || code.startsWith('101') || name.includes('صندوق') || name.includes('بنك') || name.includes('نقد');
       }).map(a => a.id);
 
       let openingCash = 0;

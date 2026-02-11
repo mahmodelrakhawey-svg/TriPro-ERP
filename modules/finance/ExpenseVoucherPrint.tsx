@@ -60,6 +60,13 @@ export const ExpenseVoucherPrint = ({ voucher, companySettings }: ExpenseVoucher
             <div className="flex-1 border-b border-dotted border-slate-400 pb-1 font-bold text-lg">{voucher.expenseAccountName || '---'}</div>
         </div>
         
+        {voucher.recipientName && (
+            <div className="flex items-baseline gap-4">
+                <span className="font-bold text-slate-700 w-32 shrink-0">المستلم:</span>
+                <div className="flex-1 border-b border-dotted border-slate-400 pb-1 font-bold">{voucher.recipientName}</div>
+            </div>
+        )}
+        
         <div className="flex items-baseline gap-4">
             <span className="font-bold text-slate-700 w-32 shrink-0">وذلك عن:</span>
             <div className="flex-1 border-b border-dotted border-slate-400 pb-1">{voucher.description || '---'}</div>
@@ -86,7 +93,7 @@ export const ExpenseVoucherPrint = ({ voucher, companySettings }: ExpenseVoucher
         <div className="text-center">
             <p className="font-bold text-slate-700 mb-16">المستلم</p>
             <div className="border-t border-slate-800 w-3/4 mx-auto"></div>
-            <p className="text-xs text-slate-500 mt-2">الاسم / التوقيع</p>
+            <p className="text-xs text-slate-500 mt-2">{voucher.recipientName || 'الاسم / التوقيع'}</p>
         </div>
       </div>
 
