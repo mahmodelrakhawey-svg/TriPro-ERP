@@ -1,9 +1,10 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { JournalEntry } from '../../types';
+import { useToastNotification } from '../../utils/toastUtils';
 
 // دالة مساعدة لتحديد مصدر القيد بناءً على المرجع
 const getEntrySource = (reference: string) => {
@@ -28,6 +29,7 @@ const GeneralJournal = () => {
   const { refreshData, can, clearCache, exportJournalToCSV, users, getJournalEntriesPaginated, currentUser } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
+  const toast = useToastNotification();
   const [isRefreshing, setIsRefreshing] = useState(false);
   
   // Pagination state
@@ -126,11 +128,11 @@ const GeneralJournal = () => {
 
       if (error) throw error;
 
-      alert('تم ترحيل القيد بنجاح.');
+      toast.success('تم ترحيل القيد بنجاح.');
       refreshData();
       fetchEntries();
     } catch (err: any) {
-      alert('فشل ترحيل القيد: ' + err.message);
+      toast.error('فشل ترحيل القيد: ' + err.message);
     }
   };
 
@@ -141,11 +143,11 @@ const GeneralJournal = () => {
     try {
         const { error } = await supabase.from('journal_entries').delete().eq('id', entryId);
         if (error) throw error;
-        alert('تم حذف القيد بنجاح.');
+        toast.success('تم حذف القيد بنجاح.');
         refreshData();
         fetchEntries();
     } catch (err: any) {
-        alert('فشل حذف القيد: ' + err.message);
+        toast.error('فشل حذف القيد: ' + err.message);
     }
   };
 
@@ -230,7 +232,7 @@ const GeneralJournal = () => {
   const handleEditEntry = (entry: JournalEntry) => {
     const source = getEntrySource(entry.reference || '');
     if (source.label !== 'قيد يدوي') {
-        alert('لا يمكن تعديل القيود التي تم إنشاؤها آلياً. يرجى تعديل المستند الأصلي (مثل الفاتورة أو السند).');
+        toast.error('لا يمكن تعديل القيود التي تم إنشاؤها آلياً. يرجى تعديل المستند الأصلي (مثل الفاتورة أو السند).');
         return;
     }
     navigate('/journal', { state: { entryToEdit: entry } });

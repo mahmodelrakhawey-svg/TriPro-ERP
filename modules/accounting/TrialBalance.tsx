@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext'; // Import context
 import { supabase } from '../../supabaseClient';
+import { useNavigate } from 'react-router-dom';
 import { Scale, Filter, Printer, Loader2, Search, Download, RefreshCw } from 'lucide-react';
 import ReportHeader from '../../components/ReportHeader';
 
@@ -18,6 +19,7 @@ type TrialBalanceRow = {
 
 const TrialBalance = () => {
   const { accounts, refreshData, currentUser } = useAccounting(); // Use accounts from context
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -141,6 +143,16 @@ const TrialBalance = () => {
     document.body.removeChild(link);
   };
 
+  const handleRowClick = (accountId: string) => {
+    navigate('/ledger', { 
+      state: { 
+        accountId, 
+        endDate: asOfDate,
+        startDate: `${new Date(asOfDate).getFullYear()}-01-01` // افتراض بداية السنة
+      } 
+    });
+  };
+
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200 min-h-[80vh]">
       <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4 no-print">
@@ -206,9 +218,14 @@ const TrialBalance = () => {
             </thead>
             <tbody>
                 {filteredRows.map((row) => (
-                    <tr key={row.account.id} className="hover:bg-slate-50">
+                    <tr 
+                        key={row.account.id} 
+                        className="hover:bg-blue-50 cursor-pointer transition-colors group"
+                        onClick={() => handleRowClick(row.account.id)}
+                        title="اضغط لعرض التفاصيل في دفتر الأستاذ"
+                    >
                         <td className="p-3 border border-slate-200 font-mono">{row.account.code}</td>
-                        <td className="p-3 border border-slate-200">{row.account.name}</td>
+                        <td className="p-3 border border-slate-200 font-medium text-slate-700 group-hover:text-blue-700">{row.account.name}</td>
                         <td className="p-3 border border-slate-200 text-center font-mono text-emerald-700">
                             {row.netDebit > 0 ? row.netDebit.toFixed(2) : '-'}
                         </td>

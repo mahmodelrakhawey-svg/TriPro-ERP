@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
 import { JournalEntryLine, Account, CostCenter } from '../../types';
 import { useAccounting } from '../../context/AccountingContext';
@@ -6,6 +6,7 @@ import { analyzeTransactionText } from '../../services/geminiService';
 import AddAccountModal from './AddAccountModal';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
+import { useToastNotification } from '../../utils/toastUtils';
 
 const JournalEntryForm = () => {
   const { accounts, costCenters, addEntry } = useAccounting();
@@ -22,6 +23,7 @@ const JournalEntryForm = () => {
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const toast = useToastNotification();
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -102,13 +104,13 @@ const JournalEntryForm = () => {
 
     // 1. التحقق من اختيار الحسابات
     if (sanitizedLines.some(l => !l.account_id)) {
-        alert("يرجى اختيار الحساب لجميع أطراف القيد قبل الترحيل.");
+        toast.error("يرجى اختيار الحساب لجميع أطراف القيد قبل الترحيل.");
         return;
     }
 
     // 2. التحقق من التوازن
     if (!isBalanced) {
-        alert("القيد غير متزن. يجب أن يتساوى إجمالي المدين مع إجمالي الدائن.");
+        toast.error("القيد غير متزن. يجب أن يتساوى إجمالي المدين مع إجمالي الدائن.");
         return;
     }
 
@@ -132,7 +134,7 @@ const JournalEntryForm = () => {
         attachments
       });
 
-        alert(editingId ? "تم تعديل القيد بنجاح." : "تم ترحيل القيد بنجاح إلى دفتر اليومية.");
+        toast.success(editingId ? "تم تعديل القيد بنجاح." : "تم ترحيل القيد بنجاح إلى دفتر اليومية.");
         
         // إذا كان تعديلاً، نعود لدفتر اليومية
         if (editingId) {
@@ -149,7 +151,7 @@ const JournalEntryForm = () => {
         ]);
         setAttachments([]);
     } catch (error: any) {
-        alert(error.message || "حدث خطأ أثناء حفظ القيد");
+        toast.error(error.message || "حدث خطأ أثناء حفظ القيد");
     } finally {
         setIsSubmitting(false);
     }
@@ -180,7 +182,7 @@ const JournalEntryForm = () => {
             setLines(newLines);
         }
     } catch (e) {
-        alert("حدث خطأ أثناء الاتصال بالمساعد الذكي.");
+        toast.error("حدث خطأ أثناء الاتصال بالمساعد الذكي.");
     } finally {
         setIsAiLoading(false);
     }

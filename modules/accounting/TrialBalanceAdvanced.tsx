@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { useNavigate } from 'react-router-dom';
+import { useToastNotification } from '../../utils/toastUtils';
 import { FileText, Search, Download, Filter, Printer, Loader2, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -9,6 +11,8 @@ import ReportHeader from '../../components/ReportHeader';
 
 const TrialBalanceAdvanced = () => {
   const { accounts, settings, refreshData, currentUser, entries } = useAccounting();
+  const navigate = useNavigate();
+  const toast = useToastNotification();
   const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -81,7 +85,7 @@ const TrialBalanceAdvanced = () => {
       setLedgerLines(data || []);
     } catch (err: any) {
       console.error('Error fetching ledger:', err);
-      alert('فشل جلب البيانات: ' + err.message);
+      toast.error('فشل جلب البيانات: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -284,6 +288,13 @@ const TrialBalanceAdvanced = () => {
     });
   };
 
+  const handleRowClick = (accountId: string, isGroup: boolean) => {
+    if (isGroup) return; // لا ننتقل للحسابات التجميعية
+    navigate('/ledger', { 
+      state: { accountId, startDate, endDate } 
+    });
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
@@ -373,7 +384,12 @@ const TrialBalanceAdvanced = () => {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                     {reportData.map((row) => (
-                        <tr key={row.id} className={`hover:bg-slate-50 ${row.isGroup ? 'bg-slate-50 font-bold text-slate-800' : 'text-slate-600'}`}>
+                        <tr 
+                            key={row.id} 
+                            className={`transition-colors ${row.isGroup ? 'bg-slate-50 font-bold text-slate-800' : 'text-slate-600 hover:bg-blue-50 cursor-pointer'}`}
+                            onClick={() => handleRowClick(row.id, row.isGroup)}
+                            title={!row.isGroup ? "اضغط لعرض كشف الحساب" : ""}
+                        >
                             <td className="p-2 border-l border-slate-100 font-mono">{row.code}</td>
                             <td className="p-2 border-l border-slate-100">{row.name}</td>
                             

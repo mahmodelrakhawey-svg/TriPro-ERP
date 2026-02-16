@@ -1,6 +1,7 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Book, Filter, Search, Printer } from 'lucide-react';
+import { useLocation } from 'react-router-dom';
 import ReportHeader from '../../components/ReportHeader';
 
 type Account = {
@@ -25,6 +26,7 @@ type LedgerEntry = {
 };
 
 const GeneralLedger = () => {
+  const location = useLocation();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
@@ -41,6 +43,17 @@ const GeneralLedger = () => {
     };
     fetchAccounts();
   }, []);
+
+  // استقبال البيانات من الصفحات الأخرى (Drill-down)
+  useEffect(() => {
+    if (location.state?.accountId) {
+      setSelectedAccount(location.state.accountId);
+      if (location.state.startDate) setStartDate(location.state.startDate);
+      if (location.state.endDate) setEndDate(location.state.endDate);
+      // تفعيل البحث تلقائياً بعد مهلة قصيرة لضمان تحميل الحالة
+      setTimeout(() => document.getElementById('search-btn')?.click(), 100);
+    }
+  }, [location.state]);
 
   // دالة مساعدة لجلب معرفات الحساب والحسابات الفرعية (شجرياً)
   const getAccountAndChildrenIds = (accountId: string, allAccounts: Account[]): string[] => {
@@ -160,6 +173,7 @@ const GeneralLedger = () => {
         <div className="md:col-span-4 flex justify-end">
             <button 
                 onClick={handleSearch}
+                id="search-btn"
                 disabled={!selectedAccount || loading}
                 className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2.5 rounded-lg hover:bg-blue-700 font-bold shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
             >

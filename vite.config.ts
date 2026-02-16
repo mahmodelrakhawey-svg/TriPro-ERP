@@ -18,6 +18,19 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve('.'),
         }
-      }
+      },
+      build: {
+        chunkSizeWarningLimit: 1600,
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+              'vendor-ui': ['lucide-react', 'recharts', 'react-hot-toast'],
+              'vendor-utils': ['xlsx', 'jspdf', 'html2canvas'],
+              'vendor-supabase': ['@supabase/supabase-js'],
+            },
+          },
+        },
+      },
     };
 });
