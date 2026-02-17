@@ -143,13 +143,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    // التحقق مما إذا كان المستخدم الحالي هو مستخدم الديمو
+    const isDemo = userRole === 'demo';
+
     await supabase.auth.signOut();
-    setCurrentUser(null);
+    setCurrentUser(null); // يتم تحديث الحالة فوراً لتسريع تجربة الخروج
+
+    // إذا كان المستخدم هو الديمو، قم بإعادة تعيين البيانات بعد الخروج
+    if (isDemo) {
+      try {
+        // استدعاء الدالة السحابية لإعادة تعيين البيانات
+        await supabase.functions.invoke('reset-demo');
+      } catch (error) {
+        console.error('Failed to reset demo data:', error);
+      }
+    }
   };
 
   const can = (module: string, action: string): boolean => {
     if (userRole === 'super_admin') return true;
-    if (userRole === 'demo' && action !== 'delete') return true; // السماح بكل شيء للديمو ما عدا الحذف
+    
+    // تحسين قيود الديمو: منع الحذف ومنع تعديل الإعدادات الحساسة
+    if (userRole === 'demo') {
+        if (action === 'delete') return false; // ممنوع الحذف نهائياً
+        if (module === 'settings' && action === 'update') return false; // ممنوع تعديل إعدادات الشركة
+        return true; // مسموح باقي العمليات (إنشاء، عرض، طباعة)
+    }
     
     // ✅ دعم الرموز الشاملة (Wildcards) للتحقق من الصلاحيات
     if (userPermissions.has(`${module}.${action}`)) return true;

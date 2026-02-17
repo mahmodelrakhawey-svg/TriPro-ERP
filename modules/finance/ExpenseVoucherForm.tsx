@@ -5,7 +5,7 @@ import { supabase } from '../../supabaseClient';
 import { ExpenseVoucherPrint } from './ExpenseVoucherPrint';
 
 const ExpenseVoucherForm = () => {
-  const { accounts, costCenters, updateVoucher, addEntry } = useAccounting();
+  const { accounts, costCenters, updateVoucher, addEntry, currentUser, addDemoEntry } = useAccounting();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   
@@ -199,6 +199,28 @@ const ExpenseVoucherForm = () => {
     e.preventDefault();
     if (!formData.treasuryAccountId || !formData.expenseAccountId || !formData.amount) {
         alert('يرجى تعبئة جميع الحقول المطلوبة (المبلغ، الخزينة، حساب المصروف)');
+        return;
+    }
+
+    if (currentUser?.role === 'demo') {
+        setLoading(true);
+        const expenseAccountName = accounts.find(a => a.id === formData.expenseAccountId)?.name;
+        const voucherNumber = formData.voucherNumber || `EXP-${Date.now().toString().slice(-6)}`;
+        
+        // Simulate the journal entry for the demo
+        addDemoEntry({
+            date: formData.date,
+            reference: voucherNumber,
+            description: formData.description || `صرف مصروف: ${expenseAccountName}`,
+            lines: [
+                { accountId: formData.expenseAccountId, debit: Number(formData.amount), credit: 0, description: `مصروف - ${expenseAccountName}`, costCenterId: formData.costCenterId || null },
+                { accountId: formData.treasuryAccountId, debit: 0, credit: Number(formData.amount), description: `سند صرف رقم ${voucherNumber}` }
+            ]
+        });
+
+        alert('تم حفظ سند المصروف بنجاح (محاكاة)');
+        handleNew();
+        setLoading(false);
         return;
     }
 

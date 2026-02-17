@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
-import { LogIn, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
+import { LogIn, AlertCircle, Loader2, ShieldCheck, PlayCircle } from 'lucide-react';
 
 const Login = () => {
   const { login } = useAuth();
@@ -28,6 +28,18 @@ const Login = () => {
     } catch (err) {
       setError('حدث خطأ غير متوقع في النظام');
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      // استخدام بيانات الديمو الافتراضية
+      await login('demo@demo.com', 'demo123');
+    } catch (err) {
+      setError('فشل الدخول للنسخة التجريبية');
       setLoading(false);
     }
   };
@@ -86,6 +98,22 @@ const Login = () => {
           >
             {loading ? <Loader2 className="animate-spin" /> : <LogIn size={20} />}
             تسجيل الدخول
+          </button>
+
+          <div className="relative flex py-2 items-center">
+            <div className="flex-grow border-t border-slate-200"></div>
+            <span className="flex-shrink-0 mx-4 text-slate-400 text-sm">أو</span>
+            <div className="flex-grow border-t border-slate-200"></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleDemoLogin}
+            disabled={loading}
+            className="w-full bg-emerald-50 text-emerald-700 border-2 border-emerald-100 py-3 rounded-xl font-bold hover:bg-emerald-100 transition-all flex items-center justify-center gap-2"
+          >
+            <PlayCircle size={20} />
+            تجربة النظام (نسخة ديمو)
           </button>
         </form>
 

@@ -54,13 +54,30 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
+    -- 1. تنظيف الجداول المرتبطة بالعمليات (من الابن إلى الأب لتجنب مشاكل المفاتيح الأجنبية)
     DELETE FROM public.journal_lines WHERE true;
     DELETE FROM public.journal_entries WHERE true;
+    DELETE FROM public.sales_return_items WHERE true;
+    DELETE FROM public.sales_returns WHERE true;
     DELETE FROM public.invoice_items WHERE true;
     DELETE FROM public.invoices WHERE true;
     DELETE FROM public.receipt_vouchers WHERE true;
     DELETE FROM public.payment_vouchers WHERE true;
-    UPDATE public.products SET stock = 100 WHERE stock <> 100;
+    -- ... أضف أي جداول عمليات أخرى هنا
+    
+    -- 2. تنظيف البيانات الأساسية (العملاء، المنتجات، إلخ)
+    -- سيتم إعادة إنشائها من دالة الـ seed
+    DELETE FROM public.products WHERE true;
+    DELETE FROM public.customers WHERE true;
+    DELETE FROM public.suppliers WHERE true;
+    
+    -- 3. استدعاء دالة البيانات الوهمية لإعادة ملء الجداول
+    -- تأكد من أن دالة seed_demo_tables() موجودة في قاعدة البيانات
+    PERFORM public.seed_demo_tables();
+
+    -- 4. استدعاء دالة إنشاء العمليات الوهمية (فواتير، سندات)
+    -- هذا يجعل الديمو يبدو "حياً" من أول لحظة
+    PERFORM public.seed_demo_transactions();
 END;
 $$;
 

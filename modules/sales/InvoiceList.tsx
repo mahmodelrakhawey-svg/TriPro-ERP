@@ -8,6 +8,11 @@ import { useDebounce } from '../../context/useDebounce';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { useToast } from '../../context/ToastContext';
 
+// Define a more specific type for the printable invoice
+type PrintableInvoice = Invoice & {
+  items: { productName?: string; quantity: number; unitPrice: number; total: number }[];
+};
+
 const InvoiceList = () => {
   const { getInvoicesPaginated, settings, approveSalesInvoice } = useAccounting();
   const navigate = useNavigate();
@@ -23,8 +28,8 @@ const InvoiceList = () => {
   const [endDate, setEndDate] = useState('');
   
   // Print State
-  const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
-  const [companySettings, setCompanySettings] = useState<any>(null);
+  const [invoiceToPrint, setInvoiceToPrint] = useState<PrintableInvoice | null>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null); // You can create a type for this
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -57,20 +62,12 @@ const InvoiceList = () => {
     } finally {
       setLoading(false);
     }
-  }, [getInvoicesPaginated]);
+  }, [getInvoicesPaginated]); // Ensure getInvoicesPaginated is memoized in its context
 
   useEffect(() => {
-    // Reset to page 1 on new search
-    if (currentPage !== 1) {
-        setCurrentPage(1);
-    }
-    fetchInvoices(1, debouncedSearchTerm, startDate, endDate);
-  }, [debouncedSearchTerm, startDate, endDate, fetchInvoices]);
-
-  useEffect(() => {
-    // Fetch data when page changes
+    // This single useEffect handles all data fetching triggers
     fetchInvoices(currentPage, debouncedSearchTerm, startDate, endDate);
-  }, [currentPage, fetchInvoices]); // startDate and endDate are captured from scope
+  }, [currentPage, debouncedSearchTerm, startDate, endDate, fetchInvoices]);
 
   const handleEdit = (invoice: Invoice) => {
     navigate('/sales-invoice', { state: { invoiceToEdit: invoice } });
@@ -80,7 +77,7 @@ const InvoiceList = () => {
     if (window.confirm(`هل أنت متأكد من ترحيل الفاتورة رقم ${invoice.invoiceNumber}؟ لا يمكن التعديل عليها بعد الترحيل.`)) {
         try {
             await approveSalesInvoice(invoice.id);
-            fetchInvoices(currentPage, debouncedSearchTerm, startDate, endDate);
+            await fetchInvoices(currentPage, debouncedSearchTerm, startDate, endDate); // Use await to ensure it refetches
         } catch (err: any) {
             showToast(err.message || 'فشل ترحيل الفاتورة', 'error');
         }
@@ -111,7 +108,7 @@ const InvoiceList = () => {
         
         const fullInvoice = {
             ...invoice,
-            items: data.invoice_items.map((item: any) => ({
+            items: data.invoice_items.map((item: { products?: { name: string }; quantity: number; price: number; total: number }) => ({
                 productName: item.products?.name,
                 quantity: item.quantity,
                 unitPrice: item.price,
