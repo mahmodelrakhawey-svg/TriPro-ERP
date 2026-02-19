@@ -11,7 +11,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 2️⃣ تفعيل RLS (Row Level Security) على الجداول الحساسة
 DO $$
 DECLARE
-    tables text[] := ARRAY['invoices', 'invoice_items', 'customers', 'suppliers', 'products', 'journal_entries', 'journal_lines', 'receipt_vouchers', 'payment_vouchers'];
+    tables text[] := ARRAY['invoices', 'invoice_items', 'customers', 'suppliers', 'products', 'journal_entries', 'journal_lines', 'receipt_vouchers', 'payment_vouchers', 'notifications', 'accounts', 'company_settings'];
     t text;
 BEGIN
     FOREACH t IN ARRAY tables LOOP
@@ -45,6 +45,12 @@ BEGIN
             CREATE POLICY "policy_allow_delete" ON %I FOR DELETE TO authenticated USING (NOT public.is_demo_user());
         ', t);
     END LOOP;
+
+    -- 5. استثناء: السماح بقراءة إعدادات الشركة للجميع (للشعار والاسم في صفحة الدخول)
+    -- هذا يمنع خطأ 401 عند تحميل صفحة الدخول
+    EXECUTE 'DROP POLICY IF EXISTS "policy_allow_select_anon_settings" ON company_settings;';
+    EXECUTE 'CREATE POLICY "policy_allow_select_anon_settings" ON company_settings FOR SELECT TO anon USING (true);';
+
 END $$ LANGUAGE plpgsql;
 
 -- 3️⃣ دالة إعادة ضبط البيانات

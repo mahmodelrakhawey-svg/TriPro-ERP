@@ -38,6 +38,15 @@ const CashClosingForm = () => {
   }, [selectedAccountId]);
 
   const fetchAccountData = async () => {
+    // التحقق من وضع الديمو أو معرف غير صالح لتجنب أخطاء قاعدة البيانات
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedAccountId);
+    if (currentUser?.role === 'demo' || !isUuid) {
+        setSystemBalance(12500);
+        setTodayMovement({ in: 5000, out: 1200 });
+        if (actualBalance === '') setActualBalance(12500);
+        return;
+    }
+
     setLoading(true);
     try {
       // 1. حساب الرصيد الحالي للنظام (من جميع القيود المرحلة)
@@ -79,6 +88,15 @@ const CashClosingForm = () => {
   };
 
   const fetchLastClosings = async () => {
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedAccountId);
+    if (currentUser?.role === 'demo' || !isUuid) {
+        setLastClosings([
+            { id: 'demo-1', closing_date: new Date(Date.now() - 86400000).toISOString(), actual_balance: 12000, difference: 0 },
+            { id: 'demo-2', closing_date: new Date(Date.now() - 172800000).toISOString(), actual_balance: 11500, difference: -50 }
+        ]);
+        return;
+    }
+
     const { data } = await supabase
       .from('cash_closings')
       .select('*')
@@ -91,6 +109,12 @@ const CashClosingForm = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (actualBalance === '') return;
+
+    if (currentUser?.role === 'demo') {
+        alert('تم إقفال الصندوق بنجاح ✅ (محاكاة)');
+        setNotes('');
+        return;
+    }
 
     const difference = Number(actualBalance) - systemBalance;
 
