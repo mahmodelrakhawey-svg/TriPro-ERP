@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Users, Calendar, Filter, Download, Printer, Percent, List, Layers, MessageCircle } from 'lucide-react';
+import { Download, Printer, Percent, List, Layers, MessageCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis } from 'recharts';

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
+import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
-import { Scale, AlertTriangle, CheckCircle, Search, Loader2, ArrowRight, RefreshCw, Trash2, Plus, Save, X } from 'lucide-react';
+import { Scale, AlertTriangle, CheckCircle, Search, ArrowRight, RefreshCw, Trash2, Plus, Save, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const SupplierBalanceReconciliation = () => {

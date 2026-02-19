@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { FileMinus, Save, Loader2, User, Calendar, FileText, Calculator, Printer } from 'lucide-react';
+import { FileMinus, Save, Loader2, User, Calendar, Calculator, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
 const CreditNoteForm = () => {

@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { RotateCcw, Save, Loader2, Truck, Calendar, Package, Warehouse, Plus, Trash2, FileText } from 'lucide-react';
+import { RotateCcw, Save, Loader2, Plus, Trash2 } from 'lucide-react';
 
 const PurchaseReturnForm = () => {
-  const { suppliers, products, warehouses, settings, purchaseInvoices, accounts, addEntry, getSystemAccount, currentUser } = useAccounting();
+  const { suppliers, products, warehouses, settings, purchaseInvoices, addEntry, getSystemAccount, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     supplierId: '',

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { RotateCcw, Save, Plus, Trash2, Loader2, Search } from 'lucide-react';
+import { RotateCcw, Save, Trash2, Loader2, Search } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { InvoiceItem } from '../../types';
 
@@ -14,7 +14,6 @@ const SalesReturnForm = () => {
   const [productSearch, setProductSearch] = useState('');
   const [searchInvoiceNumber, setSearchInvoiceNumber] = useState('');
   const [isSearching, setIsSearching] = useState(false);
-  const [invoiceItems, setInvoiceItems] = useState<InvoiceItem[]>([]);
   const [returnPartialQuantities, setReturnPartialQuantities] = useState(false);
   const [originalInvoiceId, setOriginalInvoiceId] = useState<string | null>(null);
 
@@ -55,7 +54,6 @@ const SalesReturnForm = () => {
             maxQuantity: item.quantity // نحتفظ بالكمية الأصلية هنا
         }));
         setItems(newItems);
-        setInvoiceItems(invoice.invoice_items);
         
          //  التركيز على أول حقل إدخال في النموذج
 

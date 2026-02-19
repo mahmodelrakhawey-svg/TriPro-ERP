@@ -1,12 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { FileText, ArrowRight, CheckCircle, Printer, Filter, Calendar, FileDown, Copy } from 'lucide-react';
+import { ArrowRight, Printer, Filter, FileDown, Copy } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
-
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 
 const QuotationList = () => {
   const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser, settings } = useAccounting();
@@ -50,13 +47,13 @@ const QuotationList = () => {
           return;
       }
 
-      const { data, error } = await supabase
+      const { data: quotesData, error } = await supabase
           .from('quotations')
           .select('*, customers(name)')
           .order('created_at', { ascending: false });
       
-      if (!error && data) {
-          setQuotations(data.map(q => ({
+      if (!error && quotesData) {
+          setQuotations(quotesData.map(q => ({
               ...q,
               customerName: q.customers?.name,
               quotationNumber: q.quotation_number,

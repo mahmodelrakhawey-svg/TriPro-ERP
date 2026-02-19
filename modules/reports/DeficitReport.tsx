@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
-import { AlertTriangle, Calendar, Filter, Loader2, User } from 'lucide-react';
+import { AlertTriangle, Filter, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 const DeficitReport = () => {
@@ -87,7 +87,7 @@ const DeficitReport = () => {
                 cursor={{fill: 'rgba(239, 246, 255, 0.5)'}}
                 contentStyle={{ backgroundColor: 'white', border: '1px solid #ddd', borderRadius: '8px' }}
                 labelStyle={{ fontWeight: 'bold' }}
-                formatter={(value: number) => [value.toLocaleString(), 'إجمالي العجز']}
+                formatter={(value) => [Number(value || 0).toLocaleString(), 'إجمالي العجز']}
               />
               <Bar dataKey="totalDeficit" fill="#ef4444" background={{ fill: '#f1f5f9' }} radius={[0, 8, 8, 0]} />
             </BarChart>

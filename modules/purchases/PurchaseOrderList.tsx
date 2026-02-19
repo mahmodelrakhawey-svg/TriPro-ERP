@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import {
     Search, Plus, FileCheck, Printer, Edit, Trash2,
-    ChevronLeft, ChevronRight, Loader2, Eye, ArrowRightLeft,
-    X, Warehouse as WarehouseIcon, Save, ShoppingCart, Clock, CheckCircle2, AlertCircle
+    ChevronLeft, ChevronRight, Loader2, ArrowRightLeft,
+    X, Warehouse as WarehouseIcon, Save, Clock, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 

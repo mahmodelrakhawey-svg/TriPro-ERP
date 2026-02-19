@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
-import { History, Printer, Download, Loader2, Filter } from 'lucide-react';
+import { History, Printer, Download, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const CustomerAgingReport = () => {

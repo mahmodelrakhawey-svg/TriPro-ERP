@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { BarChart2, TrendingUp, AlertTriangle, CheckCircle, Loader2, Filter, Download, Printer } from 'lucide-react';
+import { BarChart2, TrendingUp, CheckCircle, Loader2, Filter, Download, Printer } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const ProductionCostAnalysis = () => {

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
-import { BarChart2, Calendar, Filter, Loader2, Printer, Download } from 'lucide-react';
+import { BarChart2, Filter, Loader2, Printer, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const NetPurchasesReport = () => {

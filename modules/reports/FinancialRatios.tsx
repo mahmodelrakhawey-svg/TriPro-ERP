@@ -1,11 +1,11 @@
-﻿import React, { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Gauge, TrendingUp, Activity, Printer, Download, Target } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import * as XLSX from 'xlsx';
 
 const FinancialRatios = () => {
-  const { accounts, getFinancialSummary, entries } = useAccounting();
+  const { accounts, entries } = useAccounting();
 
   const ratios = useMemo(() => {
     // 1. تجميع الأرصدة حسب التصنيف

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { 
-    Plus, Trash2, Save, Truck, Calendar, ShoppingCart, Warehouse,
-    Search, X, Check, AlertCircle, CircleDollarSign, Package, Box, Info, Loader2, CheckCircle
+    Plus, Trash2, Save, ShoppingCart,
+    CircleDollarSign, Loader2, CheckCircle
 } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Users, Plus, Search, Edit2, Trash2, Save, X, Phone, MapPin, FileText, Mail, CircleDollarSign, Loader2 } from 'lucide-react';
+import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2 } from 'lucide-react';
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
 

@@ -1,10 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
-    Users, User, Calendar, BarChart3, TrendingUp, 
+    BarChart3, TrendingUp, 
     Target, Package, Download, Printer, Percent, CircleDollarSign,
-    ListFilter, Award, Store, Smartphone, LayoutGrid, Building2, MapPin, FileText, RefreshCw
+    Award, Store, Smartphone, LayoutGrid, Building2, MapPin, FileText, RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 

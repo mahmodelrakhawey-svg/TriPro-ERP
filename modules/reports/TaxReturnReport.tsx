@@ -1,7 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { FileText, Calendar, Download, Printer, Filter, Calculator, ArrowRightLeft, Lock, Loader2 } from 'lucide-react';
+import { Download, Printer, Calculator, ArrowRightLeft, Lock, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 

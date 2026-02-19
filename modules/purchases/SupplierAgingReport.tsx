@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { History, Printer, Download, Loader2 } from 'lucide-react';

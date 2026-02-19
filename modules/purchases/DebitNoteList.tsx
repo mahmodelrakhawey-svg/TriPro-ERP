@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
-import { FilePlus, Loader2, Edit, Trash2 } from 'lucide-react';
+import { FilePlus, Loader2, Edit } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const DebitNoteList = () => {

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
   PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, 
@@ -30,7 +30,7 @@ const ExpenseAnalysisReport = () => {
           if (expenseAccounts.some(a => a.id === line.accountId)) {
             // المصروفات طبيعتها مدينة: المدين يزيدها والدائن ينقصها
             const amount = (Number(line.debit) || 0) - (Number(line.credit) || 0);
-            if (amount !== 0) {
+            if (amount !== 0 && line.accountId) {
                 accountTotals[line.accountId] = (accountTotals[line.accountId] || 0) + amount;
             }
           }
@@ -158,7 +158,7 @@ const ExpenseAnalysisReport = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                        {expenseData.map((item, idx) => (
+                        {expenseData.map((item) => (
                             <tr key={item.id} className="hover:bg-slate-50">
                                 <td className="p-4 font-mono text-slate-500">{item.code}</td>
                                 <td className="p-4 font-bold text-slate-700">{item.name}</td>

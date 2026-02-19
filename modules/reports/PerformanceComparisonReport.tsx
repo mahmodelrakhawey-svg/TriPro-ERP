@@ -1,11 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ArrowUpRight, ArrowDownRight, Minus, Calendar, TrendingUp, Printer } from 'lucide-react';
 import ReportHeader from '../../components/ReportHeader';
 
 const PerformanceComparisonReport = () => {
-  const { accounts, entries, settings } = useAccounting();
+  const { accounts, entries } = useAccounting();
   const currentYear = new Date().getFullYear();
   
   const [period1Start, setPeriod1Start] = useState(`${currentYear}-01-01`);

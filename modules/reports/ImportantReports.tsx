@@ -1,20 +1,20 @@
-﻿import React, { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Link } from 'react-router-dom';
 import { 
-    BarChart3, TrendingUp, AlertTriangle, Wallet, 
-    ArrowUpRight, ArrowDownLeft, FileText, PieChart as PieChartIcon,
+    BarChart3, TrendingUp, AlertTriangle, 
+    ArrowDownLeft, FileText,
     Users, Truck, Package, Activity, Calendar
 } from 'lucide-react';
 import { 
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
-    PieChart, Pie, Cell, LineChart, Line 
+    PieChart, Pie, Cell
 } from 'recharts';
 
 const ImportantReports = () => {
   const { 
     invoices, purchaseInvoices, products, 
-    customers, suppliers, settings, accounts 
+    customers, settings 
   } = useAccounting();
 
   const analytics = useMemo(() => {
@@ -33,7 +33,6 @@ const ImportantReports = () => {
     const monthlyTrends = [];
     for (let i = 5; i >= 0; i--) {
         const d = new Date(currentYear, currentMonth - i, 1);
-        const monthKey = `${d.getFullYear()}-${d.getMonth()}`;
         const monthName = d.toLocaleDateString('ar-EG', { month: 'short' });
 
         const monthSales = (invoices || [])

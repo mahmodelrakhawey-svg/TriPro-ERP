@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
-import { BarChart3, Calendar, Filter, Loader2, Printer, Download } from 'lucide-react';
+import { BarChart3, Filter, Loader2, Printer, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const PaymentMethodReport = () => {

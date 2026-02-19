@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { FileText, Search, Printer, Loader2, Filter, Download, CircleDollarSign } from 'lucide-react';
+import { FileText, Printer, Loader2, Filter, Download, CircleDollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const MultiCurrencyStatement = () => {
@@ -14,12 +14,6 @@ const MultiCurrencyStatement = () => {
   const [loading, setLoading] = useState(false);
   const [openingBalance, setOpeningBalance] = useState(0);
 
-  const currencies = [
-    { code: 'SAR', label: 'ريال سعودي' },
-    { code: 'USD', label: 'دولار أمريكي' },
-    { code: 'EUR', label: 'يورو' },
-    { code: 'EGP', label: 'جنيه مصري' },
-  ];
 
   const fetchStatement = async () => {
     if (!selectedAccountId) return;

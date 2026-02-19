@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { FilePlus, Save, Loader2, Truck, Calendar, FileText, Calculator, Printer } from 'lucide-react';
+import { FilePlus, Save, Loader2, Calculator, Printer, Truck, Calendar } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 
 const DebitNoteForm = () => {
@@ -32,9 +32,17 @@ const DebitNoteForm = () => {
   }, [location.state]);
 
   // @ts-ignore
-  const taxAmount = formData.amount * (settings.enableTax ? (settings.vatRate || 0.15) : 0);
+  const taxRate = settings?.enableTax ? (settings.vatRate ?? 0.15) : 0;
+  const taxAmount = formData.amount * taxRate;
   const totalAmount = formData.amount + taxAmount;
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: e.target.type === 'number' ? parseFloat(value) || 0 : value
+    }));
+  };
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.supplierId || formData.amount <= 0) return alert('يرجى إكمال البيانات');
@@ -102,7 +110,7 @@ const DebitNoteForm = () => {
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">المورد</label>
                 <div className="relative">
-                    <select required value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value})} className="w-full border rounded-lg px-4 py-2.5 appearance-none">
+                    <select required name="supplierId" value={formData.supplierId} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5 appearance-none">
                         <option value="">اختر المورد...</option>
                         {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
@@ -112,28 +120,28 @@ const DebitNoteForm = () => {
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">التاريخ</label>
                 <div className="relative">
-                    <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full border rounded-lg px-4 py-2.5" />
+                    <input type="date" required name="date" value={formData.date} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" />
                     <Calendar className="absolute left-3 top-3 text-slate-400" size={18} />
                 </div>
             </div>
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ (قبل الضريبة)</label>
                 <div className="relative">
-                    <input type="number" required min="0.01" step="0.01" value={formData.amount} onChange={e => setFormData({...formData, amount: parseFloat(e.target.value)})} className="w-full border rounded-lg px-4 py-2.5 font-bold" />
+                    <input type="number" required name="amount" min="0.01" step="0.01" value={formData.amount} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5 font-bold" />
                     <Calculator className="absolute left-3 top-3 text-slate-400" size={18} />
                 </div>
             </div>
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">رقم الإشعار (اختياري)</label>
-                <input type="text" value={formData.noteNumber} onChange={e => setFormData({...formData, noteNumber: e.target.value})} className="w-full border rounded-lg px-4 py-2.5" placeholder="تلقائي" />
+                <input type="text" name="noteNumber" value={formData.noteNumber} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="تلقائي" />
             </div>
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">رقم الفاتورة الأصلية</label>
-                <input type="text" value={formData.originalInvoiceNumber} onChange={e => setFormData({...formData, originalInvoiceNumber: e.target.value})} className="w-full border rounded-lg px-4 py-2.5" placeholder="رقم الفاتورة المرتبطة" />
+                <input type="text" name="originalInvoiceNumber" value={formData.originalInvoiceNumber} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="رقم الفاتورة المرتبطة" />
             </div>
             <div className="md:col-span-2">
                 <label className="block text-sm font-bold text-slate-700 mb-1">البيان / السبب</label>
-                <textarea rows={2} value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} className="w-full border rounded-lg px-4 py-2.5" placeholder="سبب إصدار الإشعار..."></textarea>
+                <textarea rows={2} name="notes" value={formData.notes} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="سبب إصدار الإشعار..."></textarea>
             </div>
         </div>
 

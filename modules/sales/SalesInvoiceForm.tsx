@@ -3,11 +3,11 @@ import { useAccounting } from '../../context/AccountingContext';
 import { 
     Plus, Trash2, Save, User, Calendar, ShoppingCart, Warehouse,
     Wallet, Search, X, ChevronDown, Check, AlertCircle, Percent,
-    CircleDollarSign, Tag, Package, Box, Info, ArrowLeft, ArrowRight,
-    ArrowDown, Trash, Calculator, UserCheck, Printer, Barcode, Loader2, CheckCircle
+    CircleDollarSign, Package, Box, Info,
+    ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle
     , Edit, RefreshCw, FileText
 } from 'lucide-react';
-import { InvoiceItem, AccountType, Product } from '../../types';
+import { InvoiceItem, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
@@ -17,7 +17,7 @@ import CustomerStatement from './CustomerStatement';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
 
 const SalesInvoiceForm = () => {
-  const { products, warehouses, salespeople, accounts, costCenters, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
+  const { products, warehouses, salespeople, accounts, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();

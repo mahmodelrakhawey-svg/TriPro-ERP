@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
-import { BarChart3, Calendar, Filter, Download, TrendingUp, Users, Package, UserCheck, Loader2, ShoppingCart, Wallet } from 'lucide-react';
+import { BarChart3, Filter, Download, Users, Package, UserCheck, Loader2, ShoppingCart, Wallet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const PurchaseReports = () => {

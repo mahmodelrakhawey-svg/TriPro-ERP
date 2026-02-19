@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { FileText, Printer, Loader2, Download, Filter, AlertCircle, Search, FileDown } from 'lucide-react';
@@ -9,7 +9,7 @@ import html2canvas from 'html2canvas';
 import { useToast } from '../../context/ToastContext';
 
 const FreeReturnsReport = () => {
-  const { currentUser, warehouses } = useAccounting();
+  const { warehouses } = useAccounting();
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');

@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
-import { BarChart2, Calendar, Download, Printer, Loader2, Filter, Truck, Package } from 'lucide-react';
+import { BarChart2, Download, Printer, Loader2, Filter, Truck, Package } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 

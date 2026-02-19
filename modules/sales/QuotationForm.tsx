@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Save, User, Calendar, Plus, Trash2, FileText, CheckCircle, Tag } from 'lucide-react';
+import { Save, Trash2, FileText, CheckCircle, Tag } from 'lucide-react';
 import { InvoiceItem } from '../../types';
 import { supabase } from '../../supabaseClient';
 
