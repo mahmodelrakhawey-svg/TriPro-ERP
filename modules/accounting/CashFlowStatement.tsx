@@ -114,7 +114,8 @@ const CashFlowStatement = () => {
 
         let isFixedAsset = type.includes('fixed') || type.includes('non-current') || type.includes('أصول ثابتة');
         
-        if (!isFixedAsset) {
+        // Fix: Ensure we don't classify expenses (5) or revenues (4) as assets based on keywords
+        if (!isFixedAsset && firstDigit === '1') {
              if (code.startsWith('12') && !hasCurrentKeyword) isFixedAsset = true;
              else if (hasFixedKeyword) isFixedAsset = true;
         }

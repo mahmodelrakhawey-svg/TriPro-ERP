@@ -757,9 +757,9 @@ const Settings = () => {
                                       className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-500 outline-none bg-white"
                                   >
                                       <option value="">-- الافتراضي ({defaultCode}) --</option>
-                                      {accounts.filter(a => !a.isGroup).map(acc => (
-                                          <option key={acc.id} value={acc.id}>
-                                              {acc.code} - {acc.name}
+                                      {accounts.sort((a, b) => a.code.localeCompare(b.code)).map(acc => (
+                                          <option key={acc.id} value={acc.id} className={acc.isGroup ? 'font-bold bg-slate-50' : ''}>
+                                              {acc.code} - {acc.name} {acc.isGroup ? '(رئيسي)' : ''}
                                           </option>
                                       ))}
                                   </select>

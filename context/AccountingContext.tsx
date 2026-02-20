@@ -32,13 +32,13 @@ interface FinancialSummary {
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
-  CUSTOMERS: '10201', // العملاء
+  CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
   INVENTORY: '121', // المخزون (مجموعة)
   INVENTORY_RAW_MATERIALS: '1211', // خامات
   INVENTORY_FINISHED_GOODS: '1213', // منتج تام
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
-  SUPPLIERS: '201', // الموردين
+  SUPPLIERS: '221', // الموردين
   VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
   VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
   CUSTOMER_DEPOSITS: '226', // تأمينات العملاء
