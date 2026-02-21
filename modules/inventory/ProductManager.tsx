@@ -1,10 +1,11 @@
 ﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag } from 'lucide-react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2 } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { useProducts } from '../hooks/usePermissions'; // استيراد الخطاف الجديد
 import { useQueryClient } from '@tanstack/react-query';
+import * as XLSX from 'xlsx';
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
 type Item = {
@@ -53,6 +54,7 @@ const ProductManager = () => {
     maxQty: 0
   });
   const [isBulkSaving, setIsBulkSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   // تصفية الحسابات من السياق العام لضمان التوافق
   const accounts = {
@@ -163,6 +165,88 @@ const ProductManager = () => {
       });
     }
     setIsModalOpen(true);
+  };
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      { 'اسم المنتج': '', 'الكود (SKU)': '', 'سعر الشراء': '', 'سعر البيع': '', 'الوصف': '', 'الكمية الافتتاحية': '' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(headers);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "نموذج المنتجات");
+    XLSX.writeFile(wb, "Products_Template.xlsx");
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const file = e.target.files[0];
+    setIsImporting(true);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        let successCount = 0;
+        let failCount = 0;
+
+        const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
+        const orgId = orgData?.id;
+
+        const defaultInventory = accounts.assets.find(a => a.code === '1213')?.id || accounts.assets.find(a => a.code === '121')?.id || null;
+        const defaultCogs = accounts.expenses.find(a => a.code === '511')?.id || null;
+        const defaultSales = accounts.revenue.find(a => a.code === '411')?.id || null;
+
+        for (const row of data as any[]) {
+          const name = row['اسم المنتج'] || row['Name'];
+          const sku = row['الكود (SKU)'] || row['SKU'];
+          const purchase_price = row['سعر الشراء'] || row['Purchase Price'] || row['Cost'];
+          const sales_price = row['سعر البيع'] || row['Sales Price'] || row['Price'];
+          const stock = row['الكمية الافتتاحية'] || row['Stock'] || 0;
+
+          if (name) {
+            try {
+              const { error } = await supabase.rpc('add_product_with_opening_balance', {
+                p_name: String(name).trim(),
+                p_sku: sku ? String(sku).trim() : null,
+                p_sales_price: sales_price ? Number(sales_price) : 0,
+                p_purchase_price: purchase_price ? Number(purchase_price) : 0,
+                p_stock: stock ? Number(stock) : 0,
+                p_org_id: orgId,
+                p_item_type: 'STOCK',
+                p_inventory_account_id: defaultInventory,
+                p_cogs_account_id: defaultCogs,
+                p_sales_account_id: defaultSales
+              });
+
+              if (error) throw error;
+              successCount++;
+            } catch (err) {
+              console.error("Error adding product:", name, err);
+              failCount++;
+            }
+          } else {
+            failCount++;
+          }
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['products'] });
+        await refreshData();
+        showToast(`تمت العملية:\n✅ تم استيراد: ${successCount} منتج\n❌ فشل: ${failCount}`, 'success');
+        
+      } catch (error: any) {
+        showToast('حدث خطأ أثناء قراءة الملف: ' + error.message, 'error');
+      } finally {
+        setIsImporting(false);
+        e.target.value = ''; 
+      }
+    };
+    reader.readAsBinaryString(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -492,9 +576,27 @@ const ProductManager = () => {
           </h2>
           <p className="text-slate-500">تعريف المنتجات وربطها بالحسابات المحاسبية</p>
         </div>
-        <button onClick={() => handleOpenModal()} className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-bold shadow-lg">
-          <Plus size={20} /> صنف جديد
-        </button>
+        <div className="flex gap-2">
+            <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
+                <Download size={16} /> نموذج
+            </button>
+            <div className="relative">
+                <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={isImporting}
+                />
+                <button className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-100 text-sm font-bold">
+                    {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                    استيراد Excel
+                </button>
+            </div>
+            <button onClick={() => handleOpenModal()} className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-bold shadow-lg">
+              <Plus size={20} /> صنف جديد
+            </button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">

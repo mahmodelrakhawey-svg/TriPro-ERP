@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
-import { Truck, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, Loader2, Wallet, TrendingUp, RefreshCw, Scale } from 'lucide-react';
+import { Truck, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, Loader2, Wallet, TrendingUp, RefreshCw, Scale, Upload, Download } from 'lucide-react';
 import { useSuppliers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import * as XLSX from 'xlsx';
 
 type Supplier = {
   id: string;
@@ -16,7 +17,7 @@ type Supplier = {
 
 const SupplierManager = () => {
   const queryClient = useQueryClient();
-  const { addSupplier, updateSupplier, deleteSupplier, currentUser, suppliers: contextSuppliers } = useAccounting();
+  const { addSupplier, updateSupplier, deleteSupplier, currentUser, suppliers: contextSuppliers, addEntry, accounts, getSystemAccount } = useAccounting();
   const navigate = useNavigate();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -37,6 +38,7 @@ const SupplierManager = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Supplier>>({});
+  const [isImporting, setIsImporting] = useState(false);
 
   // حالة لتخزين الإحصائيات المالية للموردين
   const [stats, setStats] = useState<Record<string, { balance: number, totalPurchases: number, lastInvoice: string | null }>>({});
@@ -135,21 +137,139 @@ const SupplierManager = () => {
     }
   };
 
+  const handleDownloadTemplate = () => {
+    const headers = [
+      { 'اسم المورد': '', 'رقم الهاتف': '', 'الرقم الضريبي': '', 'العنوان': '', 'الرصيد الافتتاحي': '' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(headers);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "نموذج الموردين");
+    XLSX.writeFile(wb, "Suppliers_Template.xlsx");
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const file = e.target.files[0];
+    setIsImporting(true);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const row of data as any[]) {
+          // تعيين الحقول بناءً على أسماء الأعمدة العربية
+          const name = row['اسم المورد'] || row['Name'];
+          const phone = row['رقم الهاتف'] || row['Phone'];
+          const tax_number = row['الرقم الضريبي'] || row['Tax Number'];
+          const address = row['العنوان'] || row['Address'];
+          const openingBalance = row['الرصيد الافتتاحي'] || row['Opening Balance'] || 0;
+
+          if (name) {
+            try {
+              const newSupplier = await addSupplier({
+                name: String(name).trim(),
+                phone: phone ? String(phone).trim() : '',
+                tax_number: tax_number ? String(tax_number).trim() : null,
+                address: address ? String(address).trim() : ''
+              } as any);
+              successCount++;
+
+              // معالجة الرصيد الافتتاحي
+              if (newSupplier && Number(openingBalance) !== 0) {
+                const amount = Math.abs(Number(openingBalance));
+                const isCredit = Number(openingBalance) >= 0; // موجب = دائن (علينا للمورد)
+
+                // 1. إنشاء فاتورة رصيد افتتاحي (لضبط كشف الحساب)
+                await supabase.from('purchase_invoices').insert({
+                    supplier_id: newSupplier.id,
+                    invoice_number: `OB-${newSupplier.id.slice(0, 6)}`,
+                    invoice_date: new Date().toISOString().split('T')[0],
+                    total_amount: amount,
+                    status: 'posted',
+                    notes: 'رصيد افتتاحي (استيراد)'
+                });
+
+                // 2. إنشاء قيد محاسبي (لضبط الأستاذ العام)
+                const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201');
+                const openingAcc = accounts.find(a => a.code === '3999') || accounts.find(a => a.code === '300');
+
+                if (supplierAcc && openingAcc) {
+                    await addEntry({
+                        date: new Date().toISOString().split('T')[0],
+                        description: `رصيد افتتاحي للمورد ${name}`,
+                        reference: `OB-${newSupplier.id.slice(0, 6)}`,
+                        status: 'posted',
+                        lines: [
+                            { accountId: openingAcc.id, debit: isCredit ? amount : 0, credit: isCredit ? 0 : amount },
+                            { accountId: supplierAcc.id, debit: isCredit ? 0 : amount, credit: isCredit ? amount : 0 }
+                        ]
+                    });
+                }
+              }
+            } catch (err) {
+              console.error("Error adding supplier:", name, err);
+              failCount++;
+            }
+          } else {
+            failCount++;
+          }
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['suppliers'] });
+        alert(`تمت العملية:\n✅ تم استيراد: ${successCount} مورد\n❌ فشل: ${failCount} (بسبب تكرار الاسم أو بيانات ناقصة)`);
+        
+      } catch (error: any) {
+        alert('حدث خطأ أثناء قراءة الملف: ' + error.message);
+      } finally {
+        setIsImporting(false);
+        e.target.value = ''; // تصفير المدخل للسماح بإعادة الرفع
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Truck className="text-blue-600" /> إدارة الموردين
         </h2>
-        <button onClick={() => navigate('/supplier-reconciliation')} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold ml-auto mr-2">
-            <Scale size={16} /> تقرير المطابقة
-        </button>
-        <button onClick={fetchStats} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold ml-auto mr-2">
-            <RefreshCw size={16} className={statsLoading ? 'animate-spin' : ''} /> تحديث الأرصدة
-        </button>
-        <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
-          <Plus size={18} /> إضافة مورد
-        </button>
+        <div className="flex gap-2 mr-auto">
+            <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
+                <Download size={16} /> نموذج
+            </button>
+            <div className="relative">
+                <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={isImporting}
+                />
+                <button className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-100 text-sm font-bold">
+                    {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                    استيراد Excel
+                </button>
+            </div>
+            <button onClick={() => navigate('/supplier-reconciliation')} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold">
+                <Scale size={16} /> المطابقة
+            </button>
+            <button onClick={fetchStats} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold">
+                <RefreshCw size={16} className={statsLoading ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
+                <Plus size={18} /> إضافة
+            </button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">

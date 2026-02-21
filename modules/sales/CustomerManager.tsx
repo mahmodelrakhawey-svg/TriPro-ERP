@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2 } from 'lucide-react';
+import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2, Upload, Download } from 'lucide-react';
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
+import * as XLSX from 'xlsx';
 
 type Customer = {
   id: string;
@@ -17,7 +19,7 @@ type Customer = {
 
 const CustomerManager = () => {
   const queryClient = useQueryClient();
-  const { addCustomer, updateCustomer, deleteCustomer, can, currentUser, customers: contextCustomers } = useAccounting();
+  const { addCustomer, updateCustomer, deleteCustomer, can, currentUser, customers: contextCustomers, addEntry, accounts, getSystemAccount } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -38,6 +40,7 @@ const CustomerManager = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Customer>>({});
+  const [isImporting, setIsImporting] = useState(false);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -74,17 +77,154 @@ const CustomerManager = () => {
     }
   };
 
+  const handleDownloadTemplate = () => {
+    const headers = [
+      { 'اسم العميل': '', 'رقم الهاتف': '', 'البريد الإلكتروني': '', 'الرقم الضريبي': '', 'العنوان': '', 'حد الائتمان': '', 'الرصيد الافتتاحي': '' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(headers);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "نموذج العملاء");
+    XLSX.writeFile(wb, "Customers_Template.xlsx");
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const file = e.target.files[0];
+    setIsImporting(true);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const row of data as any[]) {
+          const name = row['اسم العميل'] || row['Name'];
+          const phone = row['رقم الهاتف'] || row['Phone'];
+          const email = row['البريد الإلكتروني'] || row['Email'];
+          const tax_number = row['الرقم الضريبي'] || row['Tax Number'];
+          const address = row['العنوان'] || row['Address'];
+          const credit_limit = row['حد الائتمان'] || row['Credit Limit'];
+          const openingBalance = row['الرصيد الافتتاحي'] || row['Opening Balance'] || 0;
+
+          if (name) {
+            try {
+              const newCustomer = await addCustomer({
+                name: String(name).trim(),
+                phone: phone ? String(phone).trim() : '',
+                email: email ? String(email).trim() : '',
+                tax_number: tax_number ? String(tax_number).trim() : '',
+                address: address ? String(address).trim() : '',
+                credit_limit: credit_limit ? Number(credit_limit) : 0
+              } as any);
+              successCount++;
+
+              // معالجة الرصيد الافتتاحي
+              if (newCustomer && Number(openingBalance) !== 0) {
+                const amount = Math.abs(Number(openingBalance));
+                const isDebit = Number(openingBalance) > 0; // موجب = مدين (العميل عليه فلوس)
+                const date = new Date().toISOString().split('T')[0];
+                const ref = `OB-${newCustomer.id.slice(0, 6)}`;
+
+                if (isDebit) {
+                    // إنشاء فاتورة (للرصيد المدين)
+                    await supabase.from('invoices').insert({
+                        invoice_number: ref,
+                        customer_id: newCustomer.id,
+                        invoice_date: date,
+                        total_amount: amount,
+                        subtotal: amount,
+                        status: 'posted',
+                        notes: 'رصيد افتتاحي (استيراد)'
+                    });
+                } else {
+                    // إنشاء إشعار دائن (للرصيد الدائن/المقدم)
+                    await supabase.from('credit_notes').insert({
+                        credit_note_number: ref,
+                        customer_id: newCustomer.id,
+                        note_date: date,
+                        total_amount: amount,
+                        amount_before_tax: amount,
+                        status: 'posted',
+                        notes: 'رصيد افتتاحي (دائن)'
+                    });
+                }
+
+                // إنشاء القيد المحاسبي
+                const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '1221' || a.code === '10201');
+                const openingAcc = accounts.find(a => a.code === '3999') || accounts.find(a => a.code === '300');
+
+                if (customerAcc && openingAcc) {
+                    await addEntry({
+                        date: date,
+                        description: `رصيد افتتاحي للعميل ${name}`,
+                        reference: ref,
+                        status: 'posted',
+                        lines: [
+                            { accountId: customerAcc.id, debit: isDebit ? amount : 0, credit: isDebit ? 0 : amount },
+                            { accountId: openingAcc.id, debit: isDebit ? 0 : amount, credit: isDebit ? amount : 0 }
+                        ]
+                    });
+                }
+              }
+            } catch (err) {
+              console.error("Error adding customer:", name, err);
+              failCount++;
+            }
+          } else {
+            failCount++;
+          }
+        }
+
+        queryClient.invalidateQueries({ queryKey: ['customers'] });
+        showToast(`تمت العملية:\n✅ تم استيراد: ${successCount} عميل\n❌ فشل: ${failCount}`, 'success');
+        
+      } catch (error: any) {
+        showToast('حدث خطأ أثناء قراءة الملف: ' + error.message, 'error');
+      } finally {
+        setIsImporting(false);
+        e.target.value = ''; 
+      }
+    };
+    reader.readAsBinaryString(file);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Users className="text-blue-600" /> إدارة العملاء
         </h2>
-        {can('customers', 'create') && (
-          <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
-            <Plus size={18} /> إضافة عميل
-          </button>
-        )}
+        <div className="flex gap-2">
+            <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
+                <Download size={16} /> نموذج
+            </button>
+            <div className="relative">
+                <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={isImporting}
+                />
+                <button className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-100 text-sm font-bold">
+                    {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                    استيراد Excel
+                </button>
+            </div>
+            {can('customers', 'create') && (
+            <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
+                <Plus size={18} /> إضافة عميل
+            </button>
+            )}
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">

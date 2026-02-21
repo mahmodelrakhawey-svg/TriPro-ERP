@@ -1,8 +1,9 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package } from 'lucide-react';
+import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package, Upload, Download, Barcode } from 'lucide-react';
+import * as XLSX from 'xlsx';
 
 const StockAdjustmentForm = () => {
   const location = useLocation();
@@ -14,6 +15,7 @@ const StockAdjustmentForm = () => {
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
 
   useEffect(() => {
     if (location.state?.productId && products.length > 0) {
@@ -67,6 +69,146 @@ const StockAdjustmentForm = () => {
     const newItems = [...items];
     newItems[index].type = type;
     setItems(newItems);
+  };
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      { 'كود الصنف (SKU)': '', 'اسم الصنف': '', 'الكمية': '', 'النوع (زيادة/عجز)': 'زيادة' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(headers);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "نموذج التسوية");
+    XLSX.writeFile(wb, "Stock_Adjustment_Template.xlsx");
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    setIsImporting(true);
+    
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+        try {
+            const bstr = evt.target?.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            const data = XLSX.utils.sheet_to_json(ws);
+            
+            const newItems: any[] = [];
+            let foundCount = 0;
+            
+            for (const row of data as any[]) {
+                const sku = row['كود الصنف (SKU)'] || row['SKU'];
+                const name = row['اسم الصنف'] || row['Name'];
+                const qty = row['الكمية'] || row['Quantity'];
+                const typeRaw = row['النوع (زيادة/عجز)'] || row['Type'];
+                
+                let product;
+                if (sku) product = products.find(p => p.sku === String(sku).trim());
+                if (!product && name) product = products.find(p => p.name.toLowerCase() === String(name).trim().toLowerCase());
+                
+                if (product && qty) {
+                    // التحقق من عدم تكرار الصنف في القائمة الحالية
+                    if (!items.some(i => i.productId === product.id) && !newItems.some(i => i.productId === product.id)) {
+                        newItems.push({
+                            productId: product.id,
+                            productName: product.name,
+                            quantity: Math.abs(Number(qty)),
+                            type: (typeRaw && String(typeRaw).includes('عجز')) ? 'out' : 'in'
+                        });
+                        foundCount++;
+                    }
+                }
+            }
+            
+            setItems(prev => [...prev, ...newItems]);
+            alert(`تم إضافة ${foundCount} صنف للقائمة.`);
+        } catch (error) {
+            console.error(error);
+            alert('حدث خطأ في قراءة الملف');
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
+    reader.readAsBinaryString(file);
+  };
+
+  const handlePrintBarcodes = () => {
+    if (items.length === 0) {
+      alert('لا توجد أصناف في القائمة لطباعة الباركود');
+      return;
+    }
+
+    const printByQuantity = window.confirm(
+        'هل تريد طباعة عدد نسخ باركود مساوي للكمية المدخلة؟\n\n' +
+        '✅ موافق: طباعة عدد نسخ = الكمية\n' +
+        '❌ إلغاء: طباعة نسخة واحدة لكل صنف'
+    );
+
+    const printWindow = window.open('', '', 'width=800,height=600');
+    if (printWindow) {
+      const itemsWithDetails: any[] = [];
+      
+      items.forEach(item => {
+        const product = products.find(p => p.id === item.productId);
+        const copies = printByQuantity ? Math.max(1, Math.floor(Number(item.quantity))) : 1;
+        
+        for (let i = 0; i < copies; i++) {
+            itemsWithDetails.push({
+                name: item.productName,
+                sku: product?.sku || '0000',
+                price: product?.sales_price || product?.price || 0,
+                expiry: (product as any)?.expiry_date
+            });
+        }
+      });
+
+      printWindow.document.write(`
+        <html dir="rtl">
+        <head>
+            <title>طباعة الباركود</title>
+            <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700&display=swap" rel="stylesheet">
+            <style>
+                body { font-family: 'Tajawal', sans-serif; padding: 20px; background-color: #f9fafb; }
+                .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+                .label { background: white; border: 1px solid #e5e7eb; padding: 15px; text-align: center; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); display: flex; flex-direction: column; align-items: center; justify-content: center; page-break-inside: avoid; }
+                .title { font-size: 14px; font-weight: bold; margin-bottom: 5px; color: #1f2937; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+                .barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 40px; line-height: 1; margin: 5px 0; color: #000; }
+                .price { font-size: 16px; font-weight: bold; color: #059669; }
+                .sku { font-size: 10px; color: #6b7280; font-family: monospace; }
+                
+                @media print { 
+                    @page { size: 50mm 30mm; margin: 0; } /* حجم الملصق الحراري */
+                    body { background: white; padding: 0; margin: 0; } 
+                    .no-print { display: none; } 
+                    .grid { display: block; } /* إلغاء الشبكة للطباعة المتتابعة */
+                    .label { 
+                        width: 50mm; height: 30mm; /* أبعاد الملصق */
+                        border: none; box-shadow: none; 
+                        padding: 1mm; margin: 0 auto; 
+                        page-break-after: always; /* فاصل صفحة بعد كل ملصق */
+                        box-sizing: border-box;
+                    }
+                    .title { font-size: 10px; margin-bottom: 0; white-space: nowrap; overflow: hidden; }
+                    .barcode { font-size: 32px; margin: 0; }
+                    .price { font-size: 12px; margin: 0; }
+                    .sku { font-size: 8px; margin: 0; }
+                    .expiry { font-size: 8px; margin: 0; font-weight: bold; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="no-print" style="margin-bottom: 20px; text-align: center;">
+                <button onclick="window.print()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-family: inherit; font-weight: bold; cursor: pointer;">🖨️ طباعة الملصقات (${itemsWithDetails.length})</button>
+            </div>
+            <div class="grid">${itemsWithDetails.map(item => `<div class="label"><div class="title">${item.name}</div><div class="barcode">*${item.sku}*</div><div class="sku">${item.sku}</div><div class="price">${item.price.toLocaleString()}</div>${item.expiry ? `<div class="expiry">Exp: ${item.expiry}</div>` : ''}</div>`).join('')}</div>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -165,6 +307,27 @@ const StockAdjustmentForm = () => {
                 <AlertTriangle className="text-amber-500" /> تسوية مخزنية (تالف / عجز / زيادة)
             </h2>
             <p className="text-slate-500">تسجيل الفروقات المخزنية يدوياً (تالف، سرقة، هدايا، تسويات)</p>
+        </div>
+        <div className="flex gap-2">
+            <button onClick={handlePrintBarcodes} className="bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-100 text-sm font-bold" title="طباعة باركود للأصناف في القائمة">
+                <Barcode size={16} /> طباعة باركود
+            </button>
+            <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
+                <Download size={16} /> نموذج
+            </button>
+            <div className="relative">
+                <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={isImporting}
+                />
+                <button className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-100 text-sm font-bold">
+                    {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                    استيراد Excel
+                </button>
+            </div>
         </div>
       </div>
 
