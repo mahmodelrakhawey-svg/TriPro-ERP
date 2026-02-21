@@ -78,12 +78,64 @@ const RecycleBin = () => {
         return;
     }
 
+    // فحص استباقي عام لجميع العناصر لتوفير رسالة خطأ واضحة
+    const dependencies: Record<string, { table: string, col: string, label: string }[]> = {
+        accounts: [{ table: 'journal_lines', col: 'account_id', label: 'قيود محاسبية' }],
+        customers: [
+            { table: 'invoices', col: 'customer_id', label: 'فواتير مبيعات' },
+            { table: 'quotations', col: 'customer_id', label: 'عروض أسعار' },
+            { table: 'receipt_vouchers', col: 'customer_id', label: 'سندات قبض' }
+        ],
+        suppliers: [
+            { table: 'purchase_invoices', col: 'supplier_id', label: 'فواتير مشتريات' },
+            { table: 'purchase_orders', col: 'supplier_id', label: 'أوامر شراء' },
+            { table: 'payment_vouchers', col: 'supplier_id', label: 'سندات صرف' }
+        ],
+        products: [
+            { table: 'invoice_items', col: 'product_id', label: 'بنود فواتير' },
+            { table: 'purchase_invoice_items', col: 'product_id', label: 'بنود مشتريات' }
+        ],
+        employees: [
+            { table: 'payrolls', col: 'employee_id', label: 'مسيرات رواتب' },
+            { table: 'employee_advances', col: 'employee_id', label: 'سلف موظفين' }
+        ],
+        warehouses: [
+            { table: 'stock_transfers', col: 'from_warehouse_id', label: 'تحويلات مخزنية' }
+        ]
+    };
+
+    const checks = dependencies[currentTab.table];
+    if (checks) {
+        for (const check of checks) {
+            const { count, error: checkError } = await supabase
+                .from(check.table)
+                .select('id', { count: 'exact', head: true })
+                .eq(check.col, id);
+
+            if (checkError) {
+                console.warn(`Check failed for ${check.table}:`, checkError);
+                continue;
+            }
+
+            if (count && count > 0) {
+                alert(`لا يمكن حذف هذا العنصر نهائياً لوجود ${count} سجل مرتبط به في "${check.label}".\n\nللحفاظ على سلامة البيانات، لا يمكن حذف العناصر المستخدمة في عمليات سابقة.`);
+                return;
+            }
+        }
+    }
+
     if (window.confirm('تحذير: هل أنت متأكد من الحذف النهائي؟ لا يمكن التراجع عن هذا الإجراء!')) {
         const result = await permanentDeleteItem(currentTab.table, id);
         if (result.success) {
             fetchDeletedItems();
+            alert('تم الحذف النهائي بنجاح ✅');
         } else {
-            alert('فشل الحذف النهائي: ' + result.message);
+            // معالجة عامة لأخطاء المفتاح الأجنبي الأخرى
+            if (result.message && result.message.includes('foreign key constraint')) {
+                alert('فشل الحذف النهائي: هذا العنصر مستخدم في عمليات أخرى (مثل فواتير أو قيود) ولا يمكن حذفه للحفاظ على سلامة البيانات.');
+            } else {
+                alert('فشل الحذف النهائي: ' + result.message);
+            }
         }
     }
   };

@@ -30,7 +30,7 @@ type Item = {
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts } = useAccounting();
+  const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts, warehouses } = useAccounting();
   const { showToast } = useToast();
   // استبدال الحالة اليدوية بـ React Query
   const { data: serverItems = [], isLoading: serverLoading } = useProducts();
@@ -55,6 +55,13 @@ const ProductManager = () => {
   });
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [importWarehouseId, setImportWarehouseId] = useState<string>('');
+
+  useEffect(() => {
+    if (warehouses.length > 0 && !importWarehouseId) {
+      setImportWarehouseId(warehouses[0].id);
+    }
+  }, [warehouses]);
 
   // تصفية الحسابات من السياق العام لضمان التوافق
   const accounts = {
@@ -186,11 +193,17 @@ const ProductManager = () => {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const wsname = wb.SheetNames[0];
-        const ws = wb.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
+        const content = evt.target?.result;
+        let data: any[] = [];
+
+        if (file.name.toLowerCase().endsWith('.json')) {
+            data = JSON.parse(content as string);
+        } else {
+            const wb = XLSX.read(content, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            data = XLSX.utils.sheet_to_json(ws);
+        }
 
         let successCount = 0;
         let failCount = 0;
@@ -201,30 +214,72 @@ const ProductManager = () => {
         const defaultInventory = accounts.assets.find(a => a.code === '1213')?.id || accounts.assets.find(a => a.code === '121')?.id || null;
         const defaultCogs = accounts.expenses.find(a => a.code === '511')?.id || null;
         const defaultSales = accounts.revenue.find(a => a.code === '411')?.id || null;
+        const equityAcc = contextAccounts.find(a => a.code === '3999')?.id; // حساب الأرصدة الافتتاحية
+        const targetWarehouseId = importWarehouseId || (warehouses.length > 0 ? warehouses[0].id : null);
 
         for (const row of data as any[]) {
-          const name = row['اسم المنتج'] || row['Name'];
-          const sku = row['الكود (SKU)'] || row['SKU'];
-          const purchase_price = row['سعر الشراء'] || row['Purchase Price'] || row['Cost'];
-          const sales_price = row['سعر البيع'] || row['Sales Price'] || row['Price'];
-          const stock = row['الكمية الافتتاحية'] || row['Stock'] || 0;
+          const name = row['اسم المنتج'] || row['Name'] || row['name'];
+          const sku = row['الكود (SKU)'] || row['SKU'] || row['sku'];
+          const purchase_price = row['سعر الشراء'] || row['Purchase Price'] || row['Cost'] || row['cost'];
+          const sales_price = row['سعر البيع'] || row['Sales Price'] || row['Price'] || row['price'];
+          const stock = row['الكمية الافتتاحية'] || row['Stock'] || row['stock'] || 0;
 
           if (name) {
             try {
-              const { error } = await supabase.rpc('add_product_with_opening_balance', {
-                p_name: String(name).trim(),
-                p_sku: sku ? String(sku).trim() : null,
-                p_sales_price: sales_price ? Number(sales_price) : 0,
-                p_purchase_price: purchase_price ? Number(purchase_price) : 0,
-                p_stock: stock ? Number(stock) : 0,
-                p_org_id: orgId,
-                p_item_type: 'STOCK',
-                p_inventory_account_id: defaultInventory,
-                p_cogs_account_id: defaultCogs,
-                p_sales_account_id: defaultSales
-              });
+              // 1. إضافة المنتج مباشرة
+              const { data: newProduct, error: prodError } = await supabase.from('products').insert({
+                name: String(name).trim(),
+                sku: sku ? String(sku).trim() : null,
+                sales_price: sales_price ? Number(sales_price) : 0,
+                purchase_price: purchase_price ? Number(purchase_price) : 0,
+                stock: stock ? Number(stock) : 0,
+                organization_id: orgId,
+                item_type: 'STOCK',
+                inventory_account_id: defaultInventory,
+                cogs_account_id: defaultCogs,
+                sales_account_id: defaultSales,
+                is_active: true
+              }).select().single();
 
-              if (error) throw error;
+              if (prodError) throw prodError;
+
+              // 2. معالجة الرصيد الافتتاحي والقيد
+              if (newProduct && stock && Number(stock) > 0 && targetWarehouseId) {
+                  await supabase.from('opening_inventories').insert({
+                      product_id: newProduct.id,
+                      warehouse_id: targetWarehouseId,
+                      quantity: Number(stock),
+                      cost: Number(purchase_price) || 0
+                  });
+
+                  const totalValue = Number(stock) * (Number(purchase_price) || 0);
+                  if (totalValue > 0 && defaultInventory && equityAcc) {
+                      // جلب معرف المستخدم مباشرة لضمان عدم كونه فارغاً
+                      const { data: { user } } = await supabase.auth.getUser();
+                      
+                      const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+
+                      // إنشاء القيد المحاسبي
+                      const { data: entry } = await supabase.from('journal_entries').insert({
+                          transaction_date: new Date().toISOString().split('T')[0],
+                          transaction_id: ref, // حقل إلزامي
+                          reference: ref,
+                          description: `رصيد افتتاحي (استيراد) - ${newProduct.name}`.substring(0, 255),
+                          status: 'posted',
+                          user_id: user?.id || currentUser?.id // تصحيح اسم العمود
+                      }).select().single();
+
+                      if (entry) {
+                          await supabase.from('journal_lines').insert([
+                              // من حـ/ المخزون
+                              { journal_entry_id: entry.id, account_id: defaultInventory, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}` },
+                              // إلى حـ/ الأرصدة الافتتاحية
+                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}` }
+                          ]);
+                      }
+                  }
+              }
+
               successCount++;
             } catch (err) {
               console.error("Error adding product:", name, err);
@@ -246,7 +301,11 @@ const ProductManager = () => {
         e.target.value = ''; 
       }
     };
-    reader.readAsBinaryString(file);
+    if (file.name.toLowerCase().endsWith('.json')) {
+        reader.readAsText(file);
+    } else {
+        reader.readAsBinaryString(file);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -302,23 +361,70 @@ const ProductManager = () => {
         if (error) throw error;
       } else {
         // إضافة صنف جديد (استخدام الدالة لإنشاء الرصيد الافتتاحي)
-        // نستخدم RPC (Remote Procedure Call) لاستدعاء الدالة في قاعدة البيانات
-        const { error } = await supabase.rpc('add_product_with_opening_balance', {
-            p_name: formData.name,
-            p_sku: formData.sku || null,
-            p_sales_price: formData.sales_price,
-            p_purchase_price: formData.purchase_price,
-            p_stock: formData.opening_stock, // الكمية الافتتاحية
-            p_org_id: orgId,
-            p_item_type: formData.item_type,
-            p_inventory_account_id: formData.inventory_account_id || null,
-            p_cogs_account_id: formData.cogs_account_id || null,
-            p_sales_account_id: formData.sales_account_id || null
-        });
+        // استبدال RPC بإدراج مباشر لضمان العمل
+        const { data: newProduct, error: prodError } = await supabase.from('products').insert({
+            name: formData.name,
+            sku: formData.sku || null,
+            sales_price: formData.sales_price,
+            purchase_price: formData.purchase_price,
+            stock: formData.opening_stock,
+            organization_id: orgId,
+            item_type: formData.item_type,
+            inventory_account_id: formData.item_type === 'STOCK' ? formData.inventory_account_id : null,
+            cogs_account_id: formData.item_type === 'STOCK' ? formData.cogs_account_id : null,
+            sales_account_id: formData.sales_account_id || null,
+            is_active: true,
+            min_stock_level: formData.min_stock_level,
+            expiry_date: formData.expiry_date || null,
+            offer_price: formData.offer_price || null,
+            offer_start_date: formData.offer_start_date || null,
+            offer_end_date: formData.offer_end_date || null,
+            offer_max_qty: formData.offer_max_qty || null
+        }).select().single();
 
-        // ملاحظة: الدالة add_product_with_opening_balance تقوم بإنشاء الصنف والقيد معاً
-        if (error) throw error;
+        if (prodError) throw prodError;
 
+        // إنشاء الرصيد الافتتاحي والقيد
+        if (newProduct && formData.item_type === 'STOCK' && formData.opening_stock > 0) {
+            const defaultWarehouseId = warehouses.length > 0 ? warehouses[0].id : null;
+            if (defaultWarehouseId) {
+                await supabase.from('opening_inventories').insert({
+                    product_id: newProduct.id,
+                    warehouse_id: defaultWarehouseId,
+                    quantity: formData.opening_stock,
+                    cost: formData.purchase_price
+                });
+                
+                // إنشاء القيد المحاسبي يدوياً لضمان ظهوره في دفتر اليومية
+                const totalValue = formData.opening_stock * formData.purchase_price;
+                const equityAcc = contextAccounts.find(a => a.code === '3999')?.id;
+                const inventoryAcc = formData.inventory_account_id;
+
+                if (totalValue > 0 && inventoryAcc && equityAcc) {
+                     // جلب معرف المستخدم مباشرة
+                     const { data: { user } } = await supabase.auth.getUser();
+
+                     const ref = `MAN-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+
+                     const { data: entry } = await supabase.from('journal_entries').insert({
+                          transaction_date: new Date().toISOString().split('T')[0],
+                          transaction_id: ref, // حقل إلزامي
+                          reference: ref,
+                          description: `رصيد افتتاحي - ${newProduct.name}`.substring(0, 255),
+                          status: 'posted',
+                          user_id: user?.id || currentUser?.id // تصحيح اسم العمود
+                      }).select().single();
+
+                      if (entry) {
+                          await supabase.from('journal_lines').insert([
+                              { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}` },
+                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}` }
+                          ]);
+                      }
+                }
+            }
+        }
+        
         // تحديث حد الطلب بشكل منفصل لأن الدالة قد لا تدعمه بعد
         if (formData.min_stock_level > 0) {
              // نحتاج لمعرفة ID الصنف الجديد، لكن الدالة الحالية لا ترجعه بسهولة في هذا السياق
@@ -580,10 +686,18 @@ const ProductManager = () => {
             <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
                 <Download size={16} /> نموذج
             </button>
+            <select
+                value={importWarehouseId}
+                onChange={(e) => setImportWarehouseId(e.target.value)}
+                className="bg-white border border-slate-300 text-slate-600 px-2 py-2 rounded-lg text-sm font-bold outline-none focus:border-emerald-500"
+                title="اختر المستودع الذي سيتم استيراد الأرصدة الافتتاحية إليه"
+            >
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </select>
             <div className="relative">
                 <input
                     type="file"
-                    accept=".xlsx, .xls, .csv"
+                    accept=".xlsx, .xls, .csv, .json"
                     onChange={handleFileUpload}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                     disabled={isImporting}

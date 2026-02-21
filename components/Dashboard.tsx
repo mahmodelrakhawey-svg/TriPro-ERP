@@ -152,7 +152,7 @@ const Dashboard = () => {
         )}
       </div>
       <h3 className="text-slate-500 text-sm font-bold mb-1">{title}</h3>
-      <p className="text-2xl font-black text-slate-800">{value.toLocaleString()} <span className="text-xs text-slate-400 font-normal">{settings?.currency || 'EGP'}</span></p>
+      <p className="text-2xl font-black text-slate-800">{value?.toLocaleString() ?? 0} <span className="text-xs text-slate-400 font-normal">{settings?.currency || 'EGP'}</span></p>
       {subLabel && <p className="text-xs text-slate-400 mt-2">{subLabel}</p>}
     </div>
   );

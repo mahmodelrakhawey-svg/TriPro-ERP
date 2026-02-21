@@ -192,14 +192,89 @@ const Settings = () => {
       const file = e.target.files?.[0];
       if(!file) return;
 
-      if(window.confirm('تحذير: استيراد البيانات سيؤدي إلى استبدال البيانات الحالية بالكامل. هل أنت متأكد؟')) {
-          const reader = new FileReader();
-          reader.onload = (evt) => {
-              alert("تم تعطيل الاستيراد مؤقتاً.");
-          };
-          reader.readAsText(file);
-      }
-      if(fileInputRef.current) fileInputRef.current.value = '';
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+          try {
+              const content = evt.target?.result as string;
+              const data = JSON.parse(content);
+
+              // 1. التحقق مما إذا كان الملف قائمة أصناف (Array)
+              if (Array.isArray(data)) {
+                  if (!window.confirm(`تم العثور على قائمة بيانات (${data.length} عنصر). هل تريد استيرادها كأصناف جديدة؟`)) return;
+                  
+                  setLoading(true);
+                  let importedCount = 0;
+                  let totalOpeningValue = 0;
+
+                  // البحث عن الحسابات المطلوبة للقيد
+                  const inventoryAcc = accounts.find(a => a.code === '12401' || a.name.includes('مخزون'));
+                  const equityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية'));
+
+                  for (const item of data) {
+                      if (!item.name) continue;
+
+                      // إضافة الصنف
+                      const { data: newProduct, error } = await supabase.from('products').insert({
+                          name: item.name,
+                          sku: item.sku || `IMP-${Math.floor(Math.random() * 100000)}`,
+                          cost: Number(item.cost || 0),
+                          price: Number(item.price || 0),
+                          stock: Number(item.stock || 0),
+                          min_stock: Number(item.min_stock || 0),
+                          description: item.description || 'استيراد'
+                      }).select().single();
+
+                      if (!error && newProduct) {
+                          importedCount++;
+                          const qty = Number(newProduct.stock);
+                          const cost = Number(newProduct.cost);
+                          if (qty > 0 && cost > 0) {
+                              totalOpeningValue += (qty * cost);
+                          }
+                      }
+                  }
+
+                  // إنشاء القيد الافتتاحي للمخزون
+                  if (totalOpeningValue > 0 && inventoryAcc && equityAcc) {
+                      // جلب معرف المستخدم مباشرة
+                      const { data: { user } } = await supabase.auth.getUser();
+
+                      const ref = `IMP-SET-${Date.now().toString().slice(-8)}`;
+
+                      const { data: entry, error: entryError } = await supabase.from('journal_entries').insert({
+                          transaction_date: new Date().toISOString().split('T')[0],
+                          transaction_id: ref,
+                          reference: ref,
+                          description: `قيد افتتاحي لاستيراد ${importedCount} صنف`,
+                          status: 'posted',
+                          user_id: user?.id
+                      }).select().single();
+                      
+                      if (!entryError && entry) {
+                          await supabase.from('journal_lines').insert([
+                              { journal_entry_id: entry.id, account_id: inventoryAcc.id, debit: totalOpeningValue, credit: 0, description: 'مخزون أول المدة (استيراد)' },
+                              { journal_entry_id: entry.id, account_id: equityAcc.id, debit: 0, credit: totalOpeningValue, description: 'أرصدة افتتاحية (مخزون)' }
+                          ]);
+                      }
+                  }
+
+                  alert(`تم استيراد ${importedCount} صنف بنجاح ✅\nتم إنشاء قيد افتتاحي بقيمة: ${totalOpeningValue.toLocaleString()}`);
+                  window.location.reload();
+              } 
+              // 2. استعادة نسخة احتياطية كاملة (Object)
+              else if (typeof data === 'object') {
+                  if(window.confirm('تحذير: هذا ملف نسخ احتياطي كامل. استعادته ستؤدي لمسح البيانات الحالية. هل أنت متأكد؟')) {
+                      alert("تم تعطيل الاستعادة الكاملة مؤقتاً للأمان. يرجى استخدام ملف JSON يحتوي على قائمة أصناف فقط.");
+                  }
+              }
+          } catch (err: any) {
+              alert("فشل قراءة الملف: " + err.message);
+          } finally {
+              setLoading(false);
+              if(fileInputRef.current) fileInputRef.current.value = '';
+          }
+      };
+      reader.readAsText(file);
   };
 
   const handleFactoryReset = () => {
@@ -311,6 +386,66 @@ const Settings = () => {
           alert(data || 'تم الفحص بنجاح.');
       } catch (e: any) {
           alert('حدث خطأ أثناء الصيانة: ' + e.message);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleCleanOrphanedOpeningEntries = async () => {
+      if (currentUserRole === 'demo') {
+          alert("تم فحص وتنظيف القيود اليتيمة بنجاح ✅ (محاكاة)");
+          return;
+      }
+
+      if (!window.confirm('هل تريد البحث عن وحذف قيود الأرصدة الافتتاحية (Opening Balances) الخاصة بالأصناف التي تم حذفها نهائياً؟\n\nتحذير: يعتمد هذا الفحص على تطابق اسم الصنف في شرح القيد. إذا قمت بتغيير اسم صنف بعد إنشائه، قد يتم اعتبار قيده يتيماً.')) return;
+
+      setLoading(true);
+      try {
+          // 1. جلب أسماء جميع المنتجات الموجودة حالياً
+          const { data: products } = await supabase.from('products').select('name');
+          const productNames = new Set(products?.map(p => p.name) || []);
+          
+          // 2. جلب قيود الأرصدة الافتتاحية الفردية
+          const { data: entries } = await supabase
+              .from('journal_entries')
+              .select('id, description')
+              .or('reference.ilike.OPEN-IMP-%,reference.ilike.OPEN-MAN-%');
+
+          if (!entries || entries.length === 0) {
+              alert('لا توجد قيود أرصدة افتتاحية للفحص.');
+              setLoading(false);
+              return;
+          }
+
+          const idsToDelete: string[] = [];
+
+          for (const entry of entries) {
+              // التنسيق المتوقع: "رصيد افتتاحي ... - اسم الصنف"
+              const description = entry.description || '';
+              const separatorIndex = description.lastIndexOf(' - ');
+              
+              if (separatorIndex !== -1) {
+                  const productName = description.substring(separatorIndex + 3).trim();
+                  // إذا كان اسم المنتج في القيد غير موجود في قائمة المنتجات الحالية
+                  if (!productNames.has(productName)) {
+                      idsToDelete.push(entry.id);
+                  }
+              }
+          }
+
+          if (idsToDelete.length > 0) {
+              // حذف القيود (الأسطر ستحذف تلقائياً بفضل Cascade في قاعدة البيانات)
+              await supabase.from('journal_lines').delete().in('journal_entry_id', idsToDelete);
+              const { error } = await supabase.from('journal_entries').delete().in('id', idsToDelete);
+              
+              if (error) throw error;
+              alert(`تم تنظيف ${idsToDelete.length} قيد يتيم بنجاح ✅\nتم حذف القيود المرتبطة بأصناف غير موجودة.`);
+          } else {
+              alert('سجل القيود نظيف. جميع قيود الأرصدة الافتتاحية مرتبطة بأصناف موجودة. ✅');
+          }
+      } catch (e: any) {
+          console.error(e);
+          alert('حدث خطأ أثناء التنظيف: ' + e.message);
       } finally {
           setLoading(false);
       }
@@ -642,6 +777,12 @@ const Settings = () => {
                                 className="flex items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 font-bold shadow-md transition-all"
                               >
                                   <Database size={18} /> صيانة وإصلاح قاعدة البيانات
+                              </button>
+                              <button 
+                                onClick={handleCleanOrphanedOpeningEntries}
+                                className="flex items-center gap-2 bg-rose-600 text-white px-6 py-3 rounded-lg hover:bg-rose-700 font-bold shadow-md transition-all"
+                              >
+                                  <Trash2 size={18} /> تنظيف قيود الأصناف المحذوفة
                               </button>
                           </div>
                       </div>

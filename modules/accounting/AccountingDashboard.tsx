@@ -519,7 +519,7 @@ function DashboardCard({ title, value, icon, trend, color }: any) {
         )}
       </div>
       <p className="text-slate-500 text-sm font-medium mb-1">{title}</p>
-      <h3 className="text-2xl font-black text-slate-800">{value.toLocaleString()}</h3>
+      <h3 className="text-2xl font-black text-slate-800">{value?.toLocaleString() ?? '0'}</h3>
     </div>
   );
 }
