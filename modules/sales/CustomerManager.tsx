@@ -90,7 +90,8 @@ const CustomerManager = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     
-    const file = e.target.files[0];
+    const fileInput = e.target;
+    const file = fileInput.files[0];
     setIsImporting(true);
 
     const reader = new FileReader();
@@ -102,8 +103,8 @@ const CustomerManager = () => {
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws);
 
-        let successCount = 0;
-        let failCount = 0;
+        const successRecords: any[] = [];
+        const failedRecords: { row: any, error: string }[] = [];
 
         for (const row of data as any[]) {
           const name = row['اسم العميل'] || row['Name'];
@@ -116,6 +117,10 @@ const CustomerManager = () => {
 
           if (name) {
             try {
+              if (credit_limit && isNaN(Number(credit_limit))) {
+                throw new Error('حد الائتمان يجب أن يكون رقماً.');
+              }
+
               const newCustomer = await addCustomer({
                 name: String(name).trim(),
                 phone: phone ? String(phone).trim() : '',
@@ -124,73 +129,85 @@ const CustomerManager = () => {
                 address: address ? String(address).trim() : '',
                 credit_limit: credit_limit ? Number(credit_limit) : 0
               } as any);
-              successCount++;
+              
+              if (newCustomer) {
+                  successRecords.push(newCustomer);
 
-              // معالجة الرصيد الافتتاحي
-              if (newCustomer && Number(openingBalance) !== 0) {
-                const amount = Math.abs(Number(openingBalance));
-                const isDebit = Number(openingBalance) > 0; // موجب = مدين (العميل عليه فلوس)
-                const date = new Date().toISOString().split('T')[0];
-                const ref = `OB-${newCustomer.id.slice(0, 6)}`;
+                  // معالجة الرصيد الافتتاحي
+                  if (Number(openingBalance) !== 0) {
+                    const amount = Math.abs(Number(openingBalance));
+                    const isDebit = Number(openingBalance) > 0; // موجب = مدين (العميل عليه فلوس)
+                    const date = new Date().toISOString().split('T')[0];
+                    const ref = `OB-${newCustomer.id.slice(0, 6)}`;
 
-                if (isDebit) {
-                    // إنشاء فاتورة (للرصيد المدين)
-                    await supabase.from('invoices').insert({
-                        invoice_number: ref,
-                        customer_id: newCustomer.id,
-                        invoice_date: date,
-                        total_amount: amount,
-                        subtotal: amount,
-                        status: 'posted',
-                        notes: 'رصيد افتتاحي (استيراد)'
-                    });
-                } else {
-                    // إنشاء إشعار دائن (للرصيد الدائن/المقدم)
-                    await supabase.from('credit_notes').insert({
-                        credit_note_number: ref,
-                        customer_id: newCustomer.id,
-                        note_date: date,
-                        total_amount: amount,
-                        amount_before_tax: amount,
-                        status: 'posted',
-                        notes: 'رصيد افتتاحي (دائن)'
-                    });
-                }
+                    if (isDebit) {
+                        // إنشاء فاتورة (للرصيد المدين)
+                        await supabase.from('invoices').insert({
+                            invoice_number: ref,
+                            customer_id: newCustomer.id,
+                            invoice_date: date,
+                            total_amount: amount,
+                            subtotal: amount,
+                            status: 'posted',
+                            notes: 'رصيد افتتاحي (استيراد)'
+                        });
+                    } else {
+                        // إنشاء إشعار دائن (للرصيد الدائن/المقدم)
+                        await supabase.from('credit_notes').insert({
+                            credit_note_number: ref,
+                            customer_id: newCustomer.id,
+                            note_date: date,
+                            total_amount: amount,
+                            amount_before_tax: amount,
+                            status: 'posted',
+                            notes: 'رصيد افتتاحي (دائن)'
+                        });
+                    }
 
-                // إنشاء القيد المحاسبي
-                const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '1221' || a.code === '10201');
-                const openingAcc = accounts.find(a => a.code === '3999') || accounts.find(a => a.code === '300');
+                    // إنشاء القيد المحاسبي
+                    const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.code === '1221' || a.code === '10201');
+                    const openingAcc = accounts.find(a => a.code === '3999') || accounts.find(a => a.code === '300');
 
-                if (customerAcc && openingAcc) {
-                    await addEntry({
-                        date: date,
-                        description: `رصيد افتتاحي للعميل ${name}`,
-                        reference: ref,
-                        status: 'posted',
-                        lines: [
-                            { accountId: customerAcc.id, debit: isDebit ? amount : 0, credit: isDebit ? 0 : amount },
-                            { accountId: openingAcc.id, debit: isDebit ? 0 : amount, credit: isDebit ? amount : 0 }
-                        ]
-                    });
-                }
+                    if (customerAcc && openingAcc) {
+                        await addEntry({
+                            date: date,
+                            description: `رصيد افتتاحي للعميل ${name}`,
+                            reference: ref,
+                            status: 'posted',
+                            lines: [
+                                { accountId: customerAcc.id, debit: isDebit ? amount : 0, credit: isDebit ? 0 : amount },
+                                { accountId: openingAcc.id, debit: isDebit ? 0 : amount, credit: isDebit ? amount : 0 }
+                            ]
+                        });
+                    }
+                  }
               }
             } catch (err) {
-              console.error("Error adding customer:", name, err);
-              failCount++;
+              failedRecords.push({ row, error: (err as Error).message });
             }
           } else {
-            failCount++;
+            if (Object.keys(row).length > 0) {
+                failedRecords.push({ row, error: 'اسم العميل فارغ.' });
+            }
           }
         }
 
         queryClient.invalidateQueries({ queryKey: ['customers'] });
-        showToast(`تمت العملية:\n✅ تم استيراد: ${successCount} عميل\n❌ فشل: ${failCount}`, 'success');
+
+        let toastMessage = `تم استيراد ${successRecords.length} عميل بنجاح.`;
+        if (failedRecords.length > 0) {
+            toastMessage += `\nفشل استيراد ${failedRecords.length} سجل. راجع الـ console لمزيد من التفاصيل.`;
+            console.error("فشل استيراد السجلات التالية:", failedRecords);
+            showToast(toastMessage, 'warning');
+        } else {
+            showToast(toastMessage, 'success');
+        }
         
       } catch (error: any) {
         showToast('حدث خطأ أثناء قراءة الملف: ' + error.message, 'error');
       } finally {
         setIsImporting(false);
-        e.target.value = ''; 
+        if (fileInput) fileInput.value = ''; 
       }
     };
     reader.readAsBinaryString(file);

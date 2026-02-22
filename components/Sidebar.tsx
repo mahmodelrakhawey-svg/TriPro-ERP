@@ -5,7 +5,7 @@ import {
     LayoutDashboard, BookOpen, FileText, PieChart, Settings,
     ScrollText, Library, ShoppingCart, Users, Truck, Package, 
     Receipt, RotateCcw, ClipboardList, History, Banknote, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Scale, Store, Wallet, TrendingUp, LogOut, Shield, ListChecks, Landmark, MonitorSmartphone, Briefcase, Settings as Cog, PenTool, FileCheck, Calculator, Gauge, Target, BarChartHorizontal, Bell, BarChartBig, FileMinus, FilePlus, PackageX, CircleDollarSign, FileSpreadsheet, PackageOpen, ShieldAlert, X, BarChart2, ShieldCheck, HelpCircle
-    , Lock, Trash2, AlertTriangle, Percent
+    , Lock, Trash2, AlertTriangle, Percent, Database
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -703,6 +703,10 @@ const Sidebar = () => {
                 <Link to="/recycle-bin" className={getNavClass('/recycle-bin')}>
                     <Trash2 size={18} />
                     <span>سلة المحذوفات</span>
+                </Link>
+                <Link to="/data-migration" className={getNavClass('/data-migration')}>
+                    <Database size={18} />
+                    <span>مركز ترحيل البيانات</span>
                 </Link>
                 <Link to="/user-guide" className={getNavClass('/user-guide')}>
                     <HelpCircle size={18} />

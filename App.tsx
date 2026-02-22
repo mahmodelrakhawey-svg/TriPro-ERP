@@ -99,6 +99,7 @@ import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
 import RecycleBin from './modules/admin/RecycleBin';
+import DataMigrationCenter from './modules/admin/DataMigrationCenter';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement';
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
 import UserGuide from './components/UserGuide';
@@ -364,6 +365,7 @@ const MainLayout = () => {
                 <Route path="/security-logs" element={<SecurityLogs />} />
                 <Route path="/permissions" element={<PermissionsManager />} />
                 <Route path="/recycle-bin" element={<RecycleBin />} />
+                <Route path="/data-migration" element={<DataMigrationCenter />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
