@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package } from 'lucide-react';
 
 const ACCOUNT_LABELS: Record<string, string> = {
   CASH: 'النقدية (الصندوق الرئيسي)',
@@ -486,6 +487,50 @@ const Settings = () => {
       }
   };
 
+  const handleExportList = async (type: 'customers' | 'suppliers' | 'products') => {
+      if (currentUserRole === 'demo') {
+          showToast("تم تصدير الملف بنجاح ✅ (محاكاة)", 'success');
+          return;
+      }
+
+      setLoading(true);
+      try {
+          let data: any[] = [];
+          let fileName = '';
+          
+          if (type === 'customers') {
+              const { data: res, error } = await supabase.from('customers').select('*').is('deleted_at', null);
+              if (error) throw error;
+              data = res || [];
+              fileName = 'Customers_List.xlsx';
+          } else if (type === 'suppliers') {
+              const { data: res, error } = await supabase.from('suppliers').select('*').is('deleted_at', null);
+              if (error) throw error;
+              data = res || [];
+              fileName = 'Suppliers_List.xlsx';
+          } else if (type === 'products') {
+              const { data: res, error } = await supabase.from('products').select('*').is('deleted_at', null);
+              if (error) throw error;
+              data = res || [];
+              fileName = 'Products_List.xlsx';
+          }
+
+          if (data && data.length > 0) {
+              const ws = XLSX.utils.json_to_sheet(data);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, type);
+              XLSX.writeFile(wb, fileName);
+              showToast(`تم تصدير قائمة ${type === 'customers' ? 'العملاء' : type === 'suppliers' ? 'الموردين' : 'الأصناف'} بنجاح ✅`, 'success');
+          } else {
+              showToast('لا توجد بيانات للتصدير.', 'info');
+          }
+      } catch (err: any) {
+          showToast('فشل التصدير: ' + err.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleMappingChange = (key: string, accountId: string) => {
       setFormData(prev => ({ ...prev, accountMappings: { ...prev.accountMappings, [key]: accountId } }));
   };
@@ -803,6 +848,36 @@ const Settings = () => {
                           >
                               <Trash2 size={18} /> حذف البيانات التجريبية
                           </button>
+                      </div>
+
+                      {/* Export Lists Section */}
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-emerald-800 mb-4 flex items-center gap-2">
+                              <FileSpreadsheet size={20} /> تصدير القوائم (Excel)
+                          </h3>
+                          <p className="text-sm text-emerald-700 mb-6">
+                              تصدير بيانات العملاء، الموردين، والأصناف إلى ملفات Excel للاستخدام الخارجي.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                              <button 
+                                onClick={() => handleExportList('customers')}
+                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Users size={18} /> تصدير العملاء
+                              </button>
+                              <button 
+                                onClick={() => handleExportList('suppliers')}
+                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Truck size={18} /> تصدير الموردين
+                              </button>
+                              <button 
+                                onClick={() => handleExportList('products')}
+                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Package size={18} /> تصدير الأصناف
+                              </button>
+                          </div>
                       </div>
 
                       {/* Data Backup Section */}
