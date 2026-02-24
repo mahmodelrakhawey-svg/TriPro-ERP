@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٧‏/٢‏/٢٠٢٦، ٢:٢٤:٠٤ م
+📅 تاريخ التحديث: ٢٤‏/٢‏/٢٠٢٦، ١٠:٢١:١٥ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -32,6 +32,7 @@
     📄 TrialBalanceAdvanced.tsx
     📄 verify_closing.sql
   📁 admin/
+    📄 DataMigrationCenter.tsx
     📄 PermissionsManager.tsx
     📄 RecycleBin.tsx
   📁 assets/
@@ -80,6 +81,7 @@
     📄 StockTransfer.tsx
     📄 StockTransferList.tsx
     📄 TopSellingReport.tsx
+    📄 useProducts.ts
     📄 WarehouseManager.tsx
   📁 manufacturing/
     📄 ManufacturingManager.tsx
@@ -102,6 +104,7 @@
     📄 SupplierStatement.tsx
   📁 reports/
     📄 AttachmentsReport.tsx
+    📄 DailySalesReport.tsx
     📄 DeficitReport.tsx
     📄 ExpenseAnalysisReport.tsx
     📄 FinancialRatios.tsx
@@ -205,6 +208,7 @@
   📄 recalculate_stock_v3.sql
   📄 recalculate_stock_v4.sql
   📄 rejected_closings_setup.sql
+  📄 reports_functions.sql
   📄 reset_database_clean.sql
   📄 run_period_depreciation_rpc.sql
   📄 secure_tables.sql
@@ -390,6 +394,7 @@ import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
 import RecycleBin from './modules/admin/RecycleBin';
+import DataMigrationCenter from './modules/admin/DataMigrationCenter';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement';
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
 import UserGuide from './components/UserGuide';
@@ -655,6 +660,7 @@ const MainLayout = () => {
                 <Route path="/security-logs" element={<SecurityLogs />} />
                 <Route path="/permissions" element={<PermissionsManager />} />
                 <Route path="/recycle-bin" element={<RecycleBin />} />
+                <Route path="/data-migration" element={<DataMigrationCenter />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
@@ -759,13 +765,13 @@ interface FinancialSummary {
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
-  CUSTOMERS: '10201', // العملاء
+  CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
   INVENTORY: '121', // المخزون (مجموعة)
   INVENTORY_RAW_MATERIALS: '1211', // خامات
   INVENTORY_FINISHED_GOODS: '1213', // منتج تام
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
-  SUPPLIERS: '201', // الموردين
+  SUPPLIERS: '221', // الموردين
   VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
   VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
   CUSTOMER_DEPOSITS: '226', // تأمينات العملاء

@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Download, Calendar, Loader2, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useToast } from '../../context/ToastContext';
 
 export default function JournalEntriesExport() {
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const { showToast } = useToast();
 
   const handleExport = async () => {
     setLoading(true);
@@ -37,7 +39,7 @@ export default function JournalEntriesExport() {
       if (error) throw error;
 
       if (!data || data.length === 0) {
-        alert('لا توجد قيود في الفترة المحددة');
+        showToast('لا توجد قيود في الفترة المحددة.', 'info');
         return;
       }
 
@@ -70,7 +72,7 @@ export default function JournalEntriesExport() {
 
     } catch (error: any) {
       console.error('Export error:', error);
-      alert('حدث خطأ أثناء التصدير: ' + error.message);
+      showToast('حدث خطأ أثناء التصدير: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

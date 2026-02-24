@@ -1,12 +1,13 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
-import { JournalEntryLine, Account, CostCenter } from '../../types';
+import { JournalEntryLine, Account } from '../../types';
 import { useAccounting } from '../../context/AccountingContext';
 import { analyzeTransactionText } from '../../services/geminiService';
 import AddAccountModal from './AddAccountModal';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useToastNotification } from '../../utils/toastUtils';
+import { JournalEntrySchema } from '../../utils/schemas';
 
 const JournalEntryForm = () => {
   const { accounts, costCenters, addEntry } = useAccounting();
@@ -23,6 +24,7 @@ const JournalEntryForm = () => {
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [errors, setErrors] = useState<any>({});
   const toast = useToastNotification();
 
   const location = useLocation();
@@ -94,42 +96,58 @@ const JournalEntryForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // تنظيف البيانات: تحويل النصوص الفارغة إلى null للحقول من نوع UUID لتجنب خطأ invalid input syntax
-    const sanitizedLines = lines.map(line => ({
-      ...line,
-      account_id: line.account_id?.trim() || null,
-      cost_center_id: line.cost_center_id || null
-    }));
-
-    // 1. التحقق من اختيار الحسابات
-    if (sanitizedLines.some(l => !l.account_id)) {
-        toast.error("يرجى اختيار الحساب لجميع أطراف القيد قبل الترحيل.");
-        return;
-    }
-
-    // 2. التحقق من التوازن
-    if (!isBalanced) {
-        toast.error("القيد غير متزن. يجب أن يتساوى إجمالي المدين مع إجمالي الدائن.");
-        return;
-    }
-
     setIsSubmitting(true);
+    setErrors({});
 
     try {
+      // 1. تجميع البيانات للتحقق
+      const validationData = {
+        reference: reference.trim() || `MAN-${Date.now().toString().slice(-6)}`,
+        description: description,
+        transaction_date: date,
+        lines: lines.map(l => ({
+          account_id: l.account_id,
+          debit: Number(l.debit || 0),
+          credit: Number(l.credit || 0),
+          cost_center_id: l.cost_center_id || null
+        }))
+      };
+
+      // 2. التحقق باستخدام Zod
+      const result = JournalEntrySchema.safeParse(validationData);
+
+      if (!result.success) {
+        const formattedErrors: any = {};
+        result.error.issues.forEach(issue => {
+          // `issue.path` can be ['lines', 0, 'account_id'] or ['reference']
+          const pathKey = issue.path.join('.');
+          formattedErrors[pathKey] = issue.message;
+        });
+        setErrors(formattedErrors);
+        toast.error('يرجى تصحيح الأخطاء في النموذج.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 3. البيانات صالحة، استمر في الحفظ
       const finalReference = reference.trim() || `MAN-${Date.now().toString().slice(-6)}`;
 
-      // إذا كنا في وضع التعديل، نحذف القيد القديم أولاً
       if (editingId) {
         const { error: deleteError } = await supabase.from('journal_entries').delete().eq('id', editingId);
         if (deleteError) throw deleteError;
       }
 
+      // استخدام البيانات التي تم التحقق منها
       await addEntry({
-        date,
-        reference: finalReference,
-        description,
-        lines: sanitizedLines as any[],
+        date: result.data.transaction_date,
+        reference: result.data.reference,
+        description: result.data.description,
+        lines: result.data.lines.map(l => ({
+          accountId: l.account_id, // Map back to camelCase for the context function
+          debit: l.debit,
+          credit: l.credit,
+          costCenterId: l.cost_center_id
+        })),
         status: 'posted',
         attachments
       });
@@ -137,12 +155,10 @@ const JournalEntryForm = () => {
         toast.success(editingId ? "تم تعديل القيد بنجاح." : "تم ترحيل القيد بنجاح إلى دفتر اليومية.");
         
         // إذا كان تعديلاً، نعود لدفتر اليومية
-        if (editingId) {
-            navigate('/general-journal');
-            return;
-        }
+        if (editingId) return navigate('/general-journal');
 
         // إذا كان جديداً، نفرغ النموذج
+        setEditingId(null);
         setDescription('');
         setReference('');
         setLines([
@@ -269,6 +285,7 @@ const JournalEntryForm = () => {
               placeholder="تلقائي (اختياري)"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
             />
+            {errors.reference && <p className="text-red-500 text-xs mt-1">{errors.reference}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1 flex items-center gap-2">
@@ -288,6 +305,7 @@ const JournalEntryForm = () => {
               placeholder="وصف العملية المالية"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
             />
+            {errors.description && <p className="text-red-500 text-xs mt-1">{errors.description}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">المرفقات</label>
@@ -337,7 +355,7 @@ const JournalEntryForm = () => {
                 <select
                   required
                   value={line.account_id}
-                  onChange={(e) => handleLineChange(index, 'account_id', e.target.value)}
+                  onChange={(e) => handleLineChange(index, 'account_id' as any, e.target.value)}
                   className={`w-full bg-white border rounded px-2 py-1.5 focus:outline-none text-sm ${!line.account_id ? 'border-red-300' : 'border-slate-200 focus:border-blue-500'}`}
                 >
                   <option value="">اختر الحساب...</option>
@@ -348,11 +366,12 @@ const JournalEntryForm = () => {
                     </option>
                   ))}
                 </select>
+                {errors[`lines.${index}.account_id`] && <p className="text-red-500 text-xs mt-1">{errors[`lines.${index}.account_id`]}</p>}
               </div>
               <div className="col-span-2">
                 <select
                   value={line.cost_center_id || ''}
-                  onChange={(e) => handleLineChange(index, 'cost_center_id', e.target.value)}
+                  onChange={(e) => handleLineChange(index, 'cost_center_id' as any, e.target.value)}
                   className="w-full bg-white border border-slate-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500 text-xs text-slate-600"
                 >
                   <option value="">-- بلا مركز --</option>
@@ -367,7 +386,7 @@ const JournalEntryForm = () => {
                   min="0"
                   step="0.01"
                   value={line.debit}
-                  onChange={(e) => handleLineChange(index, 'debit', e.target.value)}
+                  onChange={(e) => handleLineChange(index, 'debit' as any, e.target.value)}
                   onFocus={(e) => e.target.select()}
                   className="w-full text-center border border-slate-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500 text-sm font-bold text-slate-700"
                 />
@@ -378,7 +397,7 @@ const JournalEntryForm = () => {
                   min="0"
                   step="0.01"
                   value={line.credit}
-                  onChange={(e) => handleLineChange(index, 'credit', e.target.value)}
+                  onChange={(e) => handleLineChange(index, 'credit' as any, e.target.value)}
                   onFocus={(e) => e.target.select()}
                   className="w-full text-center border border-slate-200 rounded px-2 py-1.5 focus:outline-none focus:border-blue-500 text-sm font-bold text-slate-700"
                 />
@@ -419,6 +438,12 @@ const JournalEntryForm = () => {
           </div>
         </div>
 
+        {/* Display general line errors (e.g., balance, min length) */}
+        {errors.lines && typeof errors.lines === 'string' && (
+            <div className="text-center text-red-600 font-bold bg-red-50 p-3 rounded-lg border border-red-200">
+                {errors.lines}
+            </div>
+        )}
         <div className="pt-4 border-t border-slate-100 flex justify-end">
           <button
             type="submit"

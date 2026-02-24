@@ -1,8 +1,10 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { ArrowDownLeft, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
 import { ReceiptVoucherPrint } from './ReceiptVoucherPrint';
+import { useToast } from '../../context/ToastContext';
+import { VoucherSchema } from '../../utils/schemas';
 
 const ReceiptVoucherForm = () => {
   const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts } = useAccounting();
@@ -24,6 +26,8 @@ const ReceiptVoucherForm = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentVoucherId, setCurrentVoucherId] = useState<string | null>(null);
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const { showToast } = useToast();
   
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
@@ -104,6 +108,7 @@ const ReceiptVoucherForm = () => {
     });
     setAttachments([]);
     setExistingAttachments([]);
+    setErrors({});
   };
 
   const handlePrevious = () => {
@@ -182,8 +187,25 @@ const ReceiptVoucherForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId || !formData.treasuryId || formData.amount <= 0) {
-        alert('يرجى تعبئة جميع الحقول المطلوبة بشكل صحيح');
+    setErrors({});
+
+    // إعداد البيانات للتحقق
+    const validationData = {
+      amount: Number(formData.amount),
+      date: formData.date,
+      treasuryAccountId: formData.treasuryId,
+      description: formData.notes,
+      partyId: formData.customerId,
+      paymentMethod: formData.paymentMethod,
+    };
+
+    const result = VoucherSchema.safeParse(validationData);
+
+    if (!result.success) {
+        const formattedErrors: Record<string, string> = {};
+        result.error.issues.forEach(issue => { formattedErrors[String(issue.path[0])] = issue.message; });
+        setErrors(formattedErrors);
+        showToast('يرجى تصحيح الأخطاء في النموذج', 'error');
         return;
     }
     setLoading(true);
@@ -195,7 +217,7 @@ const ReceiptVoucherForm = () => {
 
         if (isEditing && currentVoucherId) {
           await updateVoucher(currentVoucherId, 'receipt', { ...formData, voucherNumber });
-          alert('تم تعديل السند بنجاح ✅');
+          showToast('تم تعديل السند بنجاح ✅', 'success');
           return;
         }
 
@@ -203,7 +225,7 @@ const ReceiptVoucherForm = () => {
         const customerAcc = getSystemAccount('CUSTOMERS');
 
         if (!customerAcc) {
-            alert('لم يتم العثور على حساب "العملاء" في الدليل المحاسبي.');
+            showToast('لم يتم العثور على حساب "العملاء" في الدليل المحاسبي.', 'error');
             setLoading(false);
             return;
         }
@@ -237,7 +259,7 @@ const ReceiptVoucherForm = () => {
 
                 if (uploadError) {
                     console.error('Upload failed:', uploadError);
-                    alert(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`);
+                    showToast(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`, 'warning');
                 } else {
                     // حفظ بيانات المرفق في الجدول الجديد
                     await supabase.from('receipt_voucher_attachments').insert({
@@ -269,12 +291,13 @@ const ReceiptVoucherForm = () => {
             });
         }
 
-        alert('تم حفظ سند القبض وترحيل القيد بنجاح ✅');
+        showToast('تم حفظ سند القبض وترحيل القيد بنجاح ✅', 'success');
         handleNew();
         setAttachments([]);
+        setErrors({});
 
     } catch (error: any) {
-        alert('خطأ: ' + error.message);
+        showToast('خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }
@@ -343,14 +366,14 @@ const ReceiptVoucherForm = () => {
                     <select 
                         value={formData.customerId}
                         onChange={(e) => setFormData({...formData, customerId: e.target.value})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 appearance-none"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.partyId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     >
                         <option value="">اختر العميل...</option>
                         {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                     <User className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.partyId && <p className="text-red-500 text-xs mt-1">{errors.partyId}</p>}
             </div>
 
             {/* حساب القبض */}
@@ -360,14 +383,14 @@ const ReceiptVoucherForm = () => {
                     <select 
                         value={formData.treasuryId}
                         onChange={(e) => setFormData({...formData, treasuryId: e.target.value})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 appearance-none"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.treasuryAccountId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     >
                         <option value="">اختر الحساب...</option>
                         {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>)}
                     </select>
                     <Building2 className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.treasuryAccountId && <p className="text-red-500 text-xs mt-1">{errors.treasuryAccountId}</p>}
             </div>
 
             {/* المبلغ */}
@@ -380,11 +403,11 @@ const ReceiptVoucherForm = () => {
                         step="0.01"
                         value={formData.amount}
                         onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value)})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 font-mono text-lg font-bold"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none font-mono text-lg font-bold ${errors.amount ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     />
                     <Wallet className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.amount && <p className="text-red-500 text-xs mt-1">{errors.amount}</p>}
             </div>
 
             {/* التاريخ */}
@@ -395,11 +418,11 @@ const ReceiptVoucherForm = () => {
                         type="date" 
                         value={formData.date}
                         onChange={(e) => setFormData({...formData, date: e.target.value})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none ${errors.date ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     />
                     <Calendar className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.date && <p className="text-red-500 text-xs mt-1">{errors.date}</p>}
             </div>
 
             {/* مركز التكلفة */}

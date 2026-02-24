@@ -1,7 +1,8 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType, Account } from '../../types';
 import { X, Save } from 'lucide-react';
+import { AccountSchema } from '../../utils/schemas';
 
 interface AddAccountModalProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
     subType: 'current' as 'current' | 'non_current' | ''
   });
   const [error, setError] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   // تعبئة البيانات عند التعديل
   useEffect(() => {
@@ -56,25 +58,34 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.code.trim() || !formData.name.trim()) {
-      setError('يرجى ملء جميع الحقول المطلوبة');
+    setErrors({});
+    setError('');
+
+    const result = AccountSchema.safeParse(formData);
+
+    if (!result.success) {
+      const formattedErrors: Record<string, string> = {};
+      result.error.issues.forEach(issue => {
+        formattedErrors[String(issue.path[0])] = issue.message;
+      });
+      setErrors(formattedErrors);
       return;
     }
 
     // التحقق من تكرار الكود
-    if (accounts.some(acc => acc.code === formData.code.trim() && acc.id !== accountToEdit?.id)) {
+    if (accounts.some(acc => acc.code === result.data.code.trim() && acc.id !== accountToEdit?.id)) {
       setError('رقم الحساب مستخدم بالفعل، الرجاء اختيار رقم آخر');
       return;
     }
 
     try {
       const accountData = {
-        code: formData.code.trim(),
-        name: formData.name.trim(),
-        type: formData.type,
-        is_group: formData.isGroup,
-        parent_id: formData.parentAccount || null,
-        sub_type: formData.subType || null
+        code: result.data.code.trim(),
+        name: result.data.name.trim(),
+        type: result.data.type,
+        is_group: result.data.isGroup,
+        parent_id: result.data.parentAccount || null,
+        sub_type: result.data.subType || null
       };
 
       if (accountToEdit) {
@@ -87,7 +98,7 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
       if (onAccountAdded) {
           onAccountAdded();
       }
-      await refreshData();
+      // await refreshData(); // Removed to avoid double refresh if context handles it
       
       handleClose();
     } catch (err: any) {
@@ -105,6 +116,7 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
         subType: 'current'
     });
     setError('');
+    setErrors({});
     onClose();
   };
 
@@ -191,9 +203,10 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
                 type="text"
                 value={formData.code}
                 onChange={(e) => setFormData({...formData, code: e.target.value})}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 font-mono text-center bg-slate-50"
+                className={`w-full border rounded-lg px-3 py-2 focus:outline-none font-mono text-center bg-slate-50 ${errors.code ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                 placeholder="101"
                 />
+                {errors.code && <p className="text-red-500 text-xs mt-1">{errors.code}</p>}
             </div>
             <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-slate-700 mb-1">اسم الحساب</label>
@@ -201,9 +214,10 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({...formData, name: e.target.value})}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                className={`w-full border rounded-lg px-3 py-2 focus:outline-none ${errors.name ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                 placeholder="اسم الحساب"
                 />
+                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
             </div>
           </div>
 

@@ -6,18 +6,23 @@ import { useSuppliers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { useToast } from '../../context/ToastContext';
+import { SupplierSchema } from '../../utils/schemas';
 
 type Supplier = {
   id: string;
   name: string;
   phone: string;
+  email?: string;
   tax_number: string | null;
   address: string;
+  contact_person?: string;
 };
 
 const SupplierManager = () => {
   const queryClient = useQueryClient();
   const { addSupplier, updateSupplier, deleteSupplier, currentUser, suppliers: contextSuppliers, addEntry, accounts, getSystemAccount } = useAccounting();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -39,6 +44,7 @@ const SupplierManager = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Supplier>>({});
   const [isImporting, setIsImporting] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   // حالة لتخزين الإحصائيات المالية للموردين
   const [stats, setStats] = useState<Record<string, { balance: number, totalPurchases: number, lastInvoice: string | null }>>({});
@@ -107,19 +113,32 @@ const SupplierManager = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name) return;
+    setErrors({});
+
+    // التحقق من البيانات باستخدام Zod
+    const result = SupplierSchema.safeParse(formData);
+
+    if (!result.success) {
+      const formattedErrors: Record<string, string> = {};
+      result.error.issues.forEach(issue => {
+        formattedErrors[String(issue.path[0])] = issue.message;
+      });
+      setErrors(formattedErrors);
+      showToast('يرجى تصحيح الأخطاء في النموذج', 'error');
+      return;
+    }
 
     try {
         if (formData.id) {
-            await updateSupplier(formData.id, formData);
+            await updateSupplier(formData.id, result.data);
         } else {
-            await addSupplier(formData as any);
+            await addSupplier(result.data as any);
         }
         queryClient.invalidateQueries({ queryKey: ['suppliers'] }); // تحديث القائمة فوراً
         setIsModalOpen(false);
-        alert('تم حفظ بيانات المورد بنجاح ✅');
+        showToast('تم حفظ بيانات المورد بنجاح ✅', 'success');
     } catch (error: any) {
-        alert('حدث خطأ: ' + error.message);
+        showToast('حدث خطأ: ' + error.message, 'error');
     }
   };
 
@@ -131,7 +150,7 @@ const SupplierManager = () => {
           await deleteSupplier(id, reason);
           queryClient.invalidateQueries({ queryKey: ['suppliers'] }); // تحديث القائمة فوراً
         } catch (error: any) {
-          alert('لا يمكن حذف المورد، قد يكون مرتبطاً بفواتير. الخطأ: ' + error.message);
+          showToast('لا يمكن حذف المورد، قد يكون مرتبطاً بفواتير. الخطأ: ' + error.message, 'error');
         }
       }
     }
@@ -326,13 +345,39 @@ const SupplierManager = () => {
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
             <div className="flex justify-between items-center mb-6">
               <h3 className="font-bold text-xl">{formData.id ? 'تعديل بيانات المورد' : 'إضافة مورد جديد'}</h3>
-              <button onClick={() => setIsModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+              <button onClick={() => { setIsModalOpen(false); setErrors({}); }}><X className="text-slate-400 hover:text-red-500" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div><label className="block text-sm font-bold mb-1">اسم المورد</label><input required type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border rounded-lg p-2" /></div>
-              <div><label className="block text-sm font-bold mb-1">رقم الهاتف</label><input type="text" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full border rounded-lg p-2" /></div>
-              <div><label className="block text-sm font-bold mb-1">الرقم الضريبي</label><input type="text" value={formData.tax_number || ''} onChange={e => setFormData({...formData, tax_number: e.target.value})} className="w-full border rounded-lg p-2" /></div>
-              <div><label className="block text-sm font-bold mb-1">العنوان</label><input type="text" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full border rounded-lg p-2" /></div>
+              <div>
+                <label className="block text-sm font-bold mb-1">اسم المورد</label>
+                <input type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border rounded-lg p-2" />
+                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1">رقم الهاتف</label>
+                <input type="text" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full border rounded-lg p-2" />
+                {errors.phone && <p className="text-red-500 text-xs mt-1">{errors.phone}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1">البريد الإلكتروني</label>
+                <input type="email" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full border rounded-lg p-2" />
+                {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1">الشخص المسؤول</label>
+                <input type="text" value={formData.contact_person || ''} onChange={e => setFormData({...formData, contact_person: e.target.value})} className="w-full border rounded-lg p-2" />
+                {errors.contact_person && <p className="text-red-500 text-xs mt-1">{errors.contact_person}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1">الرقم الضريبي</label>
+                <input type="text" value={formData.tax_number || ''} onChange={e => setFormData({...formData, tax_number: e.target.value})} className="w-full border rounded-lg p-2" />
+                {errors.tax_number && <p className="text-red-500 text-xs mt-1">{errors.tax_number}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1">العنوان</label>
+                <input type="text" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full border rounded-lg p-2" />
+                {errors.address && <p className="text-red-500 text-xs mt-1">{errors.address}</p>}
+              </div>
               <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mt-4">حفظ البيانات</button>
             </form>
           </div>

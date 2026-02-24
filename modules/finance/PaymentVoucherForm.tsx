@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
 import { PaymentVoucherPrint } from './PaymentVoucherPrint';
+import { VoucherSchema } from '../../utils/schemas';
 
 const PaymentVoucherForm = () => {
   const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers } = useAccounting();
@@ -26,6 +27,7 @@ const PaymentVoucherForm = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentVoucherId, setCurrentVoucherId] = useState<string | null>(null);
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
@@ -183,8 +185,25 @@ const PaymentVoucherForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.supplierId || !formData.treasuryId || formData.amount <= 0) {
-        alert('يرجى تعبئة جميع الحقول المطلوبة بشكل صحيح');
+    setErrors({});
+
+    // إعداد البيانات للتحقق
+    const validationData = {
+      amount: Number(formData.amount),
+      date: formData.date,
+      treasuryAccountId: formData.treasuryId,
+      description: formData.notes,
+      partyId: formData.supplierId,
+      paymentMethod: formData.paymentMethod,
+    };
+
+    const result = VoucherSchema.safeParse(validationData);
+
+    if (!result.success) {
+        const formattedErrors: Record<string, string> = {};
+        result.error.issues.forEach(issue => { formattedErrors[String(issue.path[0])] = issue.message; });
+        setErrors(formattedErrors);
+        showToast('يرجى تصحيح الأخطاء في النموذج', 'error');
         return;
     }
     setLoading(true);
@@ -273,6 +292,7 @@ const PaymentVoucherForm = () => {
         showToast('تم حفظ سند الصرف وترحيل القيد بنجاح', 'success');
         handleNew();
         setAttachments([]);
+        setErrors({});
 
     } catch (error: any) {
         console.error('Error saving payment voucher:', error);
@@ -345,14 +365,14 @@ const PaymentVoucherForm = () => {
                     <select 
                         value={formData.supplierId}
                         onChange={(e) => setFormData({...formData, supplierId: e.target.value})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 appearance-none"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.partyId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     >
                         <option value="">اختر المورد...</option>
                         {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     <User className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.partyId && <p className="text-red-500 text-xs mt-1">{errors.partyId}</p>}
             </div>
 
             {/* حساب الصرف */}
@@ -362,14 +382,14 @@ const PaymentVoucherForm = () => {
                     <select 
                         value={formData.treasuryId}
                         onChange={(e) => setFormData({...formData, treasuryId: e.target.value})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 appearance-none"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.treasuryAccountId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     >
                         <option value="">اختر الحساب...</option>
                         {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>)}
                     </select>
                     <Building2 className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.treasuryAccountId && <p className="text-red-500 text-xs mt-1">{errors.treasuryAccountId}</p>}
             </div>
 
             {/* المبلغ */}
@@ -382,11 +402,11 @@ const PaymentVoucherForm = () => {
                         step="0.01"
                         value={formData.amount}
                         onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value)})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 font-mono text-lg font-bold"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none font-mono text-lg font-bold ${errors.amount ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     />
                     <Wallet className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.amount && <p className="text-red-500 text-xs mt-1">{errors.amount}</p>}
             </div>
 
             {/* التاريخ */}
@@ -397,11 +417,11 @@ const PaymentVoucherForm = () => {
                         type="date" 
                         value={formData.date}
                         onChange={(e) => setFormData({...formData, date: e.target.value})}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500"
-                        required
+                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none ${errors.date ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     />
                     <Calendar className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
+                {errors.date && <p className="text-red-500 text-xs mt-1">{errors.date}</p>}
             </div>
 
             {/* مركز التكلفة */}
