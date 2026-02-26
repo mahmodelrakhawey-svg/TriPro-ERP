@@ -6,6 +6,17 @@ import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
+interface Product {
+  id: string;
+  name: string;
+  sku: string | null;
+  sales_price: number;
+  purchase_price: number;
+  weighted_average_cost?: number;
+  stock: number;
+  image_url?: string | null;
+}
+
 type Transaction = {
   id: string;
   date: string;
@@ -256,7 +267,7 @@ const StockCard = () => {
     }
   };
 
-  const selectedProduct = products.find(p => p.id === selectedProductId);
+  const selectedProduct = products.find(p => p.id === selectedProductId) as unknown as Product | undefined;
 
   const filteredTransactions = transactions.filter(t => 
     (!notesSearch || (t.notes && t.notes.toLowerCase().includes(notesSearch.toLowerCase()))) &&
@@ -296,7 +307,7 @@ const StockCard = () => {
                         <h2 style="margin: 0 0 10px 0; font-size: 18px;">${selectedProduct.name}</h2>
                         <div style="font-family: 'Libre Barcode 39', sans-serif; font-size: 40px; margin: 10px 0;">*${selectedProduct.sku || '0000'}*</div>
                         <p style="margin: 5px 0 0 0; font-weight: bold; font-family: monospace; font-size: 16px;">${selectedProduct.sku || 'No SKU'}</p>
-                        <p style="margin: 10px 0 0 0; font-size: 20px; font-weight: bold;">${(selectedProduct.sales_price || selectedProduct.price || 0).toLocaleString()} ج.م</p>
+                        <p style="margin: 10px 0 0 0; font-size: 20px; font-weight: bold;">${(selectedProduct.sales_price || 0).toLocaleString()} ج.م</p>
                     </div>
                     <script>window.onload = function() { window.print(); }</script>
                 </body>
@@ -342,8 +353,8 @@ const StockCard = () => {
       if (selectedProduct) {
           setEditFormData({
               name: selectedProduct.name,
-              sales_price: (selectedProduct as any).sales_price || (selectedProduct as any).price || 0,
-              purchase_price: (selectedProduct as any).purchase_price || (selectedProduct as any).cost || 0
+              sales_price: selectedProduct.sales_price || 0,
+              purchase_price: selectedProduct.purchase_price || 0
           });
           setIsEditModalOpen(true);
       }
@@ -619,9 +630,9 @@ const StockCard = () => {
           <div className="p-6 bg-slate-50 border-b flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-4">
                 <div className="relative group">
-                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden cursor-pointer hover:opacity-90 transition-opacity" onClick={() => (selectedProduct as any)?.image_url && setIsImageModalOpen(true)}>
-                        {(selectedProduct as any)?.image_url ? (
-                            <img src={(selectedProduct as any).image_url} alt={selectedProduct?.name} className="w-16 h-16 object-cover" />
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden cursor-pointer hover:opacity-90 transition-opacity" onClick={() => selectedProduct.image_url && setIsImageModalOpen(true)}>
+                        {selectedProduct.image_url ? (
+                            <img src={selectedProduct.image_url} alt={selectedProduct?.name} className="w-16 h-16 object-cover" />
                         ) : (
                             <div className="p-3">
                                 <Package size={32} className="text-blue-600" />
@@ -651,14 +662,14 @@ const StockCard = () => {
                 <div className="bg-white px-6 py-2 rounded-lg border border-slate-200 shadow-sm hidden md:block">
                     <p className="text-xs text-slate-500 font-bold uppercase">سعر البيع</p>
                     <p className="text-2xl font-black text-slate-700" dir="ltr">
-                        {((selectedProduct as any)?.sales_price || (selectedProduct as any)?.price || 0).toLocaleString()}
+                        {(selectedProduct.sales_price || 0).toLocaleString()}
                     </p>
                 </div>
                 {/* متوسط التكلفة */}
                 <div className="bg-white px-6 py-2 rounded-lg border border-slate-200 shadow-sm hidden md:block">
                     <p className="text-xs text-slate-500 font-bold uppercase">متوسط التكلفة</p>
                     <p className="text-2xl font-black text-amber-600" dir="ltr">
-                        {((selectedProduct as any)?.weighted_average_cost || (selectedProduct as any)?.purchase_price || (selectedProduct as any)?.cost || 0).toLocaleString()}
+                        {(selectedProduct.weighted_average_cost || selectedProduct.purchase_price || 0).toLocaleString()}
                     </p>
                 </div>
                 {/* الرصيد الإجمالي (دائماً يظهر) */}
@@ -746,7 +757,7 @@ const StockCard = () => {
       )}
 
       {/* Image Modal */}
-      {isImageModalOpen && (selectedProduct as any)?.image_url && (
+      {isImageModalOpen && selectedProduct?.image_url && (
         <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setIsImageModalOpen(false)}>
             <button 
                 onClick={() => setIsImageModalOpen(false)}
@@ -755,7 +766,7 @@ const StockCard = () => {
                 <X size={32} />
             </button>
             <img 
-                src={(selectedProduct as any).image_url} 
+                src={selectedProduct.image_url} 
                 alt={selectedProduct?.name} 
                 className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-in zoom-in duration-200"
                 onClick={(e) => e.stopPropagation()}

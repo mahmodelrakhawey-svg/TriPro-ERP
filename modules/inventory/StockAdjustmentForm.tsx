@@ -1,9 +1,16 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package, Upload, Download, Barcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
+
+interface AdjustmentItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+  type: 'in' | 'out';
+}
 
 const StockAdjustmentForm = () => {
   const location = useLocation();
@@ -11,7 +18,7 @@ const StockAdjustmentForm = () => {
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [reason, setReason] = useState('');
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<AdjustmentItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
@@ -67,7 +74,7 @@ const StockAdjustmentForm = () => {
 
   const handleTypeChange = (index: number, type: string) => {
     const newItems = [...items];
-    newItems[index].type = type;
+    newItems[index].type = type as 'in' | 'out';
     setItems(newItems);
   };
 
@@ -159,7 +166,7 @@ const StockAdjustmentForm = () => {
             itemsWithDetails.push({
                 name: item.productName,
                 sku: product?.sku || '0000',
-                price: product?.sales_price || product?.price || 0,
+                price: product?.sales_price || 0,
                 expiry: (product as any)?.expiry_date
             });
         }
@@ -256,8 +263,8 @@ const StockAdjustmentForm = () => {
         let totalValue = 0;
         items.forEach(item => {
             const product = products.find(p => p.id === item.productId);
-            const cost = product?.purchase_price || product?.cost || 0;
-            const qty = parseFloat(item.quantity);
+            const cost = product?.purchase_price || 0;
+            const qty = item.quantity;
             // إذا كانت زيادة (in) تضاف للقيمة، وإذا عجز (out) تطرح
             totalValue += (item.type === 'in' ? 1 : -1) * qty * cost;
         });

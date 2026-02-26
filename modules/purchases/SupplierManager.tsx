@@ -21,7 +21,7 @@ type Supplier = {
 
 const SupplierManager = () => {
   const queryClient = useQueryClient();
-  const { addSupplier, updateSupplier, deleteSupplier, currentUser, suppliers: contextSuppliers, addEntry, accounts, getSystemAccount } = useAccounting();
+  const { addSupplier, updateSupplier, deleteSupplier, currentUser, suppliers: contextSuppliers, addEntry, accounts, getSystemAccount, can } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   
@@ -130,8 +130,16 @@ const SupplierManager = () => {
 
     try {
         if (formData.id) {
+            if (!can('suppliers', 'update')) {
+                showToast('ليس لديك صلاحية تعديل بيانات الموردين', 'error');
+                return;
+            }
             await updateSupplier(formData.id, result.data);
         } else {
+            if (!can('suppliers', 'create')) {
+                showToast('ليس لديك صلاحية إضافة موردين جدد', 'error');
+                return;
+            }
             await addSupplier(result.data as any);
         }
         queryClient.invalidateQueries({ queryKey: ['suppliers'] }); // تحديث القائمة فوراً
@@ -143,6 +151,10 @@ const SupplierManager = () => {
   };
 
   const handleDelete = async (id: string) => {
+    if (!can('suppliers', 'delete')) {
+        showToast('ليس لديك صلاحية حذف الموردين', 'error');
+        return;
+    }
     if (window.confirm('هل أنت متأكد من حذف هذا المورد؟ سيتم نقله إلى سلة المحذوفات.')) {
       const reason = prompt("الرجاء إدخال سبب الحذف (إلزامي):");
       if (reason) {

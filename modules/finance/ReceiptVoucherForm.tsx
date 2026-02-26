@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { ArrowDownLeft, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { VoucherSchema } from '../../utils/schemas';
 
 const ReceiptVoucherForm = () => {
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can } = useAccounting();
   // const [customers, setCustomers] = useState<any[]>([]); // Removed
   const [formData, setFormData] = useState({
     customerId: '',
@@ -216,9 +216,20 @@ const ReceiptVoucherForm = () => {
         const voucherNumber = formData.voucherNumber || `RV-${Date.now().toString().slice(-6)}`;
 
         if (isEditing && currentVoucherId) {
+          if (!can('treasury', 'update')) {
+              showToast('ليس لديك صلاحية تعديل سندات القبض', 'error');
+              setLoading(false);
+              return;
+          }
           await updateVoucher(currentVoucherId, 'receipt', { ...formData, voucherNumber });
           showToast('تم تعديل السند بنجاح ✅', 'success');
           return;
+        }
+
+        if (!can('treasury', 'create')) {
+            showToast('ليس لديك صلاحية إنشاء سندات قبض', 'error');
+            setLoading(false);
+            return;
         }
 
         // استخدام الدالة الموحدة لجلب حساب العملاء

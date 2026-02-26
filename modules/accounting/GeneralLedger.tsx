@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Book, Filter, Search, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';

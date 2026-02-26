@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType, Account } from '../../types';
 import { X, Save } from 'lucide-react';
@@ -12,7 +12,7 @@ interface AddAccountModalProps {
 }
 
 const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAccountAdded, accountToEdit }) => {
-  const { accounts, addAccount, updateAccount, refreshData } = useAccounting();
+  const { accounts, addAccount, updateAccount, refreshData, can } = useAccounting();
   const [formData, setFormData] = useState({
     code: '',
     name: '',
@@ -90,8 +90,16 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
 
       if (accountToEdit) {
         // تحديث حساب موجود
+        if (!can('accounting', 'update')) {
+            setError('ليس لديك صلاحية تعديل الحسابات');
+            return;
+        }
         await updateAccount(accountToEdit.id, accountData);
       } else {
+        if (!can('accounting', 'create')) {
+            setError('ليس لديك صلاحية إضافة حسابات');
+            return;
+        }
         await addAccount({ ...accountData, is_active: true });
       }
 

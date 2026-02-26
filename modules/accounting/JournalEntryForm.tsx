@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
 import { JournalEntryLine, Account } from '../../types';
 import { useAccounting } from '../../context/AccountingContext';
@@ -10,7 +10,7 @@ import { useToastNotification } from '../../utils/toastUtils';
 import { JournalEntrySchema } from '../../utils/schemas';
 
 const JournalEntryForm = () => {
-  const { accounts, costCenters, addEntry } = useAccounting();
+  const { accounts, costCenters, addEntry, can } = useAccounting();
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   const [reference, setReference] = useState('');
@@ -98,6 +98,20 @@ const JournalEntryForm = () => {
     e.preventDefault();
     setIsSubmitting(true);
     setErrors({});
+
+    if (editingId) {
+        if (!can('journal_entries', 'update')) {
+            toast.error('ليس لديك صلاحية تعديل القيود');
+            setIsSubmitting(false);
+            return;
+        }
+    } else {
+        if (!can('journal_entries', 'create')) {
+            toast.error('ليس لديك صلاحية إنشاء قيود');
+            setIsSubmitting(false);
+            return;
+        }
+    }
 
     try {
       // 1. تجميع البيانات للتحقق

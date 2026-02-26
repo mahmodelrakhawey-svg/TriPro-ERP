@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -39,13 +39,8 @@ const InventoryCountForm = () => {
                 // محاولة الحصول على الرصيد: أولاً من رصيد المستودع المحدد، ثم من الرصيد العام
                 let currentQty = 0;
                 
-                // التعامل مع البيانات سواء جاءت من السياق (camelCase) أو من قاعدة البيانات مباشرة (snake_case)
-                let wStock = p.warehouse_stock || p.warehouseStock;
-                
-                // التأكد من أن wStock كائن وليس نصاً (في بعض الحالات النادرة قد يعود كنص من قاعدة البيانات)
-                if (typeof wStock === 'string') {
-                    try { wStock = JSON.parse(wStock); } catch (e) { wStock = {}; }
-                }
+                // استخدام الحقل القياسي warehouse_stock
+                let wStock = p.warehouse_stock || {};
 
                 // التحقق بدقة من وجود رصيد للمستودع
                 if (wStock && typeof wStock === 'object' && wStock[warehouseId] !== undefined) {
@@ -135,7 +130,7 @@ const InventoryCountForm = () => {
   const totalValueDiff = useMemo(() => {
       return items.reduce((sum, item) => {
           const product = products.find(p => p.id === item.productId);
-          const cost = product?.purchase_price || product?.cost || 0;
+          const cost = product?.purchase_price || 0;
           return sum + (item.difference * cost);
       }, 0);
   }, [items, products]);
@@ -234,7 +229,7 @@ const InventoryCountForm = () => {
                                           {item.difference > 0 ? '+' : ''}{item.difference}
                                       </td>
                                       <td className="py-4 px-6 text-center font-mono text-slate-600">
-                                          {(item.difference * (products.find(p => p.id === item.productId)?.purchase_price || products.find(p => p.id === item.productId)?.cost || 0)).toLocaleString()}
+                                          {(item.difference * (products.find(p => p.id === item.productId)?.purchase_price || 0)).toLocaleString()}
                                       </td>
                                   </tr>
                               ))}

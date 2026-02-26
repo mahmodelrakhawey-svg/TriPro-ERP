@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabaseClient';
 import { User } from '../types';
+import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -38,15 +39,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (profiles) {
         const mappedUsers = profiles.map((p: any) => ({
           id: p.id,
-          name: p.full_name || p.email || (p.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005' ? 'مستخدم ديمو' : `مستخدم (${p.id.slice(0, 8)})`),
-          username: p.email || (p.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005' ? 'demo@demo.com' : `user_${p.id.slice(0, 8)}`),
+          name: p.full_name || p.email || (p.id === DEMO_USER_ID ? 'مستخدم ديمو' : `مستخدم (${p.id.slice(0, 8)})`),
+          username: p.email || (p.id === DEMO_USER_ID ? DEMO_EMAIL : `user_${p.id.slice(0, 8)}`),
           role: p.role || 'viewer',
           is_active: p.is_active ?? true
         }));
         
         // إضافة المدير العام الافتراضي للقائمة
         const adminUser = {
-            id: '00000000-0000-0000-0000-000000000000',
+            id: ADMIN_USER_ID,
             name: 'المدير العام',
             username: 'admin',
             role: 'super_admin',
@@ -71,7 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const metaRole = user.user_metadata?.app_role;
         
         // فرض دور demo للمستخدم المحدد إذا كان هو المستخدم الحالي
-        const isDemoUser = user.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005';
+        const isDemoUser = user.id === DEMO_USER_ID;
         const roleName = isDemoUser ? 'demo' : (metaRole || profile?.role || 'viewer');
 
         if (profile) {

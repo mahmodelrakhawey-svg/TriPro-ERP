@@ -1,10 +1,10 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2 } from 'lucide-react';
+﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { useProducts } from '../hooks/usePermissions'; // استيراد الخطاف الجديد
 import { useQueryClient } from '@tanstack/react-query';
+import { usePagination } from '../../components/usePagination';
 import * as XLSX from 'xlsx';
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
@@ -12,6 +12,7 @@ type Item = {
   id: string;
   name: string;
   sku: string | null;
+  barcode?: string | null;
   sales_price: number;
   purchase_price: number; // هذا هو حقل التكلفة
   weighted_average_cost?: number; // متوسط التكلفة
@@ -25,25 +26,50 @@ type Item = {
   offer_price?: number | null;
   offer_start_date?: string | null;
   offer_end_date?: string | null;
+  min_stock_level?: number | null;
   offer_max_qty?: number | null;
 };
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts, warehouses } = useAccounting();
+  const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts, warehouses, can } = useAccounting();
   const { showToast } = useToast();
-  // استبدال الحالة اليدوية بـ React Query
-  const { data: serverItems = [], isLoading: serverLoading } = useProducts();
+  
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [showOffersOnly, setShowOffersOnly] = useState(false);
+
+  // تأخير البحث
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // إعداد استعلام البيانات
+  const queryModifier = useCallback((query: any) => {
+    if (debouncedSearch) {
+      query = query.or(`name.ilike.%${debouncedSearch}%,sku.ilike.%${debouncedSearch}%`);
+    }
+    if (showOffersOnly) {
+       const today = new Date().toISOString().split('T')[0];
+       query = query.gt('offer_price', 0).lte('offer_start_date', today).gte('offer_end_date', today);
+    }
+    return query;
+  }, [debouncedSearch, showOffersOnly]);
+
+  // استخدام Hook التصفح
+  const { data: serverItems, loading: serverLoading, page, setPage, totalPages, totalCount, refresh } = usePagination<Item>('products', { select: '*', pageSize: 20, orderBy: 'name', ascending: true }, queryModifier);
 
   // في وضع الديمو، نستخدم المنتجات من السياق (الوهمية)
-  const items = currentUser?.role === 'demo' ? contextProducts : serverItems;
+  const items = currentUser?.role === 'demo' 
+    ? contextProducts.filter(i => i.name.includes(searchTerm)) 
+    : serverItems;
+    
   const loading = currentUser?.role === 'demo' ? false : serverLoading;
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState('');
   const [uploading, setUploading] = useState(false);
   const [reservedStock, setReservedStock] = useState<Record<string, number>>({});
-  const [showOffersOnly, setShowOffersOnly] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkOfferModalOpen, setIsBulkOfferModalOpen] = useState(false);
   const [bulkOfferData, setBulkOfferData] = useState({
@@ -107,6 +133,7 @@ const ProductManager = () => {
   const [formData, setFormData] = useState({
     name: '',
     sku: '',
+    barcode: '',
     sales_price: 0,
     purchase_price: 0,
     item_type: 'STOCK',
@@ -129,6 +156,7 @@ const ProductManager = () => {
       setFormData({
         name: item.name,
         sku: item.sku || '',
+        barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
         purchase_price: item.purchase_price || 0,
         item_type: item.item_type || 'STOCK',
@@ -137,7 +165,7 @@ const ProductManager = () => {
         sales_account_id: item.sales_account_id || '',
         image_url: item.image_url || '',
         opening_stock: 0,
-        min_stock_level: (item as any).min_stock_level || 0,
+        min_stock_level: item.min_stock_level || 0,
         expiry_date: item.expiry_date || '',
         offer_price: item.offer_price || 0,
         offer_start_date: item.offer_start_date || '',
@@ -155,6 +183,7 @@ const ProductManager = () => {
       setFormData({ 
         name: '', 
         sku: '', 
+        barcode: '',
         sales_price: 0, 
         purchase_price: 0, 
         item_type: 'STOCK',
@@ -338,9 +367,14 @@ const ProductManager = () => {
 
       if (editingId) {
         // تحديث صنف موجود (تحديث عادي)
+        if (!can('products', 'update')) {
+            showToast('ليس لديك صلاحية تعديل المنتجات', 'error');
+            return;
+        }
         const itemData = {
             name: formData.name,
             sku: formData.sku || null,
+            barcode: formData.barcode || null,
             sales_price: formData.sales_price,
             purchase_price: formData.purchase_price,
             item_type: formData.item_type,
@@ -362,9 +396,14 @@ const ProductManager = () => {
       } else {
         // إضافة صنف جديد (استخدام الدالة لإنشاء الرصيد الافتتاحي)
         // استبدال RPC بإدراج مباشر لضمان العمل
+        if (!can('products', 'create')) {
+            showToast('ليس لديك صلاحية إضافة منتجات', 'error');
+            return;
+        }
         const { data: newProduct, error: prodError } = await supabase.from('products').insert({
             name: formData.name,
             sku: formData.sku || null,
+            barcode: formData.barcode || null,
             sales_price: formData.sales_price,
             purchase_price: formData.purchase_price,
             stock: formData.opening_stock,
@@ -444,6 +483,10 @@ const ProductManager = () => {
   };
 
   const handleDelete = async (id: string) => {
+    if (!can('products', 'delete')) {
+        showToast('ليس لديك صلاحية حذف المنتجات', 'error');
+        return;
+    }
     if (!window.confirm('هل أنت متأكد من حذف هذا الصنف؟ سيتم نقله إلى سلة المحذوفات.')) return;
     
     const reason = prompt("الرجاء إدخال سبب الحذف (إلزامي):");
@@ -522,6 +565,7 @@ const ProductManager = () => {
       setFormData({
         name: item.name,
         sku: item.sku || '',
+        barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
         purchase_price: item.purchase_price || 0,
         item_type: item.item_type || 'STOCK',
@@ -530,7 +574,7 @@ const ProductManager = () => {
         sales_account_id: item.sales_account_id || '',
         image_url: item.image_url || '',
         opening_stock: 0,
-        min_stock_level: (item as any).min_stock_level || 0,
+        min_stock_level: item.min_stock_level || 0,
         expiry_date: item.expiry_date || '',
         offer_price: item.offer_price || 0,
         offer_start_date: newStart,
@@ -595,15 +639,119 @@ const ProductManager = () => {
     }
   };
 
-  const filteredItems = (items as Item[]).filter(item => {
-    const matchesSearch = item.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (item.sku && item.sku.includes(searchTerm));
-
-    if (showOffersOnly) {
-        return matchesSearch && isOfferActive(item);
+  const handlePrintBarcode = (item: Item) => {
+    const printWindow = window.open('', '', 'width=800,height=600');
+    if (printWindow) {
+        printWindow.document.write(`
+            <html dir="rtl">
+            <head>
+                <title>طباعة باركود - ${item.name}</title>
+                <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Tajawal', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
+                    .label { 
+                        width: 50mm; 
+                        height: 30mm; 
+                        background: white; 
+                        border: 1px solid #ccc; 
+                        padding: 2px; 
+                        text-align: center; 
+                        display: flex; 
+                        flex-direction: column; 
+                        justify-content: center;
+                        align-items: center;
+                        box-sizing: border-box;
+                        border-radius: 4px;
+                    }
+                    .title { font-size: 10px; font-weight: bold; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+                    .price { font-size: 14px; font-weight: 900; color: #000; margin: 2px 0; }
+                    .barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 32px; line-height: 1; margin: 2px 0; }
+                    @media print {
+                        body { background: none; }
+                        .label { border: none; page-break-inside: avoid; margin: 0 auto; }
+                        @page { size: 50mm 30mm; margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="label">
+                    <div class="title">${item.name}</div>
+                    <div class="barcode">*${item.sku || '0000'}*</div>
+                    <div style="font-size: 8px;">${item.sku || ''}</div>
+                    <div class="price">${item.sales_price?.toLocaleString()}</div>
+                </div>
+                <script>window.onload = function() { window.print(); }</script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
     }
-    return matchesSearch;
-  });
+  };
+
+  const handleBulkPrintBarcodes = () => {
+    if (selectedIds.size === 0) return;
+    
+    const selectedItems = (items as Item[]).filter(i => selectedIds.has(i.id));
+    
+    const printWindow = window.open('', '', 'width=800,height=600');
+    if (printWindow) {
+        printWindow.document.write(`
+            <html dir="rtl">
+            <head>
+                <title>طباعة الباركود</title>
+                <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Tajawal', sans-serif; padding: 20px; background-color: #fff; }
+                    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
+                    .label { 
+                        border: 1px solid #eee; 
+                        padding: 2px; 
+                        text-align: center; 
+                        display: flex; 
+                        flex-direction: column; 
+                        justify-content: center;
+                        align-items: center;
+                        box-sizing: border-box;
+                        border-radius: 4px;
+                        page-break-inside: avoid;
+                        width: 50mm; height: 30mm;
+                        margin: 0 auto;
+                    }
+                    .title { font-size: 10px; font-weight: bold; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
+                    .price { font-size: 14px; font-weight: 900; color: #000; margin: 2px 0; }
+                    .barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 32px; line-height: 1; margin: 2px 0; }
+                    @media print {
+                        .no-print { display: none; }
+                        .grid { display: block; }
+                        .label { 
+                            border: none;
+                            page-break-after: always;
+                        }
+                        @page { size: 50mm 30mm; margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="no-print" style="margin-bottom: 20px; text-align: center;">
+                    <button onclick="window.print()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-family: inherit; font-weight: bold; cursor: pointer;">🖨️ طباعة الملصقات (${selectedItems.length})</button>
+                </div>
+                <div class="grid">
+                    ${selectedItems.map(item => `
+                        <div class="label">
+                            <div class="title">${item.name}</div>
+                            <div class="barcode">*${item.sku || '0000'}*</div>
+                            <div style="font-size: 8px;">${item.sku || ''}</div>
+                            <div class="price">${item.sales_price?.toLocaleString()}</div>
+                        </div>
+                    `).join('')}
+                </div>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    }
+  };
+
 
   const toggleSelection = (id: string) => {
     const newSet = new Set(selectedIds);
@@ -616,16 +764,21 @@ const ProductManager = () => {
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.size === filteredItems.length && filteredItems.length > 0) {
+    if (selectedIds.size === items.length && items.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(filteredItems.map(i => i.id)));
+      setSelectedIds(new Set(items.map(i => i.id)));
     }
   };
 
   const handleBulkOfferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedIds.size === 0) return;
+    
+    if (!can('products', 'update')) {
+        showToast('ليس لديك صلاحية تعديل المنتجات (العروض)', 'error');
+        return;
+    }
     
     if (currentUser?.role === 'demo') {
         showToast(`تم تطبيق العرض على ${selectedIds.size} صنف بنجاح (محاكاة)`, 'success');
@@ -662,7 +815,7 @@ const ProductManager = () => {
         await Promise.all(updates);
         
         showToast('تم تطبيق العرض الجماعي بنجاح ✅', 'success');
-        queryClient.invalidateQueries({ queryKey: ['products'] });
+        refresh();
         setIsBulkOfferModalOpen(false);
         setSelectedIds(new Set());
     } catch (error: any) {
@@ -733,10 +886,16 @@ const ProductManager = () => {
                 <span className="hidden md:inline">العروض</span>
             </button>
             {selectedIds.size > 0 && (
-                <button onClick={() => setIsBulkOfferModalOpen(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-purple-700 animate-in zoom-in">
-                    <Tag size={18} />
-                    تطبيق عرض ({selectedIds.size})
-                </button>
+                <>
+                    <button onClick={() => setIsBulkOfferModalOpen(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-purple-700 animate-in zoom-in">
+                        <Tag size={18} />
+                        تطبيق عرض ({selectedIds.size})
+                    </button>
+                    <button onClick={handleBulkPrintBarcodes} className="bg-slate-800 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-slate-900 animate-in zoom-in">
+                        <Barcode size={18} />
+                        طباعة باركود ({selectedIds.size})
+                    </button>
+                </>
             )}
         </div>
       </div>
@@ -747,7 +906,7 @@ const ProductManager = () => {
             <tr>
               <th className="p-4 w-10">
                   <button onClick={handleSelectAll} className="text-slate-400 hover:text-blue-600">
-                      {selectedIds.size === filteredItems.length && filteredItems.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
+                      {selectedIds.size === items.length && items.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
                   </button>
               </th>
               <th className="p-4 w-16">الصورة</th>
@@ -762,7 +921,7 @@ const ProductManager = () => {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {filteredItems.map(item => (
+            {items.map(item => (
               <tr key={item.id} className="hover:bg-slate-50">
                 <td className="p-4">
                     <button onClick={() => toggleSelection(item.id)} className={selectedIds.has(item.id) ? "text-blue-600" : "text-slate-300"}>
@@ -829,16 +988,35 @@ const ProductManager = () => {
                           <RefreshCw size={18} />
                       </button>
                   )}
+                  <button onClick={() => handlePrintBarcode(item)} className="p-2 text-slate-500 hover:bg-slate-100 rounded" title="طباعة باركود">
+                      <Barcode size={18} />
+                  </button>
                   <button onClick={() => handleOpenModal(item)} className="p-2 text-blue-500 hover:bg-blue-50 rounded"><Edit size={18}/></button>
                   <button onClick={() => handleDelete(item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded"><Trash2 size={18}/></button>
                 </td>
               </tr>
             ))}
-            {filteredItems.length === 0 && (
+            {items.length === 0 && (
               <tr><td colSpan={6} className="p-8 text-center text-slate-400">لا توجد أصناف مسجلة</td></tr>
             )}
           </tbody>
         </table>
+
+        {/* Pagination Controls */}
+        <div className="bg-slate-50 p-4 border-t border-slate-200 flex items-center justify-between">
+            <div className="text-sm text-slate-500">
+                عرض {items.length} من أصل {totalCount} صنف
+            </div>
+            <div className="flex items-center gap-2">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
+                    <ChevronRight size={20} />
+                </button>
+                <span className="font-bold text-slate-700">صفحة {page} من {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
+                    <ChevronLeft size={20} />
+                </button>
+            </div>
+        </div>
       </div>
 
       {isModalOpen && (
@@ -884,9 +1062,13 @@ const ProductManager = () => {
                         <option value="SERVICE">خدمة (ليس لها مخزون)</option>
                       </select>
                     </div>
-                    <div>
+                    <div className="col-span-2 md:col-span-1">
                         <label className="block text-sm font-bold mb-1 text-slate-700">الكود (SKU)</label>
                         <input type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full border rounded-lg p-2 font-mono" />
+                    </div>
+                    <div className="col-span-2 md:col-span-1">
+                        <label className="block text-sm font-bold mb-1 text-slate-700">الباركود</label>
+                        <input type="text" value={formData.barcode} onChange={e => setFormData({...formData, barcode: e.target.value})} className="w-full border rounded-lg p-2 font-mono" placeholder="Scan..." />
                     </div>
                     <div>
                         <label className="block text-sm font-bold mb-1 text-slate-700">حد الطلب (للتنبيهات)</label>

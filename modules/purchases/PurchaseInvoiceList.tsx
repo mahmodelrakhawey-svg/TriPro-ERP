@@ -1,18 +1,30 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
-import { FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, Edit, CheckCircle, DollarSign, X } from 'lucide-react';
+import { FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, Edit, CheckCircle, DollarSign, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { usePagination } from '../../components/usePagination';
+
+type PurchaseInvoice = {
+  id: string;
+  invoice_number: string;
+  supplier_id: string;
+  invoice_date: string;
+  total_amount: number;
+  tax_amount: number;
+  status: 'draft' | 'posted' | 'paid';
+  suppliers: {
+    name: string;
+  };
+};
 
 const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
   const { approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, accounts } = useAccounting();
   const { showToast } = useToast();
-  const [invoices, setInvoices] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [invoiceToPrint, setInvoiceToPrint] = useState<any | null>(null);
 
@@ -26,64 +38,61 @@ const PurchaseInvoiceList = () => {
     notes: ''
   });
 
+  // تأخير البحث لتقليل الطلبات
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(searchTerm), 500);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // إعداد استعلام البيانات مع الفلترة والصفحات
+  const queryModifier = useCallback((query: any) => {
+    if (debouncedSearch) {
+      query = query.ilike('invoice_number', `%${debouncedSearch}%`);
+    }
+    if (filterStatus !== 'all') {
+      query = query.eq('status', filterStatus);
+    }
+    return query;
+  }, [debouncedSearch, filterStatus]);
+
+  const { 
+    data: invoices, 
+    loading, 
+    error, 
+    page, 
+    setPage, 
+    totalPages, 
+    totalCount,
+    refresh 
+  } = usePagination<PurchaseInvoice>(
+    'purchase_invoices',
+    { 
+      select: '*, suppliers(name)', 
+      pageSize: 10, 
+      orderBy: 'created_at', 
+      ascending: false 
+    },
+    queryModifier
+  );
+
   // تصفية حسابات النقدية والبنوك للدفع
   const treasuryAccounts = useMemo(() => {
     return accounts.filter(a => !a.isGroup && (a.code.startsWith('123') || a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('بنك') || a.type === 'ASSET'));
   }, [accounts]);
-
-  const fetchInvoices = async () => {
-    setLoading(true);
-    setError(null);
-
-    if (currentUser?.role === 'demo') {
-        setInvoices([
-            { id: 'demo-pi1', invoice_number: 'PINV-DEMO-001', suppliers: { name: 'شركة التوريدات العالمية' }, invoice_date: new Date().toISOString().split('T')[0], total_amount: 25000, tax_amount: 3750, status: 'posted' },
-            { id: 'demo-pi2', invoice_number: 'PINV-DEMO-002', suppliers: { name: 'مصنع الجودة' }, invoice_date: new Date(Date.now() - 86400000).toISOString().split('T')[0], total_amount: 12000, tax_amount: 1800, status: 'draft' }
-        ]);
-        setLoading(false);
-        return;
-    }
-
-    try {
-      const { data, error: fetchError } = await supabase
-        .from('purchase_invoices')
-        .select('*, suppliers(name)')
-        .order('created_at', { ascending: false });
-      
-      if (fetchError) throw fetchError;
-      setInvoices(data || []);
-    } catch (err: any) {
-      console.error('Error fetching invoices:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchInvoices();
-  }, []);
-
-  const filteredInvoices = invoices.filter(inv => {
-    const matchesSearch = (inv.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (inv.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = filterStatus === 'all' || inv.status === filterStatus;
-    return matchesSearch && matchesStatus;
-  });
 
   const handleApprove = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من ترحيل فاتورة المشتريات؟ سيتم إنشاء القيد وتحديث المخزون.')) return;
     try {
       await approvePurchaseInvoice(id);
       showToast('تم ترحيل الفاتورة بنجاث ✅', 'success');
-      fetchInvoices();
+      refresh();
     } catch (err: any) {
       console.error(err);
       showToast('فشل الترحيل: ' + err.message, 'error');
     }
   };
 
-  const openPaymentModal = (invoice: any) => {
+  const openPaymentModal = (invoice: PurchaseInvoice) => {
     setSelectedInvoiceForPayment(invoice);
     setPaymentFormData({
         amount: invoice.total_amount, // افتراضياً سداد كامل المبلغ
@@ -119,7 +128,7 @@ const PurchaseInvoiceList = () => {
     }
   };
 
-  const handlePrint = async (invoice: any) => {
+  const handlePrint = async (invoice: PurchaseInvoice) => {
     const { data, error } = await supabase
       .from('purchase_invoices')
       .select('*, suppliers(*), purchase_invoice_items!purchase_invoice_items_purchase_invoice_id_fkey(*, products(name, sku))')
@@ -166,7 +175,7 @@ const PurchaseInvoiceList = () => {
             <FileText className="text-blue-600" /> سجل فواتير المشتريات
         </h2>
         <button 
-            onClick={fetchInvoices} 
+            onClick={refresh} 
             className="flex items-center gap-2 bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 font-bold text-sm transition-colors"
         >
             <RotateCcw size={16} /> تحديث
@@ -178,7 +187,7 @@ const PurchaseInvoiceList = () => {
             <Search className="absolute right-3 top-3 text-slate-400" size={20} />
             <input 
                 type="text" 
-                placeholder="بحث برقم الفاتورة أو اسم المورد..." 
+                placeholder="بحث برقم الفاتورة..." 
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 className="w-full pr-10 pl-4 py-2 border rounded-lg focus:outline-none focus:border-blue-500"
@@ -186,7 +195,7 @@ const PurchaseInvoiceList = () => {
         </div>
         <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
+            onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
             className="border rounded-lg px-4 py-2 focus:outline-none focus:border-blue-500 bg-white text-slate-700 font-medium"
         >
             <option value="all">جميع الحالات</option>
@@ -222,7 +231,7 @@ const PurchaseInvoiceList = () => {
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                    {filteredInvoices.map(invoice => (
+                    {invoices.map(invoice => (
                         <tr key={invoice.id} className={`transition-colors ${invoice.status === 'draft' ? 'bg-red-50 hover:bg-red-100' : 'hover:bg-slate-50'}`}>
                             <td className="p-4 font-mono text-slate-700">{invoice.invoice_number || '-'}</td>
                             <td className="p-4 font-bold text-slate-800">{invoice.suppliers?.name || 'مورد غير معروف'}</td>
@@ -267,10 +276,26 @@ const PurchaseInvoiceList = () => {
                         </tr>
                     ))}
                 </tbody>
-                {filteredInvoices.length === 0 && !error && (
+                {invoices.length === 0 && !error && (
                     <tbody><tr><td colSpan={7} className="p-12 text-center text-slate-400 font-medium">لا توجد فواتير مشتريات مطابقة</td></tr></tbody>
                 )}
             </table>
+
+            {/* Pagination Controls */}
+            <div className="bg-slate-50 p-4 border-t border-slate-200 flex items-center justify-between">
+                <div className="text-sm text-slate-500">
+                    عرض {invoices.length} من أصل {totalCount} فاتورة
+                </div>
+                <div className="flex items-center gap-2">
+                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
+                        <ChevronRight size={20} />
+                    </button>
+                    <span className="font-bold text-slate-700">صفحة {page} من {totalPages}</span>
+                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
+                        <ChevronLeft size={20} />
+                    </button>
+                </div>
+            </div>
         </div>
       )}
 

@@ -4,6 +4,15 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useProducts } from '../hooks/usePermissions';
 import { Loader2, Save, Search, X, CircleDollarSign } from 'lucide-react';
 
+interface Product {
+  id: string;
+  name: string;
+  sku: string | null;
+  stock: number;
+  purchase_price: number;
+  weighted_average_cost?: number;
+}
+
 const InventoryRevaluation = () => {
   const { currentUser, products: contextProducts } = useAccounting();
   const { data: serverProducts = [], isLoading: productsLoading, refetch: refetchProducts } = useProducts();
@@ -22,19 +31,16 @@ const InventoryRevaluation = () => {
   const [saving, setSaving] = useState(false);
 
   const selectedProduct = useMemo(() => {
-    // @ts-ignore
-    return products.find(p => p.id === selectedProductId);
+    return products.find(p => p.id === selectedProductId) as unknown as Product | undefined;
   }, [selectedProductId, products]);
 
   const oldCost = useMemo(() => {
     if (!selectedProduct) return 0;
-    // @ts-ignore
-    return selectedProduct.weighted_average_cost || selectedProduct.cost || 0;
+    return selectedProduct.weighted_average_cost || selectedProduct.purchase_price || 0;
   }, [selectedProduct]);
 
   const stock = useMemo(() => {
     if (!selectedProduct) return 0;
-    // @ts-ignore
     return selectedProduct.stock || 0;
   }, [selectedProduct]);
 

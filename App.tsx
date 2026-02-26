@@ -51,6 +51,7 @@ import InventoryRevaluation from './modules/inventory/InventoryRevaluation';
 import StockMovementCostReport from './modules/inventory/StockMovementCostReport';
 import ReceiptVoucherList from './modules/finance/ReceiptVoucherList';
 import PaymentVoucherForm from './modules/finance/PaymentVoucherForm';
+import InventoryDashboard from './modules/inventory/InventoryDashboard';
 import PaymentVoucherList from './modules/finance/PaymentVoucherList';
 import ExpenseVoucherForm from './modules/finance/ExpenseVoucherForm';
 import CustomerDepositForm from './modules/finance/CustomerDepositForm';
@@ -313,6 +314,7 @@ const MainLayout = () => {
                 <Route path="/supplier-reconciliation" element={<SupplierBalanceReconciliation />} />
                 <Route path="/supplier-balances" element={<SupplierBalancesReport />} />
                 <Route path="/warehouses" element={<WarehouseManager />} />
+                <Route path="/inventory-dashboard" element={<InventoryDashboard />} />
                 <Route path="/products" element={<ProductManager />} />
                 <Route path="/inventory-count" element={<InventoryCountForm />} />
                 <Route path="/item-movement" element={<ItemMovementReport />} />

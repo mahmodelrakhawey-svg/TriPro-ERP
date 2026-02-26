@@ -430,6 +430,12 @@ const Sidebar = () => {
                     <span className="whitespace-nowrap">إدارة المخزون</span>
                     <span className="w-full h-px bg-slate-200"></span>
                 </div>
+                {canShow(['inventory', 'reports'], ['dashboard', 'view', 'read']) && (
+                <Link to="/inventory-dashboard" className={getNavClass('/inventory-dashboard')}>
+                <LayoutDashboard size={18} />
+                <span>لوحة تحكم المخزون</span>
+                </Link>
+                )}
                 {canShow(['inventory'], ['create', 'read']) && (
                 <Link to="/warehouses" className={getNavClass('/warehouses')}>
                 <Store size={18} />

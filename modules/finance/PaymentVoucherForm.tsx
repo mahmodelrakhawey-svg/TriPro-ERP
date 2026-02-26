@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -7,7 +7,7 @@ import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 import { VoucherSchema } from '../../utils/schemas';
 
 const PaymentVoucherForm = () => {
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can } = useAccounting();
   const { showToast } = useToast();
   // const [suppliers, setSuppliers] = useState<any[]>([]); // Removed: Use suppliers from context
   const [formData, setFormData] = useState({
@@ -214,9 +214,20 @@ const PaymentVoucherForm = () => {
         const voucherNumber = formData.voucherNumber || `PV-${Date.now().toString().slice(-6)}`;
 
         if (isEditing && currentVoucherId) {
+          if (!can('treasury', 'update')) {
+              showToast('ليس لديك صلاحية تعديل سندات الصرف', 'error');
+              setLoading(false);
+              return;
+          }
           await updateVoucher(currentVoucherId, 'payment', { ...formData, voucherNumber });
-          alert('تم تعديل السند بنجاح ✅');
+          showToast('تم تعديل السند بنجاح ✅', 'success');
           return;
+        }
+
+        if (!can('treasury', 'create')) {
+            showToast('ليس لديك صلاحية إنشاء سندات صرف', 'error');
+            setLoading(false);
+            return;
         }
 
         // البحث عن حساب الموردين (201)

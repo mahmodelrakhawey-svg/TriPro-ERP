@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
 import { Shield, User, CheckCircle, XCircle, AlertTriangle, PenTool, Plus, X, Save, Loader2, KeyRound, Trash2, Clock } from 'lucide-react';
+import { DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
 
 // تعريف أنواع البيانات
 type UserProfile = {
@@ -40,8 +41,7 @@ const UserManager = () => {
     try {
       if (currentUserRole === 'demo') {
           setUsers([
-              { id: 'demo-u1', full_name: 'مستخدم تجريبي', email: 'demo@demo.com', role: 'demo', is_active: true, created_at: new Date().toISOString(), last_activity: new Date().toISOString() },
-              { id: 'demo-u2', full_name: 'مدير النظام', email: 'admin@company.com', role: 'admin', is_active: true, created_at: new Date(Date.now() - 864000000).toISOString(), last_activity: new Date(Date.now() - 3600000).toISOString() },
+              { id: 'demo-u1', full_name: 'مستخدم تجريبي', email: 'admin@company.com', role: 'admin', is_active: true, created_at: new Date(Date.now() - 864000000).toISOString(), last_activity: new Date(Date.now() - 3600000).toISOString() },
               { id: 'demo-u3', full_name: 'محاسب المبيعات', email: 'sales@company.com', role: 'accountant', is_active: true, created_at: new Date(Date.now() - 1728000000).toISOString(), last_activity: new Date(Date.now() - 7200000).toISOString() }
           ]);
           setLoading(false);
@@ -64,7 +64,7 @@ const UserManager = () => {
       // أو عرضه كـ "مستخدم [ID]"
       const profilesWithEmail = profiles.map((p: any) => ({
           ...p,
-          email: p.email || (p.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005' ? 'demo@demo.com' : null) // حل مؤقت للديمو إذا لم يكن الإيميل في البروفايل
+          email: p.email || (p.id === DEMO_USER_ID ? DEMO_EMAIL : null)
       }));
 
       // جلب آخر نشاط لكل مستخدم من سجلات الأمان

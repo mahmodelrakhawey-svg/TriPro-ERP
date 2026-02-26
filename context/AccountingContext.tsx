@@ -9,6 +9,7 @@ import {
   Cheque, Asset, Employee, PayrollRun, Quotation, PurchaseOrder, InventoryCount, Budget, AppNotification, ActivityLogEntry
 } from '../types';
 import { INITIAL_ACCOUNTS } from '../constants';
+import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
 
 // دالة مساعدة لتوليد UUID
 const generateUUID = () => {
@@ -381,7 +382,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     companyName: 'TriPro ERP', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'EGP', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500, decimalPlaces: 2,
     logoUrl: 'https://placehold.co/400x150/2563eb/ffffff?text=TriPro+ERP' // لوجو افتراضي للهوية البصرية
   });
-  const [users, setUsers] = useState<User[]>([{ id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', password: '123', role: 'admin', is_active: true }]);
+  const [users, setUsers] = useState<User[]>([{ id: ADMIN_USER_ID, name: 'المدير العام', username: 'admin', password: '123', role: 'admin', is_active: true }]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set());
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -534,7 +535,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
 
-    const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === 'demo@demo.com' || session?.user?.id === 'f95ae857-91fb-4637-8c6a-7fe45e8fa005';
+    const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
     // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
     const shouldFetchProtected = !!session;
 
@@ -569,7 +570,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         
         // تعيين المستخدمين للديمو
         setUsers([
-            { id: '00000000-0000-0000-0000-000000000000', name: 'المدير العام', username: 'admin', role: 'super_admin', is_active: true },
+            { id: ADMIN_USER_ID, name: 'المدير العام', username: 'admin', role: 'super_admin', is_active: true },
             { id: 'demo-u1', name: 'أحمد محمد', username: 'ahmed', role: 'sales', is_active: true },
             { id: 'demo-u2', name: 'سارة علي', username: 'sara', role: 'sales', is_active: true }
         ]);
@@ -582,7 +583,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             taxNumber: '300123456700003',
             address: 'الرياض - المملكة العربية السعودية',
             phone: '0501234567',
-            email: 'info@demo.com',
+            email: `info@${DEMO_EMAIL.split('@')[1]}`,
             vatRate: 15,
             currency: 'SAR',
             footerText: 'نسخة تجريبية - جميع البيانات وهمية',
@@ -1308,7 +1309,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             
             const email = (user.email || profile?.email || '').toLowerCase();
             // فرض دور demo للمستخدم المحدد
-            const isDemoUser = email === 'demo@demo.com';
+            const isDemoUser = email === DEMO_EMAIL;
             
             // تحديد الدور: الديمو أولاً، ثم البيانات الوصفية، ثم البروفايل، وأخيراً viewer
             const roleName = isDemoUser ? 'demo' : (user.user_metadata?.app_role || profile?.role || 'viewer');
@@ -1367,7 +1368,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // حفظ النشاط في سجلات الأمان بقاعدة البيانات لضمان ظهوره في صفحة السجلات
     try {
         // السماح بتسجيل عمليات المدير العام الافتراضي (ID الأصفار)
-        const isHardcodedAdmin = currentUser?.id === '00000000-0000-0000-0000-000000000000';
+        const isHardcodedAdmin = currentUser?.id === ADMIN_USER_ID;
         
         if (currentUser) {
             await supabase.from('security_logs').insert({
@@ -3092,7 +3093,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.log("Step 1: Deleting attachments...");
         const attachmentTables = ['journal_attachments', 'cheque_attachments', 'receipt_voucher_attachments', 'payment_voucher_attachments'];
         for (const table of attachmentTables) {
-            const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            const { error } = await supabase.from(table).delete().neq('id', ADMIN_USER_ID);
             if (error) throw new Error(`فشل حذف المرفقات من جدول ${table}: ${error.message}`);
         }
 
@@ -3104,7 +3105,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             'stock_adjustment_items', 'inventory_count_items'
         ];
         for (const table of itemTables) {
-            const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            const { error } = await supabase.from(table).delete().neq('id', ADMIN_USER_ID);
             if (error) throw new Error(`فشل حذف البنود من جدول ${table}: ${error.message}`);
         }
 
@@ -3117,32 +3118,32 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             'inventory_counts', 'cheques', 'assets', 'opening_inventories', 'work_orders'
         ];
         for (const table of documentTables) {
-            const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+            const { error } = await supabase.from(table).delete().neq('id', ADMIN_USER_ID);
             if (error) throw new Error(`فشل حذف المستندات من جدول ${table}: ${error.message}`);
         }
 
         // Step 4: Now that documents are gone, delete journal lines.
         console.log("Step 4: Deleting journal lines...");
-        const { error: jlError } = await supabase.from('journal_lines').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        const { error: jlError } = await supabase.from('journal_lines').delete().neq('id', ADMIN_USER_ID);
         if (jlError) throw new Error(`فشل حذف أسطر القيود: ${jlError.message}`);
 
         // Step 5: Finally, delete the journal entries themselves.
         console.log("Step 5: Deleting journal entries...");
-        const { error: jeError } = await supabase.from('journal_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        const { error: jeError } = await supabase.from('journal_entries').delete().neq('id', ADMIN_USER_ID);
         if (jeError) throw new Error(`فشل حذف القيود: ${jeError.message}`);
 
         // Step 6: Reset product stock.
         console.log("Step 6: Resetting product stock...");
-        await supabase.from('products').update({ stock: 0, warehouse_stock: {} }).neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('products').update({ stock: 0, warehouse_stock: {} }).neq('id', ADMIN_USER_ID);
 
         // Step 7: Clean up logs and notifications.
         console.log("Step 7: Cleaning logs and notifications...");
-        await supabase.from('notifications').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-        await supabase.from('security_logs').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('notifications').delete().neq('id', ADMIN_USER_ID);
+        await supabase.from('security_logs').delete().neq('id', ADMIN_USER_ID);
 
         // Step 8: Reset account balances in the accounts table
         console.log("Step 8: Resetting account balances...");
-        await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+        await supabase.from('accounts').update({ balance: 0 }).neq('id', ADMIN_USER_ID);
 
         showToast('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد.', 'success');
         window.location.reload();
@@ -3347,7 +3348,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings, updateSettings: (newSettings) => {
           setSettings(newSettings);
           supabase.from('company_settings').upsert({
-              id: '00000000-0000-0000-0000-000000000000',
+              id: ADMIN_USER_ID,
               company_name: newSettings.companyName,
               tax_number: newSettings.taxNumber,
               address: newSettings.address,
