@@ -4,9 +4,11 @@ import { supabase } from '../services/supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalEntry } from '../types';
 import { Edit, CheckCircle, FileText, Clock, Copy } from 'lucide-react';
+import { useToast } from '../context/ToastContext';
 
 const DraftJournalsList = () => {
   const { accounts, refreshData } = useAccounting();
+  const { showToast } = useToast();
   const [drafts, setDrafts] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
@@ -62,12 +64,12 @@ const DraftJournalsList = () => {
 
       if (error) throw error;
 
-      alert('تم ترحيل القيد بنجاح');
+      showToast('تم ترحيل القيد بنجاح', 'success');
       await refreshData();
       fetchDrafts(); // تحديث القائمة
     } catch (error) {
       console.error('Error posting entry:', error);
-      alert('حدث خطأ أثناء الترحيل');
+      showToast('حدث خطأ أثناء الترحيل', 'error');
     }
   };
 

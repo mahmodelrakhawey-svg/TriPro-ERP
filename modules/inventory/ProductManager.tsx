@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
 import * as XLSX from 'xlsx';
+import { createProductSchema } from '../../utils/validationSchemas';
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
 type Item = {
@@ -340,6 +341,24 @@ const ProductManager = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // 1. التحقق باستخدام Zod
+    const validationData = {
+        name: formData.name,
+        sku: formData.sku || undefined,
+        item_type: formData.item_type,
+        purchase_price: formData.purchase_price,
+        sales_price: formData.sales_price,
+        inventory_account_id: formData.inventory_account_id || undefined,
+        cogs_account_id: formData.cogs_account_id || undefined,
+        sales_account_id: formData.sales_account_id || undefined,
+    };
+
+    const validationResult = createProductSchema.safeParse(validationData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
+
     // التحقق الصارم من الحسابات
     if (formData.item_type === 'STOCK') {
       if (!formData.inventory_account_id || !formData.cogs_account_id || !formData.sales_account_id) {
@@ -348,11 +367,7 @@ const ProductManager = () => {
       }
     }
 
-    if (formData.sales_price < formData.purchase_price) {
-        if (!window.confirm(`تنبيه: سعر البيع (${formData.sales_price}) أقل من سعر التكلفة (${formData.purchase_price})! هل أنت متأكد من الحفظ؟`)) {
-            return;
-        }
-    }
+    // ملاحظة: التحقق من سعر البيع >= سعر الشراء يتم الآن عبر Zod Schema
 
     if (currentUser?.role === 'demo') {
         showToast('تم حفظ الصنف بنجاح وتوجيهه محاسبياً ✅ (محاكاة)', 'success');

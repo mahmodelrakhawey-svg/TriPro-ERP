@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
+import { useToast } from '../context/ToastContext';
 import { Shield, User, CheckCircle, XCircle, AlertTriangle, PenTool, Plus, X, Save, Loader2, KeyRound, Trash2, Clock } from 'lucide-react';
 import { DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
 
@@ -17,6 +18,7 @@ type UserProfile = {
 
 const UserManager = () => {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -97,13 +99,13 @@ const UserManager = () => {
   // تحديث دور المستخدم
   const updateUserRole = async (userId: string, newRole: string) => {
     if (currentUserRole === 'demo') {
-        alert('تم تحديث صلاحيات المستخدم بنجاح (محاكاة)');
+        showToast('تم تحديث صلاحيات المستخدم بنجاح (محاكاة)', 'success');
         // تحديث الحالة محلياً فقط للعرض
         setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole as any } : u));
         return;
     }
     if (currentUserRole !== 'super_admin') {
-      alert('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط');
+      showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
       return;
     }
 
@@ -112,19 +114,19 @@ const UserManager = () => {
       .update({ role: newRole })
       .eq('id', userId);
 
-    if (error) alert('فشل التحديث: ' + error.message);
+    if (error) showToast('فشل التحديث: ' + error.message, 'error');
     else fetchUsers();
   };
 
   // تفعيل/تعطيل المستخدم
   const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
     if (currentUserRole === 'demo') {
-        alert(`تم ${currentStatus ? 'تعطيل' : 'تفعيل'} المستخدم بنجاح (محاكاة)`);
+        showToast(`تم ${currentStatus ? 'تعطيل' : 'تفعيل'} المستخدم بنجاح (محاكاة)`, 'success');
         setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !currentStatus } : u));
         return;
     }
     if (currentUserRole !== 'super_admin') {
-      alert('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط');
+      showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
       return;
     }
 
@@ -133,7 +135,7 @@ const UserManager = () => {
       .update({ is_active: !currentStatus })
       .eq('id', userId);
 
-    if (error) alert('فشل التحديث: ' + error.message);
+    if (error) showToast('فشل التحديث: ' + error.message, 'error');
     else fetchUsers();
   };
 
@@ -149,7 +151,7 @@ const UserManager = () => {
         return;
     }
     if (currentUserRole !== 'super_admin') {
-        alert('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط');
+        showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
         return;
     }
 
@@ -159,7 +161,7 @@ const UserManager = () => {
         .eq('id', userId);
 
     if (error) {
-        alert('فشل تحديث الاسم: ' + error.message);
+        showToast('فشل تحديث الاسم: ' + error.message, 'error');
     }
     setEditingUserId(null);
     fetchUsers(); // أعد تحميل البيانات لإظهار الاسم الجديد
@@ -171,7 +173,7 @@ const UserManager = () => {
 
     if (currentUserRole === 'demo') {
         setTimeout(() => {
-            alert('تم إنشاء المستخدم بنجاح! ✅ (محاكاة)');
+            showToast('تم إنشاء المستخدم بنجاح! ✅ (محاكاة)', 'success');
             const fakeUser: UserProfile = { id: `new-demo-${Date.now()}`, email: newUserData.email, full_name: newUserData.fullName, role: newUserData.role as any, is_active: true, created_at: new Date().toISOString() };
             setUsers(prev => [fakeUser, ...prev]);
             setIsAddModalOpen(false);
@@ -207,13 +209,13 @@ const UserManager = () => {
       // التريجر (handle_new_user) في قاعدة البيانات سيقوم بذلك تلقائياً
       // باستخدام الدور الذي تم تمريره أعلاه.
 
-      alert('تم إنشاء المستخدم بنجاح! ✅\nسيتمكن المستخدم من تسجيل الدخول فوراً.');
+      showToast('تم إنشاء المستخدم بنجاح! ✅ سيتمكن المستخدم من تسجيل الدخول فوراً.', 'success');
       setIsAddModalOpen(false);
       setNewUserData({ email: '', password: '', fullName: '', role: 'viewer' });
       fetchUsers(); // تحديث القائمة
     } catch (err: any) {
       console.error('Error creating user:', err);
-      alert('فشل إنشاء المستخدم: ' + err.message);
+      showToast('فشل إنشاء المستخدم: ' + err.message, 'error');
     } finally {
       setCreating(false);
     }
@@ -223,12 +225,12 @@ const UserManager = () => {
     if (currentUserRole === 'demo') {
         if (window.confirm(`هل أنت متأكد من حذف المستخدم "${userName}"؟ (محاكاة)`)) {
             setUsers(prev => prev.filter(u => u.id !== userId));
-            alert('تم حذف المستخدم بنجاح (محاكاة).');
+            showToast('تم حذف المستخدم بنجاح (محاكاة).', 'success');
         }
         return;
     }
     if (currentUserRole !== 'super_admin') {
-      alert('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط');
+      showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
       return;
     }
     if (window.confirm(`هل أنت متأكد من حذف المستخدم "${userName}" نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
@@ -237,11 +239,11 @@ const UserManager = () => {
           body: { userId: userId },
         });
         if (error) throw error;
-        alert('تم حذف المستخدم بنجاح.');
+        showToast('تم حذف المستخدم بنجاح.', 'success');
         fetchUsers();
       } catch (err: any) {
         console.error('Error deleting user:', err);
-        alert('فشل حذف المستخدم: ' + (err.data?.message || err.message));
+        showToast('فشل حذف المستخدم: ' + (err.data?.message || err.message), 'error');
       }
     }
   };
@@ -249,11 +251,11 @@ const UserManager = () => {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!resetPasswordData.newPassword || resetPasswordData.newPassword.length < 6) {
-        alert('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+        showToast('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'warning');
         return;
     }
     if (currentUserRole === 'demo') {
-        alert('تم إعادة تعيين كلمة المرور بنجاح ✅ (محاكاة)');
+        showToast('تم إعادة تعيين كلمة المرور بنجاح ✅ (محاكاة)', 'success');
         setIsResetPasswordModalOpen(false);
         setResetPasswordData({ userId: '', newPassword: '' });
         return;
@@ -285,11 +287,11 @@ const UserManager = () => {
             // user_id: target_user_id // يمكن تحديد المستخدم المستهدف هنا
         });
 
-        alert('تم إعادة تعيين كلمة المرور بنجاح ✅');
+        showToast('تم إعادة تعيين كلمة المرور بنجاح ✅', 'success');
         setIsResetPasswordModalOpen(false);
         setResetPasswordData({ userId: '', newPassword: '' });
     } catch (err: any) {
-        alert('فشل إعادة تعيين كلمة المرور: ' + (err.message || 'تأكد من إعداد Edge Function.'));
+        showToast('فشل إعادة تعيين كلمة المرور: ' + (err.message || 'تأكد من إعداد Edge Function.'), 'error');
     } finally {
         setResetting(false);
     }

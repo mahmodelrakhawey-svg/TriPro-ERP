@@ -1,10 +1,11 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { JournalEntry } from '../../types';
 import { useToastNotification } from '../../utils/toastUtils';
+import { usePagination } from '../../components/usePagination';
 
 // دالة مساعدة لتحديد مصدر القيد بناءً على المرجع
 const getEntrySource = (reference: string) => {
@@ -26,20 +27,13 @@ const getEntrySource = (reference: string) => {
 };
 
 const GeneralJournal = () => {
-  const { refreshData, can, clearCache, exportJournalToCSV, users, getJournalEntriesPaginated, currentUser } = useAccounting();
+  const { refreshData, can, clearCache, exportJournalToCSV, users, currentUser, accounts } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const toast = useToastNotification();
   const [isRefreshing, setIsRefreshing] = useState(false);
   
-  // Pagination state
-  const [journalEntries, setJournalEntries] = useState<JournalEntry[]>([]);
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const ITEMS_PER_PAGE = 20;
-
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -51,67 +45,83 @@ const GeneralJournal = () => {
     }
   }, [location.state]);
 
-  const fetchEntries = async () => {
-      setLoading(true);
-      try {
-        // استخدام الدالة المركزية من السياق لضمان دعم الديمو والأمان
-        const { data, count } = await getJournalEntriesPaginated(page, ITEMS_PER_PAGE, searchTerm, selectedUser);
-
-        // إصلاح بيانات الديمو للعرض فقط
-        if (currentUser?.role === 'demo' && data) {
-            data.forEach(entry => {
-                const ref = (entry.reference || '').toUpperCase();
-                if (entry.lines) {
-                    entry.lines.forEach(line => {
-                        if (!line.accountName || line.accountName === 'حساب غير معروف') {
-                            // منطق تعويض الأسماء المفقودة للديمو
-                            if (line.debit > 0) {
-                                if (ref.startsWith('INV')) { line.accountName = 'العملاء'; line.accountCode = '10201'; }
-                                else if (ref.startsWith('RCT')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
-                                else if (ref.startsWith('PAY')) { line.accountName = 'الموردين'; line.accountCode = '20101'; }
-                                else if (ref.startsWith('PUR')) { line.accountName = 'المشتريات'; line.accountCode = '50101'; }
-                                else if (ref.includes('DEMO-001')) { line.accountName = 'الأثاث والتجهيزات'; line.accountCode = '11101'; }
-                                else if (ref.includes('DEMO-002')) { line.accountName = 'كهرباء ومياه'; line.accountCode = '50201'; }
-                                else { line.accountName = 'مصروفات متنوعة'; line.accountCode = '50301'; }
-                            } else {
-                                if (ref.startsWith('INV')) { line.accountName = 'المبيعات'; line.accountCode = '40101'; }
-                                else if (ref.startsWith('RCT')) { line.accountName = 'العملاء'; line.accountCode = '10201'; }
-                                else if (ref.startsWith('PAY')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
-                                else if (ref.startsWith('PUR')) { line.accountName = 'الموردين'; line.accountCode = '20101'; }
-                                else if (ref.includes('DEMO-001')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
-                                else if (ref.includes('DEMO-002')) { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
-                                else { line.accountName = 'النقدية بالصندوق'; line.accountCode = '10101'; }
-                            }
-                        }
-                        // إصلاح القيم السالبة إن وجدت في الديمو
-                        if (line.debit < 0) line.debit = Math.abs(line.debit);
-                        if (line.credit < 0) line.credit = Math.abs(line.credit);
-                    });
-                }
-            });
-        }
-
-        setJournalEntries(data);
-        setTotalCount(count);
-        setTotalPages(Math.ceil(count / ITEMS_PER_PAGE));
-      } catch (error) {
-          console.error('Error fetching entries:', error);
-      } finally {
-          setLoading(false);
-      }
-  };
-
+  // تأخير البحث
   useEffect(() => {
       const timer = setTimeout(() => {
-          fetchEntries();
+          setDebouncedSearch(searchTerm);
+          setPage(1);
       }, 500);
       return () => clearTimeout(timer);
-  }, [page, searchTerm, selectedUser]);
+  }, [searchTerm]);
+
+  // إعداد استعلام البيانات مع الفلترة
+  const queryModifier = useCallback((query: any) => {
+    if (debouncedSearch) {
+        query = query.or(`reference.ilike.%${debouncedSearch}%,description.ilike.%${debouncedSearch}%`);
+    }
+    if (selectedUser) {
+        query = query.eq('user_id', selectedUser);
+    }
+    return query;
+  }, [debouncedSearch, selectedUser]);
+
+  const { 
+    data: serverEntries, 
+    loading: serverLoading, 
+    page, 
+    setPage, 
+    totalPages, 
+    totalCount, 
+    refresh 
+  } = usePagination('journal_entries', {
+    select: '*, journal_lines (*), journal_attachments (*)',
+    pageSize: 20,
+    orderBy: 'transaction_date',
+    ascending: false
+  }, queryModifier);
+
+  // تنسيق البيانات وربط الحسابات
+  const journalEntries = useMemo(() => {
+      if (currentUser?.role === 'demo') {
+          return [
+            { id: 'demo-je-1', date: new Date().toISOString().split('T')[0], description: 'شراء أثاث مكتبي نقداً', reference: 'JE-DEMO-001', status: 'posted', is_posted: true, lines: [{ accountName: 'الأثاث والتجهيزات', accountCode: '1115', debit: 5000, credit: 0 }, { accountName: 'النقدية بالصندوق', accountCode: '10101', debit: 0, credit: 5000 }] },
+            { id: 'demo-je-2', date: new Date().toISOString().split('T')[0], description: 'سداد فاتورة كهرباء', reference: 'JE-DEMO-002', status: 'posted', is_posted: true, lines: [{ accountName: 'كهرباء ومياه', accountCode: '50201', debit: 750, credit: 0 }, { accountName: 'النقدية بالصندوق', accountCode: '10101', debit: 0, credit: 750 }] }
+          ] as any[];
+      }
+
+      return serverEntries.map((entry: any) => ({
+          id: entry.id,
+          date: entry.transaction_date || entry.created_at?.split('T')[0],
+          description: entry.description,
+          reference: entry.reference,
+          status: entry.status,
+          is_posted: entry.status === 'posted',
+          created_at: entry.created_at,
+          createdAt: entry.created_at,
+          userId: entry.user_id,
+          attachments: entry.journal_attachments || [],
+          lines: (entry.journal_lines || []).map((line: any) => {
+            const account = accounts.find((a: any) => a.id === line.account_id);
+            return {
+              id: line.id,
+              accountId: line.account_id,
+              accountName: account?.name || 'حساب غير معروف',
+              accountCode: account?.code || '',
+              debit: line.debit,
+              credit: line.credit,
+              description: line.description,
+              costCenterId: line.cost_center_id
+            };
+          })
+      }));
+  }, [serverEntries, currentUser, accounts]);
+
+  const loading = currentUser?.role === 'demo' ? false : serverLoading;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await clearCache(); // استخدام clearCache بدلاً من refreshData لضمان مسح الكاش
-    await fetchEntries();
+    refresh();
     setIsRefreshing(false);
   };
 
@@ -130,7 +140,7 @@ const GeneralJournal = () => {
 
       toast.success('تم ترحيل القيد بنجاح.');
       refreshData();
-      fetchEntries();
+      refresh();
     } catch (err: any) {
       toast.error('فشل ترحيل القيد: ' + err.message);
     }
@@ -145,7 +155,7 @@ const GeneralJournal = () => {
         if (error) throw error;
         toast.success('تم حذف القيد بنجاح.');
         refreshData();
-        fetchEntries();
+        refresh();
     } catch (err: any) {
         toast.error('فشل حذف القيد: ' + err.message);
     }
@@ -255,7 +265,7 @@ const GeneralJournal = () => {
             <div className="relative">
                 <select
                     value={selectedUser}
-                    onChange={(e) => setSelectedUser(e.target.value)}
+                    onChange={(e) => { setSelectedUser(e.target.value); setPage(1); }}
                     className="pl-8 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm appearance-none bg-white transition-all h-full"
                     dir="rtl"
                 >
@@ -437,11 +447,11 @@ const GeneralJournal = () => {
                 عرض {journalEntries.length} من أصل {totalCount} قيد
             </div>
             <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
                     <ChevronRight size={20} />
                 </button>
                 <span className="text-sm font-black text-slate-700">صفحة {page} من {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
                     <ChevronLeft size={20} />
                 </button>
             </div>

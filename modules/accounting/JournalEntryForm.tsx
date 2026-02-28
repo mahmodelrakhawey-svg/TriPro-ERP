@@ -7,7 +7,7 @@ import AddAccountModal from './AddAccountModal';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useToastNotification } from '../../utils/toastUtils';
-import { JournalEntrySchema } from '../../utils/schemas';
+import { createJournalEntrySchema } from '../../utils/validationSchemas';
 
 const JournalEntryForm = () => {
   const { accounts, costCenters, addEntry, can } = useAccounting();
@@ -118,17 +118,17 @@ const JournalEntryForm = () => {
       const validationData = {
         reference: reference.trim() || `MAN-${Date.now().toString().slice(-6)}`,
         description: description,
-        transaction_date: date,
+        date: date,
         lines: lines.map(l => ({
-          account_id: l.account_id,
+          accountId: l.account_id,
           debit: Number(l.debit || 0),
           credit: Number(l.credit || 0),
-          cost_center_id: l.cost_center_id || null
+          description: description // تمرير الوصف للتحقق (اختياري في المخطط)
         }))
       };
 
       // 2. التحقق باستخدام Zod
-      const result = JournalEntrySchema.safeParse(validationData);
+      const result = createJournalEntrySchema.safeParse(validationData);
 
       if (!result.success) {
         const formattedErrors: any = {};
@@ -153,13 +153,13 @@ const JournalEntryForm = () => {
 
       // استخدام البيانات التي تم التحقق منها
       await addEntry({
-        date: result.data.transaction_date,
+        date: result.data.date,
         reference: result.data.reference,
         description: result.data.description,
-        lines: result.data.lines.map(l => ({
-          accountId: l.account_id, // Map back to camelCase for the context function
-          debit: l.debit,
-          credit: l.credit,
+        lines: lines.map(l => ({
+          accountId: l.account_id,
+          debit: Number(l.debit || 0),
+          credit: Number(l.credit || 0),
           costCenterId: l.cost_center_id
         })),
         status: 'posted',

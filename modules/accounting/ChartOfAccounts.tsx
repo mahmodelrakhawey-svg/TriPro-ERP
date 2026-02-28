@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Plus, Folder, FileText, ChevronRight, ChevronDown, X, Loader2, LayoutList, Edit2, Trash2 } from 'lucide-react';
 
 type Account = {
@@ -15,6 +16,7 @@ type Account = {
 
 export default function ChartOfAccounts() {
   const { accounts: flatAccounts, addAccount, updateAccount, deleteAccount, addEntry } = useAccounting();
+  const { showToast } = useToast();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -83,7 +85,7 @@ export default function ChartOfAccounts() {
   const handleOpeningBalance = async (accountId: string, amount: number, type: string, accountName: string) => {
     const equityAccount = flatAccounts.find(a => a.code === '3999');
     if (!equityAccount) {
-      alert('خطأ: حساب الأرصدة الافتتاحية (3999) غير موجود.');
+      showToast('خطأ: حساب الأرصدة الافتتاحية (3999) غير موجود.', 'error');
       return;
     }
 
@@ -129,7 +131,7 @@ export default function ChartOfAccounts() {
       setFormData({ code: '', name: '', type: 'asset', is_group: false, parent_id: '', openingBalance: 0, balanceType: 'debit' });
       setEditingId(null);
     } catch (error: any) {
-      alert('خطأ في الحفظ: ' + error.message);
+      showToast('خطأ في الحفظ: ' + error.message, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -159,7 +161,7 @@ export default function ChartOfAccounts() {
     ];
 
     if (PROTECTED_CODES.includes(code)) {
-      alert('تنبيه: لا يمكن حذف هذا الحساب لأنه حساب نظام أساسي أو مرتبط بالقيود الآلية.');
+      showToast('تنبيه: لا يمكن حذف هذا الحساب لأنه حساب نظام أساسي أو مرتبط بالقيود الآلية.', 'warning');
       return;
     }
 
@@ -169,7 +171,7 @@ export default function ChartOfAccounts() {
       const result = await deleteAccount(id);
       if (!result.success) throw new Error(result.message);
     } catch (error: any) {
-      alert('لا يمكن حذف الحساب. قد يكون مرتبطاً بقيود محاسبية أو حسابات فرعية.\n' + error.message);
+      showToast('لا يمكن حذف الحساب. قد يكون مرتبطاً بقيود محاسبية أو حسابات فرعية.', 'error');
     }
   };
 

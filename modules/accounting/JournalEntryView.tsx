@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { JournalEntry } from '../../types';
+import { useToast } from '../../context/ToastContext';
 import { Loader2, ArrowLeft, ArrowRight, Printer, Edit, Calendar, AlertTriangle, CheckSquare, Paperclip, Download } from 'lucide-react';
 
 const getEntrySource = (reference: string) => {
@@ -23,6 +24,7 @@ const JournalEntryView = () => {
   const { entryId } = useParams<{ entryId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const [entry, setEntry] = useState<JournalEntry | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,7 +106,7 @@ const JournalEntryView = () => {
     if (!entry) return;
     const source = getEntrySource(entry.reference || '');
     if (source.label !== 'قيد يدوي') {
-        alert('لا يمكن تعديل القيود التي تم إنشاؤها آلياً. يرجى تعديل المستند الأصلي (مثل الفاتورة أو السند).');
+        showToast('لا يمكن تعديل القيود التي تم إنشاؤها آلياً. يرجى تعديل المستند الأصلي.', 'warning');
         return;
     }
     navigate('/journal', { state: { entryToEdit: entry } });

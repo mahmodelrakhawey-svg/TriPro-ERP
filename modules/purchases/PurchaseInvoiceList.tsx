@@ -136,7 +136,7 @@ const PurchaseInvoiceList = () => {
       .single();
 
     if (error) {
-      alert('فشل تحميل تفاصيل الفاتورة للطباعة: ' + error.message);
+      showToast('فشل تحميل تفاصيل الفاتورة للطباعة: ' + error.message, 'error');
       return;
     }
     setInvoiceToPrint(data);

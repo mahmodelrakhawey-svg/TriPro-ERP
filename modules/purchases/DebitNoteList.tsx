@@ -33,7 +33,7 @@ const DebitNoteList = () => {
         if (error) throw error;
         setNotes(data || []);
       } catch (err: any) {
-        alert('فشل تحميل القائمة: ' + err.message);
+        showToast('فشل تحميل القائمة: ' + err.message, 'error');
       } finally {
         setLoading(false);
       }

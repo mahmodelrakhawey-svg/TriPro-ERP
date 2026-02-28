@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { BarChart2, Download, Printer, Loader2, Filter, Truck, Package } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
@@ -22,6 +23,7 @@ type ItemAnalysis = {
 
 export default function PurchaseAnalysisReport() {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -106,7 +108,7 @@ export default function PurchaseAnalysisReport() {
 
     } catch (err: any) {
       console.error("Error fetching purchase analysis:", err);
-      alert("حدث خطأ: " + err.message);
+      showToast("حدث خطأ: " + err.message, 'error');
     } finally {
       setLoading(false);
     }

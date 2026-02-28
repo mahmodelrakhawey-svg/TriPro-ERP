@@ -6,6 +6,7 @@ import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleD
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
+import { createCustomerSchema } from '../../utils/validationSchemas';
 
 type Customer = {
   id: string;
@@ -45,7 +46,21 @@ const CustomerManager = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.name) return;
+    
+    // التحقق باستخدام Zod
+    const validationResult = createCustomerSchema.safeParse({
+        name: formData.name,
+        email: formData.email,
+        phone: formData.phone,
+        tax_number: formData.tax_number,
+        address: formData.address,
+        credit_limit: formData.credit_limit
+    });
+
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
 
     try {
         if (formData.id) {
@@ -69,6 +84,7 @@ const CustomerManager = () => {
         try {
           await deleteCustomer(id, reason);
           queryClient.invalidateQueries({ queryKey: ['customers'] }); // تحديث القائمة فوراً
+          showToast('تم حذف العميل بنجاح', 'success');
         } catch (error: any) {
           console.error(error);
           showToast('لا يمكن حذف العميل, قد يكون مرتبطاً بفواتير. الخطأ: ' + error.message, 'error');

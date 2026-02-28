@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { Printer, FileText, Loader2, Search, Download, MessageCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -17,6 +18,7 @@ type Transaction = {
 
 const SupplierStatement = () => {
   const { suppliers, settings, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -142,9 +144,9 @@ const SupplierStatement = () => {
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
 
-    } catch (error) {
+    } catch (error: any) {
         console.error(error);
-        alert('حدث خطأ أثناء جلب البيانات');
+        showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }
@@ -181,7 +183,7 @@ const SupplierStatement = () => {
       if (!selectedSupplier) return;
       const phone = selectedSupplier.phone;
       if (!phone) {
-          alert('لا يوجد رقم هاتف لهذا المورد');
+          showToast('لا يوجد رقم هاتف مسجل لهذا المورد', 'warning');
           return;
       }
       

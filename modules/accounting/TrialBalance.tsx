@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext'; // Import context
 import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../../context/ToastContext';
 import { Scale, Filter, Printer, Loader2, Search, Download, RefreshCw } from 'lucide-react';
 import ReportHeader from '../../components/ReportHeader';
 
@@ -20,6 +21,7 @@ type TrialBalanceRow = {
 const TrialBalance = () => {
   const { accounts, refreshData, currentUser } = useAccounting(); // Use accounts from context
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,7 +46,7 @@ const TrialBalance = () => {
         setLedgerLines(data || []);
     } catch (err: any) {
         console.error(err);
-        alert('فشل جلب البيانات: ' + err.message);
+        showToast('فشل جلب البيانات: ' + err.message, 'error');
     } finally {
         setLoading(false);
     }

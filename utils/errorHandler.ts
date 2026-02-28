@@ -82,18 +82,19 @@ export const handleSupabaseError = (
   if (!error) return 'حدث خطأ غير معروف';
 
   const errorMessage = error?.message || error?.error_description || error?.error || '';
+  const upperCaseError = errorMessage.toUpperCase();
 
   // أخطاء شائعة من Supabase
-  if (errorMessage.includes('UNIQUE')) {
+  if (upperCaseError.includes('UNIQUE')) {
     return `هذا السجل موجود بالفعل في ${operation}`;
   }
-  if (errorMessage.includes('Foreign')) {
+  if (upperCaseError.includes('FOREIGN')) {
     return `لا يمكن حذف هذا السجل لأنه مرتبط ببيانات أخرى`;
   }
-  if (errorMessage.includes('auth')) {
+  if (upperCaseError.includes('AUTH')) {
     return 'خطأ في المصادقة، يرجى تسجيل الدخول مجدداً';
   }
-  if (errorMessage.includes('not found')) {
+  if (upperCaseError.includes('NOT FOUND')) {
     return `السجل المطلوب غير موجود`;
   }
 

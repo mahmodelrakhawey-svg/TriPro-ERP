@@ -120,7 +120,7 @@ const Settings = () => {
   const handleSave = async (e: React.FormEvent) => {
       e.preventDefault();
       if (currentUserRole === 'demo') {
-          alert("تم تحديث إعدادات الجلسة الحالية بنجاح ✅");
+          showToast("تم تحديث إعدادات الجلسة الحالية بنجاح ✅", 'success');
           return;
       }
 
@@ -151,9 +151,9 @@ const Settings = () => {
         }
 
         if (error) throw error;
-        alert("تم حفظ الإعدادات بنجاح ✅");
+        showToast("تم حفظ الإعدادات بنجاح ✅", 'success');
       } catch (err: any) {
-        alert("فشل الحفظ: " + err.message);
+        showToast("فشل الحفظ: " + err.message, 'error');
       }
   };
 
@@ -161,7 +161,7 @@ const Settings = () => {
     if (!e.target.files || e.target.files.length === 0) return;
 
     if (currentUserRole === 'demo') {
-        alert('تم رفع الشعار بنجاح! سيظهر في الفواتير المطبوعة خلال هذه الجلسة.');
+        showToast('تم رفع الشعار بنجاح! سيظهر في الفواتير المطبوعة خلال هذه الجلسة.', 'success');
         return;
     }
     
@@ -181,9 +181,9 @@ const Settings = () => {
       const { data } = supabase.storage.from('logos').getPublicUrl(filePath);
       
       setFormData(prev => ({ ...prev, logoUrl: data.publicUrl }));
-      alert('تم رفع الشعار بنجاح! لا تنس حفظ الإعدادات.');
+      showToast('تم رفع الشعار بنجاح! لا تنس حفظ الإعدادات.', 'success');
     } catch (error: any) {
-      alert('فشل رفع الشعار: ' + error.message);
+      showToast('فشل رفع الشعار: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -259,17 +259,17 @@ const Settings = () => {
                       }
                   }
 
-                  alert(`تم استيراد ${importedCount} صنف بنجاح ✅\nتم إنشاء قيد افتتاحي بقيمة: ${totalOpeningValue.toLocaleString()}`);
+                  showToast(`تم استيراد ${importedCount} صنف بنجاح ✅. تم إنشاء قيد افتتاحي بقيمة: ${totalOpeningValue.toLocaleString()}`, 'success');
                   window.location.reload();
               } 
               // 2. استعادة نسخة احتياطية كاملة (Object)
               else if (typeof data === 'object') {
                   if(window.confirm('تحذير: هذا ملف نسخ احتياطي كامل. استعادته ستؤدي لمسح البيانات الحالية. هل أنت متأكد؟')) {
-                      alert("تم تعطيل الاستعادة الكاملة مؤقتاً للأمان. يرجى استخدام ملف JSON يحتوي على قائمة أصناف فقط.");
+                      showToast("تم تعطيل الاستعادة الكاملة مؤقتاً للأمان. يرجى استخدام ملف JSON يحتوي على قائمة أصناف فقط.", 'warning');
                   }
               }
           } catch (err: any) {
-              alert("فشل قراءة الملف: " + err.message);
+              showToast("فشل قراءة الملف: " + err.message, 'error');
           } finally {
               setLoading(false);
               if(fileInputRef.current) fileInputRef.current.value = '';
@@ -283,7 +283,7 @@ const Settings = () => {
       if(confirm1) {
           const confirm2 = window.prompt("هذا الإجراء سيحذف جميع الفواتير، العملاء، المنتجات، والقيود. لا يمكن التراجع. \n\nللتأكيد، اكتب 'حذف الكل' في المربع أدناه:");
           if(confirm2 === 'حذف الكل') {
-              showToast('تم تعطيل إعادة الضبط مؤقتاً', 'info');
+              showToast('تم تعطيل إعادة الضبط مؤقتاً', 'warning');
           }
       }
   };
@@ -318,10 +318,10 @@ const Settings = () => {
                   await supabase.from('payment_vouchers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
               }
 
-              alert("تم إعادة ضبط بيانات الديمو بنجاح ✅");
+              showToast("تم إعادة ضبط بيانات الديمو بنجاح ✅", 'success');
               window.location.href = '/'; // إعادة التوجيه للرئيسية لتحديث البيانات
           } catch (err: any) {
-              alert("فشل إعادة الضبط: " + err.message);
+              showToast("فشل إعادة الضبط: " + err.message, 'error');
           } finally {
               setLoading(false);
           }
@@ -330,7 +330,7 @@ const Settings = () => {
 
   const handleCloseYear = async () => {
       if (currentUserRole === 'demo') {
-          alert("تم إغلاق السنة المالية وترحيل الأرصدة بنجاح ✅");
+          showToast("تم إغلاق السنة المالية وترحيل الأرصدة بنجاح ✅", 'success');
           return;
       }
 
@@ -355,7 +355,7 @@ const Settings = () => {
 
   const handleCreateMissingAccounts = async () => {
       if (currentUserRole === 'demo') {
-          alert("تم فحص الدليل المحاسبي وإنشاء الحسابات المفقودة بنجاح. ✅");
+          showToast("تم فحص الدليل المحاسبي وإنشاء الحسابات المفقودة بنجاح. ✅", 'success');
           return;
       }
 
@@ -364,9 +364,9 @@ const Settings = () => {
       setLoading(true);
       try {
           const result = await createMissingSystemAccounts();
-          alert(result.message + (result.created.length > 0 ? `\n\nتم إنشاء:\n${result.created.join('\n')}` : ''));
+          showToast(result.message, 'success');
       } catch (e: any) {
-          alert('حدث خطأ: ' + e.message);
+          showToast('حدث خطأ: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -374,7 +374,7 @@ const Settings = () => {
 
   const handleFixDatabaseSchema = async () => {
       if (currentUserRole === 'demo') {
-          alert("تم فحص وإصلاح جداول قاعدة البيانات بنجاح. ✅");
+          showToast("تم فحص وإصلاح جداول قاعدة البيانات بنجاح. ✅", 'success');
           return;
       }
 
@@ -384,9 +384,9 @@ const Settings = () => {
       try {
           const { data, error } = await supabase.rpc('fix_returns_schema');
           if (error) throw error;
-          alert(data || 'تم الفحص بنجاح.');
+          showToast(data || 'تم الفحص بنجاح.', 'success');
       } catch (e: any) {
-          alert('حدث خطأ أثناء الصيانة: ' + e.message);
+          showToast('حدث خطأ أثناء الصيانة: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -394,7 +394,7 @@ const Settings = () => {
 
   const handleCleanOrphanedOpeningEntries = async () => {
       if (currentUserRole === 'demo') {
-          alert("تم فحص وتنظيف القيود اليتيمة بنجاح ✅ (محاكاة)");
+          showToast("تم فحص وتنظيف القيود اليتيمة بنجاح ✅ (محاكاة)", 'success');
           return;
       }
 
@@ -413,7 +413,7 @@ const Settings = () => {
               .or('reference.ilike.OPEN-IMP-%,reference.ilike.OPEN-MAN-%');
 
           if (!entries || entries.length === 0) {
-              alert('لا توجد قيود أرصدة افتتاحية للفحص.');
+              showToast('لا توجد قيود أرصدة افتتاحية للفحص.', 'info');
               setLoading(false);
               return;
           }
@@ -440,13 +440,13 @@ const Settings = () => {
               const { error } = await supabase.from('journal_entries').delete().in('id', idsToDelete);
               
               if (error) throw error;
-              alert(`تم تنظيف ${idsToDelete.length} قيد يتيم بنجاح ✅\nتم حذف القيود المرتبطة بأصناف غير موجودة.`);
+              showToast(`تم تنظيف ${idsToDelete.length} قيد يتيم بنجاح ✅`, 'success');
           } else {
-              alert('سجل القيود نظيف. جميع قيود الأرصدة الافتتاحية مرتبطة بأصناف موجودة. ✅');
+              showToast('سجل القيود نظيف. جميع قيود الأرصدة الافتتاحية مرتبطة بأصناف موجودة. ✅', 'success');
           }
       } catch (e: any) {
           console.error(e);
-          alert('حدث خطأ أثناء التنظيف: ' + e.message);
+          showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -457,10 +457,10 @@ const Settings = () => {
           if (!window.confirm('⚠️ تحذير هام جداً: سيتم حذف جميع البيانات التشغيلية (فواتير، منتجات، عملاء)!')) return;
           const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
           if (confirmation !== 'حذف') {
-              alert('تم إلغاء العملية.');
+              showToast('تم إلغاء العملية.', 'info');
               return;
           }
-          alert('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅');
+          showToast('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅', 'success');
           window.location.reload();
           return;
       }
@@ -469,7 +469,7 @@ const Settings = () => {
       
       const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
       if (confirmation !== 'حذف') {
-          alert('تم إلغاء العملية.');
+          showToast('تم إلغاء العملية.', 'info');
           return;
       }
 
@@ -478,10 +478,10 @@ const Settings = () => {
           const { error } = await supabase.rpc('clear_demo_data');
           if (error) throw error;
           
-          alert('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅');
+          showToast('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅', 'success');
           window.location.reload();
       } catch (e: any) {
-          alert('حدث خطأ أثناء التنظيف: ' + e.message);
+          showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }

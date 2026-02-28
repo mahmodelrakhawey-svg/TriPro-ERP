@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useProducts } from '../hooks/usePermissions';
+import { useToast } from '../../context/ToastContext';
 import { Loader2, Save, Search, X, CircleDollarSign } from 'lucide-react';
 
 interface Product {
@@ -16,6 +17,7 @@ interface Product {
 const InventoryRevaluation = () => {
   const { currentUser, products: contextProducts } = useAccounting();
   const { data: serverProducts = [], isLoading: productsLoading, refetch: refetchProducts } = useProducts();
+  const { showToast } = useToast();
 
   // في وضع الديمو، نستخدم المنتجات من السياق (الوهمية)
   const products = currentUser?.role === 'demo' ? contextProducts : serverProducts;
@@ -52,12 +54,12 @@ const InventoryRevaluation = () => {
   const handleRevalue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProductId || newCost === '') {
-      alert('يرجى اختيار الصنف وإدخال التكلفة الجديدة.');
+      showToast('يرجى اختيار الصنف وإدخال التكلفة الجديدة.', 'warning');
       return;
     }
 
     if (Number(newCost) === oldCost) {
-      alert('التكلفة الجديدة مطابقة للتكلفة الحالية. لا يوجد تغيير.');
+      showToast('التكلفة الجديدة مطابقة للتكلفة الحالية. لا يوجد تغيير.', 'info');
       return;
     }
 
@@ -66,7 +68,7 @@ const InventoryRevaluation = () => {
 
     setSaving(true);
     if (currentUser?.role === 'demo') {
-        alert('تمت إعادة تقييم التكلفة بنجاح ✅ (محاكاة)');
+        showToast('تمت إعادة تقييم التكلفة بنجاح ✅ (محاكاة)', 'success');
         setSaving(false);
         return;
     }
@@ -81,7 +83,7 @@ const InventoryRevaluation = () => {
 
       if (error) throw error;
 
-      alert('تمت إعادة تقييم التكلفة بنجاح ✅');
+      showToast('تمت إعادة تقييم التكلفة بنجاح ✅', 'success');
       refetchProducts(); // تحديث بيانات المنتجات
       // Reset form
       setSelectedProductId('');
@@ -90,7 +92,7 @@ const InventoryRevaluation = () => {
       setNotes('');
 
     } catch (error: any) {
-      alert('فشل إعادة التقييم: ' + error.message);
+      showToast('فشل إعادة التقييم: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

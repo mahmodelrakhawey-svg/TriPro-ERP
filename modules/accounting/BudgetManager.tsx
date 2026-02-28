@@ -1,11 +1,13 @@
-﻿﻿﻿﻿
+﻿﻿﻿
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { AccountType, BudgetItem } from '../../types';
 import { Save, Target, Plus, Trash2, User, Users, Package, Calculator } from 'lucide-react';
 
 const BudgetManager = () => {
   const { accounts, budgets, saveBudget, salespeople, customers, products } = useAccounting();
+  const { showToast } = useToast();
   const [year, setYear] = useState(new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [items, setItems] = useState<BudgetItem[]>([]);
@@ -51,9 +53,9 @@ const BudgetManager = () => {
   const handleSave = (e: React.FormEvent) => {
       e.preventDefault();
       const validItems = items.filter(i => i.targetId && i.plannedAmount > 0);
-      if (validItems.length === 0) return alert('الرجاء إضافة مستهدفات صحيحة');
+      if (validItems.length === 0) return showToast('الرجاء إضافة مستهدفات صحيحة', 'warning');
       saveBudget({ year, month, items: validItems });
-      alert('تم حفظ خطة المستهدفات بنجاح');
+      showToast('تم حفظ خطة المستهدفات بنجاح', 'success');
   };
 
   return (

@@ -124,7 +124,7 @@ const PurchaseOrderList = () => {
     setIsModalOpen(false);
     setSelectedOrder(null);
     fetchOrders();
-    alert('تم إنشاء فاتورة المشتريات كمسودة. يرجى الذهاب إلى "فواتير المشتريات" لمراجعتها وترحيلها لإنشاء القيد المحاسبي.');
+    showToast('تم إنشاء فاتورة المشتريات كمسودة. يرجى الذهاب إلى "فواتير المشتريات" لمراجعتها وترحيلها لإنشاء القيد المحاسبي.', 'success');
   };
 
   const handleDelete = async (id: string) => {
@@ -149,7 +149,7 @@ const PurchaseOrderList = () => {
       .single();
 
     if (error) {
-      alert('فشل تحميل تفاصيل الأمر للطباعة: ' + error.message);
+      showToast('فشل تحميل تفاصيل الأمر للطباعة: ' + error.message, 'error');
       return;
     }
     setOrderToPrint(data);

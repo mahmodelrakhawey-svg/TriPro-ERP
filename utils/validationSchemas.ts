@@ -51,7 +51,7 @@ export type UpdateSupplier = z.infer<typeof updateSupplierSchema>;
 
 // ============== PRODUCT SCHEMAS ==============
 
-export const createProductSchema = z.object({
+const baseProductSchema = z.object({
   name: nameSchema,
   sku: z.string().max(50).optional(),
   item_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL']),
@@ -60,7 +60,9 @@ export const createProductSchema = z.object({
   inventory_account_id: idSchema.optional(),
   cogs_account_id: idSchema.optional(),
   sales_account_id: idSchema.optional(),
-}).refine(
+});
+
+export const createProductSchema = baseProductSchema.refine(
   (data) => data.sales_price >= data.purchase_price || data.item_type === 'SERVICE',
   {
     message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر الشراء',
@@ -68,7 +70,7 @@ export const createProductSchema = z.object({
   }
 );
 
-export const updateProductSchema = createProductSchema.partial();
+export const updateProductSchema = baseProductSchema.partial();
 
 export type CreateProduct = z.infer<typeof createProductSchema>;
 export type UpdateProduct = z.infer<typeof updateProductSchema>;

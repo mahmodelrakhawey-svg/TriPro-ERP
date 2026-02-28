@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { ArrowRightLeft, Save, Plus, Trash2, Search, Package, Loader2 } from 'lucide-react';
 
 const StockTransfer = () => {
   const location = useLocation();
   const { warehouses, products, addStockTransfer } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -31,7 +33,7 @@ const StockTransfer = () => {
     if (!product) return;
 
     if (items.find(i => i.productId === selectedProductId)) {
-        alert('الصنف موجود بالفعل في القائمة');
+        showToast('الصنف موجود بالفعل في القائمة', 'warning');
         return;
     }
 
@@ -63,11 +65,11 @@ const StockTransfer = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (formData.fromWarehouseId === formData.toWarehouseId) {
-        alert('لا يمكن التحويل لنفس المستودع');
+        showToast('لا يمكن التحويل لنفس المستودع', 'warning');
         return;
     }
     if (items.length === 0) {
-        alert('يجب إضافة أصناف للتحويل');
+        showToast('يجب إضافة أصناف للتحويل', 'warning');
         return;
     }
 

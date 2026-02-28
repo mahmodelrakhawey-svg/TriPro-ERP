@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { Upload, X, FileText, Image, Loader2, Trash2, Eye, Paperclip } from 'lucide-react';
 
 type Attachment = {
@@ -13,6 +14,7 @@ type Attachment = {
 
 export default function JournalAttachments({ journalEntryId, readOnly = false }: { journalEntryId: string, readOnly?: boolean }) {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const { showToast } = useToast();
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -72,7 +74,7 @@ export default function JournalAttachments({ journalEntryId, readOnly = false }:
 
       fetchAttachments();
     } catch (error: any) {
-      alert('فشل رفع الملف: ' + error.message);
+      showToast('فشل رفع الملف: ' + error.message, 'error');
     } finally {
       setUploading(false);
       // Reset input
@@ -101,7 +103,7 @@ export default function JournalAttachments({ journalEntryId, readOnly = false }:
 
       setAttachments(attachments.filter(a => a.id !== id));
     } catch (error: any) {
-      alert('فشل حذف الملف: ' + error.message);
+      showToast('فشل حذف الملف: ' + error.message, 'error');
     }
   };
 

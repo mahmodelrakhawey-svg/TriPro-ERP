@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { BarChart2, Filter, Loader2, Printer, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const NetPurchasesReport = () => {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -91,7 +93,7 @@ const NetPurchasesReport = () => {
 
     } catch (error: any) {
       console.error('Error fetching report:', error);
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

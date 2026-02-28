@@ -1,5 +1,6 @@
 ﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { Book, Filter, Search, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import ReportHeader from '../../components/ReportHeader';
@@ -27,6 +28,7 @@ type LedgerEntry = {
 
 const GeneralLedger = () => {
   const location = useLocation();
+  const { showToast } = useToast();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
@@ -110,7 +112,7 @@ const GeneralLedger = () => {
 
       setEntries(sortedData);
     } catch (error: any) {
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

@@ -1,7 +1,8 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -33,6 +34,7 @@ type Transaction = {
 const StockCard = () => {
   const navigate = useNavigate();
   const { currentUser, warehouses, products, refreshData, updateProduct, users, recalculateStock } = useAccounting();
+  const { showToast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -322,7 +324,7 @@ const StockCard = () => {
     if (!e.target.files || e.target.files.length === 0 || !selectedProductId) return;
     
     if (currentUser?.role === 'demo') {
-        alert('رفع الصور غير متاح في النسخة التجريبية');
+        showToast('رفع الصور غير متاح في النسخة التجريبية', 'warning');
         return;
     }
 
@@ -343,7 +345,7 @@ const StockCard = () => {
       
       await refreshData();
     } catch (error: any) {
-      alert('فشل رفع الصورة: ' + error.message);
+      showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
       setUploading(false);
     }
@@ -372,11 +374,11 @@ const StockCard = () => {
       
       try {
           await updateProduct(selectedProductId, editFormData);
-          alert('تم تحديث بيانات الصنف بنجاح ✅');
+          showToast('تم تحديث بيانات الصنف بنجاح ✅', 'success');
           setIsEditModalOpen(false);
           await refreshData();
       } catch (error: any) {
-          alert('فشل التحديث: ' + error.message);
+          showToast('فشل التحديث: ' + error.message, 'error');
       }
   };
 
@@ -436,9 +438,9 @@ const StockCard = () => {
           await refreshData();
           await fetchTransactions();
           setIsOpeningModalOpen(false);
-          alert('تم حذف رصيد أول المدة بنجاح');
+          showToast('تم حذف رصيد أول المدة بنجاح', 'success');
       } catch (error: any) {
-          alert('خطأ: ' + error.message);
+          showToast('خطأ: ' + error.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -479,9 +481,9 @@ const StockCard = () => {
           await refreshData();
           await fetchTransactions();
           setIsOpeningModalOpen(false);
-          alert('تم تحديث رصيد أول المدة بنجاح ✅');
+          showToast('تم تحديث رصيد أول المدة بنجاح ✅', 'success');
       } catch (error: any) {
-          alert('خطأ: ' + error.message);
+          showToast('خطأ: ' + error.message, 'error');
       } finally {
           setLoading(false);
       }

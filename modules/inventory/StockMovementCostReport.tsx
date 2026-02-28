@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Package, Search, Printer, Loader2, Filter, Download, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -18,6 +19,7 @@ type Movement = {
 
 const StockMovementCostReport = () => {
   const { currentUser, products, warehouses } = useAccounting();
+  const { showToast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
@@ -29,7 +31,7 @@ const StockMovementCostReport = () => {
 
   const fetchMovement = async () => {
     if (!selectedProductId) {
-        alert('الرجاء اختيار الصنف أولاً');
+        showToast('الرجاء اختيار الصنف أولاً', 'warning');
         return;
     }
     setLoading(true);
@@ -286,7 +288,7 @@ const StockMovementCostReport = () => {
 
     } catch (error: any) {
       console.error(error);
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

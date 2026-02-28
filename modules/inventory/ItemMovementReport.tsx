@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Package, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter, Download, X, User, ArrowRightLeft, Factory } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -19,6 +20,7 @@ type Movement = {
 
 const ItemMovementReport = () => {
   const { currentUser, products, warehouses, users } = useAccounting();
+  const { showToast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
@@ -32,7 +34,7 @@ const ItemMovementReport = () => {
 
   const fetchMovement = async () => {
     if (!selectedProductId) {
-        alert('الرجاء اختيار الصنف أولاً');
+        showToast('الرجاء اختيار الصنف أولاً', 'warning');
         return;
     }
     setLoading(true);
@@ -297,7 +299,7 @@ const ItemMovementReport = () => {
 
     } catch (error: any) {
       console.error(error);
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

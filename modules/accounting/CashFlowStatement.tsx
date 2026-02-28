@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { Banknote, Filter, Printer, Loader2, Download } from 'lucide-react';
 
 type Account = {
@@ -18,6 +19,7 @@ type CashFlowRow = {
 
 const CashFlowStatement = () => {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [operatingRows, setOperatingRows] = useState<CashFlowRow[]>([]);
   const [investingRows, setInvestingRows] = useState<CashFlowRow[]>([]);
   const [financingRows, setInvestingRowsFinancing] = useState<CashFlowRow[]>([]);
@@ -184,7 +186,7 @@ const CashFlowStatement = () => {
       setClosingCashBalance(openingCash + netChange);
 
     } catch (error: any) {
-      alert('فشل تحميل قائمة التدفقات النقدية: ' + error.message);
+      showToast('فشل تحميل قائمة التدفقات النقدية: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

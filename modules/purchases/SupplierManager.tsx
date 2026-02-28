@@ -256,10 +256,10 @@ const SupplierManager = () => {
         }
 
         queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-        alert(`تمت العملية:\n✅ تم استيراد: ${successCount} مورد\n❌ فشل: ${failCount} (بسبب تكرار الاسم أو بيانات ناقصة)`);
+        showToast(`تمت العملية: تم استيراد ${successCount} مورد، وفشل ${failCount}`, 'info');
         
       } catch (error: any) {
-        alert('حدث خطأ أثناء قراءة الملف: ' + error.message);
+        showToast('حدث خطأ أثناء قراءة الملف: ' + error.message, 'error');
       } finally {
         setIsImporting(false);
         e.target.value = ''; // تصفير المدخل للسماح بإعادة الرفع

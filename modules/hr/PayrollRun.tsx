@@ -131,12 +131,12 @@ const PayrollRun = () => {
             try {
                 const result = await createMissingSystemAccounts();
                 if (result.success) {
-                    alert(result.message + "\nتم تحديث الحسابات بنجاح. يمكنك الآن إعادة المحاولة.");
+                    showToast(result.message + "\nتم تحديث الحسابات بنجاح. يمكنك الآن إعادة المحاولة.", 'success');
                 } else {
-                    alert('تم تحديث دليل الحسابات. يرجى المحاولة مرة أخرى.');
+                    showToast('تم تحديث دليل الحسابات. يرجى المحاولة مرة أخرى.', 'info');
                 }
             } catch (error: any) {
-                alert('حدث خطأ أثناء إنشاء الحسابات: ' + error.message);
+                showToast('حدث خطأ أثناء إنشاء الحسابات: ' + error.message, 'error');
             }
         }
         return;

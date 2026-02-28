@@ -2,7 +2,7 @@
  * ملف جديد: سجل سندات الصرف مع نظام الصفحات
  * المسار: modules/finance/PaymentVoucherList.tsx
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { 
@@ -12,22 +12,28 @@ import {
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { PaymentVoucherPrint } from './PaymentVoucherPrint';
+import { usePagination } from '../../components/usePagination';
+
+// Define the interface for Payment Voucher
+interface PaymentVoucher {
+  id: string;
+  voucher_number: string;
+  payment_date: string;
+  amount: number;
+  notes: string;
+  payment_method: string;
+  suppliers?: {
+    name: string;
+  };
+  payment_voucher_attachments?: any[];
+}
 
 const PaymentVoucherList = () => {
   const navigate = useNavigate();
   const { currentUser } = useAccounting();
   
-  const [vouchers, setVouchers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  // إعدادات الصفحات (Pagination)
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const ITEMS_PER_PAGE = 20;
-
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showWithAttachmentsOnly, setShowWithAttachmentsOnly] = useState(false);
 
   const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
@@ -51,67 +57,54 @@ const PaymentVoucherList = () => {
     }
   }, [voucherToPrint]);
 
-  const fetchVouchers = async (pageNumber = 1) => {
-    setLoading(true);
-    setError(null);
-
-    if (currentUser?.role === 'demo') {
-        setVouchers([
-            { id: 'demo-p1', voucher_number: 'PV-DEMO-001', payment_date: new Date().toISOString().split('T')[0], amount: 2000, suppliers: { name: 'مورد تجريبي' }, notes: 'دفعة مورد', payment_method: 'cash' }
-        ]);
-        setTotalCount(1);
-        setTotalPages(1);
-        setLoading(false);
-        return;
-    }
-
-    try {
-      const selectQuery = showWithAttachmentsOnly 
-        ? '*, suppliers(name), payment_voucher_attachments!inner(*)' 
-        : '*, suppliers(name), payment_voucher_attachments(*)';
-
-      let query = supabase
-        .from('payment_vouchers')
-        .select(selectQuery, { count: 'exact' })
-        .order('payment_date', { ascending: false });
-
-      // البحث في السيرفر (Server-side Search)
-      if (searchTerm) {
-         // البحث برقم السند أو الملاحظات
-         query = query.or(`voucher_number.ilike.%${searchTerm}%,notes.ilike.%${searchTerm}%`);
-      }
-
-      // تحديد النطاق (Pagination Range)
-      const from = (pageNumber - 1) * ITEMS_PER_PAGE;
-      const to = from + ITEMS_PER_PAGE - 1;
-
-      const { data, count, error } = await query.range(from, to);
-
-      if (error) throw error;
-      
-      setVouchers(data || []);
-      setTotalCount(count || 0);
-      setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
-      setPage(pageNumber);
-    } catch (err: any) {
-      console.error('Error fetching vouchers:', err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // تأخير البحث قليلاً لعدم إرهاق السيرفر أثناء الكتابة
   useEffect(() => {
     const timer = setTimeout(() => {
-        fetchVouchers(1);
+        setDebouncedSearch(searchTerm);
+        setPage(1);
     }, 500);
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
   useEffect(() => {
-    fetchVouchers(1);
+    setPage(1);
   }, [showWithAttachmentsOnly]);
+
+  // إعداد استعلام البيانات مع الفلترة
+  const queryModifier = useCallback((query: any) => {
+    if (debouncedSearch) {
+       query = query.or(`voucher_number.ilike.%${debouncedSearch}%,notes.ilike.%${debouncedSearch}%`);
+    }
+    return query;
+  }, [debouncedSearch]);
+
+  const selectQuery = showWithAttachmentsOnly 
+    ? '*, suppliers(name), payment_voucher_attachments!inner(*)' 
+    : '*, suppliers(name), payment_voucher_attachments(*)';
+
+  const { 
+    data: serverVouchers, 
+    loading: serverLoading, 
+    error: serverError,
+    page, 
+    setPage, 
+    totalPages, 
+    totalCount, 
+    refresh 
+  } = usePagination<PaymentVoucher>('payment_vouchers', { 
+      select: selectQuery, 
+      pageSize: 20, 
+      orderBy: 'payment_date', 
+      ascending: false 
+  }, queryModifier);
+
+  const demoVouchers: PaymentVoucher[] = [
+      { id: 'demo-p1', voucher_number: 'PV-DEMO-001', payment_date: new Date().toISOString().split('T')[0], amount: 2000, suppliers: { name: 'مورد تجريبي' }, notes: 'دفعة مورد', payment_method: 'cash' }
+  ];
+
+  const vouchers = currentUser?.role === 'demo' ? demoVouchers : serverVouchers;
+  const loading = currentUser?.role === 'demo' ? false : serverLoading;
+  const error = currentUser?.role === 'demo' ? null : serverError;
 
   const handleExportExcel = () => {
       const exportData = vouchers.map(v => ({
@@ -160,7 +153,7 @@ const PaymentVoucherList = () => {
                 <Plus size={18} />
                 <span>سند جديد</span>
             </button>
-             <button onClick={() => fetchVouchers(page)} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-all">
+             <button onClick={() => refresh()} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-600 rounded-xl font-bold hover:bg-slate-50 transition-all">
                 <RotateCcw size={18} />
                 <span>تحديث</span>
             </button>
@@ -270,16 +263,16 @@ const PaymentVoucherList = () => {
             </div>
             <div className="flex items-center gap-2">
                 <button 
-                    onClick={() => fetchVouchers(page - 1)} 
-                    disabled={page === 1}
+                    onClick={() => setPage(p => Math.max(1, p - 1))} 
+                    disabled={page === 1 || loading}
                     className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
                 >
                     <ChevronRight size={20} />
                 </button>
                 <span className="text-sm font-black text-slate-700">صفحة {page} من {totalPages}</span>
                 <button 
-                    onClick={() => fetchVouchers(page + 1)} 
-                    disabled={page === totalPages}
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                    disabled={page === totalPages || loading}
                     className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
                 >
                     <ChevronLeft size={20} />

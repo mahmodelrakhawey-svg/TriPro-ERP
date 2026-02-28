@@ -2,6 +2,7 @@
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package, Upload, Download, Barcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -15,6 +16,7 @@ interface AdjustmentItem {
 const StockAdjustmentForm = () => {
   const location = useLocation();
   const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [reason, setReason] = useState('');
@@ -47,7 +49,7 @@ const StockAdjustmentForm = () => {
     if (!product) return;
 
     if (items.find(i => i.productId === selectedProductId)) {
-        alert('الصنف موجود بالفعل في القائمة');
+        showToast('الصنف موجود بالفعل في القائمة', 'warning');
         return;
     }
 
@@ -130,10 +132,10 @@ const StockAdjustmentForm = () => {
             }
             
             setItems(prev => [...prev, ...newItems]);
-            alert(`تم إضافة ${foundCount} صنف للقائمة.`);
+            showToast(`تم إضافة ${foundCount} صنف للقائمة.`, 'success');
         } catch (error) {
             console.error(error);
-            alert('حدث خطأ في قراءة الملف');
+            showToast('حدث خطأ في قراءة الملف', 'error');
         } finally {
             setIsImporting(false);
             e.target.value = '';
@@ -144,7 +146,7 @@ const StockAdjustmentForm = () => {
 
   const handlePrintBarcodes = () => {
     if (items.length === 0) {
-      alert('لا توجد أصناف في القائمة لطباعة الباركود');
+      showToast('لا توجد أصناف في القائمة لطباعة الباركود', 'warning');
       return;
     }
 
@@ -221,12 +223,12 @@ const StockAdjustmentForm = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!warehouseId) {
-        alert('الرجاء اختيار المستودع');
+        showToast('الرجاء اختيار المستودع', 'warning');
         return;
     }
 
     if (items.length === 0) {
-        alert('الرجاء إضافة أصناف للقائمة أولاً (اضغط على زر + بجانب الصنف لإضافته للجدول)');
+        showToast('الرجاء إضافة أصناف للقائمة أولاً', 'warning');
         return;
     }
 
@@ -287,17 +289,17 @@ const StockAdjustmentForm = () => {
                 
                 await addEntry({ date: date, reference: adjustmentNumber, description: `تسوية مخزنية رقم ${adjustmentNumber} - ${reason}`, status: 'posted', lines: lines });
             } else {
-                alert('تنبيه: تم حفظ التسوية ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات المطلوبة.');
+                showToast('تنبيه: تم حفظ التسوية ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات المطلوبة.', 'warning');
             }
         }
 
-        alert('تم حفظ التسوية المخزنية بنجاح ✅');
+        showToast('تم حفظ التسوية المخزنية بنجاح ✅', 'success');
         setItems([]);
         setReason('');
         // Optional: Reset warehouse or keep it
     } catch (error: any) {
         console.error(error);
-        alert('حدث خطأ: ' + error.message);
+        showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }

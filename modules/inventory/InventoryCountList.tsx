@@ -1,6 +1,7 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { History, Eye, CheckCircle, Clock, X, Package, AlertTriangle, Check, Loader2 } from 'lucide-react';
 
 // --- Modal Component to show count details ---
@@ -101,6 +102,7 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
 
 const InventoryCountList = () => {
   const { recalculateStock, addEntry, accounts, products, getSystemAccount, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [counts, setCounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCount, setSelectedCount] = useState<any | null>(null);
@@ -141,7 +143,7 @@ const InventoryCountList = () => {
 
     if (error) {
         console.error("Error fetching count items:", error);
-        alert("فشل في جلب تفاصيل الجرد. قد يكون جدول inventory_count_items غير موجود أو أن نموذج الجرد لم يحفظ الأصناف.");
+        showToast("فشل في جلب تفاصيل الجرد.", 'error');
         setCountItems([]);
     } else {
         setCountItems(data || []);
@@ -152,7 +154,7 @@ const InventoryCountList = () => {
   const handlePostCount = async (countId: string) => {
     if (!window.confirm('هل أنت متأكد من ترحيل هذا الجرد؟ سيتم إنشاء تسوية مخزنية وقيد محاسبي بالفروقات.')) return;
     if (currentUser?.role === 'demo') {
-        alert('تم ترحيل الجرد بنجاح ✅ (محاكاة)');
+        showToast('تم ترحيل الجرد بنجاح ✅ (محاكاة)', 'success');
         setIsModalOpen(false);
         return;
     }
@@ -221,18 +223,18 @@ const InventoryCountList = () => {
                 
                 await addEntry({ date: new Date().toISOString().split('T')[0], reference: `ADJ-CNT-${count.count_number}`, description: `تسوية فروقات جرد رقم ${count.count_number}`, status: 'posted', lines: lines });
             } else {
-                alert('تنبيه: تم ترحيل الجرد ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على حسابات المخزون (1213) أو التسويات (512).');
+                showToast('تنبيه: تم ترحيل الجرد ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات.', 'warning');
             }
         } else if (adjustmentItems.length > 0) {
-            alert('تنبيه: تم ترحيل الجرد وتحديث الكميات، ولكن لم يتم إنشاء قيد محاسبي لأن تكلفة الأصناف المعدلة تساوي صفر.');
+            showToast('تنبيه: تم ترحيل الجرد وتحديث الكميات، ولكن لم يتم إنشاء قيد محاسبي لأن تكلفة الأصناف صفر.', 'warning');
         }
 
-        alert('تم ترحيل الجرد وإنشاء التسوية والقيد المحاسبي بنجاح ✅');
+        showToast('تم ترحيل الجرد وإنشاء التسوية والقيد المحاسبي بنجاح ✅', 'success');
         setIsModalOpen(false);
         fetchCounts();
     } catch (error: any) {
         console.error(error);
-        alert('فشل ترحيل الجرد: ' + error.message);
+        showToast('فشل ترحيل الجرد: ' + error.message, 'error');
     }
   };
 

@@ -52,7 +52,7 @@ const PurchaseInvoiceForm = () => {
           
           if (fullInv) {
               if (fullInv.status !== 'draft' && !can('purchases', 'update')) {
-                  alert('تنبيه: هذه الفاتورة مرحلة ولا يمكن تعديلها.');
+                  showToast('تنبيه: هذه الفاتورة مرحلة ولا يمكن تعديلها.', 'warning');
               }
 
               setEditingId(fullInv.id);
@@ -147,7 +147,7 @@ const PurchaseInvoiceForm = () => {
   const handleSave = async (e: React.FormEvent, post: boolean = false) => {
     e.preventDefault();
     if (!formData.supplierId || !formData.warehouseId || items.length === 0) {
-      alert('يرجى إكمال البيانات الأساسية وإضافة أصناف.');
+      showToast('يرجى إكمال البيانات الأساسية وإضافة أصناف.', 'warning');
       return;
     }
     setSaving(true);
@@ -210,7 +210,7 @@ const PurchaseInvoiceForm = () => {
 
     } catch (error: any) {
       console.error(error);
-      alert('فشل حفظ الفاتورة: ' + error.message);
+      showToast('فشل حفظ الفاتورة: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

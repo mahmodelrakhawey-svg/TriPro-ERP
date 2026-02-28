@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Printer, FileText, Loader2, Search, Download, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -17,6 +18,7 @@ type Transaction = {
 
 const EmployeeStatement = () => {
   const { employees, settings } = useAccounting();
+  const { showToast } = useToast();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -158,7 +160,7 @@ const EmployeeStatement = () => {
 
     } catch (error) {
         console.error(error);
-        alert('حدث خطأ أثناء جلب البيانات');
+        showToast('حدث خطأ أثناء جلب البيانات', 'error');
     } finally {
         setLoading(false);
     }

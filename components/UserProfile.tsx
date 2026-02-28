@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { User, Mail, Lock, Save, Loader2, Shield, Eye, EyeOff, Activity, Clock, Upload } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
+import { useToast } from '../context/ToastContext';
 
 const UserProfile = () => {
   const { activityLog } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -52,7 +54,7 @@ const UserProfile = () => {
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (profile?.role === 'demo' || user?.email === 'demo@demo.com') {
-        alert('تغيير الصورة غير متاح في النسخة التجريبية');
+        showToast('تغيير الصورة غير متاح في النسخة التجريبية', 'warning');
         return;
     }
 
@@ -76,7 +78,7 @@ const UserProfile = () => {
       setFormData(prev => ({ ...prev, avatarUrl: data.publicUrl }));
       
     } catch (error: any) {
-      alert('فشل رفع الصورة: ' + error.message);
+      showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
       setUploading(false);
     }
@@ -86,7 +88,7 @@ const UserProfile = () => {
     e.preventDefault();
     
     if (profile?.role === 'demo' || user?.email === 'demo@demo.com') {
-        alert('تم تحديث الملف الشخصي بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)');
+        showToast('تم تحديث الملف الشخصي بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)', 'success');
         return;
     }
 
@@ -108,12 +110,12 @@ const UserProfile = () => {
       // 2. تحديث كلمة المرور (إذا تم إدخالها)
       if (formData.password) {
         if (formData.password.length < 6) {
-            alert('كلمة المرور يجب أن تكون 6 أحرف على الأقل');
+            showToast('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'warning');
             setSaving(false);
             return;
         }
         if (formData.password !== formData.confirmPassword) {
-          alert('كلمة المرور غير متطابقة');
+          showToast('كلمة المرور غير متطابقة', 'error');
           setSaving(false);
           return;
         }
@@ -123,11 +125,11 @@ const UserProfile = () => {
         if (authError) throw authError;
       }
 
-      alert('تم تحديث الملف الشخصي بنجاح ✅');
+      showToast('تم تحديث الملف الشخصي بنجاح ✅', 'success');
       setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
       
     } catch (error: any) {
-      alert('حدث خطأ: ' + error.message);
+      showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

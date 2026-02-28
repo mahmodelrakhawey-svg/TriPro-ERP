@@ -1,11 +1,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { FileText, Printer, Download, TrendingUp, TrendingDown, Loader2, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 const IncomeStatement = () => {
   const { accounts, settings, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
   const [endDate, setEndDate] = useState(`${new Date().getFullYear()}-12-31`);
   const [showLogo, setShowLogo] = useState(true);
@@ -32,7 +34,7 @@ const IncomeStatement = () => {
       setLedgerLines(data || []);
     } catch (err: any) {
       console.error('Error fetching income statement data:', err);
-      alert('فشل جلب البيانات: ' + err.message);
+      showToast('فشل جلب البيانات: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }

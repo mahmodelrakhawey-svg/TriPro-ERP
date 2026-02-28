@@ -1,10 +1,12 @@
 ﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, Briefcase, Calendar, DollarSign, Loader2, Filter } from 'lucide-react';
 
 const EmployeeManager = () => {
   const { employees, addEmployee, updateEmployee, deleteEmployee, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true); // Start with loading true
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -64,7 +66,7 @@ const EmployeeManager = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.full_name) return alert('يرجى إدخال اسم الموظف');
+    if (!formData.full_name) return showToast('يرجى إدخال اسم الموظف', 'warning');
     
     setSaving(true);
     try {
@@ -74,10 +76,10 @@ const EmployeeManager = () => {
         await addEmployee(formData);
       }
       
-      alert('تم الحفظ بنجاح ✅');
+      showToast('تم الحفظ بنجاح ✅', 'success');
       setIsModalOpen(false);
     } catch (error: any) {
-      alert('حدث خطأ: ' + error.message);
+      showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }
@@ -92,7 +94,7 @@ const EmployeeManager = () => {
       await deleteEmployee(id, reason);
       // The context will refetch the data, no need to manually update state
     } catch (error: any) {
-      alert('فشل حذف الموظف: ' + error.message);
+      showToast('فشل حذف الموظف: ' + error.message, 'error');
     }
   };
 

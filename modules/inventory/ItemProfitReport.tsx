@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Download, Printer, Loader2, Filter, DollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -19,6 +20,7 @@ type ItemProfit = {
 
 const ItemProfitReport = () => {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<ItemProfit[]>([]);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
@@ -99,7 +101,7 @@ const ItemProfitReport = () => {
 
     } catch (error: any) {
       console.error('Error fetching item profits:', error);
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

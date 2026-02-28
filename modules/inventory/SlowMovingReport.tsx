@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { PackageX, Download, Printer, Loader2, Filter } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -15,6 +16,7 @@ type SlowProduct = {
 
 const SlowMovingReport = () => {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<SlowProduct[]>([]);
   // افتراضياً نفحص آخر 90 يوم
@@ -84,7 +86,7 @@ const SlowMovingReport = () => {
 
     } catch (error: any) {
       console.error('Error fetching slow moving items:', error);
-      alert('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

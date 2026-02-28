@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileCheck, Save, Trash2, Loader2, Search } from 'lucide-react';
+import { createPurchaseOrderSchema } from '../../utils/validationSchemas';
 
 const PurchaseOrderForm = () => {
   const { suppliers, products, currentUser, settings } = useAccounting();
+  const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [formData, setFormData] = useState({ 
       supplierId: '', 
@@ -30,11 +33,28 @@ const PurchaseOrderForm = () => {
   const calculateTotal = () => items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
 
   const handleSave = async () => {
-    if (!formData.supplierId || items.length === 0) return alert('أكمل البيانات');
+    // التحقق باستخدام Zod
+    const validationData = {
+        supplierId: formData.supplierId,
+        orderNumber: formData.orderNumber || 'TEMP-PO',
+        orderDate: formData.date,
+        deliveryDate: formData.deliveryDate || undefined,
+        items: items.map(i => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            unitPrice: i.price
+        })),
+        notes: formData.notes
+    };
+    const validationResult = createPurchaseOrderSchema.safeParse(validationData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
-        alert('تم حفظ أمر الشراء بنجاح ✅ (محاكاة)');
+        showToast('تم حفظ أمر الشراء بنجاح ✅ (محاكاة)', 'success');
         setItems([]);
         setFormData({ ...formData, orderNumber: '', notes: '' });
         setSaving(false);
@@ -74,13 +94,13 @@ const PurchaseOrderForm = () => {
       const { error: itemsError } = await supabase.from('purchase_order_items').insert(orderItems);
       if (itemsError) throw itemsError;
 
-      alert('تم حفظ أمر الشراء بنجاح ✅');
+      showToast('تم حفظ أمر الشراء بنجاح ✅', 'success');
       setItems([]);
       setFormData({ ...formData, orderNumber: '', notes: '' });
 
     } catch (error: any) {
       console.error(error);
-      alert('خطأ: ' + error.message);
+      showToast('خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

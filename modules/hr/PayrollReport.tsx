@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileText, Printer, Search, Loader2, Receipt } from 'lucide-react';
 
 const PayrollReport = () => {
   const { settings, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [payrollData, setPayrollData] = useState<any[]>([]);
@@ -51,7 +53,7 @@ const PayrollReport = () => {
       }
     } catch (error: any) {
       console.error('Error fetching payroll report:', error);
-      alert('حدث خطأ أثناء جلب التقرير: ' + error.message);
+      showToast('حدث خطأ أثناء جلب التقرير: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

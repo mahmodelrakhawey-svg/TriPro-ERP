@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Lock, AlertTriangle, CheckCircle, Calculator, Calendar, ArrowRight } from 'lucide-react';
 
 const FiscalYearClosing = () => {
   const { closeFinancialYear, settings } = useAccounting();
+  const { showToast } = useToast();
   const [year, setYear] = useState(new Date().getFullYear() - 1); // الافتراضي السنة الماضية
   const [closingDate, setClosingDate] = useState(`${new Date().getFullYear()}-01-01`);
   const [loading, setLoading] = useState(false);
@@ -17,7 +19,7 @@ const FiscalYearClosing = () => {
       await closeFinancialYear(year, closingDate);
       setStep(2);
     } catch (error: any) {
-      alert('فشل الإغلاق: ' + error.message);
+      showToast('فشل الإغلاق: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

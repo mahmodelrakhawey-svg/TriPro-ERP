@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -7,6 +7,7 @@ import { Search, Loader2, Edit, Plus, ChevronLeft, ChevronRight, AlertCircle, Fi
 import { useDebounce } from '../../context/useDebounce';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { useToast } from '../../context/ToastContext';
+import { usePagination } from '../../components/usePagination';
 
 // Define a more specific type for the printable invoice
 type PrintableInvoice = Invoice & {
@@ -14,15 +15,10 @@ type PrintableInvoice = Invoice & {
 };
 
 const InvoiceList = () => {
-  const { getInvoicesPaginated, settings, approveSalesInvoice } = useAccounting();
+  const { settings, approveSalesInvoice, currentUser } = useAccounting();
   const navigate = useNavigate();
 
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  // Filter State
   const [searchTerm, setSearchTerm] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -47,37 +43,50 @@ const InvoiceList = () => {
   }, [invoiceToPrint]);
 
   const debouncedSearchTerm = useDebounce(searchTerm, 500); // Debounce search input
-  const PAGE_SIZE = 15;
 
-  const fetchInvoices = useCallback(async (page: number, search: string, start?: string, end?: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const { data, count } = await getInvoicesPaginated(page, PAGE_SIZE, search, start, end);
-      setInvoices(data);
-      setTotalPages(Math.ceil((count || 0) / PAGE_SIZE));
-    } catch (err: any) {
-      setError('فشل تحميل الفواتير. يرجى المحاولة مرة أخرى.');
-      console.error(err);
-    } finally {
-      setLoading(false);
+  // إعداد استعلام البيانات مع الفلترة
+  const queryModifier = useCallback((query: any) => {
+    if (debouncedSearchTerm) {
+      query = query.ilike('invoice_number', `%${debouncedSearchTerm}%`);
     }
-  }, [getInvoicesPaginated]); // Ensure getInvoicesPaginated is memoized in its context
+    if (startDate) {
+      query = query.gte('invoice_date', startDate);
+    }
+    if (endDate) {
+      query = query.lte('invoice_date', endDate);
+    }
+    return query;
+  }, [debouncedSearchTerm, startDate, endDate]);
 
-  useEffect(() => {
-    // This single useEffect handles all data fetching triggers
-    fetchInvoices(currentPage, debouncedSearchTerm, startDate, endDate);
-  }, [currentPage, debouncedSearchTerm, startDate, endDate, fetchInvoices]);
+  const { 
+    data: serverInvoices, 
+    loading: serverLoading, 
+    error: serverError,
+    page, 
+    setPage, 
+    totalPages, 
+    totalCount,
+    refresh 
+  } = usePagination('invoices', { select: '*, customers(name, phone)', pageSize: 15, orderBy: 'invoice_date', ascending: false }, queryModifier);
+
+  const demoInvoices = [
+      { id: 'demo-1', invoice_number: 'INV-001', customers: { name: 'عميل تجريبي 1', phone: '0500000000' }, invoice_date: new Date().toISOString(), total_amount: 1500, status: 'posted' },
+      { id: 'demo-2', invoice_number: 'INV-002', customers: { name: 'عميل تجريبي 2', phone: '0555555555' }, invoice_date: new Date().toISOString(), total_amount: 2500, status: 'draft' },
+  ];
+
+  const invoices = currentUser?.role === 'demo' ? demoInvoices : serverInvoices;
+  const loading = currentUser?.role === 'demo' ? false : serverLoading;
+  const error = currentUser?.role === 'demo' ? null : serverError;
 
   const handleEdit = (invoice: Invoice) => {
     navigate('/sales-invoice', { state: { invoiceToEdit: invoice } });
   };
 
-  const handleApprove = async (invoice: Invoice) => {
-    if (window.confirm(`هل أنت متأكد من ترحيل الفاتورة رقم ${invoice.invoiceNumber}؟ لا يمكن التعديل عليها بعد الترحيل.`)) {
+  const handleApprove = async (invoice: any) => {
+    if (window.confirm(`هل أنت متأكد من ترحيل الفاتورة رقم ${invoice.invoice_number}؟ لا يمكن التعديل عليها بعد الترحيل.`)) {
         try {
             await approveSalesInvoice(invoice.id);
-            await fetchInvoices(currentPage, debouncedSearchTerm, startDate, endDate); // Use await to ensure it refetches
+            refresh();
         } catch (err: any) {
             showToast(err.message || 'فشل ترحيل الفاتورة', 'error');
         }
@@ -85,17 +94,17 @@ const InvoiceList = () => {
   };
 
   const handleWhatsApp = (invoice: any) => {
-    const phone = invoice.customerPhone || '';
-    const message = `مرحباً ${invoice.customerName}،
-إليك تفاصيل الفاتورة رقم ${invoice.invoiceNumber}:
-التاريخ: ${new Date(invoice.date).toLocaleDateString('ar-EG')}
-الإجمالي: ${invoice.totalAmount.toLocaleString()} ${settings.currency}
+    const phone = invoice.customers?.phone || '';
+    const message = `مرحباً ${invoice.customers?.name}،
+إليك تفاصيل الفاتورة رقم ${invoice.invoice_number}:
+التاريخ: ${new Date(invoice.invoice_date).toLocaleDateString('ar-EG')}
+الإجمالي: ${invoice.total_amount.toLocaleString()} ${settings.currency}
 شكراً لتعاملكم معنا.`;
 
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
-  const handlePrint = async (invoice: Invoice) => {
+  const handlePrint = async (invoice: any) => {
     // جلب تفاصيل الفاتورة كاملة (مع الأصناف) للطباعة
     try {
         const { data, error } = await supabase
@@ -215,12 +224,12 @@ const InvoiceList = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {invoices.map((invoice) => (
+                {invoices.map((invoice: any) => (
                   <tr key={invoice.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-6 py-4 font-mono text-sm font-bold text-slate-700">{invoice.invoiceNumber}</td>
-                    <td className="px-6 py-4 font-medium text-slate-800">{invoice.customerName}</td>
-                    <td className="px-6 py-4 text-slate-500">{new Date(invoice.date).toLocaleDateString('ar-EG')}</td>
-                    <td className="px-6 py-4 font-bold text-slate-900">{invoice.totalAmount.toLocaleString()} <span className="text-xs text-slate-400">{settings.currency}</span></td>
+                    <td className="px-6 py-4 font-mono text-sm font-bold text-slate-700">{invoice.invoice_number}</td>
+                    <td className="px-6 py-4 font-medium text-slate-800">{invoice.customers?.name || 'عميل غير معروف'}</td>
+                    <td className="px-6 py-4 text-slate-500">{new Date(invoice.invoice_date).toLocaleDateString('ar-EG')}</td>
+                    <td className="px-6 py-4 font-bold text-slate-900">{invoice.total_amount.toLocaleString()} <span className="text-xs text-slate-400">{settings.currency}</span></td>
                     <td className="px-6 py-4 text-center">{getStatusChip(invoice.status)}</td>
                     <td className="px-6 py-4 text-center flex justify-center gap-2">
                       {invoice.status === 'draft' && (
@@ -267,8 +276,8 @@ const InvoiceList = () => {
         {totalPages > 1 && (
             <div className="p-4 border-t border-slate-200 flex justify-between items-center">
                 <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1 || loading}
+                    onClick={() => setPage(p => Math.max(1, p - 1))}
+                    disabled={page === 1 || loading}
                     className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     <ChevronRight size={16} />
@@ -276,12 +285,12 @@ const InvoiceList = () => {
                 </button>
                 
                 <span className="text-sm text-slate-500 font-medium">
-                    صفحة {currentPage} من {totalPages}
+                    صفحة {page} من {totalPages}
                 </span>
 
                 <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages || loading}
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                    disabled={page === totalPages || loading}
                     className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     التالي

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Trash2, RotateCcw, AlertTriangle, Loader2, RefreshCw, Archive } from 'lucide-react';
 
 const RecycleBin = () => {
   const { restoreItem, permanentDeleteItem, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('accounts');
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -50,7 +52,7 @@ const RecycleBin = () => {
     
     if (currentUser?.role === 'demo') {
         if (window.confirm('هل أنت متأكد من استعادة هذا العنصر؟ (محاكاة)')) {
-             alert('تم استعادة العنصر بنجاح ✅ (محاكاة)');
+             showToast('تم استعادة العنصر بنجاح ✅ (محاكاة)', 'success');
              setItems(prev => prev.filter(item => item.id !== id));
         }
         return;
@@ -61,7 +63,7 @@ const RecycleBin = () => {
         if (result.success) {
             fetchDeletedItems();
         } else {
-            alert('فشل الاستعادة: ' + result.message);
+            showToast('فشل الاستعادة: ' + result.message, 'error');
         }
     }
   };
@@ -72,7 +74,7 @@ const RecycleBin = () => {
 
     if (currentUser?.role === 'demo') {
         if (window.confirm('تحذير: هل أنت متأكد من الحذف النهائي؟ لا يمكن التراجع عن هذا الإجراء! (محاكاة)')) {
-             alert('تم الحذف النهائي بنجاح ✅ (محاكاة)');
+             showToast('تم الحذف النهائي بنجاح ✅ (محاكاة)', 'success');
              setItems(prev => prev.filter(item => item.id !== id));
         }
         return;
@@ -118,7 +120,7 @@ const RecycleBin = () => {
             }
 
             if (count && count > 0) {
-                alert(`لا يمكن حذف هذا العنصر نهائياً لوجود ${count} سجل مرتبط به في "${check.label}".\n\nللحفاظ على سلامة البيانات، لا يمكن حذف العناصر المستخدمة في عمليات سابقة.`);
+                showToast(`لا يمكن حذف هذا العنصر نهائياً لوجود ${count} سجل مرتبط به في "${check.label}".`, 'warning');
                 return;
             }
         }
@@ -128,13 +130,13 @@ const RecycleBin = () => {
         const result = await permanentDeleteItem(currentTab.table, id);
         if (result.success) {
             fetchDeletedItems();
-            alert('تم الحذف النهائي بنجاح ✅');
+            showToast('تم الحذف النهائي بنجاح ✅', 'success');
         } else {
             // معالجة عامة لأخطاء المفتاح الأجنبي الأخرى
             if (result.message && result.message.includes('foreign key constraint')) {
-                alert('فشل الحذف النهائي: هذا العنصر مستخدم في عمليات أخرى (مثل فواتير أو قيود) ولا يمكن حذفه للحفاظ على سلامة البيانات.');
+                showToast('فشل الحذف النهائي: هذا العنصر مستخدم في عمليات أخرى ولا يمكن حذفه.', 'error');
             } else {
-                alert('فشل الحذف النهائي: ' + result.message);
+                showToast('فشل الحذف النهائي: ' + result.message, 'error');
             }
         }
     }

@@ -1,5 +1,6 @@
 ﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AddAccountModal from './AddAccountModal';
@@ -8,6 +9,7 @@ import { supabase } from '../../supabaseClient';
 
 const AccountList = () => {
   const { accounts, deleteAccount, refreshData, isLoading } = useAccounting();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [showOnlyGroups, setShowOnlyGroups] = useState(false);
@@ -62,7 +64,7 @@ const AccountList = () => {
 
   const handleDelete = async (id: string, name: string, balance: number) => {
     if (balance !== 0) {
-        alert('لا يمكن حذف حساب عليه رصيد. يرجى تصفية الرصيد أولاً.');
+        showToast('لا يمكن حذف حساب عليه رصيد. يرجى تصفية الرصيد أولاً.', 'warning');
         return;
     }
     if (window.confirm(`هل أنت متأكد من حذف الحساب "${name}"؟ سيتم نقله إلى سلة المحذوفات.`)) {
@@ -70,7 +72,7 @@ const AccountList = () => {
         if (reason) {
             const result = await deleteAccount(id, reason);
             if (!result.success) {
-                alert(`فشل حذف الحساب: ${result.message}`);
+                showToast(`فشل حذف الحساب: ${result.message}`, 'error');
             }
         }
     }
@@ -81,10 +83,10 @@ const AccountList = () => {
         try {
             const { error } = await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
             if (error) throw error;
-            alert('تم تصفير أرصدة الحسابات في قاعدة البيانات بنجاح.');
+            showToast('تم تصفير أرصدة الحسابات في قاعدة البيانات بنجاح.', 'success');
             refreshData();
         } catch (error: any) {
-            alert('فشل تصفير الأرصدة: ' + error.message);
+            showToast('فشل تصفير الأرصدة: ' + error.message, 'error');
         }
     }
   };

@@ -1,9 +1,11 @@
-﻿﻿import React, { useState } from 'react';
+﻿﻿﻿﻿import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Warehouse, Plus, MapPin, Trash2, Edit2, Save, X, User, Phone } from 'lucide-react';
 
 const WarehouseManager = () => {
   const { warehouses, addWarehouse, updateWarehouse, deleteWarehouse, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', location: '', manager: '', phone: '' });
@@ -22,7 +24,7 @@ const WarehouseManager = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (currentUser?.role === 'demo') {
-        alert('تم الحفظ (محاكاة)');
+        showToast('تم الحفظ (محاكاة)', 'success');
         setIsModalOpen(false);
         return;
     }
@@ -35,7 +37,7 @@ const WarehouseManager = () => {
   };
 
   const handleDelete = (id: string) => {
-      if (currentUser?.role === 'demo') { alert('الحذف غير متاح في الديمو'); return; }
+      if (currentUser?.role === 'demo') { showToast('الحذف غير متاح في الديمو', 'warning'); return; }
       if(window.confirm('هل أنت متأكد؟')) deleteWarehouse(id);
   }
 

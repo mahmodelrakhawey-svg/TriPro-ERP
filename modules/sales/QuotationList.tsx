@@ -1,18 +1,33 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { ArrowRight, Printer, Filter, FileDown, Copy } from 'lucide-react';
+import { ArrowRight, Printer, Filter, FileDown, Copy, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
+import { usePagination } from '../../components/usePagination';
+
+// Define the interface for Quotation
+interface Quotation {
+  id: string;
+  quotation_number: string;
+  quotation_date: string;
+  total_amount: number;
+  tax_amount: number;
+  subtotal: number;
+  status: string;
+  customer_id: string;
+  salesperson_id?: string;
+  customers?: {
+    name: string;
+  };
+}
 
 const QuotationList = () => {
   const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser, settings } = useAccounting();
   const { showToast } = useToast();
-  const [quotations, setQuotations] = useState<any[]>([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [convertModalOpen, setConvertModalOpen] = useState(false);
   const [convertData, setConvertData] = useState({ warehouseId: '', treasuryId: '', paidAmount: 0 });
-  const [loading, setLoading] = useState(true);
 
   // Filter State
   const [statusFilter, setStatusFilter] = useState('all');
@@ -36,48 +51,37 @@ const QuotationList = () => {
     return isAsset && (hasKeyword || hasCode);
   }), [accounts]);
 
-  const fetchQuotations = async () => {
-      setLoading(true);
-      if (currentUser?.role === 'demo') {
-          setQuotations([
-              { id: 'demo-q1', quotationNumber: 'QT-DEMO-001', customerName: 'شركة الأفق للتجارة', date: new Date().toISOString(), totalAmount: 11500, status: 'sent' },
-              { id: 'demo-q2', quotationNumber: 'QT-DEMO-002', customerName: 'مؤسسة النور', date: new Date().toISOString(), totalAmount: 5750, status: 'draft' }
-          ]);
-          setLoading(false);
-          return;
-      }
+  // إعداد استعلام البيانات مع الفلترة
+  const queryModifier = useCallback((query: any) => {
+    if (statusFilter !== 'all') {
+      query = query.eq('status', statusFilter);
+    }
+    if (startDate) {
+      query = query.gte('quotation_date', startDate);
+    }
+    if (endDate) {
+      query = query.lte('quotation_date', endDate);
+    }
+    return query;
+  }, [statusFilter, startDate, endDate]);
 
-      const { data: quotesData, error } = await supabase
-          .from('quotations')
-          .select('*, customers(name)')
-          .order('created_at', { ascending: false });
-      
-      if (!error && quotesData) {
-          setQuotations(quotesData.map(q => ({
-              ...q,
-              customerName: q.customers?.name,
-              quotationNumber: q.quotation_number,
-              date: q.quotation_date,
-              totalAmount: q.total_amount,
-              taxAmount: q.tax_amount,
-              subtotal: q.subtotal
-          })));
-      }
-      setLoading(false);
-  };
+  const { 
+    data: serverQuotations, 
+    loading: serverLoading, 
+    page, 
+    setPage, 
+    totalPages, 
+    totalCount, 
+    refresh 
+  } = usePagination<Quotation>('quotations', { select: '*, customers(name)', pageSize: 10, orderBy: 'created_at', ascending: false }, queryModifier);
 
-  useEffect(() => {
-      fetchQuotations();
-  }, []);
+  const demoQuotations: Quotation[] = [
+      { id: 'demo-q1', quotation_number: 'QT-DEMO-001', customers: { name: 'شركة الأفق للتجارة' }, quotation_date: new Date().toISOString(), total_amount: 11500, tax_amount: 1500, subtotal: 10000, status: 'sent', customer_id: 'demo-c1' },
+      { id: 'demo-q2', quotation_number: 'QT-DEMO-002', customers: { name: 'مؤسسة النور' }, quotation_date: new Date().toISOString(), total_amount: 5750, tax_amount: 750, subtotal: 5000, status: 'draft', customer_id: 'demo-c2' }
+  ];
 
-  const filteredQuotations = useMemo(() => {
-      return quotations.filter(q => {
-          const matchStatus = statusFilter === 'all' || q.status === statusFilter;
-          const matchStart = !startDate || q.date >= startDate;
-          const matchEnd = !endDate || q.date <= endDate;
-          return matchStatus && matchStart && matchEnd;
-      }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [quotations, statusFilter, startDate, endDate]);
+  const quotations = currentUser?.role === 'demo' ? demoQuotations : serverQuotations;
+  const loading = currentUser?.role === 'demo' ? false : serverLoading;
 
   const handleConvertClick = (id: string) => {
       setSelectedQuoteId(id);
@@ -102,7 +106,7 @@ const QuotationList = () => {
 
               const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
               const paidAmount = Number(convertData.paidAmount) || 0;
-              const remainingAmount = quote.totalAmount - paidAmount;
+              const remainingAmount = quote.total_amount - paidAmount;
               const status = remainingAmount <= 0 ? 'paid' : 'posted';
 
               // 2. إنشاء الفاتورة
@@ -110,8 +114,8 @@ const QuotationList = () => {
                   invoice_number: invoiceNumber,
                   customer_id: quote.customer_id,
                   invoice_date: new Date().toISOString().split('T')[0],
-                  total_amount: quote.totalAmount,
-                  tax_amount: quote.taxAmount,
+                  total_amount: quote.total_amount,
+                  tax_amount: quote.tax_amount,
                   status: status,
                   paid_amount: paidAmount,
                   treasury_account_id: paidAmount > 0 ? convertData.treasuryId : null,
@@ -170,8 +174,8 @@ const QuotationList = () => {
                   // الجانب الدائن (إلى مذكورين)
                   journalLines.push({ account_id: salesAcc.id, debit: 0, credit: quote.subtotal, description: `إيراد مبيعات` });
                   
-                  if (quote.taxAmount > 0 && taxAcc) {
-                      journalLines.push({ account_id: taxAcc.id, debit: 0, credit: quote.taxAmount, description: `ضريبة القيمة المضافة` });
+                  if (quote.tax_amount > 0 && taxAcc) {
+                      journalLines.push({ account_id: taxAcc.id, debit: 0, credit: quote.tax_amount, description: `ضريبة القيمة المضافة` });
                   }
                   
                   if (totalCost > 0 && cogsAcc && inventoryAcc) {
@@ -181,7 +185,7 @@ const QuotationList = () => {
 
                   await addEntry({
                       date: new Date().toISOString().split('T')[0],
-                      description: `فاتورة مبيعات للعميل ${quote.customerName} (تحويل عرض سعر ${quote.quotationNumber})`,
+                      description: `فاتورة مبيعات للعميل ${quote.customers?.name} (تحويل عرض سعر ${quote.quotation_number})`,
                       reference: invoiceNumber,
                       status: 'posted',
                       lines: journalLines as any[]
@@ -195,7 +199,7 @@ const QuotationList = () => {
               
               setConvertModalOpen(false);
               showToast('تم تحويل العرض إلى فاتورة وإنشاء القيد بنجاح ✅', 'success');
-              fetchQuotations();
+              refresh();
 
           } catch (error: any) {
               console.error(error);
@@ -206,7 +210,7 @@ const QuotationList = () => {
 
   const handleUpdateStatus = async (id: string, status: string) => {
       await supabase.from('quotations').update({ status }).eq('id', id);
-      fetchQuotations();
+      refresh();
   };
 
   const getStatusBadge = (status: string) => {
@@ -253,11 +257,11 @@ const QuotationList = () => {
                 <body>
                     <div class="header">
                         <div class="title">عرض سعر</div>
-                        <div>رقم العرض: ${quote.quotationNumber}</div>
+                        <div>رقم العرض: ${quote.quotation_number}</div>
                     </div>
                     <div class="meta">
-                        <div><strong>العميل:</strong> ${quote.customerName}</div>
-                        <div><strong>التاريخ:</strong> ${new Date(quote.date).toLocaleDateString('ar-EG')}</div>
+                        <div><strong>العميل:</strong> ${quote.customers?.name}</div>
+                        <div><strong>التاريخ:</strong> ${new Date(quote.quotation_date).toLocaleDateString('ar-EG')}</div>
                     </div>
                     <table>
                         <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
@@ -265,9 +269,9 @@ const QuotationList = () => {
                             ${items.map((item: any) => `<tr><td>${item.products?.name || 'منتج'}</td><td>${item.quantity}</td><td>${item.unit_price.toLocaleString()}</td><td>${item.total.toLocaleString()}</td></tr>`).join('')}
                         </tbody>
                         <tfoot>
-                            ${settings.enableTax ? `<tr><td colspan="3">الإجمالي قبل الضريبة</td><td>${(quote.subtotal || (quote.totalAmount - quote.taxAmount)).toLocaleString()}</td></tr>
-                            <tr><td colspan="3">الضريبة</td><td>${quote.taxAmount.toLocaleString()}</td></tr>` : ''}
-                            <tr><td colspan="3"><strong>الإجمالي النهائي</strong></td><td><strong>${quote.totalAmount.toLocaleString()}</strong></td></tr>
+                            ${settings.enableTax ? `<tr><td colspan="3">الإجمالي قبل الضريبة</td><td>${(quote.subtotal || (quote.total_amount - quote.tax_amount)).toLocaleString()}</td></tr>
+                            <tr><td colspan="3">الضريبة</td><td>${quote.tax_amount.toLocaleString()}</td></tr>` : ''}
+                            <tr><td colspan="3"><strong>الإجمالي النهائي</strong></td><td><strong>${quote.total_amount.toLocaleString()}</strong></td></tr>
                         </tfoot>
                     </table>
                     <div class="footer"><p>شكراً لتعاملكم معنا</p></div>
@@ -293,10 +297,10 @@ const QuotationList = () => {
                   <head><title>Quotation</title><style>body { font-family: sans-serif; padding: 20px; }</style></head>
                   <body>
                       <div id="quote-content" style="padding: 20px; border: 1px solid #ccc;">
-                          <h1 style="text-align: center;">عرض سعر #${quote.quotationNumber}</h1>
-                          <p><strong>العميل:</strong> ${quote.customerName}</p>
-                          <p><strong>التاريخ:</strong> ${new Date(quote.date).toLocaleDateString('ar-EG')}</p>
-                          <p><strong>الإجمالي:</strong> ${quote.totalAmount.toLocaleString()}</p>
+                          <h1 style="text-align: center;">عرض سعر #${quote.quotation_number}</h1>
+                          <p><strong>العميل:</strong> ${quote.customers?.name}</p>
+                          <p><strong>التاريخ:</strong> ${new Date(quote.quotation_date).toLocaleDateString('ar-EG')}</p>
+                          <p><strong>الإجمالي:</strong> ${quote.total_amount.toLocaleString()}</p>
                       </div>
                   </body>
               </html>
@@ -329,7 +333,7 @@ const QuotationList = () => {
       if(error) throw error;
 
       showToast(`تم إنشاء نسخة من عرض السعر برقم ${newQuotationNumber}`, 'success');
-      fetchQuotations();
+      refresh();
     } catch (error: any) {
       console.error(error);
       showToast('فشل نسخ عرض السعر: ' + error.message, 'error');
@@ -364,8 +368,8 @@ const QuotationList = () => {
               <div className="relative">
                   <Filter className="absolute right-3 top-2.5 text-slate-400 w-4 h-4" />
                   <select 
-                      value={statusFilter} 
-                      onChange={(e) => setStatusFilter(e.target.value)}
+                      value={statusFilter}
+                      onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
                       className="w-full pl-4 pr-10 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 bg-white text-sm"
                   >
                       <option value="all">جميع الحالات</option>
@@ -431,12 +435,14 @@ const QuotationList = () => {
                   </tr>
               </thead>
               <tbody className="divide-y">
-                  {filteredQuotations.map(q => (
+                  {loading ? (
+                      <tr><td colSpan={6} className="p-8 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" /></td></tr>
+                  ) : quotations.map(q => (
                       <tr key={q.id} className="hover:bg-slate-50">
-                          <td className="p-4 font-mono font-medium text-slate-700">{q.quotationNumber}</td>
-                          <td className="p-4 font-bold text-slate-800">{q.customerName}</td>
-                          <td className="p-4 text-slate-600">{new Date(q.date).toLocaleDateString('en-GB')}</td>
-                          <td className="p-4 font-bold text-emerald-600">{q.totalAmount.toLocaleString()}</td>
+                          <td className="p-4 font-mono font-medium text-slate-700">{q.quotation_number}</td>
+                          <td className="p-4 font-bold text-slate-800">{q.customers?.name}</td>
+                          <td className="p-4 text-slate-600">{new Date(q.quotation_date).toLocaleDateString('en-GB')}</td>
+                          <td className="p-4 font-bold text-emerald-600">{q.total_amount.toLocaleString()}</td>
                           <td className="p-4">{getStatusBadge(q.status)}</td>
                           <td className="p-4 flex justify-center gap-2 no-print">
                               <button onClick={() => handlePrintQuotation(q)} className="text-slate-500 bg-slate-100 px-2 py-1 rounded text-xs hover:bg-slate-200 flex items-center gap-1" title="طباعة">
@@ -462,9 +468,25 @@ const QuotationList = () => {
                           </td>
                       </tr>
                   ))}
-                  {filteredQuotations.length === 0 && <tr><td colSpan={6} className="p-8 text-center text-slate-400">لا توجد عروض أسعار مطابقة</td></tr>}
+                  {quotations.length === 0 && !loading && <tr><td colSpan={6} className="p-8 text-center text-slate-400">لا توجد عروض أسعار مطابقة</td></tr>}
               </tbody>
           </table>
+
+          {/* Pagination Controls */}
+          <div className="bg-slate-50 p-4 border-t border-slate-200 flex items-center justify-between no-print">
+              <div className="text-sm text-slate-500">
+                  عرض {quotations.length} من أصل {totalCount} عرض سعر
+              </div>
+              <div className="flex items-center gap-2">
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
+                      <ChevronRight size={20} />
+                  </button>
+                  <span className="font-bold text-slate-700">صفحة {page} من {totalPages}</span>
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
+                      <ChevronLeft size={20} />
+                  </button>
+              </div>
+          </div>
       </div>
 
       {convertModalOpen && (

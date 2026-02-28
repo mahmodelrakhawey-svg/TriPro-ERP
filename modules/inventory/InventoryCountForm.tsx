@@ -1,13 +1,15 @@
-﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Calculator, RefreshCw, Save, Search, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { PhysicalStockItem } from '../../types';
 
 const InventoryCountForm = () => {
   const navigate = useNavigate();
   const { products, warehouses, settings, recalculateStock, currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [items, setItems] = useState<any[]>([]);
@@ -17,7 +19,7 @@ const InventoryCountForm = () => {
 
   const handleStartCount = async () => {
     if (!warehouseId) {
-      alert('الرجاء اختيار المستودع أولاً');
+      showToast('الرجاء اختيار المستودع أولاً', 'warning');
       return;
     }
     
@@ -63,7 +65,7 @@ const InventoryCountForm = () => {
         setItems(warehouseProducts);
     } catch (error) {
         console.error("Error fetching products:", error);
-        alert("حدث خطأ أثناء جلب بيانات الأصناف");
+        showToast("حدث خطأ أثناء جلب بيانات الأصناف", 'error');
     } finally {
         setLoadingProducts(false);
     }
@@ -110,14 +112,14 @@ const InventoryCountForm = () => {
 
         if (itemsError) throw itemsError;
 
-        alert('تم حفظ الجرد بنجاح ✅');
+        showToast('تم حفظ الجرد بنجاح ✅', 'success');
         setItems([]);
         setWarehouseId('');
         navigate('/inventory-history');
         
     } catch (error: any) {
         console.error(error);
-        alert('حدث خطأ أثناء الحفظ: ' + error.message);
+        showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
     } finally {
         setSaving(false);
     }

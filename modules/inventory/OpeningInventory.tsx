@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Plus, Trash2, Save, Loader2, PackageOpen, AlertTriangle } from 'lucide-react';
 
 type NewProduct = {
@@ -14,6 +15,7 @@ type NewProduct = {
 
 export default function OpeningInventory() {
   const { currentUser, warehouses } = useAccounting();
+  const { showToast } = useToast();
   const [items, setItems] = useState<NewProduct[]>([
     { id: '1', name: '', sku: '', quantity: 1, cost: 0, price: 0 }
   ]);
@@ -37,7 +39,7 @@ export default function OpeningInventory() {
     // التحقق من البيانات
     const invalidItems = items.filter(i => !i.name || i.quantity <= 0 || i.cost < 0);
     if (invalidItems.length > 0) {
-      alert('يرجى التأكد من إدخال اسم الصنف والكميات والتكاليف بشكل صحيح لجميع الأسطر.');
+      showToast('يرجى التأكد من إدخال اسم الصنف والكميات والتكاليف بشكل صحيح لجميع الأسطر.', 'warning');
       return;
     }
 
@@ -45,7 +47,7 @@ export default function OpeningInventory() {
 
     setLoading(true);
     if (currentUser?.role === 'demo') {
-        alert('تم حفظ الأصناف والقيد الافتتاحي بنجاح! ✅ (محاكاة)');
+        showToast('تم حفظ الأصناف والقيد الافتتاحي بنجاح! ✅ (محاكاة)', 'success');
         setLoading(false);
         return;
     }
@@ -149,12 +151,12 @@ export default function OpeningInventory() {
         if (linesError) throw linesError;
       }
 
-      alert('تم حفظ الأصناف والقيد الافتتاحي بنجاح! ✅');
+      showToast('تم حفظ الأصناف والقيد الافتتاحي بنجاح! ✅', 'success');
       setItems([{ id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0 }]); // تصفير النموذج
 
     } catch (error: any) {
       console.error('Error saving opening stock:', error);
-      alert('حدث خطأ أثناء الحفظ: ' + error.message);
+      showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

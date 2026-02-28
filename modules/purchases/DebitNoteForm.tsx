@@ -45,12 +45,15 @@ const DebitNoteForm = () => {
   };
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.supplierId || formData.amount <= 0) return alert('يرجى إكمال البيانات');
+    if (!formData.supplierId || formData.amount <= 0) {
+      showToast('يرجى إكمال البيانات', 'warning');
+      return;
+    }
     
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
-        alert('تم حفظ الإشعار المدين وترحيل القيد بنجاح ✅ (محاكاة)');
+        showToast('تم حفظ الإشعار المدين وترحيل القيد بنجاح ✅ (محاكاة)', 'success');
         setFormData({ supplierId: '', date: new Date().toISOString().split('T')[0], amount: 0, notes: '', noteNumber: '', originalInvoiceNumber: '' });
         setSaving(false);
         return;

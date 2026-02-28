@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
+import { useToast } from '../context/ToastContext';
 import { Landmark, ArrowLeft, ShieldCheck, Play, Loader2, CheckCircle, BarChart3, Users, Globe, ChevronDown, ChevronUp, HelpCircle, Facebook, Twitter, Instagram, Linkedin } from 'lucide-react';
 import Login from './Login';
 
 const LandingPage = () => {
   const { login } = useAuth();
   const { settings } = useAccounting();
+  const { showToast } = useToast();
   const [showLogin, setShowLogin] = useState(false);
   const [loading, setLoading] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -76,7 +78,7 @@ const LandingPage = () => {
       await login('demo@demo.com', '123456');
     } catch (error) {
       console.error(error);
-      alert('فشل الدخول للنسخة التجريبية');
+      showToast('فشل الدخول للنسخة التجريبية', 'error');
     } finally {
       setLoading(false);
     }

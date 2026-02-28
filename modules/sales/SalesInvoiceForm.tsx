@@ -15,6 +15,7 @@ import { ProductStockViewer } from '../../components/ProductStockViewer';
 import { useToast } from '../../context/ToastContext';
 import CustomerStatement from './CustomerStatement';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
+import { createInvoiceSchema } from '../../utils/validationSchemas';
 
 const SalesInvoiceForm = () => {
   const { products, warehouses, salespeople, accounts, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
@@ -425,8 +426,25 @@ const SalesInvoiceForm = () => {
         return;
     }
 
-    if (!formData.customerId || items.length === 0) {
-        showToast('يرجى اختيار العميل وإضافة منتجات للفاتورة', 'warning');
+    // التحقق باستخدام Zod
+    const validationData = {
+        customerId: formData.customerId,
+        invoiceNumber: formData.invoiceNumber || 'TEMP-INV', // قيمة مؤقتة للتحقق إذا كان الرقم تلقائياً
+        invoiceDate: formData.date,
+        dueDate: formData.dueDate,
+        items: items.map(i => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            total: i.total
+        })),
+        notes: formData.notes
+    };
+
+    const validationResult = createInvoiceSchema.safeParse(validationData);
+    if (!validationResult.success) {
+        const errorMessage = validationResult.error.issues[0].message;
+        showToast(errorMessage, 'warning');
         return;
     }
 
@@ -570,10 +588,27 @@ const SalesInvoiceForm = () => {
         showToast('لا يمكن ترحيل فاتورة معدلة. يرجى الحفظ كمسودة أولاً', 'warning');
         return;
     }
-    if (!formData.customerId || items.length === 0) {
-        showToast('يرجى اختيار العميل وإضافة منتجات للفاتورة', 'warning');
+    
+    // التحقق باستخدام Zod
+    const validationData = {
+        customerId: formData.customerId,
+        invoiceNumber: formData.invoiceNumber || 'TEMP-INV',
+        invoiceDate: formData.date,
+        dueDate: formData.dueDate,
+        items: items.map(i => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            total: i.total
+        })),
+        notes: formData.notes
+    };
+    const validationResult = createInvoiceSchema.safeParse(validationData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
+
     if (formData.paidAmount > 0 && !formData.treasuryId) {
         showToast('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع', 'warning');
         return;
