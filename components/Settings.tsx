@@ -6,6 +6,7 @@ import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import * as XLSX from 'xlsx';
 import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package } from 'lucide-react';
+import { z } from 'zod';
 
 const ACCOUNT_LABELS: Record<string, string> = {
   CASH: 'النقدية (الصندوق الرئيسي)',
@@ -119,6 +120,21 @@ const Settings = () => {
 
   const handleSave = async (e: React.FormEvent) => {
       e.preventDefault();
+      
+      const settingsSchema = z.object({
+          companyName: z.string().min(1, 'اسم المنشأة مطلوب'),
+          email: z.string().email('البريد الإلكتروني غير صحيح').optional().or(z.literal('')),
+          vatRate: z.number().min(0).max(1, 'نسبة الضريبة يجب أن تكون بين 0 و 1'),
+          maxCashDeficitLimit: z.number().min(0, 'الحد الأقصى للعجز يجب أن يكون 0 أو أكثر'),
+          decimalPlaces: z.number().min(0).max(4, 'عدد الكسور العشرية يجب أن يكون بين 0 و 4')
+      });
+
+      const validationResult = settingsSchema.safeParse(formData);
+      if (!validationResult.success) {
+          showToast(validationResult.error.issues[0].message, 'warning');
+          return;
+      }
+
       if (currentUserRole === 'demo') {
           showToast("تم تحديث إعدادات الجلسة الحالية بنجاح ✅", 'success');
           return;

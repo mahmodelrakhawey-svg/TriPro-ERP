@@ -1,9 +1,12 @@
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { ArrowRightLeft, Save, DollarSign, Loader2, Building2 } from 'lucide-react';
+import { z } from 'zod';
 
 const TransferForm = () => {
   const { addTransfer, accounts } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -27,22 +30,36 @@ const TransferForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.sourceAccountId === formData.destinationAccountId) {
-        alert('لا يمكن التحويل لنفس الحساب');
-        return;
-    }
-    if (!formData.amount || Number(formData.amount) <= 0) {
-        alert('يرجى إدخال مبلغ صحيح');
+
+    const transferSchema = z.object({
+        sourceAccountId: z.string().min(1, 'الرجاء اختيار الحساب المصدر'),
+        destinationAccountId: z.string().min(1, 'الرجاء اختيار الحساب المستلم'),
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+    }).refine(data => data.sourceAccountId !== data.destinationAccountId, {
+        message: "لا يمكن التحويل لنفس الحساب",
+        path: ["destinationAccountId"]
+    });
+
+    const validationResult = transferSchema.safeParse({
+        sourceAccountId: formData.sourceAccountId,
+        destinationAccountId: formData.destinationAccountId,
+        amount: Number(formData.amount),
+        date: formData.date
+    });
+
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
     
     setLoading(true);
     try {
         await addTransfer({ ...formData, amount: Number(formData.amount) });
-        alert('تم التحويل المالي بنجاح ✅');
+        showToast('تم التحويل المالي بنجاح ✅', 'success');
         setFormData({ ...formData, amount: '', description: '' });
     } catch (error: any) {
-        alert('فشل التحويل: ' + error.message);
+        showToast('فشل التحويل: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { FileText, Download, Eye, Search, Filter, Paperclip } from 'lucide-react';
 
 interface Attachment {
@@ -15,6 +16,7 @@ interface Attachment {
 }
 
 const AttachmentsReport = () => {
+  const { showToast } = useToast();
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -119,7 +121,7 @@ const AttachmentsReport = () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error downloading:', err);
-      console.error('فشل تحميل الملف');
+      showToast('فشل تحميل الملف', 'error');
     }
   };
 

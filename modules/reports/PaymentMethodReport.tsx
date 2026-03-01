@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { BarChart3, Filter, Loader2, Printer, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const PaymentMethodReport = () => {
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -18,6 +20,10 @@ const PaymentMethodReport = () => {
   };
 
   const fetchReport = async () => {
+    if (startDate > endDate) {
+        showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', 'warning');
+        return;
+    }
     setLoading(true);
     try {
       // 1. Fetch receipts
@@ -73,7 +79,7 @@ const PaymentMethodReport = () => {
 
     } catch (error: any) {
       console.error('Error fetching report:', error);
-      console.error('حدث خطأ أثناء جلب البيانات: ' + error.message);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { FilePlus, Save, Loader2, Calculator, Printer, Truck, Calendar } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { z } from 'zod';
 
 const DebitNoteForm = () => {
   const { settings, suppliers, currentUser } = useAccounting();
@@ -45,9 +46,17 @@ const DebitNoteForm = () => {
   };
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.supplierId || formData.amount <= 0) {
-      showToast('يرجى إكمال البيانات', 'warning');
-      return;
+    
+    const debitNoteSchema = z.object({
+        supplierId: z.string().min(1, 'الرجاء اختيار المورد'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+    });
+
+    const validationResult = debitNoteSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
     }
     
     setSaving(true);

@@ -1,83 +1,65 @@
 -- 🧹 ملف تنظيف قاعدة البيانات (Reset Data)
--- 🧹 ملف تنظيف قاعدة البيانات (Reset Data) - نسخة محدثة وشاملة
--- 🧹 ملف تنظيف قاعدة البيانات (Reset Data) - النسخة النهائية الشاملة
--- الغرض: حذف جميع البيانات التشغيلية (فواتير، قيود، عملاء، منتجات)
+-- 🧹 ملف إعادة الضبط السريع (Quick Reset - Truncate)
+-- 📅 تاريخ التحديث: 2026-03-01
+-- ℹ️ الوصف: يقوم هذا الملف بمسح جميع البيانات التشغيلية والأساسية (Truncate) بسرعة فائقة
 -- مع الحفاظ على الهيكل الأساسي (المستخدمين، الصلاحيات، دليل الحسابات، الإعدادات).
 -- ⚠️ تحذير: هذا الإجراء لا يمكن التراجع عنه!
 
 BEGIN;
 
--- 1. حذف المرفقات (Attachments)
-DELETE FROM public.journal_attachments;
--- استخدام جمل شرطية للجداول التي قد لا تكون موجودة لتجنب توقف السكربت
-DO $$ BEGIN DELETE FROM public.cheque_attachments; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.receipt_voucher_attachments; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.payment_voucher_attachments; EXCEPTION WHEN undefined_table THEN NULL; END $$;
+-- استخدام TRUNCATE مع CASCADE لحذف البيانات المرتبطة تلقائياً
+-- هذا سيحذف الجداول الرئيسية وما يتبعها من تفاصيل (Items/Lines/Attachments)
+-- ويقوم بإعادة تعيين العدادات (IDs)
 
--- 2. حذف تفاصيل العمليات (Items/Lines)
-DELETE FROM public.journal_lines;
-DO $$ BEGIN DELETE FROM public.journal_entry_lines; EXCEPTION WHEN undefined_table THEN NULL; END $$; -- جدول قديم محتمل
-DELETE FROM public.invoice_items;
-DELETE FROM public.sales_return_items;
-DELETE FROM public.purchase_invoice_items;
-DELETE FROM public.purchase_return_items;
-DELETE FROM public.quotation_items;
-DELETE FROM public.purchase_order_items;
-DELETE FROM public.stock_transfer_items;
-DELETE FROM public.stock_adjustment_items;
-DELETE FROM public.inventory_count_items;
-DELETE FROM public.payroll_items;
-DELETE FROM public.bill_of_materials;
-DO $$ BEGIN DELETE FROM public.work_order_costs; EXCEPTION WHEN undefined_table THEN NULL; END $$; -- تكاليف التصنيع
+TRUNCATE TABLE 
+    public.journal_entries,
+    public.invoices,
+    public.purchase_invoices,
+    public.sales_returns,
+    public.purchase_returns,
+    public.quotations,
+    public.purchase_orders,
+    public.receipt_vouchers,
+    public.payment_vouchers,
+    public.cheques,
+    public.credit_notes,
+    public.debit_notes,
+    public.stock_transfers,
+    public.stock_adjustments,
+    public.inventory_counts,
+    public.work_orders,
+    public.payrolls,
+    public.employee_advances,
+    public.opening_inventories,
+    public.bank_reconciliations,
+    public.cash_closings,
+    public.rejected_cash_closings,
+    public.security_logs,
+    public.notifications,
+    public.products,
+    public.customers,
+    public.suppliers,
+    public.assets,
+    public.employees,
+    public.budgets,
+    public.warehouses
+RESTART IDENTITY CASCADE;
 
--- 3. حذف العمليات الرئيسية (Transactions/Documents)
--- يجب حذف المستندات التي تشير إلى القيود قبل حذف القيود نفسها
-DELETE FROM public.sales_returns;
-DELETE FROM public.purchase_returns;
-DELETE FROM public.invoices;
-DELETE FROM public.purchase_invoices;
-DELETE FROM public.quotations;
-DELETE FROM public.purchase_orders;
-DELETE FROM public.credit_notes;
-DELETE FROM public.debit_notes;
-DELETE FROM public.stock_transfers;
-DELETE FROM public.stock_adjustments;
-DELETE FROM public.inventory_counts;
-DELETE FROM public.receipt_vouchers;
-DELETE FROM public.payment_vouchers;
-DELETE FROM public.cheques;
-DELETE FROM public.payrolls;
-DELETE FROM public.opening_inventories;
+-- ملاحظة: الجداول التالية لم يتم مسحها للحفاظ على تكوين النظام:
+-- public.organizations
+-- public.company_settings
+-- public.accounts
+-- public.cost_centers
+-- public.profiles
+-- public.roles
+-- public.permissions
+-- public.role_permissions
+-- public.notification_preferences
 
--- جداول إضافية تم اكتشافها في قاعدة البيانات
-DO $$ BEGIN DELETE FROM public.bank_reconciliations; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.cash_closings; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.employee_advances; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.payroll_runs; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.transfers; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.vouchers; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.work_orders; EXCEPTION WHEN undefined_table THEN NULL; END $$;
+-- إعادة تعيين أرصدة الحسابات إلى الصفر (لأن القيود حذفت)
+UPDATE public.accounts SET balance = 0;
 
--- 4. حذف القيود اليومية والسجلات
-DELETE FROM public.journal_entries;
-DELETE FROM public.security_logs;
-DELETE FROM public.notifications;
-DO $$ BEGIN DELETE FROM public.rejected_cash_closings; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-
--- 5. حذف البيانات الأساسية (Master Data)
-DELETE FROM public.products;
-DO $$ BEGIN DELETE FROM public.item_categories; EXCEPTION WHEN undefined_table THEN NULL; END $$; -- تصنيفات الأصناف
-DELETE FROM public.customers;
-DELETE FROM public.suppliers;
-DELETE FROM public.assets;
-DELETE FROM public.employees;
-DELETE FROM public.budgets;
--- نحذف المستودعات أخيراً لأن بعض الجداول قد تشير إليها
-DELETE FROM public.warehouses;
-
--- ملاحظة: لا نحذف accounts, cost_centers, organizations, company_settings, profiles
-
--- 6. ضمان وجود بروفايل للمدير العام الافتراضي (System Admin)
+-- ضمان وجود بروفايل للمدير العام الافتراضي (System Admin)
 -- هذا يضمن وجود مستخدم بصلاحيات كاملة حتى لو تم مسح المستخدمين بالخطأ
 DO $$
 BEGIN
@@ -85,9 +67,10 @@ BEGIN
     VALUES ('00000000-0000-0000-0000-000000000000', 'المدير العام', 'super_admin', true)
     ON CONFLICT (id) DO UPDATE SET role = 'super_admin', is_active = true;
 EXCEPTION WHEN foreign_key_violation THEN
-    RAISE NOTICE '⚠️ لم يتم إنشاء بروفايل المدير العام الافتراضي لأن المستخدم غير موجود في جدول المصادقة.';
+    -- تجاهل الخطأ إذا لم يكن المستخدم موجوداً في auth.users
+    NULL;
 END $$;
 
 COMMIT;
 
-SELECT 'تم تنظيف قاعدة البيانات بنجاح! النظام جاهز للبدء من الصفر 🧹' as result;
+SELECT 'تم تصفير البيانات بنجاح! النظام جاهز للعمل من جديد 🚀' as result;

@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { ArrowRightLeft, Save, Plus, Trash2, Search, Package, Loader2 } from 'lucide-react';
+import { z } from 'zod';
 
 const StockTransfer = () => {
   const location = useLocation();
@@ -64,12 +65,23 @@ const StockTransfer = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.fromWarehouseId === formData.toWarehouseId) {
-        showToast('لا يمكن التحويل لنفس المستودع', 'warning');
-        return;
-    }
-    if (items.length === 0) {
-        showToast('يجب إضافة أصناف للتحويل', 'warning');
+    
+    const transferSchema = z.object({
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        fromWarehouseId: z.string().min(1, 'المستودع المصدر مطلوب'),
+        toWarehouseId: z.string().min(1, 'المستودع المستلم مطلوب'),
+        items: z.array(z.object({
+            productId: z.string().min(1),
+            quantity: z.number().min(0.01)
+        })).min(1, 'يجب إضافة أصناف للتحويل')
+    }).refine(data => data.fromWarehouseId !== data.toWarehouseId, {
+        message: "لا يمكن التحويل لنفس المستودع",
+        path: ["toWarehouseId"]
+    });
+
+    const validationResult = transferSchema.safeParse({ ...formData, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
 

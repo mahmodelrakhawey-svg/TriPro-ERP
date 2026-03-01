@@ -15,7 +15,7 @@ import { ProductStockViewer } from '../../components/ProductStockViewer';
 import { useToast } from '../../context/ToastContext';
 import CustomerStatement from './CustomerStatement';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
-import { createInvoiceSchema } from '../../utils/validationSchemas';
+import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 
 const SalesInvoiceForm = () => {
   const { products, warehouses, salespeople, accounts, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
@@ -341,6 +341,25 @@ const SalesInvoiceForm = () => {
 
   const handleQuickAddCustomer = async (e: React.FormEvent) => {
       e.preventDefault();
+      
+      // التحقق من صحة البيانات باستخدام Zod
+      const validationResult = createCustomerSchema.safeParse({
+          name: newCustomerName,
+          phone: newCustomerPhone,
+          email: '', // قيم افتراضية للحقول غير الموجودة في الإضافة السريعة
+          tax_number: '',
+          address: '',
+          credit_limit: 0
+      });
+
+      if (!validationResult.success) {
+          const nameError = validationResult.error.issues.find(i => i.path[0] === 'name');
+          const phoneError = validationResult.error.issues.find(i => i.path[0] === 'phone');
+          
+          if (nameError) { showToast(nameError.message, 'warning'); return; }
+          if (phoneError) { showToast(phoneError.message, 'warning'); return; }
+      }
+
       if(newCustomerName) {
           try {
               const data = await addCustomer({ name: newCustomerName, phone: newCustomerPhone } as any);
@@ -403,6 +422,24 @@ const SalesInvoiceForm = () => {
 
   const handleUpdateCustomerSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
+      
+      // التحقق من صحة البيانات باستخدام Zod
+      const validationResult = createCustomerSchema.safeParse({
+          name: editCustomerData.name,
+          phone: editCustomerData.phone,
+          email: '',
+          tax_number: '',
+          address: '',
+          credit_limit: 0
+      });
+
+      if (!validationResult.success) {
+          const nameError = validationResult.error.issues.find(i => i.path[0] === 'name');
+          const phoneError = validationResult.error.issues.find(i => i.path[0] === 'phone');
+          if (nameError) { showToast(nameError.message, 'warning'); return; }
+          if (phoneError) { showToast(phoneError.message, 'warning'); return; }
+      }
+
       if (formData.customerId && editCustomerData.name) {
           try {
               await updateCustomer(formData.customerId, { name: editCustomerData.name, phone: editCustomerData.phone });

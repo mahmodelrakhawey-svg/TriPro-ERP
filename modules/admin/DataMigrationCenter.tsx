@@ -9,6 +9,7 @@ import {
   ArrowRight, ArrowLeft, Database, Loader2,
   ShieldCheck, BookOpen
 } from 'lucide-react';
+import { z } from 'zod';
 
 const DataMigrationCenter = () => {
   const { accounts, getSystemAccount, refreshData, warehouses } = useAccounting();
@@ -162,17 +163,28 @@ const DataMigrationCenter = () => {
   // --- Import Logic Functions ---
 
   const importAccount = async (row: any, accountMap: Map<string, string>) => {
-      const code = String(row['كود الحساب'] || row['Code'] || '').trim();
-      const name = row['اسم الحساب'] || row['Name'];
-      
-      if (!code || !name) throw new Error('كود الحساب واسم الحساب مطلوبان');
-      
+      const accountSchema = z.object({
+          code: z.string().min(1, 'كود الحساب مطلوب'),
+          name: z.string().min(1, 'اسم الحساب مطلوب'),
+          type: z.string().optional(),
+          parentCode: z.string().optional()
+      });
+
+      const validation = accountSchema.safeParse({
+          code: String(row['كود الحساب'] || row['Code'] || '').trim(),
+          name: row['اسم الحساب'] || row['Name'],
+          type: row['النوع'] || row['Type'] || 'other',
+          parentCode: String(row['كود الحساب الرئيسي'] || row['Parent Code'] || '').trim()
+      });
+
+      if (!validation.success) throw new Error(validation.error.issues[0].message);
+      const { code, name, type, parentCode } = validation.data;
+
       // Safety Check: Skip if account exists to protect system links
       if (accountMap.has(code)) {
           return; 
       }
 
-      const parentCode = String(row['كود الحساب الرئيسي'] || row['Parent Code'] || '').trim();
       let parentId = null;
       if (parentCode) {
           parentId = accountMap.get(parentCode);
@@ -187,7 +199,7 @@ const DataMigrationCenter = () => {
       const { data: newAccount, error } = await supabase.from('accounts').insert({
           code,
           name,
-          type: row['النوع'] || row['Type'] || 'other',
+          type,
           parent_id: parentId,
           is_group: false
       }).select().single();
@@ -204,19 +216,28 @@ const DataMigrationCenter = () => {
   };
 
   const importProduct = async (row: any, orgId: any, warehouseId: any, equityAcc: any, existingSkus?: Set<string>) => {
-      const name = row['اسم المنتج'] || row['Name'];
-      if (!name) throw new Error('اسم المنتج مفقود');
+      const productSchema = z.object({
+          name: z.string().min(1, 'اسم المنتج مطلوب'),
+          sku: z.string().nullable().optional(),
+          purchase_price: z.number().min(0).default(0),
+          sales_price: z.number().min(0).default(0),
+          stock: z.number().min(0).default(0)
+      });
 
-      const sku = row['الكود (SKU)'] || row['SKU'];
-      const skuStr = sku ? String(sku).trim() : null;
+      const validation = productSchema.safeParse({
+          name: row['اسم المنتج'] || row['Name'],
+          sku: (row['الكود (SKU)'] || row['SKU']) ? String(row['الكود (SKU)'] || row['SKU']).trim() : null,
+          purchase_price: Number(row['سعر الشراء'] || row['Cost'] || 0),
+          sales_price: Number(row['سعر البيع'] || row['Price'] || 0),
+          stock: Number(row['الكمية الافتتاحية'] || row['Stock'] || 0)
+      });
+
+      if (!validation.success) throw new Error(validation.error.issues[0].message);
+      const { name, sku: skuStr, purchase_price, sales_price, stock } = validation.data;
 
       if (skuStr && existingSkus && existingSkus.has(skuStr)) {
           throw new Error(`كود الصنف (SKU) مكرر: ${skuStr}`);
       }
-
-      const purchase_price = Number(row['سعر الشراء'] || row['Cost'] || 0);
-      const sales_price = Number(row['سعر البيع'] || row['Price'] || 0);
-      const stock = Number(row['الكمية الافتتاحية'] || row['Stock'] || 0);
 
       // Default Accounts
       const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || accounts.find(a => a.code === '1213')?.id;
@@ -262,21 +283,40 @@ const DataMigrationCenter = () => {
   };
 
   const importCustomer = async (row: any, equityAcc: any) => {
-      const name = row['اسم العميل'] || row['Name'];
-      if (!name) throw new Error('اسم العميل مفقود');
+      const customerSchema = z.object({
+          name: z.string().min(1, 'اسم العميل مطلوب'),
+          phone: z.string().optional(),
+          email: z.string().optional(),
+          tax_number: z.string().optional(),
+          address: z.string().optional(),
+          credit_limit: z.number().min(0).default(0),
+          openingBalance: z.number().default(0)
+      });
 
-      const { data: newCustomer, error } = await supabase.from('customers').insert({
-          name: String(name).trim(),
+      const validation = customerSchema.safeParse({
+          name: row['اسم العميل'] || row['Name'],
           phone: row['رقم الهاتف'] || row['Phone'],
           email: row['البريد الإلكتروني'] || row['Email'],
           tax_number: row['الرقم الضريبي'] || row['Tax Number'],
           address: row['العنوان'] || row['Address'],
-          credit_limit: Number(row['حد الائتمان'] || 0)
+          credit_limit: Number(row['حد الائتمان'] || 0),
+          openingBalance: Number(row['الرصيد الافتتاحي'] || 0)
+      });
+
+      if (!validation.success) throw new Error(validation.error.issues[0].message);
+      const { name, phone, email, tax_number, address, credit_limit, openingBalance } = validation.data;
+
+      const { data: newCustomer, error } = await supabase.from('customers').insert({
+          name: name.trim(),
+          phone,
+          email,
+          tax_number,
+          address,
+          credit_limit
       }).select().single();
 
       if (error) throw error;
 
-      const openingBalance = Number(row['الرصيد الافتتاحي'] || 0);
       if (newCustomer && openingBalance !== 0) {
           const amount = Math.abs(openingBalance);
           const isDebit = openingBalance > 0;
@@ -311,20 +351,37 @@ const DataMigrationCenter = () => {
   };
 
   const importSupplier = async (row: any, equityAcc: any) => {
-      const name = row['اسم المورد'] || row['Name'];
-      if (!name) throw new Error('اسم المورد مفقود');
+      const supplierSchema = z.object({
+          name: z.string().min(1, 'اسم المورد مطلوب'),
+          phone: z.string().optional(),
+          email: z.string().optional(),
+          tax_number: z.string().optional(),
+          address: z.string().optional(),
+          openingBalance: z.number().default(0)
+      });
 
-      const { data: newSupplier, error } = await supabase.from('suppliers').insert({
-          name: String(name).trim(),
+      const validation = supplierSchema.safeParse({
+          name: row['اسم المورد'] || row['Name'],
           phone: row['رقم الهاتف'] || row['Phone'],
           email: row['البريد الإلكتروني'] || row['Email'],
           tax_number: row['الرقم الضريبي'] || row['Tax Number'],
-          address: row['العنوان'] || row['Address']
+          address: row['العنوان'] || row['Address'],
+          openingBalance: Number(row['الرصيد الافتتاحي'] || 0)
+      });
+
+      if (!validation.success) throw new Error(validation.error.issues[0].message);
+      const { name, phone, email, tax_number, address, openingBalance } = validation.data;
+
+      const { data: newSupplier, error } = await supabase.from('suppliers').insert({
+          name: name.trim(),
+          phone,
+          email,
+          tax_number,
+          address
       }).select().single();
 
       if (error) throw error;
 
-      const openingBalance = Number(row['الرصيد الافتتاحي'] || 0);
       if (newSupplier && openingBalance !== 0) {
           const amount = Math.abs(openingBalance);
           const isCredit = openingBalance > 0; // موجب للمورد يعني دائن (له فلوس)

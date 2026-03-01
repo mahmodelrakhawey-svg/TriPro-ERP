@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { User, Mail, Lock, Save, Loader2, Shield, Eye, EyeOff, Activity, Clock, Upload } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
+import { z } from 'zod';
 
 const UserProfile = () => {
   const { activityLog } = useAccounting();
@@ -87,6 +88,21 @@ const UserProfile = () => {
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    const profileSchema = z.object({
+        fullName: z.string().min(1, 'الاسم الكامل مطلوب'),
+        password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل').optional().or(z.literal('')),
+        confirmPassword: z.string().optional().or(z.literal(''))
+    }).refine((data) => !data.password || data.password === data.confirmPassword, {
+        message: "كلمة المرور غير متطابقة",
+        path: ["confirmPassword"],
+    });
+
+    const validationResult = profileSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
+    
     if (profile?.role === 'demo' || user?.email === 'demo@demo.com') {
         showToast('تم تحديث الملف الشخصي بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)', 'success');
         return;
@@ -109,16 +125,6 @@ const UserProfile = () => {
 
       // 2. تحديث كلمة المرور (إذا تم إدخالها)
       if (formData.password) {
-        if (formData.password.length < 6) {
-            showToast('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'warning');
-            setSaving(false);
-            return;
-        }
-        if (formData.password !== formData.confirmPassword) {
-          showToast('كلمة المرور غير متطابقة', 'error');
-          setSaving(false);
-          return;
-        }
         const { error: authError } = await supabase.auth.updateUser({
           password: formData.password
         });

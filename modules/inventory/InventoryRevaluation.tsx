@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useProducts } from '../hooks/usePermissions';
 import { useToast } from '../../context/ToastContext';
 import { Loader2, Save, Search, X, CircleDollarSign } from 'lucide-react';
+import { z } from 'zod';
 
 interface Product {
   id: string;
@@ -53,9 +54,17 @@ const InventoryRevaluation = () => {
 
   const handleRevalue = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedProductId || newCost === '') {
-      showToast('يرجى اختيار الصنف وإدخال التكلفة الجديدة.', 'warning');
-      return;
+    
+    const revaluationSchema = z.object({
+        productId: z.string().min(1, 'يرجى اختيار الصنف'),
+        newCost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر'),
+        revaluationDate: z.string().min(1, 'تاريخ التقييم مطلوب')
+    });
+
+    const validationResult = revaluationSchema.safeParse({ productId: selectedProductId, newCost: Number(newCost), revaluationDate });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
     }
 
     if (Number(newCost) === oldCost) {

@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { z } from 'zod';
 
 interface Product {
   id: string;
@@ -366,6 +367,18 @@ const StockCard = () => {
       e.preventDefault();
       if (!selectedProductId) return;
       
+      const productSchema = z.object({
+          name: z.string().min(1, 'اسم الصنف مطلوب'),
+          sales_price: z.number().min(0, 'سعر البيع يجب أن يكون 0 أو أكثر'),
+          purchase_price: z.number().min(0, 'سعر التكلفة يجب أن يكون 0 أو أكثر')
+      });
+      
+      const productValidation = productSchema.safeParse(editFormData);
+      if (!productValidation.success) {
+          showToast(productValidation.error.issues[0].message, 'warning');
+          return;
+      }
+      
       if (editFormData.sales_price < editFormData.purchase_price) {
           if (!window.confirm(`تنبيه: سعر البيع (${editFormData.sales_price}) أقل من سعر التكلفة (${editFormData.purchase_price})! هل أنت متأكد من الحفظ؟`)) {
               return;
@@ -450,6 +463,18 @@ const StockCard = () => {
   const handleSaveOpeningBalance = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!selectedProductId || !openingFormData.warehouseId) return;
+
+      const openingSchema = z.object({
+          warehouseId: z.string().min(1, 'المستودع مطلوب'),
+          quantity: z.number().min(0, 'الكمية يجب أن تكون 0 أو أكثر'),
+          cost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر')
+      });
+
+      const openingValidation = openingSchema.safeParse(openingFormData);
+      if (!openingValidation.success) {
+          showToast(openingValidation.error.issues[0].message, 'warning');
+          return;
+      }
 
       setLoading(true);
       try {

@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { FileMinus, Save, Loader2, User, Calendar, Calculator, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
+import { z } from 'zod';
 
 const CreditNoteForm = () => {
   const { settings, customers, currentUser } = useAccounting();
@@ -37,7 +38,18 @@ const CreditNoteForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId || formData.amount <= 0) return showToast('يرجى إكمال البيانات', 'warning');
+    
+    const creditNoteSchema = z.object({
+        customerId: z.string().min(1, 'الرجاء اختيار العميل'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+    });
+
+    const validationResult = creditNoteSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
     
     setSaving(true);
 

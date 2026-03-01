@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { RotateCcw, Save, Loader2, Plus, Trash2 } from 'lucide-react';
+import { z } from 'zod';
 
 const PurchaseReturnForm = () => {
   const { suppliers, products, warehouses, settings, purchaseInvoices, addEntry, getSystemAccount, currentUser } = useAccounting();
@@ -63,9 +64,22 @@ const PurchaseReturnForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.supplierId || !formData.warehouseId || items.length === 0 || items.some(i => !i.productId)) {
-      showToast('يرجى إكمال جميع البيانات المطلوبة.', 'warning');
-      return;
+    
+    const purchaseReturnSchema = z.object({
+        supplierId: z.string().min(1, 'الرجاء اختيار المورد'),
+        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        items: z.array(z.object({
+            productId: z.string().min(1, 'الرجاء اختيار المنتج'),
+            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+            price: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
+        })).min(1, 'يجب إضافة بند واحد على الأقل')
+    });
+
+    const validationResult = purchaseReturnSchema.safeParse({ ...formData, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
     }
 
     setSaving(true);
@@ -76,7 +90,7 @@ const PurchaseReturnForm = () => {
       const { data: returnHeader, error: headerError } = await supabase.from('purchase_returns').insert({
         return_number: returnNumber,
         supplier_id: formData.supplierId,
-        // original_invoice_id: formData.originalInvoiceId || null, // Column does not exist, temporarily disabled
+        original_invoice_id: formData.originalInvoiceId || null,
         warehouse_id: formData.warehouseId,
         return_date: formData.date,
         total_amount: totalAmount,

@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, Briefcase, Calendar, DollarSign, Loader2, Filter } from 'lucide-react';
+import { z } from 'zod';
 
 const EmployeeManager = () => {
   const { employees, addEmployee, updateEmployee, deleteEmployee, currentUser } = useAccounting();
@@ -66,8 +67,24 @@ const EmployeeManager = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.full_name) return showToast('يرجى إدخال اسم الموظف', 'warning');
     
+    const employeeSchema = z.object({
+        full_name: z.string().min(1, 'يرجى إدخال اسم الموظف'),
+        position: z.string().optional(),
+        department: z.string().optional(),
+        salary: z.number().min(0, 'الراتب يجب أن يكون 0 أو أكثر'),
+        hire_date: z.string().min(1, 'تاريخ التعيين مطلوب'),
+        phone: z.string().optional(),
+        email: z.string().email('البريد الإلكتروني غير صحيح').optional().or(z.literal('')),
+        status: z.string(),
+    });
+
+    const validationResult = employeeSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
+
     setSaving(true);
     try {
       if (editingId) {

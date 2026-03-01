@@ -1,7 +1,7 @@
 -- 🕵️ سكربت التحقق من حالة الحماية (RLS Status Check)
 -- قم بتشغيل هذا السكربت في Supabase SQL Editor
--- سيعرض لك قائمة بجميع الجداول وحالة تفعيل RLS عليها
 
+-- 1. التحقق من تفعيل RLS على الجداول
 SELECT
   tablename AS "اسم الجدول",
   CASE
@@ -14,4 +14,17 @@ WHERE
   schemaname = 'public'
 ORDER BY
   rowsecurity ASC, -- يظهر الجداول غير المحمية أولاً
+  tablename ASC;
+
+-- 2. عرض السياسات المفعلة (Policies)
+SELECT
+  tablename AS "الجدول",
+  policyname AS "اسم السياسة",
+  cmd AS "العملية",
+  roles AS "الأدوار المستهدفة"
+FROM
+  pg_policies
+WHERE
+  schemaname = 'public'
+ORDER BY
   tablename ASC;

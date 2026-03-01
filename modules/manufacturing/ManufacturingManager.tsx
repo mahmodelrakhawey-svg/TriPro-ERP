@@ -2,9 +2,12 @@
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { Hammer, Save, Loader2, Package, AlertTriangle, CheckCircle } from 'lucide-react';
+import { useToast } from '../../context/ToastContext';
+import { z } from 'zod';
 
 const ManufacturingManager = () => {
   const { products, warehouses, produceItem } = useAccounting();
+  const { showToast } = useToast();
   const [formData, setFormData] = useState({
     productId: '',
     warehouseId: '',
@@ -26,7 +29,19 @@ const ManufacturingManager = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.productId || !formData.warehouseId) return;
+    
+    const manufacturingSchema = z.object({
+        productId: z.string().min(1, 'الرجاء اختيار المنتج التام'),
+        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
+        quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+        date: z.string().min(1, 'تاريخ الإنتاج مطلوب'),
+    });
+
+    const validationResult = manufacturingSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
 
     setLoading(true);
     setSuccessMsg('');
@@ -64,12 +79,12 @@ const ManufacturingManager = () => {
         } else {
             // في حال الفشل، نحذف أمر التشغيل الذي أنشأناه لتجنب التضارب
             await supabase.from('work_orders').delete().eq('id', wo.id);
-            alert(result.message);
+            showToast(result.message, 'error');
         }
 
     } catch (error: any) {
         console.error(error);
-        alert('فشل عملية التصنيع: ' + error.message);
+        showToast('فشل عملية التصنيع: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }

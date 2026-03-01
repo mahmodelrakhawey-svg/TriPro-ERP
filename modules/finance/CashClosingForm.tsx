@@ -111,7 +111,7 @@ const CashClosingForm = () => {
     if (actualBalance === '') return;
 
     if (currentUser?.role === 'demo') {
-        alert('تم إقفال الصندوق بنجاح ✅ (محاكاة)');
+        showToast('تم إقفال الصندوق بنجاح ✅ (محاكاة)', 'success');
         setNotes('');
         return;
     }
@@ -204,15 +204,15 @@ const CashClosingForm = () => {
                 lines: lines as any[]
             });
         } else {
-            alert('تنبيه: تم حفظ الإقفال ولكن لم يتم إنشاء قيد التسوية لعدم العثور على حسابات التسوية (512 أو 421).');
+            showToast('تنبيه: تم حفظ الإقفال ولكن لم يتم إنشاء قيد التسوية لعدم العثور على حسابات التسوية (512 أو 421).', 'warning');
         }
       }
 
-      alert('تم إقفال الصندوق بنجاح ✅');
+      showToast('تم إقفال الصندوق بنجاح ✅', 'success');
       setNotes('');
       fetchLastClosings();
     } catch (error: any) {
-      alert('حدث خطأ: ' + error.message);
+      showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }

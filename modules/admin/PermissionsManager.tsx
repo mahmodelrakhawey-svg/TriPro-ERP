@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Shield, Save, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 
 // Types
 type Role = {
@@ -19,6 +20,7 @@ type Permission = {
 
 const PermissionsManager = () => {
   const { refreshPermissions, currentUser } = useAuth();
+  const { showToast } = useToast();
   const [roles, setRoles] = useState<Role[]>([]);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
@@ -112,7 +114,7 @@ const PermissionsManager = () => {
       if (!selectedRoleId) return;
 
       if (currentUser?.role === 'demo') {
-          alert('تم حفظ الصلاحيات بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)');
+          showToast('تم حفظ الصلاحيات بنجاح ✅ (محاكاة - لن يتم حفظ التغييرات)', 'success');
           return;
       }
 
@@ -140,10 +142,10 @@ const PermissionsManager = () => {
               if (insertError) throw insertError;
           }
 
-          alert('تم حفظ الصلاحيات بنجاح ✅');
+          showToast('تم حفظ الصلاحيات بنجاح ✅', 'success');
           await refreshPermissions();
       } catch (err: any) {
-          alert('فشل الحفظ: ' + err.message);
+          showToast('فشل الحفظ: ' + err.message, 'error');
       } finally {
           setSaving(false);
       }

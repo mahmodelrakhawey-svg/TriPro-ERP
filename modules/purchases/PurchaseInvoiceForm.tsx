@@ -8,6 +8,7 @@ import {
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { z } from 'zod';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser } = useAccounting();
@@ -146,10 +147,24 @@ const PurchaseInvoiceForm = () => {
 
   const handleSave = async (e: React.FormEvent, post: boolean = false) => {
     e.preventDefault();
-    if (!formData.supplierId || !formData.warehouseId || items.length === 0) {
-      showToast('يرجى إكمال البيانات الأساسية وإضافة أصناف.', 'warning');
-      return;
+    
+    const purchaseInvoiceSchema = z.object({
+        supplierId: z.string().min(1, 'الرجاء اختيار المورد'),
+        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        items: z.array(z.object({
+            productId: z.string().min(1, 'الرجاء اختيار المنتج'),
+            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+            price: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
+        })).min(1, 'يجب إضافة بند واحد على الأقل')
+    });
+
+    const validationResult = purchaseInvoiceSchema.safeParse({ ...formData, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
     }
+
     setSaving(true);
 
     try {

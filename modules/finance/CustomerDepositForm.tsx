@@ -1,22 +1,27 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Save, ArrowRight, ArrowLeft, ShieldCheck, Plus, Search, Loader2, Printer, MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { CustomerDepositPrint } from './CustomerDepositPrint';
+import { z } from 'zod';
 
 const CustomerDepositForm = () => {
   const { customers, accounts, addEntry, getSystemAccount, updateVoucher } = useAccounting();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   
   // تصفية حسابات النقدية والبنوك فقط
   const treasuryAccounts = useMemo(() => accounts.filter(a => 
     !a.isGroup && (
+      a.type === 'ASSET' && (
       a.code.startsWith('123') || a.code.startsWith('101') || 
       a.name.includes('صندوق') || 
       a.name.includes('خزينة') || 
       a.name.includes('بنك') || 
       a.name.includes('نقد')
+      )
     )
   ), [accounts]);
 
@@ -127,7 +132,7 @@ const CustomerDepositForm = () => {
   const handleWhatsApp = () => {
     const customer = customers.find(c => c.id === formData.customerId);
     if (!customer || !customer.phone) {
-      alert('رقم هاتف العميل غير متوفر');
+      showToast('رقم هاتف العميل غير متوفر', 'warning');
       return;
     }
     const message = `*سند قبض تأمين*\n\nمرحباً ${customer.name}،\nتم استلام مبلغ تأمين: *${Number(formData.amount).toLocaleString()} EGP*\nرقم السند: ${formData.voucherNumber}\nالتاريخ: ${formData.date}\n\nشكراً لتعاملكم معنا.`;
@@ -138,8 +143,23 @@ const CustomerDepositForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId || !formData.treasuryAccountId || !formData.amount) {
-      alert('الرجاء تعبئة جميع الحقول المطلوبة');
+    
+    const depositSchema = z.object({
+        customerId: z.string().min(1, 'الرجاء اختيار العميل'),
+        treasuryAccountId: z.string().min(1, 'الرجاء اختيار حساب الإيداع'),
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+    });
+
+    const validationResult = depositSchema.safeParse({
+        customerId: formData.customerId,
+        treasuryAccountId: formData.treasuryAccountId,
+        amount: Number(formData.amount),
+        date: formData.date
+    });
+
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
       return;
     }
 
@@ -153,7 +173,7 @@ const CustomerDepositForm = () => {
                  treasuryId: formData.treasuryAccountId,
                  customerId: formData.customerId
              });
-             alert('تم تعديل سند التأمين بنجاح ✅');
+             showToast('تم تعديل سند التأمين بنجاح ✅', 'success');
         } else {
             // إنشاء سند جديد وحفظه في قاعدة البيانات مباشرة
             const voucherNumber = formData.voucherNumber || `DEP-${Date.now().toString().slice(-6)}`;
@@ -190,7 +210,7 @@ const CustomerDepositForm = () => {
                 ]
             });
 
-            alert('تم حفظ سند تأمين العميل بنجاح ✅');
+            showToast('تم حفظ سند تأمين العميل بنجاح ✅', 'success');
             
             // تحديث القائمة محلياً لإظهار السند الجديد فوراً
             const { data: newVoucher } = await supabase
@@ -205,7 +225,7 @@ const CustomerDepositForm = () => {
         }
         handleNew();
     } catch (error: any) {
-        alert('حدث خطأ: ' + error.message);
+        showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }

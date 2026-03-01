@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Landmark, Plus, ArrowRight, ArrowUpRight, ArrowDownLeft, Check, X, Ban, Calendar, Search, Loader2, Upload, Paperclip, Eye, Download, Printer, MessageCircle, AlertTriangle, FileText, PieChart as PieChartIcon, Filter } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ChequePrint } from './ChequePrint';
 import { useNavigate } from 'react-router-dom';
+import { z } from 'zod';
 
 export const ChequesPage = () => {
   const { addCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount } = useAccounting();
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<'outgoing' | 'incoming'>('outgoing');
   const [cheques, setCheques] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,7 +113,20 @@ export const ChequesPage = () => {
 
   const handleAddCheque = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.partyId || formData.amount <= 0) return alert('البيانات ناقصة');
+    
+    const chequeSchema = z.object({
+        chequeNumber: z.string().min(1, 'رقم الشيك مطلوب'),
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+        dueDate: z.string().min(1, 'تاريخ الاستحقاق مطلوب'),
+        partyId: z.string().min(1, activeTab === 'outgoing' ? 'الرجاء اختيار المورد' : 'الرجاء اختيار العميل'),
+        bankName: z.string().min(1, 'اسم البنك مطلوب'),
+    });
+
+    const validationResult = chequeSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
 
     try {
         const partyList = activeTab === 'outgoing' ? suppliers : customers;
@@ -134,9 +150,10 @@ export const ChequesPage = () => {
         setAttachments([]);
         if (fileInputRef.current) fileInputRef.current.value = '';
         fetchData();
+        showToast('تم حفظ الشيك بنجاح', 'success');
 
     } catch (err: any) {
-        alert('خطأ: ' + err.message);
+        showToast('خطأ: ' + err.message, 'error');
     }
   };
 
@@ -154,13 +171,13 @@ export const ChequesPage = () => {
         setShowCashModal(false);
         fetchData(); // تحديث القائمة المحلية
       } catch (err: any) {
-        alert('خطأ: ' + err.message);
+        showToast('خطأ: ' + err.message, 'error');
       }
   };
 
   const handleTransferCheque = async () => {
     if (!selectedCheque || !transferData.date || !transferData.ourBankId) {
-        alert('يرجى تعبئة جميع البيانات واختيار البنك الخاص بنا');
+        showToast('يرجى تعبئة جميع البيانات واختيار البنك الخاص بنا', 'warning');
         return;
     }
 
@@ -210,12 +227,12 @@ export const ChequesPage = () => {
             lines: lines
         });
 
-        alert('تم تسجيل التحويل وتحديث حالة الشيك بنجاح ✅');
+        showToast('تم تسجيل التحويل وتحديث حالة الشيك بنجاح ✅', 'success');
         setShowTransferModal(false);
         fetchData();
 
     } catch (error: any) {
-        alert('حدث خطأ: ' + error.message);
+        showToast('حدث خطأ: ' + error.message, 'error');
     }
   };
 
@@ -241,7 +258,7 @@ export const ChequesPage = () => {
 
           fetchData();
       } catch (err: any) {
-          alert('خطأ: ' + err.message);
+          showToast('خطأ: ' + err.message, 'error');
       }
   };
 
@@ -267,7 +284,7 @@ export const ChequesPage = () => {
         URL.revokeObjectURL(url);
     } catch (err) {
         console.error('Error downloading:', err);
-        alert('فشل تحميل الملف');
+        showToast('فشل تحميل الملف', 'error');
     }
   };
 
@@ -286,7 +303,7 @@ export const ChequesPage = () => {
       }
 
       if (!phone) {
-          alert('رقم الهاتف غير متوفر للطرف المستفيد');
+          showToast('رقم الهاتف غير متوفر للطرف المستفيد', 'warning');
           return;
       }
 

@@ -1,11 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { BarChart2, Search, Download, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const ItemSalesAnalysis = () => {
   const { currentUser } = useAccounting();
+  const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
@@ -14,6 +16,10 @@ const ItemSalesAnalysis = () => {
   const [sortBy, setSortBy] = useState<'profit' | 'revenue' | 'quantity'>('profit');
 
   const fetchData = async () => {
+    if (startDate > endDate) {
+        showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', 'warning');
+        return;
+    }
     setLoading(true);
     if (currentUser?.role === 'demo') {
         setItems([
@@ -82,6 +88,7 @@ const ItemSalesAnalysis = () => {
 
     } catch (error) {
       console.error('Error fetching sales analysis:', error);
+      showToast('حدث خطأ أثناء جلب البيانات', 'error');
     } finally {
       setLoading(false);
     }

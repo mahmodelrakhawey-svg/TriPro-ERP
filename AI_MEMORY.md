@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٢٦‏/٢‏/٢٠٢٦، ١٠:٣٠:٥٥ ص
+📅 تاريخ التحديث: ١‏/٣‏/٢٠٢٦، ١٠:٠٠:١٥ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -75,6 +75,7 @@
     📄 ItemProfitReport.tsx
     📄 OpeningInventory.tsx
     📄 ProductManager.tsx
+    📄 secure_journals.sql
     📄 SlowMovingReport.tsx
     📄 StockAdjustmentForm.tsx
     📄 StockCard.tsx
@@ -136,6 +137,7 @@
     📄 SalesReports.tsx
     📄 SalesReturnForm.tsx
     📄 useDebounce.ts
+    📄 USER_GUIDE.md
 📁 components/
   📄 _redirects
   📄 About.tsx
@@ -220,6 +222,7 @@
   📄 setup_demo_protection.sql
   📄 setup_new_client_db.sql
   📄 setup_notifications.sql
+  📄 setup_rls.sql
   📄 supabaseClient.ts
   📄 sync_missing_accounts.sql
   📄 system_stabilization.sql

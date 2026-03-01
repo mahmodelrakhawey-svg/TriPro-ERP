@@ -7,6 +7,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
 import * as XLSX from 'xlsx';
 import { createProductSchema } from '../../utils/validationSchemas';
+import { z } from 'zod';
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
 type Item = {
@@ -788,7 +789,23 @@ const ProductManager = () => {
 
   const handleBulkOfferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedIds.size === 0) return;
+    
+    const bulkOfferSchema = z.object({
+        value: z.number().min(0.01, 'القيمة يجب أن تكون أكبر من 0'),
+        startDate: z.string().min(1, 'تاريخ البداية مطلوب'),
+        endDate: z.string().min(1, 'تاريخ النهاية مطلوب'),
+    });
+
+    const validationResult = bulkOfferSchema.safeParse(bulkOfferData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
+
+    if (selectedIds.size === 0) {
+        showToast('الرجاء اختيار أصناف لتطبيق العرض عليها', 'warning');
+        return;
+    }
     
     if (!can('products', 'update')) {
         showToast('ليس لديك صلاحية تعديل المنتجات (العروض)', 'error');

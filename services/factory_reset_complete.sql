@@ -5,41 +5,48 @@
 
 BEGIN;
 
--- 1. حذف العمليات المالية والمخزنية (الترتيب مهم بسبب القيود Foreign Keys)
-DELETE FROM public.security_logs;
-DELETE FROM public.journal_lines;
-DELETE FROM public.journal_entries;
-DELETE FROM public.receipt_vouchers;
-DELETE FROM public.payment_vouchers;
-DELETE FROM public.invoice_items;
-DELETE FROM public.invoices;
-
--- حذف الجداول الاختيارية (مع معالجة الخطأ إذا لم تكن موجودة)
-DO $$ BEGIN DELETE FROM public.purchase_invoice_items; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.purchase_invoices; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.stock_transfer_items; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.stock_transfers; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.stock_adjustment_items; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.stock_adjustments; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.quotation_items; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.quotations; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.payroll_items; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-DO $$ BEGIN DELETE FROM public.payrolls; EXCEPTION WHEN undefined_table THEN NULL; END $$;
-
--- 2. حذف البيانات الأساسية (Entities)
-DELETE FROM public.products;
-DELETE FROM public.customers;
-DELETE FROM public.suppliers;
-DELETE FROM public.assets;
-DELETE FROM public.cheques;
-DELETE FROM public.employees;
-
--- 3. حذف الهيكل الأساسي (Infrastructure)
-DELETE FROM public.warehouses;
-DELETE FROM public.accounts; -- دليل الحسابات
-DELETE FROM public.company_settings;
-DELETE FROM public.profiles; -- ملفات المستخدمين
-DELETE FROM public.organizations;
+-- استخدام TRUNCATE مع CASCADE لحذف جميع البيانات من جميع الجداول وإعادة تعيين العدادات
+-- هذا أسرع وأكثر كفاءة من DELETE ويضمن تنظيف كل شيء
+TRUNCATE TABLE 
+    public.journal_entries,
+    public.invoices,
+    public.purchase_invoices,
+    public.sales_returns,
+    public.purchase_returns,
+    public.quotations,
+    public.purchase_orders,
+    public.receipt_vouchers,
+    public.payment_vouchers,
+    public.cheques,
+    public.credit_notes,
+    public.debit_notes,
+    public.stock_transfers,
+    public.stock_adjustments,
+    public.inventory_counts,
+    public.work_orders,
+    public.payrolls,
+    public.employee_advances,
+    public.opening_inventories,
+    public.bank_reconciliations,
+    public.cash_closings,
+    public.rejected_cash_closings,
+    public.security_logs,
+    public.notifications,
+    public.products,
+    public.customers,
+    public.suppliers,
+    public.assets,
+    public.employees,
+    public.budgets,
+    public.warehouses,
+    public.accounts,
+    public.cost_centers,
+    public.profiles,
+    public.company_settings,
+    public.organizations,
+    public.item_categories,
+    public.notification_preferences
+RESTART IDENTITY CASCADE;
 
 COMMIT;
 

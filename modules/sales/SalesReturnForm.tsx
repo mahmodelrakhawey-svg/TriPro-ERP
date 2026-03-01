@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { RotateCcw, Save, Trash2, Loader2, Search } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { InvoiceItem } from '../../types';
+import { z } from 'zod';
 
 const SalesReturnForm = () => {
   const { accounts, addEntry, getSystemAccount, customers, products, currentUser, warehouses, settings } = useAccounting();
@@ -106,10 +107,24 @@ const SalesReturnForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId || !formData.warehouseId || items.length === 0) {
-        showToast('يرجى ملء جميع البيانات المطلوبة', 'warning');
+    
+    const salesReturnSchema = z.object({
+        customerId: z.string().min(1, 'الرجاء اختيار العميل'),
+        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        items: z.array(z.object({
+            productId: z.string().min(1, 'الرجاء اختيار المنتج'),
+            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+            price: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
+        })).min(1, 'يجب إضافة بند واحد على الأقل')
+    });
+
+    const validationResult = salesReturnSchema.safeParse({ ...formData, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
+
     setSaving(true);
 
     if (currentUser?.role === 'demo') {

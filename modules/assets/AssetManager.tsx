@@ -1,10 +1,13 @@
 ﻿import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Building, Plus, Activity, Save, Printer, PlayCircle, X, TrendingUp } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
+import { z } from 'zod';
 
 const AssetManager = () => {
   const { assets, addAsset, runDepreciation, revaluateAsset, accounts } = useAccounting();
+  const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -44,13 +47,13 @@ const AssetManager = () => {
 
         if (error) throw error;
 
-        alert(`تمت العملية بنجاح ✅\nتم معالجة: ${data.processed} أصل\nتم التخطي (مكرر): ${data.skipped} أصل`);
+        showToast(`تمت العملية بنجاح ✅ (تم معالجة: ${data.processed}، تم التخطي: ${data.skipped})`, 'success');
         setIsDepreciationModalOpen(false);
         // تحديث البيانات
         window.location.reload(); 
     } catch (error: any) {
         console.error(error);
-        alert('فشل تشغيل الإهلاك: ' + error.message);
+        showToast('فشل تشغيل الإهلاك: ' + error.message, 'error');
     }
   };
 
@@ -59,9 +62,24 @@ const AssetManager = () => {
   const expenseAccounts = accounts.filter(a => (String(a.type).toLowerCase() === 'expense') && !a.isGroup);
   const revaluationAccounts = accounts.filter(a => !a.isGroup && ['revenue', 'equity', 'expense'].includes(String(a.type).toLowerCase()));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    addAsset(formData);
+    
+    const assetSchema = z.object({
+        name: z.string().min(1, 'اسم الأصل مطلوب'),
+        purchaseDate: z.string().min(1, 'تاريخ الشراء مطلوب'),
+        purchaseCost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر'),
+        salvageValue: z.number().min(0, 'قيمة الخردة يجب أن تكون 0 أو أكثر'),
+        usefulLife: z.number().min(0.1, 'العمر الإنتاجي يجب أن يكون أكبر من 0'),
+        assetAccountId: z.string().min(1, 'حساب الأصل مطلوب'),
+    });
+
+    const validationResult = assetSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
+    await addAsset(formData);
     setIsModalOpen(false);
   };
 
@@ -76,13 +94,21 @@ const AssetManager = () => {
       setIsRevaluationModalOpen(true);
   };
 
-  const handleRevaluationSubmit = (e: React.FormEvent) => {
+  const handleRevaluationSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!revaluationData.accountId) {
-          alert('يرجى اختيار حساب الفائض/الخسارة');
+      
+      const revaluationSchema = z.object({
+          newValue: z.number().min(0, 'القيمة الجديدة يجب أن تكون 0 أو أكثر'),
+          date: z.string().min(1, 'تاريخ التقييم مطلوب'),
+          accountId: z.string().min(1, 'يرجى اختيار حساب الفائض/الخسارة')
+      });
+
+      const validationResult = revaluationSchema.safeParse(revaluationData);
+      if (!validationResult.success) {
+          showToast(validationResult.error.issues[0].message, 'warning');
           return;
       }
-      revaluateAsset(revaluationData.assetId, revaluationData.newValue, revaluationData.date, revaluationData.accountId);
+      await revaluateAsset(revaluationData.assetId, revaluationData.newValue, revaluationData.date, revaluationData.accountId);
       setIsRevaluationModalOpen(false);
   };
 
@@ -138,7 +164,7 @@ const AssetManager = () => {
                     disabled={((asset.currentValue || asset.current_value || 0) - (asset.salvageValue || asset.salvage_value || 0)) <= 0.1}
                     onClick={() => {
                         if ((!asset.usefulLife && !asset.useful_life_years) || (asset.usefulLife || asset.useful_life_years || 0) <= 0) {
-                            alert('يرجى تحديد العمر الإنتاجي للأصل أولاً.');
+                            showToast('يرجى تحديد العمر الإنتاجي للأصل أولاً.', 'warning');
                             return;
                         }
 
@@ -150,7 +176,7 @@ const AssetManager = () => {
                         const remainingValue = currentVal - (asset.salvageValue || asset.salvage_value || 0);
 
                         if (remainingValue <= 0.1) {
-                             alert('هذا الأصل مهلك بالكامل (وصل لقيمة الخردة).');
+                             showToast('هذا الأصل مهلك بالكامل (وصل لقيمة الخردة).', 'warning');
                              return;
                         }
 

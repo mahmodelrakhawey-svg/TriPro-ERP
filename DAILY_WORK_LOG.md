@@ -60,6 +60,7 @@
    - تم إنشاء مجلد `docs/` وإضافة `DEVELOPER_GUIDE.md` و `DATABASE_SCHEMA.md`.
    - تم تحديث `README.md` ليكون أكثر احترافية ويشير إلى التوثيق الجديد.
    - تم إنشاء `docs/API_REFERENCE.md` لتوثيق دوال Supabase RPC.
+   - تم إنشاء `docs/USER_GUIDE.md` كدليل استخدام للمستخدم النهائي.
 
 3. **إصلاحات:**
    - إصلاح خطأ في بناء الجملة (Syntax Error) في ملف `SupplierStatement.tsx`.

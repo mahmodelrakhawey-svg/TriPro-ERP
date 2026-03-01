@@ -1,5 +1,6 @@
 ﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
 import { 
   Landmark, DollarSign, CheckCircle, AlertCircle, 
@@ -9,6 +10,7 @@ import {
 
 const BankReconciliationForm = () => {
   const { accounts, entries, refreshData, addEntry } = useAccounting();
+  const { showToast } = useToast();
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [statementDate, setStatementDate] = useState(new Date().toISOString().split('T')[0]);
   const [statementBalance, setStatementBalance] = useState<number>(0);
@@ -168,7 +170,7 @@ const BankReconciliationForm = () => {
 
         if (error) throw error;
 
-        alert('تم حفظ التسوية البنكية بنجاح ✅');
+        showToast('تم حفظ التسوية البنكية بنجاح ✅', 'success');
         setReconciledIds(new Set());
         setStatementBalance(0);
         refreshData();
@@ -179,7 +181,7 @@ const BankReconciliationForm = () => {
 
     } catch (error: any) {
         console.error(error);
-        alert('فشل حفظ التسوية: ' + error.message);
+        showToast('فشل حفظ التسوية: ' + error.message, 'error');
     } finally {
         setSaving(false);
     }
@@ -192,11 +194,11 @@ const BankReconciliationForm = () => {
       const bankInterestAcc = accounts.find(a => a.code === '423'); // فوائد بنكية دائنة
 
       if (adjType === 'expense' && !bankChargesAcc) {
-          alert('حساب المصروفات البنكية (534) غير موجود في الدليل. يرجى تحديث الصفحة.');
+          showToast('حساب المصروفات البنكية (534) غير موجود في الدليل. يرجى تحديث الصفحة.', 'warning');
           return;
       }
       if (adjType === 'income' && !bankInterestAcc) {
-          alert('حساب الفوائد البنكية (423) غير موجود في الدليل. يرجى تحديث الصفحة.');
+          showToast('حساب الفوائد البنكية (423) غير موجود في الدليل. يرجى تحديث الصفحة.', 'warning');
           return;
       }
 
@@ -223,13 +225,13 @@ const BankReconciliationForm = () => {
               lines: lines as any[]
           });
 
-          alert('تم إنشاء قيد التسوية بنجاح ✅');
+          showToast('تم إنشاء قيد التسوية بنجاح ✅', 'success');
           setShowAdjustmentModal(false);
           setAdjAmount(0);
           setAdjDesc('');
           await refreshData(); // تحديث البيانات لظهور القيد الجديد في القائمة
       } catch (error: any) {
-          alert('فشل إنشاء القيد: ' + error.message);
+          showToast('فشل إنشاء القيد: ' + error.message, 'error');
       } finally {
           setSaving(false);
       }

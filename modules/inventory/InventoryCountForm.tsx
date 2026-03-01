@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Calculator, RefreshCw, Save, Search, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
 import { PhysicalStockItem } from '../../types';
+import { z } from 'zod';
 
 const InventoryCountForm = () => {
   const navigate = useNavigate();
@@ -82,7 +83,18 @@ const InventoryCountForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!warehouseId || items.length === 0) return;
+    
+    const countSchema = z.object({
+        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        items: z.array(z.any()).min(1, 'لا توجد أصناف للجرد')
+    });
+
+    const validationResult = countSchema.safeParse({ warehouseId, date, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
 
     setSaving(true);
     try {

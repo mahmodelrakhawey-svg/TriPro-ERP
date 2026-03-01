@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { Save, Loader2, Wallet, Calendar, FileText, DollarSign, AlertCircle, CheckCircle, Building2, Printer, MessageCircle, ArrowRight, ArrowLeft, Plus, Search, Upload, X, Paperclip, Eye, Download, User } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { ExpenseVoucherPrint } from './ExpenseVoucherPrint';
+import { z } from 'zod';
 
 const ExpenseVoucherForm = () => {
   const { accounts, costCenters, updateVoucher, addEntry, currentUser, addDemoEntry } = useAccounting();
@@ -10,6 +12,7 @@ const ExpenseVoucherForm = () => {
   const [success, setSuccess] = useState(false);
   
   // Navigation & Editing State
+  const { showToast } = useToast();
   const [expenseVouchers, setExpenseVouchers] = useState<any[]>([]);
   const [currentVoucherId, setCurrentVoucherId] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -186,7 +189,7 @@ const ExpenseVoucherForm = () => {
       a.download = fileName;
       a.click();
     } catch (err) {
-      alert('فشل تحميل الملف');
+      showToast('فشل تحميل الملف', 'error');
     }
   };
 
@@ -197,8 +200,23 @@ const ExpenseVoucherForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.treasuryAccountId || !formData.expenseAccountId || !formData.amount) {
-        alert('يرجى تعبئة جميع الحقول المطلوبة (المبلغ، الخزينة، حساب المصروف)');
+    
+    const expenseVoucherSchema = z.object({
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        treasuryAccountId: z.string().min(1, 'الرجاء اختيار حساب الصرف'),
+        expenseAccountId: z.string().min(1, 'الرجاء اختيار حساب المصروف'),
+    });
+
+    const validationResult = expenseVoucherSchema.safeParse({
+        amount: Number(formData.amount),
+        date: formData.date,
+        treasuryAccountId: formData.treasuryAccountId,
+        expenseAccountId: formData.expenseAccountId
+    });
+
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
 
@@ -218,7 +236,7 @@ const ExpenseVoucherForm = () => {
             ]
         });
 
-        alert('تم حفظ سند المصروف بنجاح (محاكاة)');
+        showToast('تم حفظ سند المصروف بنجاح (محاكاة)', 'success');
         handleNew();
         setLoading(false);
         return;
@@ -237,7 +255,7 @@ const ExpenseVoucherForm = () => {
                 recipient_name: formData.recipientName,
                 supplierId: null // Ensure no supplier is linked
             });
-            alert('تم تعديل سند المصروف بنجاح ✅');
+            showToast('تم تعديل سند المصروف بنجاح ✅', 'success');
         } else {
             // Create new voucher
             // 1. Insert into payment_vouchers
@@ -305,7 +323,7 @@ const ExpenseVoucherForm = () => {
         if (!isEditing) handleNew();
 
     } catch (error: any) {
-        alert('حدث خطأ: ' + error.message);
+        showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }

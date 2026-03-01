@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileText, Printer, Loader2, Filter, Download, CircleDollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const MultiCurrencyStatement = () => {
   const { accounts } = useAccounting();
+  const { showToast } = useToast();
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -17,6 +19,10 @@ const MultiCurrencyStatement = () => {
 
   const fetchStatement = async () => {
     if (!selectedAccountId) return;
+    if (startDate > endDate) {
+        showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', 'warning');
+        return;
+    }
     setLoading(true);
     try {
       // 1. جلب القيود للحساب المختار
@@ -84,7 +90,7 @@ const MultiCurrencyStatement = () => {
 
     } catch (error: any) {
       console.error(error);
-      console.error('حدث خطأ: ' + error.message);
+      showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }

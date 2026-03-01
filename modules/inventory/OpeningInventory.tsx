@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Plus, Trash2, Save, Loader2, PackageOpen, AlertTriangle } from 'lucide-react';
+import { z } from 'zod';
 
 type NewProduct = {
   id: string; // Temporary ID for UI
@@ -37,10 +38,17 @@ export default function OpeningInventory() {
 
   const handleSave = async () => {
     // التحقق من البيانات
-    const invalidItems = items.filter(i => !i.name || i.quantity <= 0 || i.cost < 0);
-    if (invalidItems.length > 0) {
-      showToast('يرجى التأكد من إدخال اسم الصنف والكميات والتكاليف بشكل صحيح لجميع الأسطر.', 'warning');
-      return;
+    const openingInventorySchema = z.array(z.object({
+        name: z.string().min(1, 'اسم الصنف مطلوب'),
+        quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+        cost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر')
+    })).min(1, 'يجب إضافة صنف واحد على الأقل');
+
+    const validationResult = openingInventorySchema.safeParse(items);
+    if (!validationResult.success) {
+        const error = validationResult.error.issues[0];
+        showToast(`خطأ في السطر ${Number(error.path[0]) + 1}: ${error.message}`, 'warning');
+        return;
     }
 
     if (!window.confirm('هل أنت متأكد من حفظ بضاعة أول المدة؟\nسيتم إنشاء الأصناف والقيد المحاسبي الافتتاحي.')) return;

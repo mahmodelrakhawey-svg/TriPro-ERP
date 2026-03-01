@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 import { AlertTriangle, Filter, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 const DeficitReport = () => {
+  const { showToast } = useToast();
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
@@ -30,6 +32,10 @@ const DeficitReport = () => {
   }, [startDate, endDate]);
 
   const fetchLogs = async () => {
+    if (startDate > endDate) {
+        showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', 'warning');
+        return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -43,7 +49,7 @@ const DeficitReport = () => {
       setLogs(data || []);
     } catch (err: any) {
       console.error('Error fetching deficit logs:', err);
-      console.error('فشل تحميل السجلات: ' + err.message);
+      showToast('فشل تحميل السجلات: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }

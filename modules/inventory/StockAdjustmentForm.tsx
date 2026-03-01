@@ -1,10 +1,11 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package, Upload, Download, Barcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { z } from 'zod';
 
 interface AdjustmentItem {
   productId: string;
@@ -222,13 +223,20 @@ const StockAdjustmentForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!warehouseId) {
-        showToast('الرجاء اختيار المستودع', 'warning');
-        return;
-    }
+    
+    const adjustmentSchema = z.object({
+        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        reason: z.string().min(1, 'السبب مطلوب'),
+        items: z.array(z.object({
+            productId: z.string().min(1),
+            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0')
+        })).min(1, 'الرجاء إضافة أصناف للقائمة أولاً')
+    });
 
-    if (items.length === 0) {
-        showToast('الرجاء إضافة أصناف للقائمة أولاً', 'warning');
+    const validationResult = adjustmentSchema.safeParse({ warehouseId, date, reason, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
 
@@ -252,7 +260,8 @@ const StockAdjustmentForm = () => {
         const dbItems = items.map(item => ({
             stock_adjustment_id: header.id,
             product_id: item.productId,
-            quantity: item.type === 'in' ? Math.abs(item.quantity) : -Math.abs(item.quantity)
+            quantity: item.type === 'in' ? Math.abs(item.quantity) : -Math.abs(item.quantity),
+            type: item.type
         }));
 
         const { error: itemsError } = await supabase.from('stock_adjustment_items').insert(dbItems);

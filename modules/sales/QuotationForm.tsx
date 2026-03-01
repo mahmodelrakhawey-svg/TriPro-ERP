@@ -4,6 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { Save, Trash2, FileText, CheckCircle, Tag } from 'lucide-react';
 import { InvoiceItem } from '../../types';
 import { supabase } from '../../supabaseClient';
+import { z } from 'zod';
 
 const QuotationForm = () => {
   const { products, customers, currentUser, settings } = useAccounting();
@@ -84,7 +85,23 @@ const QuotationForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.customerId) { showToast('الرجاء اختيار العميل', 'warning'); return; }
+
+    const quotationSchema = z.object({
+        customerId: z.string().min(1, 'الرجاء اختيار العميل'),
+        date: z.string().min(1, 'تاريخ العرض مطلوب'),
+        expiryDate: z.string().min(1, 'تاريخ الانتهاء مطلوب'),
+        items: z.array(z.object({
+            productId: z.string().min(1, 'الرجاء اختيار المنتج في جميع البنود'),
+            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+            unitPrice: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
+        })).min(1, 'يجب إضافة بند واحد على الأقل')
+    });
+
+    const validationResult = quotationSchema.safeParse({ ...formData, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
 
     if (currentUser?.role === 'demo') {
         setSavedQuote("تم الحفظ (محاكاة)");

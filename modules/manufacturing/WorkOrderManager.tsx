@@ -3,8 +3,11 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Factory, Plus, Play, CheckCircle, XCircle, Save, DollarSign, Eye } from 'lucide-react';
+import { z } from 'zod';
+
 const WorkOrderManager = () => {
   const { products, warehouses, produceItem } = useAccounting();
+  const { showToast } = useToast();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -46,7 +49,19 @@ const WorkOrderManager = () => {
 
   const handleCreateOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.productId || !formData.warehouseId) return alert('يرجى اختيار المنتج والمستودع');
+    
+    const workOrderSchema = z.object({
+        productId: z.string().min(1, 'الرجاء اختيار المنتج'),
+        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
+        quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+        startDate: z.string().min(1, 'تاريخ البدء مطلوب'),
+    });
+
+    const validationResult = workOrderSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
 
     try {
         const orderNumber = `WO-${Date.now().toString().slice(-6)}`;
@@ -62,12 +77,12 @@ const WorkOrderManager = () => {
         });
 
         if (error) throw error;
-        alert('تم إنشاء أمر التشغيل بنجاح ✅');
+        showToast('تم إنشاء أمر التشغيل بنجاح ✅', 'success');
         setIsModalOpen(false);
         fetchOrders();
     } catch (error: any) {
         console.error(error);
-        alert('خطأ: ' + error.message);
+        showToast('خطأ: ' + error.message, 'error');
     }
   };
 
@@ -94,10 +109,10 @@ const WorkOrderManager = () => {
 
           if (result.success) {
               await supabase.from('work_orders').update({ status: 'completed', end_date: new Date().toISOString().split('T')[0] }).eq('id', id);
-              alert(result.message);
+              showToast(result.message, 'success');
               fetchOrders();
           } else {
-              alert(result.message);
+              showToast(result.message, 'error');
               return;
           }
       } else {
@@ -107,7 +122,18 @@ const WorkOrderManager = () => {
   };
 
   const handleAddCost = async () => {
-      if (!selectedOrder || newCost.amount <= 0) return;
+      if (!selectedOrder) return;
+      
+      const costSchema = z.object({
+          amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+          description: z.string().min(1, 'الوصف مطلوب'),
+      });
+      
+      const validationResult = costSchema.safeParse(newCost);
+      if (!validationResult.success) {
+          showToast(validationResult.error.issues[0].message, 'warning');
+          return;
+      }
       await supabase.from('work_order_costs').insert({
           work_order_id: selectedOrder.id,
           cost_type: newCost.type,

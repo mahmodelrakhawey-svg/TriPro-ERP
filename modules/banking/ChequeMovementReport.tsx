@@ -1,15 +1,23 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { FileText, Printer, Download, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 
 const ChequeMovementReport = () => {
   const { cheques, settings } = useAccounting();
+  const { showToast } = useToast();
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [typeFilter, setTypeFilter] = useState<'all' | 'incoming' | 'outgoing'>('all');
   const [statusFilter, setStatusFilter] = useState('all');
+
+  useEffect(() => {
+    if (startDate > endDate) {
+        showToast('تاريخ البداية يجب أن يكون قبل تاريخ النهاية', 'warning');
+    }
+  }, [startDate, endDate]);
 
   const filteredCheques = useMemo(() => {
     return cheques.filter(c => {

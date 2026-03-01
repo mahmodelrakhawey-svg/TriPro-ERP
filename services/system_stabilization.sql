@@ -50,6 +50,39 @@ BEGIN
     END IF;
 END $$;
 
+-- تحديثات إضافية (مارس 2026)
+-- تصنيفات الأصناف
+CREATE TABLE IF NOT EXISTS public.item_categories (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name varchar NOT NULL,
+    default_inventory_account_id uuid REFERENCES public.accounts(id),
+    default_cogs_account_id uuid REFERENCES public.accounts(id),
+    default_sales_account_id uuid REFERENCES public.accounts(id)
+);
+
+-- تحديث جدول المنتجات
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_id uuid REFERENCES public.item_categories(id);
+
+-- تحديث جدول الفواتير
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES auth.users(id);
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS reference text;
+
+-- تحديث جدول فواتير المشتريات
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS additional_expenses numeric DEFAULT 0;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES auth.users(id);
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS reference text;
+
+-- تحديث جدول الشيكات
+ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_voucher_id uuid;
+ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS current_account_id uuid REFERENCES public.accounts(id);
+
+-- تحديث جدول بنود الفاتورة
+ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS unit_price numeric;
+ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS discount numeric DEFAULT 0;
+ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS tax_rate numeric DEFAULT 0;
+ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS custom_fields jsonb;
+
 -- 3. التأكد من وجود الحسابات المحاسبية الحرجة (لتجنب أخطاء القيود الآلية)
 -- أوراق القبض (1204)
 INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active)

@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Banknote, Plus, Search, CheckCircle, XCircle, Loader2, User } from 'lucide-react';
+import { z } from 'zod';
 
 const EmployeeAdvances = () => {
   const { addEntry, getSystemAccount, accounts, currentUser } = useAccounting();
@@ -58,8 +59,18 @@ const EmployeeAdvances = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.employeeId || formData.amount <= 0 || !formData.treasuryId) {
-        return showToast('يرجى تعبئة جميع البيانات المطلوبة', 'warning');
+    
+    const advanceSchema = z.object({
+        employeeId: z.string().min(1, 'الرجاء اختيار الموظف'),
+        amount: z.number().min(1, 'مبلغ السلفة يجب أن يكون أكبر من 0'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        treasuryId: z.string().min(1, 'الرجاء اختيار حساب الصرف'),
+    });
+
+    const validationResult = advanceSchema.safeParse(formData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
     }
     
     setSaving(true);
