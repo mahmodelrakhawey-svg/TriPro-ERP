@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١‏/٣‏/٢٠٢٦، ١٠:٠٠:١٥ ص
+📅 تاريخ التحديث: ٧‏/٣‏/٢٠٢٦، ١:١٦:٣٢ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -49,6 +49,7 @@
     📄 CustomerDepositPrint.tsx
     📄 ExpenseVoucherForm.tsx
     📄 ExpenseVoucherPrint.tsx
+    📄 keep-alive.ts
     📄 PaymentVoucherForm.tsx
     📄 PaymentVoucherList.tsx
     📄 PaymentVoucherPrint.tsx
@@ -191,6 +192,7 @@
   📄 fix_customer_balance_mismatch.sql sql
   📄 fix_deficit_relationship.sql
   📄 fix_invoices_schema.sql
+  📄 fix_missing_accounts.sql
   📄 fix_notification_requirements.sql
   📄 fix_notification_schema.sql
   📄 fix_null_warehouse_returns.sql
@@ -204,6 +206,7 @@
   📄 invoice_items_queries.sql
   📄 invoiceItems.ts
   📄 link_returns_to_invoices.sql
+  📄 master_setup.sql
   📄 NotificationScheduler.ts
   📄 notificationService.ts
   📄 notificationTestUtils.ts
@@ -214,6 +217,7 @@
   📄 rejected_closings_setup.sql
   📄 reports_functions.sql
   📄 reset_database_clean.sql
+  📄 restore_from_backup.sql
   📄 run_period_depreciation_rpc.sql
   📄 secure_tables.sql
   📄 setup_client_admin.sql
@@ -234,9 +238,11 @@
   📄 UserManagement.tsx
   📄 verify_and_fix_returns_schema.sql
   📄 verify_demo_security.sql
+  📄 verify_frontend_integration.sql
   📄 verify_functions.sql
   📄 verify_reset.sql
   📄 verify_rls_status.sql
+  📄 verify_system_health.sql
   📄 voucher_attachments_setup.sql
   📄 WhatsAppButton.tsx
 📁 context/
@@ -288,6 +294,7 @@
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@types/uuid": "^10.0.0",
+    "@vercel/node": "^5.6.11",
     "@vitejs/plugin-react": "^4.2.0",
     "@vitest/ui": "^2.0.4",
     "autoprefixer": "^10.4.16",
