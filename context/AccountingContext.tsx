@@ -2825,6 +2825,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
       if (error) throw error;
+
+      // تنظيف الأرصدة الافتتاحية المرتبطة بالعميل المحذوف
+      // 1. البحث عن الفواتير التي تم إنشاؤها كرصيد افتتاحي
+      const { data: openingInvoices } = await supabase
+        .from('invoices')
+        .select('id, invoice_number')
+        .eq('customer_id', id)
+        .eq('notes', 'رصيد افتتاحي');
+
+      if (openingInvoices && openingInvoices.length > 0) {
+        const invoiceIds = openingInvoices.map((inv: any) => inv.id);
+        const invoiceNumbers = openingInvoices.map((inv: any) => inv.invoice_number);
+
+        // حذف الفواتير الافتتاحية (Soft Delete)
+        await supabase.from('invoices').update({ deleted_at: new Date().toISOString() }).in('id', invoiceIds);
+
+        // حذف القيود المحاسبية المرتبطة (Hard Delete لأنها أرصدة افتتاحية لعميل محذوف)
+        if (invoiceNumbers.length > 0) {
+          const { data: journals } = await supabase.from('journal_entries').select('id').in('reference', invoiceNumbers);
+          if (journals && journals.length > 0) {
+            const journalIds = journals.map((j: any) => j.id);
+            await supabase.from('journal_lines').delete().in('journal_entry_id', journalIds);
+            await supabase.from('journal_entries').delete().in('id', journalIds);
+          }
+        }
+      }
+
       await fetchData(); // تحديث البيانات لإزالة العميل من القائمة الرئيسية
       const customer = customers.find(c => c.id === id);
       logActivity('حذف عميل', `تم حذف العميل: ${customer?.name || id}` + (reason ? ` - السبب: ${reason}` : ''));

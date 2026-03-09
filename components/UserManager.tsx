@@ -262,12 +262,19 @@ const UserManager = () => {
     }
     setResetting(true);
     try {
-        const { error } = await supabase.functions.invoke('reset-password', {
-            body: {
-                userId: resetPasswordData.userId,
-                newPassword: resetPasswordData.newPassword
-            }
-        });
+        let error;
+
+        // إذا كان المستخدم يقوم بتغيير كلمة المرور الخاصة به، نستخدم دالة التحديث المباشرة (لا تتطلب Edge Function)
+        if (currentUser?.id === resetPasswordData.userId) {
+            const { error: updateError } = await supabase.auth.updateUser({ password: resetPasswordData.newPassword });
+            error = updateError;
+        } else {
+            // للمستخدمين الآخرين، نستخدم Edge Function
+            const { error: funcError } = await supabase.functions.invoke('reset-password', {
+                body: { userId: resetPasswordData.userId, newPassword: resetPasswordData.newPassword }
+            });
+            error = funcError;
+        }
 
         if (error) throw error;
 

@@ -17,7 +17,7 @@ import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 const Dashboard = () => {
-  const { currentUser, settings } = useAccounting();
+  const { currentUser, settings, getSystemAccount } = useAccounting();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
     monthSales: 0,
@@ -157,6 +157,13 @@ const Dashboard = () => {
     </div>
   );
 
+  // استخدام أرصدة الحسابات الفعلية (دفتر الأستاذ) بدلاً من إحصائيات الفواتير فقط
+  // هذا يضمن ظهور الأرصدة الافتتاحية والقيود اليدوية
+  const customerAcc = getSystemAccount('CUSTOMERS');
+  const supplierAcc = getSystemAccount('SUPPLIERS');
+  const realReceivables = (currentUser?.role !== 'demo' && customerAcc) ? customerAcc.balance : stats.receivables;
+  const realPayables = (currentUser?.role !== 'demo' && supplierAcc) ? supplierAcc.balance : stats.payables;
+
   return (
     <div className="space-y-8 animate-in fade-in pb-10">
       {/* Header */}
@@ -188,13 +195,13 @@ const Dashboard = () => {
         />
         <StatCard 
             title="مستحقات لنا (العملاء)" 
-            value={stats.receivables} 
+            value={realReceivables} 
             icon={TrendingUp} 
             color="bg-emerald-100" 
         />
         <StatCard 
             title="مستحقات علينا (الموردين)" 
-            value={stats.payables} 
+            value={realPayables} 
             icon={TrendingDown} 
             color="bg-red-100" 
         />
