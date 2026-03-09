@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2, Upload, Download } from 'lucide-react';
+import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2, Upload, Download, Wallet, TrendingUp, RefreshCw, Scale, Mail, FileSpreadsheet, ArrowUp, ArrowDown, Printer } from 'lucide-react';
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { createCustomerSchema } from '../../utils/validationSchemas';
+import { useNavigate } from 'react-router-dom';
 
 type Customer = {
   id: string;
@@ -19,6 +20,7 @@ type Customer = {
 };
 
 const CustomerManager = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { addCustomer, updateCustomer, deleteCustomer, can, currentUser, customers: contextCustomers, addEntry, accounts, getSystemAccount } = useAccounting();
   const { showToast } = useToast();
@@ -42,6 +44,115 @@ const CustomerManager = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Customer>>({});
   const [isImporting, setIsImporting] = useState(false);
+  const [stats, setStats] = useState<Record<string, { balance: number, totalSales: number, lastInvoice: string | null }>>({});
+  const [statsLoading, setStatsLoading] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'balance', direction: 'desc' });
+
+  // جلب الإحصائيات عند تحميل العملاء
+  useEffect(() => {
+    if (customers.length > 0) {
+        fetchStats();
+    }
+  }, [customers]);
+
+  const fetchStats = async () => {
+    if (currentUser?.role === 'demo') {
+        setStats({
+            'demo-c1': { balance: 4775, totalSales: 9775, lastInvoice: '2024-07-25' },
+            'demo-c2': { balance: 0, totalSales: 4887.5, lastInvoice: '2024-07-24' },
+            'demo-c3': { balance: 1500, totalSales: 1500, lastInvoice: '2024-07-25' }
+        });
+        return;
+    }
+    
+    setStatsLoading(true);
+    try {
+        // Fetch invoices (debit)
+        const { data: invoices } = await supabase.from('invoices').select('customer_id, total_amount, invoice_date').neq('status', 'draft');
+        // Fetch receipts (credit)
+        const { data: receipts } = await supabase.from('receipt_vouchers').select('customer_id, amount');
+        // Fetch sales returns (credit)
+        const { data: returns } = await supabase.from('sales_returns').select('customer_id, total_amount').neq('status', 'draft');
+        // Fetch credit notes (credit)
+        const { data: creditNotes } = await supabase.from('credit_notes').select('customer_id, total_amount');
+        // Fetch collected cheques (credit)
+        const { data: cheques } = await supabase.from('cheques')
+            .select('party_id, amount')
+            .eq('type', 'incoming')
+            .eq('status', 'collected');
+
+        const newStats: Record<string, any> = {};
+
+        // Initialize stats
+        customers.forEach(c => { newStats[c.id] = { balance: 0, totalSales: 0, lastInvoice: null }; });
+
+        // Calculate invoices
+        invoices?.forEach(inv => {
+            if (!newStats[inv.customer_id]) return;
+            newStats[inv.customer_id].balance += Number(inv.total_amount);
+            newStats[inv.customer_id].totalSales += Number(inv.total_amount);
+            if (!newStats[inv.customer_id].lastInvoice || inv.invoice_date > newStats[inv.customer_id].lastInvoice) {
+                newStats[inv.customer_id].lastInvoice = inv.invoice_date;
+            }
+        });
+
+        // Subtract payments and returns
+        receipts?.forEach(p => { if (newStats[p.customer_id]) newStats[p.customer_id].balance -= Number(p.amount); });
+        returns?.forEach(r => { if (newStats[r.customer_id]) newStats[r.customer_id].balance -= Number(r.total_amount); });
+        creditNotes?.forEach(cn => { if (newStats[cn.customer_id]) newStats[cn.customer_id].balance -= Number(cn.total_amount); });
+        cheques?.forEach(c => { if (newStats[c.party_id]) newStats[c.party_id].balance -= Number(c.amount); });
+
+        setStats(newStats);
+    } catch (error) { console.error("Error fetching stats", error); } finally { setStatsLoading(false); }
+  };
+
+  const requestSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedCustomers = useMemo(() => {
+    let sortableItems = [...customers];
+    if (sortConfig) {
+      sortableItems.sort((a, b) => {
+        let valA: any;
+        let valB: any;
+
+        switch (sortConfig.key) {
+          case 'balance':
+            valA = stats[a.id]?.balance ?? 0;
+            valB = stats[b.id]?.balance ?? 0;
+            break;
+          case 'totalSales':
+            valA = stats[a.id]?.totalSales ?? 0;
+            valB = stats[b.id]?.totalSales ?? 0;
+            break;
+          case 'credit_limit':
+            valA = a.credit_limit ?? 0;
+            valB = b.credit_limit ?? 0;
+            break;
+          case 'name':
+            valA = a.name;
+            valB = b.name;
+            break;
+          default:
+            return 0;
+        }
+
+        if (typeof valA === 'number' && typeof valB === 'number') {
+          if (valA < valB) return sortConfig.direction === 'asc' ? -1 : 1;
+          if (valA > valB) return sortConfig.direction === 'asc' ? 1 : -1;
+        } else if (typeof valA === 'string' && typeof valB === 'string') {
+          return sortConfig.direction === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        }
+        return 0;
+      });
+    }
+    return sortableItems;
+  }, [customers, stats, sortConfig]);
 
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -91,6 +202,40 @@ const CustomerManager = () => {
         }
       }
     }
+  };
+
+  const handleExportExcel = () => {
+    if (customers.length === 0) {
+        showToast('لا يوجد عملاء لتصديرهم.', 'info');
+        return;
+    }
+
+    const dataToExport = customers.map(customer => ({
+        'الاسم': customer.name,
+        'الهاتف': customer.phone || '-',
+        'البريد الإلكتروني': customer.email || '-',
+        'العنوان': customer.address || '-',
+        'الرقم الضريبي': customer.tax_number || '-',
+        'الرصيد الحالي': stats[customer.id]?.balance ?? 0,
+        'إجمالي المبيعات': stats[customer.id]?.totalSales ?? 0,
+        'حد الائتمان': customer.credit_limit ?? 0,
+    }));
+
+    const totalBalance = dataToExport.reduce((sum, item) => sum + item['الرصيد الحالي'], 0);
+    const totalSales = dataToExport.reduce((sum, item) => sum + item['إجمالي المبيعات'], 0);
+
+    // Add an empty row for spacing, then the total row
+    dataToExport.push({} as any); 
+    dataToExport.push({
+        'الاسم': 'الإجمالي الكلي:',
+        'الرصيد الحالي': totalBalance,
+        'إجمالي المبيعات': totalSales,
+    } as any);
+
+    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "تقرير العملاء");
+    XLSX.writeFile(wb, `Customers_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const handleDownloadTemplate = () => {
@@ -230,12 +375,29 @@ const CustomerManager = () => {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 animate-in fade-in">
+      <div className="hidden print:block text-center mb-4">
+          <h1 className="text-2xl font-bold">تقرير أرصدة العملاء</h1>
+          <p className="text-sm text-slate-500">تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
+      </div>
+
+      <div className="flex justify-between items-center print:hidden">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <Users className="text-blue-600" /> إدارة العملاء
         </h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 mr-auto">
+            <button onClick={() => navigate('/customer-statement')} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold">
+                <Scale size={16} /> كشف حساب
+            </button>
+            <button onClick={fetchStats} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold">
+                <RefreshCw size={16} className={statsLoading ? 'animate-spin' : ''} />
+            </button>
+            <button onClick={handleExportExcel} className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-100 text-sm font-bold">
+                <FileSpreadsheet size={16} /> تصدير Excel
+            </button>
+            <button onClick={() => window.print()} className="bg-slate-800 text-white px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 text-sm font-bold">
+                <Printer size={16} /> طباعة
+            </button>
             <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
                 <Download size={16} /> نموذج
             </button>
@@ -260,7 +422,7 @@ const CustomerManager = () => {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 print:hidden">
         <div className="relative">
           <Search className="absolute right-3 top-3 text-slate-400" size={20} />
           <input type="text" placeholder="بحث عن عميل..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pr-10 pl-4 py-2 border rounded-lg focus:outline-none focus:border-blue-500" />
@@ -270,34 +432,74 @@ const CustomerManager = () => {
       {isLoading ? (
         <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-600" size={32} /></div>
       ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {customers.map(customer => (
-          <div key={customer.id} className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
-            <div className="flex justify-between items-start mb-3">
-              <h3 className="font-bold text-lg text-slate-800">{customer.name}</h3>
-              <div className="flex gap-2">
-                {can('customers', 'update') && (
-                  <button onClick={() => { setFormData(customer); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-1 rounded"><Edit2 size={16} /></button>
-                )}
-                {can('customers', 'delete') && (
-                  <button onClick={() => handleDelete(customer.id)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={16} /></button>
-                )}
-              </div>
-            </div>
-            <div className="space-y-2 text-sm text-slate-600">
-              <div className="flex items-center gap-2"><Phone size={14} /> {customer.phone || '-'}</div>
-              <div className="flex items-center gap-2"><FileText size={14} /> {customer.tax_number || '-'}</div>
-              <div className="flex items-center gap-2"><MapPin size={14} /> {customer.address || '-'}</div>
-              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100 font-bold text-emerald-600">
-                <CircleDollarSign size={14} /> حد الائتمان: {customer.credit_limit?.toLocaleString() || 0}
-              </div>
-            </div>
-          </div>
-        ))}
-        {customers.length === 0 && (
-            <div className="col-span-full text-center py-12 text-slate-400">لا توجد نتائج مطابقة للبحث.</div>
-        )}
-      </div>
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto print:shadow-none print:border-none print:rounded-none">
+            <table className="w-full text-right">
+                <thead className="bg-slate-50 text-slate-600 font-bold text-sm">
+                    <tr>
+                        <th className="p-4 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('name')}>
+                            <div className="flex items-center gap-1 justify-end">
+                                {sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)} الاسم
+                            </div>
+                        </th>
+                        <th className="p-4">الهاتف</th>
+                        <th className="p-4">البريد الإلكتروني</th>
+                        <th className="p-4 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('balance')}>
+                            <div className="flex items-center gap-1 justify-end">
+                                {sortConfig.key === 'balance' && (sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)} الرصيد الحالي
+                            </div>
+                        </th>
+                        <th className="p-4 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('totalSales')}>
+                            <div className="flex items-center gap-1 justify-end">
+                                {sortConfig.key === 'totalSales' && (sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)} إجمالي المبيعات
+                            </div>
+                        </th>
+                        <th className="p-4 cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => requestSort('credit_limit')}>
+                            <div className="flex items-center gap-1 justify-end">
+                                {sortConfig.key === 'credit_limit' && (sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)} حد الائتمان
+                            </div>
+                        </th>
+                        <th className="p-4 text-center print:hidden">إجراءات</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                    {sortedCustomers.map(customer => (
+                    <tr key={customer.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4 font-bold text-slate-800">{customer.name}</td>
+                        <td className="p-4 text-slate-600 font-mono">{customer.phone || '-'}</td>
+                        <td className="p-4 text-slate-600">{customer.email || '-'}</td>
+                        <td className={`p-4 font-mono font-bold ${stats[customer.id]?.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                        {statsLoading ? '...' : (stats[customer.id]?.balance?.toLocaleString() || '0')}
+                        </td>
+                        <td className="p-4 font-mono font-bold text-slate-700">
+                        {statsLoading ? '...' : (stats[customer.id]?.totalSales?.toLocaleString() || '0')}
+                        </td>
+                        <td className="p-4 font-mono text-emerald-600">{customer.credit_limit?.toLocaleString() || 0}</td>
+                        <td className="p-4 text-center print:hidden">
+                        <div className="flex justify-center gap-2">
+                            {can('customers', 'update') && (
+                            <button onClick={() => { setFormData(customer); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full"><Edit2 size={16} /></button>
+                            )}
+                            {can('customers', 'delete') && (
+                            <button onClick={() => handleDelete(customer.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-full"><Trash2 size={16} /></button>
+                            )}
+                        </div>
+                        </td>
+                    </tr>
+                    ))}
+                    {sortedCustomers.length === 0 && (
+                    <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد نتائج مطابقة للبحث.</td></tr>
+                    )}
+                </tbody>
+                <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
+                    <tr>
+                        <td colSpan={3} className="p-4 text-left">الإجمالي:</td>
+                        <td className="p-4 text-red-700 font-mono">{Object.values(stats).reduce((acc, s) => acc + (s.balance || 0), 0).toLocaleString()}</td>
+                        <td className="p-4 text-slate-800 font-mono">{Object.values(stats).reduce((acc, s) => acc + (s.totalSales || 0), 0).toLocaleString()}</td>
+                        <td colSpan={2}></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
       )}
 
       {isModalOpen && (
