@@ -64,16 +64,17 @@ const BalanceSheet = () => {
 
             const type = (acc.type || '').toLowerCase().trim();
             const balance = acc.balance || 0;
+            const code = String(acc.code || '');
 
-            if (type.includes('asset') || type.includes('أصول')) {
+            if (type.includes('asset') || type.includes('أصول') || code.startsWith('1')) {
                 assets.push({ account: acc, amount: balance });
-            } else if (type.includes('liability') || type.includes('خصوم')) {
+            } else if (type.includes('liability') || type.includes('خصوم') || code.startsWith('2')) {
                 liabilities.push({ account: acc, amount: balance });
-            } else if (type.includes('equity') || type.includes('ملكية')) {
+            } else if (type.includes('equity') || type.includes('ملكية') || code.startsWith('3')) {
                 equity.push({ account: acc, amount: balance });
-            } else if (type.includes('revenue') || type.includes('إيراد')) {
+            } else if (type.includes('revenue') || type.includes('إيراد') || code.startsWith('4')) {
                 currentNetIncome += balance;
-            } else if (type.includes('expense') || type.includes('مصروف')) {
+            } else if (type.includes('expense') || type.includes('مصروف') || code.startsWith('5')) {
                 currentNetIncome -= balance;
             }
         });
@@ -97,11 +98,19 @@ const BalanceSheet = () => {
     accounts.forEach(acc => {
       if (acc.isGroup || !accountBalances[acc.id]) return;
       const rawBalance = accountBalances[acc.id];
-      const type = (acc.type || '').toLowerCase().trim();
-      if (type.includes('asset')) assets.push({ account: acc, amount: rawBalance });
-      else if (type.includes('liability')) liabilities.push({ account: acc, amount: -rawBalance });
-      else if (type.includes('equity')) equity.push({ account: acc, amount: -rawBalance });
-      else if (type.includes('revenue') || type.includes('expense')) pnlSum += rawBalance;
+      const type = (acc.type || '').toLowerCase().trim(); // e.g., 'asset', 'liability'
+      const code = String(acc.code || '');
+
+      // More robust classification based on standard account codes
+      if (type.includes('asset') || code.startsWith('1')) {
+        assets.push({ account: acc, amount: rawBalance });
+      } else if (type.includes('liability') || code.startsWith('2')) {
+        liabilities.push({ account: acc, amount: -rawBalance });
+      } else if (type.includes('equity') || code.startsWith('3')) {
+        equity.push({ account: acc, amount: -rawBalance });
+      } else if (type.includes('revenue') || type.includes('expense') || code.startsWith('4') || code.startsWith('5')) {
+        pnlSum += rawBalance;
+      }
     });
 
     return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: -pnlSum };

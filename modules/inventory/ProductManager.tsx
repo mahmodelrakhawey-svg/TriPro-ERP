@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -509,8 +509,13 @@ const ProductManager = () => {
     if (!reason) return;
 
     if (currentUser?.role === 'demo') {
+        // --- تحسين الديمو: محاكاة الحذف ---
+        // deleteDemoProduct(id); // استدعاء دالة من السياق لحذف المنتج
         showToast('تم حذف الصنف بنجاح (محاكاة)', 'success');
-        return;
+        await refreshData(); // تحديث الواجهة
+        // في تطبيق حقيقي، ستستدعي دالة من السياق لحذف المنتج من الحالة
+        // وللتبسيط هنا، سنقوم بتحديث البيانات لإعادة رسم القائمة
+        return; 
     }
 
     try {

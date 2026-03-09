@@ -84,31 +84,31 @@ const DUMMY_WAREHOUSES = [
 const DUMMY_INVOICES = [
     { 
         id: 'demo-inv-1', 
-        invoiceNumber: 'INV-001001', 
-        customerId: 'demo-c1', 
+        invoice_number: 'INV-001001', 
+        customer_id: 'demo-c1', 
         customerName: 'شركة الأفق للتجارة', customerPhone: '0501234567',
         date: new Date().toISOString().split('T')[0], 
-        totalAmount: 9775, taxAmount: 1275, subtotal: 8500, 
+        total_amount: 9775, tax_amount: 1275, subtotal: 8500, 
         status: 'posted', paid_amount: 5000, warehouseId: 'demo-wh1',
         items: [{ id: 'di-1', productId: 'demo-p2', productName: 'طابعة ليزر Canon', quantity: 1, unitPrice: 8500, total: 8500 }]
     },
     { 
         id: 'demo-inv-2', 
-        invoiceNumber: 'INV-001002', 
-        customerId: 'demo-c2', 
+        invoice_number: 'INV-001002', 
+        customer_id: 'demo-c2', 
         customerName: 'مؤسسة النور', customerPhone: '0551234567',
         date: new Date(Date.now() - 86400000).toISOString().split('T')[0], 
-        totalAmount: 4887.5, taxAmount: 637.5, subtotal: 4250, 
+        total_amount: 4887.5, tax_amount: 637.5, subtotal: 4250, 
         status: 'paid', paid_amount: 4887.5, warehouseId: 'demo-wh1',
         items: [{ id: 'di-2', productId: 'demo-p4', productName: 'ورق تصوير A4 (كرتونة)', quantity: 5, unitPrice: 850, total: 4250 }]
     },
     { 
         id: 'demo-inv-3', 
-        invoiceNumber: 'INV-001003', 
-        customerId: 'demo-c3', 
+        invoice_number: 'INV-001003', 
+        customer_id: 'demo-c3', 
         customerName: 'عميل نقدي', customerPhone: '',
         date: new Date().toISOString().split('T')[0], 
-        totalAmount: 1500, taxAmount: 195.65, subtotal: 1304.35, 
+        total_amount: 1500, tax_amount: 195.65, subtotal: 1304.35, 
         status: 'posted', paid_amount: 0, warehouseId: 'demo-wh1',
         items: [{ id: 'di-3', productId: 'demo-p3', productName: 'حبر طابعة HP 85A', quantity: 3, unitPrice: 450, total: 1350 }]
     }
@@ -117,12 +117,12 @@ const DUMMY_INVOICES = [
 const DUMMY_PURCHASE_INVOICES = [
     {
         id: 'demo-pinv-1',
-        invoiceNumber: 'PINV-001',
-        supplierId: 'demo-s1',
+        invoice_number: 'PINV-001',
+        supplier_id: 'demo-s1',
         supplierName: 'شركة التوريدات العالمية',
         date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0],
-        totalAmount: 5750,
-        taxAmount: 750,
+        total_amount: 5750,
+        tax_amount: 750,
         subtotal: 5000,
         status: 'posted',
         warehouseId: 'demo-wh1',
@@ -211,11 +211,11 @@ const FULL_DEMO_ACCOUNTS_RAW = [
   { code: '123', name: 'النقدية وما في حكمها', type: 'ASSET', is_group: true, parent_account: '12' },
   { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_account: '123' },
   { code: '1232', name: 'البنك الأهلي', type: 'ASSET', is_group: false, parent_account: '123' },
-  { code: '10201', name: 'العملاء', type: 'ASSET', is_group: false, parent_account: '12' },
+  { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_account: '12' },
   { code: '1241', name: 'ضريبة القيمة المضافة (مدخلات)', type: 'ASSET', is_group: false, parent_account: '12' },
   { code: '1222', name: 'أوراق القبض', type: 'ASSET', is_group: false, parent_account: '12' },
   { code: '2', name: 'الخصوم', type: 'LIABILITY', is_group: true, parent_account: null },
-  { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_account: '2' },
+  { code: '221', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_account: '2' },
   { code: '222', name: 'أوراق الدفع', type: 'LIABILITY', is_group: false, parent_account: '2' },
   { code: '2231', name: 'ضريبة القيمة المضافة (مخرجات)', type: 'LIABILITY', is_group: false, parent_account: '2' },
   { code: '3', name: 'حقوق الملكية', type: 'EQUITY', is_group: true, parent_account: null },
@@ -453,9 +453,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     DUMMY_INVOICES.forEach(inv => {
         if (inv.status !== 'draft') {
             const lines = [
-                { account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: inv.totalAmount, credit: 0 },
+                { account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: inv.total_amount, credit: 0 },
                 { account_id: SYSTEM_ACCOUNTS.SALES_REVENUE, debit: 0, credit: inv.subtotal },
-                { account_id: SYSTEM_ACCOUNTS.VAT, debit: 0, credit: inv.taxAmount },
+                { account_id: SYSTEM_ACCOUNTS.VAT, debit: 0, credit: inv.tax_amount },
             ];
             if (inv.paid_amount && inv.paid_amount > 0) {
                 lines.push({ account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: 0, credit: inv.paid_amount });
@@ -464,7 +464,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             processLines(lines);
             allDemoEntries.push({
                 id: `demo-je-inv-${inv.id}`, date: inv.date, description: `فاتورة مبيعات ${inv.customerName}`,
-                reference: inv.invoiceNumber, status: 'posted', is_posted: true,
+                reference: inv.invoice_number, status: 'posted', is_posted: true,
                 lines: lines.map(l => ({ accountId: l.account_id, debit: l.debit, credit: l.credit }))
             });
         }
@@ -474,13 +474,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (inv.status !== 'draft') {
             const lines = [
                 { account_id: SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, debit: inv.subtotal, credit: 0 },
-                { account_id: SYSTEM_ACCOUNTS.VAT_INPUT, debit: inv.taxAmount, credit: 0 },
-                { account_id: SYSTEM_ACCOUNTS.SUPPLIERS, debit: 0, credit: inv.totalAmount },
+                { account_id: SYSTEM_ACCOUNTS.VAT_INPUT, debit: inv.tax_amount, credit: 0 },
+                { account_id: SYSTEM_ACCOUNTS.SUPPLIERS, debit: 0, credit: inv.total_amount },
             ];
             processLines(lines);
             allDemoEntries.push({
                 id: `demo-je-pinv-${inv.id}`, date: inv.date, description: `فاتورة مشتريات ${inv.supplierName}`,
-                reference: inv.invoiceNumber, status: 'posted', is_posted: true,
+                reference: inv.invoice_number, status: 'posted', is_posted: true,
                 lines: lines.map(l => ({ accountId: l.account_id, debit: l.debit, credit: l.credit }))
             });
         }
@@ -1104,7 +1104,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             // استخدام الحالة المحلية لعرض الفواتير المضافة حديثاً
             const source = invoices.length > 0 ? invoices : DUMMY_INVOICES;
             const filtered = source.filter(inv => 
-                (!search || inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) || inv.customerName.toLowerCase().includes(search.toLowerCase()))
+                (!search || ((inv as any).invoice_number || (inv as any).invoiceNumber).toLowerCase().includes(search.toLowerCase()) || inv.customerName.toLowerCase().includes(search.toLowerCase()))
             );
             const start = (page - 1) * pageSize;
             const end = start + pageSize;

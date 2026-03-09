@@ -55,6 +55,15 @@ const Header = () => {
         fetchUserData();
     }, []);
 
+    // --- تحسين الديمو: تفعيل الجولة التعريفية ---
+    useEffect(() => {
+        if (currentUser?.role === 'demo') {
+            const tourSeen = localStorage.getItem('demo_tour_seen');
+            if (!tourSeen) {
+                window.dispatchEvent(new CustomEvent('start-demo-tour'));
+            }
+        }
+    }, [currentUser]);
     // Logout function
     const logout = async () => {
         await supabase.auth.signOut();
