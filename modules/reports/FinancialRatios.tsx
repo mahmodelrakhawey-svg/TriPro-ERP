@@ -1,8 +1,9 @@
-﻿import { useMemo } from 'react';
+﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Gauge, TrendingUp, Activity, Printer, Download, Target } from 'lucide-react';
+import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import * as XLSX from 'xlsx';
+import { supabase } from '../../supabaseClient';
 
 const FinancialRatios = () => {
   const { accounts, entries } = useAccounting();
@@ -168,15 +169,27 @@ const FinancialRatios = () => {
     </div>
   );
 
-  // بيانات وهمية للرسم البياني (للعرض فقط حتى يتم تفعيل التاريخ)
-  const chartData = [
-    { name: 'يناير', ربحية: 12, سيولة: 1.5 },
-    { name: 'فبراير', ربحية: 15, سيولة: 1.4 },
-    { name: 'مارس', ربحية: 18, سيولة: 1.6 },
-    { name: 'أبريل', ربحية: 14, سيولة: 1.5 },
-    { name: 'مايو', ربحية: 20, سيولة: 1.8 },
-    { name: 'يونيو', ربحية: 22, سيولة: 1.9 },
-  ];
+  // --- استدعاء دالة RPC لجلب البيانات التاريخية ---
+  const [historicalData, setHistoricalData] = useState<{ profitabilityData: any[], liquidityData: any[] }>({ profitabilityData: [], liquidityData: [] });
+  const [loadingCharts, setLoadingCharts] = useState(true);
+
+  useEffect(() => {
+    const fetchHistoricalData = async () => {
+      setLoadingCharts(true);
+      try {
+        const { data, error } = await supabase.rpc('get_historical_ratios');
+        if (error) throw error;
+        setHistoricalData(data || { profitabilityData: [], liquidityData: [] });
+      } catch (error) {
+        console.error("Error fetching historical ratios:", error);
+        // يمكنك إضافة رسالة خطأ للمستخدم هنا
+      } finally {
+        setLoadingCharts(false);
+      }
+    };
+
+    fetchHistoricalData();
+  }, []); // يتم التشغيل مرة واحدة عند تحميل المكون
 
   const handleExportExcel = () => {
     const data = [
@@ -361,24 +374,31 @@ const FinancialRatios = () => {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
               <h3 className="text-lg font-bold text-slate-800 mb-6">تطور هوامش الربحية</h3>
               <div className="h-64 w-full" dir="ltr">
+                {loadingCharts ? (
+                    <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-blue-500" /></div>
+                ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={chartData}>
+                      <LineChart data={historicalData.profitabilityData}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
                           <XAxis dataKey="name" tick={{fill: '#64748b', fontSize: 12}} />
                           <YAxis tick={{fill: '#64748b', fontSize: 12}} />
                           <Tooltip />
                           <Legend />
-                          <Line type="monotone" dataKey="ربحية" stroke="#10b981" strokeWidth={3} dot={{r: 4}} name="هامش الربح %" />
+                          <Line type="monotone" dataKey="ربحية" stroke="#10b981" strokeWidth={3} dot={{r: 4}} name="هامش صافي الربح %" />
                       </LineChart>
                   </ResponsiveContainer>
+                )}
               </div>
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
               <h3 className="text-lg font-bold text-slate-800 mb-6">مؤشر السيولة</h3>
               <div className="h-64 w-full" dir="ltr">
+                {loadingCharts ? (
+                    <div className="flex justify-center items-center h-full"><Loader2 className="animate-spin text-blue-500" /></div>
+                ) : (
                   <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={chartData}>
+                      <BarChart data={historicalData.liquidityData}>
                           <CartesianGrid strokeDasharray="3 3" vertical={false} />
                           <XAxis dataKey="name" tick={{fill: '#64748b', fontSize: 12}} />
                           <YAxis tick={{fill: '#64748b', fontSize: 12}} />
@@ -387,6 +407,7 @@ const FinancialRatios = () => {
                           <Bar dataKey="سيولة" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={40} name="النسبة المتداولة" />
                       </BarChart>
                   </ResponsiveContainer>
+                )}
               </div>
           </div>
       </div>

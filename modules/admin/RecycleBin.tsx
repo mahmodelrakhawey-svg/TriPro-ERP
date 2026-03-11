@@ -103,6 +103,9 @@ const RecycleBin = () => {
         ],
         warehouses: [
             { table: 'stock_transfers', col: 'from_warehouse_id', label: 'تحويلات مخزنية' }
+        ],
+        assets: [
+            // { table: 'depreciation_entries', col: 'asset_id', label: 'قيود إهلاك' } // مثال: إضافة فحص مستقبلي
         ]
     };
 

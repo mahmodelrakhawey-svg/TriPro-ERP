@@ -4,7 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
 import * as XLSX from 'xlsx';
 import { 
-  Upload, Download, CheckCircle, AlertCircle, 
+  Upload, Download, CheckCircle, AlertCircle, MonitorSmartphone,
   FileSpreadsheet, Users, Package, Truck, 
   ArrowRight, ArrowLeft, Database, Loader2,
   ShieldCheck, BookOpen
@@ -54,6 +54,15 @@ const DataMigrationCenter = () => {
         description: 'استيراد بيانات الموردين والالتزامات المالية الافتتاحية.',
         templateHeaders: [
             { 'اسم المورد': 'مثال: مؤسسة التوريد', 'رقم الهاتف': '0500000000', 'البريد الإلكتروني': 'supply@example.com', 'الرقم الضريبي': '3000000000', 'العنوان': 'جدة', 'الرصيد الافتتاحي': '2000' }
+        ]
+    },
+    { 
+        id: 'assets', 
+        title: 'الأصول الثابتة', 
+        icon: MonitorSmartphone, 
+        description: 'استيراد سجل الأصول الثابتة وتكلفتها التاريخية ومجمع إهلاكها.',
+        templateHeaders: [
+            { 'اسم الأصل': '', 'تاريخ الشراء (YYYY-MM-DD)': '', 'تكلفة الشراء': '', 'مجمع الإهلاك حتى تاريخه': '', 'كود حساب الأصل': '', 'كود حساب مجمع الإهلاك': '', 'الرقم التسلسلي': '', 'القسم': '' }
         ]
     },
   ];
@@ -134,6 +143,8 @@ const DataMigrationCenter = () => {
                     await importCustomer(row, equityAcc);
                 } else if (currentStepId === 'suppliers') {
                     await importSupplier(row, equityAcc);
+                } else if (currentStepId === 'assets') {
+                    await importFixedAssets(row, equityAcc);
                 }
                 successCount++;
             } catch (error: any) {
@@ -412,6 +423,64 @@ const DataMigrationCenter = () => {
       }
   };
 
+  const importFixedAssets = async (row: any, equityAcc: any) => {
+      const assetSchema = z.object({
+          name: z.string().min(1, 'اسم الأصل مطلوب'),
+          purchaseDate: z.string().optional(),
+          purchaseCost: z.number().min(0).default(0),
+          accumDep: z.number().min(0).default(0),
+          assetAccCode: z.string().min(1, 'كود حساب الأصل مطلوب'),
+          depAccCode: z.string().min(1, 'كود حساب مجمع الإهلاك مطلوب'),
+          serialNumber: z.string().optional(),
+          department: z.string().optional(),
+      });
+
+      const validation = assetSchema.safeParse({
+          name: row['اسم الأصل'],
+          purchaseDate: row['تاريخ الشراء (YYYY-MM-DD)'],
+          purchaseCost: Number(row['تكلفة الشراء'] || 0),
+          accumDep: Number(row['مجمع الإهلاك حتى تاريخه'] || 0),
+          assetAccCode: String(row['كود حساب الأصل'] || '').trim(),
+          depAccCode: String(row['كود حساب مجمع الإهلاك'] || '').trim(),
+          serialNumber: row['الرقم التسلسلي'],
+          department: row['القسم'],
+      });
+
+      if (!validation.success) throw new Error(validation.error.issues[0].message);
+      const { name, purchaseDate, purchaseCost, accumDep, assetAccCode, depAccCode, serialNumber, department } = validation.data;
+
+      const assetAcc = accounts.find(a => a.code === assetAccCode);
+      const depAcc = accounts.find(a => a.code === depAccCode);
+
+      if (!assetAcc) throw new Error(`لم يتم العثور على حساب الأصل بالكود: ${assetAccCode}`);
+      if (!depAcc) throw new Error(`لم يتم العثور على حساب مجمع الإهلاك بالكود: ${depAccCode}`);
+
+      const { error } = await supabase.from('assets').insert({
+          name,
+          purchase_date: purchaseDate,
+          purchase_cost: purchaseCost,
+          accumulated_depreciation: accumDep,
+          asset_account_id: assetAcc.id,
+          depreciation_account_id: depAcc.id,
+          custom_fields: { serial_number: serialNumber, department: department }
+      });
+
+      if (error) throw error;
+
+      // إنشاء قيد افتتاحي للأصل
+      const netValue = purchaseCost - accumDep;
+      if (netValue !== 0 && equityAcc) {
+          await createJournalEntry(
+              `رصيد افتتاحي للأصل ${name}`,
+              [
+                  { accountId: assetAcc.id, debit: purchaseCost, credit: 0 },
+                  { accountId: depAcc.id, debit: 0, credit: accumDep },
+                  { accountId: equityAcc, debit: 0, credit: netValue }
+              ]
+          );
+      }
+  };
+
   const createJournalEntry = async (description: string, lines: { accountId: string, debit: number, credit: number }[]) => {
       const { data: { user } } = await supabase.auth.getUser();
       const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
@@ -463,7 +532,7 @@ const DataMigrationCenter = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
           {/* Sidebar Steps */}
-          <div className="lg:col-span-1 space-y-4">
+          <div className="lg:col-span-1 space-y-2">
               {steps.map((step, idx) => {
                   const Icon = step.icon;
                   const isActive = activeStep === idx;
@@ -472,7 +541,7 @@ const DataMigrationCenter = () => {
                   return (
                       <button
                         key={step.id}
-                        onClick={() => { setActiveStep(idx); setImportResult(null); }}
+                        onClick={() => { setActiveStep(idx); setImportResult(null); fileInputRef.current && (fileInputRef.current.value = ''); }}
                         className={`w-full text-right p-4 rounded-2xl border-2 transition-all flex items-center gap-4 group ${
                             isActive 
                                 ? 'border-indigo-600 bg-indigo-50 shadow-md' 
@@ -482,7 +551,7 @@ const DataMigrationCenter = () => {
                           <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
                               isActive ? 'bg-indigo-600 text-white' : 
                               isCompleted ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400'
-                          }`}>
+                          } group-hover:scale-110`}>
                               {isCompleted ? <CheckCircle size={20} /> : <Icon size={20} />}
                           </div>
                           <div>

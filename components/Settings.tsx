@@ -5,7 +5,7 @@ import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone } from 'lucide-react';
 import { z } from 'zod';
 
 const ACCOUNT_LABELS: Record<string, string> = {
@@ -206,92 +206,35 @@ const Settings = () => {
   };
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if(!file) return;
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-      const reader = new FileReader();
-      reader.onload = async (evt) => {
-          try {
-              const content = evt.target?.result as string;
-              const data = JSON.parse(content);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const content = evt.target?.result;
+        const isJson = file.name.toLowerCase().endsWith('.json');
 
-              // 1. التحقق مما إذا كان الملف قائمة أصناف (Array)
-              if (Array.isArray(data)) {
-                  if (!window.confirm(`تم العثور على قائمة بيانات (${data.length} عنصر). هل تريد استيرادها كأصناف جديدة؟`)) return;
-                  
-                  setLoading(true);
-                  let importedCount = 0;
-                  let totalOpeningValue = 0;
-
-                  // البحث عن الحسابات المطلوبة للقيد
-                  const inventoryAcc = accounts.find(a => a.code === '12401' || a.name.includes('مخزون'));
-                  const equityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية'));
-
-                  for (const item of data) {
-                      if (!item.name) continue;
-
-                      // إضافة الصنف
-                      const { data: newProduct, error } = await supabase.from('products').insert({
-                          name: item.name,
-                          sku: item.sku || `IMP-${Math.floor(Math.random() * 100000)}`,
-                          cost: Number(item.cost || 0),
-                          price: Number(item.price || 0),
-                          stock: Number(item.stock || 0),
-                          min_stock: Number(item.min_stock || 0),
-                          description: item.description || 'استيراد'
-                      }).select().single();
-
-                      if (!error && newProduct) {
-                          importedCount++;
-                          const qty = Number(newProduct.stock);
-                          const cost = Number(newProduct.cost);
-                          if (qty > 0 && cost > 0) {
-                              totalOpeningValue += (qty * cost);
-                          }
-                      }
-                  }
-
-                  // إنشاء القيد الافتتاحي للمخزون
-                  if (totalOpeningValue > 0 && inventoryAcc && equityAcc) {
-                      // جلب معرف المستخدم مباشرة
-                      const { data: { user } } = await supabase.auth.getUser();
-
-                      const ref = `IMP-SET-${Date.now().toString().slice(-8)}`;
-
-                      const { data: entry, error: entryError } = await supabase.from('journal_entries').insert({
-                          transaction_date: new Date().toISOString().split('T')[0],
-                          transaction_id: ref,
-                          reference: ref,
-                          description: `قيد افتتاحي لاستيراد ${importedCount} صنف`,
-                          status: 'posted',
-                          user_id: user?.id
-                      }).select().single();
-                      
-                      if (!entryError && entry) {
-                          await supabase.from('journal_lines').insert([
-                              { journal_entry_id: entry.id, account_id: inventoryAcc.id, debit: totalOpeningValue, credit: 0, description: 'مخزون أول المدة (استيراد)' },
-                              { journal_entry_id: entry.id, account_id: equityAcc.id, debit: 0, credit: totalOpeningValue, description: 'أرصدة افتتاحية (مخزون)' }
-                          ]);
-                      }
-                  }
-
-                  showToast(`تم استيراد ${importedCount} صنف بنجاح ✅. تم إنشاء قيد افتتاحي بقيمة: ${totalOpeningValue.toLocaleString()}`, 'success');
-                  window.location.reload();
-              } 
-              // 2. استعادة نسخة احتياطية كاملة (Object)
-              else if (typeof data === 'object') {
-                  if(window.confirm('تحذير: هذا ملف نسخ احتياطي كامل. استعادته ستؤدي لمسح البيانات الحالية. هل أنت متأكد؟')) {
-                      showToast("تم تعطيل الاستعادة الكاملة مؤقتاً للأمان. يرجى استخدام ملف JSON يحتوي على قائمة أصناف فقط.", 'warning');
-                  }
-              }
-          } catch (err: any) {
-              showToast("فشل قراءة الملف: " + err.message, 'error');
-          } finally {
-              setLoading(false);
-              if(fileInputRef.current) fileInputRef.current.value = '';
+        if (isJson) {
+          if (window.confirm('تحذير: هذا ملف نسخ احتياطي كامل. استعادته ستؤدي لمسح البيانات الحالية. هل أنت متأكد؟')) {
+            showToast("تم تعطيل الاستعادة الكاملة مؤقتاً للأمان.", 'warning');
           }
-      };
+        } else { // Excel file
+          // Logic for Excel import is now in DataMigration.tsx
+          showToast('لاستيراد البيانات من Excel، يرجى استخدام "مركز ترحيل البيانات" من القائمة الجانبية.', 'info');
+        }
+      } catch (err: any) {
+        showToast("فشل قراءة الملف: " + err.message, 'error');
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+
+    if (file.name.toLowerCase().endsWith('.json')) {
       reader.readAsText(file);
+    } else {
+      reader.readAsBinaryString(file);
+    }
   };
 
   const handleFactoryReset = () => {
@@ -941,9 +884,9 @@ const Settings = () => {
                                   <button 
                                     onClick={() => fileInputRef.current?.click()}
                                     className="flex items-center gap-2 bg-white text-blue-700 border border-blue-300 px-6 py-3 rounded-lg hover:bg-blue-50 font-bold shadow-sm transition-all"
-                                  >
-                                      <Upload size={18} /> استيراد نسخة محفوظة
-                                  </button>
+                                >
+                                      <Upload size={18} /> استيراد نسخة احتياطية
+                                </button>
                               </div>
                           </div>
                       </div>

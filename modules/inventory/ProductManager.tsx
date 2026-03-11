@@ -1,5 +1,5 @@
 ﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -29,17 +29,19 @@ type Item = {
   offer_start_date?: string | null;
   offer_end_date?: string | null;
   min_stock_level?: number | null;
+  category_id?: string | null;
   offer_max_qty?: number | null;
 };
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts, warehouses, can } = useAccounting();
+  const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts, warehouses, can, categories } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showOffersOnly, setShowOffersOnly] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState('all');
 
   // تأخير البحث
   useEffect(() => {
@@ -56,8 +58,11 @@ const ProductManager = () => {
        const today = new Date().toISOString().split('T')[0];
        query = query.gt('offer_price', 0).lte('offer_start_date', today).gte('offer_end_date', today);
     }
+    if (categoryFilter !== 'all') {
+      query = query.eq('category_id', categoryFilter);
+    }
     return query;
-  }, [debouncedSearch, showOffersOnly]);
+  }, [debouncedSearch, showOffersOnly, categoryFilter]);
 
   // استخدام Hook التصفح
   const { data: serverItems, loading: serverLoading, page, setPage, totalPages, totalCount, refresh } = usePagination<Item>('products', { select: '*', pageSize: 20, orderBy: 'name', ascending: true }, queryModifier);
@@ -144,6 +149,7 @@ const ProductManager = () => {
     sales_account_id: '',
     image_url: '',
     opening_stock: 0,
+    category_id: null,
     min_stock_level: 0, // حقل حد الطلب
     expiry_date: '',
     offer_price: 0,
@@ -167,6 +173,7 @@ const ProductManager = () => {
         sales_account_id: item.sales_account_id || '',
         image_url: item.image_url || '',
         opening_stock: 0,
+        category_id: item.category_id || null,
         min_stock_level: item.min_stock_level || 0,
         expiry_date: item.expiry_date || '',
         offer_price: item.offer_price || 0,
@@ -194,6 +201,7 @@ const ProductManager = () => {
         sales_account_id: defaultSales,
         image_url: '',
         opening_stock: 0,
+        category_id: null,
         min_stock_level: 0,
         expiry_date: '',
         offer_price: 0,
@@ -213,6 +221,36 @@ const ProductManager = () => {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "نموذج المنتجات");
     XLSX.writeFile(wb, "Products_Template.xlsx");
+  };
+
+  const handleExportExcel = async () => {
+    showToast('جاري تجهيز الملف للتصدير...', 'info');
+    try {
+        let query = supabase.from('products').select('*');
+        // تطبيق نفس الفلاتر المستخدمة في العرض الرئيسي
+        query = queryModifier(query);
+
+        const { data: allItems, error } = await query;
+
+        if (error) throw error;
+
+        const dataToExport = (allItems || []).map(item => ({
+          'اسم الصنف': item.name,
+          'الكود (SKU)': item.sku || '-',
+          'النوع': item.item_type === 'STOCK' ? 'مخزوني' : 'خدمي',
+          'الرصيد الحالي': item.stock,
+          'سعر الشراء': item.purchase_price,
+          'سعر البيع': item.sales_price,
+          'متوسط التكلفة': item.weighted_average_cost || item.purchase_price,
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "قائمة الأصناف");
+        XLSX.writeFile(wb, `Products_List_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (err: any) {
+        showToast('فشل التصدير: ' + err.message, 'error');
+    }
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -247,6 +285,9 @@ const ProductManager = () => {
         const defaultSales = accounts.revenue.find(a => a.code === '411')?.id || null;
         const equityAcc = contextAccounts.find(a => a.code === '3999')?.id; // حساب الأرصدة الافتتاحية
         const targetWarehouseId = importWarehouseId || (warehouses.length > 0 ? warehouses[0].id : null);
+
+        // جلب معرف المستخدم مرة واحدة فقط خارج الحلقة
+        const { data: { user } } = await supabase.auth.getUser();
 
         for (const row of data as any[]) {
           const name = row['اسم المنتج'] || row['Name'] || row['name'];
@@ -286,8 +327,6 @@ const ProductManager = () => {
                   const totalValue = Number(stock) * (Number(purchase_price) || 0);
                   if (totalValue > 0 && defaultInventory && equityAcc) {
                       // جلب معرف المستخدم مباشرة لضمان عدم كونه فارغاً
-                      const { data: { user } } = await supabase.auth.getUser();
-                      
                       const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
 
                       // إنشاء القيد المحاسبي
@@ -296,7 +335,7 @@ const ProductManager = () => {
                           transaction_id: ref, // حقل إلزامي
                           reference: ref,
                           description: `رصيد افتتاحي (استيراد) - ${newProduct.name}`.substring(0, 255),
-                          status: 'posted',
+                          status: 'posted', // تصحيح: يجب أن يكون posted
                           user_id: user?.id || currentUser?.id // تصحيح اسم العمود
                       }).select().single();
 
@@ -399,6 +438,7 @@ const ProductManager = () => {
             sales_account_id: formData.sales_account_id,
             image_url: formData.image_url,
             organization_id: orgId,
+            category_id: formData.category_id || null,
             is_active: true,
             min_stock_level: formData.min_stock_level,
             expiry_date: formData.expiry_date || null,
@@ -430,6 +470,7 @@ const ProductManager = () => {
             sales_account_id: formData.sales_account_id || null,
             is_active: true,
             min_stock_level: formData.min_stock_level,
+            category_id: formData.category_id || null,
             expiry_date: formData.expiry_date || null,
             offer_price: formData.offer_price || null,
             offer_start_date: formData.offer_start_date || null,
@@ -456,9 +497,8 @@ const ProductManager = () => {
                 const inventoryAcc = formData.inventory_account_id;
 
                 if (totalValue > 0 && inventoryAcc && equityAcc) {
-                     // جلب معرف المستخدم مباشرة
-                     const { data: { user } } = await supabase.auth.getUser();
-
+                     // استخدام نفس المستخدم الذي تم جلبه مسبقاً أو الحالي
+                     const { data: { user } } = await supabase.auth.getUser(); // يمكن تحسينها أيضاً
                      const ref = `MAN-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
 
                      const { data: entry } = await supabase.from('journal_entries').insert({
@@ -600,6 +640,7 @@ const ProductManager = () => {
         offer_price: item.offer_price || 0,
         offer_start_date: newStart,
         offer_end_date: newEnd,
+        category_id: item.category_id || null,
         offer_max_qty: item.offer_max_qty || 0
       });
       setIsModalOpen(true);
@@ -863,6 +904,32 @@ const ProductManager = () => {
     }
   };
 
+  const handleBulkCategoryChange = async (categoryId: string) => {
+    if (!categoryId || selectedIds.size === 0) {
+        showToast('الرجاء اختيار تصنيف وأصناف أولاً.', 'warning');
+        return;
+    }
+    if (!window.confirm(`هل أنت متأكد من تغيير تصنيف ${selectedIds.size} صنف؟`)) return;
+
+    if (!can('products', 'update')) {
+        showToast('ليس لديك صلاحية تعديل المنتجات', 'error');
+        return;
+    }
+
+    setIsBulkSaving(true);
+    try {
+        const { error } = await supabase.from('products').update({ category_id: categoryId }).in('id', Array.from(selectedIds));
+        if (error) throw error;
+        showToast('تم تحديث تصنيف الأصناف بنجاح.', 'success');
+        refresh();
+        setSelectedIds(new Set());
+    } catch (error: any) {
+        showToast('فشل تحديث التصنيف: ' + error.message, 'error');
+    } finally {
+        setIsBulkSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="flex justify-between items-center flex-wrap gap-4">
@@ -873,6 +940,9 @@ const ProductManager = () => {
           <p className="text-slate-500">تعريف المنتجات وربطها بالحسابات المحاسبية</p>
         </div>
         <div className="flex gap-2">
+            <button onClick={handleExportExcel} className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-100 text-sm font-bold" title="تصدير القائمة الحالية إلى Excel">
+                <FileSpreadsheet size={16} /> تصدير
+            </button>
             <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
                 <Download size={16} /> نموذج
             </button>
@@ -924,6 +994,16 @@ const ProductManager = () => {
             </button>
             {selectedIds.size > 0 && (
                 <>
+                    <select
+                        onChange={(e) => handleBulkCategoryChange(e.target.value)}
+                        className="bg-white border border-slate-300 text-slate-600 px-2 py-2.5 rounded-lg text-sm font-bold outline-none focus:border-purple-500"
+                        title="تغيير تصنيف الأصناف المحددة"
+                    >
+                        <option value="">تغيير التصنيف...</option>
+                        {categories.map(cat => (
+                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                    </select>
                     <button onClick={() => setIsBulkOfferModalOpen(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-purple-700 animate-in zoom-in">
                         <Tag size={18} />
                         تطبيق عرض ({selectedIds.size})
@@ -934,6 +1014,17 @@ const ProductManager = () => {
                     </button>
                 </>
             )}
+        </div>
+        <div className="md:col-span-2">
+            <label className="block text-sm font-bold text-slate-700 mb-1">فلترة حسب التصنيف</label>
+            <select 
+                value={categoryFilter}
+                onChange={e => setCategoryFilter(e.target.value)}
+                className="w-full border rounded-lg p-2.5 bg-white"
+            >
+                <option value="all">-- كل التصنيفات --</option>
+                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+            </select>
         </div>
       </div>
 
@@ -948,6 +1039,7 @@ const ProductManager = () => {
               </th>
               <th className="p-4 w-16">الصورة</th>
               <th className="p-4">اسم الصنف</th>
+              <th className="p-4">التصنيف</th>
               <th className="p-4">النوع</th>
               <th className="p-4 text-center">الرصيد الحالي</th>
               <th className="p-4 text-center">المحجوز</th>
@@ -979,6 +1071,11 @@ const ProductManager = () => {
                       <span className="inline-flex items-center gap-1 bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full mt-1 animate-pulse">
                           <Percent size={10} /> عرض خاص
                       </span>
+                  )}
+                </td>
+                <td className="p-4 text-sm text-slate-500">
+                  {item.category_id && (
+                      <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">{categories.find(c => c.id === item.category_id)?.name || '-'}</span>
                   )}
                 </td>
                 <td className="p-4">
@@ -1115,6 +1212,13 @@ const ProductManager = () => {
                         <label className="block text-sm font-bold mb-1 text-slate-700">تاريخ الصلاحية</label>
                         <input type="date" value={formData.expiry_date} onChange={e => setFormData({...formData, expiry_date: e.target.value})} className="w-full border rounded-lg p-2" />
                     </div>
+                  <div>
+                    <label className="block text-sm font-bold mb-1 text-slate-700">التصنيف</label>
+                    <select value={formData.category_id || ''} onChange={e => setFormData({...formData, category_id: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
+                        <option value="">-- بدون تصنيف --</option>
+                        {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                    </select>
+                  </div>
                   </div>
                 </div>
               </div>
