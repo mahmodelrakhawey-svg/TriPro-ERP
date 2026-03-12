@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType, Account } from '../../types';
 import { X, Save } from 'lucide-react';
@@ -32,7 +32,7 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
         name: accountToEdit.name,
         type: accountToEdit.type as AccountType,
         isGroup: accountToEdit.is_group,
-        parentAccount: accountToEdit.parent_account || '',
+        parentAccount: accountToEdit.parent_id || '',
         subType: accountToEdit.sub_type || 'current'
       });
     } else if (isOpen && !accountToEdit) {
@@ -45,8 +45,7 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
     if (isOpen && formData.parentAccount && !accountToEdit) {
       const parentCode = accounts.find(a => a.id === formData.parentAccount)?.code;
       if (parentCode) {
-        // تصحيح: استخدام parent_account بدلاً من parentAccount
-        const children = accounts.filter(a => a.parent_account === formData.parentAccount);
+        const children = accounts.filter(a => (a as any).parent_id === formData.parentAccount);
         const lastChildCode = children.length > 0 
           ? Math.max(...children.map(c => parseInt(c.code.slice(parentCode.length)) || 0))
           : 0;

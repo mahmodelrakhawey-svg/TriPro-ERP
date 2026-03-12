@@ -36,15 +36,11 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('12', 'الأصول المتداولة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '1'));
 
--- 121 المخزون (جرد مستمر)
+-- 103 المخزون (النظام الموحد)
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('121', 'المخزون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
-('1211', 'مخزون الخامات والمواد الأولية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '121')),
-('1212', 'مخزون الإنتاج غير التام (WIP)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '121')),
-('1213', 'مخزون المنتج التام (بضاعة للبيع)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '121')),
-('1214', 'مخزون قطع الغيار والمهمات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '121')),
-('1215', 'مخزون مواد التعبئة والتغليف', 'ASSET', false, (SELECT id FROM accounts WHERE code = '121')),
-('1216', 'بضاعة بالطريق (اعتمادات مستندية)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '121'));
+('103', 'المخزون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
+('10301', 'مخزون المواد الخام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103')),
+('10302', 'مخزون المنتج التام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103'));
 
 -- 122 العملاء والمدينون
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
@@ -106,7 +102,7 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 -- 22 الخصوم المتداولة
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('22', 'الخصوم المتداولة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '2')),
-('221', 'الموردين', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
+('201', 'الموردين', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')), -- Corrected: Should be under Current Liabilities
 ('222', 'أوراق الدفع (شيكات صادرة)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
 ('223', 'مصلحة الضرائب (التزامات)', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '22')),
 ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '223')),
@@ -157,21 +153,28 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 
 ('52', 'مصروفات البيع والتسويق', 'EXPENSE', true, (SELECT id FROM accounts WHERE code = '5')),
 ('521', 'دعاية وإعلان', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
-('522', 'عمولات بيع', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
-('523', 'نقل ومشال', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
+('522', 'عمولات بيع وتسويق', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
+('523', 'نقل ومشال للخارج', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
+('524', 'تعبئة وتغليف', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
+('525', 'عمولات تحصيل إلكتروني', 'EXPENSE', true, (SELECT id FROM accounts WHERE code = '52')),
+('5251', 'عمولة فودافون كاش', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '525')),
+('5252', 'عمولة فوري', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '525')),
+('5253', 'عمولة تحويلات بنكية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '525')),
 
 ('53', 'المصروفات الإدارية والعمومية', 'EXPENSE', true, (SELECT id FROM accounts WHERE code = '5')),
 ('531', 'الرواتب والأجور', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('5311', 'بدلات وانتقالات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('5312', 'مكافآت وحوافز', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('532', 'إيجارات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
+('532', 'إيجار مقرات إدارية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('533', 'إهلاك الأصول الثابتة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('534', 'مصروفات بنكية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
+('534', 'رسوم ومصروفات بنكية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('535', 'كهرباء ومياه وغاز', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('536', 'اتصالات وإنترنت', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('537', 'صيانة وإصلاح', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('538', 'أدوات مكتبية ومطبوعات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('539', 'ضيافة واستقبال', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('540', 'رسوم حكومية وتراخيص', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53'));
+('541', 'تسوية عجز الصندوق', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
+('542', 'إكراميات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
+('543', 'مصاريف نظافة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53'));
 
 COMMIT;

@@ -138,26 +138,34 @@ export default function ChartOfAccounts() {
   };
 
   const handleDelete = async (id: string, name: string, code: string) => {
+    // قائمة محدثة للحسابات المحمية بناءً على الهيكل الجديد
     const PROTECTED_CODES: string[] = [
       // 1. المجموعات الرئيسية
       '1', '2', '3', '4', '5',
       
       // 2. الأصول (Assets)
-      '11', '111', // أصول غير متداولة
-      '12', '121', '122', '123', '124', // أصول متداولة
+      '11', // الأصول غير المتداولة
+      '12', // الأصول المتداولة
+      '103', // المخزون (النظام الجديد)
+      '122', // العملاء والمدينون
+      '123', // النقدية وما في حكمها
+      '124', // أرصدة مدينة أخرى
       
       // 3. الخصوم (Liabilities)
       '21', // خصوم غير متداولة
-      '22', '221', '225', // خصوم متداولة
-      '221', '225', // خصوم متداولة
+      '22', // الخصوم المتداولة
+      '223', // مصلحة الضرائب (التزامات)
+      '225', // مصروفات مستحقة
       
       // 4. حقوق الملكية
-      '31', '32', // رأس المال، أرباح مرحلة
+      '32', // الأرباح المبقاة
+      '3999', // الأرصدة الافتتاحية
       
       // 5. الإيرادات والمصروفات
-      '41', '411', // المبيعات
-      '51', '511', // تكلفة المبيعات
-      '52', '53'   // مصروفات بيعية وإدارية
+      '41', // إيرادات النشاط
+      '51', // تكلفة المبيعات
+      '52', // مصروفات البيع والتسويق
+      '53'   // المصروفات الإدارية والعمومية
     ];
 
     if (PROTECTED_CODES.includes(code)) {
@@ -239,7 +247,7 @@ export default function ChartOfAccounts() {
                {node.type === 'asset' ? 'أصول' : node.type === 'liability' ? 'خصوم' : node.type === 'equity' ? 'ملكية' : node.type === 'revenue' ? 'إيراد' : 'مصروف'}
              </span>
              
-             <div className="flex items-center gap-1 mr-2 opacity-0 group-hover:opacity-100 transition-opacity">
+             <div className="flex items-center gap-1 mr-2 opacity-0 group-hover:opacity-100 transition-opacity" style={{'--group-hover-opacity': 1} as React.CSSProperties}>
                 <button 
                   onClick={() => handleEdit(node)}
                   className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"

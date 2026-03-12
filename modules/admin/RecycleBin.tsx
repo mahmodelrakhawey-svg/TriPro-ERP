@@ -82,7 +82,13 @@ const RecycleBin = () => {
 
     // فحص استباقي عام لجميع العناصر لتوفير رسالة خطأ واضحة
     const dependencies: Record<string, { table: string, col: string, label: string }[]> = {
-        accounts: [{ table: 'journal_lines', col: 'account_id', label: 'قيود محاسبية' }],
+        accounts: [
+            { table: 'journal_lines', col: 'account_id', label: 'قيود محاسبية' },
+            { table: 'products', col: 'inventory_account_id', label: 'أصناف (حساب مخزون)' },
+            { table: 'products', col: 'cogs_account_id', label: 'أصناف (حساب تكلفة)' },
+            { table: 'products', col: 'sales_account_id', label: 'أصناف (حساب مبيعات)' },
+            { table: 'assets', col: 'asset_account_id', label: 'أصول (حساب الأصل)' }
+        ],
         customers: [
             { table: 'invoices', col: 'customer_id', label: 'فواتير مبيعات' },
             { table: 'quotations', col: 'customer_id', label: 'عروض أسعار' },
@@ -98,14 +104,12 @@ const RecycleBin = () => {
             { table: 'purchase_invoice_items', col: 'product_id', label: 'بنود مشتريات' }
         ],
         employees: [
-            { table: 'payrolls', col: 'employee_id', label: 'مسيرات رواتب' },
+            { table: 'payroll_items', col: 'employee_id', label: 'مسيرات رواتب' },
             { table: 'employee_advances', col: 'employee_id', label: 'سلف موظفين' }
         ],
         warehouses: [
-            { table: 'stock_transfers', col: 'from_warehouse_id', label: 'تحويلات مخزنية' }
-        ],
-        assets: [
-            // { table: 'depreciation_entries', col: 'asset_id', label: 'قيود إهلاك' } // مثال: إضافة فحص مستقبلي
+            { table: 'stock_transfers', col: 'from_warehouse_id', label: 'تحويلات مخزنية (مصدر)' },
+            { table: 'stock_transfers', col: 'to_warehouse_id', label: 'تحويلات مخزنية (مستلم)' }
         ]
     };
 

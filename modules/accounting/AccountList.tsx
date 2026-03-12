@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw } from 'lucide-react';
@@ -23,20 +23,28 @@ const AccountList = () => {
     '1', '2', '3', '4', '5',
     
     // 2. الأصول (Assets)
-    '11', '111', // أصول غير متداولة
-    '12', '121', '122', '123', '124', // أصول متداولة (مخزون، عملاء، نقدية)
+    '11', // الأصول غير المتداولة
+    '12', // الأصول المتداولة
+    '103', // المخزون (النظام الجديد)
+    '122', // العملاء والمدينون
+    '123', // النقدية وما في حكمها
+    '124', // أرصدة مدينة أخرى
     
     // 3. الخصوم (Liabilities)
     '21', // خصوم غير متداولة
-    '22', '221', '225', // خصوم متداولة (موردين، ضرائب)
+    '22', // الخصوم المتداولة
+    '223', // مصلحة الضرائب (التزامات)
+    '225', // مصروفات مستحقة
     
     // 4. حقوق الملكية
-    '31', '32', // رأس المال، أرباح مرحلة
+    '32', // الأرباح المبقاة
+    '3999', // الأرصدة الافتتاحية
     
     // 5. الإيرادات والمصروفات
-    '41', '411', // المبيعات
-    '51', '511', // تكلفة المبيعات
-    '52', '53'   // مصروفات بيعية وإدارية
+    '41', // إيرادات النشاط
+    '51', // تكلفة المبيعات
+    '52', // مصروفات البيع والتسويق
+    '53'   // المصروفات الإدارية والعمومية
   ];
 
   // دالة لتبديل حالة التوسيع للمجموعات
@@ -63,6 +71,11 @@ const AccountList = () => {
   };
 
   const handleDelete = async (id: string, name: string, balance: number) => {
+    const hasChildren = accounts.some(a => (a as any).parent_id === id);
+    if (hasChildren) {
+        showToast('لا يمكن حذف حساب رئيسي يحتوي على حسابات فرعية. يرجى حذف الحسابات الفرعية أولاً.', 'warning');
+        return;
+    }
     if (balance !== 0) {
         showToast('لا يمكن حذف حساب عليه رصيد. يرجى تصفية الرصيد أولاً.', 'warning');
         return;
@@ -103,8 +116,8 @@ const AccountList = () => {
 
     // 2. ربط الأبناء بالآباء
     accounts.forEach(acc => {
-      if (acc.parentAccount && map[acc.parentAccount]) {
-        map[acc.parentAccount].children.push(map[acc.id]);
+      if ((acc as any).parent_id && map[(acc as any).parent_id]) {
+        map[(acc as any).parent_id].children.push(map[acc.id]);
       } else {
         tree.push(map[acc.id]); // حساب رئيسي (جذر)
       }
@@ -276,12 +289,8 @@ const AccountList = () => {
                                 )}
                             </td>
                             <td className="p-4 flex justify-end gap-2">
-                                {SYSTEM_ACCOUNT_CODES.includes(acc.code) ? (
-                                    <span title="حساب نظام (لا يمكن تعديله)" className="p-1 text-slate-300 cursor-not-allowed"><Edit size={16} /></span>
-                                ) : (
-                                    <button onClick={() => handleEdit(acc)} className="p-1 text-slate-400 hover:text-blue-600"><Edit size={16} /></button>
-                                )}
-                                {!acc.isGroup && <button onClick={() => handleDelete(acc.id, acc.name, acc.balance)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>}
+                                <button onClick={() => handleEdit(acc)} className="p-1 text-slate-400 hover:text-blue-600" title="تعديل الحساب"><Edit size={16} /></button>
+                                <button onClick={() => handleDelete(acc.id, acc.name, acc.balance)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
                             </td>
                         </tr>
                     ))}

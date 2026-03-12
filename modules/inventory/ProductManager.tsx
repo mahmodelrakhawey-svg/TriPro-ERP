@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -35,7 +35,7 @@ type Item = {
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, refreshData, deleteProduct, currentUser, products: contextProducts, warehouses, can, categories } = useAccounting();
+  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -160,6 +160,15 @@ const ProductManager = () => {
 
   const handleOpenModal = (item?: Item) => {
     if (item) {
+      const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
+      const defaultCogs = getSystemAccount('COGS')?.id || '';
+      const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
+
+      // التحقق من صلاحية الحسابات المرتبطة بالصنف، وإذا لم تكن صالحة، استخدم الحسابات الافتراضية
+      const inventoryAccId = accounts.assets.find(a => a.id === item.inventory_account_id) ? item.inventory_account_id : defaultInventory;
+      const cogsAccId = accounts.expenses.find(a => a.id === item.cogs_account_id) ? item.cogs_account_id : defaultCogs;
+      const salesAccId = accounts.revenue.find(a => a.id === item.sales_account_id) ? item.sales_account_id : defaultSales;
+
       setEditingId(item.id);
       setFormData({
         name: item.name,
@@ -168,9 +177,9 @@ const ProductManager = () => {
         sales_price: item.sales_price || 0,
         purchase_price: item.purchase_price || 0,
         item_type: item.item_type || 'STOCK',
-        inventory_account_id: item.inventory_account_id || '',
-        cogs_account_id: item.cogs_account_id || '',
-        sales_account_id: item.sales_account_id || '',
+        inventory_account_id: inventoryAccId || '',
+        cogs_account_id: cogsAccId || '',
+        sales_account_id: salesAccId || '',
         image_url: item.image_url || '',
         opening_stock: 0,
         category_id: item.category_id || null,
@@ -184,10 +193,9 @@ const ProductManager = () => {
     } else {
       setEditingId(null);
       // تعيين قيم افتراضية للحسابات إذا وجدت لتسهيل الإدخال
-      // التعديل: البحث عن حساب "مخزون المنتج التام" (1213) أولاً، ثم الرئيسي (121)
-      const defaultInventory = accounts.assets.find(a => a.code === '1213')?.id || accounts.assets.find(a => a.code === '121')?.id || '';
-      const defaultCogs = accounts.expenses.find(a => a.code === '511')?.id || '';
-      const defaultSales = accounts.revenue.find(a => a.code === '411')?.id || '';
+      const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
+      const defaultCogs = getSystemAccount('COGS')?.id || '';
+      const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
 
       setFormData({ 
         name: '', 
@@ -280,9 +288,9 @@ const ProductManager = () => {
         const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
         const orgId = orgData?.id;
 
-        const defaultInventory = accounts.assets.find(a => a.code === '1213')?.id || accounts.assets.find(a => a.code === '121')?.id || null;
-        const defaultCogs = accounts.expenses.find(a => a.code === '511')?.id || null;
-        const defaultSales = accounts.revenue.find(a => a.code === '411')?.id || null;
+        const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || null;
+        const defaultCogs = getSystemAccount('COGS')?.id || null;
+        const defaultSales = getSystemAccount('SALES_REVENUE')?.id || null;
         const equityAcc = contextAccounts.find(a => a.code === '3999')?.id; // حساب الأرصدة الافتتاحية
         const targetWarehouseId = importWarehouseId || (warehouses.length > 0 ? warehouses[0].id : null);
 
@@ -332,8 +340,6 @@ const ProductManager = () => {
                       // إنشاء القيد المحاسبي
                       const { data: entry } = await supabase.from('journal_entries').insert({
                           transaction_date: new Date().toISOString().split('T')[0],
-                          transaction_id: ref, // حقل إلزامي
-                          reference: ref,
                           description: `رصيد افتتاحي (استيراد) - ${newProduct.name}`.substring(0, 255),
                           status: 'posted', // تصحيح: يجب أن يكون posted
                           user_id: user?.id || currentUser?.id // تصحيح اسم العمود
@@ -432,7 +438,7 @@ const ProductManager = () => {
             barcode: formData.barcode || null,
             sales_price: formData.sales_price,
             purchase_price: formData.purchase_price,
-            item_type: formData.item_type,
+            item_type: formData.item_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
             inventory_account_id: formData.item_type === 'STOCK' ? formData.inventory_account_id : null,
             cogs_account_id: formData.item_type === 'STOCK' ? formData.cogs_account_id : null,
             sales_account_id: formData.sales_account_id,
@@ -447,8 +453,7 @@ const ProductManager = () => {
             offer_end_date: formData.offer_end_date || null,
             offer_max_qty: formData.offer_max_qty || null
         };
-        const { error } = await supabase.from('products').update(itemData).eq('id', editingId);
-        if (error) throw error;
+        await updateProduct(editingId, itemData);
       } else {
         // إضافة صنف جديد (استخدام الدالة لإنشاء الرصيد الافتتاحي)
         // استبدال RPC بإدراج مباشر لضمان العمل
@@ -503,8 +508,6 @@ const ProductManager = () => {
 
                      const { data: entry } = await supabase.from('journal_entries').insert({
                           transaction_date: new Date().toISOString().split('T')[0],
-                          transaction_id: ref, // حقل إلزامي
-                          reference: ref,
                           description: `رصيد افتتاحي - ${newProduct.name}`.substring(0, 255),
                           status: 'posted',
                           user_id: user?.id || currentUser?.id // تصحيح اسم العمود
@@ -528,9 +531,8 @@ const ProductManager = () => {
       }
       
       showToast('تم حفظ الصنف بنجاح وتوجيهه محاسبياً ✅', 'success');
-      // تحديث الكاش في React Query ليظهر الصنف الجديد فوراً
-      queryClient.invalidateQueries({ queryKey: ['products'] });
-      await refreshData(); // تحديث الأرصدة المحاسبية في النظام بالكامل
+      // تحديث قائمة الأصناف في الواجهة
+      refresh();
       setIsModalOpen(false);
     } catch (error: any) {
       console.error(error);
@@ -561,7 +563,7 @@ const ProductManager = () => {
     try {
       // استخدام دالة الحذف من السياق لضمان الحذف الناعم وتسجيل النشاط
       await deleteProduct(id, reason);
-      queryClient.invalidateQueries({ queryKey: ['products'] }); // تحديث القائمة
+      refresh(); // تحديث القائمة
     } catch (error: any) {
       console.error(error);
       showToast('حدث خطأ أثناء الحذف: ' + error.message, 'error');
@@ -1189,7 +1191,7 @@ const ProductManager = () => {
                       <label className="block text-sm font-bold mb-1 text-slate-700">نوع الصنف</label>
                       <select 
                         value={formData.item_type} 
-                        onChange={e => setFormData({...formData, item_type: e.target.value as any})}
+                        onChange={e => setFormData({...formData, item_type: e.target.value as 'STOCK' | 'SERVICE' | 'MANUFACTURED'})}
                         className="w-full border rounded-lg p-2 bg-white"
                       >
                         <option value="STOCK">مخزوني (بضاعة)</option>

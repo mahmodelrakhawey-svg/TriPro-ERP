@@ -172,7 +172,7 @@ const TrialBalanceAdvanced = () => {
         }
 
         // إذا كان حساب رئيسي، نجمع أبناءه
-        const children = Array.from(allAccountsMap.values()).filter((a: any) => a.parentAccount === accountId);
+        const children = Array.from(allAccountsMap.values()).filter((a: any) => a.parent_id === accountId);
         let total = { open: 0, transDr: 0, transCr: 0 };
         
         children.forEach(child => {

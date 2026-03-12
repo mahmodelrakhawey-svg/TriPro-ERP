@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
-import { useAccounting } from '../../context/AccountingContext';
+import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Plus, Trash2, Save, Loader2, PackageOpen, AlertTriangle } from 'lucide-react';
 import { z } from 'zod';
@@ -15,7 +15,7 @@ type NewProduct = {
 };
 
 export default function OpeningInventory() {
-  const { currentUser, warehouses } = useAccounting();
+  const { currentUser, warehouses, getSystemAccount } = useAccounting();
   const { showToast } = useToast();
   const [items, setItems] = useState<NewProduct[]>([
     { id: '1', name: '', sku: '', quantity: 1, cost: 0, price: 0 }
@@ -61,20 +61,13 @@ export default function OpeningInventory() {
     }
 
     try {
-      // 1. جلب الحسابات اللازمة للقيد (المخزون 1213، الأرصدة الافتتاحية 3999)
-      // + حسابات الصنف الافتراضية
-      const { data: accounts } = await supabase
-        .from('accounts')
-        .select('id, code')
-        .in('code', ['1213', '121', '3999', '511', '411']);
-
-      const inventoryAcc = accounts?.find(a => a.code === '1213') || accounts?.find(a => a.code === '121');
-      const openingAcc = accounts?.find(a => a.code === '3999');
-      const cogsAcc = accounts?.find(a => a.code === '511');
-      const salesAcc = accounts?.find(a => a.code === '411');
+      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS');
+      const openingAcc = getSystemAccount('RETAINED_EARNINGS'); // Or a specific opening balance account
+      const cogsAcc = getSystemAccount('COGS');
+      const salesAcc = getSystemAccount('SALES_REVENUE');
 
       if (!inventoryAcc || !openingAcc || !cogsAcc || !salesAcc) {
-        throw new Error('أحد الحسابات الأساسية (1213, 3999, 511, 411) غير موجود. يرجى مراجعة دليل الحسابات.');
+        throw new Error(`أحد الحسابات الأساسية غير موجود. تأكد من ربط الحسابات في الإعدادات: INVENTORY_FINISHED_GOODS, RETAINED_EARNINGS, COGS, SALES_REVENUE`);
       }
 
       // تحديد المستودع الافتراضي (أول مستودع متاح)

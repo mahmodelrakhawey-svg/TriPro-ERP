@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -281,8 +281,8 @@ const StockAdjustmentForm = () => {
         });
 
         if (totalValue !== 0) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '1213' || a.code === '121');
-            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => a.code === '512');
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS');
+            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS');
 
             if (inventoryAcc && adjustmentAcc) {
                 const lines = [];

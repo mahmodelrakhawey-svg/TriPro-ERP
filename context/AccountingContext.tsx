@@ -35,11 +35,11 @@ export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
   CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
-  INVENTORY: '121', // المخزون (مجموعة)
-  INVENTORY_RAW_MATERIALS: '1211', // خامات
-  INVENTORY_FINISHED_GOODS: '1213', // منتج تام
+  INVENTORY: '103', // المخزون (مجموعة)
+  INVENTORY_RAW_MATERIALS: '10301', // خامات
+  INVENTORY_FINISHED_GOODS: '10302', // منتج تام
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
-  SUPPLIERS: '221', // الموردين
+  SUPPLIERS: '201', // الموردين
   VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
   VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
   CUSTOMER_DEPOSITS: '226', // تأمينات العملاء
@@ -203,23 +203,28 @@ const DUMMY_PURCHASE_ORDERS = [
 const FULL_DEMO_ACCOUNTS_RAW = [
   { code: '1', name: 'الأصول', type: 'ASSET', is_group: true, parent_account: null },
   { code: '11', name: 'الأصول غير المتداولة', type: 'ASSET', is_group: true, parent_account: '1' },
-  { code: '1115', name: 'الأثاث والتجهيزات المكتبية', type: 'ASSET', is_group: false, parent_account: '11' },
+  { code: '111', name: 'الأصول الثابتة (بالصافي)', type: 'ASSET', is_group: true, parent_account: '11' },
+  { code: '1115', name: 'الأثاث والتجهيزات المكتبية', type: 'ASSET', is_group: false, parent_account: '111' },
   { code: '12', name: 'الأصول المتداولة', type: 'ASSET', is_group: true, parent_account: '1' },
-  { code: '121', name: 'المخزون', type: 'ASSET', is_group: true, parent_account: '12' },
-  { code: '1211', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_account: '121' },
-  { code: '1213', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_account: '121' },
+  { code: '103', name: 'المخزون', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '10301', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_account: '103' },
+  { code: '10302', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_account: '103' },
+  { code: '122', name: 'العملاء والمدينون', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_account: '122' },
+  { code: '1222', name: 'أوراق القبض', type: 'ASSET', is_group: false, parent_account: '122' },
   { code: '123', name: 'النقدية وما في حكمها', type: 'ASSET', is_group: true, parent_account: '12' },
   { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_account: '123' },
   { code: '1232', name: 'البنك الأهلي', type: 'ASSET', is_group: false, parent_account: '123' },
-  { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_account: '12' },
-  { code: '1241', name: 'ضريبة القيمة المضافة (مدخلات)', type: 'ASSET', is_group: false, parent_account: '12' },
-  { code: '1222', name: 'أوراق القبض', type: 'ASSET', is_group: false, parent_account: '12' },
+  { code: '124', name: 'أرصدة مدينة أخرى', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '1241', name: 'ضريبة القيمة المضافة (مدخلات)', type: 'ASSET', is_group: false, parent_account: '124' },
   { code: '2', name: 'الخصوم', type: 'LIABILITY', is_group: true, parent_account: null },
-  { code: '221', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_account: '2' },
-  { code: '222', name: 'أوراق الدفع', type: 'LIABILITY', is_group: false, parent_account: '2' },
-  { code: '2231', name: 'ضريبة القيمة المضافة (مخرجات)', type: 'LIABILITY', is_group: false, parent_account: '2' },
+  { code: '22', name: 'الخصوم المتداولة', type: 'LIABILITY', is_group: true, parent_account: '2' },
+  { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_account: '22' },
+  { code: '222', name: 'أوراق الدفع', type: 'LIABILITY', is_group: false, parent_account: '22' },
+  { code: '223', name: 'مصلحة الضرائب (التزامات)', type: 'LIABILITY', is_group: true, parent_account: '22' },
+  { code: '2231', name: 'ضريبة القيمة المضافة (مخرجات)', type: 'LIABILITY', is_group: false, parent_account: '223' },
   { code: '3', name: 'حقوق الملكية', type: 'EQUITY', is_group: true, parent_account: null },
-  { code: '3101', name: 'رأس المال', type: 'EQUITY', is_group: false, parent_account: '3' },
+  { code: '31', name: 'رأس المال', type: 'EQUITY', is_group: false, parent_account: '3' },
   { code: '32', name: 'الأرباح المبقاة', type: 'EQUITY', is_group: false, parent_account: '3' },
   { code: '4', name: 'الإيرادات', type: 'REVENUE', is_group: true, parent_account: null },
   { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_account: '4' },
@@ -235,9 +240,10 @@ const DUMMY_ACCOUNTS = FULL_DEMO_ACCOUNTS_RAW.map(acc => ({
     name: acc.name,
     type: acc.type,
     balance: 0,
-    isGroup: acc.is_group,
-    parentAccount: acc.parent_account
-})) as Account[];
+    is_group: acc.is_group,
+    parent_id: acc.parent_account,
+    is_active: true
+})) as unknown as Account[];
 
 interface AccountingContextType {
   accounts: Account[];
@@ -514,7 +520,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         changed = false;
         demoAccounts.forEach(parent => {
             if (parent.is_group) {
-                const childrenBalance = demoAccounts.filter(child => child.parent_account === parent.code).reduce((sum, child) => sum + (child.balance || 0), 0);
+                const childrenBalance = demoAccounts.filter(child => child.parent_id === parent.id).reduce((sum, child) => sum + (child.balance || 0), 0);
                 if (parent.balance !== childrenBalance) { parent.balance = childrenBalance; changed = true; }
             }
         });
@@ -743,13 +749,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
       await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY');
+      await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY, 'المخزون', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET');
+      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET'); // 10301
+      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET'); // 10302
       await ensureAccount(SYSTEM_ACCOUNTS.SALARIES_EXPENSE, 'الرواتب والأجور', 'EXPENSE');
 
       // 4. معالجة القيود وحساب الأرصدة
@@ -813,6 +817,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 ...a, 
                 isGroup: a.is_group, 
                 parentAccount: a.parent_account,
+                parent_id: a.parent_id,
                 balance: finalBalance
             };
         });
@@ -823,9 +828,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         while (changed && accountsWithBalances.length > 0) {
             changed = false;
             accountsWithBalances.forEach(parent => {
-                if (parent.is_group) {
-                    const childrenBalance = accountsWithBalances
-                        .filter(child => child.parent_account === parent.id)
+                if (parent.is_group) { // @ts-ignore
+                    const childrenBalance = accountsWithBalances // @ts-ignore
+                        .filter(child => child.parent_id === parent.id)
                         .reduce((sum, child) => sum + (child.balance || 0), 0);
                     
                     if (parent.balance !== childrenBalance) {
@@ -1064,8 +1069,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         while (changed) {
             changed = false;
             newAccounts.forEach((parent: Account) => {
-                if (parent.is_group) {
-                    const childrenBalance = newAccounts.filter((child: Account) => child.parent_account === parent.id).reduce((sum: number, child: Account) => sum + (child.balance || 0), 0);
+                if (parent.is_group) { // @ts-ignore
+                    const childrenBalance = newAccounts.filter((child: Account) => child.parent_id === parent.id).reduce((sum: number, child: Account) => sum + (child.balance || 0), 0);
                     if (parent.balance !== childrenBalance) { parent.balance = childrenBalance; changed = true; }
                 }
             });

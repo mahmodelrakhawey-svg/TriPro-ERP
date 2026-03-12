@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٧‏/٣‏/٢٠٢٦، ١:١٦:٣٢ م
+📅 تاريخ التحديث: ١٢‏/٣‏/٢٠٢٦، ١:٢٤:٥٥ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -32,6 +32,7 @@
     📄 TrialBalanceAdvanced.tsx
     📄 verify_closing.sql
   📁 admin/
+    📄 DataMigration.tsx
     📄 DataMigrationCenter.tsx
     📄 PermissionsManager.tsx
     📄 RecycleBin.tsx
@@ -277,9 +278,11 @@
     "@google/genai": "^1.34.0",
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.16",
+    "@types/nodemailer": "^7.0.11",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.294.0",
+    "nodemailer": "^8.0.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.6.0",
@@ -788,11 +791,11 @@ export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
   CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
-  INVENTORY: '121', // المخزون (مجموعة)
-  INVENTORY_RAW_MATERIALS: '1211', // خامات
-  INVENTORY_FINISHED_GOODS: '1213', // منتج تام
+  INVENTORY: '103', // المخزون (مجموعة)
+  INVENTORY_RAW_MATERIALS: '10301', // خامات
+  INVENTORY_FINISHED_GOODS: '10302', // منتج تام
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
-  SUPPLIERS: '221', // الموردين
+  SUPPLIERS: '201', // الموردين
   VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
   VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
   CUSTOMER_DEPOSITS: '226', // تأمينات العملاء
@@ -837,31 +840,31 @@ const DUMMY_WAREHOUSES = [
 const DUMMY_INVOICES = [
     { 
         id: 'demo-inv-1', 
-        invoiceNumber: 'INV-001001', 
-        customerId: 'demo-c1', 
+        invoice_number: 'INV-001001', 
+        customer_id: 'demo-c1', 
         customerName: 'شركة الأفق للتجارة', customerPhone: '0501234567',
         date: new Date().toISOString().split('T')[0], 
-        totalAmount: 9775, taxAmount: 1275, subtotal: 8500, 
+        total_amount: 9775, tax_amount: 1275, subtotal: 8500, 
         status: 'posted', paid_amount: 5000, warehouseId: 'demo-wh1',
         items: [{ id: 'di-1', productId: 'demo-p2', productName: 'طابعة ليزر Canon', quantity: 1, unitPrice: 8500, total: 8500 }]
     },
     { 
         id: 'demo-inv-2', 
-        invoiceNumber: 'INV-001002', 
-        customerId: 'demo-c2', 
+        invoice_number: 'INV-001002', 
+        customer_id: 'demo-c2', 
         customerName: 'مؤسسة النور', customerPhone: '0551234567',
         date: new Date(Date.now() - 86400000).toISOString().split('T')[0], 
-        totalAmount: 4887.5, taxAmount: 637.5, subtotal: 4250, 
+        total_amount: 4887.5, tax_amount: 637.5, subtotal: 4250, 
         status: 'paid', paid_amount: 4887.5, warehouseId: 'demo-wh1',
         items: [{ id: 'di-2', productId: 'demo-p4', productName: 'ورق تصوير A4 (كرتونة)', quantity: 5, unitPrice: 850, total: 4250 }]
     },
     { 
         id: 'demo-inv-3', 
-        invoiceNumber: 'INV-001003', 
-        customerId: 'demo-c3', 
+        invoice_number: 'INV-001003', 
+        customer_id: 'demo-c3', 
         customerName: 'عميل نقدي', customerPhone: '',
         date: new Date().toISOString().split('T')[0], 
-        totalAmount: 1500, taxAmount: 195.65, subtotal: 1304.35, 
+        total_amount: 1500, tax_amount: 195.65, subtotal: 1304.35, 
         status: 'posted', paid_amount: 0, warehouseId: 'demo-wh1',
         items: [{ id: 'di-3', productId: 'demo-p3', productName: 'حبر طابعة HP 85A', quantity: 3, unitPrice: 450, total: 1350 }]
     }
@@ -870,12 +873,12 @@ const DUMMY_INVOICES = [
 const DUMMY_PURCHASE_INVOICES = [
     {
         id: 'demo-pinv-1',
-        invoiceNumber: 'PINV-001',
-        supplierId: 'demo-s1',
+        invoice_number: 'PINV-001',
+        supplier_id: 'demo-s1',
         supplierName: 'شركة التوريدات العالمية',
         date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0],
-        totalAmount: 5750,
-        taxAmount: 750,
+        total_amount: 5750,
+        tax_amount: 750,
         subtotal: 5000,
         status: 'posted',
         warehouseId: 'demo-wh1',
@@ -956,23 +959,28 @@ const DUMMY_PURCHASE_ORDERS = [
 const FULL_DEMO_ACCOUNTS_RAW = [
   { code: '1', name: 'الأصول', type: 'ASSET', is_group: true, parent_account: null },
   { code: '11', name: 'الأصول غير المتداولة', type: 'ASSET', is_group: true, parent_account: '1' },
-  { code: '1115', name: 'الأثاث والتجهيزات المكتبية', type: 'ASSET', is_group: false, parent_account: '11' },
+  { code: '111', name: 'الأصول الثابتة (بالصافي)', type: 'ASSET', is_group: true, parent_account: '11' },
+  { code: '1115', name: 'الأثاث والتجهيزات المكتبية', type: 'ASSET', is_group: false, parent_account: '111' },
   { code: '12', name: 'الأصول المتداولة', type: 'ASSET', is_group: true, parent_account: '1' },
-  { code: '121', name: 'المخزون', type: 'ASSET', is_group: true, parent_account: '12' },
-  { code: '1211', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_account: '121' },
-  { code: '1213', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_account: '121' },
+  { code: '103', name: 'المخزون', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '10301', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_account: '103' },
+  { code: '10302', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_account: '103' },
+  { code: '122', name: 'العملاء والمدينون', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_account: '122' },
+  { code: '1222', name: 'أوراق القبض', type: 'ASSET', is_group: false, parent_account: '122' },
   { code: '123', name: 'النقدية وما في حكمها', type: 'ASSET', is_group: true, parent_account: '12' },
   { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_account: '123' },
   { code: '1232', name: 'البنك الأهلي', type: 'ASSET', is_group: false, parent_account: '123' },
-  { code: '10201', name: 'العملاء', type: 'ASSET', is_group: false, parent_account: '12' },
-  { code: '1241', name: 'ضريبة القيمة المضافة (مدخلات)', type: 'ASSET', is_group: false, parent_account: '12' },
-  { code: '1222', name: 'أوراق القبض', type: 'ASSET', is_group: false, parent_account: '12' },
+  { code: '124', name: 'أرصدة مدينة أخرى', type: 'ASSET', is_group: true, parent_account: '12' },
+  { code: '1241', name: 'ضريبة القيمة المضافة (مدخلات)', type: 'ASSET', is_group: false, parent_account: '124' },
   { code: '2', name: 'الخصوم', type: 'LIABILITY', is_group: true, parent_account: null },
-  { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_account: '2' },
-  { code: '222', name: 'أوراق الدفع', type: 'LIABILITY', is_group: false, parent_account: '2' },
-  { code: '2231', name: 'ضريبة القيمة المضافة (مخرجات)', type: 'LIABILITY', is_group: false, parent_account: '2' },
+  { code: '22', name: 'الخصوم المتداولة', type: 'LIABILITY', is_group: true, parent_account: '2' },
+  { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_account: '22' },
+  { code: '222', name: 'أوراق الدفع', type: 'LIABILITY', is_group: false, parent_account: '22' },
+  { code: '223', name: 'مصلحة الضرائب (التزامات)', type: 'LIABILITY', is_group: true, parent_account: '22' },
+  { code: '2231', name: 'ضريبة القيمة المضافة (مخرجات)', type: 'LIABILITY', is_group: false, parent_account: '223' },
   { code: '3', name: 'حقوق الملكية', type: 'EQUITY', is_group: true, parent_account: null },
-  { code: '3101', name: 'رأس المال', type: 'EQUITY', is_group: false, parent_account: '3' },
+  { code: '31', name: 'رأس المال', type: 'EQUITY', is_group: false, parent_account: '3' },
   { code: '32', name: 'الأرباح المبقاة', type: 'EQUITY', is_group: false, parent_account: '3' },
   { code: '4', name: 'الإيرادات', type: 'REVENUE', is_group: true, parent_account: null },
   { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_account: '4' },
@@ -988,9 +996,10 @@ const DUMMY_ACCOUNTS = FULL_DEMO_ACCOUNTS_RAW.map(acc => ({
     name: acc.name,
     type: acc.type,
     balance: 0,
-    isGroup: acc.is_group,
-    parentAccount: acc.parent_account
-})) as Account[];
+    is_group: acc.is_group,
+    parent_id: acc.parent_account,
+    is_active: true
+})) as unknown as Account[];
 
 interface AccountingContextType {
   accounts: Account[];
@@ -1206,9 +1215,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     DUMMY_INVOICES.forEach(inv => {
         if (inv.status !== 'draft') {
             const lines = [
-                { account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: inv.totalAmount, credit: 0 },
+                { account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: inv.total_amount, credit: 0 },
                 { account_id: SYSTEM_ACCOUNTS.SALES_REVENUE, debit: 0, credit: inv.subtotal },
-                { account_id: SYSTEM_ACCOUNTS.VAT, debit: 0, credit: inv.taxAmount },
+                { account_id: SYSTEM_ACCOUNTS.VAT, debit: 0, credit: inv.tax_amount },
             ];
             if (inv.paid_amount && inv.paid_amount > 0) {
                 lines.push({ account_id: SYSTEM_ACCOUNTS.CUSTOMERS, debit: 0, credit: inv.paid_amount });
@@ -1217,7 +1226,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             processLines(lines);
             allDemoEntries.push({
                 id: `demo-je-inv-${inv.id}`, date: inv.date, description: `فاتورة مبيعات ${inv.customerName}`,
-                reference: inv.invoiceNumber, status: 'posted', is_posted: true,
+                reference: inv.invoice_number, status: 'posted', is_posted: true,
                 lines: lines.map(l => ({ accountId: l.account_id, debit: l.debit, credit: l.credit }))
             });
         }
@@ -1227,13 +1236,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (inv.status !== 'draft') {
             const lines = [
                 { account_id: SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, debit: inv.subtotal, credit: 0 },
-                { account_id: SYSTEM_ACCOUNTS.VAT_INPUT, debit: inv.taxAmount, credit: 0 },
-                { account_id: SYSTEM_ACCOUNTS.SUPPLIERS, debit: 0, credit: inv.totalAmount },
+                { account_id: SYSTEM_ACCOUNTS.VAT_INPUT, debit: inv.tax_amount, credit: 0 },
+                { account_id: SYSTEM_ACCOUNTS.SUPPLIERS, debit: 0, credit: inv.total_amount },
             ];
             processLines(lines);
             allDemoEntries.push({
                 id: `demo-je-pinv-${inv.id}`, date: inv.date, description: `فاتورة مشتريات ${inv.supplierName}`,
-                reference: inv.invoiceNumber, status: 'posted', is_posted: true,
+                reference: inv.invoice_number, status: 'posted', is_posted: true,
                 lines: lines.map(l => ({ accountId: l.account_id, debit: l.debit, credit: l.credit }))
             });
         }
@@ -1267,7 +1276,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         changed = false;
         demoAccounts.forEach(parent => {
             if (parent.is_group) {
-                const childrenBalance = demoAccounts.filter(child => child.parent_account === parent.code).reduce((sum, child) => sum + (child.balance || 0), 0);
+                const childrenBalance = demoAccounts.filter(child => child.parent_id === parent.id).reduce((sum, child) => sum + (child.balance || 0), 0);
                 if (parent.balance !== childrenBalance) { parent.balance = childrenBalance; changed = true; }
             }
         });
@@ -1496,13 +1505,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
       await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY');
+      await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY, 'المخزون', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET');
+      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET'); // 10301
+      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET'); // 10302
       await ensureAccount(SYSTEM_ACCOUNTS.SALARIES_EXPENSE, 'الرواتب والأجور', 'EXPENSE');
 
       // 4. معالجة القيود وحساب الأرصدة
@@ -1566,6 +1573,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 ...a, 
                 isGroup: a.is_group, 
                 parentAccount: a.parent_account,
+                parent_id: a.parent_id,
                 balance: finalBalance
             };
         });
@@ -1576,9 +1584,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         while (changed && accountsWithBalances.length > 0) {
             changed = false;
             accountsWithBalances.forEach(parent => {
-                if (parent.is_group) {
-                    const childrenBalance = accountsWithBalances
-                        .filter(child => child.parent_account === parent.id)
+                if (parent.is_group) { // @ts-ignore
+                    const childrenBalance = accountsWithBalances // @ts-ignore
+                        .filter(child => child.parent_id === parent.id)
                         .reduce((sum, child) => sum + (child.balance || 0), 0);
                     
                     if (parent.balance !== childrenBalance) {
@@ -1817,8 +1825,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         while (changed) {
             changed = false;
             newAccounts.forEach((parent: Account) => {
-                if (parent.is_group) {
-                    const childrenBalance = newAccounts.filter((child: Account) => child.parent_account === parent.id).reduce((sum: number, child: Account) => sum + (child.balance || 0), 0);
+                if (parent.is_group) { // @ts-ignore
+                    const childrenBalance = newAccounts.filter((child: Account) => child.parent_id === parent.id).reduce((sum: number, child: Account) => sum + (child.balance || 0), 0);
                     if (parent.balance !== childrenBalance) { parent.balance = childrenBalance; changed = true; }
                 }
             });
@@ -1857,7 +1865,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             // استخدام الحالة المحلية لعرض الفواتير المضافة حديثاً
             const source = invoices.length > 0 ? invoices : DUMMY_INVOICES;
             const filtered = source.filter(inv => 
-                (!search || inv.invoiceNumber.toLowerCase().includes(search.toLowerCase()) || inv.customerName.toLowerCase().includes(search.toLowerCase()))
+                (!search || ((inv as any).invoice_number || (inv as any).invoiceNumber).toLowerCase().includes(search.toLowerCase()) || inv.customerName.toLowerCase().includes(search.toLowerCase()))
             );
             const start = (page - 1) * pageSize;
             const end = start + pageSize;
@@ -3578,6 +3586,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
       if (error) throw error;
+
+      // تنظيف الأرصدة الافتتاحية المرتبطة بالعميل المحذوف
+      // 1. البحث عن الفواتير التي تم إنشاؤها كرصيد افتتاحي
+      const { data: openingInvoices } = await supabase
+        .from('invoices')
+        .select('id, invoice_number')
+        .eq('customer_id', id)
+        .eq('notes', 'رصيد افتتاحي');
+
+      if (openingInvoices && openingInvoices.length > 0) {
+        const invoiceIds = openingInvoices.map((inv: any) => inv.id);
+        const invoiceNumbers = openingInvoices.map((inv: any) => inv.invoice_number);
+
+        // حذف الفواتير الافتتاحية (Soft Delete)
+        await supabase.from('invoices').update({ deleted_at: new Date().toISOString() }).in('id', invoiceIds);
+
+        // حذف القيود المحاسبية المرتبطة (Hard Delete لأنها أرصدة افتتاحية لعميل محذوف)
+        if (invoiceNumbers.length > 0) {
+          const { data: journals } = await supabase.from('journal_entries').select('id').in('reference', invoiceNumbers);
+          if (journals && journals.length > 0) {
+            const journalIds = journals.map((j: any) => j.id);
+            await supabase.from('journal_lines').delete().in('journal_entry_id', journalIds);
+            await supabase.from('journal_entries').delete().in('id', journalIds);
+          }
+        }
+      }
+
       await fetchData(); // تحديث البيانات لإزالة العميل من القائمة الرئيسية
       const customer = customers.find(c => c.id === id);
       logActivity('حذف عميل', `تم حذف العميل: ${customer?.name || id}` + (reason ? ` - السبب: ${reason}` : ''));
