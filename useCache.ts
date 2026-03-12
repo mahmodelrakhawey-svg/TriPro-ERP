@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { secureStorage } from './utils/securityMiddleware';
 
 interface CacheItem<T> {
   value: T;
@@ -35,32 +36,31 @@ export function useCache<T>(
 
     try {
       if (!forceUpdate) {
-        const cached = localStorage.getItem(key);
+        const cached = secureStorage.getItem<CacheItem<T>>(key);
         if (cached) {
           try {
-            const parsed: CacheItem<T> = JSON.parse(cached);
-            const age = (Date.now() - parsed.timestamp) / (1000 * 60);
+            const age = (Date.now() - cached.timestamp) / (1000 * 60);
             
             if (age < expirationMinutes) {
-              setData(parsed.value);
+              setData(cached.value);
               setLoading(false);
               return;
             }
           } catch (e) {
-            console.warn('Failed to parse cached data for key:', key);
-            localStorage.removeItem(key);
+            if (process.env.NODE_ENV === 'development') console.warn('Failed to parse cached data for key:', key);
+            secureStorage.removeItem(key);
           }
         }
       }
 
       const freshData = await fetcherRef.current();
       setData(freshData);
-      localStorage.setItem(key, JSON.stringify({
+      secureStorage.setItem(key, {
         value: freshData,
         timestamp: Date.now()
-      }));
+      });
     } catch (err: any) {
-      console.error(`Error fetching data for ${key}:`, err);
+      if (process.env.NODE_ENV === 'development') console.error(`Error fetching data for ${key}:`, err);
       setError(err);
     } finally {
       setLoading(false);

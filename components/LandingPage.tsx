@@ -77,7 +77,7 @@ const LandingPage = () => {
       // تسجيل الدخول ببيانات الديمو الثابتة
       await login('demo@demo.com', '123456');
     } catch (error) {
-      console.error(error);
+      if (process.env.NODE_ENV === 'development') console.error(error);
       showToast('فشل الدخول للنسخة التجريبية', 'error');
     } finally {
       setLoading(false);

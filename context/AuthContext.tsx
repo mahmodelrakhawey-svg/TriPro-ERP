@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { supabase } from '../services/supabaseClient';
 import { User } from '../types';
 import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
+import { sanitizeHtml } from '../utils/securityGuards';
+import { LoginSchema, validateData } from '../utils/securityValidation';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -35,11 +37,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // دالة لجلب قائمة المستخدمين
   const fetchUsers = useCallback(async () => {
     try {
-      const { data: profiles } = await supabase.from('profiles').select('*');
+      const { data: profiles, error } = await supabase.from('profiles').select('*');
+      
+      if (error) {
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Error fetching profiles:', error);
+        }
+        return;
+      }
+
       if (profiles) {
         const mappedUsers = profiles.map((p: any) => ({
           id: p.id,
-          name: p.full_name || p.email || (p.id === DEMO_USER_ID ? 'مستخدم ديمو' : `مستخدم (${p.id.slice(0, 8)})`),
+          name: sanitizeHtml(p.full_name || p.email || (p.id === DEMO_USER_ID ? 'مستخدم ديمو' : `مستخدم (${p.id.slice(0, 8)})`)),
           username: p.email || (p.id === DEMO_USER_ID ? DEMO_EMAIL : `user_${p.id.slice(0, 8)}`),
           role: p.role || 'viewer',
           is_active: p.is_active ?? true
@@ -59,7 +69,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUsers([adminUser as any, ...filteredMapped]);
       }
     } catch (error) {
-      console.error("Error fetching users:", error);
+      if (process.env.NODE_ENV === 'development') {
+        console.error("Error fetching users:", error);
+      }
+      // Fail silently in production
     }
   }, []);
 
@@ -138,9 +151,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [handleAuthChange, fetchUsers]);
 
   const login = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { success: false, message: error.message };
-    return { success: true };
+    // Validate and sanitize input
+    const validation = validateData<{ email: string; password: string }>(
+      LoginSchema,
+      { email: sanitizeHtml(email.toLowerCase()), password }
+    );
+
+    if (!validation.success) {
+      return { success: false, message: validation.errors?.[0] || 'بيانات غير صحيحة' };
+    }
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: validation.data!.email,
+        password: validation.data!.password
+      });
+      
+      if (error) {
+        // Don't expose internal error details in production
+        if (process.env.NODE_ENV === 'development') {
+          console.error('Login error:', error);
+        }
+        return { success: false, message: 'بيانات الدخول غير صحيحة' };
+      }
+      return { success: true };
+    } catch (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Login exception:', error);
+      }
+      return { success: false, message: 'حدث خطأ في تسجيل الدخول' };
+    }
   };
 
   const logout = async () => {

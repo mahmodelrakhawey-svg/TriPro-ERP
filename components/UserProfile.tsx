@@ -45,7 +45,7 @@ const UserProfile = () => {
           }));
         }
       } catch (error) {
-        console.error('Error fetching profile:', error);
+        if (process.env.NODE_ENV === 'development') console.error('Error fetching profile:', error);
       } finally {
         setLoading(false);
       }

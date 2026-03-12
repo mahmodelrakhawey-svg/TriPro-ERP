@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
-import { useAccounting } from '../../context/AccountingContext'; // Import context
+import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -34,6 +35,7 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'
 
 export default function AccountingDashboard() {
   const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin } = useAccounting();
+  const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -204,7 +206,7 @@ export default function AccountingDashboard() {
              if (window.confirm('تأكيد نهائي: هل أنت متأكد؟ لا يمكن التراجع عن هذا الإجراء! (محاكاة)')) {
                  setLoading(true);
                  setTimeout(() => {
-                     alert('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد. ✅ (محاكاة)');
+                     showToast('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد. ✅ (محاكاة)', 'success');
                      setLoading(false);
                      window.location.reload();
                  }, 1000);
@@ -255,11 +257,11 @@ export default function AccountingDashboard() {
           // 5. تحديث السياق
           await clearTransactions();
           
-          alert('تم تصفير جميع العمليات التشغيلية وسلف الموظفين بنجاح.');
+          showToast('تم تصفير جميع العمليات التشغيلية وسلف الموظفين بنجاح.', 'success');
           window.location.reload();
       } catch (e: any) {
           console.error(e);
-          alert('حدث خطأ أثناء التصفير: ' + e.message);
+          showToast('حدث خطأ أثناء التصفير: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -270,7 +272,7 @@ export default function AccountingDashboard() {
           if (window.confirm('هل أنت متأكد من تفريغ سلة المحذوفات بالكامل؟ (محاكاة)')) {
              setLoading(true);
              setTimeout(() => {
-                 alert('تم تفريغ سلة المحذوفات بنجاح ✅ (محاكاة)');
+                 showToast('تم تفريغ سلة المحذوفات بنجاح ✅ (محاكاة)', 'success');
                  setLoading(false);
              }, 1000);
           }
@@ -285,10 +287,10 @@ export default function AccountingDashboard() {
           for (const table of tables) {
               await emptyRecycleBin(table);
           }
-          alert('تم تفريغ سلة المحذوفات بنجاح.');
+          showToast('تم تفريغ سلة المحذوفات بنجاح.', 'success');
       } catch (e: any) {
           console.error(e);
-          alert('حدث خطأ: ' + e.message);
+          showToast('حدث خطأ: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }

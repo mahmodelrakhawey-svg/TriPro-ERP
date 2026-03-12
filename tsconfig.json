@@ -15,10 +15,15 @@
     "jsx": "react-jsx",
 
     /* Linting */
+    // 🔒 SECURITY NOTE: strict mode will be enabled after fixing existing type errors
+    // See SECURITY_REMEDIATION.md for details
     "strict": false,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "alwaysStrict": true,
+    "noImplicitAny": false,
+    "noImplicitThis": false
   },
   "include": [
     "App.tsx",

@@ -145,7 +145,7 @@ const SupplierBalanceReconciliation = () => {
 
     } catch (error) {
       console.error(error);
-      // alert('حدث خطأ أثناء المطابقة'); // تم تعطيل التنبيه لتجنب الإزعاج أثناء التحميل
+      // Error handled silently during reconciliation
     } finally {
       setLoading(false);
     }

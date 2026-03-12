@@ -214,7 +214,7 @@ const UserManager = () => {
       setNewUserData({ email: '', password: '', fullName: '', role: 'viewer' });
       fetchUsers(); // تحديث القائمة
     } catch (err: any) {
-      console.error('Error creating user:', err);
+      if (process.env.NODE_ENV === 'development') console.error('Error creating user:', err);
       showToast('فشل إنشاء المستخدم: ' + err.message, 'error');
     } finally {
       setCreating(false);
@@ -242,7 +242,7 @@ const UserManager = () => {
         showToast('تم حذف المستخدم بنجاح.', 'success');
         fetchUsers();
       } catch (err: any) {
-        console.error('Error deleting user:', err);
+        if (process.env.NODE_ENV === 'development') console.error('Error deleting user:', err);
         showToast('فشل حذف المستخدم: ' + (err.data?.message || err.message), 'error');
       }
     }

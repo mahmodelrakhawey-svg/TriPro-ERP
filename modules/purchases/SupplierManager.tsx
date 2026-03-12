@@ -107,7 +107,7 @@ const SupplierManager = () => {
         cheques?.forEach(c => { if (newStats[c.party_id]) newStats[c.party_id].balance -= Number(c.amount); });
 
         setStats(newStats);
-    } catch (error) { console.error("Error fetching supplier stats", error); } finally { setStatsLoading(false); }
+    } catch (error) { if (process.env.NODE_ENV === 'development') console.error("Error fetching supplier stats", error); } finally { setStatsLoading(false); }
   };
 
   const requestSort = (key: string) => {

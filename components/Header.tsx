@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
+import { secureStorage } from '../utils/securityMiddleware';
 import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
@@ -49,7 +50,7 @@ const Header = () => {
                 setCurrentUser(profile);
             }
           } catch (e: any) {
-            console.error(`فشل تحميل بيانات المستخدم: ${e.message}`);
+            if (process.env.NODE_ENV === 'development') console.error(`فشل تحميل بيانات المستخدم: ${e.message}`);
           }
         };
         fetchUserData();
@@ -58,7 +59,7 @@ const Header = () => {
     // --- تحسين الديمو: تفعيل الجولة التعريفية ---
     useEffect(() => {
         if (currentUser?.role === 'demo') {
-            const tourSeen = localStorage.getItem('demo_tour_seen');
+            const tourSeen = secureStorage.getItem('demo_tour_seen');
             if (!tourSeen) {
                 window.dispatchEvent(new CustomEvent('start-demo-tour'));
             }

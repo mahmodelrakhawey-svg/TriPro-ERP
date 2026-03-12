@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { supabase } from '../supabaseClient';
+import { secureStorage } from '../utils/securityMiddleware';
 import { 
   Account, JournalEntry, Invoice, Product, Customer, Supplier, 
   PurchaseInvoice, SalesReturn, PurchaseReturn, StockTransaction,
@@ -388,7 +389,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     companyName: 'TriPro ERP', taxNumber: '', address: 'القاهرة', phone: '', email: '', vatRate: 14, currency: 'EGP', footerText: 'شكراً لثقتكم', enableTax: true, maxCashDeficitLimit: 500, decimalPlaces: 2,
     logoUrl: 'https://placehold.co/400x150/2563eb/ffffff?text=TriPro+ERP' // لوجو افتراضي للهوية البصرية
   });
-  const [users, setUsers] = useState<User[]>([{ id: ADMIN_USER_ID, name: 'المدير العام', username: 'admin', password: '123', role: 'admin', is_active: true }]);
+  const [users, setUsers] = useState<User[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set());
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -606,15 +607,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // =================================================================================
 
     // محاولة استرجاع البيانات من التخزين المؤقت أولاً
-    const cachedAccounts = localStorage.getItem('cached_accounts');
-    const cachedCustomers = localStorage.getItem('cached_customers');
-    const cachedSuppliers = localStorage.getItem('cached_suppliers');
-    const cachedProducts = localStorage.getItem('cached_products');
+    const cachedAccounts = secureStorage.getItem<Account[]>('cached_accounts');
+    const cachedCustomers = secureStorage.getItem<Customer[]>('cached_customers');
+    const cachedSuppliers = secureStorage.getItem<Supplier[]>('cached_suppliers');
+    const cachedProducts = secureStorage.getItem<Product[]>('cached_products');
 
     let hasCache = false;
 
-    if (cachedAccounts) {
-        setAccounts(JSON.parse(cachedAccounts));
+    if (cachedAccounts && Array.isArray(cachedAccounts)) {
+        setAccounts(cachedAccounts);
         hasCache = true;
     }
 
@@ -707,11 +708,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       let accs = fetchedAccounts ? [...fetchedAccounts] : [];
       
       if (accError) {
-          console.error("Error fetching accounts:", accError);
+          if (process.env.NODE_ENV === 'development') console.error("Error fetching accounts:", accError);
           // معالجة خطأ انتهاء الجلسة (401 Unauthorized / JWT Expired)
           // تم توسيع الشرط ليشمل رسائل Unauthorized
           if (accError.code === 'PGRST301' || accError.message?.includes('JWT') || accError.code === '401' || accError.message?.includes('Unauthorized')) {
-              console.warn("Session expired (401), signing out...");
+              if (process.env.NODE_ENV === 'development') console.warn("Session expired (401), signing out...");
               await supabase.auth.signOut();
               localStorage.clear(); // تنظيف كامل للذاكرة المحلية لإزالة الجلسة الفاسدة
               window.location.reload();
@@ -757,7 +758,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await ensureAccount(SYSTEM_ACCOUNTS.SALARIES_EXPENSE, 'الرواتب والأجور', 'EXPENSE');
 
       // 4. معالجة القيود وحساب الأرصدة
-      if (jError) console.error("Journal Fetch Error:", jError);
+      if (jError && process.env.NODE_ENV === 'development') console.error("Journal Fetch Error:", jError);
 
       // تحويل مصفوفة الأرصدة إلى خريطة لسهولة الوصول
       const dbBalances: Record<string, number> = {};
@@ -842,19 +843,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
 
         setAccounts(accountsWithBalances);
-        localStorage.setItem('cached_accounts', JSON.stringify(accs)); // تحديث الكاش
+        secureStorage.setItem('cached_accounts', accs); // تحديث الكاش
       } else if (shouldFetchProtected && !accError && (!accs || accs.length === 0)) {
-        console.error("Chart of Accounts is empty. Please run the setup SQL script on your database.");
+        if (process.env.NODE_ENV === 'development') console.error("Chart of Accounts is empty. Please run the setup SQL script on your database.");
       }
 
       if (!isDemo) {
         if (custs) {
           setCustomers(custs.map(c => ({...c, taxId: c.tax_id, customerType: c.customer_type, credit_limit: c.credit_limit })));
-          localStorage.setItem('cached_customers', JSON.stringify(custs));
+          secureStorage.setItem('cached_customers', custs);
         }
         if (supps) {
           setSuppliers(supps.map(s => ({...s, taxId: s.tax_id, contactPerson: s.contact_person})));
-          localStorage.setItem('cached_suppliers', JSON.stringify(supps));
+          secureStorage.setItem('cached_suppliers', supps);
         }
         if (prods) {
           const processedProds = prods.map(p => ({
@@ -866,7 +867,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               weighted_average_cost: p.weighted_average_cost
           }));
           setProducts(processedProds);
-          localStorage.setItem('cached_products', JSON.stringify(processedProds));
+          secureStorage.setItem('cached_products', processedProds);
         }
       }
 
@@ -1019,7 +1020,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       setLastUpdated(new Date());
     } catch (error) {
-      console.error("Error fetching data from Supabase:", error);
+      if (process.env.NODE_ENV === 'development') console.error("Error fetching data from Supabase:", error);
     } finally {
       setIsLoading(false);
     }
@@ -1167,7 +1168,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         return { data: mappedInvoices, count: count || 0 };
     } catch (error) {
-        console.error("Error fetching paginated invoices:", error);
+        if (process.env.NODE_ENV === 'development') console.error("Error fetching paginated invoices:", error);
         return { data: [], count: 0 };
     }
   };
@@ -1232,16 +1233,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         return { data: formattedEntries, count: count || 0 };
     } catch (error) {
-        console.error("Error fetching paginated journal entries:", error);
+        if (process.env.NODE_ENV === 'development') console.error("Error fetching paginated journal entries:", error);
         return { data: [], count: 0 };
     }
   };
 
   const clearCache = async () => {
-    localStorage.removeItem('cached_accounts');
-    localStorage.removeItem('cached_customers');
-    localStorage.removeItem('cached_suppliers');
-    localStorage.removeItem('cached_products');
+    secureStorage.removeItem('cached_accounts');
+    secureStorage.removeItem('cached_customers');
+    secureStorage.removeItem('cached_suppliers');
+    secureStorage.removeItem('cached_products');
     await fetchData(); // إعادة تحميل البيانات من الخادم فوراً
   };
 
@@ -1290,7 +1291,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         link.click();
         document.body.removeChild(link);
     } catch (error: any) {
-        console.error("Export Error:", error);
+        if (process.env.NODE_ENV === 'development') console.error("Export Error:", error);
         showToast("حدث خطأ أثناء التصدير: " + error.message, 'error');
     }
   };
@@ -1346,7 +1347,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
             fetchData(); 
         } catch (error) {
-            console.error("Error handling auth change:", error);
+            if (process.env.NODE_ENV === 'development') console.error("Error handling auth change:", error);
             setCurrentUser(null);
         }
     } else {
@@ -1385,7 +1386,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             });
         }
     } catch (error) {
-        console.warn("Failed to persist activity log to DB", error);
+        if (process.env.NODE_ENV === 'development') console.warn("Failed to persist activity log to DB", error);
     }
   };
 
@@ -1428,7 +1429,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           logActivity('تعديل صنف', `تعديل بيانات الصنف: ${oldData?.name}`, undefined, { changes, productId: id });
       }
     } catch (error: any) {
-      console.error("Error updating product:", error);
+      if (process.env.NODE_ENV === 'development') console.error("Error updating product:", error);
       throw error;
     }
   };
@@ -1445,7 +1446,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData(); // تحديث البيانات لإزالة الصنف من القائمة الرئيسية
       logActivity('حذف صنف', `تم حذف الصنف: ${product?.name || id}` + (reason ? ` - السبب: ${reason}` : ''));
     } catch (error: any) {
-      console.error("Error deleting product:", error);
+      if (process.env.NODE_ENV === 'development') console.error("Error deleting product:", error);
       showToast("فشل حذف الصنف: " + error.message, 'error');
     }
   };
@@ -1553,7 +1554,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // معالجة خطأ تكرار المرجع (Retry with suffix)
       if (error && error.code === '23505') {
           const newRef = `${finalRef}-${Math.floor(Math.random() * 1000)}`;
-          console.warn(`Duplicate reference ${finalRef}, retrying with ${newRef}`);
+          if (process.env.NODE_ENV === 'development') console.warn(`Duplicate reference ${finalRef}, retrying with ${newRef}`);
           finalRef = newRef; // تحديث المرجع للاستخدام لاحقاً
           
           const retryResult = await supabase.rpc('create_journal_entry', {
@@ -1571,7 +1572,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) {
         // إذا كان الخطأ هو عدم وجود الدالة، نحاول الإدراج المباشر (Fallback)
         if (error.message && (error.message.includes('Could not find the function') || error.message.includes('function') && error.message.includes('does not exist'))) {
-            console.warn("RPC not found, falling back to direct insert.");
+            if (process.env.NODE_ENV === 'development') console.warn("RPC not found, falling back to direct insert.");
             
             // 1. إدراج رأس القيد
             const { data: header, error: headerError } = await supabase.from('journal_entries').insert({
@@ -1630,7 +1631,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     file_size: file.size
                 });
             } else {
-                console.warn('Failed to upload attachment:', file.name, uploadError);
+                if (process.env.NODE_ENV === 'development') console.warn('Failed to upload attachment:', file.name, uploadError);
             }
         }
       }
@@ -1641,7 +1642,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       return entryId;
     } catch (err) {
-      console.error("Error adding entry:", err);
+      if (process.env.NODE_ENV === 'development') console.error("Error adding entry:", err);
       // إظهار الخطأ للمستخدم بدلاً من إخفائه
       throw new Error(err.message || "فشل إنشاء القيد المحاسبي في قاعدة البيانات");
     }
@@ -1650,7 +1651,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addInvoice = async (data: any) => {
     // تم نقل المنطق إلى SalesInvoiceForm.tsx واستخدام RPC
     // هذه الدالة متروكة فقط للتوافق مع أي كود قديم لم يتم تحديثه
-    console.warn("addInvoice in context is deprecated. Use the form's direct logic.");
+    if (process.env.NODE_ENV === 'development') console.warn("addInvoice in context is deprecated. Use the form's direct logic.");
     await fetchData();
   };
 
@@ -1667,14 +1668,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       await fetchData();
     } catch (error: any) {
-      console.error('Error approving invoice:', error);
+      if (process.env.NODE_ENV === 'development') console.error('Error approving invoice:', error);
       throw new Error(error.message || 'فشل اعتماد الفاتورة');
     }
   };
 
   const addPurchaseInvoice = async (data: any) => {
     // تم نقل المنطق إلى PurchaseInvoiceForm.tsx واستخدام RPC
-    console.warn("addPurchaseInvoice in context is deprecated.");
+    if (process.env.NODE_ENV === 'development') console.warn("addPurchaseInvoice in context is deprecated.");
     await fetchData();
   };
 
@@ -1690,7 +1691,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       await fetchData();
     } catch (error: any) {
-      console.error('Error approving purchase invoice:', error);
+      if (process.env.NODE_ENV === 'development') console.error('Error approving purchase invoice:', error);
       throw new Error(error.message || 'فشل اعتماد فاتورة المشتريات');
     }
   };
@@ -2629,9 +2630,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   
   // دالة تسجيل الدخول المحدثة
   const login = async (u: string, p: string) => {
-      // 🔒 تم تعطيل الدخول الافتراضي لنسخة الإنتاج
-      // if (u === 'admin' && p === '123') { setCurrentUser({ id: '00000000-0000-0000-0000-000000000000', name: 'Admin', username: 'admin', role: 'super_admin', isActive: true } as any); return { success: true }; }
-      
       try {
         const result = await authLogin(u, p);
         return result || { success: true };

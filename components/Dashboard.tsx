@@ -90,7 +90,7 @@ const Dashboard = () => {
               setLowStockItems(data.lowStockItems || []);
           }
         } catch (error) {
-          console.error("Error fetching dashboard data:", error);
+          if (process.env.NODE_ENV === 'development') console.error("Error fetching dashboard data:", error);
           if (!rpcError) setRpcError("فشل تحميل بيانات لوحة القيادة.");
         } finally {
           setLoading(false);

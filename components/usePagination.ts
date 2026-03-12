@@ -67,7 +67,7 @@ export function usePagination<T>(
       setData(resultData as T[]);
       setTotalCount(count || 0);
     } catch (err: any) {
-      console.error(`Error fetching data from ${tableName}:`, err);
+      if (process.env.NODE_ENV === 'development') console.error(`Error fetching data from ${tableName}:`, err);
       setError(err.message || 'An error occurred while fetching data');
     } finally {
       setLoading(false);

@@ -145,7 +145,7 @@ const PaymentVoucherForm = () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error downloading:', err);
-      alert('فشل تحميل الملف');
+      showToast('فشل تحميل الملف', 'error');
     }
   };
 
@@ -171,7 +171,7 @@ const PaymentVoucherForm = () => {
   const handleWhatsApp = () => {
     const supplier = suppliers.find(s => s.id === formData.supplierId);
     if (!supplier || !supplier.phone) {
-      alert('رقم هاتف المورد غير متوفر في البيانات الأساسية');
+      showToast('رقم هاتف المورد غير متوفر في البيانات الأساسية', 'warning');
       return;
     }
     
@@ -234,7 +234,7 @@ const PaymentVoucherForm = () => {
         const supplierAcc = getSystemAccount('SUPPLIERS');
 
         if (!supplierAcc) {
-            alert('لم يتم العثور على حساب "الموردين" (201) في الدليل المحاسبي.');
+            showToast('لم يتم العثور على حساب "الموردين" (201) في الدليل المحاسبي.', 'error');
             setLoading(false);
             return;
         }
@@ -268,7 +268,7 @@ const PaymentVoucherForm = () => {
 
                 if (uploadError) {
                     console.error('Upload failed:', uploadError);
-                    alert(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`);
+                    showToast(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`, 'warning');
                 } else {
                     // حفظ بيانات المرفق في الجدول الجديد
                     await supabase.from('payment_voucher_attachments').insert({

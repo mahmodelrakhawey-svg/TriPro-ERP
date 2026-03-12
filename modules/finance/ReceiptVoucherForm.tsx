@@ -147,7 +147,7 @@ const ReceiptVoucherForm = () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Error downloading:', err);
-      alert('فشل تحميل الملف');
+      showToast('فشل تحميل الملف', 'error');
     }
   };
 
@@ -173,7 +173,7 @@ const ReceiptVoucherForm = () => {
   const handleWhatsApp = () => {
     const customer = customers.find(c => c.id === formData.customerId);
     if (!customer || !customer.phone) {
-      alert('رقم هاتف العميل غير متوفر في البيانات الأساسية');
+      showToast('رقم هاتف العميل غير متوفر في البيانات الأساسية', 'warning');
       return;
     }
     

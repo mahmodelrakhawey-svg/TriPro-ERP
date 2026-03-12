@@ -43,7 +43,7 @@ const DraftJournalsList = () => {
         setDrafts(formattedDrafts);
       }
     } catch (error) {
-      console.error('Error fetching drafts:', error);
+      if (process.env.NODE_ENV === 'development') console.error('Error fetching drafts:', error);
     } finally {
       setLoading(false);
     }
@@ -68,7 +68,7 @@ const DraftJournalsList = () => {
       await refreshData();
       fetchDrafts(); // تحديث القائمة
     } catch (error) {
-      console.error('Error posting entry:', error);
+      if (process.env.NODE_ENV === 'development') console.error('Error posting entry:', error);
       showToast('حدث خطأ أثناء الترحيل', 'error');
     }
   };

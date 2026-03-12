@@ -98,7 +98,7 @@ const SecurityLogs = () => {
             setLogs(logsWithNames);
         }
       } catch (err) {
-        console.error('Error fetching logs:', err);
+        if (process.env.NODE_ENV === 'development') console.error('Error fetching logs:', err);
       } finally {
         setLoading(false);
       }

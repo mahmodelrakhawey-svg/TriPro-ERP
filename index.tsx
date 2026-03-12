@@ -15,7 +15,7 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
   }
 
   componentDidCatch(error: any, errorInfo: any) {
-    console.error("Uncaught error:", error, errorInfo);
+    if (process.env.NODE_ENV === 'development') console.error("Uncaught error:", error, errorInfo);
   }
 
   render() {

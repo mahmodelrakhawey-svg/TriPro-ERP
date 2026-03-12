@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../context/AccountingContext';
+import { secureStorage } from '../utils/securityMiddleware';
 import { X, ChevronLeft } from 'lucide-react';
 
 const TOUR_STEPS = [
@@ -68,7 +69,7 @@ export const DemoTour = () => {
     const finishTour = () => {
         setIsVisible(false);
         setCurrentStep(-1);
-        localStorage.setItem('demo_tour_seen', 'true');
+        secureStorage.setItem('demo_tour_seen', 'true');
     };
 
     if (!isVisible || currentStep < 0 || !TOUR_STEPS[currentStep]) return null;

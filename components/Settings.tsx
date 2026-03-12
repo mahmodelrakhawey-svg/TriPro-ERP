@@ -266,7 +266,7 @@ const Settings = () => {
               const { error: rpcError } = await supabase.rpc('reset_demo_data');
               
               if (rpcError) {
-                  console.warn("RPC failed, trying manual delete...", rpcError);
+                  if (process.env.NODE_ENV === 'development') console.warn("RPC failed, trying manual delete...", rpcError);
                   // الحذف اليدوي مع شرط لتجاوز "DELETE requires a WHERE clause"
                   // نستخدم neq('id', '00000000-0000-0000-0000-000000000000') كشرط عام (أو أي شرط صحيح دائماً)
                   await supabase.from('journal_lines').delete().neq('id', '00000000-0000-0000-0000-000000000000');

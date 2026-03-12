@@ -43,7 +43,7 @@ export const useNotifications = (): UseNotificationsReturn => {
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'حدث خطأ';
       setError(errorMessage);
-      console.error('Error refreshing notifications:', err);
+      if (process.env.NODE_ENV === 'development') console.error('Error refreshing notifications:', err);
     } finally {
       setLoading(false);
     }
@@ -64,7 +64,7 @@ export const useNotifications = (): UseNotificationsReturn => {
           setUnreadCount((prev) => Math.max(0, prev - 1));
         }
       } catch (err) {
-        console.error('Error marking notification as read:', err);
+        if (process.env.NODE_ENV === 'development') console.error('Error marking notification as read:', err);
       }
     },
     []
@@ -81,7 +81,7 @@ export const useNotifications = (): UseNotificationsReturn => {
         setUnreadCount(0);
       }
     } catch (err) {
-      console.error('Error marking all as read:', err);
+      if (process.env.NODE_ENV === 'development') console.error('Error marking all as read:', err);
     }
   }, [currentUser?.id]);
 
@@ -94,7 +94,7 @@ export const useNotifications = (): UseNotificationsReturn => {
         setUnreadCount((prev) => Math.max(0, prev - 1));
       }
     } catch (err) {
-      console.error('Error deleting notification:', err);
+      if (process.env.NODE_ENV === 'development') console.error('Error deleting notification:', err);
     }
   }, []);
 

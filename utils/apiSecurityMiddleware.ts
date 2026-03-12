@@ -53,7 +53,8 @@ export async function secureApiFetch<T = any>(
 
     // 1. Rate Limiting
     if (options.rateLimit) {
-      const userId = localStorage.getItem('userId') || 'anonymous';
+      const { secureStorage } = await import('./securityMiddleware');
+      const userId = secureStorage.getItem('userId') || 'anonymous';
       const rateLimitResult = checkRateLimit(userId, options.rateLimit.maxAttempts, options.rateLimit.windowMs);
 
       if (!rateLimitResult.allowed) {
@@ -242,7 +243,7 @@ export async function logAuditEvent(log: AuditLogEntry): Promise<void> {
       console.error('Audit logging failed:', error);
     }
   } catch (error) {
-    console.error('Error writing audit log:', error);
+    if (process.env.NODE_ENV === 'development') console.error('Error writing audit log:', error);
   }
 }
 
