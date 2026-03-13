@@ -8,7 +8,9 @@ import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 import { VoucherSchema } from '../../utils/schemas';
 
 const PaymentVoucherForm = () => {
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher } = useAccounting();
+  const DEMO_EMAIL = 'demo@tripro.com';
+  const DEMO_USER_ID = 'demo-user-id';
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher, isDemo } = useAccounting();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
   // const [suppliers, setSuppliers] = useState<any[]>([]); // Removed: Use suppliers from context
@@ -97,7 +99,7 @@ const PaymentVoucherForm = () => {
     setCurrentVoucherId(null);
     setFormData({
       supplierId: '',
-      treasuryId: '',
+      treasuryId: treasuryAccounts.length > 0 ? treasuryAccounts[0].id : '',
       amount: 0,
       date: new Date().toISOString().split('T')[0],
       notes: '',
@@ -109,6 +111,7 @@ const PaymentVoucherForm = () => {
     });
     setAttachments([]);
     setExistingAttachments([]);
+    setErrors({});
   };
 
   const handlePrevious = () => {
@@ -211,7 +214,7 @@ const PaymentVoucherForm = () => {
     setLoading(true);
 
     // demo simulation: bypass supabase and update context
-    if (!isEditing && currentUser?.role === 'demo') {
+    if (!isEditing && (currentUser?.role === 'demo' || isDemo)) {
         const voucherNumber = formData.voucherNumber || `PV-DEMO-${Math.floor(Math.random()*10000)}`;
         const demoVoucher = {
             id: `demo-pv-${Date.now()}`,
@@ -246,7 +249,6 @@ const PaymentVoucherForm = () => {
               return;
           }
           await updateVoucher(currentVoucherId, 'payment', { ...formData, voucherNumber });
-          showToast('تم تعديل السند بنجاح ✅', 'success');
           return;
         }
 

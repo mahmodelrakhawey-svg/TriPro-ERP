@@ -8,7 +8,9 @@ import { useToast } from '../../context/ToastContext';
 import { VoucherSchema } from '../../utils/schemas';
 
 const ReceiptVoucherForm = () => {
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher } = useAccounting();
+  const DEMO_EMAIL = 'demo@tripro.com';
+  const DEMO_USER_ID = 'demo-user-id';
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher, isDemo } = useAccounting();
   const { currentUser } = useAuth();
   // const [customers, setCustomers] = useState<any[]>([]); // Removed
   const [formData, setFormData] = useState({
@@ -98,7 +100,7 @@ const ReceiptVoucherForm = () => {
     setCurrentVoucherId(null);
     setFormData({
       customerId: '',
-      treasuryId: '',
+      treasuryId: treasuryAccounts.length > 0 ? treasuryAccounts[0].id : '',
       amount: 0,
       date: new Date().toISOString().split('T')[0],
       notes: '',
@@ -213,7 +215,7 @@ const ReceiptVoucherForm = () => {
     setLoading(true);
 
     // demo simulation: bypass database and update context
-    if (!isEditing && currentUser?.role === 'demo') {
+    if (!isEditing && (currentUser?.role === 'demo' || isDemo)) {
         const voucherNumber = formData.voucherNumber || `RV-DEMO-${Math.floor(Math.random()*10000)}`;
         const demoVoucher = {
             id: `demo-rv-${Date.now()}`,
@@ -248,7 +250,6 @@ const ReceiptVoucherForm = () => {
               return;
           }
           await updateVoucher(currentVoucherId, 'receipt', { ...formData, voucherNumber });
-          showToast('تم تعديل السند بنجاح ✅', 'success');
           return;
         }
 

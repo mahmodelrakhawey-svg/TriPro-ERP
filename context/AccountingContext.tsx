@@ -374,6 +374,7 @@ interface AccountingContextType {
   postDemoSalesInvoice: (invoiceData: any) => void;
   addDemoPaymentVoucher: (voucher: any) => void;
   addDemoReceiptVoucher: (voucher: any) => void;
+  isDemo: boolean;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -417,6 +418,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [cheques, setCheques] = useState<Cheque[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [isDemoState, setIsDemoState] = useState(false);
   const [payrollHistory, setPayrollHistory] = useState<PayrollRun[]>([]);
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
@@ -546,6 +548,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
+    setIsDemoState(isDemo);
     // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
     const shouldFetchProtected = !!session;
 
@@ -1128,7 +1131,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setVouchers(prev => [{...voucher, type: 'payment'}, ...prev]);
       // simple entry: debit supplier, credit treasury
       const supplierAcc = getSystemAccount('SUPPLIERS');
-      const cashAcc = accounts.find(a => a.id === voucher.treasuryId) || getSystemAccount('CASH');
+      const cashAcc = accounts.find(a => a.id === voucher.treasuryId && !a.isGroup) || getSystemAccount('CASH');
       if (supplierAcc && cashAcc) {
           addDemoEntry({
               date: voucher.date || new Date().toISOString().split('T')[0],
@@ -1145,7 +1148,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addDemoReceiptVoucher = (voucher: any) => {
       setVouchers(prev => [{...voucher, type: 'receipt'}, ...prev]);
       const customerAcc = getSystemAccount('CUSTOMERS');
-      const cashAcc = accounts.find(a => a.id === voucher.treasuryId) || getSystemAccount('CASH');
+      const cashAcc = accounts.find(a => a.id === voucher.treasuryId && !a.isGroup) || getSystemAccount('CASH');
       if (customerAcc && cashAcc) {
           addDemoEntry({
               date: voucher.date || new Date().toISOString().split('T')[0],
@@ -1842,6 +1845,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const updateVoucher = async (id: string, type: 'receipt' | 'payment', data: any) => {
     try {
+      if (currentUser?.role === 'demo') {
+        // Update in demo context
+        setVouchers(prev => prev.map(v => v.id === id ? { ...v, ...data, type } : v));
+        showToast('تم تعديل السند بنجاح ✅', 'success');
+        return;
+      }
+
       const table = type === 'receipt' ? 'receipt_vouchers' : 'payment_vouchers';
       const dateField = type === 'receipt' ? 'receipt_date' : 'payment_date';
       const partyField = type === 'receipt' ? 'customer_id' : 'supplier_id';
@@ -1859,6 +1869,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       await fetchData();
       logActivity('تعديل سند', `تعديل سند ${type === 'receipt' ? 'قبض' : 'صرف'} رقم ${data.voucherNumber}`, data.amount);
+      showToast('تم تعديل السند بنجاح ✅', 'success');
     } catch (error: any) {
       console.error("Error updating voucher:", error);
       throw new Error(error.message);
@@ -3485,7 +3496,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       restoreItem, permanentDeleteItem, emptyRecycleBin,
       calculateProductPrice, clearTransactions, addOpeningBalanceTransaction,
       checkSystemAccounts, createMissingSystemAccounts,
-      addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher
+  addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher,
+      isDemo: isDemoState
     }}>
       {children}
     </AccountingContext.Provider>
