@@ -943,10 +943,83 @@ INSERT INTO public.organizations (name) VALUES ('الشركة النموذجية
 INSERT INTO public.company_settings (company_name, currency, enable_tax) VALUES ('الشركة النموذجية للتجارة', 'SAR', true);
 -- إنشاء مستودع افتراضي
 INSERT INTO public.warehouses (name, location) VALUES ('المستودع الرئيسي', 'الفرع الرئيسي');
+-- إنشاء مركز تكلفة افتراضي
+INSERT INTO public.cost_centers (name, code, description) VALUES ('المركز الرئيسي', 'MAIN', 'مركز التكلفة الرئيسي');
 
 -- ================================================================
--- 5. دليل الحسابات (Chart of Accounts)
+-- 4. الأدوار والصلاحيات الأساسية
 -- ================================================================
+INSERT INTO public.roles (name, description) VALUES
+('super_admin', 'مدير عام - صلاحيات كاملة'),
+('admin', 'مدير - صلاحيات إدارية'),
+('manager', 'مدير قسم - صلاحيات محدودة'),
+('accountant', 'محاسب - صلاحيات محاسبية'),
+('sales', 'مبيعات - صلاحيات مبيعات'),
+('purchases', 'مشتريات - صلاحيات مشتريات'),
+('viewer', 'عارض - قراءة فقط');
+
+-- الصلاحيات الأساسية
+INSERT INTO public.permissions (module, action) VALUES
+-- المحاسبة
+('accounting', 'view'),
+('accounting', 'create'),
+('accounting', 'edit'),
+('accounting', 'delete'),
+-- المبيعات
+('sales', 'view'),
+('sales', 'create'),
+('sales', 'edit'),
+('sales', 'delete'),
+-- المشتريات
+('purchases', 'view'),
+('purchases', 'create'),
+('purchases', 'edit'),
+('purchases', 'delete'),
+-- المخزون
+('inventory', 'view'),
+('inventory', 'create'),
+('inventory', 'edit'),
+('inventory', 'delete'),
+-- الإدارة
+('admin', 'view'),
+('admin', 'create'),
+('admin', 'edit'),
+('admin', 'delete');
+
+-- ربط الصلاحيات بالأدوار
+-- Super Admin - جميع الصلاحيات
+INSERT INTO public.role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM public.roles r, public.permissions p WHERE r.name = 'super_admin';
+
+-- Admin - معظم الصلاحيات
+INSERT INTO public.role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM public.roles r, public.permissions p 
+WHERE r.name = 'admin' AND p.module IN ('accounting', 'sales', 'purchases', 'inventory', 'admin');
+
+-- Manager - صلاحيات محدودة
+INSERT INTO public.role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM public.roles r, public.permissions p 
+WHERE r.name = 'manager' AND p.action IN ('view', 'create', 'edit') AND p.module IN ('sales', 'purchases', 'inventory');
+
+-- Accountant - محاسبة فقط
+INSERT INTO public.role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM public.roles r, public.permissions p 
+WHERE r.name = 'accountant' AND p.module = 'accounting';
+
+-- Sales - مبيعات فقط
+INSERT INTO public.role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM public.roles r, public.permissions p 
+WHERE r.name = 'sales' AND p.module = 'sales';
+
+-- Purchases - مشتريات فقط
+INSERT INTO public.role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM public.roles r, public.permissions p 
+WHERE r.name = 'purchases' AND p.module = 'purchases';
+
+-- Viewer - قراءة فقط
+INSERT INTO public.role_permissions (role_id, permission_id)
+SELECT r.id, p.id FROM public.roles r, public.permissions p 
+WHERE r.name = 'viewer' AND p.action = 'view';
 -- 1. الحسابات الرئيسية
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('1', 'الأصول', 'ASSET', true, NULL),
@@ -1097,8 +1170,30 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('543', 'مصاريف نظافة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53'));
 
 -- ================================================================
--- 6. الحماية (RLS)
+-- 6. بيانات تجريبية أساسية
 -- ================================================================
+-- عملاء تجريبيين
+INSERT INTO public.customers (name, phone, email, address, credit_limit, customer_type) VALUES
+('عميل تجريبي 1', '0500000000', 'customer1@example.com', 'الرياض', 50000, 'individual'),
+('شركة الأفق للتجارة', '0501234567', 'horizon@example.com', 'الرياض', 100000, 'store');
+
+-- موردين تجريبيين
+INSERT INTO public.suppliers (name, phone, email, address, contact_person) VALUES
+('مورد تجريبي 1', '0509999999', 'supplier1@example.com', 'جدة', 'أحمد محمد'),
+('شركة التوريدات العالمية', '0509988776', 'supply@example.com', 'جدة', 'فاطمة علي');
+
+-- فئات المنتجات
+INSERT INTO public.item_categories (name, default_inventory_account_id, default_cogs_account_id, default_sales_account_id) VALUES
+('إلكترونيات', (SELECT id FROM accounts WHERE code = '10302'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '411')),
+('ملابس', (SELECT id FROM accounts WHERE code = '10302'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '411')),
+('أغذية', (SELECT id FROM accounts WHERE code = '10302'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '411'));
+
+-- منتجات تجريبية
+INSERT INTO public.products (name, sku, sales_price, purchase_price, cost, stock, min_stock_level, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id) VALUES
+('منتج تجريبي 1', 'PROD-001', 100, 80, 80, 100, 10, 'STOCK', (SELECT id FROM item_categories WHERE name = 'إلكترونيات'), 
+ (SELECT id FROM accounts WHERE code = '411'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '10302')),
+('منتج تجريبي 2', 'PROD-002', 200, 150, 150, 50, 5, 'STOCK', (SELECT id FROM item_categories WHERE name = 'ملابس'), 
+ (SELECT id FROM accounts WHERE code = '411'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '10302'));
 
 -- تفعيل RLS على الجداول
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
