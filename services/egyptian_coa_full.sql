@@ -3,6 +3,20 @@
 
 BEGIN;
 
+-- حذف البيانات المرتبطة أولاً لتجنب أخطاء المفتاح الخارجي
+DELETE FROM public.journal_lines;
+DELETE FROM public.journal_entries;
+DELETE FROM public.payment_vouchers;
+DELETE FROM public.receipt_vouchers;
+DELETE FROM public.sales_returns;
+DELETE FROM public.credit_notes;
+DELETE FROM public.invoices;
+DELETE FROM public.purchase_invoices;
+DELETE FROM public.customers;
+DELETE FROM public.suppliers;
+DELETE FROM public.products;
+DELETE FROM public.warehouses;
+
 -- 1. تنظيف الجدول الحالي لضمان عدم التضارب
 DELETE FROM public.accounts;
 

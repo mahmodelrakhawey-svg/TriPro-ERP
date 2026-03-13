@@ -47,17 +47,26 @@ BEGIN
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
     -- ب. جلب الحسابات (يجب أن تكون الأكواد مطابقة لما في setup_complete_demo.sql)
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '401' LIMIT 1;
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
     SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '501' LIMIT 1;
+    IF v_cogs_acc_id IS NULL THEN
+        -- بعض الأدلة قد تستخدم 511 لحساب تكلفة البضاعة المباعة
+        SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' LIMIT 1;
+    END IF;
+
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '103' LIMIT 1;
     SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
     
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
     IF v_sales_acc_id IS NULL OR v_customer_acc_id IS NULL THEN
-        RAISE EXCEPTION 'حسابات المبيعات أو العملاء غير معرّفة في دليل الحسابات';
+        RAISE EXCEPTION 'حسابات المبيعات أو العملاء غير معرّفة في دليل الحسابات (تأكد من وجود 411 و 1221)';
+    END IF;
+
+    IF v_cogs_acc_id IS NULL OR v_inventory_acc_id IS NULL THEN
+        RAISE EXCEPTION 'حسابات المخزون أو تكلفة المبيعات غير موجودة (تأكد من وجود 103 و 501 أو 511)';
     END IF;
 
     -- ج. حساب التكلفة وتحديث المخزون

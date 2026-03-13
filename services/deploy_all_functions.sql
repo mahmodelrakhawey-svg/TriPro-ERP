@@ -39,9 +39,9 @@ BEGIN
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '401' LIMIT 1;
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
     SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '501' LIMIT 1;
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '103' LIMIT 1;
     SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
@@ -247,9 +247,9 @@ BEGIN
     IF v_return.status = 'posted' THEN RAISE EXCEPTION 'المرتجع مرحل بالفعل'; END IF;
     SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
 
-    SELECT id INTO v_sales_return_acc_id FROM public.accounts WHERE code = '401' LIMIT 1;
+    SELECT id INTO v_sales_return_acc_id FROM public.accounts WHERE code = '412' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
 
     FOR v_item IN SELECT * FROM public.sales_return_items WHERE sales_return_id = p_return_id LOOP
         UPDATE public.products SET stock = stock + v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_return.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_return.warehouse_id::text)::numeric, 0) + v_item.quantity)) WHERE id = v_item.product_id;
@@ -409,7 +409,7 @@ BEGIN
     SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
     IF v_sales_allowance_acc_id IS NULL THEN SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4101' LIMIT 1; END IF;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_note.note_date, 'إشعار دائن رقم ' || COALESCE(v_note.credit_note_number, '-'), v_note.credit_note_number, 'posted', v_org_id, p_note_id, 'credit_note', true) RETURNING id INTO v_journal_id;

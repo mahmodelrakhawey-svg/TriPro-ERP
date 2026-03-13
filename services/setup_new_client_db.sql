@@ -650,9 +650,9 @@ BEGIN
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '401' LIMIT 1;
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
     SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '501' LIMIT 1;
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '103' LIMIT 1;
     SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
@@ -858,9 +858,9 @@ BEGIN
     IF v_return.status = 'posted' THEN RAISE EXCEPTION 'المرتجع مرحل بالفعل'; END IF;
     SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
 
-    SELECT id INTO v_sales_return_acc_id FROM public.accounts WHERE code = '401' LIMIT 1;
+    SELECT id INTO v_sales_return_acc_id FROM public.accounts WHERE code = '412' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
 
     FOR v_item IN SELECT * FROM public.sales_return_items WHERE sales_return_id = p_return_id LOOP
         UPDATE public.products SET stock = stock + v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_return.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_return.warehouse_id::text)::numeric, 0) + v_item.quantity)) WHERE id = v_item.product_id;
@@ -1020,7 +1020,7 @@ BEGIN
     SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
     IF v_sales_allowance_acc_id IS NULL THEN SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4101' LIMIT 1; END IF;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '10201' LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_note.note_date, 'إشعار دائن رقم ' || COALESCE(v_note.credit_note_number, '-'), v_note.credit_note_number, 'posted', v_org_id, p_note_id, 'credit_note', true) RETURNING id INTO v_journal_id;
@@ -1198,7 +1198,7 @@ BEGIN
     INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('10102', 'البنك الأهلي', 'ASSET', false, v_cash_group_id, v_org_id);
     
     INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('102', 'العملاء والمدينون', 'ASSET', true, v_current_assets_id, v_org_id);
-    INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('10201', 'العملاء', 'ASSET', false, (SELECT id FROM accounts WHERE code='102'), v_org_id) RETURNING id INTO v_customers_acc_id;
+    INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('1221', 'العملاء', 'ASSET', false, (SELECT id FROM accounts WHERE code='102'), v_org_id) RETURNING id INTO v_customers_acc_id;
     INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('1204', 'أوراق القبض (شيكات)', 'ASSET', false, (SELECT id FROM accounts WHERE code='102'), v_org_id);
     INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('1209', 'عهد موظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code='102'), v_org_id);
     INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('10204', 'ضريبة القيمة المضافة - مدخلات', 'ASSET', false, (SELECT id FROM accounts WHERE code='102'), v_org_id) RETURNING id INTO v_vat_input_acc_id;
@@ -1227,7 +1227,8 @@ BEGIN
 
     -- الإيرادات
     INSERT INTO public.accounts (code, name, type, is_group, organization_id) VALUES ('4', 'الإيرادات', 'REVENUE', true, v_org_id) RETURNING id INTO v_revenue_id;
-    INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('401', 'إيراد المبيعات', 'REVENUE', false, v_revenue_id, v_org_id) RETURNING id INTO v_sales_acc_id;
+    INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('411', 'إيراد المبيعات', 'REVENUE', false, v_revenue_id, v_org_id) RETURNING id INTO v_sales_acc_id;
+    INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('412', 'مردودات المبيعات', 'REVENUE', false, v_revenue_id, v_org_id);
     INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('4102', 'خصم مسموح به', 'REVENUE', false, v_revenue_id, v_org_id);
     INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) VALUES ('402', 'إيرادات أخرى', 'REVENUE', false, v_revenue_id, v_org_id);
 
