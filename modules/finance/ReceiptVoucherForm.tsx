@@ -1,13 +1,15 @@
 ﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useAuth } from '../../context/AuthContext';
 import { ArrowDownLeft, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
 import { ReceiptVoucherPrint } from './ReceiptVoucherPrint';
 import { useToast } from '../../context/ToastContext';
 import { VoucherSchema } from '../../utils/schemas';
 
 const ReceiptVoucherForm = () => {
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher } = useAccounting();
+  const { currentUser } = useAuth();
   // const [customers, setCustomers] = useState<any[]>([]); // Removed
   const [formData, setFormData] = useState({
     customerId: '',
@@ -209,6 +211,30 @@ const ReceiptVoucherForm = () => {
         return;
     }
     setLoading(true);
+
+    // demo simulation: bypass database and update context
+    if (!isEditing && currentUser?.role === 'demo') {
+        const voucherNumber = formData.voucherNumber || `RV-DEMO-${Math.floor(Math.random()*10000)}`;
+        const demoVoucher = {
+            id: `demo-rv-${Date.now()}`,
+            voucherNumber,
+            date: formData.date,
+            customerId: formData.customerId,
+            partyName: customers.find(c => c.id === formData.customerId)?.name,
+            amount: formData.amount,
+            treasuryId: formData.treasuryId,
+            notes: formData.notes,
+            paymentMethod: formData.paymentMethod,
+            currency: formData.currency,
+            exchangeRate: formData.exchangeRate,
+            costCenterId: formData.costCenterId
+        };
+        addDemoReceiptVoucher(demoVoucher);
+        showToast('تم حفظ سند القبض (ديمو) بنجاح ✅', 'success');
+        handleNew();
+        setLoading(false);
+        return;
+    }
 
     try {
         const customer = customers.find(c => c.id === formData.customerId);

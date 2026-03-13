@@ -11,7 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { z } from 'zod';
 
 const PurchaseInvoiceForm = () => {
-  const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser } = useAccounting();
+  const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -166,6 +166,36 @@ const PurchaseInvoiceForm = () => {
     }
 
     setSaving(true);
+
+    // demo mode simulation
+    if (currentUser?.role === 'demo') {
+      await new Promise(r => setTimeout(r, 500));
+      const invoiceNumber = formData.invoiceNumber || `PUR-DEMO-${Math.floor(Math.random()*10000)}`;
+      const demoInvoice = {
+        id: `demo-pinv-${Date.now()}`,
+        invoiceNumber,
+        supplier_id: formData.supplierId,
+        supplierName: suppliers.find(s => s.id === formData.supplierId)?.name || 'مورد ديمو',
+        warehouseId: formData.warehouseId,
+        date: formData.date,
+        total_amount: totalAmount,
+        tax_amount: taxAmount,
+        subtotal: subtotal,
+        notes: formData.notes,
+        status: 'draft',
+        currency: formData.currency,
+        exchange_rate: formData.exchangeRate,
+        items: items
+      };
+      addDemoPurchaseInvoice(demoInvoice);
+      setSuccessMessage('تم حفظ فاتورة مشتريات الديمو بنجاح!');
+      setItems([]);
+      setFormData(prev => ({ ...prev, supplierId: '', invoiceNumber: '', notes: '' }));
+      setEditingId(null);
+      setTimeout(() => setSuccessMessage(null), 4000);
+      setSaving(false);
+      return;
+    }
 
     try {
       const invoiceNumber = formData.invoiceNumber || `PUR-${Date.now().toString().slice(-6)}`;

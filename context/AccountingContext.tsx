@@ -369,8 +369,11 @@ interface AccountingContextType {
   checkSystemAccounts: () => { missing: string[]; found: string[] };
   createMissingSystemAccounts: () => Promise<{ success: boolean; message: string; created: string[] }>;
   addDemoInvoice: (invoice: any) => void;
+  addDemoPurchaseInvoice: (invoice: any) => void;
   addDemoEntry: (entryData: any) => void;
   postDemoSalesInvoice: (invoiceData: any) => void;
+  addDemoPaymentVoucher: (voucher: any) => void;
+  addDemoReceiptVoucher: (voucher: any) => void;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -1031,6 +1034,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setInvoices(prev => [invoice, ...prev]);
   };
 
+  const addDemoPurchaseInvoice = (invoice: any) => {
+      setPurchaseInvoices(prev => [invoice, ...prev]);
+      // create simple journal entry for demo (debit inventory or expense, credit supplier)
+      const supplierAcc = getSystemAccount('SUPPLIERS');
+      const cashAcc = getSystemAccount('CASH');
+      if (supplierAcc && cashAcc) {
+          addDemoEntry({
+              date: invoice.date || new Date().toISOString().split('T')[0],
+              description: `فاتورة مشتريات ديمو`,
+              reference: invoice.invoiceNumber || '',
+              lines: [
+                  { accountId: supplierAcc.id, debit: invoice.totalAmount || 0, credit: 0 },
+                  { accountId: cashAcc.id, debit: 0, credit: invoice.totalAmount || 0 }
+              ]
+          });
+      }
+  };
+
   const addDemoEntry = useCallback((entryData: any) => {
     const newEntry: JournalEntry = {
       id: `demo-je-${Date.now()}`,
@@ -1101,6 +1122,41 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (totalCost > 0 && cogsAcc && inventoryAcc) { lines.push({ accountId: cogsAcc.id, debit: totalCost, credit: 0, description: 'تكلفة البضاعة المباعة' }); lines.push({ accountId: inventoryAcc.id, debit: 0, credit: totalCost, description: 'صرف من المخزون' }); }
         addDemoEntry({ date: date, description: `فاتورة مبيعات ديمو: ${customerName}`, reference: invoiceNumber, lines: lines });
     }
+  };
+  
+  const addDemoPaymentVoucher = (voucher: any) => {
+      setVouchers(prev => [{...voucher, type: 'payment'}, ...prev]);
+      // simple entry: debit supplier, credit treasury
+      const supplierAcc = getSystemAccount('SUPPLIERS');
+      const cashAcc = accounts.find(a => a.id === voucher.treasuryId) || getSystemAccount('CASH');
+      if (supplierAcc && cashAcc) {
+          addDemoEntry({
+              date: voucher.date || new Date().toISOString().split('T')[0],
+              description: `سند صرف ديمو`,
+              reference: voucher.voucherNumber || '',
+              lines: [
+                  { accountId: supplierAcc.id, debit: voucher.amount || 0, credit: 0 },
+                  { accountId: cashAcc.id, debit: 0, credit: voucher.amount || 0 }
+              ]
+          });
+      }
+  };
+
+  const addDemoReceiptVoucher = (voucher: any) => {
+      setVouchers(prev => [{...voucher, type: 'receipt'}, ...prev]);
+      const customerAcc = getSystemAccount('CUSTOMERS');
+      const cashAcc = accounts.find(a => a.id === voucher.treasuryId) || getSystemAccount('CASH');
+      if (customerAcc && cashAcc) {
+          addDemoEntry({
+              date: voucher.date || new Date().toISOString().split('T')[0],
+              description: `سند قبض ديمو`,
+              reference: voucher.voucherNumber || '',
+              lines: [
+                  { accountId: cashAcc.id, debit: voucher.amount || 0, credit: 0 },
+                  { accountId: customerAcc.id, debit: 0, credit: voucher.amount || 0 }
+              ]
+          });
+      }
   };
 
   const getInvoicesPaginated = async (page: number, pageSize: number, search?: string, startDate?: string, endDate?: string) => {
@@ -1872,6 +1928,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addStockTransfer = async (data: any) => {
+    // demo branch: simulate locally without touching Supabase
+    if (currentUser?.role === 'demo') {
+        const transferNumber = `TRN-DEMO-${Math.floor(Math.random()*10000)}`;
+        const demoId = `demo-st-${Date.now()}`;
+        // update transfers state
+        setTransfers(prev => [{ ...data, id: demoId, transferNumber, status: 'posted' }, ...prev]);
+        // adjust product warehouseStock locally
+        setProducts(prevProds => {
+            const newProds = prevProds.map(p => {
+                const item = data.items.find((i: any) => i.productId === p.id);
+                if (!item) return p;
+                const ws = { ...p.warehouseStock };
+                ws[data.fromWarehouseId] = (ws[data.fromWarehouseId] || 0) - item.quantity;
+                ws[data.toWarehouseId] = (ws[data.toWarehouseId] || 0) + item.quantity;
+                return { ...p, warehouseStock: ws };
+            });
+            return newProds;
+        });
+        showToast('تم التحويل المخزني (ديمو) بنجاح', 'success');
+        return;
+    }
+
     try {
         const transferNumber = `TRN-${Date.now().toString().slice(-6)}`;
         const { data: header, error: headerError } = await supabase.from('stock_transfers').insert({
@@ -3407,7 +3485,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       restoreItem, permanentDeleteItem, emptyRecycleBin,
       calculateProductPrice, clearTransactions, addOpeningBalanceTransaction,
       checkSystemAccounts, createMissingSystemAccounts,
-      addDemoInvoice, addDemoEntry, postDemoSalesInvoice
+      addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher
     }}>
       {children}
     </AccountingContext.Provider>

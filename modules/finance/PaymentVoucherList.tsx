@@ -30,7 +30,7 @@ interface PaymentVoucher {
 
 const PaymentVoucherList = () => {
   const navigate = useNavigate();
-  const { currentUser } = useAccounting();
+  const { currentUser, vouchers: contextVouchers } = useAccounting();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -98,11 +98,9 @@ const PaymentVoucherList = () => {
       ascending: false 
   }, queryModifier);
 
-  const demoVouchers: PaymentVoucher[] = [
-      { id: 'demo-p1', voucher_number: 'PV-DEMO-001', payment_date: new Date().toISOString().split('T')[0], amount: 2000, suppliers: { name: 'مورد تجريبي' }, notes: 'دفعة مورد', payment_method: 'cash' }
-  ];
-
-  const vouchers = currentUser?.role === 'demo' ? demoVouchers : serverVouchers;
+  // when in demo mode, use vouchers from context so newly created items appear
+  const vouchersFromContext = contextVouchers.filter(v => v.type === 'payment');
+  const vouchers = currentUser?.role === 'demo' ? vouchersFromContext : serverVouchers;
   const loading = currentUser?.role === 'demo' ? false : serverLoading;
   const error = currentUser?.role === 'demo' ? null : serverError;
 

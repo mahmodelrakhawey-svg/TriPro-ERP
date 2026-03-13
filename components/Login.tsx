@@ -37,9 +37,13 @@ const Login = () => {
     setLoading(true);
     try {
       // استخدام بيانات الديمو الافتراضية
-      await login('demo@demo.com', 'demo123');
+      const result = await login('demo@demo.com', '123456');
+      if (!result.success) {
+        setError('فشل الدخول للنسخة التجريبية');
+      }
     } catch (err) {
       setError('فشل الدخول للنسخة التجريبية');
+    } finally {
       setLoading(false);
     }
   };

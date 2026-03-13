@@ -30,7 +30,7 @@ interface ReceiptVoucher {
 
 const ReceiptVoucherList = () => {
   const navigate = useNavigate();
-  const { currentUser } = useAccounting();
+  const { currentUser, vouchers: contextVouchers } = useAccounting();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -98,13 +98,8 @@ const ReceiptVoucherList = () => {
       ascending: false 
   }, queryModifier);
 
-  const demoVouchers: ReceiptVoucher[] = [
-      { id: 'demo-1', voucher_number: 'RV-DEMO-001', receipt_date: new Date().toISOString().split('T')[0], amount: 5000, customers: { name: 'عميل تجريبي' }, notes: 'دفعة تجريبية', payment_method: 'cash' },
-      { id: 'demo-2', voucher_number: 'RV-DEMO-002', receipt_date: new Date().toISOString().split('T')[0], amount: 1500, customers: { name: 'عميل تجريبي 2' }, notes: 'سداد فاتورة', payment_method: 'cheque' },
-      { id: 'demo-3', voucher_number: 'RV-DEMO-003', receipt_date: new Date().toISOString().split('T')[0], amount: 1000, customers: { name: 'عميل نقدي' }, notes: 'دفعة مقدمة', payment_method: 'cash' }
-  ];
-
-  const vouchers = currentUser?.role === 'demo' ? demoVouchers : serverVouchers;
+  const vouchersFromContext = contextVouchers.filter(v => v.type === 'receipt');
+  const vouchers = currentUser?.role === 'demo' ? vouchersFromContext : serverVouchers;
   const loading = currentUser?.role === 'demo' ? false : serverLoading;
   const error = currentUser?.role === 'demo' ? null : serverError;
 

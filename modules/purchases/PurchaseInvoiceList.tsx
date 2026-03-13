@@ -21,7 +21,7 @@ type PurchaseInvoice = {
 
 const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
-  const { approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, accounts } = useAccounting();
+  const { approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, accounts, purchaseInvoices } = useAccounting();
   const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -56,9 +56,9 @@ const PurchaseInvoiceList = () => {
   }, [debouncedSearch, filterStatus]);
 
   const { 
-    data: invoices, 
-    loading, 
-    error, 
+    data: serverInvoices, 
+    loading: serverLoading, 
+    error: serverError, 
     page, 
     setPage, 
     totalPages, 
@@ -74,6 +74,11 @@ const PurchaseInvoiceList = () => {
     },
     queryModifier
   );
+
+  // when demo, use context state so newly created invoices are visible
+  const invoices = currentUser?.role === 'demo' ? purchaseInvoices : serverInvoices;
+  const loading = currentUser?.role === 'demo' ? false : serverLoading;
+  const error = currentUser?.role === 'demo' ? null : serverError;
 
   // تصفية حسابات النقدية والبنوك للدفع
   const treasuryAccounts = useMemo(() => {

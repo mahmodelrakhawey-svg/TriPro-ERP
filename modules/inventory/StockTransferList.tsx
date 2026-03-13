@@ -6,7 +6,7 @@ import { ArrowRightLeft, Search, Eye, Loader2, Printer, Download } from 'lucide-
 import * as XLSX from 'xlsx';
 
 const StockTransferList = () => {
-  const { warehouses, currentUser } = useAccounting();
+  const { warehouses, currentUser, transfers: contextTransfers } = useAccounting();
   const [transfers, setTransfers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -19,7 +19,8 @@ const StockTransferList = () => {
 
   const fetchTransfers = async () => {
     if (currentUser?.role === 'demo') {
-        setTransfers([]);
+        // use context demo transfers so new ones appear
+        setTransfers(contextTransfers);
         setLoading(false);
         return;
     }

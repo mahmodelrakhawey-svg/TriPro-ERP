@@ -1,13 +1,15 @@
 ﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
+import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
 import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 import { VoucherSchema } from '../../utils/schemas';
 
 const PaymentVoucherForm = () => {
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher } = useAccounting();
+  const { currentUser } = useAuth();
   const { showToast } = useToast();
   // const [suppliers, setSuppliers] = useState<any[]>([]); // Removed: Use suppliers from context
   const [formData, setFormData] = useState({
@@ -207,6 +209,30 @@ const PaymentVoucherForm = () => {
         return;
     }
     setLoading(true);
+
+    // demo simulation: bypass supabase and update context
+    if (!isEditing && currentUser?.role === 'demo') {
+        const voucherNumber = formData.voucherNumber || `PV-DEMO-${Math.floor(Math.random()*10000)}`;
+        const demoVoucher = {
+            id: `demo-pv-${Date.now()}`,
+            voucherNumber,
+            date: formData.date,
+            supplierId: formData.supplierId,
+            partyName: suppliers.find(s => s.id === formData.supplierId)?.name,
+            amount: formData.amount,
+            treasuryId: formData.treasuryId,
+            notes: formData.notes,
+            paymentMethod: formData.paymentMethod,
+            currency: formData.currency,
+            exchangeRate: formData.exchangeRate,
+            costCenterId: formData.costCenterId
+        };
+        addDemoPaymentVoucher(demoVoucher);
+        showToast('تم حفظ سند الصرف (ديمو) بنجاح ✅', 'success');
+        handleNew();
+        setLoading(false);
+        return;
+    }
 
     try {
         const supplier = suppliers.find(s => s.id === formData.supplierId);

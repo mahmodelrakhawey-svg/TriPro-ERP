@@ -151,20 +151,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [handleAuthChange, fetchUsers]);
 
   const login = async (email: string, password: string) => {
-    // Validate and sanitize input
-    const validation = validateData<{ email: string; password: string }>(
-      LoginSchema,
-      { email: sanitizeHtml(email.toLowerCase()), password }
-    );
+    // special case: demo account may use a weak password that does not pass normal validation
+    const sanitizedEmailRaw = sanitizeHtml(email.toLowerCase());
+    let finalEmail = sanitizedEmailRaw;
+    let finalPassword = password;
 
-    if (!validation.success) {
-      return { success: false, message: validation.errors?.[0] || 'بيانات غير صحيحة' };
+    if (sanitizedEmailRaw !== DEMO_EMAIL) {
+      // Validate and sanitize input for normal users
+      const validation = validateData<{ email: string; password: string }>(
+        LoginSchema,
+        { email: sanitizedEmailRaw, password }
+      );
+
+      if (!validation.success) {
+        return { success: false, message: validation.errors?.[0] || 'بيانات غير صحيحة' };
+      }
+
+      finalEmail = validation.data!.email;
+      finalPassword = validation.data!.password;
     }
 
     try {
       const { error } = await supabase.auth.signInWithPassword({
-        email: validation.data!.email,
-        password: validation.data!.password
+        email: finalEmail,
+        password: finalPassword
       });
       
       if (error) {
