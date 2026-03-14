@@ -15,7 +15,7 @@ type PrintableInvoice = Invoice & {
 };
 
 const InvoiceList = () => {
-  const { settings, approveSalesInvoice, currentUser } = useAccounting();
+  const { settings, approveInvoice, currentUser } = useAccounting();
   const navigate = useNavigate();
 
   // Filter State
@@ -83,13 +83,9 @@ const InvoiceList = () => {
   };
 
   const handleApprove = async (invoice: any) => {
-    if (window.confirm(`هل أنت متأكد من ترحيل الفاتورة رقم ${invoice.invoice_number}؟ لا يمكن التعديل عليها بعد الترحيل.`)) {
-        try {
-            await approveSalesInvoice(invoice.id);
-            refresh();
-        } catch (err: any) {
-            showToast(err.message || 'فشل ترحيل الفاتورة', 'error');
-        }
+    if (window.confirm(`هل أنت متأكد من اعتماد وترحيل الفاتورة رقم ${invoice.invoice_number}؟ سيتم إنشاء القيود المحاسبية وخصم المكونات من المخزن نهائياً.`)) {
+        const success = await approveInvoice(invoice.id);
+        if (success) refresh();
     }
   };
 

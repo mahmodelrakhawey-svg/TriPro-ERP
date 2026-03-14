@@ -5,7 +5,7 @@ import {
     LayoutDashboard, BookOpen, FileText, PieChart, Settings,
     ScrollText, Library, ShoppingCart, Users, Truck, Package, 
     Receipt, RotateCcw, ClipboardList, History, Banknote, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Scale, Store, Wallet, TrendingUp, LogOut, Shield, ListChecks, Landmark, MonitorSmartphone, Briefcase, Settings as Cog, PenTool, FileCheck, Calculator, Gauge, Target, BarChartHorizontal, Bell, BarChartBig, FileMinus, FilePlus, PackageX, CircleDollarSign, FileSpreadsheet, PackageOpen, ShieldAlert, X, BarChart2, ShieldCheck, HelpCircle
-    , Lock, Trash2, AlertTriangle, Percent, Database, Utensils
+    , Lock, Trash2, AlertTriangle, Percent, Database, Utensils, Clock
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -522,6 +522,12 @@ const Sidebar = () => {
                 <span>تسوية مخزنية</span>
                 </Link>
                 )}
+                {canShow(['inventory'], ['create']) && (
+                <Link to="/wastage" className={getNavClass('/wastage')}>
+                <Trash2 size={18} />
+                <span>إدارة الهالك</span>
+                </Link>
+                )}
                 {canShow(['inventory'], ['revalue', 'update']) && (
                 <Link to="/inventory-revaluation" className={getNavClass('/inventory-revaluation')}>
                     <CircleDollarSign size={18} />
@@ -626,6 +632,12 @@ const Sidebar = () => {
                 <Link to="/general-journal" className={getNavClass('/general-journal')}>
                 <ScrollText size={18} />
                 <span>دفتر اليومية</span>
+                </Link>
+                )}
+                {canShow(['journal_entries'], ['view', 'read']) && (
+                <Link to="/draft-journals" className={getNavClass('/draft-journals')}>
+                <Clock size={18} />
+                <span>مسودات القيود</span>
                 </Link>
                 )}
                 {canShow(['journal_entries'], ['view', 'read']) && (

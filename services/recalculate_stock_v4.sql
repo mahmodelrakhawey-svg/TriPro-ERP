@@ -39,11 +39,17 @@ BEGIN
                 WHERE pii.product_id = prod.id AND pi.warehouse_id = wh_rec.id AND pi.status NOT IN ('draft', 'cancelled');
                 q_in := q_in + temp_val;
 
-                -- ج. المبيعات (Sales Invoices) - صادر
-                SELECT COALESCE(SUM(ii.quantity), 0) INTO temp_val 
-                FROM public.invoice_items ii
-                JOIN public.invoices i ON ii.invoice_id = i.id
-                WHERE ii.product_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled');
+                -- ج. المبيعات (Sales Invoices) - صادر (مباشر + مكونات BOM + إضافات)
+                -- 1. الخصم المباشر (فقط إذا لم يكن للمنتج BOM)
+                SELECT COALESCE(SUM(ii.quantity), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = ii.product_id);
+                q_out := q_out + temp_val;
+
+                -- 2. خصم مكونات الـ BOM للأصناف المجمعة المباعة
+                SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled');
+                q_out := q_out + temp_val;
+
+                -- 3. خصم مكونات الـ BOM للإضافات (Modifiers)
+                SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ii.modifiers, '[]'::jsonb)) AS m JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled');
                 q_out := q_out + temp_val;
 
                 -- د. مرتجعات المبيعات (Sales Returns) - وارد

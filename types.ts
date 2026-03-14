@@ -252,6 +252,7 @@ export interface Product {
   product_type: string;
   item_type?: 'STOCK' | 'SERVICE' | 'MANUFACTURED';
   purchase_price?: number;
+  unit?: string;
   // خصائص إضافية
   wholesalePrice?: number;
   halfWholesalePrice?: number;
@@ -262,6 +263,26 @@ export interface Product {
   offer_start_date?: string;
   offer_end_date?: string;
   offer_max_qty?: number;
+}
+
+// --- أنواع البيانات المحلية للطلب (نقلت من PosScreen.tsx) ---
+export interface SelectedModifier {
+  id?: string; // المعرف المرتبط بالصنف في المخزن (لربطه بالمكونات)
+  name: string;
+  price: number;
+  cost: number; // تكلفة المكونات الخاصة بهذه الإضافة
+}
+
+export interface OrderItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  price: number; // السعر الأساسي
+  unitPrice: number; // السعر شامل الإضافات
+  unitCost: number; // التكلفة الإجمالية (الأساسي + الإضافات)
+  notes?: string;
+  selectedModifiers?: SelectedModifier[];
+  savedQuantity?: number;
 }
 
 export interface InvoiceItem {

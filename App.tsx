@@ -51,6 +51,7 @@ import InventoryRevaluation from './modules/inventory/InventoryRevaluation';
 import StockMovementCostReport from './modules/inventory/StockMovementCostReport';
 import ReceiptVoucherList from './modules/finance/ReceiptVoucherList';
 import PaymentVoucherForm from './modules/finance/PaymentVoucherForm';
+import WastageManager from './modules/inventory/WastageManager';
 import InventoryDashboard from './modules/inventory/InventoryDashboard';
 import PaymentVoucherList from './modules/finance/PaymentVoucherList';
 import ExpenseVoucherForm from './modules/finance/ExpenseVoucherForm';
@@ -326,6 +327,7 @@ const MainLayout = () => {
                 <Route path="/item-profit" element={<ItemProfitReport />} />
                 <Route path="/inventory-history" element={<InventoryCountList />} />
                 <Route path="/stock-adjustment" element={<StockAdjustmentForm />} />
+                <Route path="/wastage" element={<WastageManager />} />
                 <Route path="/stock-card" element={<StockCard />} />
                 <Route path="/inventory-revaluation" element={<InventoryRevaluation />} />
                 <Route path="/detailed-stock-movement" element={<DetailedStockMovementReport />} />

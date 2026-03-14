@@ -6,7 +6,7 @@ import { secureStorage } from '../utils/securityMiddleware'; // Assuming this ex
 import { 
   Account, JournalEntry, Invoice, Product, Customer, Supplier, 
   PurchaseInvoice, SalesReturn, PurchaseReturn, StockTransaction,
-  Voucher, Warehouse, Category, Salesperson, AccountType, JournalEntryLine as JournalLine, User, SystemSettings, CostCenter,
+  Voucher, Warehouse, Category, Salesperson, AccountType, JournalEntryLine as JournalLine, User, SystemSettings, CostCenter, OrderItem,
   Cheque, Asset, Employee, PayrollRun, Quotation, PurchaseOrder, InventoryCount, Budget, AppNotification, ActivityLogEntry,
   RestaurantTable, MenuCategory
 } from '../types';
@@ -87,10 +87,10 @@ const DUMMY_TABLES: RestaurantTable[] = [
 ];
 
 const DUMMY_MENU_CATEGORIES: MenuCategory[] = [
-  { id: 'cat1', name: 'مقبلات', display_order: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat2', name: 'وجبات رئيسية', display_order: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat3', name: 'مشروبات', display_order: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'cat4', name: 'حلويات', display_order: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'cat1', name: 'مقبلات', display_order: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, // Used by demo-menu-1
+      { id: 'cat2', name: 'وجبات رئيسية', display_order: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+      { id: 'cat3', name: 'مشروبات', display_order: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() }, // Used by demo-menu-2
+      { id: 'cat4', name: 'حلويات', display_order: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
 ];
 
 
@@ -154,11 +154,13 @@ const DUMMY_VOUCHERS = [
 ];
 
 const DUMMY_PRODUCTS = [
-    { id: 'demo-p1', name: 'لابتوب HP ProBook 450', sku: 'HP-PB-450', price: 25000, cost: 21000, stock: 15, warehouseStock: { 'demo-wh1': 15 }, purchase_price: 21000, weighted_average_cost: 21000 },
-    { id: 'demo-p2', name: 'طابعة ليزر Canon', sku: 'CN-LBP-6030', price: 8500, cost: 6000, stock: 8, warehouseStock: { 'demo-wh1': 8 }, purchase_price: 6000, weighted_average_cost: 6000 },
-    { id: 'demo-p3', name: 'حبر طابعة HP 85A', sku: 'HP-85A', price: 450, cost: 250, stock: 50, warehouseStock: { 'demo-wh1': 50 }, purchase_price: 250, weighted_average_cost: 250 },
-    { id: 'demo-p4', name: 'ورق تصوير A4 (كرتونة)', sku: 'PPR-A4', price: 850, cost: 650, stock: 100, warehouseStock: { 'demo-wh1': 100 }, purchase_price: 650, weighted_average_cost: 650 },
-    { id: 'demo-p5', name: 'ماوس لاسلكي Logitech', sku: 'LOG-M170', price: 350, cost: 200, stock: 30, warehouseStock: { 'demo-wh1': 30 }, purchase_price: 200, weighted_average_cost: 200 }
+        { id: 'demo-p1', name: 'لابتوب HP ProBook 450', sku: 'HP-PB-450', price: 25000, cost: 21000, stock: 15, warehouseStock: { 'demo-wh1': 15 }, purchase_price: 21000, weighted_average_cost: 21000, item_type: 'STOCK' },
+        { id: 'demo-p2', name: 'طابعة ليزر Canon', sku: 'CN-LBP-6030', price: 8500, cost: 6000, stock: 8, warehouseStock: { 'demo-wh1': 8 }, purchase_price: 6000, weighted_average_cost: 6000, item_type: 'STOCK' },
+        { id: 'demo-p3', name: 'حبر طابعة HP 85A', sku: 'HP-85A', price: 450, cost: 250, stock: 50, warehouseStock: { 'demo-wh1': 50 }, purchase_price: 250, weighted_average_cost: 250, item_type: 'STOCK' },
+        { id: 'demo-p4', name: 'ورق تصوير A4 (كرتونة)', sku: 'PPR-A4', price: 850, cost: 650, stock: 100, warehouseStock: { 'demo-wh1': 100 }, purchase_price: 650, weighted_average_cost: 650, item_type: 'STOCK' },
+        { id: 'demo-p5', name: 'ماوس لاسلكي Logitech', sku: 'LOG-M170', price: 350, cost: 200, stock: 30, warehouseStock: { 'demo-wh1': 30 }, purchase_price: 200, weighted_average_cost: 200, item_type: 'STOCK' },
+        { id: 'demo-menu-1', name: 'سلطة سيزر', sku: 'MENU-SAL-CZ', price: 25, cost: 8, stock: 999999, item_type: 'MENU_ITEM', category_id: 'cat1' },
+        { id: 'demo-menu-2', name: 'بيبسي', sku: 'MENU-PEPSI', price: 5, cost: 2, stock: 999999, item_type: 'MENU_ITEM', category_id: 'cat3' }
 ];
 
 const DUMMY_JOURNAL_ENTRIES = [
@@ -277,7 +279,7 @@ interface AccountingContextType {
   addCustomer: (customer: Omit<Customer, 'id'>) => Promise<any>;
   updateCustomer: (id: string, customer: Partial<Customer>) => Promise<void>;
   deleteCustomer: (id: string, reason?: string) => Promise<void>;
-  addCustomersBulk: (customers: Omit<Customer, 'id'>[]) => void;
+  addCustomersBulk: (customers: Omit<Customer, 'id'>[]) => Promise<void>;
   suppliers: Supplier[];
   addSupplier: (supplier: Omit<Supplier, 'id'>) => Promise<any>;
   updateSupplier: (id: string, supplier: Partial<Supplier>) => Promise<void>;
@@ -299,9 +301,13 @@ interface AccountingContextType {
   invoices: Invoice[];
   addInvoice: (invoice: any) => Promise<void>;
   createRestaurantOrder: (orderData: { sessionId: string; items: { productId: string; quantity: number; unitPrice: number; notes?: string; }[] }) => Promise<string | null>;
-  addRestaurantOrderItem: (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => Promise<void>;
-  completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number) => Promise<void>;
+  addRestaurantOrderItem: (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => Promise<void>; // هذا لم يعد مستخدماً بشكل مباشر
+  completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, paidItems?: OrderItem[]) => Promise<void>;
   openTableSession: (tableId: string) => Promise<string | void>;
+  reserveTable: (tableId: string, customerName: string, arrivalTime: string) => Promise<boolean>;
+  cancelReservation: (tableId: string) => Promise<boolean>;
+  transferTableSession: (sessionId: string, targetTableId: string) => Promise<boolean>;
+  mergeTableSessions: (sourceSessionId: string, targetSessionId: string) => Promise<boolean>;
   addRestaurantTable: (table: Omit<RestaurantTable, 'id' | 'status' | 'created_at' | 'updated_at'>) => Promise<RestaurantTable | void>;
   updateRestaurantTable: (id: string, updates: Partial<Omit<RestaurantTable, 'id' | 'created_at' | 'updated_at' | 'status'>>) => Promise<void>;
   updateKitchenOrderStatus: (kitchenOrderId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => Promise<void>;
@@ -309,6 +315,8 @@ interface AccountingContextType {
   deleteRestaurantTable: (id: string) => Promise<void>;
   restaurantTables: RestaurantTable[];
   menuCategories: MenuCategory[];
+  addWastage: (data: { warehouseId: string, date: string, notes: string, items: any[] }) => Promise<boolean>;
+  approveInvoice: (invoiceId: string) => Promise<boolean>;
   approveSalesInvoice: (invoiceId: string) => Promise<void>;
   quotations: Quotation[];
   addQuotation: (quote: any) => void;
@@ -1501,8 +1509,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       logActivity('حذف حساب', `تم حذف الحساب: ${account?.name || id} (${account?.code || '-'})` + (reason ? ` - السبب: ${reason}` : ''));
       return { success: true };
-    } catch (error: any) {
-      return { success: false, message: error.message };
+    } catch (err: any) {
+      return { success: false, message: err.message };
     }
   };
 
@@ -1527,9 +1535,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (Object.keys(changes).length > 0) {
           logActivity('تعديل صنف', `تعديل بيانات الصنف: ${oldData?.name}`, undefined, { changes, productId: id });
       }
-    } catch (error: any) {
-      if (process.env.NODE_ENV === 'development') console.error("Error updating product:", error);
-      throw error;
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'development') console.error("Error updating product:", err);
+      throw err;
     }
   };
 
@@ -1754,22 +1762,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await fetchData();
   };
 
-  const approveSalesInvoice = async (invoiceId: string) => {
+  const approveInvoice = async (invoiceId: string) => {
     try {
-      // استخدام الدالة الآمنة (RPC) لاعتماد الفاتورة
-      // هذا يضمن إنشاء القيد وخصم المخزون وتحديث الحالة في عملية واحدة
       const { error } = await supabase.rpc('approve_invoice', { p_invoice_id: invoiceId });
-      
+
       if (error) throw error;
+
+      showToast('تم اعتماد الفاتورة وخصم المكونات من المخزن بنجاح ✅', 'success');
       
-      // إعادة احتساب المخزون لضمان دقة الرصيد قبل البيع التالي
       await supabase.rpc('recalculate_stock_rpc');
-      
       await fetchData();
-    } catch (error: any) {
-      if (process.env.NODE_ENV === 'development') console.error('Error approving invoice:', error);
-      throw new Error(error.message || 'فشل اعتماد الفاتورة');
+      return true;
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'development') console.error('Error approving invoice:', err);
+      showToast('فشل اعتماد الفاتورة: ' + err.message, 'error');
+      return false;
     }
+  };
+
+  const approveSalesInvoice = async (invoiceId: string) => {
+    await approveInvoice(invoiceId);
   };
 
   const addPurchaseInvoice = async (data: any) => {
@@ -1789,9 +1801,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await supabase.rpc('recalculate_stock_rpc');
       
       await fetchData();
-    } catch (error: any) {
-      if (process.env.NODE_ENV === 'development') console.error('Error approving purchase invoice:', error);
-      throw new Error(error.message || 'فشل اعتماد فاتورة المشتريات');
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'development') console.error('Error approving purchase invoice:', err);
+      throw new Error(err.message || 'فشل اعتماد فاتورة المشتريات');
     }
   };
 
@@ -1910,9 +1922,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       logActivity('تعديل سند', `تعديل سند ${type === 'receipt' ? 'قبض' : 'صرف'} رقم ${data.voucherNumber}`, data.amount);
       showToast('تم تعديل السند بنجاح ✅', 'success');
-    } catch (error: any) {
-      console.error("Error updating voucher:", error);
-      throw new Error(error.message);
+    } catch (err: any) {
+      console.error("Error updating voucher:", err);
+      throw new Error(err.message);
     }
   };
 
@@ -2251,9 +2263,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       showToast(`تم إعادة احتساب وتحديث أرصدة جميع الأصناف بنجاح`, 'success');
       await fetchData();
-    } catch (error: any) {
-      console.error("Recalculate Stock Error:", error);
-      showToast("حدث خطأ أثناء تحديث الأرصدة: " + error.message, 'error');
+    } catch (err: any) {
+      console.error("Recalculate Stock Error:", err);
+      showToast("حدث خطأ أثناء تحديث الأرصدة: " + err.message, 'error');
     }
   };
 
@@ -2638,9 +2650,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         showToast("تم ترحيل الرواتب بنجاح ✅", 'success');
         await fetchData();
-    } catch (error: any) {
-        console.error(error);
-        showToast("خطأ في ترحيل الرواتب: " + error.message, 'error');
+    } catch (err: any) {
+        console.error(err);
+        showToast("خطأ في ترحيل الرواتب: " + err.message, 'error');
     }
   };
 
@@ -2895,9 +2907,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       
       logActivity('تعديل حساب', `تم تعديل الحساب: ${updates.name || oldData?.name || id}`, undefined, { changes });
-    } catch (error: any) {
-      console.error("Error updating account:", error);
-      throw new Error(error.message);
+    } catch (err: any) {
+      console.error("Error updating account:", err);
+      throw new Error(err.message);
     }
   };
 
@@ -2913,9 +2925,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) throw error;
       setCustomers(prev => [data, ...prev]);
       return data;
-    } catch (error: any) {
-      console.error("Error adding customer:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error adding customer:", err);
+      throw err;
     }
   };
 
@@ -2943,9 +2955,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (Object.keys(changes).length > 0) {
           logActivity('تعديل عميل', `تعديل بيانات العميل: ${oldData?.name}`, undefined, { changes });
       }
-    } catch (error: any) {
-      console.error("Error updating customer:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error updating customer:", err);
+      throw err;
     }
   };
 
@@ -2987,9 +2999,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData(); // تحديث البيانات لإزالة العميل من القائمة الرئيسية
       const customer = customers.find(c => c.id === id);
       logActivity('حذف عميل', `تم حذف العميل: ${customer?.name || id}` + (reason ? ` - السبب: ${reason}` : ''));
-    } catch (error: any) {
-      console.error("Error deleting customer:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error deleting customer:", err);
+      throw err;
     }
   };
 
@@ -3000,9 +3012,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) throw error;
       setEmployees(prev => [data, ...prev]);
       return data;
-    } catch (error: any) {
-      console.error("Error adding employee:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error adding employee:", err);
+      throw err;
     }
   };
 
@@ -3011,9 +3023,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { error } = await supabase.from('employees').update(updates).eq('id', id);
       if (error) throw error;
       setEmployees(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
-    } catch (error: any) {
-      console.error("Error updating employee:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error updating employee:", err);
+      throw err;
     }
   };
 
@@ -3027,9 +3039,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       const employee = employees.find(e => e.id === id);
       logActivity('حذف موظف', `تم حذف الموظف: ${employee?.full_name || id}` + (reason ? ` - السبب: ${reason}` : ''));
-    } catch (error: any) {
-      console.error("Error deleting employee:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error deleting employee:", err);
+      throw err;
     }
   };
   // --- Supplier Actions ---
@@ -3039,9 +3051,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) throw error;
       setSuppliers(prev => [data, ...prev]);
       return data;
-    } catch (error: any) {
-      console.error("Error adding supplier:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error adding supplier:", err);
+      throw err;
     }
   };
 
@@ -3065,9 +3077,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (Object.keys(changes).length > 0) {
           logActivity('تعديل مورد', `تعديل بيانات المورد: ${oldData?.name}`, undefined, { changes });
       }
-    } catch (error: any) {
-      console.error("Error updating supplier:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error updating supplier:", err);
+      throw err;
     }
   };
 
@@ -3081,9 +3093,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       const supplier = suppliers.find(s => s.id === id);
       logActivity('حذف مورد', `تم حذف المورد: ${supplier?.name || id}` + (reason ? ` - السبب: ${reason}` : ''));
-    } catch (error: any) {
-      console.error("Error deleting supplier:", error);
-      throw error;
+    } catch (err: any) {
+      console.error("Error deleting supplier:", err);
+      throw err;
     }
   };
 
@@ -3520,7 +3532,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const completeRestaurantOrder = async (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number) => {
+  const completeRestaurantOrder = async (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, paidItems: OrderItem[] = []): Promise<void> => {
     if (isDemoState) {
         showToast('تم الدفع وإغلاق الطاولة بنجاح (محاكاة)', 'success');
         setRestaurantTables(prev => prev.map(t => t.status === 'OCCUPIED' ? { ...t, status: 'AVAILABLE' } : t));
@@ -3530,18 +3542,44 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
         // 1. جلب بيانات الطلب لمعرفة الجلسة المرتبطة به
         const { data: order } = await supabase.from('orders').select('session_id').eq('id', orderId).single();
-        
+        if (!order) throw new Error('الطلب غير موجود.');
+
         // 2. تسجيل عملية الدفع
         const { error: payErr } = await supabase.from('payments').insert({
             order_id: orderId,
             payment_method: paymentMethod,
             amount: amount,
-            status: 'COMPLETED'
+            status: 'COMPLETED',
+            // يمكن إضافة تفاصيل paidItems هنا إذا كان هناك حقل JSONB في جدول المدفوعات
+            // paid_items_details: paidItems
         });
         if (payErr) throw payErr;
 
-        // 3. تحديث حالة الطلب إلى مكتمل
-        await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
+        // 3. تحديث بنود الطلب وكمياتها
+        if (paidItems.length > 0) {
+            // في حالة الدفع الجزئي، نحدث كميات الأصناف المدفوعة
+            for (const paidItem of paidItems) {
+                const { data: existingItem, error: itemError } = await supabase
+                    .from('order_items')
+                    .select('quantity')
+                    .eq('order_id', orderId)
+                    .eq('product_id', paidItem.productId)
+                    .single();
+                
+                if (itemError) throw itemError;
+
+                const newQuantity = existingItem.quantity - paidItem.quantity;
+                await supabase.from('order_items').update({ quantity: newQuantity }).eq('order_id', orderId).eq('product_id', paidItem.productId);
+            }
+            // إذا لم يتبق أي أصناف في الطلب، نعتبره مكتمل
+            const { count: remainingItemsCount } = await supabase.from('order_items').select('id', { count: 'exact' }).eq('order_id', orderId).gt('quantity', 0);
+            if (remainingItemsCount === 0) {
+                await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
+            }
+        } else {
+            // دفع كامل، نعتبر الطلب مكتمل
+            await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
+        }
 
         // 4. إغلاق جلسة الطاولة (باستخدام الدالة الموجودة في قاعدة البيانات)
         if (order?.session_id) {
@@ -3557,6 +3595,86 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const reserveTable = async (tableId: string, customerName: string, arrivalTime: string) => {
+    if (isDemoState) {
+        setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'RESERVED', reservation_info: { customerName, arrivalTime } } : t));
+        showToast('تم حجز الطاولة بنجاح (محاكاة)', 'success');
+        return true;
+    }
+    try {
+        const { error } = await supabase
+            .from('restaurant_tables')
+            .update({ 
+                status: 'RESERVED',
+                reservation_info: { customerName, arrivalTime, reservedAt: new Date().toISOString() }
+            })
+            .eq('id', tableId);
+        
+        if (error) throw error;
+        
+        showToast('تم حجز الطاولة بنجاح ✅', 'success');
+        await fetchData();
+        return true;
+    } catch (err: any) {
+        showToast('فشل حجز الطاولة: ' + err.message, 'error');
+        return false;
+    }
+  };
+
+  const cancelReservation = async (tableId: string) => {
+    try {
+        const { error } = await supabase
+            .from('restaurant_tables')
+            .update({ status: 'AVAILABLE', reservation_info: null })
+            .eq('id', tableId);
+        if (error) throw error;
+        showToast('تم إلغاء الحجز بنجاح', 'success');
+        await fetchData();
+        return true;
+    } catch (err: any) {
+        showToast('فشل إلغاء الحجز: ' + err.message, 'error');
+        return false;
+    }
+  };
+
+  const transferTableSession = async (sessionId: string, targetTableId: string) => {
+    try {
+      const { error } = await supabase.rpc('transfer_table_session', {
+        p_session_id: sessionId,
+        p_target_table_id: targetTableId
+      });
+
+      if (error) throw error;
+
+      showToast('تم تحويل الطاولة بنجاح ✅', 'success');
+      await fetchData();
+      return true;
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'development') console.error('Error transferring table:', err);
+      showToast('فشل تحويل الطاولة: ' + err.message, 'error');
+      return false;
+    }
+  };
+
+  const mergeTableSessions = async (sourceSessionId: string, targetSessionId: string) => {
+    try {
+      const { error } = await supabase.rpc('merge_table_sessions', {
+        p_source_session_id: sourceSessionId,
+        p_target_session_id: targetSessionId
+      });
+
+      if (error) throw error;
+
+      showToast('تم دمج الطاولات بنجاح ✅', 'success');
+      await fetchData();
+      return true;
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'development') console.error('Error merging tables:', err);
+      showToast('فشل دمج الطاولات: ' + err.message, 'error');
+      return false;
+    }
+  };
+
   const updateKitchenOrderStatus = async (kitchenOrderId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => {
     try {
         const { error } = await supabase
@@ -3565,10 +3683,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .eq('id', kitchenOrderId);
         if (error) throw error;
         // No toast needed for KDS, UI updates via subscription
-    } catch (error: any) {
-        console.error("Failed to update kitchen order status:", error);
+    } catch (err: any) {
+        console.error("Failed to update kitchen order status:", err);
         // Show toast only if it fails, as a fallback
-        showToast(`فشل تحديث حالة الطلب: ${error.message}`, 'error');
+        showToast(`فشل تحديث حالة الطلب: ${err.message}`, 'error');
     }
   };
 
@@ -3642,8 +3760,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         showToast('تمت إضافة الطاولة بنجاح', 'success');
         await fetchData(); // Refresh all data to get the new table
         return data;
-    } catch (error: any) {
-        showToast(`فشل إضافة الطاولة: ${error.message}`, 'error');
+    } catch (err: any) {
+        showToast(`فشل إضافة الطاولة: ${err.message}`, 'error');
     }
   };
 
@@ -3665,8 +3783,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (error) throw error;
         showToast('تم تعديل الطاولة بنجاح', 'success');
         await fetchData();
-    } catch (error: any) {
-        showToast(`فشل تعديل الطاولة: ${error.message}`, 'error');
+    } catch (err: any) {
+        showToast(`فشل تعديل الطاولة: ${err.message}`, 'error');
     }
   };
 
@@ -3687,8 +3805,31 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (error) throw error;
         showToast('تم حذف الطاولة بنجاح', 'success');
         await fetchData();
-    } catch (error: any) {
-        showToast(`فشل حذف الطاولة: ${error.message}`, 'error');
+    } catch (err: any) {
+        showToast(`فشل حذف الطاولة: ${err.message}`, 'error');
+    }
+  };
+
+  const addWastage = async (data: { warehouseId: string, date: string, notes: string, items: any[] }) => {
+    try {
+      if (!currentUser) throw new Error('يجب تسجيل الدخول');
+      
+      const { error } = await supabase.rpc('process_wastage', {
+        p_warehouse_id: data.warehouseId,
+        p_date: data.date,
+        p_notes: data.notes,
+        p_items: data.items,
+        p_user_id: currentUser.id
+      });
+
+      if (error) throw error;
+
+      showToast('تم تسجيل الهالك وترحيل التكلفة بنجاح ✅', 'success');
+      await fetchData();
+      return true;
+    } catch (err: any) {
+      showToast('فشل تسجيل الهالك: ' + err.message, 'error');
+      return false;
     }
   };
 
@@ -3698,7 +3839,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addAccount: async (accountData: any) => {
         try {
           const { data, error } = await supabase
-            .from('accounts')
+            .from('accounts') // SECURITY-WRAPPER
             .insert({
               code: accountData.code,
               name: accountData.name,
@@ -3721,8 +3862,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       updateAccount,
       deleteAccount,
       costCenters, addCostCenter: (cc) => setCostCenters(prev => [...prev, {...cc, id: generateUUID()}]), deleteCostCenter: (id) => setCostCenters(prev => prev.filter(c => c.id !== id)), entries, addEntry,
-      customers, addCustomer, updateCustomer, deleteCustomer,
-      addCustomersBulk: (cs) => setCustomers(prev => [...prev, ...cs.map(c => ({...c, id: generateUUID()}))]),
+      customers, addCustomer, updateCustomer, deleteCustomer, // SECURITY-WRAPPER
+      addCustomersBulk: async (cs) => { setCustomers(prev => [...prev, ...cs.map(c => ({...c, id: generateUUID()}))]); },
       suppliers, addSupplier, updateSupplier, deleteSupplier, 
       addSuppliersBulk: (ss) => setSuppliers(prev => [...prev, ...ss.map(s => ({...s, id: generateUUID()}))]),
       products, addProduct: (d) => setProducts(prev => [...prev, { ...d, id: generateUUID(), warehouseStock: {}, sales_price: d.price }]),
@@ -3733,7 +3874,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       categories, addCategory: (n) => setCategories(prev => [...prev, { id: generateUUID(), name: n }]), deleteCategory: (id) => setCategories(prev => prev.filter(c => c.id !== id)),
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
-      openTableSession, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, menuCategories, updateKitchenOrderStatus, getOpenTableOrder,
+      openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, menuCategories, updateKitchenOrderStatus, getOpenTableOrder,
+      addWastage,
+      approveInvoice,
       quotations, addQuotation, convertQuotationToInvoice, updateQuotationStatus,
       purchaseOrders, addPurchaseOrder, updatePurchaseOrder, convertPoToInvoice,
       inventoryCounts, addInventoryCount: (c) => setInventoryCounts(prev => [{...c, id: generateUUID(), countNumber: `CNT-${Date.now().toString().slice(-4)}`}, ...prev]), 

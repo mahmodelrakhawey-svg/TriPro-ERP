@@ -2,25 +2,15 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { Key } from 'react';
 import { useToast } from '../context/ToastContext';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
-import type { RestaurantTable, Product } from '../types';
-import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X } from 'lucide-react';
+import type { RestaurantTable, Product, OrderItem, SelectedModifier } from '../types';
+import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from './PrintableInvoice';
+import { KitchenTicket } from './KitchenTicket';
 
 
 
-
-
-// --- أنواع البيانات المحلية للطلب ---
-interface OrderItem {
-  productId: string;
-  name: string;
-  quantity: number;
-  price: number;
-  notes?: string;
-  savedQuantity?: number; // الكمية التي تم إرسالها للمطبخ مسبقاً
-}
 
 export interface ActiveOrder {
   tableId: string;
@@ -37,7 +27,7 @@ interface Category {
 
 // --- المكونات الفرعية ---
 
-const TableCard = ({ table, onClick, isActive, onDelete, onEdit }: { table: RestaurantTable; onClick: () => void; isActive: boolean, onDelete: () => void, onEdit: () => void }) => {
+const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve }: { table: RestaurantTable; onClick: () => void; isActive: boolean, onDelete: () => void, onEdit: () => void, onReserve: () => void }) => {
   const statusStyles: { [key: string]: string } = {
     AVAILABLE: 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200',
     OCCUPIED: 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200',
@@ -49,16 +39,112 @@ const TableCard = ({ table, onClick, isActive, onDelete, onEdit }: { table: Rest
     <div
       className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${statusStyles[table.status]} ${isActive ? 'ring-4 ring-blue-400' : ''}`}
     >
-      <div onClick={onClick} className="font-bold text-xl">{table.name}</div>
-      <div onClick={onClick} className="text-xs">{statusText[table.status]}</div>
+      <div onClick={onClick} className="font-bold text-xl">{table.name} {table.status === 'RESERVED' && <span className="text-[10px] bg-yellow-500 text-white px-1 rounded font-black">محجوزة</span>}</div>
+      <div onClick={onClick} className="text-xs">{statusText[table.status]} {(table as any).reservation_info?.customerName ? `- ${(table as any).reservation_info.customerName}` : ''}</div>
 
       <div className="flex mt-2 justify-between">
         <button onClick={onEdit} className="text-xs text-blue-500 hover:text-blue-700 font-bold">تعديل</button>
+        {table.status === 'AVAILABLE' && <button onClick={onReserve} className="text-xs text-emerald-600 hover:text-emerald-800 font-bold">حجز</button>}
         <button onClick={onDelete} className="text-xs text-red-500 hover:text-red-700 font-bold">حذف</button>
       </div>
     </div>
 
 
+  );
+};
+
+const ModifierModal = ({ isOpen, onClose, onConfirm, product }: { isOpen: boolean, onClose: () => void, onConfirm: (modifiers: SelectedModifier[], notes: string) => void, product: Product | null }) => {
+  const [selected, setSelected] = useState<SelectedModifier[]>([]);
+  const [notes, setNotes] = useState('');
+
+  // تجريبي: في الواقع يتم جلب هذه الخيارات من قاعدة البيانات لكل صنف
+  const availableModifiers: SelectedModifier[] = [
+    { name: 'زيادة جبنة', price: 5, cost: 2.00 },
+    { name: 'حجم عائلي', price: 15, cost: 5.50 },
+    { name: 'إضافة صوص', price: 2, cost: 0.50 },
+  ];
+
+  if (!isOpen || !product) return null;
+
+  const toggleModifier = (mod: SelectedModifier) => {
+    setSelected(prev => 
+      prev.find(m => m.name === mod.name) 
+        ? prev.filter(m => m.name !== mod.name)
+        : [...prev, mod]
+    );
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+          <h3 className="font-bold text-lg text-slate-800">خيارات: {product.name}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            {availableModifiers.map(mod => (
+              <button
+                key={mod.name}
+                onClick={() => toggleModifier(mod)}
+                className={`p-3 rounded-lg border-2 text-right transition-all ${selected.find(m => m.name === mod.name) ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
+              >
+                <div className="font-bold text-sm">{mod.name}</div>
+                <div className="text-xs text-blue-600">+{mod.price} SAR</div>
+              </button>
+            ))}
+          </div>
+          <textarea placeholder="ملاحظات خاصة (مثل: بدون بصل)" className="w-full border rounded-lg p-2 text-sm h-20 outline-none focus:ring-1 focus:ring-blue-500" value={notes} onChange={e => setNotes(e.target.value)} />
+          <button onClick={() => onConfirm(selected, notes)} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700">تأكيد الخيارات</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ReservationModal = ({ isOpen, onClose, onConfirm, table }: { isOpen: boolean, onClose: () => void, onConfirm: (name: string, time: string) => void, table: RestaurantTable | null }) => {
+  const [name, setName] = useState('');
+  const [time, setTime] = useState('');
+
+  if (!isOpen || !table) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+          <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><CalendarCheck size={20} className="text-blue-600"/> حجز طاولة: {table.name}</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">اسم العميل</label>
+            <input 
+              type="text" 
+              value={name} 
+              onChange={e => setName(e.target.value)} 
+              className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+              placeholder="اسم صاحب الحجز" 
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">وقت الوصول المتوقع</label>
+            <input 
+              type="time" 
+              value={time} 
+              onChange={e => setTime(e.target.value)} 
+              className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" 
+            />
+          </div>
+          <button 
+            disabled={!name || !time}
+            onClick={() => onConfirm(name, time)} 
+            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
+          >
+            تأكيد الحجز
+          </button>
+        </div>
+      </div>
+    </div>
   );
 };
 
@@ -69,12 +155,11 @@ const MenuItemCard = ({ item, onClick }: { item: Product; onClick: () => void })
   </div>
 );
 
-const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPayment, isSubmitting }: { order: ActiveOrder | null; onUpdateItem: (productId: string, change: number) => void; onClearOrder: () => void; onAcceptOrder: () => void; onPayment: () => void; isSubmitting: boolean; }) => {
-  const { settings } = useAccounting(); 
-  const { showToast } = useToast();
+const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPayment, onPrintProforma, onTransfer, onMerge, isSubmitting }: { order: ActiveOrder | null; onUpdateItem: (productId: string, change: number) => void; onClearOrder: () => void; onAcceptOrder: () => void; onPayment: () => void; onPrintProforma: () => void; onTransfer: () => void; onMerge: () => void; isSubmitting: boolean; }) => {
+  const { settings } = useAccounting();
   const totals = useMemo(() => {
     if (!order) return { subtotal: 0, tax: 0, total: 0 };
-    const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const subtotal = order.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
     const tax = subtotal * ((settings.vatRate || 15) / 100);
     const total = subtotal + tax;
     return { subtotal, tax, total };
@@ -83,7 +168,7 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
   // حساب قيمة الأصناف الجديدة فقط التي سيتم إرسالها
   const newItemsTotal = useMemo(() => {
     if (!order) return 0;
-    return order.items.reduce((sum, item) => sum + (item.price * (item.quantity - (item.savedQuantity || 0))), 0);
+    return order.items.reduce((sum, item) => sum + (item.unitPrice * (item.quantity - (item.savedQuantity || 0))), 0);
   }, [order]);
   const hasNewItems = newItemsTotal > 0;
 
@@ -108,7 +193,13 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
           <div key={item.productId} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
             <div className="flex-1">
               <div className="font-semibold text-sm">{item.name}</div>
-              <div className="text-xs text-slate-500">{(item.price).toFixed(2)}</div>
+              {item.selectedModifiers && item.selectedModifiers.length > 0 && (
+                <div className="text-[10px] text-blue-600 font-medium">
+                  {item.selectedModifiers.map(m => m.name).join(', ')}
+                </div>
+              )}
+              {item.notes && <div className="text-[10px] text-red-500 italic">{item.notes}</div>}
+              <div className="text-xs text-slate-500">{(item.unitPrice).toFixed(2)}</div>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => onUpdateItem(item.productId, -1)} className={`p-1 rounded-full ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-100 text-red-600'}`} disabled={item.savedQuantity ? item.quantity <= item.savedQuantity : false}><Minus size={12} /></button>
@@ -116,7 +207,7 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
               {item.savedQuantity && item.savedQuantity > 0 && <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded" title="تم طلبه مسبقاً">+{item.savedQuantity}</span>}
               <button onClick={() => onUpdateItem(item.productId, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full hover:bg-emerald-200"><Plus size={12} /></button>
             </div>
-            <div className="font-bold w-20 text-left">{(item.price * item.quantity).toFixed(2)}</div>
+            <div className="font-bold w-20 text-left">{(item.unitPrice * item.quantity).toFixed(2)}</div>
           </div>
         ))}
       </div>
@@ -126,6 +217,24 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
         <div className="flex justify-between text-lg font-bold text-slate-800"><span >الإجمالي</span><span>{totals.total.toFixed(2)} SAR</span></div>
       </div>
       <div className="p-3 grid grid-cols-2 gap-2">
+        <button 
+            onClick={onMerge}
+            className="col-span-1 bg-amber-50 text-amber-700 font-bold py-2 rounded-lg hover:bg-amber-100 transition-colors text-xs flex items-center justify-center gap-1 border border-amber-100 mb-1" 
+            disabled={!order || !order.sessionId}>
+          <GitMerge size={14} /> دمج الطاولات
+        </button>
+        <button 
+            onClick={onTransfer}
+            className="col-span-2 bg-indigo-50 text-indigo-700 font-bold py-2 rounded-lg hover:bg-indigo-100 transition-colors text-sm flex items-center justify-center gap-2 border border-indigo-100 mb-1" 
+            disabled={!order || !order.sessionId}>
+          <ArrowRightLeft size={16} /> تحويل الطاولة
+        </button>
+        <button 
+            onClick={onPrintProforma}
+            className="col-span-2 bg-slate-100 text-slate-700 font-bold py-2 rounded-lg hover:bg-slate-200 transition-colors text-sm flex items-center justify-center gap-2 border border-slate-200 mb-1" 
+            disabled={!order.items.length}>
+          <Printer size={16} /> طباعة مراجعة (Pro-forma)
+        </button>
         <button 
             onClick={onAcceptOrder}
             className="bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 transition-colors text-base disabled:opacity-50" 
@@ -290,9 +399,152 @@ const EditTableModal = ({ table, isOpen, onClose, onSave, sections }: { table: R
   );
 };
 
-// --- Payment Modal Component ---
-const PaymentModal = ({ isOpen, onClose, onConfirm, totalAmount }: { isOpen: boolean, onClose: () => void, onConfirm: (method: 'CASH' | 'CARD') => void, totalAmount: number }) => {
+const MergeTableModal = ({ isOpen, onClose, onConfirm, currentTableId, tables }: { isOpen: boolean, onClose: () => void, onConfirm: (targetTableId: string) => void, currentTableId: string, tables: RestaurantTable[] }) => {
+  const [targetId, setTargetId] = useState('');
+  const occupiedTables = tables.filter(t => t.status === 'OCCUPIED' && t.id !== currentTableId);
+
   if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+          <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><GitMerge size={20} className="text-amber-600"/> دمج مع طاولة أخرى</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-slate-500">سيتم نقل جميع طلبات الطاولة الحالية إلى الطاولة المختارة أدناه.</p>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2">اختر الطاولة المستهدفة (المشغولة):</label>
+            <select 
+              className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 focus:border-amber-500 outline-none bg-slate-50 font-bold"
+              value={targetId}
+              onChange={(e) => setTargetId(e.target.value)}
+            >
+              <option value="">-- اختر طاولة مشغولة --</option>
+              {occupiedTables.map(t => (
+                <option key={t.id} value={t.id}>{t.name} (مشغولة)</option>
+              ))}
+            </select>
+          </div>
+          <button 
+            disabled={!targetId}
+            onClick={() => onConfirm(targetId)} 
+            className="w-full bg-amber-600 text-white font-bold py-3 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-all shadow-lg shadow-amber-100"
+          >
+            تأكيد الدمج النهائي
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const TransferTableModal = ({ isOpen, onClose, onConfirm, currentTableId, tables }: { isOpen: boolean, onClose: () => void, onConfirm: (targetTableId: string) => void, currentTableId: string, tables: RestaurantTable[] }) => {
+  const [targetId, setTargetId] = useState('');
+  const availableTables = tables.filter(t => t.status === 'AVAILABLE' && t.id !== currentTableId);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+          <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2"><ArrowRightLeft size={20} className="text-blue-600"/> تحويل الطاولة</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2">اختر الطاولة الجديدة:</label>
+            <select 
+              className="w-full border-2 border-slate-100 rounded-xl px-4 py-3 focus:border-blue-500 outline-none bg-slate-50 font-bold"
+              value={targetId}
+              onChange={(e) => setTargetId(e.target.value)}
+            >
+              <option value="">-- اختر طاولة متاحة --</option>
+              {availableTables.map(t => (
+                <option key={t.id} value={t.id}>{t.name} (سعة: {t.capacity})</option>
+              ))}
+            </select>
+          </div>
+          <button 
+            disabled={!targetId}
+            onClick={() => onConfirm(targetId)} 
+            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-all"
+          >
+            تأكيد التحويل
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// --- Payment Modal Component ---
+const PaymentModal = ({ isOpen, onClose, onConfirmPayment, activeOrder, settings }: { isOpen: boolean, onClose: () => void, onConfirmPayment: (paidItems: OrderItem[], method: 'CASH' | 'CARD') => void, activeOrder: ActiveOrder | null, settings: any }) => {
+  const { showToast } = useToast();
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD'>('CASH');
+  const [splitMode, setSplitMode] = useState(false);
+  const [selectedItems, setSelectedItems] = useState<OrderItem[]>([]);
+
+  useEffect(() => {
+    if (isOpen && activeOrder) {
+      // عند فتح المودال، ننسخ الأصناف لتتبع التغييرات في وضع التقسيم
+      setSelectedItems(activeOrder.items.map(item => ({ ...item })));
+      setSplitMode(false); // نبدأ دائماً بوضع الدفع الكامل
+    }
+  }, [isOpen, activeOrder]);
+
+  const calculateTotals = (itemsToCalculate: OrderItem[]) => {
+    const subtotal = itemsToCalculate.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+    const tax = subtotal * ((settings.vatRate || 15) / 100);
+    const total = subtotal + tax;
+    return { subtotal, tax, total };
+  };
+
+  const currentTotals = useMemo(() => {
+    return calculateTotals(splitMode ? selectedItems.filter(item => item.quantity > 0) : (activeOrder?.items || []));
+  }, [splitMode, selectedItems, activeOrder, settings.vatRate]);
+
+  const handleItemQuantityChange = (productId: string, change: number) => {
+    setSelectedItems(prev => prev.map(item => {
+      if (item.productId === productId) {
+        // البحث عن الكمية الأصلية في الطلب لمنع تجاوزها أثناء التقسيم
+        const originalItem = activeOrder.items.find(i => i.productId === productId);
+        const maxAvailable = originalItem ? originalItem.quantity : 0;
+        
+        const newQty = Math.max(0, Math.min(maxAvailable, item.quantity + change));
+        return { ...item, quantity: newQty };
+      }
+      return item;
+    }));
+  };
+
+  const handleConfirm = () => {
+    if (splitMode) {
+      const itemsToPay = selectedItems.filter(item => item.quantity > 0);
+      if (itemsToPay.length === 0) {
+        showToast('الرجاء اختيار صنف واحد على الأقل للدفع.', 'warning');
+        return;
+      }
+      onConfirmPayment(itemsToPay, paymentMethod);
+    } else {
+      onConfirmPayment([], paymentMethod); // قائمة فارغة تعني دفع كامل
+    }
+    onClose();
+  };
+
+  const handleSelectAll = () => {
+    if (!activeOrder) return;
+    setSelectedItems(activeOrder.items.map(item => ({ ...item })));
+  };
+
+  const handleClearAll = () => {
+    setSelectedItems(prev => prev.map(item => ({ ...item, quantity: 0 })));
+  };
+
+  if (!isOpen || !activeOrder) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95">
@@ -300,27 +552,84 @@ const PaymentModal = ({ isOpen, onClose, onConfirm, totalAmount }: { isOpen: boo
           <h3 className="font-bold text-lg text-slate-800">الدفع وإغلاق الجلسة</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
         </div>
-        <div className="p-6 text-center space-y-6">
-          <div>
-            <p className="text-slate-500 mb-1">المبلغ المستحق</p>
-            <p className="text-4xl font-black text-emerald-600">{totalAmount.toFixed(2)} <span className="text-sm text-slate-400">SAR</span></p>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
+        <div className="p-6 space-y-4">
+          <div className="flex justify-center gap-2 mb-4">
             <button 
-              onClick={() => onConfirm('CASH')}
+              onClick={() => setSplitMode(false)} 
+              className={`px-4 py-2 rounded-lg font-bold text-sm ${!splitMode ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              دفع كامل
+            </button>
+            <button 
+              onClick={() => setSplitMode(true)} 
+              className={`px-4 py-2 rounded-lg font-bold text-sm ${splitMode ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+            >
+              تقسيم الفاتورة
+            </button>
+          </div>
+
+          {splitMode && (
+            <div className="max-h-60 overflow-y-auto space-y-2 border p-2 rounded-lg bg-slate-50">
+              <div className="flex justify-between items-center px-1 mb-2 sticky top-0 bg-slate-50 z-10 py-1 border-b border-slate-200">
+                <button type="button" onClick={handleSelectAll} className="text-xs font-black text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1">
+                  <Plus size={12} /> اختيار الكل
+                </button>
+                <button type="button" onClick={handleClearAll} className="text-xs font-black text-red-600 hover:text-red-800 transition-colors flex items-center gap-1">
+                  <X size={12} /> إلغاء الكل
+                </button>
+              </div>
+              {activeOrder.items.map(originalItem => {
+                const item = selectedItems.find(si => si.productId === originalItem.productId) || originalItem;
+                return (
+                  <div key={item.productId} className="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm">
+                    <div className="flex-1">
+                      <div className="font-semibold text-sm">{item.name}</div>
+                      {item.selectedModifiers && item.selectedModifiers.length > 0 && (
+                        <div className="text-[10px] text-blue-600 font-medium">
+                          {item.selectedModifiers.map(m => m.name).join(', ')}
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-500">{(item.unitPrice).toFixed(2)}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleItemQuantityChange(item.productId, -1)} className="p-1 rounded-full bg-red-100 text-red-600"><Minus size={12} /></button>
+                      <span className="font-bold w-6 text-center">{item.quantity}</span>
+                      <button onClick={() => handleItemQuantityChange(item.productId, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full"><Plus size={12} /></button>
+                    </div>
+                    <div className="font-bold w-20 text-left">{(item.unitPrice * item.quantity).toFixed(2)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div>
+            <p className="text-slate-500 mb-1 text-center">المبلغ المستحق للدفع</p>
+            <p className="text-4xl font-black text-emerald-600 text-center">{currentTotals.total.toFixed(2)} <span className="text-sm text-slate-400">SAR</span></p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mt-4">
+            <button 
+              onClick={() => setPaymentMethod('CASH')}
               className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all group"
             >
               <div className="text-emerald-600 group-hover:scale-110 transition-transform text-2xl">💵</div>
               <span className="font-bold text-slate-700">نقدًا (Cash)</span>
             </button>
             <button 
-              onClick={() => onConfirm('CARD')}
+              onClick={() => setPaymentMethod('CARD')}
               className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
             >
               <div className="text-blue-600 group-hover:scale-110 transition-transform text-2xl">💳</div>
               <span className="font-bold text-slate-700">بطاقة (Card)</span>
             </button>
           </div>
+          <button 
+            onClick={handleConfirm}
+            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 mt-4"
+          >
+            تأكيد الدفع
+          </button>
         </div>
       </div>
     </div>
@@ -331,23 +640,38 @@ const PaymentModal = ({ isOpen, onClose, onConfirm, totalAmount }: { isOpen: boo
 
 
 const PosScreen = () => {
-  const { restaurantTables, openTableSession, products: allProducts, menuCategories, can, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, settings } = useAccounting();
+  const { restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, can, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, settings } = useAccounting();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dine-in');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [activeOrder, setActiveOrder] = useState<ActiveOrder | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [reservationTarget, setReservationTarget] = useState<RestaurantTable | null>(null);
+  const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingTable, setEditingTable] = useState<RestaurantTable | null>(null);
   const [orderToPrint, setOrderToPrint] = useState<ActiveOrder | null>(null);
+  const [isProformaPrint, setIsProformaPrint] = useState(false);
+  const [kitchenOrderToPrint, setKitchenOrderToPrint] = useState<{ tableName: string; items: any[] } | null>(null);
+  const [modifierTarget, setModifierTarget] = useState<Product | null>(null);
 
   // --- Print Logic ---
   const printRef = useRef<HTMLDivElement>(null);
-  const handlePrint = useReactToPrint({
+  const printOptions = {
+    content: () => printRef.current,
     documentTitle: 'فاتورة', 
-  });
+  };
+  const handlePrint = useReactToPrint(printOptions);
+
+  const kitchenPrintRef = useRef<HTMLDivElement>(null);
+  const kitchenPrintOptions = {
+    content: () => kitchenPrintRef.current,
+    documentTitle: 'طلب مطبخ',
+  };
+  const handleKitchenPrint = useReactToPrint(kitchenPrintOptions);
 
   useEffect(() => {
     if (menuCategories && menuCategories.length > 0 && !activeCategory) {
@@ -359,8 +683,17 @@ const PosScreen = () => {
   useEffect(() => {
     if (orderToPrint) {
       handlePrint();
+      // إعادة تعيين وضع التجريبية بعد الطباعة
+      setTimeout(() => setIsProformaPrint(false), 500);
     }
   }, [orderToPrint]);
+
+  // تأثير لتشغيل طباعة المطبخ عند تجهيز البيانات
+  useEffect(() => {
+    if (kitchenOrderToPrint) {
+      handleKitchenPrint();
+    }
+  }, [kitchenOrderToPrint]);
 
   const clearOrder = () => {
     setActiveOrder(null);
@@ -372,7 +705,7 @@ const PosScreen = () => {
   }, [searchTerm, allProducts]);
 
   const menuItems = useMemo(() => {
-    return products.filter(p => (p as any).product_type === 'MENU_ITEM' && (p.category_id === activeCategory));
+    return products.filter(p => p.item_type === 'MANUFACTURED' && (p.category_id === activeCategory));
   }, [products, activeCategory]);
 
   const handleTableClick = async (table: RestaurantTable) => {
@@ -380,6 +713,16 @@ const PosScreen = () => {
       const newSessionId = await openTableSession(table.id);
       if (newSessionId) {
         setActiveOrder({ tableId: table.id, sessionId: newSessionId, tableName: table.name, items: [] });
+      }
+    } else if (table.status === 'RESERVED') {
+      const info = (table as any).reservation_info;
+      if (window.confirm(`الطاولة محجوزة لـ ${info?.customerName || 'عميل'} الساعة ${info?.arrivalTime || '--:--'}. هل تريد بدء الجلسة الآن؟`)) {
+        const newSessionId = await openTableSession(table.id);
+        if (newSessionId) {
+          setActiveOrder({ tableId: table.id, sessionId: newSessionId, tableName: table.name, items: [] });
+        }
+      } else if (window.confirm('هل تريد إلغاء هذا الحجز وتفريغ الطاولة؟')) {
+        await cancelReservation(table.id);
       }
     } else {
       // في تطبيق حقيقي، هنا يتم جلب الطلب المفتوح لهذه الطاولة
@@ -403,17 +746,38 @@ const PosScreen = () => {
       showToast('الرجاء تحديد طاولة أولاً', 'warning');
       return;
     }
+    // فتح مودال الخيارات
+    setModifierTarget(product);
+  };
+
+  const handleConfirmModifiers = (modifiers: SelectedModifier[], notes: string) => {
+    if (!modifierTarget || !activeOrder) return;
+    
+    const basePrice = modifierTarget.sales_price || modifierTarget.price || 0;
+    const baseCost = (modifierTarget as any).cost || 0; // تكلفة الصنف الأساسي من البيانات
+
+    const modifiersTotal = modifiers.reduce((sum, m) => sum + m.price, 0);
+    const modifiersCostTotal = modifiers.reduce((sum, m) => sum + m.cost, 0);
+
+    const unitPrice = basePrice + modifiersTotal;
+    const unitCost = baseCost + modifiersCostTotal;
+
     setActiveOrder(prevOrder => {
-      if (!prevOrder) return null;
-      const existingItem = prevOrder.items.find(item => item.productId === product.id);
-      let newItems;
-      if (existingItem) {
-        newItems = prevOrder.items.map(item => item.productId === product.id ? { ...item, quantity: (item.quantity || 0) + 1 } : item);
-      } else {
-        newItems = [...prevOrder.items, { productId: product.id, name: product.name, quantity: 1, price: product.sales_price || product.price || 0, savedQuantity: 0 }];
-      }
-      return { ...prevOrder, items: newItems };
+        if (!prevOrder) return null;
+        const newItems = [...prevOrder.items, {
+            productId: modifierTarget.id,
+            name: modifierTarget.name,
+            quantity: 1,
+            price: basePrice,
+            unitPrice: unitPrice,
+            unitCost: unitCost,
+            notes: notes,
+            selectedModifiers: modifiers,
+            savedQuantity: 0
+        }];
+        return { ...prevOrder, items: newItems };
     });
+    setModifierTarget(null);
   };
 
   const updateOrderItem = (productId: string, change: number) => {
@@ -441,14 +805,26 @@ const PosScreen = () => {
             .map(item => ({
                 productId: item.productId,
                 quantity: item.quantity - (item.savedQuantity || 0), // نرسل الفرق فقط
-                unitPrice: item.price, // إصلاح: تمرير السعر كـ unitPrice
-                notes: item.notes
+                unitPrice: item.unitPrice,
+                unitCost: item.unitCost,
+                notes: item.notes,
+                modifiers: item.selectedModifiers // إرسال مصفوفة الإضافات كـ JSON
             }));
 
         if (itemsToSend.length === 0) {
             showToast('لا يمكن إرسال طلب فارغ', 'warning');
             return;
         }
+
+        // تجهيز بيانات المطبخ (الأصناف الجديدة فقط)
+        const kitchenItems = activeOrder.items
+            .filter(item => item.quantity > (item.savedQuantity || 0))
+            .map(item => ({
+                name: item.name,
+                quantity: item.quantity - (item.savedQuantity || 0),
+                notes: item.notes,
+                selectedModifiers: item.selectedModifiers
+            }));
 
         setIsSubmitting(true);
         try {
@@ -457,9 +833,14 @@ const PosScreen = () => {
                 items: itemsToSend
             });
 
-            // بعد الإرسال، نقوم بتحديث الحالة ليعكس أن الأصناف تم حفظها (أو إعادة تحميل الطلب بالكامل)
-            // للتبسيط هنا، سنعيد تحميل الطلب عند الضغط على الطاولة مرة أخرى، ولكن يمكننا تحديث الحالة محلياً
-            if (activeOrder) {
+            if (newOrderId) {
+                // تفعيل الطباعة التلقائية للمطبخ بالأصناف الجديدة فقط
+                setKitchenOrderToPrint({
+                    tableName: activeOrder.tableName,
+                    items: kitchenItems
+                });
+
+                // مسح الطلب النشط للعودة لشاشة الطاولات بعد التأكد من نجاح الإرسال
                 setActiveOrder(null);
             }
         } finally {
@@ -467,25 +848,79 @@ const PosScreen = () => {
         }
     };
 
+    const handlePrintProforma = () => {
+      if (!activeOrder || activeOrder.items.length === 0) return;
+      setIsProformaPrint(true);
+      setOrderToPrint(activeOrder);
+    };
+
+    const handleTransferConfirm = async (targetTableId: string) => {
+      if (!activeOrder?.sessionId) return;
+      
+      const success = await transferTableSession(activeOrder.sessionId, targetTableId);
+      if (success) {
+        // بعد التحويل، نغلق المودال ونمسح الطلب الحالي لنعود لشاشة الطاولات
+        // أو يمكننا فتح الطاولة الجديدة تلقائياً. هنا سنعود للشاشة الرئيسية.
+        setActiveOrder(null);
+        setIsTransferModalOpen(false);
+      }
+    };
+
+    const handleMergeConfirm = async (targetTableId: string) => {
+      if (!activeOrder?.sessionId) return;
+      
+      // نحن بحاجة لمعرفة معرف الجلسة للطاولة المستهدفة
+      try {
+          const targetOrder = await getOpenTableOrder(targetTableId);
+          if (!targetOrder || !targetOrder.sessionId) {
+              showToast('فشل العثور على جلسة نشطة للطاولة المستهدفة', 'error');
+              return;
+          }
+
+          const success = await mergeTableSessions(activeOrder.sessionId, targetOrder.sessionId);
+          if (success) {
+            setActiveOrder(null);
+            setIsMergeModalOpen(false);
+          }
+      } catch (e) { console.error(e); }
+    };
+
     const handlePaymentClick = () => {
       if (!activeOrder?.orderId) return;
       setIsPaymentModalOpen(true);
     };
 
-    const handleConfirmPayment = async (method: 'CASH' | 'CARD') => {
+    const handleConfirmPayment = async (paidItems: OrderItem[], method: 'CASH' | 'CARD') => {
       if (!activeOrder || !activeOrder.orderId) return;
       
-      // حساب الإجمالي
-      const subtotal = activeOrder.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+      const isSplitPayment = paidItems.length > 0;
+      const itemsToProcess = isSplitPayment ? paidItems : activeOrder.items;
+
+      // حساب الإجمالي بناءً على الأصناف التي سيتم دفعها
+      const subtotal = itemsToProcess.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
       const tax = subtotal * ((settings.vatRate || 15) / 100);
       const total = subtotal + tax;
 
       // Save the order details for printing before clearing the state
-      setOrderToPrint(activeOrder);
+      setIsProformaPrint(false); // طباعة نهائية
+      // طباعة فاتورة بالأصناف المدفوعة فقط إذا كان الدفع مجزأ
+      setOrderToPrint({
+        ...activeOrder,
+        items: itemsToProcess
+      });
 
-      await completeRestaurantOrder(activeOrder.orderId, method, total);
+      // تمرير الأصناف المدفوعة للدالة
+      await completeRestaurantOrder(activeOrder.orderId, method, total, paidItems);
       setIsPaymentModalOpen(false);
       setActiveOrder(null); // مسح الطلب النشط بعد الدفع
+    };
+
+    const handleConfirmReservation = async (name: string, time: string) => {
+      if (!reservationTarget) return;
+      const success = await reserveTable(reservationTarget.id, name, time);
+      if (success) {
+        setReservationTarget(null);
+      }
     };
 
     const handleAddTable = () => {
@@ -498,25 +933,27 @@ const PosScreen = () => {
     };
 
     const handleEditTable = (table: RestaurantTable) => {
-        setEditingTable(table);
+      setEditingTable(table);
     };
 
-    const handleSaveUpdatedTable = async (id: string, data: { name: string, capacity: number, section: string }) => {
+    const handleSaveUpdatedTable = async (id: string, data: any) => {
       await updateRestaurantTable(id, data);
-      setEditingTable(null); // Close modal on success
+      setEditingTable(null);
     };
 
     const handleDeleteTable = async (table: RestaurantTable) => {
-        if (window.confirm(`هل أنت متأكد من حذف الطاولة "${table.name}"؟ لا يمكن التراجع عن هذا الإجراء.`)) {
-            await deleteRestaurantTable(table.id);
-        }
+      if (window.confirm(`هل أنت متأكد من حذف الطاولة ${table.name}؟`)) {
+        await deleteRestaurantTable(table.id);
+      }
     };
 
-  const sections = [...new Set(restaurantTables.map(t => t.section || 'عام'))];
+    const sections = useMemo(() => {
+      const s = new Set(restaurantTables.map(t => t.section || 'عام'));
+      return Array.from(s);
+    }, [restaurantTables]);
 
-
-    return (
-    <div className="h-[calc(100vh-4rem)] bg-slate-100 flex flex-col p-4 gap-4" dir="rtl">
+  return (
+    <div className="flex flex-col h-full bg-slate-100" dir="rtl">
       <header className="bg-white rounded-lg shadow-sm p-3 flex justify-between items-center">
           <h1 className="text-xl font-bold text-slate-800 flex items-center gap-2"><Utensils className="text-blue-600" /> نقطة بيع المطاعم</h1>
         <div className="flex bg-slate-100 p-1 rounded-lg">
@@ -545,7 +982,8 @@ const PosScreen = () => {
                       onClick={() => handleTableClick(table)} 
                       isActive={activeOrder?.tableId === table.id}
                       onDelete={() => handleDeleteTable(table)}
-                      onEdit={() => handleEditTable(table)}/>
+                      onEdit={() => handleEditTable(table)}
+                      onReserve={() => setReservationTarget(table)}/>
                   ))}
                 </div>
               </div>
@@ -592,9 +1030,38 @@ const PosScreen = () => {
             onClearOrder={clearOrder} 
             onAcceptOrder={handleAcceptOrder}
             onPayment={handlePaymentClick}
+            onPrintProforma={handlePrintProforma}
+            onTransfer={() => setIsTransferModalOpen(true)}
+            onMerge={() => setIsMergeModalOpen(true)}
             isSubmitting={isSubmitting} />
         </section>
       </main>
+      <ModifierModal 
+        isOpen={!!modifierTarget}
+        onClose={() => setModifierTarget(null)}
+        product={modifierTarget}
+        onConfirm={handleConfirmModifiers}
+      />
+      <ReservationModal 
+        isOpen={!!reservationTarget}
+        onClose={() => setReservationTarget(null)}
+        table={reservationTarget}
+        onConfirm={handleConfirmReservation}
+      />
+      <TransferTableModal
+        isOpen={isTransferModalOpen}
+        onClose={() => setIsTransferModalOpen(false)}
+        onConfirm={handleTransferConfirm}
+        currentTableId={activeOrder?.tableId || ''}
+        tables={restaurantTables}
+      />
+      <MergeTableModal
+        isOpen={isMergeModalOpen}
+        onClose={() => setIsMergeModalOpen(false)}
+        onConfirm={handleMergeConfirm}
+        currentTableId={activeOrder?.tableId || ''}
+        tables={restaurantTables}
+      />
       <AddTableModal 
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
@@ -611,12 +1078,14 @@ const PosScreen = () => {
       <PaymentModal 
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
-        onConfirm={handleConfirmPayment}
-        totalAmount={activeOrder ? (activeOrder.items.reduce((sum, item) => sum + item.price * item.quantity, 0) * (1 + (settings.vatRate || 15) / 100)) : 0}
+        onConfirmPayment={handleConfirmPayment}
+        activeOrder={activeOrder}
+        settings={settings}
       />
       {/* Hidden component for printing */}
       <div style={{ display: 'none' }}>
-        <PrintableInvoice ref={printRef} order={orderToPrint} settings={settings} />
+        <PrintableInvoice ref={printRef} order={orderToPrint} settings={settings} isProforma={isProformaPrint} />
+        <KitchenTicket ref={kitchenPrintRef} tableName={kitchenOrderToPrint?.tableName || ''} items={kitchenOrderToPrint?.items || []} />
       </div>
     </div>
   );

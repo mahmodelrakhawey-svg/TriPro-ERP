@@ -12,6 +12,7 @@ type KitchenOrderItem = {
   status: 'NEW' | 'PREPARING' | 'READY' | 'SERVED';
   quantity: number;
   notes: string | null;
+  selectedModifiers?: { name: string; price: number }[];
   product_name: string;
 };
 
@@ -58,7 +59,21 @@ const OrderTicket = ({ ticket, onUpdateStatus, borderColor }: { ticket: KitchenO
                   <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white font-mono text-sm mr-2">{item.quantity}x</span>
                   {item.product_name}
                 </p>
-                {item.notes && <p className="text-sm text-red-600 font-semibold mt-1 ml-9">ملاحظة: {item.notes}</p>}
+                {/* عرض الإضافات بشكل بارز للطباخ */}
+                {item.selectedModifiers && item.selectedModifiers.length > 0 && (
+                  <div className="mt-1 ml-9 flex flex-wrap gap-1">
+                    {item.selectedModifiers.map((mod, idx) => (
+                      <span key={idx} className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-sm">
+                        {mod.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {item.notes && (
+                  <p className="text-sm text-red-700 font-black mt-2 ml-9 bg-red-50 p-2 rounded border-2 border-red-200 animate-pulse">
+                    ⚠️ {item.notes}
+                  </p>
+                )}
               </div>
               <div className="flex gap-2 flex-shrink-0">
                 {item.status === 'NEW' && (
@@ -94,13 +109,13 @@ const KdsScreen = () => {
         .select(`
           id, status, created_at,
           order_items!inner(
-            id, quantity, notes,
+            id, quantity, notes, modifiers,
             products!inner(name),
             orders!inner(id, order_number, created_at, table_sessions(restaurant_tables(name)))
           )
         `)
         .in('status', ['NEW', 'PREPARING', 'READY'])
-        .order('created_at', { foreignTable: 'order_items.orders', ascending: true });
+        .order('created_at', { ascending: true });
 
       if (error) throw error;
 
@@ -125,6 +140,7 @@ const KdsScreen = () => {
           status: ko.status,
           quantity: orderItem.quantity,
           notes: orderItem.notes,
+          selectedModifiers: orderItem.modifiers,
           product_name: orderItem.products.name,
         });
       });

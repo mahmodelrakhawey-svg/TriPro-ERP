@@ -30,6 +30,8 @@ DECLARE
     v_subtotal_base numeric;
     v_tax_amount_base numeric;
     v_discount_amount_base numeric;
+    v_bom_item record;
+    v_modifier_json jsonb;
 BEGIN
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
@@ -51,18 +53,39 @@ BEGIN
 
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
         SELECT weighted_average_cost INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
-        IF v_item_cost IS NULL OR v_item_cost = 0 THEN
-             SELECT cost INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
-             IF v_item_cost IS NULL OR v_item_cost = 0 THEN
-                SELECT purchase_price INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
-             END IF;
-        END IF;
+        -- (منطق حساب التكلفة الحالي يبقى كما هو)
         v_total_cost := v_total_cost + (COALESCE(v_item_cost, 0) * v_item.quantity);
 
-        UPDATE public.products 
-        SET stock = stock - v_item.quantity,
-            warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity))
-        WHERE id = v_item.product_id;
+        -- 1. خصم المكونات (BOM) للمنتج الأساسي إذا وجدت
+        IF EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = v_item.product_id) THEN
+            FOR v_bom_item IN SELECT raw_material_id, quantity_required FROM public.bill_of_materials WHERE product_id = v_item.product_id LOOP
+                UPDATE public.products 
+                SET stock = stock - (v_bom_item.quantity_required * v_item.quantity),
+                    warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - (v_bom_item.quantity_required * v_item.quantity)))
+                WHERE id = v_bom_item.raw_material_id;
+            END LOOP;
+        ELSE
+            -- الخصم العادي للمنتج نفسه في حال عدم وجود وصفة
+            UPDATE public.products 
+            SET stock = stock - v_item.quantity,
+                warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity))
+            WHERE id = v_item.product_id;
+        END IF;
+
+        -- 2. معالجة خصم مكونات الإضافات (Modifiers)
+        IF v_item.modifiers IS NOT NULL THEN
+            FOR v_modifier_json IN SELECT * FROM jsonb_array_elements(v_item.modifiers) LOOP
+                -- إذا كانت الإضافة مرتبطة بصنف مخزني (له ID) وله وصفة محددة
+                IF (v_modifier_json->>'id') IS NOT NULL THEN
+                    FOR v_bom_item IN SELECT raw_material_id, quantity_required FROM public.bill_of_materials WHERE product_id = (v_modifier_json->>'id')::uuid LOOP
+                        UPDATE public.products 
+                        SET stock = stock - (v_bom_item.quantity_required * v_item.quantity),
+                            warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - (v_bom_item.quantity_required * v_item.quantity)))
+                        WHERE id = v_bom_item.raw_material_id;
+                    END LOOP;
+                END IF;
+            END LOOP;
+        END IF;
     END LOOP;
 
     v_total_amount_base := v_invoice.total_amount * v_exchange_rate;
@@ -121,6 +144,11 @@ DECLARE
     v_total_amount_base numeric;
     v_tax_amount_base numeric;
     v_net_amount_base numeric;
+    -- متغيرات منطق الـ BOM
+    v_bom_item record;
+    v_total_bom_cost numeric;
+    v_raw_material_price numeric;
+    v_item_qty numeric;
 BEGIN
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة'; END IF;
@@ -139,21 +167,67 @@ BEGIN
 
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
         v_item_price_base := v_item.price * v_exchange_rate;
-        SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_item.product_id;
-        v_current_stock := COALESCE(v_current_stock, 0);
-        v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
 
-        IF (v_current_stock + v_item.quantity) > 0 THEN
-            v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity);
+        -- التحقق مما إذا كان المنتج له قائمة مواد (BOM)
+        IF EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = v_item.product_id) THEN
+            -- حساب إجمالي القيمة الحالية للمكونات لتحديد نسب التوزيع
+            SELECT SUM(COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) * bom.quantity_required)
+            INTO v_total_bom_cost
+            FROM public.bill_of_materials bom
+            JOIN public.products p ON p.id = bom.raw_material_id
+            WHERE bom.product_id = v_item.product_id;
+
+            IF v_total_bom_cost IS NULL OR v_total_bom_cost = 0 THEN v_total_bom_cost := 1; END IF;
+
+            FOR v_bom_item IN 
+                SELECT bom.raw_material_id, bom.quantity_required, 
+                       COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) as current_unit_cost
+                FROM public.bill_of_materials bom
+                JOIN public.products p ON p.id = bom.raw_material_id
+                WHERE bom.product_id = v_item.product_id
+            LOOP
+                -- الكمية المضافة: متطلب الـ BOM * كمية الشراء
+                v_item_qty := v_bom_item.quantity_required * v_item.quantity;
+                
+                -- توزيع سعر الشراء بناءً على نسب قيمة المكونات الحالية
+                v_raw_material_price := (v_item_price_base * (v_bom_item.current_unit_cost * v_bom_item.quantity_required / v_total_bom_cost)) / v_bom_item.quantity_required;
+
+                SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost 
+                FROM public.products WHERE id = v_bom_item.raw_material_id;
+                
+                v_current_stock := COALESCE(v_current_stock, 0);
+                v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
+
+                IF (v_current_stock + v_item_qty) > 0 THEN
+                    v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item_qty * v_raw_material_price)) / (v_current_stock + v_item_qty);
+                ELSE
+                    v_new_avg_cost := v_raw_material_price;
+                END IF;
+
+                UPDATE public.products 
+                SET stock = stock + v_item_qty,
+                    warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item_qty)),
+                    purchase_price = v_raw_material_price, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost
+                WHERE id = v_bom_item.raw_material_id;
+            END LOOP;
         ELSE
-            v_new_avg_cost := v_item.price;
-        END IF;
+            -- الشراء العادي (لا توجد قائمة مواد)
+            SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_item.product_id;
+            v_current_stock := COALESCE(v_current_stock, 0);
+            v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
 
-        UPDATE public.products 
-        SET stock = stock + v_item.quantity,
-            warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)),
-            purchase_price = v_item_price_base, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost
-        WHERE id = v_item.product_id;
+            IF (v_current_stock + v_item.quantity) > 0 THEN
+                v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity);
+            ELSE
+                v_new_avg_cost := v_item_price_base;
+            END IF;
+
+            UPDATE public.products 
+            SET stock = stock + v_item.quantity,
+                warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)),
+                purchase_price = v_item_price_base, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost
+            WHERE id = v_item.product_id;
+        END IF;
     END LOOP;
 
     v_total_amount_base := v_invoice.total_amount * v_exchange_rate;
@@ -315,10 +389,15 @@ BEGIN
         total_qty := 0; wh_json := '{}'::jsonb;
         FOR wh_record IN SELECT id FROM warehouses WHERE deleted_at IS NULL LOOP
             wh_qty := 0;
-            -- Sales
-            SELECT wh_qty - COALESCE(SUM(ii.quantity), 0) INTO wh_qty FROM invoice_items ii JOIN invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status != 'draft';
-            -- Purchases
-            SELECT wh_qty + COALESCE(SUM(pii.quantity), 0) INTO wh_qty FROM purchase_invoice_items pii JOIN purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status != 'draft';
+            -- Sales (Direct + BOM Components + Modifiers)
+            SELECT wh_qty - COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status != 'draft' AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = ii.product_id)), 0) INTO wh_qty;
+            SELECT wh_qty - COALESCE((SELECT SUM(ii.quantity * bom.quantity_required) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id WHERE bom.raw_material_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status != 'draft'), 0) INTO wh_qty;
+            SELECT wh_qty - COALESCE((SELECT SUM(ii.quantity * bom.quantity_required) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ii.modifiers, '[]'::jsonb)) AS m JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid WHERE bom.raw_material_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status != 'draft'), 0) INTO wh_qty;
+
+            -- Purchases (Direct + BOM Components)
+            SELECT wh_qty + COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status != 'draft' AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = pii.product_id)), 0) INTO wh_qty;
+            SELECT wh_qty + COALESCE((SELECT SUM(pii.quantity * bom.quantity_required) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id JOIN public.bill_of_materials bom ON bom.product_id = pii.product_id WHERE bom.raw_material_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status != 'draft'), 0) INTO wh_qty;
+
             -- Sales Returns
             SELECT wh_qty + COALESCE(SUM(sri.quantity), 0) INTO wh_qty FROM sales_return_items sri JOIN sales_returns sr ON sr.id = sri.sales_return_id WHERE sri.product_id = prod_record.id AND sr.warehouse_id = wh_record.id AND sr.status != 'draft';
             -- Purchase Returns
@@ -483,5 +562,265 @@ BEGIN
     v_commission := v_net_sales * (p_commission_rate / 100);
 
     RETURN jsonb_build_object('total_sales', v_total_sales, 'total_returns', v_total_returns, 'net_sales', v_net_sales, 'commission_amount', v_commission);
+END;
+$$;
+
+-- إضافة عمود لتخزين بيانات الحجز (اسم العميل والوقت)
+ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS reservation_info JSONB;
+
+-- ================================================================
+-- 13. دالة فتح جلسة طاولة (Open Table Session)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.open_table_session(p_table_id uuid, p_user_id uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_session_id uuid;
+    v_current_status text;
+BEGIN
+    -- التحقق من حالة الطاولة
+    SELECT status INTO v_current_status FROM public.restaurant_tables WHERE id = p_table_id;
+    
+    IF v_current_status NOT IN ('AVAILABLE', 'RESERVED') THEN
+        RAISE EXCEPTION 'الطاولة غير متاحة حالياً';
+    END IF;
+
+    -- إنشاء الجلسة
+    INSERT INTO public.table_sessions (table_id, opened_by, status, opened_at)
+    VALUES (p_table_id, p_user_id, 'OPEN', now())
+    RETURNING id INTO v_session_id;
+
+    -- تحديث حالة الطاولة ومسح بيانات الحجز عند بدء الجلسة فعلياً
+    UPDATE public.restaurant_tables 
+    SET status = 'OCCUPIED', reservation_info = NULL, updated_at = now() 
+    WHERE id = p_table_id;
+
+    RETURN v_session_id;
+END;
+$$;
+
+-- ================================================================
+-- 14. دالة إنشاء طلب مطعم (Create Restaurant Order)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.create_restaurant_order(
+    p_session_id uuid,
+    p_user_id uuid,
+    p_order_type text,
+    p_notes text,
+    p_items jsonb
+)
+RETURNS uuid
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_order_id uuid;
+    v_item jsonb;
+    v_order_item_id uuid;
+BEGIN
+    -- 1. إنشاء رأس الطلب
+    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, created_at)
+    VALUES (p_session_id, p_user_id, p_order_type::text, p_notes, 'PENDING', now())
+    RETURNING id INTO v_order_id;
+
+    -- 2. الدوران على البنود وإضافتها
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        INSERT INTO public.order_items (
+            order_id, product_id, quantity, unit_price, notes, modifiers, created_at
+        )
+        VALUES (
+            v_order_id,
+            (v_item->>'productId')::uuid,
+            (v_item->>'quantity')::numeric,
+            (v_item->>'unitPrice')::numeric,
+            v_item->>'notes',
+            COALESCE(v_item->'modifiers', '[]'::jsonb),
+            now()
+        ) RETURNING id INTO v_order_item_id;
+
+        -- 3. إرسال البند للمطبخ تلقائياً
+        INSERT INTO public.kitchen_orders (order_item_id, status, created_at)
+        VALUES (v_order_item_id, 'NEW', now());
+    END LOOP;
+
+    RETURN v_order_id;
+END;
+$$;
+
+-- ================================================================
+-- 15. دالة حساب الاستهلاك المتوقع للمواد الخام (Expected Consumption)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.get_expected_raw_material_consumption(p_warehouse_id uuid DEFAULT NULL)
+RETURNS TABLE (
+    raw_material_id uuid,
+    raw_material_name text,
+    expected_quantity numeric,
+    current_stock numeric
+) 
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH draft_items AS (
+        -- جلب كافة بنود الفواتير المسودة
+        SELECT ii.product_id, ii.quantity, ii.modifiers
+        FROM public.invoice_items ii
+        JOIN public.invoices i ON i.id = ii.invoice_id
+        WHERE i.status = 'draft' AND i.deleted_at IS NULL
+        AND (p_warehouse_id IS NULL OR i.warehouse_id = p_warehouse_id)
+    ),
+    bom_requirements AS (
+        -- 1. استهلاك المكونات الخام للأصناف الرئيسية
+        SELECT bom.raw_material_id, (di.quantity * bom.quantity_required) as qty
+        FROM draft_items di
+        JOIN public.bill_of_materials bom ON bom.product_id = di.product_id
+        
+        UNION ALL
+        
+        -- 2. استهلاك المكونات الخام للإضافات (Modifiers)
+        SELECT bom.raw_material_id, (di.quantity * bom.quantity_required) as qty
+        FROM draft_items di,
+        LATERAL jsonb_array_elements(COALESCE(di.modifiers, '[]'::jsonb)) AS m
+        JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid
+    )
+    SELECT 
+        br.raw_material_id, 
+        p.name, 
+        SUM(br.qty), 
+        COALESCE(
+            CASE 
+                WHEN p_warehouse_id IS NULL THEN p.stock 
+                ELSE (p.warehouse_stock->>p_warehouse_id::text)::numeric 
+            END, 
+            0
+        )
+    FROM bom_requirements br
+    JOIN public.products p ON p.id = br.raw_material_id
+    GROUP BY br.raw_material_id, p.name, p.stock, p.warehouse_stock;
+END;
+$$;
+
+-- ================================================================
+-- 16. دالة معالجة الهالك (Process Wastage)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.process_wastage(
+    p_warehouse_id uuid,
+    p_date date,
+    p_notes text,
+    p_items jsonb,
+    p_user_id uuid
+)
+RETURNS uuid
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_wastage_id uuid;
+    v_item jsonb;
+    v_journal_id uuid;
+    v_total_cost numeric := 0;
+    v_item_cost numeric;
+    v_adj_acc_id uuid;
+    v_inv_acc_id uuid;
+    v_org_id uuid;
+BEGIN
+    -- 1. إنشاء رأس الحركة في جدول التسويات (بنوع هالك)
+    INSERT INTO public.stock_adjustments (warehouse_id, adjustment_date, reason, adjustment_number, status, created_by)
+    VALUES (p_warehouse_id, p_date, 'هالك: ' || p_notes, 'WST-' || to_char(now(), 'YYMMDDHH24MISS'), 'posted', p_user_id)
+    RETURNING id INTO v_wastage_id;
+
+    -- 2. معالجة البنود
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        -- جلب التكلفة المرجحة الحالية
+        SELECT COALESCE(weighted_average_cost, purchase_price, cost, 0) INTO v_item_cost 
+        FROM public.products WHERE id = (v_item->>'productId')::uuid;
+
+        v_total_cost := v_total_cost + (v_item_cost * (v_item->>'quantity')::numeric);
+
+        -- إضافة بند التسوية (كمية سالبة للهالك)
+        INSERT INTO public.stock_adjustment_items (stock_adjustment_id, product_id, quantity, type)
+        VALUES (v_wastage_id, (v_item->>'productId')::uuid, -((v_item->>'quantity')::numeric), 'out');
+
+        -- تحديث المخزون مباشرة لضمان السرعة
+        UPDATE public.products 
+        SET stock = stock - (v_item->>'quantity')::numeric,
+            warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[p_warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>p_warehouse_id::text)::numeric, 0) - (v_item->>'quantity')::numeric))
+        WHERE id = (v_item->>'productId')::uuid;
+    END LOOP;
+
+    -- 3. الترحيل المحاسبي (إذا كانت هناك تكلفة)
+    IF v_total_cost > 0 THEN
+        SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+        SELECT id INTO v_adj_acc_id FROM public.accounts WHERE code = '512' LIMIT 1; -- حساب فروقات الجرد/الهالك
+        SELECT id INTO v_inv_acc_id FROM public.accounts WHERE code = '103' LIMIT 1; -- حساب المخزون العام
+
+        IF v_adj_acc_id IS NOT NULL AND v_inv_acc_id IS NOT NULL THEN
+            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted)
+            VALUES (p_date, 'إثبات تكلفة هالك مخزني: ' || p_notes, 'WST-' || v_wastage_id, 'posted', v_org_id, true)
+            RETURNING id INTO v_journal_id;
+
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES 
+            (v_journal_id, v_adj_acc_id, v_total_cost, 0, 'خسائر هالك مواد خام', v_org_id),
+            (v_journal_id, v_inv_acc_id, 0, v_total_cost, 'تخفيض المخزون (هالك)', v_org_id);
+        END IF;
+    END IF;
+
+    RETURN v_wastage_id;
+END;
+$$;
+
+-- ================================================================
+-- 17. دالة تحويل الطاولة (Transfer Table Session)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.transfer_table_session(p_session_id uuid, p_target_table_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_source_table_id uuid;
+BEGIN
+    -- 1. الحصول على رقم الطاولة الحالية المرتبطة بالجلسة
+    SELECT table_id INTO v_source_table_id FROM public.table_sessions WHERE id = p_session_id;
+    
+    -- 2. التحقق من توفر الطاولة الجديدة
+    IF NOT EXISTS (SELECT 1 FROM public.restaurant_tables WHERE id = p_target_table_id AND status = 'AVAILABLE') THEN
+        RAISE EXCEPTION 'الطاولة المستهدفة غير متاحة حالياً';
+    END IF;
+
+    -- 3. نقل الجلسة للطاولة الجديدة
+    UPDATE public.table_sessions SET table_id = p_target_table_id WHERE id = p_session_id;
+
+    -- 4. تحديث حالات الطاولات (القديمة تصبح متاحة، والجديدة مشغولة)
+    UPDATE public.restaurant_tables SET status = 'AVAILABLE', updated_at = now() WHERE id = v_source_table_id;
+    UPDATE public.restaurant_tables SET status = 'OCCUPIED', updated_at = now() WHERE id = p_target_table_id;
+END;
+$$;
+
+-- ================================================================
+-- 18. دالة دمج الطاولات (Merge Table Sessions)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.merge_table_sessions(p_source_session_id uuid, p_target_session_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    v_source_table_id uuid;
+BEGIN
+    -- 1. التحقق من صحة الجلسات
+    IF p_source_session_id = p_target_session_id THEN
+        RAISE EXCEPTION 'لا يمكن دمج الطاولة مع نفسها';
+    END IF;
+
+    -- 2. الحصول على رقم الطاولة المصدر
+    SELECT table_id INTO v_source_table_id FROM public.table_sessions WHERE id = p_source_session_id;
+    
+    -- 3. نقل كافة الطلبات من جلسة المصدر إلى جلسة الهدف
+    UPDATE public.orders SET session_id = p_target_session_id WHERE session_id = p_source_session_id;
+
+    -- 4. إغلاق جلسة المصدر وتفريغ الطاولة
+    UPDATE public.table_sessions SET status = 'CLOSED', end_time = now() WHERE id = p_source_session_id;
+    UPDATE public.restaurant_tables SET status = 'AVAILABLE', updated_at = now() WHERE id = v_source_table_id;
+
+    -- ملاحظة: طاولة الهدف ستبقى 'OCCUPIED' وجلستها ستبقى 'OPEN' وتحمل الآن جميع الطلبات
 END;
 $$;
