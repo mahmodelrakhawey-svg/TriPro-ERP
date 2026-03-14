@@ -115,8 +115,10 @@ import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 import FreeReturnsReport from './modules/sales/FreeReturnsReport';
+import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
+import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -272,7 +274,7 @@ const MainLayout = () => {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/financial-ratios" element={<FinancialRatios />} />
                 <Route path="/expense-analysis" element={<ExpenseAnalysisReport />} />
-                <Route path="/budget-setup" element={<BudgetManager />} />
+                  <Route path="/budget-setup" element={<BudgetManager />} />
                 <Route path="/budget-report" element={<BudgetVarianceReport />} />
                 <Route path="/fiscal-year-closing" element={<FiscalYearClosing />} />
                 <Route path="/receipt-voucher" element={<ReceiptVoucherForm />} />
@@ -359,7 +361,8 @@ const MainLayout = () => {
                 <Route path="/assets" element={<AssetManager />} />
                 <Route path="/important-reports" element={<ImportantReports />} />
                 <Route path="/sales-reports" element={<SalesReports />} />
-                <Route path="/reports" element={<Reports />} />
+                <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
+                  {/*<Route path="/reports" element={<Reports />} />*/}
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
                 <Route path="/item-sales-analysis" element={<ItemSalesAnalysis />} />
@@ -373,6 +376,7 @@ const MainLayout = () => {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/pos" element={<PosScreen />} /> {/* التأكد من أن هذا السطر موجود */}
+                <Route path="/kds" element={<KdsScreen />} /> {/* إضافة مسار شاشة المطبخ */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>

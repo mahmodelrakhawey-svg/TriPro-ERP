@@ -233,6 +233,10 @@ const Sidebar = () => {
                     <Utensils size={18} />
                     <span>نقطة البيع (POS)</span>
                 </Link>
+                <Link to="/kds" className={getNavClass('/kds')}>
+                    <MonitorSmartphone size={18} />
+                    <span>شاشة المطبخ (KDS)</span>
+                </Link>
                 {canShow(['sales'], ['create']) && (
                 <Link to="/quotations-new" className={getNavClass('/quotations-new')}>
                 <FileText size={18} />
@@ -297,6 +301,12 @@ const Sidebar = () => {
                 <Link to="/sales-reports" className={getNavClass('/sales-reports')}>
                 <BarChartBig size={18} />
                 <span>تقارير المبيعات</span>
+                </Link>
+                )}
+                {canShow(['reports', 'sales'], ['read', 'view']) && (
+                <Link to="/reports/restaurant-sales" className={getNavClass('/reports/restaurant-sales')}>
+                    <Utensils size={18} />
+                    <span>تقرير مبيعات المطعم</span>
                 </Link>
                 )}
                 {canShow(['reports', 'sales'], ['read', 'view']) && (

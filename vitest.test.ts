@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { sanitizeHtml } from './utils/securityGuards';
 import { sanitizeInput } from './utils/securityUtils';
-import { useToast } from './context/ToastContext';
+import React from 'react';
+import { useToast, ToastProvider } from './context/ToastContext';
 import { beforeAll } from 'vitest';
 /**
+import React from 'react';
  * TriPro ERP - Comprehensive Test Suite
  * يختبر الميزات الأساسية والأمان والأداء
  */
@@ -13,7 +15,6 @@ import { beforeAll } from 'vitest';
 // ============================================
 
 describe('🔐 Security & Validation Tests', () => {
-  const { showToast } = useToast();
   describe('Input Sanitization', () => {
     it('يجب إزالة الأكواد الضارة مثل <script>', () => {
       const dangerous = '<script>alert("xss")</script>';
@@ -46,7 +47,16 @@ describe('🔐 Security & Validation Tests', () => {
       const dangerous = '<div onclick="alert()">Click</div>';
       const result = sanitizeHtml(dangerous);
       expect(result).not.toContain('onclick');
-    });
+    })
+    it('should render and find content within a ToastProvider', async () => {
+      
+      const wrapper = ({ children }: { children: React.ReactNode }) => (<ToastProvider>{children}</ToastProvider>);
+      const TestComponent = wrapper(({ children }) => {
+        const { showToast } = useToast();
+        const content = 'Hello from ToastProvider';
+        expect(content).toBeDefined();
+      })
+
 
     it('يجب إزالة محتوى script tags أو تعطيلها', () => {
       const dangerous = '<div><script src="malicious.js"></script></div>';

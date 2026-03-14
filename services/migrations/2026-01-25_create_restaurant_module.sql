@@ -33,6 +33,9 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'inventory_transaction_type') THEN
         CREATE TYPE inventory_transaction_type AS ENUM ('SALE', 'WASTE', 'PURCHASE', 'RETURN', 'ADJUSTMENT');
     END IF;
+
+    -- إنشاء تسلسل رقمي للطلبات لضمان عدم التكرار
+    CREATE SEQUENCE IF NOT EXISTS public.order_number_seq START 1;
 END$$;
 
 -- =================================================================
@@ -194,7 +197,7 @@ $$;
 -- جدول الطلبات الرئيسي
 CREATE TABLE IF NOT EXISTS public.orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    order_number TEXT UNIQUE NOT NULL,
+    order_number TEXT UNIQUE NOT NULL DEFAULT ('ORD-' || to_char(now(), 'YYMMDD') || '-' || nextval('public.order_number_seq'::regclass)),
     order_type order_type NOT NULL,
     session_id UUID REFERENCES public.table_sessions(id) ON DELETE SET NULL, -- For DINE_IN
     customer_id UUID REFERENCES public.customers(id),
@@ -342,8 +345,69 @@ CREATE INDEX IF NOT EXISTS idx_recipes_ingredient_id ON public.recipes(ingredien
 -- يجب تفعيلها على كل جدول لضمان عزل بيانات المنظمات المختلفة
 -- =================================================================
 
+ALTER TABLE public.restaurant_tables ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.table_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.kitchen_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
 -- Example for one table, repeat for all new tables
 ALTER TABLE public.menu_categories ENABLE ROW LEVEL SECURITY;
+
+-- =================================================================
+-- 7. إنشاء سياسات RLS (RLS Policies)
+-- سياسات تسمح للمستخدمين المسجلين بالوصول الكامل للبيانات.
+-- هذا مناسب للأنظمة ذات المستأجر الواحد (Single-tenant).
+-- =================================================================
+
+-- Policy for restaurant_tables
+DROP POLICY IF EXISTS "Allow full access on restaurant_tables" ON public.restaurant_tables;
+CREATE POLICY "Allow full access on restaurant_tables"
+ON public.restaurant_tables FOR ALL
+USING (auth.role() = 'authenticated')
+WITH CHECK (auth.role() = 'authenticated');
+
+-- Policy for table_sessions
+DROP POLICY IF EXISTS "Allow full access on table_sessions" ON public.table_sessions;
+CREATE POLICY "Allow full access on table_sessions"
+ON public.table_sessions FOR ALL
+USING (auth.role() = 'authenticated')
+WITH CHECK (auth.role() = 'authenticated');
+
+-- Policy for orders
+DROP POLICY IF EXISTS "Allow full access on orders" ON public.orders;
+CREATE POLICY "Allow full access on orders"
+ON public.orders FOR ALL
+USING (auth.role() = 'authenticated')
+WITH CHECK (auth.role() = 'authenticated');
+
+-- Policy for order_items
+DROP POLICY IF EXISTS "Allow full access on order_items" ON public.order_items;
+CREATE POLICY "Allow full access on order_items"
+ON public.order_items FOR ALL
+USING (auth.role() = 'authenticated')
+WITH CHECK (auth.role() = 'authenticated');
+
+-- Policy for kitchen_orders
+DROP POLICY IF EXISTS "Allow full access on kitchen_orders" ON public.kitchen_orders;
+CREATE POLICY "Allow full access on kitchen_orders"
+ON public.kitchen_orders FOR ALL
+USING (auth.role() = 'authenticated')
+WITH CHECK (auth.role() = 'authenticated');
+
+-- Policy for payments
+DROP POLICY IF EXISTS "Allow full access on payments" ON public.payments;
+CREATE POLICY "Allow full access on payments"
+ON public.payments FOR ALL
+USING (auth.role() = 'authenticated')
+WITH CHECK (auth.role() = 'authenticated');
+
+-- Policy for menu_categories
+DROP POLICY IF EXISTS "Allow full access on menu_categories" ON public.menu_categories;
+CREATE POLICY "Allow full access on menu_categories"
+ON public.menu_categories FOR ALL
+USING (auth.role() = 'authenticated')
+WITH CHECK (auth.role() = 'authenticated');
 
 -- سياسة تسمح للمستخدمين بقراءة البيانات الخاصة بمنظمتهم فقط
 -- ملاحظة: هذا يتطلب وجود عمود organization_id في كل جدول، وهو ما يجب إضافته

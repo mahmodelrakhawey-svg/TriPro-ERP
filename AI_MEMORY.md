@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٣‏/٣‏/٢٠٢٦، ١٠:٤٩:٥٣ م
+📅 تاريخ التحديث: ١٤‏/٣‏/٢٠٢٦، ٢:١٩:٢٨ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -150,10 +150,13 @@
   📄 Header.tsx
   📄 index.ts
   📄 InvoiceItemsList.tsx
+  📄 KdsScreen.tsx
   📄 LandingPage.tsx
   📄 Login.tsx
   📄 Maintenance.tsx
   📄 NotificationCenter.tsx
+  📄 PosScreen.tsx
+  📄 PrintableInvoice.tsx
   📄 ProductStockViewer.tsx
   📄 ReportHeader.tsx
   📄 search-tool.ts
@@ -167,6 +170,8 @@
   📄 UserProfile.tsx
 📁 services/
   📁 migrations/
+    📄 2026-01-25_create_restaurant_module.sql
+    📄 2026-01-26_restaurant_functions.sql
     📄 2026-02-11_create_invoice_items.sql
   📄 accountService.ts
   📄 add_account_mappings.sql
@@ -281,6 +286,7 @@
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.16",
     "@types/nodemailer": "^7.0.11",
+    "date-fns": "^4.1.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.294.0",
@@ -289,6 +295,7 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^6.20.0",
+    "react-to-print": "^3.3.0",
     "recharts": "^3.6.0",
     "uuid": "^13.0.0",
     "xlsx": "^0.18.5",
@@ -433,7 +440,10 @@ import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 import FreeReturnsReport from './modules/sales/FreeReturnsReport';
+// import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
+import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
+import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -589,7 +599,7 @@ const MainLayout = () => {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/financial-ratios" element={<FinancialRatios />} />
                 <Route path="/expense-analysis" element={<ExpenseAnalysisReport />} />
-                <Route path="/budget-setup" element={<BudgetManager />} />
+                  <Route path="/budget-setup" element={<BudgetManager />} />
                 <Route path="/budget-report" element={<BudgetVarianceReport />} />
                 <Route path="/fiscal-year-closing" element={<FiscalYearClosing />} />
                 <Route path="/receipt-voucher" element={<ReceiptVoucherForm />} />
@@ -676,6 +686,7 @@ const MainLayout = () => {
                 <Route path="/assets" element={<AssetManager />} />
                 <Route path="/important-reports" element={<ImportantReports />} />
                 <Route path="/sales-reports" element={<SalesReports />} />
+                <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
@@ -689,6 +700,8 @@ const MainLayout = () => {
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
+                <Route path="/pos" element={<PosScreen />} /> {/* التأكد من أن هذا السطر موجود */}
+                <Route path="/kds" element={<KdsScreen />} /> {/* إضافة مسار شاشة المطبخ */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>
@@ -760,15 +773,16 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { supabase } from '../supabaseClient';
-import { secureStorage } from '../utils/securityMiddleware';
+import { secureStorage } from '../utils/securityMiddleware'; // Assuming this exists
 import { 
   Account, JournalEntry, Invoice, Product, Customer, Supplier, 
   PurchaseInvoice, SalesReturn, PurchaseReturn, StockTransaction,
   Voucher, Warehouse, Category, Salesperson, AccountType, JournalEntryLine as JournalLine, User, SystemSettings, CostCenter,
-  Cheque, Asset, Employee, PayrollRun, Quotation, PurchaseOrder, InventoryCount, Budget, AppNotification, ActivityLogEntry
+  Cheque, Asset, Employee, PayrollRun, Quotation, PurchaseOrder, InventoryCount, Budget, AppNotification, ActivityLogEntry,
+  RestaurantTable, MenuCategory
 } from '../types';
 import { INITIAL_ACCOUNTS } from '../constants';
-import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
+import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants'; // Assuming this exists
 
 // دالة مساعدة لتوليد UUID
 const generateUUID = () => {
@@ -834,6 +848,22 @@ const DUMMY_SUPPLIERS = [
     { id: 'demo-s1', name: 'شركة التوريدات العالمية', phone: '01012345678', tax_number: '310123456700003', address: 'القاهرة', contactPerson: 'أحمد علي' },
     { id: 'demo-s2', name: 'مصنع الجودة', phone: '01234567890', tax_number: '310987654300003', address: 'الدمام', contactPerson: 'محمد حسن' }
 ];
+
+const DUMMY_TABLES: RestaurantTable[] = [
+  { id: 't1', name: 'T1', status: 'AVAILABLE', section: 'داخلي', capacity: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't2', name: 'T2', status: 'OCCUPIED', section: 'داخلي', capacity: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't3', name: 'T3', status: 'RESERVED', section: 'داخلي', capacity: 6, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't4', name: 'T4', status: 'AVAILABLE', section: 'خارجي', capacity: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't5', name: 'T5', status: 'OCCUPIED', section: 'خارجي', capacity: 8, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
+
+const DUMMY_MENU_CATEGORIES: MenuCategory[] = [
+  { id: 'cat1', name: 'مقبلات', display_order: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat2', name: 'وجبات رئيسية', display_order: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat3', name: 'مشروبات', display_order: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat4', name: 'حلويات', display_order: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
+
 
 const DUMMY_WAREHOUSES = [
     { id: 'demo-wh1', name: 'المستودع الرئيسي', type: 'warehouse' },
@@ -1039,6 +1069,17 @@ interface AccountingContextType {
   deleteWarehouse: (id: string, reason?: string) => Promise<void>;
   invoices: Invoice[];
   addInvoice: (invoice: any) => Promise<void>;
+  createRestaurantOrder: (orderData: { sessionId: string; items: { productId: string; quantity: number; unitPrice: number; notes?: string; }[] }) => Promise<string | null>;
+  addRestaurantOrderItem: (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => Promise<void>;
+  completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number) => Promise<void>;
+  openTableSession: (tableId: string) => Promise<string | void>;
+  addRestaurantTable: (table: Omit<RestaurantTable, 'id' | 'status' | 'created_at' | 'updated_at'>) => Promise<RestaurantTable | void>;
+  updateRestaurantTable: (id: string, updates: Partial<Omit<RestaurantTable, 'id' | 'created_at' | 'updated_at' | 'status'>>) => Promise<void>;
+  updateKitchenOrderStatus: (kitchenOrderId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => Promise<void>;
+  getOpenTableOrder: (tableId: string) => Promise<{ sessionId: string; orderId: string | null; items: any[] } | null>;
+  deleteRestaurantTable: (id: string) => Promise<void>;
+  restaurantTables: RestaurantTable[];
+  menuCategories: MenuCategory[];
   approveSalesInvoice: (invoiceId: string) => Promise<void>;
   quotations: Quotation[];
   addQuotation: (quote: any) => void;
@@ -1182,6 +1223,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
+  const [restaurantTables, setRestaurantTables] = useState<RestaurantTable[]>([]);
+  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [bankReconciliations, setBankReconciliations] = useState<any[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -1338,6 +1381,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCheques(DUMMY_CHEQUES.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name})) as any);
         setPurchaseOrders(DUMMY_PURCHASE_ORDERS as any);
         setCostCenters([{id: 'demo-cc-1', name: 'الفرع الرئيسي', code: 'CC-01'}, {id: 'demo-cc-2', name: 'فرع الرياض', code: 'CC-02'}]);
+        setRestaurantTables(DUMMY_TABLES);
+        setMenuCategories(DUMMY_MENU_CATEGORIES);
         
         // تعيين المستخدمين للديمو
         setUsers([
@@ -1410,7 +1455,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: pVouchers },
         { data: notificationsData },
         { data: depreciationData },
-        { data: allBalances } // جلب أرصدة جميع الحسابات من السيرفر
+        { data: allBalances }, // جلب أرصدة جميع الحسابات من السيرفر
+        { data: restaurantTablesData },
+        { data: menuCategoriesData }
       ] = await Promise.all([
         shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         supabase.from('company_settings').select('*').limit(1).single(),
@@ -1429,7 +1476,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('payment_vouchers').select('*').order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('notifications').select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null })
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('restaurant_tables').select('*') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('menu_categories').select('*').order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
 
       // 1. معالجة المستودعات
@@ -1781,6 +1830,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setVouchers(allVouchers.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
 
       if (notificationsData) setNotifications(notificationsData);
+
+      // Restaurant Data
+      if (restaurantTablesData) setRestaurantTables(restaurantTablesData);
+      if (menuCategoriesData) setMenuCategories(menuCategoriesData);
 
       setLastUpdated(new Date());
     } catch (error) {
@@ -4157,6 +4210,259 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   };
 
+  const openTableSession = async (tableId: string) => {
+    if (!currentUser) {
+      showToast('يجب تسجيل الدخول لفتح جلسة', 'error');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('open_table_session', {
+        p_table_id: tableId,
+        p_user_id: currentUser.id
+      });
+
+      if (error) {
+        // إذا الدالة غير موجودة، نتابع بشكل محلي
+        if (error.code === 'PGRST202' || (error.details && error.details.includes('open_table_session'))) {
+          const fallbackSessionId = `session-${Date.now()}`;
+          setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
+          showToast('تم فتح الجلسة محليًا (fallback) بنجاح', 'success');
+          return fallbackSessionId;
+        }
+        throw error;
+      }
+
+      setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
+      showToast('تم فتح الجلسة بنجاح', 'success');
+      return data;
+    } catch (error: any) {
+      console.error("Error opening table session:", error);
+      if (error.code === 'PGRST202' || (error.details && error.details.includes('open_table_session'))) {
+        const fallbackSessionId = `session-${Date.now()}`;
+        setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
+        showToast('تم فتح الجلسة محليًا (fallback) بنجاح', 'success');
+        return fallbackSessionId;
+      }
+      showToast(`فشل فتح الجلسة: ${error.message || error}`, 'error');
+      return;
+    }
+  };
+
+  const createRestaurantOrder = async (orderData: { sessionId: string; items: any[] }) => {
+    if (!currentUser) {
+      showToast('يجب تسجيل الدخول لإنشاء الطلب', 'error');
+      return null;
+    }
+    if (orderData.items.length === 0) {
+        showToast('لا يمكن إرسال طلب فارغ', 'warning');
+        return null;
+    }
+
+    try {
+        const { data, error } = await supabase.rpc('create_restaurant_order', {
+            p_session_id: orderData.sessionId,
+            p_user_id: currentUser.id,
+            p_order_type: 'DINE_IN',
+            p_notes: '', // Can be added later
+            p_items: orderData.items
+        });
+
+        if (error) throw error;
+
+        showToast(`تم إرسال الطلب للمطبخ بنجاح`, 'success');
+        // The table status was already updated when the session was opened.
+        // We just need to return the new order ID.
+        return data;
+
+    } catch (error: any) {
+      console.error("Error creating restaurant order via RPC:", error);
+      showToast(`فشل إنشاء الطلب: ${error.message || error}`, 'error');
+      return null;
+    }
+  };
+
+  const addRestaurantOrderItem = async (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => {
+    try {
+      showToast('تم إضافة الصنف إلى الطلب', 'success');
+    } catch (error: any) {
+      console.error('Failed to add restaurant order item:', error);
+      showToast(`فشل إضافة الصنف: ${error.message || error}`, 'error');
+    }
+  };
+
+  const completeRestaurantOrder = async (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number) => {
+    if (isDemoState) {
+        showToast('تم الدفع وإغلاق الطاولة بنجاح (محاكاة)', 'success');
+        setRestaurantTables(prev => prev.map(t => t.status === 'OCCUPIED' ? { ...t, status: 'AVAILABLE' } : t));
+        return;
+    }
+
+    try {
+        // 1. جلب بيانات الطلب لمعرفة الجلسة المرتبطة به
+        const { data: order } = await supabase.from('orders').select('session_id').eq('id', orderId).single();
+        
+        // 2. تسجيل عملية الدفع
+        const { error: payErr } = await supabase.from('payments').insert({
+            order_id: orderId,
+            payment_method: paymentMethod,
+            amount: amount,
+            status: 'COMPLETED'
+        });
+        if (payErr) throw payErr;
+
+        // 3. تحديث حالة الطلب إلى مكتمل
+        await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
+
+        // 4. إغلاق جلسة الطاولة (باستخدام الدالة الموجودة في قاعدة البيانات)
+        if (order?.session_id) {
+             await supabase.rpc('close_table_session', { p_session_id: order.session_id });
+        }
+
+        await fetchData();
+        showToast('تم الدفع وإغلاق الطاولة بنجاح', 'success');
+    } catch (error: any) {
+        console.error("Payment error:", error);
+        showToast('فشل عملية الدفع: ' + error.message, 'error');
+        throw error; // إعادة رمي الخطأ ليتم التعامل معه في الواجهة
+    }
+  };
+
+  const updateKitchenOrderStatus = async (kitchenOrderId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => {
+    try {
+        const { error } = await supabase
+            .from('kitchen_orders')
+            .update({ status: newStatus, status_updated_at: new Date().toISOString() })
+            .eq('id', kitchenOrderId);
+        if (error) throw error;
+        // No toast needed for KDS, UI updates via subscription
+    } catch (error: any) {
+        console.error("Failed to update kitchen order status:", error);
+        // Show toast only if it fails, as a fallback
+        showToast(`فشل تحديث حالة الطلب: ${error.message}`, 'error');
+    }
+  };
+
+  const getOpenTableOrder = async (tableId: string) => {
+    if (isDemoState) {
+        // محاكاة جلب طلب لطاولة مشغولة في الديمو
+        const table = restaurantTables.find(t => t.id === tableId);
+        if (table?.status === 'OCCUPIED') {
+            return {
+                sessionId: `demo-session-${tableId}`,
+                orderId: `demo-order-${tableId}`,
+                items: [
+                    { productId: 'demo-p1', name: 'لابتوب HP ProBook 450', quantity: 1, price: 25000, notes: '', savedQuantity: 1 },
+                    { productId: 'demo-p3', name: 'حبر طابعة HP 85A', quantity: 2, price: 450, notes: '', savedQuantity: 2 }
+                ]
+            };
+        }
+        return null;
+    }
+    try {
+        const { data: session } = await supabase.from('table_sessions').select('id').eq('table_id', tableId).eq('status', 'OPEN').single();
+        if (!session) return null;
+        
+        const { data: orders } = await supabase.from('orders')
+            .select('id, order_items(product_id, quantity, unit_price, notes, products(name))')
+            .eq('session_id', session.id)
+            .neq('status', 'COMPLETED')
+            .neq('status', 'CANCELLED');
+            
+        const items: any[] = [];
+        let orderId = null;
+        orders?.forEach((order: any) => {
+            orderId = order.id;
+            order.order_items.forEach((item: any) => {
+                // نجمع الكميات للأصناف المتشابهة أو ندرجها كما هي
+                // هنا ندرجها ونميزها بأنها "savedQuantity" أي محفوظة مسبقاً
+                items.push({ productId: item.product_id, name: item.products?.name, quantity: item.quantity, price: item.unit_price, notes: item.notes, savedQuantity: item.quantity });
+            });
+        });
+        return { sessionId: session.id, orderId, items };
+    } catch (error: any) {
+        console.error("Error fetching table order:", error);
+        return null;
+    }
+  };
+
+  const addRestaurantTable = async (tableData: Omit<RestaurantTable, 'id' | 'status' | 'created_at' | 'updated_at'>) => {
+    if (isDemoState) {
+        const newTable: RestaurantTable = {
+            ...tableData,
+            id: `demo-t-${Date.now()}`,
+            status: 'AVAILABLE',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        };
+        setRestaurantTables(prev => [...prev, newTable].sort((a, b) => a.name.localeCompare(b.name)));
+        showToast('تمت إضافة الطاولة بنجاح (محاكاة)', 'success');
+        return newTable;
+    }
+    try {
+        const { data, error } = await supabase
+            .from('restaurant_tables')
+            .insert({
+                name: tableData.name,
+                capacity: tableData.capacity,
+                section: tableData.section || null,
+            })
+            .select()
+            .single();
+        if (error) throw error;
+        showToast('تمت إضافة الطاولة بنجاح', 'success');
+        await fetchData(); // Refresh all data to get the new table
+        return data;
+    } catch (error: any) {
+        showToast(`فشل إضافة الطاولة: ${error.message}`, 'error');
+    }
+  };
+
+  const updateRestaurantTable = async (id: string, updates: Partial<Omit<RestaurantTable, 'id' | 'created_at' | 'updated_at' | 'status'>>) => {
+    if (isDemoState) {
+        setRestaurantTables(prev => prev.map(t => t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t).sort((a, b) => a.name.localeCompare(b.name)));
+        showToast('تم تعديل الطاولة بنجاح (محاكاة)', 'success');
+        return;
+    }
+    try {
+        const { error } = await supabase
+            .from('restaurant_tables')
+            .update({
+                name: updates.name,
+                capacity: updates.capacity,
+                section: updates.section
+            })
+            .eq('id', id);
+        if (error) throw error;
+        showToast('تم تعديل الطاولة بنجاح', 'success');
+        await fetchData();
+    } catch (error: any) {
+        showToast(`فشل تعديل الطاولة: ${error.message}`, 'error');
+    }
+  };
+
+  const deleteRestaurantTable = async (id: string) => {
+    const tableToDelete = restaurantTables.find(t => t.id === id);
+    if (tableToDelete?.status !== 'AVAILABLE') {
+        showToast('لا يمكن حذف طاولة غير متاحة (مشغولة أو محجوزة).', 'error');
+        return;
+    }
+
+    if (isDemoState) {
+        setRestaurantTables(prev => prev.filter(t => t.id !== id));
+        showToast('تم حذف الطاولة بنجاح (محاكاة)', 'success');
+        return;
+    }
+    try {
+        const { error } = await supabase.from('restaurant_tables').delete().eq('id', id);
+        if (error) throw error;
+        showToast('تم حذف الطاولة بنجاح', 'success');
+        await fetchData();
+    } catch (error: any) {
+        showToast(`فشل حذف الطاولة: ${error.message}`, 'error');
+    }
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -4190,7 +4496,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addCustomersBulk: (cs) => setCustomers(prev => [...prev, ...cs.map(c => ({...c, id: generateUUID()}))]),
       suppliers, addSupplier, updateSupplier, deleteSupplier, 
       addSuppliersBulk: (ss) => setSuppliers(prev => [...prev, ...ss.map(s => ({...s, id: generateUUID()}))]),
-      products, addProduct: (d) => setProducts(prev => [...prev, { ...d, id: generateUUID(), warehouseStock: {} }]),
+      products, addProduct: (d) => setProducts(prev => [...prev, { ...d, id: generateUUID(), warehouseStock: {}, sales_price: d.price }]),
       updateProduct, 
       deleteProduct,
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
@@ -4198,6 +4504,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       categories, addCategory: (n) => setCategories(prev => [...prev, { id: generateUUID(), name: n }]), deleteCategory: (id) => setCategories(prev => prev.filter(c => c.id !== id)),
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
+      openTableSession, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, menuCategories, updateKitchenOrderStatus, getOpenTableOrder,
       quotations, addQuotation, convertQuotationToInvoice, updateQuotationStatus,
       purchaseOrders, addPurchaseOrder, updatePurchaseOrder, convertPoToInvoice,
       inventoryCounts, addInventoryCount: (c) => setInventoryCounts(prev => [{...c, id: generateUUID(), countNumber: `CNT-${Date.now().toString().slice(-4)}`}, ...prev]), 

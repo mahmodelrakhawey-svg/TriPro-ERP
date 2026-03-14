@@ -4,43 +4,58 @@
 -- هذا الملف يحتوي على الدوال البرمجية (RPC) الخاصة بوحدة المطاعم
 -- =================================================================
 
--- دالة لفتح جلسة جديدة على طاولة
--- تقوم بالتحقق من حالة الطاولة، ثم تحديثها إلى "مشغولة" وإنشاء سجل جلسة جديد
--- وتعيد معرّف الجلسة الجديدة
-CREATE OR REPLACE FUNCTION open_table_session(p_table_id uuid, p_user_id uuid)
-RETURNS uuid -- returns the new session id
+-- دالة لإنشاء طلب مطعم متكامل (رأس وتفاصيل وطلبات مطبخ)
+-- تضمن هذه الدالة أن جميع العمليات تتم كوحدة واحدة (Transactional)
+CREATE OR REPLACE FUNCTION public.create_restaurant_order(
+    p_session_id uuid,
+    p_user_id uuid,
+    p_order_type order_type,
+    p_notes text,
+    p_items jsonb -- e.g., '[{"product_id": "uuid", "quantity": 2, "unit_price": 15.50, "notes": "extra cheese"}]'
+)
+RETURNS uuid -- returns the new order_id
 LANGUAGE plpgsql
 AS $$
 DECLARE
-    new_session_id uuid;
-    rows_affected integer;
+    new_order_id uuid;
+    item jsonb;
+    new_order_item_id uuid;
+    v_subtotal numeric := 0;
+    v_total_tax numeric := 0;
+    v_grand_total numeric := 0;
+    v_tax_rate numeric;
 BEGIN
-    -- 1. تحديث حالة الطاولة ذرياً (فقط إذا كانت متاحة) والتحقق من النتيجة
-    WITH updated AS (
-        UPDATE public.restaurant_tables
-        SET status = 'OCCUPIED', updated_at = now()
-        WHERE id = p_table_id AND status = 'AVAILABLE'
-        RETURNING id
-    )
-    SELECT count(*) INTO rows_affected FROM updated;
-
-    -- 2. إذا لم يتم تحديث أي صف، فهذا يعني أن الطاولة غير موجودة أو غير متاحة
-    IF rows_affected = 0 THEN
-        -- نتحقق من السبب الدقيق لإعطاء رسالة خطأ واضحة
-        PERFORM 1 FROM public.restaurant_tables WHERE id = p_table_id;
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'الطاولة غير موجودة. (ID: %)', p_table_id;
-        ELSE
-            RAISE EXCEPTION 'الطاولة ليست متاحة (قد تكون مشغولة أو محجوزة).';
-        END IF;
+    -- 1. جلب نسبة الضريبة من الإعدادات
+    SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings LIMIT 1;
+    IF v_tax_rate IS NULL THEN
+        v_tax_rate := 0.15; -- قيمة افتراضية إذا لم تكن محددة
     END IF;
 
-    -- 3. إنشاء جلسة جديدة (فقط إذا نجح تحديث الطاولة)
-    INSERT INTO public.table_sessions (table_id, user_id, status)
-    VALUES (p_table_id, p_user_id, 'OPEN')
-    RETURNING id INTO new_session_id;
+    -- 2. إنشاء رأس الطلب الرئيسي
+    INSERT INTO public.orders (order_type, session_id, user_id, status, notes, subtotal, total_tax, grand_total)
+    VALUES (p_order_type, p_session_id, p_user_id, 'CONFIRMED', p_notes, 0, 0, 0)
+    RETURNING id INTO new_order_id;
 
+    -- 3. إضافة بنود الطلب وبنود المطبخ
+    FOR item IN SELECT * FROM jsonb_array_elements(p_items)
+    LOOP
+        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, notes)
+        VALUES (new_order_id, (item->>'productId')::uuid, (item->>'quantity')::int, (item->>'price')::numeric, (item->>'quantity')::int * (item->>'price')::numeric, item->>'notes')
+        RETURNING id INTO new_order_item_id;
 
-    RETURN new_session_id;
+        INSERT INTO public.kitchen_orders (order_item_id, status)
+        VALUES (new_order_item_id, 'NEW');
+    END LOOP;
+
+    -- 4. إعادة حساب الإجماليات وتحديث الطلب الرئيسي
+    SELECT COALESCE(SUM(total_price), 0) INTO v_subtotal FROM public.order_items WHERE order_id = new_order_id;
+    v_total_tax := v_subtotal * v_tax_rate;
+    v_grand_total := v_subtotal + v_total_tax;
+
+    UPDATE public.orders SET subtotal = v_subtotal, total_tax = v_total_tax, grand_total = v_grand_total, updated_at = now()
+    WHERE id = new_order_id;
+
+    -- 5. إرجاع معرف الطلب الجديد
+    RETURN new_order_id;
 END;
 $$;

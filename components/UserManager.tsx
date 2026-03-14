@@ -307,7 +307,7 @@ const UserManager = () => {
   if (loading) return <div className="p-8 text-center">جاري تحميل المستخدمين...</div>;
   
   // حماية الواجهة: إذا لم يكن مديراً، لا تعرض شيئاً أو اعرض رسالة
-  if (((currentUserRole as string) !== 'super_admin' && (currentUserRole as string) !== 'admin' && (currentUserRole as string) !== 'demo')) {
+  if (((currentUserRole as string) !== 'super_admin' && (currentUserRole as string) !== 'admin' && (currentUserRole as string) !== 'demo') && (currentUserRole as string) !== 'manager') {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-slate-500">
         <Shield size={48} className="mb-4 text-red-500" />
