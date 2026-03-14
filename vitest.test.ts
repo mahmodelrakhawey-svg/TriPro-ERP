@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { sanitizeHtml } from './utils/securityGuards';
 import { sanitizeInput } from './utils/securityUtils';
-
+import { useToast } from './context/ToastContext';
+import { beforeAll } from 'vitest';
 /**
  * TriPro ERP - Comprehensive Test Suite
  * يختبر الميزات الأساسية والأمان والأداء
@@ -12,6 +13,7 @@ import { sanitizeInput } from './utils/securityUtils';
 // ============================================
 
 describe('🔐 Security & Validation Tests', () => {
+  const { showToast } = useToast();
   describe('Input Sanitization', () => {
     it('يجب إزالة الأكواد الضارة مثل <script>', () => {
       const dangerous = '<script>alert("xss")</script>';
@@ -112,7 +114,7 @@ describe('📋 Format Validation Tests', () => {
 // ============================================
 
 describe('💼 Business Logic Tests', () => {
-  describe('Journal Entry Balance', () => {
+  describe('Journal Entry Balance', () => { 
     it('يجب أن يكون مجموع المدين مساوياً مجموع الدائن', () => {
       const lines = [
         { debit: 100, credit: 0 },

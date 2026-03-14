@@ -2,15 +2,16 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { supabase } from '../supabaseClient';
-import { secureStorage } from '../utils/securityMiddleware';
+import { secureStorage } from '../utils/securityMiddleware'; // Assuming this exists
 import { 
   Account, JournalEntry, Invoice, Product, Customer, Supplier, 
   PurchaseInvoice, SalesReturn, PurchaseReturn, StockTransaction,
   Voucher, Warehouse, Category, Salesperson, AccountType, JournalEntryLine as JournalLine, User, SystemSettings, CostCenter,
-  Cheque, Asset, Employee, PayrollRun, Quotation, PurchaseOrder, InventoryCount, Budget, AppNotification, ActivityLogEntry
+  Cheque, Asset, Employee, PayrollRun, Quotation, PurchaseOrder, InventoryCount, Budget, AppNotification, ActivityLogEntry,
+  RestaurantTable, MenuCategory
 } from '../types';
 import { INITIAL_ACCOUNTS } from '../constants';
-import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
+import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants'; // Assuming this exists
 
 // دالة مساعدة لتوليد UUID
 const generateUUID = () => {
@@ -76,6 +77,22 @@ const DUMMY_SUPPLIERS = [
     { id: 'demo-s1', name: 'شركة التوريدات العالمية', phone: '01012345678', tax_number: '310123456700003', address: 'القاهرة', contactPerson: 'أحمد علي' },
     { id: 'demo-s2', name: 'مصنع الجودة', phone: '01234567890', tax_number: '310987654300003', address: 'الدمام', contactPerson: 'محمد حسن' }
 ];
+
+const DUMMY_TABLES: RestaurantTable[] = [
+  { id: 't1', name: 'T1', status: 'AVAILABLE', section: 'داخلي', capacity: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't2', name: 'T2', status: 'OCCUPIED', section: 'داخلي', capacity: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't3', name: 'T3', status: 'RESERVED', section: 'داخلي', capacity: 6, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't4', name: 'T4', status: 'AVAILABLE', section: 'خارجي', capacity: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 't5', name: 'T5', status: 'OCCUPIED', section: 'خارجي', capacity: 8, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
+
+const DUMMY_MENU_CATEGORIES: MenuCategory[] = [
+  { id: 'cat1', name: 'مقبلات', display_order: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat2', name: 'وجبات رئيسية', display_order: 2, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat3', name: 'مشروبات', display_order: 3, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+  { id: 'cat4', name: 'حلويات', display_order: 4, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+];
+
 
 const DUMMY_WAREHOUSES = [
     { id: 'demo-wh1', name: 'المستودع الرئيسي', type: 'warehouse' },
@@ -281,6 +298,12 @@ interface AccountingContextType {
   deleteWarehouse: (id: string, reason?: string) => Promise<void>;
   invoices: Invoice[];
   addInvoice: (invoice: any) => Promise<void>;
+  createRestaurantOrder: (data: { tableId: string; orderType: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'; customerId?: string; notes?: string; items: { productId: string; quantity: number; unitPrice: number; notes?: string; }[] }) => Promise<string | null>;
+  addRestaurantOrderItem: (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => Promise<void>;
+  completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, transactionRef?: string) => Promise<void>;
+  openTableSession: (tableId: string) => Promise<string | void>;
+  restaurantTables: RestaurantTable[];
+  menuCategories: MenuCategory[];
   approveSalesInvoice: (invoiceId: string) => Promise<void>;
   quotations: Quotation[];
   addQuotation: (quote: any) => void;
@@ -424,6 +447,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
   const [costCenters, setCostCenters] = useState<CostCenter[]>([]);
   const [transfers, setTransfers] = useState<any[]>([]);
+  const [restaurantTables, setRestaurantTables] = useState<RestaurantTable[]>([]);
+  const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [bankReconciliations, setBankReconciliations] = useState<any[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -580,6 +605,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCheques(DUMMY_CHEQUES.map(c => ({...c, chequeNumber: c.cheque_number, bankName: c.bank_name, dueDate: c.due_date, partyName: c.party_name})) as any);
         setPurchaseOrders(DUMMY_PURCHASE_ORDERS as any);
         setCostCenters([{id: 'demo-cc-1', name: 'الفرع الرئيسي', code: 'CC-01'}, {id: 'demo-cc-2', name: 'فرع الرياض', code: 'CC-02'}]);
+        setRestaurantTables(DUMMY_TABLES);
+        setMenuCategories(DUMMY_MENU_CATEGORIES);
         
         // تعيين المستخدمين للديمو
         setUsers([
@@ -652,7 +679,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: pVouchers },
         { data: notificationsData },
         { data: depreciationData },
-        { data: allBalances } // جلب أرصدة جميع الحسابات من السيرفر
+        { data: allBalances }, // جلب أرصدة جميع الحسابات من السيرفر
+        { data: restaurantTablesData },
+        { data: menuCategoriesData }
       ] = await Promise.all([
         shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         supabase.from('company_settings').select('*').limit(1).single(),
@@ -671,7 +700,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('payment_vouchers').select('*').order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('notifications').select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null })
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('restaurant_tables').select('*') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('menu_categories').select('*').order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
 
       // 1. معالجة المستودعات
@@ -1023,6 +1054,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setVouchers(allVouchers.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
 
       if (notificationsData) setNotifications(notificationsData);
+
+      // Restaurant Data
+      if (restaurantTablesData) setRestaurantTables(restaurantTablesData);
+      if (menuCategoriesData) setMenuCategories(menuCategoriesData);
 
       setLastUpdated(new Date());
     } catch (error) {
@@ -3399,6 +3434,175 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   };
 
+  const openTableSession = async (tableId: string) => {
+    if (!currentUser) {
+      showToast('يجب تسجيل الدخول لفتح جلسة', 'error');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('open_table_session', {
+        p_table_id: tableId,
+        p_user_id: currentUser.id
+      });
+
+      if (error) {
+        // إذا الدالة غير موجودة، نتابع بشكل محلي
+        if (error.code === 'PGRST202' || (error.details && error.details.includes('open_table_session'))) {
+          const fallbackSessionId = `session-${Date.now()}`;
+          setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
+          showToast('تم فتح الجلسة محليًا (fallback) بنجاح', 'success');
+          return fallbackSessionId;
+        }
+        throw error;
+      }
+
+      setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
+      showToast('تم فتح الجلسة بنجاح', 'success');
+      return data;
+    } catch (error: any) {
+      console.error("Error opening table session:", error);
+      if (error.code === 'PGRST202' || (error.details && error.details.includes('open_table_session'))) {
+        const fallbackSessionId = `session-${Date.now()}`;
+        setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
+        showToast('تم فتح الجلسة محليًا (fallback) بنجاح', 'success');
+        return fallbackSessionId;
+      }
+      showToast(`فشل فتح الجلسة: ${error.message || error}`, 'error');
+      return;
+    }
+  };
+
+  const createRestaurantOrder = async (data: { tableId: string; orderType: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY'; customerId?: string; notes?: string; items: { productId: string; quantity: number; unitPrice: number; notes?: string; }[] }) => {
+    if (!currentUser) {
+      showToast('يجب تسجيل الدخول لإنشاء الطلب', 'error');
+      return null;
+    }
+
+    try {
+      const orderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+      const { data: orderData, error: orderError } = await supabase.from('orders').insert({
+        order_number: orderNumber,
+        order_type: data.orderType,
+        status: 'PENDING',
+        session_id: null,
+        customer_id: data.customerId || null,
+        user_id: currentUser.id,
+        subtotal: 0,
+        total_tax: 0,
+        total_discount: 0,
+        grand_total: 0,
+        notes: data.notes || null
+      }).select().single();
+
+      if (orderError || !orderData) {
+        throw orderError || new Error('فشل إنشاء الطلب');
+      }
+
+      let subtotal = 0;
+      for (const item of data.items) {
+        const lineTotal = item.unitPrice * item.quantity;
+        subtotal += lineTotal;
+        const { error: itemErr } = await supabase.from('order_items').insert({
+          order_id: orderData.id,
+          product_id: item.productId,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          total_price: lineTotal,
+          notes: item.notes || null
+        });
+
+        if (itemErr) throw itemErr;
+      }
+
+      const taxRate = settings.vatRate ? settings.vatRate / 100 : 0.15;
+      const totalTax = subtotal * taxRate;
+      const grandTotal = subtotal + totalTax;
+
+      const { error: orderUpdateErr } = await supabase.from('orders').update({
+        subtotal,
+        total_tax: totalTax,
+        grand_total: grandTotal,
+        updated_at: new Date().toISOString()
+      }).eq('id', orderData.id);
+      if (orderUpdateErr) throw orderUpdateErr;
+
+      await supabase.from('restaurant_tables').update({ status: 'OCCUPIED', updated_at: new Date().toISOString() }).eq('id', data.tableId);
+      setRestaurantTables(prev => prev.map(t => t.id === data.tableId ? { ...t, status: 'OCCUPIED' } : t));
+
+      showToast('تم إنشاء الطلب بنجاح', 'success');
+      return orderData.id;
+    } catch (error: any) {
+      console.error('Failed to create restaurant order:', error);
+      showToast(`فشل إنشاء الطلب: ${error.message || error}`, 'error');
+      return null;
+    }
+  };
+
+  const addRestaurantOrderItem = async (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => {
+    try {
+      const lineTotal = item.unitPrice * item.quantity;
+      const { error } = await supabase.from('order_items').insert({
+        order_id: orderId,
+        product_id: item.productId,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        total_price: lineTotal,
+        notes: item.notes || null
+      });
+      if (error) throw error;
+
+      const orderRes = await supabase.from('orders').select('*').eq('id', orderId).single();
+      if (orderRes.error || !orderRes.data) throw orderRes.error || new Error('Order not found');
+      const order = orderRes.data;
+
+      const itemsRes = await supabase.from('order_items').select('*').eq('order_id', orderId);
+      if (itemsRes.error) throw itemsRes.error;
+      const subtotal = itemsRes.data.reduce((sum: number, it: any) => sum + Number(it.total_price || 0), 0);
+      const taxRate = settings.vatRate ? settings.vatRate / 100 : 0.15;
+      const totalTax = subtotal * taxRate;
+      const grandTotal = subtotal + totalTax;
+
+      const updateErr = await supabase.from('orders').update({ subtotal, total_tax: totalTax, grand_total: grandTotal, updated_at: new Date().toISOString() }).eq('id', orderId);
+      if (updateErr.error) throw updateErr.error;
+
+      showToast('تم إضافة الصنف إلى الطلب', 'success');
+    } catch (error: any) {
+      console.error('Failed to add restaurant order item:', error);
+      showToast(`فشل إضافة الصنف: ${error.message || error}`, 'error');
+    }
+  };
+
+  const completeRestaurantOrder = async (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, transactionRef?: string) => {
+    try {
+      const orderRes = await supabase.from('orders').select('*').eq('id', orderId).single();
+      if (orderRes.error || !orderRes.data) throw orderRes.error || new Error('Order not found');
+      const order = orderRes.data;
+
+      const { error: payErr } = await supabase.from('payments').insert({
+        order_id: orderId,
+        payment_method: paymentMethod,
+        amount,
+        status: 'COMPLETED',
+        transaction_ref: transactionRef || null
+      });
+      if (payErr) throw payErr;
+
+      const { error: orderErr } = await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
+      if (orderErr) throw orderErr;
+
+      if (order.table_id) {
+        await supabase.from('restaurant_tables').update({ status: 'AVAILABLE', updated_at: new Date().toISOString() }).eq('id', order.table_id);
+        setRestaurantTables(prev => prev.map(t => t.id === order.table_id ? { ...t, status: 'AVAILABLE' } : t));
+      }
+
+      showToast('تم إغلاق الطلب بنجاح', 'success');
+    } catch (error: any) {
+      console.error('Failed to complete restaurant order:', error);
+      showToast(`فشل إغلاق الطلب: ${error.message || error}`, 'error');
+    }
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -3440,6 +3644,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       categories, addCategory: (n) => setCategories(prev => [...prev, { id: generateUUID(), name: n }]), deleteCategory: (id) => setCategories(prev => prev.filter(c => c.id !== id)),
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
+      openTableSession, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, menuCategories,
       quotations, addQuotation, convertQuotationToInvoice, updateQuotationStatus,
       purchaseOrders, addPurchaseOrder, updatePurchaseOrder, convertPoToInvoice,
       inventoryCounts, addInventoryCount: (c) => setInventoryCounts(prev => [{...c, id: generateUUID(), countNumber: `CNT-${Date.now().toString().slice(-4)}`}, ...prev]), 

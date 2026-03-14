@@ -249,6 +249,7 @@ export interface Product {
   category?: string;
   is_manufactured?: boolean;
   bom?: { productId: string; quantity: number }[];
+  product_type: string;
   item_type?: 'STOCK' | 'SERVICE' | 'MANUFACTURED';
   purchase_price?: number;
   // خصائص إضافية
@@ -517,4 +518,22 @@ export interface PurchaseReturn {
   total_amount: number;
   notes?: string;
   related_journal_entry_id?: string;
+}
+
+export interface RestaurantTable {
+  id: string;
+  name: string;
+  capacity: number;
+  section: string;
+  status: 'AVAILABLE' | 'OCCUPIED' | 'RESERVED';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MenuCategory {
+  id: string;
+  name: string;
+  display_order: number;
+  created_at: string;
+  updated_at: string;
 }

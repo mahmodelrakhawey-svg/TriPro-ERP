@@ -38,6 +38,35 @@ BEGIN
     ('d-prod-5', 'شاشة Dell 24 بوصة UltraSharp', 'DELL-U2421', 1100, 1350, 1050, 30, 5, 'stocked', NULL, '{"demo-wh1": 20, "demo-wh2": 10}'),
     ('d-prod-6', 'خدمة صيانة سنوية', 'SRV-MAINT-YR', 1500, 1500, 0, 9999, 0, 'service', NULL, '{}')
     ON CONFLICT (id) DO NOTHING;
+
+    -- إضافة طاولات للمطعم
+    INSERT INTO public.restaurant_tables (id, name, capacity, section, status) VALUES
+    ('d-tbl-1', 'T1', 4, 'داخلي', 'AVAILABLE'),
+    ('d-tbl-2', 'T2', 2, 'داخلي', 'AVAILABLE'),
+    ('d-tbl-3', 'T3', 6, 'داخلي', 'OCCUPIED'), -- طاولة مشغولة كمثال
+    ('d-tbl-4', 'V1', 8, 'VIP', 'AVAILABLE'),
+    ('d-tbl-5', 'O1', 4, 'خارجي', 'RESERVED'), -- طاولة محجوزة كمثال
+    ('d-tbl-6', 'O2', 4, 'خارجي', 'AVAILABLE')
+    ON CONFLICT (id) DO NOTHING;
+
+    -- إضافة فئات المنيو
+    INSERT INTO public.menu_categories (id, name, display_order) VALUES
+    ('d-cat-appetizers', 'مقبلات', 1),
+    ('d-cat-main', 'أطباق رئيسية', 2),
+    ('d-cat-drinks', 'مشروبات', 3),
+    ('d-cat-desserts', 'حلويات', 4)
+    ON CONFLICT (id) DO NOTHING;
+
+    -- إضافة أصناف للمنيو (نوع المنتج MENU_ITEM)
+    -- نستخدم ON CONFLICT (id) DO UPDATE لتحديث الأصناف الموجودة إذا لزم الأمر
+    INSERT INTO public.products (id, name, sku, type, product_type, category_id, price, sales_price, stock) VALUES
+    ('d-menu-1', 'سلطة سيزر', 'MENU-SAL-CZ', 'service', 'MENU_ITEM', 'd-cat-appetizers', 8, 25, 9999),
+    ('d-menu-2', 'بطاطس ودجز', 'MENU-POT-WDG', 'service', 'MENU_ITEM', 'd-cat-appetizers', 6, 18, 9999),
+    ('d-menu-3', 'ستيك لحم', 'MENU-STK-BF', 'service', 'MENU_ITEM', 'd-cat-main', 45, 95, 9999),
+    ('d-menu-4', 'دجاج مشوي', 'MENU-GRL-CHK', 'service', 'MENU_ITEM', 'd-cat-main', 25, 55, 9999),
+    ('d-menu-5', 'بيبسي', 'MENU-PEPSI', 'service', 'MENU_ITEM', 'd-cat-drinks', 2, 5, 9999),
+    ('d-menu-6', 'مياه معدنية', 'MENU-WATER', 'service', 'MENU_ITEM', 'd-cat-drinks', 1, 3, 9999)
+    ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category_id = EXCLUDED.category_id, sales_price = EXCLUDED.sales_price, product_type = EXCLUDED.product_type;
 END;
 $$;
 

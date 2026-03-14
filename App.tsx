@@ -116,6 +116,7 @@ import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 import FreeReturnsReport from './modules/sales/FreeReturnsReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
+import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -371,6 +372,7 @@ const MainLayout = () => {
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
+                <Route path="/pos" element={<PosScreen />} /> {/* التأكد من أن هذا السطر موجود */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>

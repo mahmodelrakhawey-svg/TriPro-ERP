@@ -5,7 +5,7 @@ import {
     LayoutDashboard, BookOpen, FileText, PieChart, Settings,
     ScrollText, Library, ShoppingCart, Users, Truck, Package, 
     Receipt, RotateCcw, ClipboardList, History, Banknote, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Scale, Store, Wallet, TrendingUp, LogOut, Shield, ListChecks, Landmark, MonitorSmartphone, Briefcase, Settings as Cog, PenTool, FileCheck, Calculator, Gauge, Target, BarChartHorizontal, Bell, BarChartBig, FileMinus, FilePlus, PackageX, CircleDollarSign, FileSpreadsheet, PackageOpen, ShieldAlert, X, BarChart2, ShieldCheck, HelpCircle
-    , Lock, Trash2, AlertTriangle, Percent, Database
+    , Lock, Trash2, AlertTriangle, Percent, Database, Utensils
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -229,6 +229,10 @@ const Sidebar = () => {
                     <span className="whitespace-nowrap">المبيعات والعملاء</span>
                     <span className="w-full h-px bg-slate-200"></span>
                 </div>
+                <Link to="/pos" className={getNavClass('/pos')}>
+                    <Utensils size={18} />
+                    <span>نقطة البيع (POS)</span>
+                </Link>
                 {canShow(['sales'], ['create']) && (
                 <Link to="/quotations-new" className={getNavClass('/quotations-new')}>
                 <FileText size={18} />
