@@ -222,6 +222,7 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     unit_price NUMERIC(10, 2) NOT NULL,
     total_price NUMERIC(10, 2) NOT NULL,
     notes TEXT,
+    modifiers JSONB, -- عمود لتخزين الإضافات (مثل: زيادة جبن)
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 COMMENT ON TABLE public.order_items IS 'Individual items within an order.';
@@ -264,13 +265,13 @@ COMMENT ON TABLE public.delivery_orders IS 'Additional details for delivery orde
 -- =================================================================
 
 -- جدول وصفات الأصناف (Bill of Materials)
-CREATE TABLE IF NOT EXISTS public.recipes (
+CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE, -- Menu Item ID
-    ingredient_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE, -- Ingredient ID
+    raw_material_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE, -- Ingredient ID (Renamed for clarity)
     quantity_required NUMERIC(10, 3) NOT NULL,
-    PRIMARY KEY (product_id, ingredient_id)
+    PRIMARY KEY (product_id, raw_material_id)
 );
-COMMENT ON TABLE public.recipes IS 'Defines the ingredients and quantities for each menu item.';
+COMMENT ON TABLE public.bill_of_materials IS 'Defines the ingredients and quantities for each menu item (Recipe/BOM).';
 
 -- جدول حركات المخزون
 CREATE TABLE IF NOT EXISTS public.inventory_transactions (
@@ -338,7 +339,7 @@ CREATE INDEX IF NOT EXISTS idx_kitchen_orders_status ON public.kitchen_orders(st
 CREATE INDEX IF NOT EXISTS idx_payments_order_id ON public.payments(order_id);
 CREATE INDEX IF NOT EXISTS idx_inventory_transactions_ingredient_id ON public.inventory_transactions(ingredient_id);
 CREATE INDEX IF NOT EXISTS idx_shifts_user_id ON public.shifts(user_id);
-CREATE INDEX IF NOT EXISTS idx_recipes_ingredient_id ON public.recipes(ingredient_id);
+CREATE INDEX IF NOT EXISTS idx_bill_of_materials_raw_material_id ON public.bill_of_materials(raw_material_id);
 
 -- =================================================================
 -- 6. تفعيل RLS (Row Level Security)

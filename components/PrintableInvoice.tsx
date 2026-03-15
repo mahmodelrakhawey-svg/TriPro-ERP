@@ -12,52 +12,63 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
   if (!order) return null;
 
   const subtotal = order.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
-  const tax = subtotal * (((settings as any).vatRate || 15) / 100);
+  const taxRate = (settings as any).vatRate || 15;
+  const tax = subtotal * (taxRate / 100);
   const total = subtotal + tax;
+  const date = new Date().toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   return (
-    <div ref={ref} className="p-4 text-black bg-white w-[300px]" dir="rtl">
+    <div ref={ref} className="p-4 text-black bg-white w-[80mm] font-sans text-xs leading-tight" dir="rtl">
       {isProforma && (
-        <div className="text-center border-2 border-dashed border-slate-400 p-1 mb-4 font-black bg-slate-100">
-          فاتورة تجريبية - مراجعة طلب
+        <div className="text-center border-2 border-black p-1 mb-2 font-black text-sm uppercase">
+          ** نسخة أولية (PRO-FORMA) **
         </div>
       )}
-      <div className="text-center mb-4">
-        {(settings as any).logoUrl && <img src={(settings as any).logoUrl} alt="Logo" className="w-24 h-auto mx-auto mb-2" />}
-        <h2 className="text-xl font-bold">{isProforma ? 'مسودة طلب' : (settings as any).companyName}</h2>
-        <p className="text-xs">{(settings as any).address}</p>
-        <p className="text-xs">الرقم الضريبي: {(settings as any).taxNumber}</p>
+      
+      {/* Header */}
+      <div className="text-center border-b-2 border-black pb-2 mb-2">
+        {(settings as any).logoUrl && <img src={(settings as any).logoUrl} alt="Logo" className="w-20 h-auto mx-auto mb-2 grayscale" />}
+        <h2 className="text-lg font-bold">{(settings as any).companyName}</h2>
+        <p>{(settings as any).address}</p>
+        <p>الرقم الضريبي: <span dir="ltr" className="font-mono">{(settings as any).taxNumber}</span></p>
       </div>
       
-      <div className="mb-4 text-xs">
-        <p><strong>الطاولة:</strong> {order.tableName}</p>
-        <p><strong>التاريخ:</strong> {new Date().toLocaleString('ar-EG')}</p>
-        {/* In a real scenario, we'd have an order number here from the DB */}
+      {/* Invoice Info */}
+      <div className="flex justify-between mb-2">
+        <div>
+          <p>رقم الفاتورة: <span className="font-bold font-mono">#{order.orderId ? order.orderId.slice(0, 8) : 'NEW'}</span></p>
+          <p>التاريخ: <span dir="ltr" className="font-mono">{date}</span></p>
+        </div>
+        <div className="text-left">
+          <p>الطاولة: <span className="font-bold text-sm border border-black px-1 rounded">{order.tableName}</span></p>
+        </div>
       </div>
 
-      <table className="w-full text-xs">
+      {/* Items Table */}
+      <table className="w-full mb-2">
         <thead>
-          <tr className="border-b-2 border-dashed border-black">
-            <th className="text-right pb-1">الصنف</th>
-            <th className="text-center pb-1">الكمية</th>
-            <th className="text-center pb-1">السعر</th>
-            <th className="text-left pb-1">الإجمالي</th>
+          <tr className="border-t border-b border-black">
+            <th className="py-1 text-right w-[45%]">الصنف</th>
+            <th className="py-1 text-center w-[15%]">الكمية</th>
+            <th className="py-1 text-center w-[20%]">سعر</th>
+            <th className="py-1 text-left w-[20%]">مجموع</th>
           </tr>
         </thead>
         <tbody>
           {order.items.map((item, index) => (
             <React.Fragment key={`${item.productId}-${index}`}>
-              <tr className={(item.selectedModifiers?.length || item.notes) ? "" : "border-b border-dashed border-gray-400"}>
-                <td className="py-1 font-semibold">{item.name}</td>
-                <td className="text-center py-1">{item.quantity}</td>
-                <td className="text-center py-1">{item.unitPrice.toFixed(2)}</td>
-                <td className="text-left py-1">{(item.unitPrice * item.quantity).toFixed(2)}</td>
+              <tr>
+                <td className="py-1 font-bold">{item.name}</td>
+                <td className="text-center font-mono">{item.quantity}</td>
+                <td className="text-center font-mono">{item.unitPrice.toFixed(2)}</td>
+                <td className="text-left font-bold font-mono">{(item.unitPrice * item.quantity).toFixed(2)}</td>
               </tr>
+              {/* Modifiers & Notes */}
               {(item.selectedModifiers?.length || item.notes) && (
-                <tr className="border-b border-dashed border-gray-400">
-                  <td colSpan={4} className="pb-1 pr-2 text-[10px] text-gray-600 leading-tight">
-                    {item.selectedModifiers?.map((m, i) => <div key={i}>+ {m.name}</div>)}
-                    {item.notes && <div className="text-red-700 italic">ملاحظة: {item.notes}</div>}
+                <tr>
+                  <td colSpan={4} className="pb-1 pr-2 text-[10px] text-gray-600">
+                    {item.selectedModifiers?.map((m, i) => <span key={i} className="ml-1">+ {m.name}</span>)}
+                    {item.notes && <div className="italic">*{item.notes}</div>}
                   </td>
                 </tr>
               )}
@@ -66,22 +77,27 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
         </tbody>
       </table>
 
-      <div className="mt-4 text-xs">
+      {/* Totals */}
+      <div className="border-t border-black pt-2 space-y-1">
         <div className="flex justify-between">
-          <span>المجموع الفرعي:</span>
-          <span>{subtotal.toFixed(2)}</span>
+          <span>المجموع (غير شامل الضريبة):</span>
+          <span className="font-mono">{subtotal.toFixed(2)}</span>
         </div>
         <div className="flex justify-between">
-          <span>الضريبة ({(settings as any).vatRate || 15}%):</span>
-          <span>{tax.toFixed(2)}</span>
+          <span>ضريبة القيمة المضافة ({taxRate}%):</span>
+          <span className="font-mono">{tax.toFixed(2)}</span>
         </div>
-        <div className="flex justify-between font-bold text-sm mt-2 border-t-2 border-dashed border-black pt-1">
-          <span>الإجمالي:</span>
-          <span>{total.toFixed(2)} {(settings as any).currency}</span>
+        <div className="flex justify-between text-base font-bold border-t border-dashed border-gray-400 pt-1 mt-1">
+          <span>الإجمالي النهائي:</span>
+          <span className="font-mono">{total.toFixed(2)} {(settings as any).currency || 'SAR'}</span>
         </div>
       </div>
 
-      <div className="text-center text-xs mt-4">
+      {/* Footer / QR Placeholder */}
+      <div className="text-center mt-4 pt-2 border-t border-black">
+        <div className="mx-auto w-24 h-24 border-2 border-black flex items-center justify-center mb-2">
+          <span className="text-[8px] text-center">QR Code Area<br/>(ZATCA Compatible)</span>
+        </div>
         <p>{(settings as any).footerText || 'شكراً لزيارتكم!'}</p>
       </div>
     </div>

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -7,8 +7,23 @@ import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
 import RecipeManagement from '../../components/RecipeManagement';
 import * as XLSX from 'xlsx';
-import { createProductSchema } from '../../utils/validationSchemas';
 import { z } from 'zod';
+
+// تعريف السكيما محلياً لإصلاح خطأ التحقق
+const createProductSchema = z.object({
+    name: z.string().min(1, 'اسم الصنف مطلوب'),
+    sku: z.string().optional(),
+    product_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL', 'MANUFACTURED']),
+    purchase_price: z.number().min(0, 'سعر الشراء يجب أن يكون 0 أو أكثر'),
+    sales_price: z.number().min(0, 'سعر البيع يجب أن يكون 0 أو أكثر'),
+    inventory_account_id: z.string().uuid('حساب المخزون غير صحيح').optional(),
+    cogs_account_id: z.string().uuid('حساب التكلفة غير صحيح').optional(),
+    sales_account_id: z.string().uuid('حساب المبيعات غير صحيح').optional(),
+}).refine(data => data.sales_price >= data.purchase_price, {
+    message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
+    path: ['sales_price']
+});
+
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
 type Item = {
@@ -20,7 +35,7 @@ type Item = {
   purchase_price: number; // هذا هو حقل التكلفة
   weighted_average_cost?: number; // متوسط التكلفة
   stock: number; // هذا هو حقل المخزون
-  item_type: 'STOCK' | 'SERVICE' | 'MANUFACTURED';
+  product_type: 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL';
   inventory_account_id: string | null;
   cogs_account_id: string | null;
   sales_account_id: string | null;
@@ -31,12 +46,13 @@ type Item = {
   offer_end_date?: string | null;
   min_stock_level?: number | null;
   category_id?: string | null;
+  unit?: string;
   offer_max_qty?: number | null;
 };
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories } = useAccounting();
+  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -162,7 +178,8 @@ const ProductManager = () => {
     barcode: '',
     sales_price: 0,
     purchase_price: 0,
-    item_type: 'STOCK',
+    unit: 'قطعة',
+    product_type: 'STOCK',
     inventory_account_id: '',
     cogs_account_id: '',
     sales_account_id: '',
@@ -195,7 +212,8 @@ const ProductManager = () => {
         barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
         purchase_price: item.purchase_price || 0,
-        item_type: item.item_type || 'STOCK', // Ensure it handles MANUFACTURED
+        unit: (item as any).unit || 'قطعة',
+        product_type: (item as any).product_type || (item as any).item_type || 'STOCK', // Handle both for compatibility
         inventory_account_id: inventoryAccId || '',
         cogs_account_id: cogsAccId || '',
         sales_account_id: salesAccId || '',
@@ -222,7 +240,8 @@ const ProductManager = () => {
         barcode: '',
         sales_price: 0, 
         purchase_price: 0, 
-        item_type: 'STOCK', // Default to STOCK for new products
+        unit: 'قطعة',
+        product_type: 'STOCK', // Default to STOCK for new products
         inventory_account_id: defaultInventory,
         cogs_account_id: defaultCogs,
         sales_account_id: defaultSales,
@@ -410,7 +429,7 @@ const ProductManager = () => {
     const validationData = {
         name: formData.name,
         sku: formData.sku || undefined,
-        item_type: formData.item_type,
+        product_type: formData.product_type,
         purchase_price: formData.purchase_price,
         sales_price: formData.sales_price,
         inventory_account_id: formData.inventory_account_id || undefined,
@@ -425,7 +444,7 @@ const ProductManager = () => {
     }
 
     // التحقق الصارم من الحسابات
-    if (formData.item_type === 'STOCK') {
+    if (formData.product_type === 'STOCK') {
       if (!formData.inventory_account_id || !formData.cogs_account_id || !formData.sales_account_id) {
         showToast('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون, التكلفة, المبيعات) للأصناف المخزنية.', 'error');
         return;
@@ -457,9 +476,9 @@ const ProductManager = () => {
             barcode: formData.barcode || null,
             sales_price: formData.sales_price,
             purchase_price: formData.purchase_price,
-            item_type: formData.item_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
-            inventory_account_id: (formData.item_type === 'STOCK' || formData.item_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
-            cogs_account_id: (formData.item_type === 'STOCK' || formData.item_type === 'MANUFACTURED') ? formData.cogs_account_id : null,
+            product_type: formData.product_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
+            inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
+            cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.cogs_account_id : null,
             sales_account_id: formData.sales_account_id,
             image_url: formData.image_url,
             organization_id: orgId,
@@ -474,38 +493,37 @@ const ProductManager = () => {
         };
         await updateProduct(editingId, itemData);
       } else {
-        // إضافة صنف جديد (استخدام الدالة لإنشاء الرصيد الافتتاحي)
-        // استبدال RPC بإدراج مباشر لضمان العمل
         if (!can('products', 'create')) {
             showToast('ليس لديك صلاحية إضافة منتجات', 'error');
             return;
         }
-        const { data: newProduct, error: prodError } = await supabase.from('products').insert({
-            name: formData.name,
-            sku: formData.sku || null,
-            barcode: formData.barcode || null,
-            sales_price: formData.sales_price,
-            purchase_price: formData.purchase_price,
-            organization_id: orgId,
-            stock: formData.item_type === 'STOCK' ? formData.opening_stock : 999999, // For MANUFACTURED/SERVICE, stock is effectively infinite
-            item_type: formData.item_type,
-            inventory_account_id: (formData.item_type === 'STOCK' || formData.item_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
-            cogs_account_id: (formData.item_type === 'STOCK' || formData.item_type === 'MANUFACTURED') ? formData.cogs_account_id : null,
-            sales_account_id: formData.sales_account_id || null,
-            is_active: true,
-            min_stock_level: formData.min_stock_level,
-            category_id: formData.category_id || null,
-            expiry_date: formData.expiry_date || null,
-            offer_price: formData.offer_price || null,
-            offer_start_date: formData.offer_start_date || null,
-            offer_end_date: formData.offer_end_date || null,
-            offer_max_qty: formData.offer_max_qty || null
-        }).select().single();
+        
+        const productPayload = {
+          name: formData.name,
+          sku: formData.sku || null,
+          barcode: formData.barcode || null,
+          sales_price: formData.sales_price,
+          purchase_price: formData.purchase_price,
+          cost: formData.purchase_price, // Set initial cost to purchase price
+          stock: formData.product_type === 'STOCK' ? formData.opening_stock : 999999,
+          product_type: formData.product_type,
+          inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
+          cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.cogs_account_id : null,
+          sales_account_id: formData.sales_account_id || null,
+          is_active: true,
+          min_stock_level: formData.min_stock_level,
+          category_id: formData.category_id || null,
+          expiry_date: formData.expiry_date || null,
+          offer_price: formData.offer_price || null,
+          offer_start_date: formData.offer_start_date || null,
+          offer_end_date: formData.offer_end_date || null,
+          offer_max_qty: formData.offer_max_qty || null
+        };
 
-        if (prodError) throw prodError;
+        const newProduct = await addProduct(productPayload as any);
 
         // إنشاء الرصيد الافتتاحي والقيد
-        if (newProduct && formData.item_type === 'STOCK' && formData.opening_stock > 0) {
+        if (newProduct && formData.product_type === 'STOCK' && formData.opening_stock > 0) {
             const defaultWarehouseId = warehouses.length > 0 ? warehouses[0].id : null;
             if (defaultWarehouseId) {
                 await supabase.from('opening_inventories').insert({
@@ -650,7 +668,8 @@ const ProductManager = () => {
         barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
         purchase_price: item.purchase_price || 0,
-        item_type: item.item_type || 'STOCK',
+        unit: (item as any).unit || 'قطعة',
+        product_type: item.product_type || 'STOCK',
         inventory_account_id: item.inventory_account_id || '',
         cogs_account_id: item.cogs_account_id || '',
         sales_account_id: item.sales_account_id || '',
@@ -1225,8 +1244,8 @@ const ProductManager = () => {
                     <div>
                       <label className="block text-sm font-bold mb-1 text-slate-700">نوع الصنف</label>
                       <select 
-                        value={formData.item_type} 
-                        onChange={e => setFormData({...formData, item_type: e.target.value as 'STOCK' | 'SERVICE' | 'MANUFACTURED'})}
+                        value={formData.product_type} 
+                        onChange={e => setFormData({...formData, product_type: e.target.value as 'STOCK' | 'SERVICE' | 'MANUFACTURED'})}
                         className="w-full border rounded-lg p-2 bg-white"
                       >
                         <option value="STOCK">مخزوني (بضاعة)</option>
@@ -1287,7 +1306,7 @@ const ProductManager = () => {
               </div>
 
               {/* حقل الرصيد الافتتاحي (يظهر فقط عند الإضافة) */}
-              {!editingId && formData.item_type === 'STOCK' && (
+              {!editingId && (formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (
                   <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
                       <label className="block text-sm font-bold mb-1 text-slate-700">الرصيد الافتتاحي (الكمية)</label>
                       <input type="number" min="0" value={formData.opening_stock} onChange={e => setFormData({...formData, opening_stock: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
@@ -1320,7 +1339,7 @@ const ProductManager = () => {
                 </h4>
                 
                 <div className="space-y-3">
-                  {(formData.item_type === 'STOCK' || formData.item_type === 'MANUFACTURED') && (
+                  {(formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL') && (
                     <>
                       <div>
                         <label className="block text-xs font-bold text-slate-600 mb-1">حساب المخزون (أصول)</label>
