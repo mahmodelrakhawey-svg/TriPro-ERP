@@ -47,17 +47,7 @@ describe('🔐 Security & Validation Tests', () => {
       const dangerous = '<div onclick="alert()">Click</div>';
       const result = sanitizeHtml(dangerous);
       expect(result).not.toContain('onclick');
-    })
-    it('should render and find content within a ToastProvider', async () => {
-      
-      const wrapper = ({ children }: { children: React.ReactNode }) => (<ToastProvider>{children}</ToastProvider>);
-      const TestComponent = wrapper(({ children }) => {
-        const { showToast } = useToast();
-        const content = 'Hello from ToastProvider';
-        expect(content).toBeDefined();
-      })
-
-
+    });
     it('يجب إزالة محتوى script tags أو تعطيلها', () => {
       const dangerous = '<div><script src="malicious.js"></script></div>';
       const result = sanitizeHtml(dangerous);

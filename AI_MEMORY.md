@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٥‏/٣‏/٢٠٢٦، ١٠:٢٢:٤٤ ص
+📅 تاريخ التحديث: ١٦‏/٣‏/٢٠٢٦، ١١:١٠:٣٧ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -144,11 +144,14 @@
     📄 USER_GUIDE.md
 📁 components/
   📄 _redirects
+  📄 2026-03-19_accounting_integration.sql
+  📄 2026-03-21_restaurant_accounting.sql
   📄 About.tsx
   📄 Dashboard.tsx
   📄 DemoTour.tsx
   📄 DEPLOYMENT_STRATEGY.md
   📄 DraftJournalsList.tsx
+  📄 FINAL_FEATURES_SUMMARY.md
   📄 Header.tsx
   📄 index.ts
   📄 InvoiceItemsList.tsx
@@ -177,6 +180,12 @@
     📄 2026-01-25_create_restaurant_module.sql
     📄 2026-01-26_restaurant_functions.sql
     📄 2026-02-11_create_invoice_items.sql
+    📄 2026-03-15_restaurant_accounting_integration.sql
+    📄 2026-03-16_add_unit_to_products.sql
+    📄 2026-03-16_fix_restaurant_order_ambiguity.sql
+    📄 2026-03-16_update_product_type_constraint.sql
+    📄 2026-03-17_inventory_consumption.sql
+    📄 2026-03-18_shift_management.sql
   📄 accountService.ts
   📄 add_account_mappings.sql
   📄 add_created_by_columns.sql
@@ -931,13 +940,13 @@ const DUMMY_VOUCHERS = [
 ];
 
 const DUMMY_PRODUCTS = [
-        { id: 'demo-p1', name: 'لابتوب HP ProBook 450', sku: 'HP-PB-450', price: 25000, cost: 21000, stock: 15, warehouseStock: { 'demo-wh1': 15 }, purchase_price: 21000, weighted_average_cost: 21000, item_type: 'STOCK' },
-        { id: 'demo-p2', name: 'طابعة ليزر Canon', sku: 'CN-LBP-6030', price: 8500, cost: 6000, stock: 8, warehouseStock: { 'demo-wh1': 8 }, purchase_price: 6000, weighted_average_cost: 6000, item_type: 'STOCK' },
-        { id: 'demo-p3', name: 'حبر طابعة HP 85A', sku: 'HP-85A', price: 450, cost: 250, stock: 50, warehouseStock: { 'demo-wh1': 50 }, purchase_price: 250, weighted_average_cost: 250, item_type: 'STOCK' },
-        { id: 'demo-p4', name: 'ورق تصوير A4 (كرتونة)', sku: 'PPR-A4', price: 850, cost: 650, stock: 100, warehouseStock: { 'demo-wh1': 100 }, purchase_price: 650, weighted_average_cost: 650, item_type: 'STOCK' },
-        { id: 'demo-p5', name: 'ماوس لاسلكي Logitech', sku: 'LOG-M170', price: 350, cost: 200, stock: 30, warehouseStock: { 'demo-wh1': 30 }, purchase_price: 200, weighted_average_cost: 200, item_type: 'STOCK' },
-        { id: 'demo-menu-1', name: 'سلطة سيزر', sku: 'MENU-SAL-CZ', price: 25, cost: 8, stock: 999999, item_type: 'MENU_ITEM', category_id: 'cat1' },
-        { id: 'demo-menu-2', name: 'بيبسي', sku: 'MENU-PEPSI', price: 5, cost: 2, stock: 999999, item_type: 'MENU_ITEM', category_id: 'cat3' }
+        { id: 'demo-p1', name: 'لابتوب HP ProBook 450', sku: 'HP-PB-450', price: 25000, cost: 21000, stock: 15, warehouseStock: { 'demo-wh1': 15 }, purchase_price: 21000, weighted_average_cost: 21000, product_type: 'STOCK' },
+        { id: 'demo-p2', name: 'طابعة ليزر Canon', sku: 'CN-LBP-6030', price: 8500, cost: 6000, stock: 8, warehouseStock: { 'demo-wh1': 8 }, purchase_price: 6000, weighted_average_cost: 6000, product_type: 'STOCK' },
+        { id: 'demo-p3', name: 'حبر طابعة HP 85A', sku: 'HP-85A', price: 450, cost: 250, stock: 50, warehouseStock: { 'demo-wh1': 50 }, purchase_price: 250, weighted_average_cost: 250, product_type: 'STOCK' },
+        { id: 'demo-p4', name: 'ورق تصوير A4 (كرتونة)', sku: 'PPR-A4', price: 850, cost: 650, stock: 100, warehouseStock: { 'demo-wh1': 100 }, purchase_price: 650, weighted_average_cost: 650, product_type: 'STOCK' },
+        { id: 'demo-p5', name: 'ماوس لاسلكي Logitech', sku: 'LOG-M170', price: 350, cost: 200, stock: 30, warehouseStock: { 'demo-wh1': 30 }, purchase_price: 200, weighted_average_cost: 200, product_type: 'STOCK' },
+        { id: 'demo-menu-1', name: 'سلطة سيزر', sku: 'MENU-SAL-CZ', price: 25, cost: 8, stock: 999999, product_type: 'MANUFACTURED', category_id: 'cat1' },
+        { id: 'demo-menu-2', name: 'بيبسي', sku: 'MENU-PEPSI', price: 5, cost: 2, stock: 999999, product_type: 'MANUFACTURED', category_id: 'cat3' }
 ];
 
 const DUMMY_JOURNAL_ENTRIES = [
@@ -1063,7 +1072,7 @@ interface AccountingContextType {
   deleteSupplier: (id: string, reason?: string) => Promise<void>;
   addSuppliersBulk: (suppliers: Omit<Supplier, 'id'>[]) => void;
   products: Product[];
-  addProduct: (product: Omit<Product, 'id'>) => void;
+  addProduct: (product: Omit<Product, 'id'>) => Promise<Product | void>;
   updateProduct: (id: string, product: Partial<Product>) => void;
   deleteProduct: (id: string, reason?: string) => void;
   addProductsBulk: (products: Omit<Product, 'id'>[]) => void;
@@ -1077,9 +1086,9 @@ interface AccountingContextType {
   deleteWarehouse: (id: string, reason?: string) => Promise<void>;
   invoices: Invoice[];
   addInvoice: (invoice: any) => Promise<void>;
-  createRestaurantOrder: (orderData: { sessionId: string; items: { productId: string; quantity: number; unitPrice: number; notes?: string; }[] }) => Promise<string | null>;
+  createRestaurantOrder: (orderData: { sessionId: string; items: any[] }) => Promise<string | null>;
   addRestaurantOrderItem: (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => Promise<void>; // هذا لم يعد مستخدماً بشكل مباشر
-  completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, paidItems?: OrderItem[]) => Promise<void>;
+  completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, treasuryAccountId: string) => Promise<void>;
   openTableSession: (tableId: string) => Promise<string | void>;
   reserveTable: (tableId: string, customerName: string, arrivalTime: string) => Promise<boolean>;
   cancelReservation: (tableId: string) => Promise<boolean>;
@@ -1182,6 +1191,11 @@ interface AccountingContextType {
   checkSystemAccounts: () => { missing: string[]; found: string[] };
   createMissingSystemAccounts: () => Promise<{ success: boolean; message: string; created: string[] }>;
   addDemoInvoice: (invoice: any) => void;
+  currentShift: any | null;
+  startShift: (openingBalance: number) => Promise<boolean>;
+  closeCurrentShift: (actualCash: number, notes?: string) => Promise<boolean>;
+  getCurrentShiftSummary: () => Promise<any>;
+  processSplitPayment: (originalOrderId: string, items: { id: string, quantity: number }[], method: string, amount: number, treasuryId: string) => Promise<boolean>;
   addDemoPurchaseInvoice: (invoice: any) => void;
   addDemoEntry: (entryData: any) => void;
   postDemoSalesInvoice: (invoiceData: any) => void;
@@ -1240,6 +1254,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [restaurantTables, setRestaurantTables] = useState<RestaurantTable[]>([]);
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [bankReconciliations, setBankReconciliations] = useState<any[]>([]);
+  const [currentShift, setCurrentShift] = useState<any | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -2192,6 +2207,32 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     };
   }, []);
 
+  const checkOpenShift = useCallback(async () => {
+    if (!currentUser) return;
+    // في وضع الديمو، ننشئ وردية وهمية
+    if (currentUser.role === 'demo' || isDemoState) {
+        if (!currentShift) setCurrentShift({ id: 'demo-shift', start_time: new Date().toISOString(), opening_balance: 1000 });
+        return;
+    }
+
+    try {
+        const { data, error } = await supabase
+            .from('shifts')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .is('end_time', null)
+            .maybeSingle();
+        
+        if (!error && data) {
+            setCurrentShift(data);
+        } else {
+            setCurrentShift(null);
+        }
+    } catch (e) {
+        console.error("Error checking shift", e);
+    }
+  }, [currentUser, isDemoState]);
+
   const handleAuthChange = useCallback(async (user: any) => {
     if (user) {
         try {
@@ -2241,7 +2282,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     setAuthInitialized(true);
   }, []);
-
+  
+  useEffect(() => {
+    if (currentUser) {
+        checkOpenShift();
+    }
+  }, [currentUser, checkOpenShift]);
+  
   const salespeople = useMemo(() => users.filter(u => u.role === 'sales' || u.role === 'admin').map(u => ({ id: u.id, name: u.name })), [users]);
 
   const logActivity = async (action: string, details: string, amount?: number, metadata?: any) => {
@@ -2294,7 +2341,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     try {
       const oldData = products.find(p => p.id === id);
-      const { error } = await supabase.from('products').update(updates).eq('id', id);
+      
+      // ضمان التوافق: نسخ product_type إلى item_type إذا تم تحديثه
+      const dbUpdates: any = { ...updates };
+      if (dbUpdates.product_type) {
+          dbUpdates.item_type = dbUpdates.product_type;
+      }
+
+      const { error } = await supabase.from('products').update(dbUpdates).eq('id', id);
       if (error) throw error;
       
       setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
@@ -4268,6 +4322,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createRestaurantOrder = async (orderData: { sessionId: string; items: any[] }) => {
+    // Handle Demo or Local Fallback sessions
+    // Prevents sending non-UUID session IDs to the database RPC which causes type errors
+    if (isDemoState || orderData.sessionId.startsWith('session-') || orderData.sessionId.startsWith('demo-')) {
+        showToast('تم إرسال الطلب للمطبخ بنجاح (محاكاة)', 'success');
+        return `local-order-${Date.now()}`;
+    }
+
     if (!currentUser) {
       showToast('يجب تسجيل الدخول لإنشاء الطلب', 'error');
       return null;
@@ -4295,6 +4356,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     } catch (error: any) {
       console.error("Error creating restaurant order via RPC:", error);
+      if (error.code === 'PGRST203') {
+          showToast('خطأ في قاعدة البيانات: تكرار دالة إنشاء الطلب. يرجى تشغيل ملف الإصلاح SQL.', 'error');
+          return null;
+      }
       showToast(`فشل إنشاء الطلب: ${error.message || error}`, 'error');
       return null;
     }
@@ -4309,9 +4374,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const completeRestaurantOrder = async (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, paidItems: OrderItem[] = []): Promise<void> => {
-    if (isDemoState) {
-        showToast('تم الدفع وإغلاق الطاولة بنجاح (محاكاة)', 'success');
+  const completeRestaurantOrder = async (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, treasuryAccountId: string): Promise<void> => {
+    if (isDemoState || orderId.startsWith('demo-') || orderId.startsWith('local-')) {
+        showToast('تم الدفع وإغلاق الطاولة بنجاح (محاكاة/محلي)', 'success');
         setRestaurantTables(prev => prev.map(t => t.status === 'OCCUPIED' ? { ...t, status: 'AVAILABLE' } : t));
         return;
     }
@@ -4326,37 +4391,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             order_id: orderId,
             payment_method: paymentMethod,
             amount: amount,
-            status: 'COMPLETED',
-            // يمكن إضافة تفاصيل paidItems هنا إذا كان هناك حقل JSONB في جدول المدفوعات
-            // paid_items_details: paidItems
+            status: 'COMPLETED'
         });
         if (payErr) throw payErr;
 
-        // 3. تحديث بنود الطلب وكمياتها
-        if (paidItems.length > 0) {
-            // في حالة الدفع الجزئي، نحدث كميات الأصناف المدفوعة
-            for (const paidItem of paidItems) {
-                const { data: existingItem, error: itemError } = await supabase
-                    .from('order_items')
-                    .select('quantity')
-                    .eq('order_id', orderId)
-                    .eq('product_id', paidItem.productId)
-                    .single();
-                
-                if (itemError) throw itemError;
+        // 3. تم إلغاء الترحيل المحاسبي الفوري.
+        // سيتم إنشاء قيد مجمع عند إغلاق الوردية عبر دالة `generate_shift_closing_entry`.
+        // سيقوم الـ Trigger الموجود على جدول `orders` بمعالجة استهلاك المخزون تلقائياً.
 
-                const newQuantity = existingItem.quantity - paidItem.quantity;
-                await supabase.from('order_items').update({ quantity: newQuantity }).eq('order_id', orderId).eq('product_id', paidItem.productId);
-            }
-            // إذا لم يتبق أي أصناف في الطلب، نعتبره مكتمل
-            const { count: remainingItemsCount } = await supabase.from('order_items').select('id', { count: 'exact' }).eq('order_id', orderId).gt('quantity', 0);
-            if (remainingItemsCount === 0) {
-                await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
-            }
-        } else {
-            // دفع كامل، نعتبر الطلب مكتمل
-            await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
-        }
+        // 4. تحديث حالة الطلب
+        await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
 
         // 4. إغلاق جلسة الطاولة (باستخدام الدالة الموجودة في قاعدة البيانات)
         if (order?.session_id) {
@@ -4488,7 +4532,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!session) return null;
         
         const { data: orders } = await supabase.from('orders')
-            .select('id, order_items(product_id, quantity, unit_price, notes, products(name))')
+            .select('id, order_items(id, product_id, quantity, unit_price, notes, modifiers, products(name))')
             .eq('session_id', session.id)
             .neq('status', 'COMPLETED')
             .neq('status', 'CANCELLED');
@@ -4500,7 +4544,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             order.order_items.forEach((item: any) => {
                 // نجمع الكميات للأصناف المتشابهة أو ندرجها كما هي
                 // هنا ندرجها ونميزها بأنها "savedQuantity" أي محفوظة مسبقاً
-                items.push({ productId: item.product_id, name: item.products?.name, quantity: item.quantity, price: item.unit_price, notes: item.notes, savedQuantity: item.quantity });
+                items.push({ 
+                    id: item.id, // Order Item ID (Required for split payment)
+                    productId: item.product_id, 
+                    name: item.products?.name, 
+                    quantity: item.quantity, 
+                    unitPrice: item.unit_price, 
+                    notes: item.notes, 
+                    selectedModifiers: item.modifiers,
+                    savedQuantity: item.quantity 
+                });
             });
         });
         return { sessionId: session.id, orderId, items };
@@ -4540,6 +4593,27 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (err: any) {
         showToast(`فشل إضافة الطاولة: ${err.message}`, 'error');
     }
+  };
+
+  const processSplitPayment = async (originalOrderId: string, items: { id: string, quantity: number }[], method: string, amount: number, treasuryId: string) => {
+      if (isDemoState) {
+          showToast('تم الدفع الجزئي بنجاح (ديمو)', 'success');
+          return true;
+      }
+      try {
+          const { error } = await supabase.rpc('process_split_payment', {
+              p_original_order_id: originalOrderId,
+              p_items: items,
+              p_payment_method: method,
+              p_amount: amount,
+              p_treasury_account_id: treasuryId
+          });
+          if (error) throw error;
+          return true;
+      } catch (err: any) {
+          showToast('فشل الدفع الجزئي: ' + err.message, 'error');
+          return false;
+      }
   };
 
   const updateRestaurantTable = async (id: string, updates: Partial<Omit<RestaurantTable, 'id' | 'created_at' | 'updated_at' | 'status'>>) => {
@@ -4610,6 +4684,123 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const addProduct = async (productData: Omit<Product, 'id'>): Promise<Product | void> => {
+    if (isDemoState) {
+        const newProduct = { ...productData, id: `demo-p-${Date.now()}`, warehouseStock: {} } as Product;
+        setProducts(prev => [newProduct, ...prev]);
+        showToast('تمت إضافة الصنف بنجاح (محاكاة)', 'success');
+        return newProduct;
+    }
+
+    try {
+        const payload: any = {
+            name: productData.name,
+            sku: productData.sku,
+            product_type: (productData as any).product_type, // Use product_type
+            item_type: (productData as any).product_type, // إضافة هذا السطر لضمان التوافق مع قاعدة البيانات
+            category_id: productData.category_id || null,
+            sales_price: productData.sales_price || 0,
+            purchase_price: productData.purchase_price || 0,
+            cost: productData.cost || 0,
+            stock: productData.stock || 0,
+            min_stock_level: productData.min_stock_level || 0,
+            unit: productData.unit || 'قطعة',
+            is_active: (productData as any).is_active ?? true,
+            // إضافة الحقول المفقودة لضمان التوافق مع قاعدة البيانات
+            inventory_account_id: (productData as any).inventory_account_id || null,
+            cogs_account_id: (productData as any).cogs_account_id || null,
+            sales_account_id: (productData as any).sales_account_id || null,
+            barcode: (productData as any).barcode || null,
+            expiry_date: (productData as any).expiry_date || null,
+            offer_price: (productData as any).offer_price || null,
+            offer_start_date: (productData as any).offer_start_date || null,
+            offer_end_date: (productData as any).offer_end_date || null,
+            offer_max_qty: (productData as any).offer_max_qty || null,
+        };
+
+        if (!payload.sku || payload.sku.trim() === '') {
+            payload.sku = `${payload.name.substring(0, 3).toUpperCase()}-${Date.now().toString().slice(-4)}`;
+            showToast(`تم توليد SKU تلقائياً: ${payload.sku}`, 'info');
+        }
+
+        const { data, error } = await supabase.from('products').insert(payload).select().single();
+
+        if (error) {
+            if (error.code === '23505' && error.message.includes('products_sku_key')) {
+                throw new Error(`رمز SKU "${payload.sku}" مستخدم بالفعل. الرجاء إدخال رمز فريد.`);
+            }
+            throw error;
+        }
+
+        await fetchData();
+        return data;
+    } catch (err: any) {
+        throw err; // Re-throw to be caught by the form
+    }
+  };
+
+  const startShift = async (openingBalance: number) => {
+      if (isDemoState) {
+          setCurrentShift({ id: 'demo-shift', start_time: new Date().toISOString(), opening_balance: openingBalance });
+          showToast('تم فتح الوردية (ديمو)', 'success');
+          return true;
+      }
+      try {
+          const { data, error } = await supabase.rpc('start_shift', {
+              p_user_id: currentUser?.id,
+              p_opening_balance: openingBalance
+          });
+          if (error) throw error;
+          await checkOpenShift();
+          showToast('تم فتح الوردية بنجاح', 'success');
+          return true;
+      } catch (err: any) {
+          showToast('فشل فتح الوردية: ' + err.message, 'error');
+          return false;
+      }
+  };
+
+  const getCurrentShiftSummary = async () => {
+      if (isDemoState) {
+          return { opening_balance: 1000, total_sales: 1500, cash_sales: 1000, card_sales: 500, wallet_sales: 0, expected_cash: 2000 };
+      }
+      if (!currentShift) return null;
+      try {
+          const { data, error } = await supabase.rpc('get_shift_summary', { p_shift_id: currentShift.id });
+          if (error) throw error;
+          return data;
+      } catch (err: any) {
+          showToast('فشل جلب ملخص الوردية: ' + err.message, 'error');
+          return null;
+      }
+  };
+
+  const closeCurrentShift = async (actualCash: number, notes?: string) => {
+      if (isDemoState) { setCurrentShift(null); showToast('تم إغلاق الوردية (ديمو)', 'success'); return true; }
+      if (!currentShift) return false;
+      try {
+          const { error } = await supabase.rpc('close_shift', {
+              p_shift_id: currentShift.id,
+              p_actual_cash: actualCash,
+              p_notes: notes
+          });
+          if (error) throw error;
+          
+          // --- المرحلة 3: توليد القيد المحاسبي المجمع تلقائياً ---
+          try {
+              await supabase.rpc('generate_shift_closing_entry', { p_shift_id: currentShift.id });
+          } catch (accErr) { console.error("Accounting entry failed:", accErr); }
+          // -----------------------------------------------------
+
+          setCurrentShift(null);
+          showToast('تم إغلاق الوردية بنجاح', 'success');
+          return true;
+      } catch (err: any) {
+          showToast('فشل إغلاق الوردية: ' + err.message, 'error');
+          return false;
+      }
+  };
+
   return (
     <AccountingContext.Provider value={{
       accounts,
@@ -4643,7 +4834,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addCustomersBulk: async (cs) => { setCustomers(prev => [...prev, ...cs.map(c => ({...c, id: generateUUID()}))]); },
       suppliers, addSupplier, updateSupplier, deleteSupplier, 
       addSuppliersBulk: (ss) => setSuppliers(prev => [...prev, ...ss.map(s => ({...s, id: generateUUID()}))]),
-      products, addProduct: (d) => setProducts(prev => [...prev, { ...d, id: generateUUID(), warehouseStock: {}, sales_price: d.price }]),
+      products, addProduct,
       updateProduct, 
       deleteProduct,
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
@@ -4709,6 +4900,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getInvoicesPaginated, getJournalEntriesPaginated,
       restoreItem, permanentDeleteItem, emptyRecycleBin,
       calculateProductPrice, clearTransactions, addOpeningBalanceTransaction,
+      currentShift,
+      startShift,
+      closeCurrentShift,
+      getCurrentShiftSummary,
+      processSplitPayment,
       checkSystemAccounts, createMissingSystemAccounts,
   addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher,
       isDemo: isDemoState

@@ -1,15 +1,15 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import type { Key } from 'react';
 import { useToast } from '../context/ToastContext';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import type { RestaurantTable, Product, OrderItem, SelectedModifier } from '../types';
-import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet } from 'lucide-react';
+import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from './PrintableInvoice';
 import { KitchenTicket } from './KitchenTicket';
 
 
-
+const DELIVERY_FEE = 15; // قيمة افتراضية لرسوم التوصيل
 
 export interface ActiveOrder {
   tableId: string;
@@ -17,6 +17,11 @@ export interface ActiveOrder {
   orderId?: string;
   tableName: string;
   items: OrderItem[];
+  type: 'dine-in' | 'takeaway' | 'delivery';
+  customer?: { id: string; name: string; phone?: string; address?: string };
+  deliveryFee?: number;
+  discount?: { type: 'percentage' | 'fixed'; value: number };
+  loyaltyDiscount?: { points: number; amount: number };
 }
 
 // Helper function to map category names to icons
@@ -160,7 +165,7 @@ const MenuItemCard = ({ item, onClick }: { item: Product; onClick: () => void })
   </div>
 );
 
-const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPayment, onPrintProforma, onTransfer, onMerge, isSubmitting }: { order: ActiveOrder | null; onUpdateItem: (productId: string, change: number) => void; onClearOrder: () => void; onAcceptOrder: () => void; onPayment: () => void; onPrintProforma: () => void; onTransfer: () => void; onMerge: () => void; isSubmitting: boolean; }) => {
+const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPayment, onPrintProforma, onTransfer, onMerge, isSubmitting, onSelectCustomer, onAddDiscount, onPayLater, onRedeemPoints }: { order: ActiveOrder | null; onUpdateItem: (itemId: string, change: number) => void; onClearOrder: () => void; onAcceptOrder: () => void; onPayment: () => void; onPrintProforma: () => void; onTransfer: () => void; onMerge: () => void; isSubmitting: boolean; onSelectCustomer: () => void; onAddDiscount: () => void; onPayLater: () => void; onRedeemPoints: () => void; }) => {
   const { settings } = useAccounting();
   const totals = useMemo(() => {
     if (!order || !order.items) return { subtotal: 0, tax: 0, total: 0 };
@@ -168,6 +173,24 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
     const tax = subtotal * ((settings.vatRate || 15) / 100);
     const total = subtotal + tax;
     return { subtotal, tax, total };
+  }, [order, settings.vatRate]); // This calculation needs to be updated to include discounts
+
+  const { customers } = useAccounting();
+  const customerDetails = useMemo(() => {
+      if (!order?.customer) return null;
+      return customers.find(c => c.id === order.customer.id);
+  }, [order, customers]);
+
+  const finalTotals = useMemo(() => {
+    if (!order) return { subtotal: 0, tax: 0, total: 0, discountAmount: 0 };
+    const subtotal = order.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+    const discountAmount = order.discount?.type === 'fixed' ? order.discount.value : subtotal * ((order.discount?.value || 0) / 100);
+    const subtotalAfterDiscount = subtotal - discountAmount;
+    const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
+    const subtotalAfterLoyalty = subtotalAfterDiscount - loyaltyDiscountAmount;
+    const tax = subtotalAfterLoyalty * ((settings.vatRate || 15) / 100);
+    const total = subtotalAfterLoyalty + tax + (order.deliveryFee || 0);
+    return { subtotal, tax, total, discountAmount };
   }, [order, settings.vatRate]);
 
   // حساب قيمة الأصناف الجديدة فقط التي سيتم إرسالها
@@ -189,13 +212,38 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
 
   return (
     <div className="bg-white rounded-lg shadow-sm h-full flex flex-col">
-      <div className="p-4 border-b flex justify-between items-center">
-        <h3 className="text-lg font-bold text-slate-800">فاتورة طاولة: {order.tableName}</h3>
+      <div className="p-4 border-b">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-bold text-slate-800">
+            {order.type === 'dine-in' && `فاتورة طاولة: ${order.tableName}`}
+            {order.type === 'takeaway' && `طلب سفري #${order.sessionId.slice(-4)}`}
+            {order.type === 'delivery' && `طلب توصيل`}
+          </h3>
         <button onClick={onClearOrder} className="text-xs text-red-500 hover:text-red-700 font-bold">إلغاء الطلب</button>
       </div>
+        {order.customer ? (
+          <div className="text-xs mt-2 bg-blue-50 text-blue-700 p-2 rounded-lg flex justify-between items-center">
+            <span className="font-bold">العميل: {order.customer.name}</span>
+            <div className="flex items-center gap-3">
+              {customerDetails && (
+                <>
+                  <span className="font-bold flex items-center gap-1"><Star size={12} className="text-amber-500"/> {(customerDetails as any).loyalty_points || 0} نقطة</span>
+                  <button onClick={onRedeemPoints} className="text-xs font-bold text-amber-600 hover:underline">استبدال</button>
+                </>
+              )}
+              <button onClick={onSelectCustomer} className="font-bold">تغيير</button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={onSelectCustomer} className="text-xs mt-2 text-blue-600 hover:underline flex items-center gap-1">
+            <User size={12} /> ربط الطلب بعميل
+          </button>
+        )}
+      </div>
+
       <div className="flex-1 p-2 overflow-y-auto space-y-2 min-h-0">
         {order.items?.map(item => (
-          <div key={item.productId} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
+          <div key={(item as any).localId || (item as any).id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
             <div className="flex-1">
               <div className="font-semibold text-sm">{item.name}</div>
               {item.selectedModifiers && item.selectedModifiers.length > 0 && (
@@ -207,20 +255,34 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
               <div className="text-xs text-slate-500">{(item.unitPrice).toFixed(2)}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => onUpdateItem(item.productId, -1)} className={`p-1 rounded-full ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-100 text-red-600'}`} disabled={item.savedQuantity ? item.quantity <= item.savedQuantity : false}><Minus size={12} /></button>
+              <button onClick={() => onUpdateItem((item as any).localId || (item as any).id, -1)} className={`p-1 rounded-full ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-100 text-red-600'}`} disabled={item.savedQuantity ? item.quantity <= item.savedQuantity : false}><Minus size={12} /></button>
               <span className="font-bold w-6 text-center">{item.quantity}</span>
               {item.savedQuantity && item.savedQuantity > 0 && <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded" title="تم طلبه مسبقاً">+{item.savedQuantity}</span>}
-              <button onClick={() => onUpdateItem(item.productId, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full hover:bg-emerald-200"><Plus size={12} /></button>
+              <button onClick={() => onUpdateItem((item as any).localId || (item as any).id, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full hover:bg-emerald-200"><Plus size={12} /></button>
             </div>
             <div className="font-bold w-20 text-left">{(item.unitPrice * item.quantity).toFixed(2)}</div>
           </div>
         ))}
       </div>
       <div className="p-4 border-t space-y-2">
-        <div className="flex justify-between text-sm"><span className="text-slate-500">المجموع الفرعي</span><span className="font-semibold">{totals.subtotal.toFixed(2)}</span></div>
-        <div className="flex justify-between text-sm"><span className="text-slate-500">الضريبة ({settings.vatRate || 15}%)</span><span className="font-semibold">{totals.tax.toFixed(2)}</span></div>
-        <div className="flex justify-between text-lg font-bold text-slate-800"><span >الإجمالي</span><span>{totals.total.toFixed(2)} SAR</span></div>
+        <div className="flex justify-between text-sm"><span className="text-slate-500">المجموع الفرعي</span><span className="font-semibold">{finalTotals.subtotal.toFixed(2)}</span></div>
+        {finalTotals.discountAmount > 0 && (
+          <div className="flex justify-between text-sm text-red-600"><span>الخصم</span><span className="font-semibold">-{finalTotals.discountAmount.toFixed(2)}</span></div>
+        )}
+        {order.loyaltyDiscount && order.loyaltyDiscount.amount > 0 && (
+          <div className="flex justify-between text-sm text-red-600"><span>خصم ولاء ({order.loyaltyDiscount.points} نقطة)</span><span className="font-semibold">-{order.loyaltyDiscount.amount.toFixed(2)}</span></div>
+        )}
+        {order.deliveryFee && (
+          <div className="flex justify-between text-sm"><span className="text-slate-500">رسوم التوصيل</span><span className="font-semibold">{order.deliveryFee.toFixed(2)}</span></div>
+        )}
+        <div className="flex justify-between text-sm"><span className="text-slate-500">الضريبة ({settings.vatRate || 15}%)</span><span className="font-semibold">{finalTotals.tax.toFixed(2)}</span></div>
+        <div className="flex justify-between text-lg font-bold text-slate-800"><span>الإجمالي</span><span>{finalTotals.total.toFixed(2)} SAR</span></div>
       </div>
+      <div className="p-2 border-t flex gap-2">
+        <button onClick={onAddDiscount} className="flex-1 text-xs bg-slate-100 text-slate-600 font-bold py-2 rounded-lg hover:bg-slate-200 flex items-center justify-center gap-1"><Percent size={14}/> خصم</button>
+        <button onClick={onPayLater} disabled={!order.customer} className="flex-1 text-xs bg-slate-100 text-slate-600 font-bold py-2 rounded-lg hover:bg-slate-200 flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"><CreditCard size={14}/> آجل</button>
+      </div>
+
       <div className="p-3 grid grid-cols-2 gap-2">
         <button 
             onClick={onMerge}
@@ -250,7 +312,7 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
         <button 
             onClick={onPayment}
             className="col-span-2 bg-emerald-600 text-white font-bold py-3 rounded-lg hover:bg-emerald-700 transition-colors text-base disabled:opacity-50" 
-            disabled={!order.orderId || hasNewItems}>
+            disabled={!order.orderId || hasNewItems || isSubmitting}>
           دفع وإغلاق
         </button>
       </div>
@@ -258,6 +320,28 @@ const OrderSummary = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPaym
   );
 };
 
+// --- Customer Selection Modal ---
+const CustomerModal = ({ isOpen, onClose, onSelect, customers }: { isOpen: boolean, onClose: () => void, onSelect: (customer: any) => void, customers: any[] }) => {
+  const [search, setSearch] = useState('');
+  if (!isOpen) return null;
+
+  const filteredCustomers = customers.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) || c.phone?.includes(search));
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
+        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
+          <h3 className="font-bold text-lg text-slate-800">اختيار عميل</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <input type="text" placeholder="بحث بالاسم أو رقم الهاتف..." value={search} onChange={e => setSearch(e.target.value)} className="w-full border rounded-lg p-2" />
+          <div className="max-h-60 overflow-y-auto space-y-2">{filteredCustomers.map(c => <div key={c.id} onClick={() => onSelect(c)} className="p-3 bg-slate-50 rounded-lg cursor-pointer hover:bg-blue-50">{c.name} - {c.phone}</div>)}</div>
+        </div>
+      </div>
+    </div>
+  );
+};
 // --- Add Table Modal Component ---
 const AddTableModal = ({ isOpen, onClose, onSave, sections }: { isOpen: boolean, onClose: () => void, onSave: (data: { name: string, capacity: number, section: string }) => void, sections: string[] }) => {
   const [name, setName] = useState('');
@@ -773,23 +857,35 @@ const PosScreen = () => {
   const [kitchenOrderToPrint, setKitchenOrderToPrint] = useState<{ tableName: string; items: any[] } | null>(null);
   const [modifierTarget, setModifierTarget] = useState<Product | null>(null);
   const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
+  const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [shiftSummary, setShiftSummary] = useState<any>(null);
   const [lastOrder, setLastOrder] = useState<ActiveOrder | null>(null);
 
   // --- Print Logic ---
   const printRef = useRef<HTMLDivElement>(null);
-  const printOptions = {
+
+  const handleAfterPrint = useCallback(() => {
+    // Reset the print state after printing is done to prevent re-triggering
+    setOrderToPrint(null);
+    setIsProformaPrint(false);
+  }, []);
+
+  const handlePrint = useReactToPrint({
     content: () => printRef.current,
     documentTitle: 'فاتورة', 
-  };
-  const handlePrint = useReactToPrint(printOptions);
+    onAfterPrint: handleAfterPrint,
+  } as any);
 
   const kitchenPrintRef = useRef<HTMLDivElement>(null);
-  const kitchenPrintOptions = {
+  const handleKitchenAfterPrint = useCallback(() => {
+    setKitchenOrderToPrint(null);
+  }, []);
+
+  const handleKitchenPrint = useReactToPrint({
     content: () => kitchenPrintRef.current,
     documentTitle: 'طلب مطبخ',
-  };
-  const handleKitchenPrint = useReactToPrint(kitchenPrintOptions);
+    onAfterPrint: handleKitchenAfterPrint,
+  } as any);
 
   useEffect(() => {
     if (menuCategories && menuCategories.length > 0 && !activeCategory) {
@@ -800,18 +896,36 @@ const PosScreen = () => {
   // Effect to trigger print when orderToPrint is set
   useEffect(() => {
     if (orderToPrint) {
-      handlePrint();
-      // إعادة تعيين وضع التجريبية بعد الطباعة
-      setTimeout(() => setIsProformaPrint(false), 500);
+      // We use a timeout to give React a moment to render the component
+      // with the new `orderToPrint` data and attach the ref.
+      const timeoutId = setTimeout(() => {
+        if (printRef.current) {
+          handlePrint();
+        } else {
+          console.error("Printing failed: component to print is not available.");
+          showToast("فشل الطباعة: المحتوى لم يكن جاهزاً.", "error");
+          setOrderToPrint(null); // Reset state if printing fails
+        }
+      }, 100);
+      return () => clearTimeout(timeoutId);
     }
-  }, [orderToPrint]);
+  }, [orderToPrint, handlePrint, showToast]);
 
   // تأثير لتشغيل طباعة المطبخ عند تجهيز البيانات
   useEffect(() => {
     if (kitchenOrderToPrint) {
-      handleKitchenPrint();
+      const timeoutId = setTimeout(() => {
+        if (kitchenPrintRef.current) {
+          handleKitchenPrint();
+        } else {
+          console.error("Kitchen printing failed: component to print is not available.");
+          showToast("فشل طباعة طلب المطبخ: المحتوى لم يكن جاهزاً.", "error");
+          setKitchenOrderToPrint(null); // Reset if it fails
+        }
+      }, 100);
+      return () => clearTimeout(timeoutId);
     }
-  }, [kitchenOrderToPrint]);
+  }, [kitchenOrderToPrint, handleKitchenPrint, showToast]);
 
   const clearOrder = () => {
     setActiveOrder(null);
@@ -828,30 +942,39 @@ const PosScreen = () => {
 
   const handleTableClick = async (table: RestaurantTable) => {
     if (table.status === 'AVAILABLE') {
-      const newSessionId = await openTableSession(table.id);
-      if (newSessionId) {
-        setActiveOrder({ tableId: table.id, sessionId: newSessionId, tableName: table.name, items: [] });
+      if (window.confirm(`هل تريد فتح جلسة جديدة على طاولة ${table.name}؟`)) {
+        const newSessionId = await openTableSession(table.id);
+        if (newSessionId) {
+          setActiveOrder({
+            tableId: table.id,
+            sessionId: newSessionId,
+            tableName: table.name,
+            items: [],
+            type: 'dine-in'
+          });
+        }
       }
     } else if (table.status === 'RESERVED') {
       const info = (table as any).reservation_info;
       if (window.confirm(`الطاولة محجوزة لـ ${info?.customerName || 'عميل'} الساعة ${info?.arrivalTime || '--:--'}. هل تريد بدء الجلسة الآن؟`)) {
         const newSessionId = await openTableSession(table.id);
         if (newSessionId) {
-          setActiveOrder({ tableId: table.id, sessionId: newSessionId, tableName: table.name, items: [] });
+          setActiveOrder({ tableId: table.id, sessionId: newSessionId, tableName: table.name, items: [], type: 'dine-in' });
         }
       } else if (window.confirm('هل تريد إلغاء هذا الحجز وتفريغ الطاولة؟')) {
         await cancelReservation(table.id);
       }
     } else {
       // في تطبيق حقيقي، هنا يتم جلب الطلب المفتوح لهذه الطاولة
-      const orderData = await getOpenTableOrder(table.id);
+      const orderData = await getOpenTableOrder(table.id); // This function now correctly fetches all items
       if (orderData) {
           setActiveOrder({
               tableId: table.id,
               sessionId: orderData.sessionId,
               orderId: orderData.orderId,
               tableName: table.name,
-              items: orderData.items
+              items: orderData.items,
+              type: 'dine-in'
           });
       } else {
           showToast('لا يوجد طلب نشط لهذه الطاولة، أو حدث خطأ في الجلب.', 'error');
@@ -859,6 +982,28 @@ const PosScreen = () => {
     }
   };
 
+  const handleNewTakeaway = () => {
+    const sessionId = `takeaway-${Date.now()}`;
+    setActiveOrder({
+      tableId: sessionId,
+      sessionId: sessionId,
+      tableName: 'سفري',
+      items: [],
+      type: 'takeaway'
+    });
+  };
+
+  const handleNewDelivery = () => {
+    const sessionId = `delivery-${Date.now()}`;
+    setActiveOrder({
+      tableId: sessionId,
+      sessionId: sessionId,
+      tableName: 'توصيل',
+      items: [],
+      type: 'delivery',
+      deliveryFee: DELIVERY_FEE
+    });
+  };
   const addItemToOrder = (product: Product) => {
     if (!activeOrder) {
       showToast('الرجاء تحديد طاولة أولاً', 'warning');
@@ -883,6 +1028,7 @@ const PosScreen = () => {
     setActiveOrder(prevOrder => {
         if (!prevOrder) return null;
         const newItems = [...prevOrder.items, {
+            localId: `local-${Date.now()}-${Math.random()}`, // Unique ID for client-side operations
             productId: modifierTarget.id,
             name: modifierTarget.name,
             quantity: 1,
@@ -898,11 +1044,11 @@ const PosScreen = () => {
     setModifierTarget(null);
   };
 
-  const updateOrderItem = (productId: string, change: number) => {
+  const updateOrderItem = (itemId: string, change: number) => {
     setActiveOrder(prevOrder => {
       if (!prevOrder) return null;
-      const newItems = prevOrder.items.map(item => {
-        if (item.productId === productId) {
+      const newItems = prevOrder.items.map((item: any) => {
+        if (item.localId === itemId || item.id === itemId) {
           // لا نسمح بتقليل الكمية عن الكمية المحفوظة مسبقاً (التي تم طلبها بالفعل)
           const minQty = item.savedQuantity ?? 0;
           const newQty = Math.max(minQty, item.quantity + change);
@@ -947,8 +1093,10 @@ const PosScreen = () => {
     setIsSubmitting(true);
     try {
       const newOrderId = await createRestaurantOrder({
-        sessionId: activeOrder.sessionId,
+        sessionId: activeOrder.type === 'dine-in' ? activeOrder.sessionId : null,
         items: itemsToSend,
+        orderType: activeOrder.type,
+        customerId: activeOrder.customer?.id || null,
       });
 
       if (newOrderId) {
@@ -1110,6 +1258,49 @@ const PosScreen = () => {
       setIsCloseShiftModalOpen(false);
     };
 
+  const handleRedeemPoints = () => {
+    if (!activeOrder || !activeOrder.customer) return;
+    const customer = useAccounting().customers.find(c => c.id === activeOrder.customer?.id);
+    if (!customer || !(customer as any).loyalty_points || (customer as any).loyalty_points <= 0) {
+      showToast('العميل ليس لديه نقاط.', 'info');
+      return;
+    }
+
+    const pointsToRedeemStr = prompt(`لدى العميل ${(customer as any).loyalty_points} نقطة. كم نقطة تريد استخدامها؟ (كل 10 نقاط = 1 ريال)`);
+    if (pointsToRedeemStr) {
+      const points = parseInt(pointsToRedeemStr);
+      if (isNaN(points) || points <= 0) {
+        showToast('الرجاء إدخال عدد نقاط صحيح.', 'warning');
+        return;
+      }
+      if (points > (customer as any).loyalty_points) {
+        showToast('رصيد العميل من النقاط غير كافٍ.', 'warning');
+        return;
+      }
+      const discountAmount = points / 10.0;
+      setActiveOrder({ ...activeOrder, loyaltyDiscount: { points, amount: discountAmount } });
+      showToast(`تم تطبيق خصم بقيمة ${discountAmount.toFixed(2)} ريال.`, 'success');
+    }
+  };
+
+  const handleSelectCustomer = (customer: any) => {
+    if (activeOrder) {
+      setActiveOrder({ ...activeOrder, customer: { id: customer.id, name: customer.name, phone: customer.phone, address: customer.address } });
+    }
+    setIsCustomerModalOpen(false);
+  };
+
+  const handleAddDiscount = () => {
+    if (!activeOrder) return;
+    const discountValue = prompt('أدخل قيمة الخصم (نسبة % أو مبلغ ثابت):');
+    if (discountValue) {
+      const value = parseFloat(discountValue);
+      const type = discountValue.includes('%') ? 'percentage' : 'fixed';
+      const finalValue = type === 'percentage' ? parseFloat(discountValue.replace('%', '')) : value;
+      setActiveOrder({ ...activeOrder, discount: { type, value: finalValue } });
+    }
+  };
+
     const handleReprintLast = () => {
       if (lastOrder) {
         setIsProformaPrint(false);
@@ -1150,14 +1341,23 @@ const PosScreen = () => {
         <section className="col-span-12 lg:col-span-4 h-full">
           <div className="p-4 bg-white rounded-lg shadow-sm h-full overflow-y-auto">
               <h3 className="text-lg font-bold mb-4 text-slate-700">الطاولات</h3>
-            <button onClick={handleAddTable} className="w-full mb-4 bg-green-50 text-green-700 border-2 border-dashed border-green-200 px-4 py-3 rounded-lg font-bold hover:bg-green-100 hover:border-green-300 transition-colors flex items-center justify-center gap-2">
-                <Plus size={18}/> إضافة طاولة
-            </button>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <button onClick={handleNewTakeaway} className="bg-amber-50 text-amber-700 border-2 border-dashed border-amber-200 px-4 py-3 rounded-lg font-bold hover:bg-amber-100 hover:border-amber-300 transition-colors flex items-center justify-center gap-2">
+                <Coffee size={18}/> طلب سفري
+              </button>
+              <button onClick={handleNewDelivery} className="bg-sky-50 text-sky-700 border-2 border-dashed border-sky-200 px-4 py-3 rounded-lg font-bold hover:bg-sky-100 hover:border-sky-300 transition-colors flex items-center justify-center gap-2">
+                <HardHat size={18}/> طلب توصيل
+              </button>
+              <button onClick={handleAddTable} className="col-span-2 bg-green-50 text-green-700 border-2 border-dashed border-green-200 px-4 py-3 rounded-lg font-bold hover:bg-green-100 hover:border-green-300 transition-colors flex items-center justify-center gap-2">
+                  <Plus size={18}/> إضافة طاولة
+              </button>
+            </div>
+
             {sections.map((section: string) => (
               <div key={section as Key} className="mb-6">
                 <h4 className="font-semibold text-slate-500 border-b pb-2 mb-3">{section}</h4>
 
-                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-4 gap-4">
                   {restaurantTables.filter(t => (t.section || 'عام') === section).map(table => (
                     <TableCard 
                       key={table.id} 
@@ -1217,7 +1417,12 @@ const PosScreen = () => {
             onPrintProforma={handlePrintProforma}
             onTransfer={() => setIsTransferModalOpen(true)}
             onMerge={() => setIsMergeModalOpen(true)}
-            isSubmitting={isSubmitting} />
+            isSubmitting={isSubmitting}
+            onSelectCustomer={() => setIsCustomerModalOpen(true)}
+            onAddDiscount={handleAddDiscount}
+            onPayLater={() => { /* Logic for pay later */ }}
+            onRedeemPoints={handleRedeemPoints}
+          />
         </section>
 
       </main>
@@ -1277,6 +1482,12 @@ const PosScreen = () => {
         onClose={() => setIsCloseShiftModalOpen(false)} 
         onConfirm={handleConfirmCloseShift}
         summary={shiftSummary}
+      />
+      <CustomerModal
+        isOpen={isCustomerModalOpen}
+        onClose={() => setIsCustomerModalOpen(false)}
+        onSelect={handleSelectCustomer}
+        customers={useAccounting().customers}
       />
 
       {/* Hidden component for printing */}

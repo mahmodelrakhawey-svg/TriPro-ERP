@@ -1,9 +1,9 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2 } from 'lucide-react';
+import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2, Tag, Percent, ImageIcon, UtensilsCrossed } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { z } from 'zod';
@@ -34,7 +34,7 @@ type Transaction = {
 
 const StockCard = () => {
   const navigate = useNavigate();
-  const { currentUser, warehouses, products, refreshData, updateProduct, users, recalculateStock } = useAccounting();
+  const { currentUser, warehouses, products, refreshData, updateProduct, users, recalculateStock, categories, getSystemAccount, accounts: contextAccounts } = useAccounting();
   const { showToast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
@@ -46,7 +46,27 @@ const StockCard = () => {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [editFormData, setEditFormData] = useState({ name: '', sales_price: 0, purchase_price: 0 });
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    sku: '',
+    barcode: '',
+    sales_price: 0,
+    purchase_price: 0,
+    unit: 'قطعة',
+    product_type: 'STOCK' as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
+    inventory_account_id: '',
+    cogs_account_id: '',
+    sales_account_id: '',
+    image_url: '',
+    category_id: null as string | null,
+    min_stock_level: 0,
+    expiry_date: '',
+    offer_price: 0,
+    offer_start_date: '',
+    offer_end_date: '',
+    offer_max_qty: 0,
+    available_modifiers: [] as any[]
+  });
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [priceHistory, setPriceHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -54,6 +74,19 @@ const StockCard = () => {
   const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
   const [openingFormData, setOpeningFormData] = useState({ warehouseId: '', quantity: 0, cost: 0 });
   const [existingOpeningId, setExistingOpeningId] = useState<string | null>(null);
+
+  // تصفية الحسابات من السياق العام لضمان التوافق
+  const accounts = {
+    assets: contextAccounts.filter(a => 
+      !a.isGroup && (String(a.type).toLowerCase() === 'asset')
+    ),
+    expenses: contextAccounts.filter(a => 
+      !a.isGroup && (String(a.type).toLowerCase() === 'expense')
+    ),
+    revenue: contextAccounts.filter(a => 
+      !a.isGroup && (String(a.type).toLowerCase() === 'revenue')
+    ),
+  };
   
   // جلب الحركات عند تغيير الصنف أو المستودع
   useEffect(() => {
@@ -354,10 +387,35 @@ const StockCard = () => {
 
   const openEditModal = () => {
       if (selectedProduct) {
+          const item = selectedProduct as any; // Cast to any to access all properties
+          const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
+          const defaultCogs = getSystemAccount('COGS')?.id || '';
+          const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
+
+          const inventoryAccId = accounts.assets.find(a => a.id === item.inventory_account_id) ? item.inventory_account_id : defaultInventory;
+          const cogsAccId = accounts.expenses.find(a => a.id === item.cogs_account_id) ? item.cogs_account_id : defaultCogs;
+          const salesAccId = accounts.revenue.find(a => a.id === item.sales_account_id) ? item.sales_account_id : defaultSales;
+
           setEditFormData({
-              name: selectedProduct.name,
-              sales_price: selectedProduct.sales_price || 0,
-              purchase_price: selectedProduct.purchase_price || 0
+              name: item.name || '',
+              sku: item.sku || '',
+              barcode: item.barcode || '',
+              sales_price: item.sales_price || 0,
+              purchase_price: item.purchase_price || 0,
+              unit: item.unit || 'قطعة',
+              product_type: item.product_type || item.item_type || 'STOCK',
+              inventory_account_id: inventoryAccId || '',
+              cogs_account_id: cogsAccId || '',
+              sales_account_id: salesAccId || '',
+              image_url: item.image_url || '',
+              category_id: item.category_id || null,
+              min_stock_level: item.min_stock_level || 0,
+              expiry_date: item.expiry_date || '',
+              offer_price: item.offer_price || 0,
+              offer_start_date: item.offer_start_date || '',
+              offer_end_date: item.offer_end_date || '',
+              offer_max_qty: item.offer_max_qty || 0,
+              available_modifiers: (item as any).available_modifiers || []
           });
           setIsEditModalOpen(true);
       }
@@ -366,30 +424,56 @@ const StockCard = () => {
   const handleSaveProduct = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!selectedProductId) return;
-      
+
       const productSchema = z.object({
           name: z.string().min(1, 'اسم الصنف مطلوب'),
           sales_price: z.number().min(0, 'سعر البيع يجب أن يكون 0 أو أكثر'),
           purchase_price: z.number().min(0, 'سعر التكلفة يجب أن يكون 0 أو أكثر')
+      }).refine(data => data.sales_price >= data.purchase_price, {
+          message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
+          path: ['sales_price']
       });
-      
+
       const productValidation = productSchema.safeParse(editFormData);
       if (!productValidation.success) {
           showToast(productValidation.error.issues[0].message, 'warning');
           return;
       }
-      
-      if (editFormData.sales_price < editFormData.purchase_price) {
-          if (!window.confirm(`تنبيه: سعر البيع (${editFormData.sales_price}) أقل من سعر التكلفة (${editFormData.purchase_price})! هل أنت متأكد من الحفظ؟`)) {
+
+      if (editFormData.product_type === 'STOCK') {
+          if (!editFormData.inventory_account_id || !editFormData.cogs_account_id || !editFormData.sales_account_id) {
+              showToast('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون, التكلفة, المبيعات) للأصناف المخزنية.', 'error');
               return;
           }
       }
-      
+
       try {
-          await updateProduct(selectedProductId, editFormData);
+          const itemData = {
+              name: editFormData.name,
+              sku: editFormData.sku || null,
+              barcode: editFormData.barcode || null,
+              sales_price: editFormData.sales_price,
+              purchase_price: editFormData.purchase_price,
+              product_type: editFormData.product_type,
+              inventory_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED') ? editFormData.inventory_account_id : null,
+              cogs_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED') ? editFormData.cogs_account_id : null,
+              sales_account_id: editFormData.sales_account_id,
+              image_url: editFormData.image_url,
+              category_id: editFormData.category_id || null,
+              is_active: true,
+              min_stock_level: editFormData.min_stock_level,
+              expiry_date: editFormData.expiry_date || null,
+              offer_price: editFormData.offer_price || null,
+              offer_start_date: editFormData.offer_start_date || null,
+              offer_end_date: editFormData.offer_end_date || null,
+              offer_max_qty: editFormData.offer_max_qty || null,
+              available_modifiers: editFormData.available_modifiers || []
+          };
+          await updateProduct(selectedProductId, itemData);
           showToast('تم تحديث بيانات الصنف بنجاح ✅', 'success');
           setIsEditModalOpen(false);
           await refreshData();
+          await fetchTransactions(); // Refresh the card data
       } catch (error: any) {
           showToast('فشل التحديث: ' + error.message, 'error');
       }
@@ -804,39 +888,145 @@ const StockCard = () => {
       {/* Edit Product Modal */}
       {isEditModalOpen && selectedProduct && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
-                <div className="flex justify-between items-center mb-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95">
+                <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
                     <h3 className="font-bold text-lg text-slate-800">تعديل بيانات الصنف</h3>
                     <button onClick={() => setIsEditModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
                 </div>
-                <form onSubmit={handleSaveProduct} className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1">اسم الصنف</label>
-                        <input 
-                            type="text" 
-                            required 
-                            value={editFormData.name} 
-                            onChange={e => setEditFormData({...editFormData, name: e.target.value})} 
-                            className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" 
-                        />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">سعر البيع</label>
-                            <input type="number" required min="0" step="0.01" value={editFormData.sales_price} onChange={e => setEditFormData({...editFormData, sales_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" />
+                <form onSubmit={handleSaveProduct} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+                    <div className="flex gap-4">
+                        <div className="w-24 flex-shrink-0">
+                            <div className="relative group cursor-pointer w-24 h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden">
+                                {editFormData.image_url ? (
+                                    <img src={editFormData.image_url} alt="Preview" className="w-full h-full object-cover" />
+                                ) : (
+                                    <ImageIcon className="text-slate-400 w-8 h-8" />
+                                )}
+                                <label className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-xl cursor-pointer">
+                                    <Upload size={20} />
+                                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" disabled={uploading} />
+                                </label>
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">سعر التكلفة</label>
-                            <input type="number" required min="0" step="0.01" value={editFormData.purchase_price} onChange={e => setEditFormData({...editFormData, purchase_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none" />
+                        <div className="flex-1 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold mb-1 text-slate-700">اسم الصنف <span className="text-red-500">*</span></label>
+                                <input required type="text" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">نوع الصنف</label>
+                                    <select value={editFormData.product_type} onChange={e => setEditFormData({...editFormData, product_type: e.target.value as any})} className="w-full border rounded-lg p-2 bg-white">
+                                        <option value="STOCK">مخزوني (بضاعة)</option>
+                                        <option value="SERVICE">خدمة (ليس لها مخزون)</option>
+                                        <option value="MANUFACTURED">وجبة مطعم (تُصنع عند الطلب)</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-2 md:col-span-1">
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">الكود (SKU)</label>
+                                    <input type="text" value={editFormData.sku} onChange={e => setEditFormData({...editFormData, sku: e.target.value})} className="w-full border rounded-lg p-2 font-mono" />
+                                </div>
+                                <div className="col-span-2 md:col-span-1">
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">الباركود</label>
+                                    <input type="text" value={editFormData.barcode} onChange={e => setEditFormData({...editFormData, barcode: e.target.value})} className="w-full border rounded-lg p-2 font-mono" placeholder="Scan..." />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">حد الطلب (للتنبيهات)</label>
+                                    <input type="number" min="0" value={editFormData.min_stock_level} onChange={e => setEditFormData({...editFormData, min_stock_level: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">تاريخ الصلاحية</label>
+                                    <input type="date" value={editFormData.expiry_date} onChange={e => setEditFormData({...editFormData, expiry_date: e.target.value})} className="w-full border rounded-lg p-2" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">التصنيف</label>
+                                    <select value={editFormData.category_id || ''} onChange={e => setEditFormData({...editFormData, category_id: e.target.value as any})} className="w-full border rounded-lg p-2 bg-white">
+                                        <option value="">-- بدون تصنيف --</option>
+                                        {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    {editFormData.sales_price < editFormData.purchase_price && (
-                        <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-bold flex items-center gap-2">
-                            <AlertTriangle size={16} />
-                            تنبيه: سعر البيع أقل من سعر التكلفة!
+                    <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
+                        <h4 className="font-bold text-yellow-800 mb-3 flex items-center gap-2"><Percent size={16}/> العروض والخصومات</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">سعر العرض</label><input type="number" min="0" value={editFormData.offer_price} onChange={e => setEditFormData({...editFormData, offer_price: parseFloat(e.target.value)})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" placeholder="0" /></div>
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">تاريخ البداية</label><input type="date" value={editFormData.offer_start_date} onChange={e => setEditFormData({...editFormData, offer_start_date: e.target.value})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" /></div>
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">تاريخ النهاية</label><input type="date" value={editFormData.offer_end_date} onChange={e => setEditFormData({...editFormData, offer_end_date: e.target.value})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" /></div>
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">الحد الأقصى (للعميل)</label><input type="number" min="0" value={editFormData.offer_max_qty} onChange={e => setEditFormData({...editFormData, offer_max_qty: parseFloat(e.target.value)})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" placeholder="0 (بلا حد)" /></div>
+                        </div>
+                    </div>
+                    {/* Modifiers for Restaurant Items */}
+                    {editFormData.product_type === 'MANUFACTURED' && (
+                        <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                        <h4 className="font-bold text-indigo-800 mb-3 flex items-center gap-2">
+                            <UtensilsCrossed size={16}/> الإضافات المتاحة (Modifiers)
+                        </h4>
+                        <div className="space-y-2">
+                            {editFormData.available_modifiers.map((mod, index) => (
+                            <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-5">
+                                <label className="text-xs font-bold text-slate-600">اسم الإضافة</label>
+                                <input type="text" value={mod.name} onChange={e => { const newMods = [...editFormData.available_modifiers]; newMods[index].name = e.target.value; setEditFormData({...editFormData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                                </div>
+                                <div className="col-span-3">
+                                <label className="text-xs font-bold text-slate-600">السعر</label>
+                                <input type="number" value={mod.price} onChange={e => { const newMods = [...editFormData.available_modifiers]; newMods[index].price = parseFloat(e.target.value); setEditFormData({...editFormData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                                </div>
+                                <div className="col-span-3">
+                                <label className="text-xs font-bold text-slate-600">التكلفة</label>
+                                <input type="number" value={mod.cost} onChange={e => { const newMods = [...editFormData.available_modifiers]; newMods[index].cost = parseFloat(e.target.value); setEditFormData({...editFormData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                                </div>
+                                <div className="col-span-1 self-end">
+                                <button type="button" onClick={() => setEditFormData({...editFormData, available_modifiers: editFormData.available_modifiers.filter((_, i) => i !== index)})} className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg">
+                                    <Trash2 size={16} />
+                                </button>
+                                </div>
+                            </div>
+                            ))}
+                        </div>
+                        <button type="button" onClick={() => setEditFormData({...editFormData, available_modifiers: [...editFormData.available_modifiers, { name: '', price: 0, cost: 0 }]})} className="mt-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                            <PlusCircle size={16} /> إضافة خيار جديد
+                        </button>
                         </div>
                     )}
-                    <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mt-2">
+                    <div className="grid grid-cols-2 gap-4 border-t pt-4">
+                        <div><label className="block text-sm font-bold mb-1 text-slate-700">سعر التكلفة (تقديري)</label><input type="number" value={editFormData.purchase_price} onChange={e => setEditFormData({...editFormData, purchase_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" /></div>
+                        <div><label className="block text-sm font-bold mb-1 text-slate-700">سعر البيع</label><input type="number" value={editFormData.sales_price} onChange={e => setEditFormData({...editFormData, sales_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" /></div>
+                    </div>
+                    {editFormData.sales_price < editFormData.purchase_price && (<div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-bold flex items-center gap-2 mt-2"><AlertTriangle size={16} /> تنبيه: سعر البيع أقل من سعر التكلفة!</div>)}
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mt-4">
+                        <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2"><AlertTriangle size={16}/> التوجيه المحاسبي (إلزامي)</h4>
+                        <div className="space-y-3">
+                            {(editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED') && (
+                                <>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-600 mb-1">حساب المخزون (أصول)</label>
+                                        <select required value={editFormData.inventory_account_id} onChange={e => setEditFormData({...editFormData, inventory_account_id: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                                            <option value="">-- اختر حساب المخزون --</option>
+                                            {accounts.assets.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-600 mb-1">حساب تكلفة البضاعة (مصروفات)</label>
+                                        <select required value={editFormData.cogs_account_id} onChange={e => setEditFormData({...editFormData, cogs_account_id: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                                            <option value="">-- اختر حساب التكلفة --</option>
+                                            {accounts.expenses.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                                        </select>
+                                    </div>
+                                </>
+                            )}
+                            <div>
+                                <label className="block text-xs font-bold text-slate-600 mb-1">حساب المبيعات (إيرادات)</label>
+                                <select required value={editFormData.sales_account_id} onChange={e => setEditFormData({...editFormData, sales_account_id: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
+                                    <option value="">-- اختر حساب الإيراد --</option>
+                                    {accounts.revenue.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 mt-4 disabled:opacity-50 shadow-md transition-all">
                         حفظ التعديلات
                     </button>
                 </form>

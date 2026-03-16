@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalEntry } from '../types';
 import { Edit, CheckCircle, FileText, Clock, Copy } from 'lucide-react';

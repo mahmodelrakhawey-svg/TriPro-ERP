@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
-import { Search, Plus, Trash2, Save, Loader2, UtensilsCrossed, Info, X } from 'lucide-react';
+import { Search, Plus, Trash2, Save, Loader2, UtensilsCrossed, Info, X, DollarSign } from 'lucide-react';
 
 interface Ingredient {
   raw_material_id: string;
   name: string;
   quantity_required: number;
   unit?: string;
+  cost?: number;
 }
 
 const RecipeManagement = ({ productId, productName, onClose }: { productId: string, productName: string, onClose: () => void }) => {
-  const { products } = useAccounting();
+  const { products, settings } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -31,7 +32,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
         .select(`
           raw_material_id,
           quantity_required,
-          raw_material:products!raw_material_id(name, unit)
+          raw_material:products!raw_material_id(name, unit, purchase_price, cost)
         `)
         .eq('product_id', productId);
 
@@ -42,7 +43,8 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
           raw_material_id: item.raw_material_id,
           name: item.raw_material.name,
           quantity_required: item.quantity_required,
-          unit: item.raw_material.unit
+          unit: item.raw_material.unit,
+          cost: item.raw_material.cost || item.raw_material.purchase_price || 0
         }));
         setIngredients(formatted);
       }
@@ -62,7 +64,8 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
       raw_material_id: product.id,
       name: product.name,
       quantity_required: 1,
-      unit: product.unit
+      unit: product.unit,
+      cost: product.cost || product.purchase_price || 0
     }]);
     setSearchTerm('');
   };
@@ -117,6 +120,10 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
     p.id !== productId &&
     !ingredients.some(i => i.raw_material_id === p.id)
   ).slice(0, 5);
+
+  const totalRecipeCost = useMemo(() => {
+    return ingredients.reduce((sum, ing) => sum + (ing.quantity_required * (ing.cost || 0)), 0);
+  }, [ingredients]);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
@@ -218,6 +225,14 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
                 </table>
               )}
             </div>
+          </div>
+
+          <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center">
+            <h4 className="font-bold text-blue-800 flex items-center gap-2">
+              <DollarSign size={16} />
+              التكلفة الإجمالية للوصفة
+            </h4>
+            <span className="text-lg font-black text-blue-700">{totalRecipeCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency}</span>
           </div>
 
           <div className="flex gap-3 pt-4 border-t">

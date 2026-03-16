@@ -113,9 +113,9 @@ import About from './components/About';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
+import GuestMenuLayout from './components/GuestMenuLayout';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
-import FreeReturnsReport from './modules/sales/FreeReturnsReport';
 import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
@@ -296,7 +296,6 @@ const MainLayout = () => {
                 <Route path="/sales-invoice" element={<SalesInvoiceForm />} />
                 <Route path="/invoices-list" element={<InvoiceList />} />
                 <Route path="/sales-return" element={<SalesReturnForm />} />
-                <Route path="/free-returns-report" element={<FreeReturnsReport />} />
                 <Route path="/customers" element={<CustomerManager />} />
                 <Route path="/customer-statement" element={<CustomerStatement />} />
                 <Route path="/customer-aging" element={<CustomerAgingReport />} />
@@ -421,7 +420,10 @@ const AppContent = () => {
   return (
     <HashRouter>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
-      {currentUser ? <MainLayout /> : <LandingPage />}
+      <Routes>
+        <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
+        <Route path="/*" element={currentUser ? <MainLayout /> : <LandingPage />} />
+      </Routes>
     </HashRouter>
   );
 };

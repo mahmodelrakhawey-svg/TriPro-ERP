@@ -86,7 +86,9 @@ const Sidebar = () => {
   const canAccessSales = hasAccess(['sales', 'customers']);
   const canAccessPurchases = hasAccess(['purchases', 'suppliers']);
   const canAccessInventory = hasAccess(['inventory', 'products']);
+  const canAccessRestaurant = hasAccess(['restaurant', 'pos', 'kds']);
   const canAccessAccounting = hasAccess(['journal_entries', 'accounting', 'reports']);
+  const canAccessAdvancedReports = hasAccess(['reports', 'analysis']);
   const canAccessHR = hasAccess(['hr']);
   const canAccessManufacturing = hasAccess(['manufacturing']);
   
@@ -111,28 +113,10 @@ const Sidebar = () => {
 
         {canAccessAccounting && (
             <>
-             {canShow(['reports', 'accounting'], ['ratio', 'analysis', 'report', 'read']) && (
-             <Link to="/financial-ratios" className={getNavClass('/financial-ratios')}>
-                <Gauge size={18} />
-                <span>التحليل المالي والنسب</span>
-            </Link>
-            )}
-            {canShow(['reports', 'accounting'], ['expense', 'analysis', 'report', 'read']) && (
-            <Link to="/expense-analysis" className={getNavClass('/expense-analysis')}>
-                <PieChart size={18} />
-                <span>تحليل المصروفات</span>
-            </Link>
-            )}
             {canShow(['accounting', 'budgets'], ['budget', 'create', 'read']) && (
             <Link to="/budget-setup" className={getNavClass('/budget-setup')}>
                 <Target size={18} />
                 <span>إعداد الموازنة</span>
-            </Link>
-            )}
-            {canShow(['accounting', 'budgets'], ['budget', 'report', 'read']) && (
-            <Link to="/budget-report" className={getNavClass('/budget-report')}>
-                <BarChartHorizontal size={18} />
-                <span>انحرافات الموازنة</span>
             </Link>
             )}
             </>
@@ -229,14 +213,6 @@ const Sidebar = () => {
                     <span className="whitespace-nowrap">المبيعات والعملاء</span>
                     <span className="w-full h-px bg-slate-200"></span>
                 </div>
-                <Link to="/pos" className={getNavClass('/pos')}>
-                    <Utensils size={18} />
-                    <span>نقطة البيع (POS)</span>
-                </Link>
-                <Link to="/kds" className={getNavClass('/kds')}>
-                    <MonitorSmartphone size={18} />
-                    <span>شاشة المطبخ (KDS)</span>
-                </Link>
                 {canShow(['sales'], ['create']) && (
                 <Link to="/quotations-new" className={getNavClass('/quotations-new')}>
                 <FileText size={18} />
@@ -304,21 +280,34 @@ const Sidebar = () => {
                 </Link>
                 )}
                 {canShow(['reports', 'sales'], ['read', 'view']) && (
-                <Link to="/reports/restaurant-sales" className={getNavClass('/reports/restaurant-sales')}>
-                    <Utensils size={18} />
-                    <span>تقرير مبيعات المطعم</span>
-                </Link>
-                )}
-                {canShow(['reports', 'sales'], ['read', 'view']) && (
                 <Link to="/offer-beneficiaries" className={getNavClass('/offer-beneficiaries')}>
                 <Percent size={18} />
                 <span>المستفيدين من العروض</span>
                 </Link>
                 )}
-                {canShow(['reports', 'sales'], ['read', 'view']) && (
-                <Link to="/item-sales-analysis" className={getNavClass('/item-sales-analysis')}>
-                <BarChart2 size={18} />
-                <span>تحليل مبيعات الأصناف</span>
+            </>
+        )}
+
+        {/* Restaurant Module */}
+        {(canAccessRestaurant || role === 'demo') && (
+            <>
+                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
+                    <span className="w-full h-px bg-slate-200"></span>
+                    <span className="whitespace-nowrap">مديول المطاعم</span>
+                    <span className="w-full h-px bg-slate-200"></span>
+                </div>
+                <Link to="/pos" className={getNavClass('/pos')}>
+                    <Utensils size={18} />
+                    <span>نقطة البيع (POS)</span>
+                </Link>
+                <Link to="/kds" className={getNavClass('/kds')}>
+                    <MonitorSmartphone size={18} />
+                    <span>شاشة المطبخ (KDS)</span>
+                </Link>
+                {canShow(['reports', 'restaurant'], ['read', 'view', 'sales']) && (
+                <Link to="/reports/restaurant-sales" className={getNavClass('/reports/restaurant-sales')}>
+                    <BarChart2 size={18} />
+                    <span>تقرير مبيعات المطعم</span>
                 </Link>
                 )}
             </>
@@ -398,18 +387,6 @@ const Sidebar = () => {
                 <span>تقارير المشتريات</span>
                 </Link>
                 )}
-                {canShow(['reports', 'purchases'], ['read', 'view']) && (
-                <Link to="/net-purchases-report" className={getNavClass('/net-purchases-report')}>
-                <BarChart2 size={18} />
-                <span>صافي المشتريات</span>
-                </Link>
-                )}
-                {canShow(['reports', 'purchases'], ['read', 'view']) && (
-                <Link to="/purchase-analysis" className={getNavClass('/purchase-analysis')}>
-                <BarChart2 size={18} />
-                <span>تحليل المشتريات</span>
-                </Link>
-                )}
             </>
         )}
 
@@ -425,12 +402,6 @@ const Sidebar = () => {
                 <Link to="/manufacturing" className={getNavClass('/manufacturing')}>
                     <Cog size={18} />
                     <span>التصنيع والإنتاج</span>
-                </Link>
-                )}
-                {canShow(['manufacturing', 'reports'], ['read']) && (
-                <Link to="/production-cost-analysis" className={getNavClass('/production-cost-analysis')}>
-                    <BarChart2 size={18} />
-                    <span>تحليل تكاليف الإنتاج</span>
                 </Link>
                 )}
             </>
@@ -653,12 +624,6 @@ const Sidebar = () => {
                 </Link>
                 )}
                 {canShow(['reports'], ['view', 'read']) && (
-                <Link to="/multi-currency-statement" className={getNavClass('/multi-currency-statement')}>
-                <FileText size={18} />
-                <span>كشف حساب (عملات)</span>
-                </Link>
-                )}
-                {canShow(['reports'], ['view', 'read']) && (
                 <Link to="/trial-balance-advanced" className={getNavClass('/trial-balance-advanced')}>
                 <Scale size={18} />
                 <span>ميزان المراجعة</span>
@@ -683,15 +648,15 @@ const Sidebar = () => {
                 </Link>
                 )}
                 {canShow(['reports'], ['view', 'read']) && (
-                <Link to="/cash-flow-report" className={getNavClass('/cash-flow-report')}>
-                <Wallet size={18} />
-                <span>حركة الصندوق والبنوك</span>
-                </Link>
-                )}
-                {canShow(['reports'], ['view', 'read']) && (
                 <Link to="/tax-return" className={getNavClass('/tax-return')}>
                 <Calculator size={18} />
                 <span>الإقرار الضريبي</span>
+                </Link>
+                )}
+                {canShow(['reports'], ['view', 'read']) && (
+                <Link to="/multi-currency-statement" className={getNavClass('/multi-currency-statement')}>
+                <FileText size={18} />
+                <span>كشف حساب (عملات)</span>
                 </Link>
                 )}
                 {canShow(['accounting', 'accounts'], ['read', 'view']) && (
@@ -704,6 +669,65 @@ const Sidebar = () => {
                 <Link to="/fiscal-year-closing" className={getNavClass('/fiscal-year-closing')}>
                 <Lock size={18} />
                 <span>إغلاق السنة المالية</span>
+                </Link>
+                )}
+            </>
+        )}
+
+        {/* Advanced Reports Module */}
+        {(canAccessAdvancedReports || role === 'demo') && (
+            <>
+                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
+                    <span className="w-full h-px bg-slate-200"></span>
+                    <span className="whitespace-nowrap">التقارير المتقدمة</span>
+                    <span className="w-full h-px bg-slate-200"></span>
+                </div>
+                {canShow(['reports', 'accounting'], ['ratio', 'analysis', 'report', 'read']) && (
+                <Link to="/financial-ratios" className={getNavClass('/financial-ratios')}>
+                    <Gauge size={18} />
+                    <span>التحليل المالي والنسب</span>
+                </Link>
+                )}
+                {canShow(['reports', 'accounting'], ['expense', 'analysis', 'report', 'read']) && (
+                <Link to="/expense-analysis" className={getNavClass('/expense-analysis')}>
+                    <PieChart size={18} />
+                    <span>تحليل المصروفات</span>
+                </Link>
+                )}
+                {canShow(['reports', 'sales'], ['read', 'view']) && (
+                <Link to="/item-sales-analysis" className={getNavClass('/item-sales-analysis')}>
+                    <BarChart2 size={18} />
+                    <span>تحليل مبيعات الأصناف</span>
+                </Link>
+                )}
+                {canShow(['reports', 'purchases'], ['read', 'view']) && (
+                <Link to="/purchase-analysis" className={getNavClass('/purchase-analysis')}>
+                    <BarChart2 size={18} />
+                    <span>تحليل المشتريات</span>
+                </Link>
+                )}
+                {canShow(['manufacturing', 'reports'], ['read']) && (
+                <Link to="/production-cost-analysis" className={getNavClass('/production-cost-analysis')}>
+                    <BarChart2 size={18} />
+                    <span>تحليل تكاليف الإنتاج</span>
+                </Link>
+                )}
+                {canShow(['reports', 'purchases'], ['read', 'view']) && (
+                <Link to="/net-purchases-report" className={getNavClass('/net-purchases-report')}>
+                    <BarChart2 size={18} />
+                    <span>صافي المشتريات</span>
+                </Link>
+                )}
+                {canShow(['reports'], ['view', 'read']) && (
+                <Link to="/performance-comparison" className={getNavClass('/performance-comparison')}>
+                    <BarChartHorizontal size={18} />
+                    <span>مقارنة الأداء</span>
+                </Link>
+                )}
+                {canShow(['accounting', 'budgets'], ['budget', 'report', 'read']) && (
+                <Link to="/budget-report" className={getNavClass('/budget-report')}>
+                    <BarChartHorizontal size={18} />
+                    <span>انحرافات الموازنة</span>
                 </Link>
                 )}
             </>

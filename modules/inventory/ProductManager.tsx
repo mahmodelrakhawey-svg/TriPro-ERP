@@ -1,5 +1,5 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap } from 'lucide-react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle } from 'lucide-react';
 import { supabase } from '../../services/supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -191,7 +191,8 @@ const ProductManager = () => {
     offer_price: 0,
     offer_start_date: '',
     offer_end_date: '',
-    offer_max_qty: 0
+    offer_max_qty: 0,
+    available_modifiers: [] as any[]
   });
 
   const handleOpenModal = (item?: Item) => {
@@ -225,7 +226,8 @@ const ProductManager = () => {
         offer_price: item.offer_price || 0,
         offer_start_date: item.offer_start_date || '',
         offer_end_date: item.offer_end_date || '',
-        offer_max_qty: item.offer_max_qty || 0
+        offer_max_qty: item.offer_max_qty || 0,
+        available_modifiers: (item as any).available_modifiers || []
       });
     } else {
       setEditingId(null);
@@ -253,7 +255,8 @@ const ProductManager = () => {
         offer_price: 0,
         offer_start_date: '',
         offer_end_date: '',
-        offer_max_qty: 0
+        offer_max_qty: 0,
+        available_modifiers: []
       });
     }
     setIsModalOpen(true);
@@ -489,7 +492,8 @@ const ProductManager = () => {
             offer_price: formData.offer_price || null,
             offer_start_date: formData.offer_start_date || null,
             offer_end_date: formData.offer_end_date || null,
-            offer_max_qty: formData.offer_max_qty || null
+            offer_max_qty: formData.offer_max_qty || null,
+            available_modifiers: formData.available_modifiers || []
         };
         await updateProduct(editingId, itemData);
       } else {
@@ -517,7 +521,8 @@ const ProductManager = () => {
           offer_price: formData.offer_price || null,
           offer_start_date: formData.offer_start_date || null,
           offer_end_date: formData.offer_end_date || null,
-          offer_max_qty: formData.offer_max_qty || null
+          offer_max_qty: formData.offer_max_qty || null,
+          available_modifiers: formData.available_modifiers || []
         };
 
         const newProduct = await addProduct(productPayload as any);
@@ -681,7 +686,8 @@ const ProductManager = () => {
         offer_start_date: newStart,
         offer_end_date: newEnd,
         category_id: item.category_id || null,
-        offer_max_qty: item.offer_max_qty || 0
+        offer_max_qty: item.offer_max_qty || 0,
+        available_modifiers: (item as any).available_modifiers || []
       });
       setIsModalOpen(true);
   };
@@ -1304,6 +1310,41 @@ const ProductManager = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Modifiers for Restaurant Items */}
+              {formData.product_type === 'MANUFACTURED' && (
+                <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                  <h4 className="font-bold text-indigo-800 mb-3 flex items-center gap-2">
+                    <UtensilsCrossed size={16}/> الإضافات المتاحة (Modifiers)
+                  </h4>
+                  <div className="space-y-2">
+                    {formData.available_modifiers.map((mod, index) => (
+                      <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                        <div className="col-span-5">
+                          <label className="text-xs font-bold text-slate-600">اسم الإضافة</label>
+                          <input type="text" value={mod.name} onChange={e => { const newMods = [...formData.available_modifiers]; newMods[index].name = e.target.value; setFormData({...formData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                        </div>
+                        <div className="col-span-3">
+                          <label className="text-xs font-bold text-slate-600">السعر</label>
+                          <input type="number" value={mod.price} onChange={e => { const newMods = [...formData.available_modifiers]; newMods[index].price = parseFloat(e.target.value); setFormData({...formData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                        </div>
+                        <div className="col-span-3">
+                          <label className="text-xs font-bold text-slate-600">التكلفة</label>
+                          <input type="number" value={mod.cost} onChange={e => { const newMods = [...formData.available_modifiers]; newMods[index].cost = parseFloat(e.target.value); setFormData({...formData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                        </div>
+                        <div className="col-span-1 self-end">
+                          <button type="button" onClick={() => setFormData({...formData, available_modifiers: formData.available_modifiers.filter((_, i) => i !== index)})} className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button type="button" onClick={() => setFormData({...formData, available_modifiers: [...formData.available_modifiers, { name: '', price: 0, cost: 0 }]})} className="mt-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                    <PlusCircle size={16} /> إضافة خيار جديد
+                  </button>
+                </div>
+              )}
 
               {/* حقل الرصيد الافتتاحي (يظهر فقط عند الإضافة) */}
               {!editingId && (formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (

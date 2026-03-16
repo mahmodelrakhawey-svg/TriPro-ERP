@@ -300,7 +300,7 @@ interface AccountingContextType {
   deleteWarehouse: (id: string, reason?: string) => Promise<void>;
   invoices: Invoice[];
   addInvoice: (invoice: any) => Promise<void>;
-  createRestaurantOrder: (orderData: { sessionId: string; items: any[] }) => Promise<string | null>;
+  createRestaurantOrder: (orderData: { sessionId: string | null; items: any[]; orderType: 'dine-in' | 'takeaway' | 'delivery'; customerId: string | null; }) => Promise<string | null>;
   addRestaurantOrderItem: (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => Promise<void>; // هذا لم يعد مستخدماً بشكل مباشر
   completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, treasuryAccountId: string) => Promise<void>;
   openTableSession: (tableId: string) => Promise<string | void>;
@@ -3535,10 +3535,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const createRestaurantOrder = async (orderData: { sessionId: string; items: any[] }) => {
-    // Handle Demo or Local Fallback sessions
-    // Prevents sending non-UUID session IDs to the database RPC which causes type errors
-    if (isDemoState || orderData.sessionId.startsWith('session-') || orderData.sessionId.startsWith('demo-')) {
+  const createRestaurantOrder = async (orderData: { sessionId: string | null; items: any[]; orderType: 'dine-in' | 'takeaway' | 'delivery'; customerId: string | null; }) => {
+    if (isDemoState) {
         showToast('تم إرسال الطلب للمطبخ بنجاح (محاكاة)', 'success');
         return `local-order-${Date.now()}`;
     }
@@ -3556,9 +3554,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { data, error } = await supabase.rpc('create_restaurant_order', {
             p_session_id: orderData.sessionId,
             p_user_id: currentUser.id,
-            p_order_type: 'DINE_IN',
+            p_order_type: orderData.orderType.toUpperCase(),
             p_notes: '', // Can be added later
-            p_items: orderData.items
+            p_items: orderData.items,
+            p_customer_id: orderData.customerId
         });
 
         if (error) throw error;
@@ -3609,12 +3608,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         });
         if (payErr) throw payErr;
 
-        // 3. ترحيل المبيعات محاسبياً using post_restaurant_sale_to_accounting
-        await supabase.rpc('post_restaurant_sale_to_accounting', {
-            p_order_id: orderId,
-            p_treasury_account_id: treasuryAccountId,
-            p_payment_method: paymentMethod
-        });
+        // 3. تم إلغاء الترحيل المحاسبي الفوري.
+        // سيتم إنشاء قيد مجمع عند إغلاق الوردية عبر دالة `generate_shift_closing_entry`.
+        // سيقوم الـ Trigger الموجود على جدول `orders` بمعالجة استهلاك المخزون تلقائياً.
 
         // 4. تحديث حالة الطلب
         await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);

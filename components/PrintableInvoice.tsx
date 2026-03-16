@@ -11,10 +11,15 @@ interface PrintableInvoiceProps {
 export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoiceProps>(({ order, settings, isProforma }, ref) => {
   if (!order) return null;
 
-  const subtotal = order.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+  const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0); // Use base price for subtotal
+  const modifiersTotal = order.items.reduce((sum, item) => sum + ((item.unitPrice - item.price) * item.quantity), 0);
+  const subtotalWithModifiers = subtotal + modifiersTotal;
+  const discountAmount = order.discount?.type === 'fixed' ? order.discount.value : subtotalWithModifiers * ((order.discount?.value || 0) / 100);
+  const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
+  const subtotalAfterDiscount = subtotalWithModifiers - discountAmount - loyaltyDiscountAmount;
   const taxRate = (settings as any).vatRate || 15;
-  const tax = subtotal * (taxRate / 100);
-  const total = subtotal + tax;
+  const tax = subtotalAfterDiscount * (taxRate / 100);
+  const total = subtotalAfterDiscount + tax + (order.deliveryFee || 0);
   const date = new Date().toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
   return (
@@ -79,10 +84,22 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
 
       {/* Totals */}
       <div className="border-t border-black pt-2 space-y-1">
-        <div className="flex justify-between">
+        <div className="flex justify-between font-semibold">
           <span>المجموع (غير شامل الضريبة):</span>
-          <span className="font-mono">{subtotal.toFixed(2)}</span>
+          <span className="font-mono">{subtotalWithModifiers.toFixed(2)}</span>
         </div>
+        {discountAmount > 0 && (
+          <div className="flex justify-between text-red-600">
+            <span>الخصم:</span>
+            <span className="font-mono">-{discountAmount.toFixed(2)}</span>
+          </div>
+        )}
+        {loyaltyDiscountAmount > 0 && (
+          <div className="flex justify-between text-red-600">
+            <span>خصم ولاء ({order.loyaltyDiscount?.points} نقطة):</span>
+            <span className="font-mono">-{loyaltyDiscountAmount.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span>ضريبة القيمة المضافة ({taxRate}%):</span>
           <span className="font-mono">{tax.toFixed(2)}</span>
