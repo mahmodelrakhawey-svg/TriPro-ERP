@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٦‏/٣‏/٢٠٢٦، ١١:١٠:٣٧ ص
+📅 تاريخ التحديث: ١٧‏/٣‏/٢٠٢٦، ٦:٤١:٠٦ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -121,6 +121,7 @@
     📄 ProductionCostAnalysis.tsx
     📄 Reports.tsx
     📄 RestaurantSalesReport.tsx
+    📄 SalesByUserReport.tsx
     📄 TaxReturnReport.tsx
   📁 sales/
     📄 backup.yml
@@ -152,6 +153,7 @@
   📄 DEPLOYMENT_STRATEGY.md
   📄 DraftJournalsList.tsx
   📄 FINAL_FEATURES_SUMMARY.md
+  📄 GuestMenuLayout.tsx
   📄 Header.tsx
   📄 index.ts
   📄 InvoiceItemsList.tsx
@@ -160,7 +162,9 @@
   📄 LandingPage.tsx
   📄 Login.tsx
   📄 Maintenance.tsx
+  📄 ModifierSelectionModal.tsx
   📄 NotificationCenter.tsx
+  📄 OrderSummary.tsx
   📄 PosScreen.tsx
   📄 PrintableInvoice.tsx
   📄 ProductStockViewer.tsx
@@ -179,6 +183,8 @@
   📁 migrations/
     📄 2026-01-25_create_restaurant_module.sql
     📄 2026-01-26_restaurant_functions.sql
+    📄 2026-01-27_restaurant_accounting_functions.sql
+    📄 2026-01-28_sales_reports.sql
     📄 2026-02-11_create_invoice_items.sql
     📄 2026-03-15_restaurant_accounting_integration.sql
     📄 2026-03-16_add_unit_to_products.sql
@@ -186,6 +192,7 @@
     📄 2026-03-16_update_product_type_constraint.sql
     📄 2026-03-17_inventory_consumption.sql
     📄 2026-03-18_shift_management.sql
+    📄 OrderSummary.tsx
   📄 accountService.ts
   📄 add_account_mappings.sql
   📄 add_created_by_columns.sql
@@ -226,6 +233,7 @@
   📄 invoiceItems.ts
   📄 link_returns_to_invoices.sql
   📄 master_setup.sql
+  📄 modifierService.ts
   📄 NotificationScheduler.ts
   📄 notificationService.ts
   📄 notificationTestUtils.ts
@@ -451,13 +459,14 @@ import About from './components/About';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
+import GuestMenuLayout from './components/GuestMenuLayout';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
-import FreeReturnsReport from './modules/sales/FreeReturnsReport';
 import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
 import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
+import SalesByUserReport from './modules/reports/SalesByUserReport';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -634,7 +643,6 @@ const MainLayout = () => {
                 <Route path="/sales-invoice" element={<SalesInvoiceForm />} />
                 <Route path="/invoices-list" element={<InvoiceList />} />
                 <Route path="/sales-return" element={<SalesReturnForm />} />
-                <Route path="/free-returns-report" element={<FreeReturnsReport />} />
                 <Route path="/customers" element={<CustomerManager />} />
                 <Route path="/customer-statement" element={<CustomerStatement />} />
                 <Route path="/customer-aging" element={<CustomerAgingReport />} />
@@ -702,6 +710,7 @@ const MainLayout = () => {
                 <Route path="/important-reports" element={<ImportantReports />} />
                 <Route path="/sales-reports" element={<SalesReports />} />
                 <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
+                <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
@@ -759,7 +768,10 @@ const AppContent = () => {
   return (
     <HashRouter>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
-      {currentUser ? <MainLayout /> : <LandingPage />}
+      <Routes>
+        <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
+        <Route path="/*" element={currentUser ? <MainLayout /> : <LandingPage />} />
+      </Routes>
     </HashRouter>
   );
 };
@@ -1086,7 +1098,7 @@ interface AccountingContextType {
   deleteWarehouse: (id: string, reason?: string) => Promise<void>;
   invoices: Invoice[];
   addInvoice: (invoice: any) => Promise<void>;
-  createRestaurantOrder: (orderData: { sessionId: string; items: any[] }) => Promise<string | null>;
+  createRestaurantOrder: (orderData: { sessionId: string | null; items: any[]; orderType: 'dine-in' | 'takeaway' | 'delivery'; customerId: string | null; }) => Promise<string | null>;
   addRestaurantOrderItem: (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => Promise<void>; // هذا لم يعد مستخدماً بشكل مباشر
   completeRestaurantOrder: (orderId: string, paymentMethod: 'CASH' | 'CARD' | 'WALLET' | 'SPLIT', amount: number, treasuryAccountId: string) => Promise<void>;
   openTableSession: (tableId: string) => Promise<string | void>;
@@ -4321,10 +4333,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const createRestaurantOrder = async (orderData: { sessionId: string; items: any[] }) => {
-    // Handle Demo or Local Fallback sessions
-    // Prevents sending non-UUID session IDs to the database RPC which causes type errors
-    if (isDemoState || orderData.sessionId.startsWith('session-') || orderData.sessionId.startsWith('demo-')) {
+  const createRestaurantOrder = async (orderData: { sessionId: string | null; items: any[]; orderType: 'dine-in' | 'takeaway' | 'delivery'; customerId: string | null; }) => {
+    if (isDemoState) {
         showToast('تم إرسال الطلب للمطبخ بنجاح (محاكاة)', 'success');
         return `local-order-${Date.now()}`;
     }
@@ -4342,9 +4352,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { data, error } = await supabase.rpc('create_restaurant_order', {
             p_session_id: orderData.sessionId,
             p_user_id: currentUser.id,
-            p_order_type: 'DINE_IN',
+            p_order_type: orderData.orderType.toUpperCase(),
             p_notes: '', // Can be added later
-            p_items: orderData.items
+            p_items: orderData.items,
+            p_customer_id: orderData.customerId
         });
 
         if (error) throw error;

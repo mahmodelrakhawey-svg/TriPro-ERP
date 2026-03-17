@@ -4,11 +4,14 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import type { RestaurantTable, Product, OrderItem, SelectedModifier } from '../types';
-import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star } from 'lucide-react';
+import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from './PrintableInvoice';
 import { KitchenTicket } from './KitchenTicket';
 import { OrderSummary, ActiveOrder } from './OrderSummary';
+import { ModifierSelectionModal } from './ModifierSelectionModal';
+import { QRCodeModal } from './QRCodeModal';
+import { BulkQRCodeModal } from './BulkQRCodeModal';
 
 
 const DELIVERY_FEE = 15; // قيمة افتراضية لرسوم التوصيل
@@ -24,7 +27,7 @@ const getCategoryIcon = (name: string) => {
 
 // --- المكونات الفرعية ---
 
-const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve }: { table: RestaurantTable; onClick: () => void; isActive: boolean, onDelete: () => void, onEdit: () => void, onReserve: () => void }) => {
+const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve, onQrCode }: { table: RestaurantTable; onClick: () => void; isActive: boolean, onDelete: () => void, onEdit: () => void, onReserve: () => void, onQrCode: () => void }) => {
   const statusStyles: { [key: string]: string } = {
     AVAILABLE: 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200',
     OCCUPIED: 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200',
@@ -40,6 +43,9 @@ const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve }: { 
       </div>
 
       <div className="flex mt-1 justify-between border-t-2 border-dashed p-2 text-[10px]">
+        <button onClick={onQrCode} className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1">
+          <QrCode size={12} /> QR
+        </button>
         <button onClick={onEdit} className="text-blue-500 hover:text-blue-700 font-bold">تعديل</button>
         {table.status === 'AVAILABLE' && <button onClick={onReserve} className="text-emerald-600 hover:text-emerald-800 font-bold">حجز</button>}
         {table.status !== 'OCCUPIED' && <button onClick={onDelete} className="text-red-500 hover:text-red-700 font-bold">حذف</button>}
@@ -47,57 +53,6 @@ const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve }: { 
     </div>
 
 
-  );
-};
-
-const ModifierModal = ({ isOpen, onClose, onConfirm, product }: { isOpen: boolean, onClose: () => void, onConfirm: (modifiers: SelectedModifier[], notes: string) => void, product: Product | null }) => {
-  const [selected, setSelected] = useState<SelectedModifier[]>([]);
-  const [notes, setNotes] = useState('');
-
-  const availableModifiers = useMemo(() => {
-    // في تطبيق حقيقي، يتم جلب هذه الخيارات من قاعدة البيانات بناءً على product.id
-    // هنا سنستخدم بيانات وهمية
-    if (!product) return [];
-    return (product as any).available_modifiers || [];
-  }, [product]);
-
-  if (!isOpen || !product) return null;
-
-  const toggleModifier = (mod: SelectedModifier) => {
-    setSelected(prev => 
-      prev.find(m => m.name === mod.name) 
-        ? prev.filter(m => m.name !== mod.name)
-        : [...prev, mod]
-    );
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95">
-        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-lg text-slate-800">خيارات: {product.name}</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
-        </div>
-        <div className="p-6 space-y-4">
-          {availableModifiers.length > 0 ? (
-            <div className="grid grid-cols-2 gap-2">
-              {availableModifiers.map((mod: SelectedModifier) => (
-                <button
-                  key={mod.name}
-                  onClick={() => toggleModifier(mod)}
-                  className={`p-3 rounded-lg border-2 text-right transition-all ${selected.find(m => m.name === mod.name) ? 'border-blue-600 bg-blue-50' : 'border-slate-100 hover:border-slate-200'}`}
-                >
-                  <div className="font-bold text-sm">{mod.name}</div>
-                  <div className="text-xs text-blue-600">+{mod.price} SAR</div>
-                </button>
-              ))}
-            </div>
-          ) : <p className="text-center text-sm text-slate-400">لا توجد إضافات معرفة لهذا الصنف.</p>}
-          <textarea placeholder="ملاحظات خاصة (مثل: بدون بصل)" className="w-full border rounded-lg p-2 text-sm h-20 outline-none focus:ring-1 focus:ring-blue-500" value={notes} onChange={e => setNotes(e.target.value)} />
-          <button onClick={() => onConfirm(selected, notes)} className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700">تأكيد الخيارات</button>
-        </div>
-      </div>
-    </div>
   );
 };
 
@@ -695,6 +650,8 @@ const PosScreen = () => {
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [shiftSummary, setShiftSummary] = useState<any>(null);
   const [lastOrder, setLastOrder] = useState<ActiveOrder | null>(null);
+  const [qrCodeTarget, setQrCodeTarget] = useState<{ table: RestaurantTable, key: string } | null>(null);
+  const [isBulkQrModalOpen, setIsBulkQrModalOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // --- Print Logic ---
@@ -902,6 +859,20 @@ const PosScreen = () => {
     }
   };
 
+  const handleGenerateQrCode = async (table: RestaurantTable) => {
+    try {
+      const { data, error } = await supabase.rpc('get_or_create_qr_for_table', {
+        p_table_id: table.id
+      });
+
+      if (error) throw error;
+
+      setQrCodeTarget({ table, key: data });
+    } catch (err: any) {
+      showToast('فشل إنشاء رمز QR: ' + err.message, 'error');
+    }
+  };
+
   const handleExternalOrderClick = async (orderId: string) => {
     try {
         const { data: order, error } = await supabase
@@ -974,18 +945,13 @@ const PosScreen = () => {
     setModifierTarget(product);
   };
 
-  const handleConfirmModifiers = (modifiers: SelectedModifier[], notes: string) => {
+  const handleConfirmModifiers = (modifiers: SelectedModifier[], totalPrice: number, totalUnitCost: number, notes: string) => {
     if (!modifierTarget || !activeOrder) return;
     
     const basePrice = modifierTarget.sales_price || modifierTarget.price || 0;
-    const baseCost = (modifierTarget as any).cost || 0; // تكلفة الصنف الأساسي من البيانات
-
-    const modifiersTotal = modifiers.reduce((sum, m) => sum + m.price, 0);
-    const modifiersCostTotal = modifiers.reduce((sum, m) => sum + m.cost, 0);
-
-    const unitPrice = Number(basePrice) + Number(modifiersTotal);
-    const unitCost = baseCost + modifiersCostTotal;
-
+    // تم استلام الإجماليات جاهزة من المودال (totalPrice و totalUnitCost)
+    // لا حاجة لإعادة الحساب هنا
+    
     setActiveOrder(prevOrder => {
         if (!prevOrder) return null;
         const newItems = [...prevOrder.items, {
@@ -993,9 +959,9 @@ const PosScreen = () => {
             productId: modifierTarget.id,
             name: modifierTarget.name,
             quantity: 1,
-            price: basePrice,
-            unitPrice: unitPrice,
-            unitCost: unitCost,
+            price: Number(basePrice),
+            unitPrice: totalPrice,
+            unitCost: totalUnitCost,
             notes: notes,
             selectedModifiers: modifiers,
             savedQuantity: 0
@@ -1089,6 +1055,9 @@ const PosScreen = () => {
             }
         }
       }
+    } catch (error: any) {
+      console.error(error);
+      showToast('خطأ في إرسال الطلب: ' + (error.message || 'حدث خطأ غير معروف'), 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -1326,8 +1295,11 @@ const PosScreen = () => {
               <button onClick={handleNewDelivery} className="bg-sky-50 text-sky-700 border-2 border-dashed border-sky-200 px-4 py-3 rounded-lg font-bold hover:bg-sky-100 hover:border-sky-300 transition-colors flex items-center justify-center gap-2">
                 <HardHat size={18}/> طلب توصيل جديد
               </button>
-              <button onClick={handleAddTable} className="col-span-2 bg-green-50 text-green-700 border-2 border-dashed border-green-200 px-4 py-3 rounded-lg font-bold hover:bg-green-100 hover:border-green-300 transition-colors flex items-center justify-center gap-2">
+              <button onClick={handleAddTable} className="bg-green-50 text-green-700 border-2 border-dashed border-green-200 px-4 py-3 rounded-lg font-bold hover:bg-green-100 hover:border-green-300 transition-colors flex items-center justify-center gap-2">
                   <Plus size={18}/> إضافة طاولة
+              </button>
+              <button onClick={() => setIsBulkQrModalOpen(true)} className="bg-indigo-50 text-indigo-700 border-2 border-dashed border-indigo-200 px-4 py-3 rounded-lg font-bold hover:bg-indigo-100 hover:border-indigo-300 transition-colors flex items-center justify-center gap-2">
+                  <QrCode size={18}/> طباعة كل الـ QR
               </button>
             </div>
 
@@ -1358,7 +1330,8 @@ const PosScreen = () => {
                       isActive={activeOrder?.tableId === table.id}
                       onDelete={() => handleDeleteTable(table)}
                       onEdit={() => handleEditTable(table)}
-                      onReserve={() => setReservationTarget(table)}/>
+                      onReserve={() => setReservationTarget(table)}
+                      onQrCode={() => handleGenerateQrCode(table)} />
                   ))}
                 </div>
               </div>
@@ -1418,11 +1391,30 @@ const PosScreen = () => {
         </section>
 
       </main>
-      <ModifierModal 
+      {modifierTarget && (
+      <ModifierSelectionModal 
         isOpen={!!modifierTarget}
         onClose={() => setModifierTarget(null)}
-        product={modifierTarget}
+        product={{ 
+            id: modifierTarget.id, 
+            name: modifierTarget.name, 
+            price: modifierTarget.sales_price || modifierTarget.price || 0, // استخدام سعر البيع الأساسي
+            cost: (modifierTarget as any).cost || 0 
+        }}
         onConfirm={handleConfirmModifiers}
+      />)}
+      {qrCodeTarget && (
+        <QRCodeModal
+          isOpen={!!qrCodeTarget}
+          onClose={() => setQrCodeTarget(null)}
+          tableName={qrCodeTarget.table.name}
+          qrKey={qrCodeTarget.key}
+        />
+      )}
+      <BulkQRCodeModal
+        isOpen={isBulkQrModalOpen}
+        onClose={() => setIsBulkQrModalOpen(false)}
+        tables={restaurantTables}
       />
       <ReservationModal 
         isOpen={!!reservationTarget}

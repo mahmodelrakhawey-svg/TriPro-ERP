@@ -1,159 +1,116 @@
-import React, { useState } from 'react';
-import { FileSpreadsheet, Search, Download, TrendingUp, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { BarChart3, Download, Printer, Loader2, Filter, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import ReportHeader from '../../components/ReportHeader';
 
-const RestaurantSalesReport = () => {
-    const { showToast } = useToast();
-    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
-    const [reportData, setReportData] = useState<any[]>([]);
-    const [loading, setLoading] = useState(false);
-
-    const fetchReport = async () => {
-        setLoading(true);
-        try {
-            // تحديد بداية ونهاية اليوم لضمان دقة التقرير
-            const start = `${startDate}T00:00:00`;
-            const end = `${endDate}T23:59:59`;
-
-            const { data, error } = await supabase.rpc('get_restaurant_sales_report', {
-                p_start_date: start,
-                p_end_date: end
-            });
-
-            if (error) throw error;
-            setReportData(data || []);
-            if (data && data.length === 0) showToast('لا توجد مبيعات في الفترة المحددة', 'info');
-        } catch (error: any) {
-            console.error('Error fetching report:', error);
-            showToast('فشل جلب التقرير: ' + error.message, 'error');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const exportToExcel = () => {
-        if (reportData.length === 0) return;
-
-        const ws = XLSX.utils.json_to_sheet(reportData.map(item => ({
-            'الصنف': item.product_name,
-            'التصنيف': item.category_name,
-            'الكمية المباعة': item.quantity_sold,
-            'إجمالي المبيعات': item.total_sales,
-            'إجمالي التكلفة': item.total_cost,
-            'مجمل الربح': item.gross_profit,
-            'هامش الربح %': item.profit_margin_percent
-        })));
-
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "تقرير مبيعات المطعم");
-        XLSX.writeFile(wb, `Restaurant_Sales_${startDate}_${endDate}.xlsx`);
-    };
-
-    // حساب الإجماليات لبطاقات الملخص
-    const totals = reportData.reduce((acc, item) => ({
-        sales: acc.sales + (item.total_sales || 0),
-        cost: acc.cost + (item.total_cost || 0),
-        profit: acc.profit + (item.gross_profit || 0)
-    }), { sales: 0, cost: 0, profit: 0 });
-
-    return (
-        <div className="p-6 space-y-6 animate-in fade-in" dir="rtl">
-            {/* Header & Controls */}
-            <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                <div>
-                    <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                        <TrendingUp className="text-emerald-600" /> تقرير ربحية الأصناف
-                    </h2>
-                    <p className="text-slate-500 text-sm">تحليل أداء المبيعات، التكاليف، وهوامش الربح لكل صنف.</p>
-                </div>
-                
-                <div className="flex items-end gap-2 bg-slate-50 p-2 rounded-lg border border-slate-200">
-                    <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">من تاريخ</label>
-                        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="border rounded-lg p-2 text-sm focus:outline-none focus:border-blue-500" />
-                    </div>
-                    <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">إلى تاريخ</label>
-                        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border rounded-lg p-2 text-sm focus:outline-none focus:border-blue-500" />
-                    </div>
-                    <button onClick={fetchReport} disabled={loading} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2 h-[38px] transition-colors">
-                        {loading ? 'جاري التحميل...' : <><Search size={16} /> عرض</>}
-                    </button>
-                    <button onClick={exportToExcel} disabled={reportData.length === 0} className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg font-bold hover:bg-emerald-100 flex items-center gap-2 h-[38px] disabled:opacity-50 transition-colors">
-                        <Download size={16} /> تصدير
-                    </button>
-                </div>
-            </div>
-
-            {/* Summary Cards */}
-            {reportData.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-white p-5 rounded-xl shadow-sm border-r-4 border-blue-500 flex flex-col justify-between">
-                        <p className="text-slate-500 text-sm font-bold">إجمالي المبيعات</p>
-                        <p className="text-3xl font-black text-slate-800 mt-2">{totals.sales.toLocaleString()} <span className="text-sm font-medium text-slate-400">SAR</span></p>
-                    </div>
-                    <div className="bg-white p-5 rounded-xl shadow-sm border-r-4 border-red-500 flex flex-col justify-between">
-                        <p className="text-slate-500 text-sm font-bold">إجمالي التكلفة (COGS)</p>
-                        <p className="text-3xl font-black text-slate-800 mt-2">{totals.cost.toLocaleString()} <span className="text-sm font-medium text-slate-400">SAR</span></p>
-                    </div>
-                    <div className="bg-white p-5 rounded-xl shadow-sm border-r-4 border-emerald-500 flex flex-col justify-between">
-                        <p className="text-slate-500 text-sm font-bold">صافي الربح</p>
-                        <div className="flex items-end gap-2 mt-2">
-                            <p className="text-3xl font-black text-emerald-600">{totals.profit.toLocaleString()} <span className="text-sm font-medium text-slate-400">SAR</span></p>
-                            <span className="text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full mb-1">
-                                هامش {totals.sales > 0 ? ((totals.profit / totals.sales) * 100).toFixed(1) : 0}%
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Data Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                <table className="w-full text-right">
-                    <thead className="bg-slate-50 text-slate-600 text-xs font-bold border-b border-slate-200">
-                        <tr>
-                            <th className="p-4 w-1/4">اسم الصنف</th>
-                            <th className="p-4">التصنيف</th>
-                            <th className="p-4 text-center">الكمية المباعة</th>
-                            <th className="p-4">إيراد المبيعات</th>
-                            <th className="p-4">التكلفة</th>
-                            <th className="p-4">الربح</th>
-                            <th className="p-4 text-center">النسبة %</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                        {reportData.map((item, idx) => (
-                            <tr key={idx} className="hover:bg-blue-50 transition-colors text-sm group">
-                                <td className="p-4 font-bold text-slate-800 group-hover:text-blue-700">{item.product_name}</td>
-                                <td className="p-4 text-slate-500">{item.category_name}</td>
-                                <td className="p-4 text-center font-mono font-bold bg-slate-50/50">{item.quantity_sold}</td>
-                                <td className="p-4 font-mono font-bold">{item.total_sales.toLocaleString()}</td>
-                                <td className="p-4 font-mono text-red-600">{item.total_cost.toLocaleString()}</td>
-                                <td className="p-4 font-mono font-bold text-emerald-600">{item.gross_profit.toLocaleString()}</td>
-                                <td className="p-4 text-center">
-                                    <span className={`px-2 py-1 rounded-md text-xs font-bold inline-block min-w-[50px] ${item.profit_margin_percent >= 30 ? 'bg-emerald-100 text-emerald-700' : item.profit_margin_percent > 0 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                                        {item.profit_margin_percent}%
-                                    </span>
-                                </td>
-                            </tr>
-                        ))}
-                        {reportData.length === 0 && (
-                            <tr>
-                                <td colSpan={7} className="p-12 text-center text-slate-400 flex flex-col items-center justify-center">
-                                    <FileSpreadsheet size={48} className="mb-2 opacity-20" />
-                                    <p>{loading ? 'جاري تحليل البيانات...' : 'حدد الفترة واضغط "عرض" لاستخراج التقرير'}</p>
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    );
+type ReportItem = {
+  item_name: string;
+  category_name: string;
+  quantity: number;
+  total_sales: number;
 };
 
+const RestaurantSalesReport = () => {
+  const { currentUser, settings } = useAccounting();
+  const { showToast } = useToast();
+  const [loading, setLoading] = useState(false);
+  const [reportData, setReportData] = useState<ReportItem[]>([]);
+  const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const fetchData = async () => {
+    setLoading(true);
+    if (currentUser?.role === 'demo') {
+        setReportData([
+            { item_name: 'بيتزا سوبريم', category_name: 'بيتزا', quantity: 50, total_sales: 2500 },
+            { item_name: 'برجر دجاج', category_name: 'سندوتشات', quantity: 30, total_sales: 1200 },
+            { item_name: 'بيبسي', category_name: 'مشروبات', quantity: 100, total_sales: 500 },
+        ]);
+        setLoading(false);
+        return;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('get_restaurant_sales_report', {
+        p_start_date: startDate,
+        p_end_date: endDate
+      });
+
+      if (error) throw error;
+      setReportData(data || []);
+    } catch (error: any) {
+      console.error('Error fetching report:', error);
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, [startDate, endDate]);
+
+  const handleExportExcel = () => {
+    const data = reportData.map(item => ({
+        'الصنف': item.item_name,
+        'القسم': item.category_name,
+        'الكمية المباعة': item.quantity,
+        'إجمالي المبيعات': item.total_sales
+    }));
+    
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Restaurant Sales");
+    XLSX.writeFile(wb, `Restaurant_Sales_${startDate}_to_${endDate}.xlsx`);
+  };
+
+  const totalSales = reportData.reduce((sum, item) => sum + (Number(item.total_sales) || 0), 0);
+  const totalQty = reportData.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+
+  return (
+    <div className="space-y-6 animate-in fade-in">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
+        <div>
+            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <BarChart3 className="text-blue-600" /> تقرير مبيعات المطعم
+            </h2>
+            <p className="text-slate-500">تحليل مبيعات الأصناف والوجبات خلال فترة محددة</p>
+        </div>
+        <div className="flex gap-2">
+            <button onClick={handleExportExcel} disabled={reportData.length === 0} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm disabled:opacity-50">
+                <Download size={16} /> تصدير Excel
+            </button>
+            <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 font-bold text-sm shadow-sm">
+                <Printer size={16} /> طباعة
+            </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 no-print">
+        <div className="flex flex-wrap items-end gap-4">
+            <div className="w-full md:w-auto"><label className="block text-sm font-bold text-slate-700 mb-1">من تاريخ</label><div className="relative"><Calendar className="absolute right-3 top-2.5 text-slate-400" size={18} /><input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full pr-10 pl-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500" /></div></div>
+            <div className="w-full md:w-auto"><label className="block text-sm font-bold text-slate-700 mb-1">إلى تاريخ</label><div className="relative"><Calendar className="absolute right-3 top-2.5 text-slate-400" size={18} /><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full pr-10 pl-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500" /></div></div>
+            <button onClick={fetchData} disabled={loading} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-bold shadow-md disabled:opacity-50 transition-all h-[42px]">{loading ? <Loader2 className="animate-spin" size={18} /> : <Filter size={18} />} تحديث</button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-none">
+        <div className="hidden print:block"><ReportHeader title="تقرير مبيعات المطعم" subtitle={`الفترة من ${startDate} إلى ${endDate}`} /></div>
+        <table className="w-full text-right text-sm">
+            <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200"><tr><th className="p-4 w-16 text-center">#</th><th className="p-4">الصنف</th><th className="p-4">القسم</th><th className="p-4 text-center">الكمية المباعة</th><th className="p-4 text-center">إجمالي المبيعات</th></tr></thead>
+            <tbody className="divide-y divide-slate-100">
+                {reportData.map((item, index) => (
+                    <tr key={index} className="hover:bg-slate-50 transition-colors"><td className="p-4 text-center font-bold text-slate-400">{index + 1}</td><td className="p-4 font-bold text-slate-800">{item.item_name}</td><td className="p-4 text-slate-500">{item.category_name}</td><td className="p-4 text-center font-bold text-blue-600">{(item.quantity || 0).toLocaleString()}</td><td className="p-4 text-center font-black text-emerald-600">{(item.total_sales || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td></tr>
+                ))}
+                {reportData.length === 0 && !loading && (<tr><td colSpan={5} className="p-8 text-center text-slate-400">لا توجد مبيعات خلال هذه الفترة</td></tr>)}
+            </tbody>
+            <tfoot className="bg-slate-100 font-bold text-lg border-t border-slate-200"><tr><td colSpan={3} className="p-4 text-left text-slate-600">الإجمالي الكلي:</td><td className="p-4 text-center text-blue-700">{totalQty.toLocaleString()}</td><td className="p-4 text-center text-emerald-700">{totalSales.toLocaleString(undefined, { minimumFractionDigits: 2 })} {settings?.currency || 'SAR'}</td></tr></tfoot>
+        </table>
+      </div>
+    </div>
+  );
+};
 export default RestaurantSalesReport;

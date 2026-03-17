@@ -5,8 +5,9 @@ import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle } from 'lucide-react';
 import { z } from 'zod';
+import { runRestaurantModuleTest } from '../utils/runRestaurantFlowTest';
 
 const ACCOUNT_LABELS: Record<string, string> = {
   CASH: 'النقدية (الصندوق الرئيسي)',
@@ -963,6 +964,21 @@ const Settings = () => {
                             className="bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md transition-all flex items-center gap-2"
                           >
                               <RotateCcw size={18} /> تنفيذ إعادة الضبط الآن
+                          </button>
+                      </div>
+
+                      {/* Demo Test Section */}
+                      <div className="bg-teal-50 border border-teal-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-teal-800 mb-4 flex items-center gap-2">
+                              <PlayCircle size={20} /> اختبار آلي للموديولات
+                          </h3>
+                          <p className="text-sm text-teal-700 mb-6">
+                              قم بتشغيل اختبارات شاملة للتأكد من أن جميع أجزاء النظام تعمل بشكل صحيح. ستظهر النتائج في لوحة التحكم (Console).
+                          </p>
+                          <button 
+                            onClick={runRestaurantModuleTest}
+                            className="flex items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 font-bold shadow-md transition-all">
+                              <PlayCircle size={18} /> تشغيل اختبار موديول المطاعم
                           </button>
                       </div>
                   </div>

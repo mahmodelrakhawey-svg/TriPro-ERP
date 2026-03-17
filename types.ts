@@ -265,26 +265,6 @@ export interface Product {
   offer_max_qty?: number;
 }
 
-// --- أنواع البيانات المحلية للطلب (نقلت من PosScreen.tsx) ---
-export interface SelectedModifier {
-  id?: string; // المعرف المرتبط بالصنف في المخزن (لربطه بالمكونات)
-  name: string;
-  price: number;
-  cost: number; // تكلفة المكونات الخاصة بهذه الإضافة
-}
-
-export interface OrderItem {
-  productId: string;
-  name: string;
-  quantity: number;
-  price: number; // السعر الأساسي
-  unitPrice: number; // السعر شامل الإضافات
-  unitCost: number; // التكلفة الإجمالية (الأساسي + الإضافات)
-  notes?: string;
-  selectedModifiers?: SelectedModifier[];
-  savedQuantity?: number;
-}
-
 export interface InvoiceItem {
   id: string;
   product_id?: string;
@@ -557,4 +537,49 @@ export interface MenuCategory {
   display_order: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface Modifier {
+  id: string;
+  name: string;
+  price: number;
+  cost: number;
+  modifier_group_id: string;
+  is_default: boolean;
+  display_order: number;
+}
+
+export interface ModifierGroup {
+  id: string;
+  name: string;
+  product_id: string;
+  selection_type: 'SINGLE' | 'MULTIPLE';
+  is_required: boolean;
+  min_selection: number;
+  max_selection: number | null;
+  display_order: number;
+  modifiers: Modifier[];
+}
+
+export interface SelectedModifier {
+  modifierId?: string; // Optional because legacy code might not use it immediately
+  id?: string;        // Legacy support
+  name: string;
+  price: number;
+  cost?: number;      // Legacy support for PosScreen logic
+  groupId?: string;
+  groupName?: string;
+}
+
+export interface OrderItem {
+  productId: string;
+  name: string;
+  quantity: number;
+  price: number;      // السعر الأساسي
+  unitPrice: number;  // السعر شامل الإضافات
+  unitCost: number;   // التكلفة الإجمالية
+  total?: number;
+  notes?: string;
+  selectedModifiers?: SelectedModifier[];
+  savedQuantity?: number;
 }

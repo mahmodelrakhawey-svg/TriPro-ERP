@@ -1,11 +1,12 @@
 ﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle } from 'lucide-react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
 import RecipeManagement from '../../components/RecipeManagement';
+import { ModifierManagement } from '../../components/ModifierManagement';
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
 
@@ -95,6 +96,7 @@ const ProductManager = () => {
   const [uploading, setUploading] = useState(false);
   const [reservedStock, setReservedStock] = useState<Record<string, number>>({});
   const [recipeTarget, setRecipeTarget] = useState<{id: string, name: string} | null>(null);
+  const [modifierTarget, setModifierTarget] = useState<{id: string, name: string} | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkOfferModalOpen, setIsBulkOfferModalOpen] = useState(false);
   const [bulkOfferData, setBulkOfferData] = useState({
@@ -1184,6 +1186,13 @@ const ProductManager = () => {
                 >
                   <UtensilsCrossed size={18} />
                 </button>
+                <button 
+                  onClick={() => setModifierTarget({ id: item.id, name: item.name })} 
+                  className="p-2 text-teal-600 hover:bg-teal-50 rounded" 
+                  title="إدارة الإضافات (Modifiers)"
+                >
+                  <Layers size={18} />
+                </button>
                   <button onClick={() => handlePrintBarcode(item)} className="p-2 text-slate-500 hover:bg-slate-100 rounded" title="طباعة باركود">
                       <Barcode size={18} />
                   </button>
@@ -1508,6 +1517,14 @@ const ProductManager = () => {
           productId={recipeTarget.id} 
           productName={recipeTarget.name} 
           onClose={() => setRecipeTarget(null)} 
+        />
+      )}
+
+      {modifierTarget && (
+        <ModifierManagement 
+          productId={modifierTarget.id} 
+          productName={modifierTarget.name} 
+          onClose={() => setModifierTarget(null)} 
         />
       )}
 

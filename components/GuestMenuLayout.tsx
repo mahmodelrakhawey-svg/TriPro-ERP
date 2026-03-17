@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star, Percent } from 'lucide-react';
+import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star, Percent, Layers } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { ModifierSelectionModal } from './ModifierSelectionModal';
+import type { SelectedModifier } from '../types';
 
 // --- Types ---
 type Product = {
@@ -14,6 +16,8 @@ type Product = {
   offer_price?: number | null;
   offer_start_date?: string | null;
   offer_end_date?: string | null;
+  has_modifiers?: boolean;
+  cost?: number;
 };
 
 type Category = {
@@ -27,9 +31,10 @@ type CartItem = {
   name: string;
   quantity: number;
   unitPrice: number;
+  basePrice: number;
   image_url: string | null;
   notes: string;
-
+  selectedModifiers: SelectedModifier[];
 };
 
 const isOfferActive = (item: Product) => {
@@ -50,14 +55,16 @@ const GuestMenuLayout = () => {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const { showToast } = useToast();
+  const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
+  const [productForModifiers, setProductForModifiers] = useState<Product | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         const [categoriesRes, productsRes] = await Promise.all([
-          supabase.from('menu_categories').select('*').order('display_order'),
-          supabase.from('products').select('*').eq('product_type', 'MANUFACTURED').eq('is_active', true)
+          supabase.from('menu_categories').select('id, name').order('display_order'),
+          supabase.from('products_with_modifiers_flag').select('id, name, sales_price, image_url, category_id, offer_price, offer_start_date, offer_end_date, has_modifiers, cost').eq('product_type', 'MANUFACTURED').eq('is_active', true)
         ]);
 
         if (categoriesRes.error) throw categoriesRes.error;
@@ -84,17 +91,43 @@ const GuestMenuLayout = () => {
   }, [products, selectedCategory]);
 
   const addToCart = (product: Product) => {
-    const price = isOfferActive(product) ? product.offer_price! : product.sales_price;
-     const newItem: CartItem = {
+    if (product.has_modifiers) {
+      setProductForModifiers(product);
+      setIsModifierModalOpen(true);
+    } else {
+      const price = isOfferActive(product) ? product.offer_price! : product.sales_price;
+      const newItem: CartItem = {
+        localId: `cart-item-${Date.now()}`,
+        id: product.id,
+        name: product.name,
+        quantity: 1,
+        unitPrice: price,
+        basePrice: product.sales_price,
+        image_url: product.image_url,
+        notes: '',
+        selectedModifiers: [],
+      };
+      setCart(prev => [...prev, newItem]);
+    }
+  };
+
+  const handleConfirmModifiers = (selectedModifiers: SelectedModifier[], totalPrice: number, totalUnitCost: number, notes: string) => {
+    if (!productForModifiers) return;
+
+    const newItem: CartItem = {
       localId: `cart-item-${Date.now()}`,
-      id: product.id,
-      name: product.name,
+      id: productForModifiers.id,
+      name: productForModifiers.name,
       quantity: 1,
-      unitPrice: price,
-      image_url: product.image_url,
-      notes: '', // Initialize with empty notes
+      unitPrice: totalPrice,
+      basePrice: productForModifiers.sales_price,
+      image_url: productForModifiers.image_url,
+      notes: notes,
+      selectedModifiers: selectedModifiers,
     };
-    setCart(prev => [...prev, newItem]); 
+    setCart(prev => [...prev, newItem]);
+    setIsModifierModalOpen(false);
+    setProductForModifiers(null);
   };
 
   const updateCart = (localId: string, change: number) => {
@@ -122,7 +155,12 @@ const updateItemNotes = (localId: string, newNotes: string) => {
           productId: item.id,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
-          notes: item.notes
+          notes: item.notes,
+          modifiers: item.selectedModifiers.map(m => ({
+            modifier_id: m.modifierId,
+            price_at_order: m.price,
+            quantity: 1
+          }))
         }))
       });
       if (error) throw error;
@@ -169,6 +207,20 @@ const updateItemNotes = (localId: string, newNotes: string) => {
       {cart.length > 0 && <FloatingCartButton cart={cart} onOpenCart={() => setIsCartOpen(true)} total={cartTotal} />}
 
       <CartModal isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cart={cart} onUpdate={updateCart} onUpdateNotes={updateItemNotes} onSendOrder={sendOrder} isSending={isSending} total={cartTotal} />
+
+      {productForModifiers && (
+        <ModifierSelectionModal
+          isOpen={isModifierModalOpen}
+          onClose={() => setIsModifierModalOpen(false)}
+          product={{
+            id: productForModifiers.id,
+            name: productForModifiers.name,
+            price: productForModifiers.sales_price,
+            cost: productForModifiers.cost || 0
+          }}
+          onConfirm={handleConfirmModifiers}
+        />
+      )}
     </div>
   );
 };
@@ -188,6 +240,11 @@ const MenuItemCard = ({ item, onAddToCart }: { item: Product, onAddToCart: () =>
         {offer && (
           <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 animate-pulse">
             <Percent size={12} /> عرض
+          </div>
+        )}
+        {item.has_modifiers && (
+          <div className="absolute bottom-2 right-2 bg-slate-800/70 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 backdrop-blur-sm">
+            <Layers size={10} /> تخصيص
           </div>
         )}
       </div>
@@ -240,6 +297,11 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, 
                                 )}
                                 <div className="flex-1">
                                     <p className="font-bold text-sm text-slate-800">{item.name}</p>
+                                    {item.selectedModifiers && item.selectedModifiers.length > 0 && (
+                                      <div className="text-[10px] text-blue-600 font-medium mt-1">
+                                        {item.selectedModifiers.map(m => m.name).join(', ')}
+                                      </div>
+                                    )}
                                     <p className="font-black text-blue-600 text-sm">{item.unitPrice.toFixed(2)} SAR</p>
                                 </div>
                                 <div className="flex items-center gap-2">
