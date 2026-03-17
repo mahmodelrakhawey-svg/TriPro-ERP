@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ActiveOrder } from './PosScreen';
+import type { ActiveOrder } from './OrderSummary';
 import type { SystemSettings } from '../types';
 
 interface PrintableInvoiceProps {
@@ -32,10 +32,10 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
       
       {/* Header */}
       <div className="text-center border-b-2 border-black pb-2 mb-2">
-        {(settings as any).logoUrl && <img src={(settings as any).logoUrl} alt="Logo" className="w-20 h-auto mx-auto mb-2 grayscale" />}
-        <h2 className="text-lg font-bold">{(settings as any).companyName}</h2>
-        <p>{(settings as any).address}</p>
-        <p>الرقم الضريبي: <span dir="ltr" className="font-mono">{(settings as any).taxNumber}</span></p>
+        {(settings as any).logoUrl && <img src={(settings as any).logoUrl} alt="Logo" className="w-24 h-auto mx-auto mb-2 object-contain" />}
+        <h2 className="text-xl font-black mb-1">{(settings as any).companyName}</h2>
+        <p className="text-[10px] mb-1">{(settings as any).address}</p>
+        <p className="font-bold border border-black inline-block px-2 rounded-md">الرقم الضريبي: <span dir="ltr" className="font-mono">{(settings as any).taxNumber}</span></p>
       </div>
       
       {/* Invoice Info */}
@@ -115,7 +115,8 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
         <div className="mx-auto w-24 h-24 border-2 border-black flex items-center justify-center mb-2">
           <span className="text-[8px] text-center">QR Code Area<br/>(ZATCA Compatible)</span>
         </div>
-        <p>{(settings as any).footerText || 'شكراً لزيارتكم!'}</p>
+        <p className="font-bold text-sm">{(settings as any).footerText || 'شكراً لزيارتكم!'}</p>
+        <p className="text-[8px] mt-1">يرجى الاحتفاظ بالفاتورة للاستبدال أو الاسترجاع</p>
       </div>
     </div>
   );

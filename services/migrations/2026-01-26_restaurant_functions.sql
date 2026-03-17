@@ -7,6 +7,11 @@
 -- تأكد من وجود التسلسل
 CREATE SEQUENCE IF NOT EXISTS public.order_number_seq START 1;
 
+-- حذف الدالة القديمة (ذات 5 معاملات) إذا كانت موجودة لمنع التضارب
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, order_type, text, jsonb);
+-- حذف النسخة المتعارضة التي تسبب الخطأ PGRST203 (التي تبدأ بمعرف العميل)
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, jsonb, text, order_type, uuid, uuid);
+
 -- دالة لإنشاء طلب مطعم متكامل (رأس وتفاصيل وطلبات مطبخ)
 -- تضمن هذه الدالة أن جميع العمليات تتم كوحدة واحدة (Transactional)
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
@@ -14,7 +19,8 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_user_id uuid,
     p_order_type order_type,
     p_notes text,
-    p_items jsonb -- e.g., '[{"product_id": "uuid", "quantity": 2, "unit_price": 15.50, "notes": "extra cheese"}]'
+    p_items jsonb, -- e.g., '[{"product_id": "uuid", "quantity": 2, "unitPrice": 15.50, "unitCost": 5.00, "notes": "extra cheese"}]'
+    p_customer_id uuid
 )
 RETURNS uuid -- returns the new order_id
 LANGUAGE plpgsql
@@ -39,24 +45,25 @@ BEGIN
     v_order_number := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || nextval('public.order_number_seq');
 
     -- 2. إنشاء رأس الطلب الرئيسي
-    INSERT INTO public.orders (order_number, order_type, session_id, user_id, status, notes, subtotal, total_tax, grand_total)
-    VALUES (v_order_number, p_order_type, p_session_id, p_user_id, 'CONFIRMED', p_notes, 0, 0, 0)
+    INSERT INTO public.orders (order_number, order_type, session_id, user_id, customer_id, status, notes, subtotal, total_tax, grand_total)
+    VALUES (v_order_number, p_order_type, p_session_id, p_user_id, p_customer_id, 'CONFIRMED', p_notes, 0, 0, 0)
     RETURNING id INTO new_order_id;
 
     -- 3. إضافة بنود الطلب وبنود المطبخ
     FOR item IN SELECT * FROM jsonb_array_elements(p_items)
     LOOP
-        -- نستخدم product_id و unitPrice ليتطابق مع ما يرسله ال Frontend
+        -- نستخدم product_id, unitPrice, unitCost ليتطابق مع ما يرسله ال Frontend
         -- ونحاول إضافة modifiers إذا كان العمود موجوداً (يتم التعامل مع الخطأ داخل قاعدة البيانات أو افتراض وجود العمود)
         -- ملاحظة: الكود أدناه يفترض وجود عمود modifiers، إذا لم يكن موجوداً يرجى إضافته للجدول order_items
         INSERT INTO public.order_items (
-            order_id, product_id, quantity, unit_price, total_price, notes, modifiers
+            order_id, product_id, quantity, unit_price, unit_cost, total_price, notes, modifiers
         )
         VALUES (
             new_order_id, 
             (item->>'product_id')::uuid, 
             (item->>'quantity')::int, 
             (item->>'unitPrice')::numeric, 
+            COALESCE((item->>'unitCost')::numeric, 0), -- حفظ التكلفة مع قيمة افتراضية
             (item->>'quantity')::int * (item->>'unitPrice')::numeric, 
             item->>'notes',
             item->'modifiers'

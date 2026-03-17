@@ -310,6 +310,12 @@ const Sidebar = () => {
                     <span>تقرير مبيعات المطعم</span>
                 </Link>
                 )}
+                {canShow(['reports', 'restaurant', 'sales'], ['read', 'view']) && (
+                <Link to="/reports/sales-by-user" className={getNavClass('/reports/sales-by-user')}>
+                    <Users size={18} />
+                    <span>مبيعات الكاشير</span>
+                </Link>
+                )}
             </>
         )}
 

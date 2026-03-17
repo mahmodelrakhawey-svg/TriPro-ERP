@@ -120,6 +120,7 @@ import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
 import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
+import SalesByUserReport from './modules/reports/SalesByUserReport';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -363,6 +364,7 @@ const MainLayout = () => {
                 <Route path="/important-reports" element={<ImportantReports />} />
                 <Route path="/sales-reports" element={<SalesReports />} />
                 <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
+                <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />

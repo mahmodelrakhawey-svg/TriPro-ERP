@@ -220,12 +220,16 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     product_id UUID NOT NULL REFERENCES public.products(id), -- Menu Item
     quantity INT NOT NULL CHECK (quantity > 0),
     unit_price NUMERIC(10, 2) NOT NULL,
+    unit_cost NUMERIC(10, 2) DEFAULT 0.00 NOT NULL,
     total_price NUMERIC(10, 2) NOT NULL,
     notes TEXT,
     modifiers JSONB, -- عمود لتخزين الإضافات (مثل: زيادة جبن)
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL
 );
 COMMENT ON TABLE public.order_items IS 'Individual items within an order.';
+
+-- Ensure unit_cost column exists if table was already created
+ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS unit_cost NUMERIC(10, 2) DEFAULT 0.00 NOT NULL;
 
 -- جدول طلبات المطبخ (لشاشة KDS)
 CREATE TABLE IF NOT EXISTS public.kitchen_orders (

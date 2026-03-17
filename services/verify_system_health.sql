@@ -59,6 +59,30 @@ BEGIN
         RAISE NOTICE '❌ خطأ: جدول إعدادات الشركة فارغ!';
     END IF;
 
+    -- 5. فحص وحدة المطاعم (Restaurant Module)
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '5️⃣ فحص وحدة المطاعم:';
+    
+    SELECT count(*) INTO v_count FROM information_schema.tables 
+    WHERE table_schema = 'public' 
+    AND table_name IN ('restaurant_tables', 'orders', 'order_items', 'kitchen_orders');
+    
+    IF v_count >= 4 THEN
+        RAISE NOTICE '✅ جداول المطعم الأساسية موجودة.';
+    ELSE
+        RAISE NOTICE '❌ تنبيه: جداول المطعم ناقصة!';
+    END IF;
+
+    -- التحقق من وجود عمود unit_cost
+    PERFORM 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'order_items' AND column_name = 'unit_cost';
+    
+    IF FOUND THEN
+        RAISE NOTICE '✅ عمود unit_cost موجود في جدول order_items.';
+    ELSE
+        RAISE NOTICE '❌ خطأ حرج: عمود unit_cost غير موجود! يرجى تشغيل ملف create_restaurant_module.sql مرة أخرى.';
+    END IF;
+
     RAISE NOTICE '--------------------------------------------------';
     RAISE NOTICE '🏁 انتهى الفحص.';
 END $$;
