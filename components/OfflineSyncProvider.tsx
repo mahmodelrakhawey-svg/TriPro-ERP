@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { offlineService, db } from '../services/offlineService';
-import { Wifi, WifiOff, UploadCloud, AlertCircle, Loader2 } from 'lucide-react';
+import { Wifi, WifiOff, UploadCloud, AlertCircle, Loader2, Trash2 } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 export const OfflineSyncProvider = () => {
@@ -45,6 +45,18 @@ export const OfflineSyncProvider = () => {
     };
   }, [showToast, isSyncing]);
 
+  const clearQueue = async () => {
+    if (window.confirm('⚠️ هل أنت متأكد من حذف الطلبات المعلقة؟\nالطلبات القديمة قد تكون غير صالحة وتسبب مشاكل في المزامنة.\nسيتم حذفها نهائياً.')) {
+      try {
+        await db.queuedOrders.clear();
+        showToast('تم تنظيف قائمة الانتظار بنجاح.', 'success');
+      } catch (error) {
+        console.error(error);
+        showToast('فشل حذف القائمة.', 'error');
+      }
+    }
+  };
+
   if (pendingCount === 0 && isOnline) {
     return null;
   }
@@ -61,6 +73,9 @@ export const OfflineSyncProvider = () => {
           <>
             <AlertCircle className="text-amber-500" size={20} />
             <span className="text-amber-700">توجد {pendingCount} عمليات معلقة.</span>
+            <button onClick={clearQueue} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors" title="حذف الطلبات المعلقة">
+                <Trash2 size={16} />
+            </button>
           </>
         ) : (
           <></> // Don't show if synced
@@ -69,6 +84,11 @@ export const OfflineSyncProvider = () => {
         <>
           <WifiOff className="text-red-500" size={20} />
           <span className="text-red-700">أنت غير متصل. ({pendingCount} طلب محفوظ)</span>
+          {pendingCount > 0 && (
+            <button onClick={clearQueue} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors" title="حذف الطلبات المعلقة">
+                <Trash2 size={16} />
+            </button>
+          )}
         </>
       )}
     </div>

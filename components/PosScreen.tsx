@@ -629,7 +629,7 @@ const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary }: { isOpen: bool
 
 
 const PosScreen = () => {
-  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo } = useAccounting();
+  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dine-in');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -728,7 +728,7 @@ const PosScreen = () => {
           showToast("فشل الطباعة: المحتوى لم يكن جاهزاً.", "error");
           setOrderToPrint(null); // Reset state if printing fails
         }
-      }, 100);
+      }, 500);
       return () => clearTimeout(timeoutId);
     }
   }, [orderToPrint, handlePrint, showToast]);
@@ -744,7 +744,7 @@ const PosScreen = () => {
           showToast("فشل طباعة طلب المطبخ: المحتوى لم يكن جاهزاً.", "error");
           setKitchenOrderToPrint(null); // Reset if it fails
         }
-      }, 100);
+      }, 500);
       return () => clearTimeout(timeoutId);
     }
   }, [kitchenOrderToPrint, handleKitchenPrint, showToast]);
@@ -1010,11 +1010,20 @@ const PosScreen = () => {
       .filter(item => item.quantity > (item.savedQuantity || 0))
       .map(item => ({
         product_id: item.productId,
+        productId: item.productId, // إرسال الصيغتين لضمان التوافق
         quantity: item.quantity - (item.savedQuantity || 0),
-        unitPrice: item.unitPrice,
-        unitCost: item.unitCost,
+        unit_price: Number(item.unitPrice) || 0,
+        unitPrice: Number(item.unitPrice) || 0,
+        unit_cost: Number(item.unitCost) || 0,
+        unitCost: Number(item.unitCost) || 0,
         notes: item.notes,
-        modifiers: item.selectedModifiers,
+        modifiers: (item.selectedModifiers || []).map(m => ({
+          modifier_id: m.modifierId,
+          name: m.name,
+          price: Number(m.price) || 0,
+          price_at_order: Number(m.price) || 0, // إضافة هذا الحقل قد يكون مطلوباً
+          cost: Number(m.cost) || 0
+        })),
       }));
 
     if (itemsToSend.length === 0) {
@@ -1036,14 +1045,17 @@ const PosScreen = () => {
        // --- OFFLINE MODE CHANGE ---
        const payload = {
          p_session_id: activeOrder.type === 'dine-in' ? activeOrder.sessionId : null,
-         p_order_id: activeOrder.orderId, // Pass existing orderId for updates
          p_items: itemsToSend,
-         p_order_type: activeOrder.type,
+         p_order_type: activeOrder.type === 'dine-in' ? 'DINE_IN' : activeOrder.type.toUpperCase(),
          p_customer_id: activeOrder.customer?.id || null,
+         p_user_id: currentUser?.id || null,
+         p_notes: null,
        };
  
-       await offlineService.queueOrder(payload);
-       showToast('تم حفظ الطلب وسيتم إرساله للمطبخ تلقائياً.', 'info');
+       // BYPASS OFFLINE QUEUE: Send directly to Supabase
+       const { error } = await supabase.rpc('create_restaurant_order', payload);
+       if (error) throw error;
+       showToast('تم إرسال الطلب للمطبخ بنجاح ✅', 'success');
  
        // Optimistic UI Update
        setKitchenOrderToPrint({
@@ -1066,7 +1078,7 @@ const PosScreen = () => {
  
      } catch (error: any) {
        console.error(error);
-       showToast('خطأ في إضافة الطلب إلى قائمة الانتظار: ' + (error.message || 'حدث خطأ غير معروف'), 'error');
+       showToast('فشل إرسال الطلب: ' + (error.message || 'تحقق من الاتصال بالإنترنت'), 'error');
      } finally {
        setIsSubmitting(false);
      }
