@@ -316,6 +316,12 @@ const Sidebar = () => {
                     <span>مبيعات الكاشير</span>
                 </Link>
                 )}
+                {canShow(['reports', 'restaurant', 'inventory'], ['read', 'view']) && (
+                <Link to="/reports/wastage-analysis" className={getNavClass('/reports/wastage-analysis')}>
+                    <Trash2 size={18} className="text-red-500" />
+                    <span>تحليل الهدر</span>
+                </Link>
+                )}
             </>
         )}
 

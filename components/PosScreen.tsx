@@ -8,6 +8,7 @@ import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Searc
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from './PrintableInvoice';
 import { KitchenTicket } from './KitchenTicket';
+import { offlineService } from '../services/offlineService';
 import { OrderSummary, ActiveOrder } from './OrderSummary';
 import { ModifierSelectionModal } from './ModifierSelectionModal';
 import { QRCodeModal } from './QRCodeModal';
@@ -748,6 +749,19 @@ const PosScreen = () => {
     }
   }, [kitchenOrderToPrint, handleKitchenPrint, showToast]);
 
+  // --- Customer Display Sync ---
+  useEffect(() => {
+    try {
+      if (activeOrder) {
+        localStorage.setItem('tripro-customer-display-order', JSON.stringify(activeOrder));
+      } else {
+        localStorage.removeItem('tripro-customer-display-order');
+      }
+    } catch (e) {
+      console.error("Could not write to localStorage for customer display", e);
+    }
+  }, [activeOrder]);
+
   const handlePaymentClick = useCallback(() => {
     if (!activeOrder?.orderId) return;
     setIsPaymentModalOpen(true);
@@ -1019,48 +1033,43 @@ const PosScreen = () => {
 
     setIsSubmitting(true);
     try {
-      const newOrderId = await createRestaurantOrder({
-        sessionId: activeOrder.type === 'dine-in' ? activeOrder.sessionId : null,
-        items: itemsToSend,
-        orderType: activeOrder.type,
-        customerId: activeOrder.customer?.id || null,
-      });
-
-      if (newOrderId) {
-        setKitchenOrderToPrint({
-          tableName: activeOrder.tableName,
-          items: kitchenItems,
-        });
-      if (activeOrder.type === 'dine-in') {
-            const updatedOrderData = await getOpenTableOrder(activeOrder.tableId);
-            if (updatedOrderData) {
-                setActiveOrder({
-                    ...activeOrder,
-                    orderId: updatedOrderData.orderId || newOrderId,
-                    items: updatedOrderData.items,
-                });
-            } else {
-                setActiveOrder(null);
-            }
-        } else { // For takeaway or delivery
-            const updatedOrderData = await getOrderById(newOrderId);
-            if (updatedOrderData) {
-                setActiveOrder({
-                    ...activeOrder,
-                    orderId: updatedOrderData.orderId,
-                    items: updatedOrderData.items,
-                });
-            } else {
-                setActiveOrder(null);
-            }
-        }
-      }
-    } catch (error: any) {
-      console.error(error);
-      showToast('خطأ في إرسال الطلب: ' + (error.message || 'حدث خطأ غير معروف'), 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
+       // --- OFFLINE MODE CHANGE ---
+       const payload = {
+         p_session_id: activeOrder.type === 'dine-in' ? activeOrder.sessionId : null,
+         p_order_id: activeOrder.orderId, // Pass existing orderId for updates
+         p_items: itemsToSend,
+         p_order_type: activeOrder.type,
+         p_customer_id: activeOrder.customer?.id || null,
+       };
+ 
+       await offlineService.queueOrder(payload);
+       showToast('تم حفظ الطلب وسيتم إرساله للمطبخ تلقائياً.', 'info');
+ 
+       // Optimistic UI Update
+       setKitchenOrderToPrint({
+         tableName: activeOrder.tableName,
+         items: kitchenItems,
+       });
+ 
+       // Update the local state to reflect the "saved" quantity
+       const newItems = activeOrder.items.map(item => ({
+         ...item,
+         savedQuantity: item.quantity,
+       }));
+ 
+       setActiveOrder(prev => {
+         if (!prev) return null;
+         // If it's a new order, we don't have an orderId yet, but that's okay.
+         // The UI will just show the items as saved.
+         return { ...prev, items: newItems };
+       });
+ 
+     } catch (error: any) {
+       console.error(error);
+       showToast('خطأ في إضافة الطلب إلى قائمة الانتظار: ' + (error.message || 'حدث خطأ غير معروف'), 'error');
+     } finally {
+       setIsSubmitting(false);
+     }
   };
 
     const handlePrintProforma = () => {

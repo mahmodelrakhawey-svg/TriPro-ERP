@@ -121,6 +121,9 @@ import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
 import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
 import SalesByUserReport from './modules/reports/SalesByUserReport';
+import WastageAnalysisReport from './modules/reports/WastageAnalysisReport'; // تأكد من أن الملف في هذا المسار
+import { OfflineSyncProvider } from './components/OfflineSyncProvider';
+import CustomerDisplay from './components/CustomerDisplay';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -264,6 +267,7 @@ const MainLayout = () => {
                 <DemoWelcomeModal />
                 <DemoTour />
                 <DemoWatermark />
+                <OfflineSyncProvider />
                 <PrintHeader />
                 <div className="print:hidden">
                     <Header />
@@ -365,6 +369,7 @@ const MainLayout = () => {
                 <Route path="/sales-reports" element={<SalesReports />} />
                 <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
                 <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
+                <Route path="/reports/wastage-analysis" element={<WastageAnalysisReport />} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
@@ -423,6 +428,7 @@ const AppContent = () => {
     <HashRouter>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
       <Routes>
+        <Route path="/customer-display" element={<CustomerDisplay />} />
         <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
         <Route path="/*" element={currentUser ? <MainLayout /> : <LandingPage />} />
       </Routes>

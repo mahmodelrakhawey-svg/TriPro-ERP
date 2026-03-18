@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
-import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star, Percent, Layers } from 'lucide-react';
+import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star, Percent, Layers, CreditCard, Lock, CheckCircle } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { ModifierSelectionModal } from './ModifierSelectionModal';
 import type { SelectedModifier } from '../types';
@@ -57,6 +57,7 @@ const GuestMenuLayout = () => {
   const { showToast } = useToast();
   const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
   const [productForModifiers, setProductForModifiers] = useState<Product | null>(null);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -206,7 +207,17 @@ const updateItemNotes = (localId: string, newNotes: string) => {
 
       {cart.length > 0 && <FloatingCartButton cart={cart} onOpenCart={() => setIsCartOpen(true)} total={cartTotal} />}
 
-      <CartModal isOpen={isCartOpen} onClose={() => setIsCartOpen(false)} cart={cart} onUpdate={updateCart} onUpdateNotes={updateItemNotes} onSendOrder={sendOrder} isSending={isSending} total={cartTotal} />
+      <CartModal 
+        isOpen={isCartOpen} 
+        onClose={() => setIsCartOpen(false)} 
+        cart={cart} 
+        onUpdate={updateCart} 
+        onUpdateNotes={updateItemNotes} 
+        onSendOrder={sendOrder} 
+        onPayOnline={() => { setIsCartOpen(false); setIsPaymentModalOpen(true); }}
+        isSending={isSending} 
+        total={cartTotal} 
+      />
 
       {productForModifiers && (
         <ModifierSelectionModal
@@ -221,6 +232,16 @@ const updateItemNotes = (localId: string, newNotes: string) => {
           onConfirm={handleConfirmModifiers}
         />
       )}
+
+      <GuestPaymentModal 
+        isOpen={isPaymentModalOpen} 
+        onClose={() => setIsPaymentModalOpen(false)} 
+        total={cartTotal}
+        onSuccess={async () => {
+            setIsPaymentModalOpen(false);
+            await sendOrder();
+        }} 
+      />
     </div>
   );
 };
@@ -271,11 +292,12 @@ interface CartModalProps {
   onUpdate: (localId: string, change: number) => void;
   onUpdateNotes: (localId: string, newNotes: string) => void;
   onSendOrder: () => void;
+  onPayOnline: () => void;
   isSending: boolean;
   total: number;
 }
 
-const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, onUpdateNotes, onSendOrder, isSending, total }) => {
+const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, onUpdateNotes, onSendOrder, onPayOnline, isSending, total }) => {
     if (!isOpen) return null;
 
     return (
@@ -322,18 +344,28 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, 
                 </div>
 
                 <div className="p-4 border-t bg-slate-50 space-y-4">
-                    <div className="flex justify-between items-center text-lg font-bold">
+                    <div className="flex justify-between items-center text-lg font-bold mb-2">
                         <span>الإجمالي</span>
                         <span>{total.toFixed(2)} SAR</span>
                     </div>
-                    <button
-                        onClick={onSendOrder}
-                        disabled={isSending}
-                        className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-4 rounded-2xl shadow-lg shadow-blue-200 hover:opacity-90 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                        {isSending ? <Loader2 className="animate-spin" /> : <Send size={20} />}
-                        {isSending ? 'جاري الإرسال...' : 'إرسال الطلب للمطبخ'}
-                    </button>
+                    
+                    <div className="grid gap-3">
+                        <button
+                            onClick={onPayOnline}
+                            disabled={isSending}
+                            className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-slate-800 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            <CreditCard size={20} /> الدفع أونلاين (Apple Pay / بطاقة)
+                        </button>
+                        <button
+                            onClick={onSendOrder}
+                            disabled={isSending}
+                            className="w-full bg-white text-blue-600 border-2 border-blue-100 font-bold py-3.5 rounded-xl hover:bg-blue-50 transition-opacity flex items-center justify-center gap-2 disabled:opacity-50"
+                        >
+                            {isSending ? <Loader2 className="animate-spin" /> : <Send size={20} />}
+                            {isSending ? 'جاري الإرسال...' : 'الدفع عند الاستلام (كاش)'}
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -362,6 +394,87 @@ const FloatingCartButton = ({ cart, onOpenCart, total }: { cart: CartItem[], onO
           {total.toFixed(2)} SAR
         </div>
       </button>
+    </div>
+  );
+};
+
+interface GuestPaymentModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  total: number;
+  onSuccess: () => void;
+}
+
+const GuestPaymentModal: React.FC<GuestPaymentModalProps> = ({ isOpen, onClose, total, onSuccess }) => {
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<'form' | 'success'>('form');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    // Simulate payment processing
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    setLoading(false);
+    setStep('success');
+    setTimeout(() => {
+        onSuccess();
+    }, 1500);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4 backdrop-blur-sm" onClick={onClose} dir="rtl">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+        {step === 'form' ? (
+            <form onSubmit={handleSubmit} className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                        <CreditCard className="text-blue-600" /> الدفع الآمن
+                    </h3>
+                    <button type="button" onClick={onClose}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                
+                <div className="bg-slate-50 p-4 rounded-xl mb-6 text-center border border-slate-100">
+                    <p className="text-slate-500 text-xs font-bold mb-1">المبلغ الإجمالي</p>
+                    <p className="text-3xl font-black text-slate-800">{total.toFixed(2)} SAR</p>
+                </div>
+
+                <div className="space-y-4 mb-6">
+                    <div>
+                        <label className="block text-xs font-bold text-slate-600 mb-1">رقم البطاقة</label>
+                        <div className="relative">
+                            <input type="text" placeholder="0000 0000 0000 0000" className="w-full border rounded-lg px-4 py-3 pl-10 dir-ltr text-left font-mono focus:ring-2 ring-blue-500 outline-none transition-all" required />
+                            <Lock className="absolute left-3 top-3.5 text-slate-400 w-4 h-4" />
+                        </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">تاريخ الانتهاء</label>
+                            <input type="text" placeholder="MM/YY" className="w-full border rounded-lg px-4 py-3 text-center font-mono focus:ring-2 ring-blue-500 outline-none transition-all" required />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">CVC</label>
+                            <input type="text" placeholder="123" className="w-full border rounded-lg px-4 py-3 text-center font-mono focus:ring-2 ring-blue-500 outline-none transition-all" required />
+                        </div>
+                    </div>
+                </div>
+
+                <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-200">
+                    {loading ? <Loader2 className="animate-spin" /> : <Lock size={18} />}
+                    {loading ? 'جاري المعالجة...' : `دفع ${total.toFixed(2)} SAR`}
+                </button>
+            </form>
+        ) : (
+            <div className="p-8 text-center">
+                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-in zoom-in">
+                    <CheckCircle className="w-10 h-10 text-green-600" />
+                </div>
+                <h3 className="text-xl font-black text-slate-800 mb-2">تم الدفع بنجاح!</h3>
+                <p className="text-slate-500 font-medium">جاري إرسال طلبك للمطبخ...</p>
+            </div>
+        )}
+      </div>
     </div>
   );
 };
