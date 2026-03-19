@@ -53,6 +53,14 @@ const ItemProfitReport = () => {
 
       if (error) throw error;
 
+      // 1.5 مبيعات المطاعم
+      const { data: restItems } = await supabase
+        .from('order_items')
+        .select('quantity, total_price, unit_cost, product_id, products(name, sku, purchase_price), orders!inner(created_at, status)')
+        .eq('orders.status', 'COMPLETED')
+        .gte('orders.created_at', `${startDate}T00:00:00`)
+        .lte('orders.created_at', `${endDate}T23:59:59`);
+
       // 2. تجميع البيانات
       const productMap: Record<string, ItemProfit> = {};
 
@@ -79,6 +87,28 @@ const ItemProfitReport = () => {
         
         productMap[item.product_id].quantitySold += qty;
         productMap[item.product_id].totalRevenue += revenue;
+      });
+      
+      // دمج بيانات المطعم
+      restItems?.forEach((item: any) => {
+        if (!item.product_id || !item.products) return;
+
+        if (!productMap[item.product_id]) {
+          productMap[item.product_id] = {
+            id: item.product_id,
+            name: item.products.name,
+            sku: item.products.sku || '-',
+            quantitySold: 0,
+            avgSellingPrice: 0,
+            currentCost: Number(item.unit_cost || item.products.purchase_price || 0),
+            totalRevenue: 0,
+            totalCost: 0,
+            grossProfit: 0,
+            margin: 0
+          };
+        }
+        productMap[item.product_id].quantitySold += Number(item.quantity);
+        productMap[item.product_id].totalRevenue += Number(item.total_price);
       });
 
       // 3. حساب الأرباح والهوامش

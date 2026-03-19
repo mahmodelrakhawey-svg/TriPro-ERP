@@ -57,9 +57,21 @@ const SlowMovingReport = () => {
 
       if (salesError) throw salesError;
 
+      // 2.5 جلب مبيعات المطاعم
+      const { data: restSales } = await supabase
+        .from('order_items')
+        .select('product_id, quantity, orders!inner(created_at, status)')
+        .eq('orders.status', 'COMPLETED')
+        .gte('orders.created_at', `${startDate}T00:00:00`)
+        .lte('orders.created_at', `${endDate}T23:59:59`);
+
       // 3. تجميع المبيعات لكل صنف
       const salesMap: Record<string, number> = {};
       sales?.forEach((item: any) => {
+          salesMap[item.product_id] = (salesMap[item.product_id] || 0) + item.quantity;
+      });
+      
+      restSales?.forEach((item: any) => {
           salesMap[item.product_id] = (salesMap[item.product_id] || 0) + item.quantity;
       });
 

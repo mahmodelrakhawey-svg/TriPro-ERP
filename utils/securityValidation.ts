@@ -30,7 +30,8 @@ export const AccountSchema = z.object({
   name: z.string()
     .min(1, 'اسم الحساب مطلوب')
     .max(255, 'اسم الحساب طويل جداً'),
-  type: z.enum(['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']),
+  // نقبل الحالتين لضمان المرونة، وقاعدة البيانات ستوحدها إلى lowercase
+  type: z.enum(['asset', 'liability', 'equity', 'revenue', 'expense', 'ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE']),
   is_group: z.boolean(),
   is_active: z.boolean(),
   parent_account: z.string().nullable().optional(),

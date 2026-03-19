@@ -134,6 +134,30 @@ const ItemMovementReport = () => {
       // ملاحظة: نجلب الكل ثم نفلتر حسب الصنف (منتج تام أو مادة خام) لاحقاً لتعقيد العلاقة
       const { data: workOrders } = await manufacturingQuery;
 
+      // 9. جلب مبيعات واستهلاك المطاعم (Restaurant Module)
+      // أ. البيع المباشر للصنف
+      const { data: restaurantDirectSales } = await supabase
+        .from('order_items')
+        .select('quantity, order_id, orders!inner(created_at, order_number, status, user_id)')
+        .eq('product_id', selectedProductId)
+        .eq('orders.status', 'COMPLETED');
+
+      // ب. استهلاك المواد الخام (إذا كان الصنف مادة خام لوجبة)
+      const { data: restaurantBoms } = await supabase
+        .from('bill_of_materials')
+        .select('product_id, quantity_required')
+        .eq('raw_material_id', selectedProductId);
+
+      let restaurantConsumption: any[] = [];
+      if (restaurantBoms && restaurantBoms.length > 0) {
+          const parentIds = restaurantBoms.map(b => b.product_id);
+          const { data: parentOrders } = await supabase
+            .from('order_items')
+            .select('quantity, product_id, order_id, orders!inner(created_at, order_number, status, user_id)')
+            .in('product_id', parentIds)
+            .eq('orders.status', 'COMPLETED');
+          if (parentOrders) restaurantConsumption = parentOrders;
+      }
 
       // تجميع الحركات
       let allMovements: any[] = [];
@@ -207,6 +231,33 @@ const ItemMovementReport = () => {
           });
       });
 
+      // إضافة حركات المطعم
+      restaurantDirectSales?.forEach((item: any) => {
+          allMovements.push({
+              date: item.orders.created_at,
+              type: 'out',
+              quantity: Number(item.quantity),
+              documentType: 'مبيعات مطعم',
+              documentNumber: item.orders.order_number,
+              userName: getUserName(item.orders.user_id)
+          });
+      });
+
+      restaurantConsumption?.forEach((po: any) => {
+          const bom = restaurantBoms?.find(b => b.product_id === po.product_id);
+          if (bom) {
+              allMovements.push({
+                  date: po.orders.created_at,
+                  type: 'out',
+                  quantity: Number(po.quantity) * Number(bom.quantity_required),
+                  documentType: 'استهلاك مطعم',
+                  documentNumber: po.orders.order_number,
+                  description: `استهلاك في وجبة`,
+                  userName: getUserName(po.orders.user_id)
+              });
+          }
+      });
+
       // معالجة التحويلات المخزنية
       transfers?.forEach((item: any) => {
           const t = item.stock_transfers;
@@ -272,10 +323,12 @@ const ItemMovementReport = () => {
       const periodMovements: Movement[] = [];
       
       allMovements.forEach(mov => {
+          // معالجة التاريخ للمقارنة (خاصة للمطاعم التي تحتوي على توقيت)
+          const movDateOnly = mov.date.includes('T') ? mov.date.split('T')[0] : mov.date;
           if (mov.date < startDate) {
               if (mov.type === 'in') openBal += mov.quantity;
               else openBal -= mov.quantity;
-          } else if (mov.date <= endDate) {
+          } else if (movDateOnly <= endDate) {
               periodMovements.push(mov);
           }
       });

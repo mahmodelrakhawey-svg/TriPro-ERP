@@ -120,8 +120,10 @@ import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
 import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
+import KitchenEndDayCount from './modules/inventory/KitchenEndDayCount'; // إضافة جرد المطبخ
 import SalesByUserReport from './modules/reports/SalesByUserReport';
 import WastageAnalysisReport from './modules/reports/WastageAnalysisReport'; // تأكد من أن الملف في هذا المسار
+import RestaurantProfitReport from './modules/reports/RestaurantProfitReport'; // إضافة تقرير الربحية
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 import CustomerDisplay from './components/CustomerDisplay';
 
@@ -246,6 +248,8 @@ const DemoWatermark = () => {
 };
 
 const MainLayout = () => {
+    const { currentUser } = useAccounting();
+
     useEffect(() => {
         // بدء جدول الإخطارات الذكية
         NotificationScheduler.start({
@@ -277,7 +281,7 @@ const MainLayout = () => {
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
                         <Routes>
                 <Route path="/login" element={<Navigate to="/" replace />} />
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
                 <Route path="/financial-ratios" element={<FinancialRatios />} />
                 <Route path="/expense-analysis" element={<ExpenseAnalysisReport />} />
                   <Route path="/budget-setup" element={<BudgetManager />} />
@@ -370,6 +374,7 @@ const MainLayout = () => {
                 <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
                 <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
                 <Route path="/reports/wastage-analysis" element={<WastageAnalysisReport />} />
+                <Route path="/reports/restaurant-profit" element={<RestaurantProfitReport />} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
@@ -385,6 +390,7 @@ const MainLayout = () => {
                 <Route path="/about" element={<About />} />
                 <Route path="/pos" element={<PosScreen />} /> {/* التأكد من أن هذا السطر موجود */}
                 <Route path="/kds" element={<KdsScreen />} /> {/* إضافة مسار شاشة المطبخ */}
+                <Route path="/kitchen-end-day" element={<KitchenEndDayCount />} /> {/* إضافة مسار جرد المطبخ */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>

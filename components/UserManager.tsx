@@ -10,7 +10,7 @@ type UserProfile = {
   id: string;
   email?: string; // إضافة البريد الإلكتروني للنوع
   full_name: string | null;
-  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo';
+  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef';
   is_active: boolean;
   created_at: string;
   last_activity?: string;
@@ -528,6 +528,7 @@ const UserManager = () => {
                             <option value="admin">Admin (مسؤول)</option>
                             <option value="super_admin">Super Admin (مدير النظام)</option>
                             <option value="demo">Demo (تجريبي)</option>
+                            <option value="chef">Chef (شيف مطبخ)</option>
                         </select>
                     </div>
 

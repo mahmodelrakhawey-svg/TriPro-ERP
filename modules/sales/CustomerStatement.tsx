@@ -93,6 +93,22 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             .eq('type', 'incoming')
             .neq('status', 'rejected');
 
+        // 6. Fetch Restaurant Orders (Debit) - جلب طلبات المطعم (توصيل/سفري/محلي)
+        const { data: restOrders } = await supabase.from('orders')
+            .select('id, order_number, created_at, subtotal, total_tax, order_type')
+            .eq('customer_id', selectedCustomerId)
+            .neq('status', 'CANCELLED');
+
+        // 7. Fetch Restaurant Payments (Credit) - جلب مدفوعات المطعم المرتبطة
+        let restPayments: any[] = [];
+        if (restOrders && restOrders.length > 0) {
+            const orderIds = restOrders.map(o => o.id);
+            const { data: payData } = await supabase.from('payments')
+                .select('id, order_id, amount, created_at, payment_method')
+                .in('order_id', orderIds);
+            restPayments = payData || [];
+        }
+
         // Combine all transactions
         let allTrans: any[] = [];
 
@@ -133,6 +149,38 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             debit: 0, 
             credit: chq.amount 
         }));
+
+        // إضافة حركات المطعم (مدين)
+        restOrders?.forEach(ord => {
+            const total = (Number(ord.subtotal) || 0) + (Number(ord.total_tax) || 0);
+            if (total > 0) {
+                let typeLabel = 'طلب مطعم';
+                if (ord.order_type === 'DELIVERY') typeLabel = 'طلب توصيل 🛵';
+                else if (ord.order_type === 'TAKEAWAY') typeLabel = 'طلب سفري 🛍️';
+                else if (ord.order_type === 'DINE_IN') typeLabel = 'طلب محلي 🍽️';
+
+                allTrans.push({
+                    date: ord.created_at,
+                    type: 'invoice', // نعامله كفاتورة (استحقاق)
+                    ref: ord.order_number,
+                    desc: typeLabel,
+                    debit: total,
+                    credit: 0
+                });
+            }
+        });
+
+        // إضافة مدفوعات المطعم (دائن)
+        restPayments?.forEach(pay => {
+            allTrans.push({
+                date: pay.created_at,
+                type: 'receipt',
+                ref: 'POS-PAY',
+                desc: `سداد طلب مطعم (${pay.payment_method === 'CASH' ? 'نقدي' : 'شبكة'})`,
+                debit: 0,
+                credit: pay.amount
+            });
+        });
 
         // Sort chronologically
         allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());

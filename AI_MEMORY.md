@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٧‏/٣‏/٢٠٢٦، ٦:٤١:٠٦ م
+📅 تاريخ التحديث: ١٩‏/٣‏/٢٠٢٦، ١٠:٤٢:٠٢ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -123,6 +123,7 @@
     📄 RestaurantSalesReport.tsx
     📄 SalesByUserReport.tsx
     📄 TaxReturnReport.tsx
+    📄 WastageAnalysisReport.tsx
   📁 sales/
     📄 backup.yml
     📄 CreditNoteForm.tsx
@@ -148,11 +149,15 @@
   📄 2026-03-19_accounting_integration.sql
   📄 2026-03-21_restaurant_accounting.sql
   📄 About.tsx
+  📄 BulkQRCodeModal.tsx
+  📄 CopyModifiersModal.tsx
+  📄 CustomerDisplay.tsx
   📄 Dashboard.tsx
   📄 DemoTour.tsx
   📄 DEPLOYMENT_STRATEGY.md
   📄 DraftJournalsList.tsx
   📄 FINAL_FEATURES_SUMMARY.md
+  📄 full-flow-test.ts
   📄 GuestMenuLayout.tsx
   📄 Header.tsx
   📄 index.ts
@@ -162,14 +167,19 @@
   📄 LandingPage.tsx
   📄 Login.tsx
   📄 Maintenance.tsx
+  📄 ModifierManagement.tsx
   📄 ModifierSelectionModal.tsx
   📄 NotificationCenter.tsx
+  📄 offlineService.ts
+  📄 OfflineSyncProvider.tsx
   📄 OrderSummary.tsx
   📄 PosScreen.tsx
   📄 PrintableInvoice.tsx
   📄 ProductStockViewer.tsx
+  📄 QRCodeModal.tsx
   📄 RecipeManagement.tsx
   📄 ReportHeader.tsx
+  📄 run-flow-test.ts
   📄 search-tool.ts
   📄 SecurityLogs.tsx
   📄 Settings.tsx
@@ -192,6 +202,9 @@
     📄 2026-03-16_update_product_type_constraint.sql
     📄 2026-03-17_inventory_consumption.sql
     📄 2026-03-18_shift_management.sql
+    📄 2026-03-25_realtime_inventory_deduction.sql
+    📄 2026-03-26_wastage_management.sql
+    📄 2026-03-27_wastage_analysis_report.sql
     📄 OrderSummary.tsx
   📄 accountService.ts
   📄 add_account_mappings.sql
@@ -237,6 +250,8 @@
   📄 NotificationScheduler.ts
   📄 notificationService.ts
   📄 notificationTestUtils.ts
+  📄 offlineService.ts
+  📄 OfflineSyncProvider.tsx
   📄 populate_demo_activity.sql
   📄 recalculate_stock_rpc.sql
   📄 recalculate_stock_v3.sql
@@ -303,15 +318,20 @@
     "security-check": "npm audit && npm run security-audit"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
     "@google/genai": "^1.34.0",
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.16",
     "@types/nodemailer": "^7.0.11",
     "date-fns": "^4.1.0",
+    "dexie": "^4.3.0",
+    "dexie-react-hooks": "^4.2.0",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.294.0",
     "nodemailer": "^8.0.1",
+    "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.6.0",
@@ -467,6 +487,9 @@ import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
 import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
 import SalesByUserReport from './modules/reports/SalesByUserReport';
+import WastageAnalysisReport from './modules/reports/WastageAnalysisReport'; // تأكد من أن الملف في هذا المسار
+import { OfflineSyncProvider } from './components/OfflineSyncProvider';
+import CustomerDisplay from './components/CustomerDisplay';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient();
@@ -610,6 +633,7 @@ const MainLayout = () => {
                 <DemoWelcomeModal />
                 <DemoTour />
                 <DemoWatermark />
+                <OfflineSyncProvider />
                 <PrintHeader />
                 <div className="print:hidden">
                     <Header />
@@ -711,6 +735,7 @@ const MainLayout = () => {
                 <Route path="/sales-reports" element={<SalesReports />} />
                 <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
                 <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
+                <Route path="/reports/wastage-analysis" element={<WastageAnalysisReport />} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
@@ -769,6 +794,7 @@ const AppContent = () => {
     <HashRouter>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
       <Routes>
+        <Route path="/customer-display" element={<CustomerDisplay />} />
         <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
         <Route path="/*" element={currentUser ? <MainLayout /> : <LandingPage />} />
       </Routes>

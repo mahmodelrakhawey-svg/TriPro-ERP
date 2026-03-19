@@ -1,6 +1,7 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
+import { useAccounting } from '../../context/AccountingContext';
 import { Book, Filter, Search, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import ReportHeader from '../../components/ReportHeader';
@@ -17,6 +18,7 @@ type LedgerEntry = {
   id: string;
   debit: number;
   credit: number;
+  balance: number; // إضافة حقل الرصيد هنا
   journal_entries: {
     id: string;
     transaction_date: string;
@@ -28,23 +30,32 @@ type LedgerEntry = {
 
 const GeneralLedger = () => {
   const location = useLocation();
+  const { accounts, currentUser } = useAccounting(); // استخدام السياق بدلاً من الجلب المحلي
   const { showToast } = useToast();
-  const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [loading, setLoading] = useState(false);
-
-  // جلب قائمة الحسابات عند التحميل
-  useEffect(() => {
-    const fetchAccounts = async () => {
-      const { data } = await supabase.from('accounts').select('id, code, name, parent_id, is_group').order('code');
-      if (data) setAccounts(data);
-    };
-    fetchAccounts();
-  }, []);
+  const [page, setPage] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const PAGE_SIZE = 50;
+  
+  // لتخزين معايير البحث الحالية لضمان استمرار التحميل بنفس الشروط
+  const [searchParamsState, setSearchParamsState] = useState<{ids: string[], start: string, end: string} | null>(null);
+  
+  const observer = useRef<IntersectionObserver | null>(null);
+  const lastEntryRef = useCallback((node: HTMLTableRowElement) => {
+    if (loading) return;
+    if (observer.current) observer.current.disconnect();
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        setPage(prevPage => prevPage + 1);
+      }
+    });
+    if (node) observer.current.observe(node);
+  }, [loading, hasMore]);
 
   // استقبال البيانات من الصفحات الأخرى (Drill-down)
   useEffect(() => {
@@ -59,7 +70,7 @@ const GeneralLedger = () => {
 
   // دالة مساعدة لجلب معرفات الحساب والحسابات الفرعية (شجرياً)
   const getAccountAndChildrenIds = (accountId: string, allAccounts: Account[]): string[] => {
-    let ids = [accountId];
+    let ids: string[] = [accountId];
     const children = allAccounts.filter(a => a.parent_id === accountId);
     children.forEach(child => {
       ids = [...ids, ...getAccountAndChildrenIds(child.id, allAccounts)];
@@ -69,10 +80,34 @@ const GeneralLedger = () => {
 
   const handleSearch = async () => {
     if (!selectedAccount) return;
+    setPage(0);
     setLoading(true);
+
+    // دعم وضع الديمو
+    if (currentUser?.role === 'demo') {
+        setTimeout(() => {
+            setOpeningBalance(5000);
+            setEntries([
+                { 
+                    id: 'demo-1', debit: 1000, credit: 0, balance: 6000, 
+                    journal_entries: { id: 'j1', transaction_date: new Date().toISOString(), reference: 'INV-001', description: 'فاتورة مبيعات آجلة', is_posted: true } 
+                },
+                { 
+                    id: 'demo-2', debit: 0, credit: 2000, balance: 4000, 
+                    journal_entries: { id: 'j2', transaction_date: new Date().toISOString(), reference: 'RCT-001', description: 'سداد من العميل', is_posted: true } 
+                }
+            ]);
+            setLoading(false);
+        }, 500);
+        return;
+    }
+
     try {
       // تحديد الحسابات المستهدفة (الحساب المختار + أبنائه)
-      const targetAccountIds = getAccountAndChildrenIds(selectedAccount, accounts);
+      const targetAccountIds = getAccountAndChildrenIds(selectedAccount, accounts as unknown as Account[]);
+      
+      // حفظ المعايير لاستخدامها في التصفح اللانهائي
+      setSearchParamsState({ ids: targetAccountIds, start: startDate, end: endDate });
 
       // 1. حساب رصيد ما قبل الفترة (Opening Balance)
       // نجمع كل الحركات المرحلة لهذا الحساب التي تاريخها قبل "تاريخ البداية"
@@ -89,7 +124,22 @@ const GeneralLedger = () => {
       const openBal = openingData?.reduce((sum, line) => sum + (line.debit - line.credit), 0) || 0;
       setOpeningBalance(openBal);
 
-      // 2. جلب حركات الفترة المحددة
+      // 2. جلب الصفحة الأولى من البيانات
+      await fetchPageData(0, targetAccountIds, startDate, endDate, openBal, true);
+
+    } catch (error: any) {
+      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
+      setLoading(false);
+    }
+  };
+
+  // دالة جلب البيانات (تستخدم للبحث الأولي ولتحميل المزيد)
+  const fetchPageData = async (pageIndex: number, ids: string[], start: string, end: string, baseBalance: number, isReset: boolean) => {
+    setLoading(true);
+    try {
+      const from = pageIndex * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+
       const { data: periodData, error: periodError } = await supabase
         .from('journal_lines')
         .select(`
@@ -97,33 +147,53 @@ const GeneralLedger = () => {
           journal_entries!inner ( 
             id, transaction_date, reference, description, status
           )
-        `)
-        .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
+        `) 
+        .in('account_id', ids)
         .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.transaction_date', startDate || '1970-01-01')
-        .lte('journal_entries.transaction_date', endDate);
+        .gte('journal_entries.transaction_date', start || '1970-01-01')
+        .lte('journal_entries.transaction_date', end)
+        .order('transaction_date', { foreignTable: 'journal_entries', ascending: true }) // ترتيب من السيرفر
+        .range(from, to);
 
       if (periodError) throw periodError;
 
-      // ترتيب الحركات حسب التاريخ
-      const sortedData = (periodData as any[]).sort((a, b) => 
-        new Date(a.journal_entries.transaction_date).getTime() - new Date(b.journal_entries.transaction_date).getTime()
-      );
+      // حساب الرصيد التراكمي
+      let running = baseBalance;
+      
+      const processedData = (periodData as any[]).map((item: any) => {
+          running += (item.debit - item.credit);
+          return { ...item, balance: running };
+      });
 
-      setEntries(sortedData);
-    } catch (error: any) {
-      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
+      if (isReset) {
+        setEntries(processedData);
+      } else {
+        setEntries(prev => [...prev, ...processedData]);
+      }
+
+      // التحقق مما إذا كان هناك المزيد من البيانات
+      setHasMore(periodData.length === PAGE_SIZE);
+
+    } catch (err: any) {
+      console.error(err);
+      showToast('خطأ في تحميل البيانات', 'error');
     } finally {
       setLoading(false);
     }
   };
 
+  // Effect لتحميل المزيد عند تغيير الصفحة
+  useEffect(() => {
+    if (page > 0 && searchParamsState) {
+      // حساب الرصيد الأخير من القائمة الحالية لنبدأ منه
+      const lastBalance = entries.length > 0 ? entries[entries.length - 1].balance : openingBalance;
+      fetchPageData(page, searchParamsState.ids, searchParamsState.start, searchParamsState.end, lastBalance, false);
+    }
+  }, [page]);
+
   const handlePrint = () => {
     window.print();
   };
-
-  // متغير لحساب الرصيد التراكمي أثناء العرض
-  let runningBalance = openingBalance;
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200 min-h-[80vh]">
@@ -212,11 +282,15 @@ const GeneralLedger = () => {
                     <td className="p-3 border border-slate-200 text-center" dir="ltr">{openingBalance.toFixed(2)}</td>
                 </tr>
 
-                {entries.length > 0 ? entries.map((entry) => {
-                    // تحديث الرصيد التراكمي
-                    runningBalance += (entry.debit - entry.credit);
+                {entries.length > 0 ? entries.map((entry, index) => {
+                    // إضافة ref لآخر عنصر فقط لتفعيل التحميل اللانهائي
+                    const isLastElement = index === entries.length - 1;
                     return (
-                        <tr key={entry.id} className="hover:bg-slate-50">
+                        <tr 
+                            key={entry.id} 
+                            ref={isLastElement ? lastEntryRef : null}
+                            className="hover:bg-slate-50 transition-colors"
+                        >
                             <td className="p-3 border border-slate-200 whitespace-nowrap">
                                 {new Date(entry.journal_entries.transaction_date).toLocaleDateString('ar-EG')}
                             </td>
@@ -233,16 +307,20 @@ const GeneralLedger = () => {
                                 {entry.credit > 0 ? entry.credit.toFixed(2) : '-'}
                             </td>
                             <td className="p-3 border border-slate-200 text-center font-mono font-bold" dir="ltr">
-                                {runningBalance.toFixed(2)}
+                                {entry.balance.toFixed(2)}
                             </td>
                         </tr>
                     );
                 }) : (
                     <tr>
                         <td colSpan={6} className="p-8 text-center text-slate-500">
-                            لا توجد حركات مرحلة لهذا الحساب خلال الفترة المحددة
+                            {loading ? 'جاري التحميل...' : 'لا توجد حركات مرحلة لهذا الحساب خلال الفترة المحددة'}
                         </td>
                     </tr>
+                )}
+                
+                {loading && page > 0 && (
+                    <tr><td colSpan={6} className="p-4 text-center text-blue-600 font-bold">جاري تحميل المزيد...</td></tr>
                 )}
                 
                 {/* سطر الإجماليات */}
@@ -255,7 +333,7 @@ const GeneralLedger = () => {
                         {entries.reduce((sum, e) => sum + e.credit, 0).toFixed(2)}
                     </td>
                     <td className="p-3 border border-slate-200 text-center text-blue-700" dir="ltr">
-                        {runningBalance.toFixed(2)}
+                        {entries.length > 0 ? entries[entries.length - 1].balance.toFixed(2) : openingBalance.toFixed(2)}
                     </td>
                 </tr>
             </tbody>

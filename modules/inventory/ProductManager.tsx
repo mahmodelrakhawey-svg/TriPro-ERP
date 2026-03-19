@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -108,6 +108,7 @@ const ProductManager = () => {
   });
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isRecipeImporting, setIsRecipeImporting] = useState(false);
   const [importWarehouseId, setImportWarehouseId] = useState<string>('');
   const [isConsumptionModalOpen, setIsConsumptionModalOpen] = useState(false);
   const [consumptionData, setConsumptionData] = useState<any[]>([]);
@@ -302,6 +303,110 @@ const ProductManager = () => {
     } catch (err: any) {
         showToast('فشل التصدير: ' + err.message, 'error');
     }
+  };
+
+  const handleDownloadRecipeTemplate = () => {
+    const headers = [
+      { 'كود الوجبة (SKU)': '', 'اسم الوجبة': '', 'كود المكون (SKU)': '', 'اسم المكون': '', 'الكمية المطلوبة': '', 'الوحدة': '' }
+    ];
+    const ws = XLSX.utils.json_to_sheet(headers);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "نموذج الوصفات");
+    XLSX.writeFile(wb, "Recipes_Template.xlsx");
+  };
+
+  const handleRecipeFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    const file = e.target.files[0];
+    setIsRecipeImporting(true);
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+        try {
+            const bstr = evt.target?.result;
+            const wb = XLSX.read(bstr, { type: 'binary' });
+            const wsname = wb.SheetNames[0];
+            const ws = wb.Sheets[wsname];
+            const data = XLSX.utils.sheet_to_json(ws);
+
+            // جلب جميع المنتجات للبحث السريع (Map for fast lookup)
+            const { data: allProducts } = await supabase.from('products').select('id, name, sku, unit');
+            const productMap = new Map(); // Key: SKU or Name, Value: ID
+            const productDetailsMap = new Map(); // Key: ID, Value: Product Details (للوصول للوحدة الحالية)
+            
+            allProducts?.forEach(p => {
+                productDetailsMap.set(p.id, p);
+                if (p.sku) productMap.set(p.sku.trim(), p.id);
+                productMap.set(p.name.trim(), p.id);
+            });
+
+            let successCount = 0;
+            let failCount = 0;
+            const bomInserts: any[] = [];
+            const unitUpdates = new Map<string, string>(); // تجميع التحديثات: ID -> New Unit
+
+            for (const row of data as any[]) {
+                const pSku = row['كود الوجبة (SKU)'];
+                const pName = row['اسم الوجبة'];
+                const mSku = row['كود المكون (SKU)'];
+                const mName = row['اسم المكون'];
+                const qty = row['الكمية المطلوبة'];
+                const unit = row['الوحدة'];
+
+                const productId = productMap.get(pSku ? String(pSku).trim() : '') || productMap.get(pName ? String(pName).trim() : '');
+                const materialId = productMap.get(mSku ? String(mSku).trim() : '') || productMap.get(mName ? String(mName).trim() : '');
+
+                if (productId && materialId && qty && Number(qty) > 0) {
+                    if (productId !== materialId) {
+                        bomInserts.push({
+                            product_id: productId,
+                            raw_material_id: materialId,
+                            quantity_required: Number(qty)
+                        });
+
+                        // منطق تحديث الوحدة: إذا كانت موجودة في الملف وغير موجودة في النظام
+                        if (unit && String(unit).trim()) {
+                            const material = productDetailsMap.get(materialId);
+                            // إذا وجدنا المادة الخام، وكانت وحدتها فارغة (null أو نص فارغ)
+                            if (material && !material.unit) {
+                                const newUnit = String(unit).trim();
+                                unitUpdates.set(materialId, newUnit);
+                                material.unit = newUnit; // تحديث محلي لمنع التكرار في نفس العملية
+                            }
+                        }
+
+                        successCount++;
+                    }
+                } else {
+                    failCount++;
+                }
+            }
+
+            if (bomInserts.length > 0) {
+                const { error } = await supabase.from('bill_of_materials').upsert(bomInserts, { onConflict: 'product_id,raw_material_id' });
+                if (error) throw error;
+            }
+
+            // تنفيذ تحديثات الوحدات دفعة واحدة
+            if (unitUpdates.size > 0) {
+                const updates = Array.from(unitUpdates.entries()).map(([id, newUnit]) => 
+                    supabase.from('products').update({ unit: newUnit }).eq('id', id)
+                );
+                await Promise.all(updates);
+                refresh(); // تحديث القائمة في الواجهة
+            }
+
+            showToast(`تم استيراد ${successCount} وصفة بنجاح.${failCount > 0 ? ` فشل ${failCount} صف.` : ''}`, 'success');
+        } catch (error: any) {
+            console.error(error);
+            showToast('فشل استيراد الوصفات: ' + error.message, 'error');
+        } finally {
+            setIsRecipeImporting(false);
+            e.target.value = '';
+        }
+    };
+    reader.readAsBinaryString(file);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1021,6 +1126,22 @@ const ProductManager = () => {
                     استيراد Excel
                 </button>
             </div>
+            <div className="relative">
+                <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv"
+                    onChange={handleRecipeFileUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                    disabled={isRecipeImporting}
+                />
+                <button className="bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-100 text-sm font-bold">
+                    {isRecipeImporting ? <Loader2 size={16} className="animate-spin" /> : <UtensilsCrossed size={16} />}
+                    استيراد وصفات
+                </button>
+            </div>
+            <button onClick={handleDownloadRecipeTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج الوصفات">
+                <Download size={16} /> نموذج الوصفات
+            </button>
             <button onClick={() => handleOpenModal()} className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-bold shadow-lg">
               <Plus size={20} /> صنف جديد
             </button>

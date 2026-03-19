@@ -227,7 +227,9 @@ export default function AccountingDashboard() {
               'journal_lines', 'invoice_items', 'purchase_invoice_items', 
               'quotation_items', 'purchase_order_items', 'sales_return_items', 
               'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items', 
-              'inventory_count_items', 'payroll_items'
+              'inventory_count_items', 'payroll_items',
+              // جداول تفاصيل المطعم
+              'order_items', 'kitchen_orders', 'payments', 'inventory_transactions'
           ];
           
           for (const table of tablesLines) {
@@ -241,7 +243,9 @@ export default function AccountingDashboard() {
               'receipt_vouchers', 'payment_vouchers', 'cheques', 
               'stock_transfers', 'stock_adjustments', 'inventory_counts',
               'payrolls', 'employee_advances', 'bank_reconciliations', 'cash_closings',
-              'opening_inventories', 'work_orders'
+              'opening_inventories', 'work_orders',
+              // جداول مستندات المطعم
+              'orders', 'table_sessions', 'shifts', 'rejected_cash_closings'
           ];
           
           for (const table of tablesDocs) {
@@ -253,8 +257,11 @@ export default function AccountingDashboard() {
           
           // 4. تصفير أرصدة الحسابات
           await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+          
+          // 5. تصفير حالة طاولات المطعم (جعلها متاحة)
+          await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).neq('id', '00000000-0000-0000-0000-000000000000');
 
-          // 5. تحديث السياق
+          // 6. تحديث السياق
           await clearTransactions();
           
           showToast('تم تصفير جميع العمليات التشغيلية وسلف الموظفين بنجاح.', 'success');
@@ -262,6 +269,50 @@ export default function AccountingDashboard() {
       } catch (e: any) {
           console.error(e);
           showToast('حدث خطأ أثناء التصفير: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleClearMasterData = async () => {
+      if (currentUser?.role === 'demo') {
+          if (window.confirm('⚠️ تحذير هام ⚠️\n\nسيتم حذف جميع العملاء والموردين والموظفين والأصناف.\n\nهل أنت متأكد؟ (محاكاة)')) {
+             setLoading(true);
+             setTimeout(() => {
+                 showToast('تم حذف البيانات الأساسية بنجاح ✅ (محاكاة)', 'success');
+                 setLoading(false);
+                 window.location.reload();
+             }, 1000);
+          }
+          return;
+      }
+      
+      if (!window.confirm('⚠️ تحذير هام ⚠️\n\nسيتم حذف قوائم (العملاء، الموردين، الموظفين، الأصناف) نهائياً.\nيُفضل تصفير العمليات أولاً لتجنب الأخطاء المرتبطة.\n\nهل أنت متأكد؟')) return;
+      
+      const confirmation = window.prompt('للتأكيد، اكتب "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') return;
+
+      setLoading(true);
+      try {
+          // محاولة حذف الجداول المرتبطة بالأصناف أولاً
+          try { await supabase.from('modifiers').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+          try { await supabase.from('modifier_groups').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+          try { await supabase.from('bill_of_materials').delete().neq('product_id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+          try { await supabase.from('inventory_transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+          try { await supabase.from('opening_inventories').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+
+          const tables = ['products', 'customers', 'suppliers', 'employees'];
+          for (const table of tables) {
+              const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+              if (error) throw error;
+          }
+          
+          await clearCache();
+          showToast('تم تصفير البيانات الأساسية بنجاح.', 'success');
+          window.location.reload();
+      } catch (e: any) {
+          console.error(e);
+          showToast('حدث خطأ (ربما توجد عمليات مرتبطة): ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -313,6 +364,14 @@ export default function AccountingDashboard() {
                     >
                         <Trash2 size={16} />
                         تصفير العمليات
+                    </button>
+                    <button 
+                        onClick={handleClearMasterData}
+                        className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-600 px-4 py-2 rounded-lg hover:bg-rose-100 transition-colors shadow-sm font-bold text-sm"
+                        title="حذف العملاء والموردين والموظفين والأصناف فقط"
+                    >
+                        <Trash2 size={16} />
+                        تصفير البيانات الأساسية
                     </button>
                     <button 
                         onClick={handleEmptyRecycleBin}

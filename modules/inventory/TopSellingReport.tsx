@@ -48,6 +48,14 @@ const TopSellingReport = () => {
 
       if (error) throw error;
 
+      // 1.5 جلب مبيعات المطاعم
+      const { data: restItems } = await supabase
+        .from('order_items')
+        .select('quantity, total_price, product_id, products:product_id(name, sku), orders!inner(created_at, status)')
+        .eq('orders.status', 'COMPLETED')
+        .gte('orders.created_at', `${startDate}T00:00:00`)
+        .lte('orders.created_at', `${endDate}T23:59:59`);
+
       // 2. تجميع البيانات
       const productMap: Record<string, TopProduct> = {};
 
@@ -66,6 +74,23 @@ const TopSellingReport = () => {
 
         productMap[item.product_id].totalQuantity += Number(item.quantity);
         productMap[item.product_id].totalRevenue += Number(item.total);
+      });
+
+      // دمج مبيعات المطاعم
+      restItems?.forEach((item: any) => {
+        if (!item.product_id || !item.products) return;
+
+        if (!productMap[item.product_id]) {
+          productMap[item.product_id] = {
+            id: item.product_id,
+            name: item.products.name,
+            sku: item.products.sku || '-',
+            totalQuantity: 0,
+            totalRevenue: 0
+          };
+        }
+        productMap[item.product_id].totalQuantity += Number(item.quantity);
+        productMap[item.product_id].totalRevenue += Number(item.total_price);
       });
 
       // 3. تحويل إلى مصفوفة وترتيبها

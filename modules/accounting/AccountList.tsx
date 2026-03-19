@@ -1,4 +1,4 @@
-﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw } from 'lucide-react';
@@ -275,7 +275,7 @@ const AccountList = () => {
                                 </span>
                             </td>
                             <td className="p-4 text-sm text-slate-500">
-                                <span className={`px-2 py-1 rounded text-xs ${acc.isGroup ? 'bg-slate-200' : 'bg-blue-50 text-blue-600'}`}>
+                                <span className={`px-2 py-1 rounded text-xs capitalize ${acc.isGroup ? 'bg-slate-200' : 'bg-blue-50 text-blue-600'}`}>
                                     {acc.type}
                                 </span>
                             </td>

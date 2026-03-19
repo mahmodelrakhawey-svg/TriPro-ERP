@@ -118,6 +118,31 @@ const StockMovementCostReport = () => {
         .eq('product_id', selectedProductId)
         .eq('stock_transfers.status', 'posted');
 
+      // 9. مبيعات واستهلاك المطاعم (Restaurant)
+      // أ. مباشر
+      const { data: restDirect } = await supabase
+        .from('order_items')
+        .select('quantity, unit_cost, orders!inner(created_at, order_number, status)')
+        .eq('product_id', selectedProductId)
+        .eq('orders.status', 'COMPLETED');
+
+      // ب. استهلاك
+      const { data: restBoms } = await supabase
+        .from('bill_of_materials')
+        .select('product_id, quantity_required')
+        .eq('raw_material_id', selectedProductId);
+      
+      let restConsumption: any[] = [];
+      if (restBoms && restBoms.length > 0) {
+          const pIds = restBoms.map(b => b.product_id);
+          const { data: pOrders } = await supabase
+            .from('order_items')
+            .select('quantity, product_id, orders!inner(created_at, order_number, status)')
+            .in('product_id', pIds)
+            .eq('orders.status', 'COMPLETED');
+          if (pOrders) restConsumption = pOrders;
+      }
+
       // تجميع الحركات
       let allMovements: any[] = [];
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
@@ -208,6 +233,33 @@ const StockMovementCostReport = () => {
           }
       });
 
+      // إضافة حركات المطعم
+      restDirect?.forEach((item: any) => {
+          allMovements.push({
+              date: item.orders.created_at,
+              type: 'out',
+              quantity: Number(item.quantity),
+              unitCost: Number(item.unit_cost || 0),
+              documentType: 'مبيعات مطعم',
+              documentNumber: item.orders.order_number
+          });
+      });
+
+      restConsumption?.forEach((po: any) => {
+          const bom = restBoms?.find(b => b.product_id === po.product_id);
+          if (bom) {
+              const product = products.find(p => p.id === selectedProductId); // Raw material
+              allMovements.push({
+                  date: po.orders.created_at,
+                  type: 'out',
+                  quantity: Number(po.quantity) * Number(bom.quantity_required),
+                  unitCost: Number((product as any)?.weighted_average_cost || product?.purchase_price || product?.cost || 0),
+                  documentType: 'استهلاك مطعم',
+                  documentNumber: po.orders.order_number
+              });
+          }
+      });
+
       // معالجة التحويلات (تؤثر فقط عند الفلترة بمستودع، لكن هنا التقرير عام، لذا سنضيفها للتوضيح إذا أردنا)
       // بما أن هذا التقرير لا يحتوي حالياً على فلتر مستودع (يعرض الكل)، فالتحويلات لا تغير الرصيد الإجمالي.
       // ولكن إذا أضفنا فلتر مستودع مستقبلاً، يجب تفعيل هذا المنطق.
@@ -260,10 +312,11 @@ const StockMovementCostReport = () => {
       const periodMovements: Movement[] = [];
       
       allMovements.forEach(mov => {
-          if (mov.date < startDate) {
+          const movDateOnly = mov.date.includes('T') ? mov.date.split('T')[0] : mov.date;
+          if (movDateOnly < startDate) {
               if (mov.type === 'in') openBal += mov.quantity;
               else openBal -= mov.quantity;
-          } else if (mov.date <= endDate) {
+          } else if (movDateOnly <= endDate) {
               periodMovements.push(mov);
           }
       });

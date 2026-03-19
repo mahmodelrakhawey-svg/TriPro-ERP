@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
     BarChart3, TrendingUp, 
@@ -9,7 +10,7 @@ import {
 import * as XLSX from 'xlsx';
 
 const SalesReports = () => {
-  const { invoices, salespeople, customers, settings, warehouses, recalculateStock } = useAccounting();
+  const { invoices, salespeople, customers, settings, warehouses, recalculateStock, currentUser } = useAccounting();
   
   // Tab State
   const [activeView, setActiveView] = useState<'products' | 'branches' | 'commissions'>('products');
@@ -18,18 +19,75 @@ const SalesReports = () => {
   const [salespersonId, setSalespersonId] = useState('all');
   const [customerId, setCustomerId] = useState('all');
   const [customerType, setCustomerType] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [commissionRate, setCommissionRate] = useState(2); 
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // State for restaurant orders
+  const [restaurantOrders, setRestaurantOrders] = useState<any[]>([]);
+
+  // Fetch Restaurant Orders on date change
+  useEffect(() => {
+    const fetchRestaurantOrders = async () => {
+        if (currentUser?.role === 'demo') return;
+
+        try {
+            const { data, error } = await supabase
+                .from('orders')
+                .select(`
+                    id, order_number, created_at, grand_total, user_id, customer_id, warehouse_id, status,
+                    order_items (
+                        product_id, quantity, total_price,
+                        products (name, sku)
+                    )
+                `)
+                .eq('status', 'COMPLETED')
+                .gte('created_at', `${startDate}T00:00:00`)
+                .lte('created_at', `${endDate}T23:59:59`);
+
+            if (!error && data) {
+                const mappedOrders = data.map((o: any) => ({
+                    id: o.id,
+                    invoiceNumber: o.order_number,
+                    date: o.created_at.split('T')[0],
+                    totalAmount: o.grand_total,
+                    salespersonId: o.user_id,
+                    customerId: o.customer_id,
+                    warehouseId: o.warehouse_id,
+                    status: 'paid', // Restaurant orders are considered paid/confirmed sales
+                    source: 'restaurant',
+                    items: o.order_items.map((i: any) => ({
+                        productId: i.product_id,
+                        productName: i.products?.name || 'وجبة/صنف',
+                        productSku: i.products?.sku,
+                        quantity: i.quantity,
+                        total: i.total_price
+                    }))
+                }));
+                setRestaurantOrders(mappedOrders);
+            }
+        } catch (e) {
+            console.error("Error fetching restaurant orders:", e);
+        }
+    };
+
+    fetchRestaurantOrders();
+  }, [startDate, endDate, currentUser]);
+
   // --- CORE LOGIC ---
   const analytics = useMemo(() => {
-    // 1. Filter Invoices
-    const filteredInvoices = (invoices || []).filter((inv: any) => {
+    // Combine Invoices and Restaurant Orders
+    const showroomSales = (invoices || []).map((inv: any) => ({ ...inv, source: 'showroom' }));
+    const allSales = [...showroomSales, ...restaurantOrders];
+
+    // 1. Filter Combined Sales
+    const filteredInvoices = allSales.filter((inv: any) => {
         const matchSalesperson = salespersonId === 'all' || inv.salespersonId === salespersonId;
         const matchCustomer = customerId === 'all' || inv.customerId === customerId;
         const matchDate = inv.date >= startDate && inv.date <= endDate;
+        const matchSource = sourceFilter === 'all' || inv.source === sourceFilter;
         
         let matchType = true;
         if (customerType !== 'all') {
@@ -38,7 +96,7 @@ const SalesReports = () => {
             matchType = type === customerType;
         }
 
-        return matchSalesperson && matchCustomer && matchDate && matchType && inv.status !== 'draft';
+        return matchSalesperson && matchCustomer && matchDate && matchType && matchSource && inv.status !== 'draft';
     });
 
     // 2. Aggregate Data
@@ -103,7 +161,7 @@ const SalesReports = () => {
     const commission = (totalRevenue * commissionRate) / 100;
 
     return { productList, salespersonList, branchList, totalRevenue, totalItems, commission, invoiceCount: filteredInvoices.length };
-  }, [invoices, salespersonId, customerId, customerType, startDate, endDate, commissionRate, salespeople, warehouses, customers]);
+  }, [invoices, restaurantOrders, salespersonId, customerId, customerType, sourceFilter, startDate, endDate, commissionRate, salespeople, warehouses, customers]);
 
   // --- EXPORT LOGIC ---
   const handleExport = () => {
@@ -213,6 +271,14 @@ const SalesReports = () => {
                   <option value="all">الكل</option>
                   <option value="store">عميل صالة (Store)</option>
                   <option value="online">أونلاين (Online)</option>
+              </select>
+          </div>
+          <div>
+              <label className="block text-xs font-black text-slate-400 mb-2 uppercase tracking-widest">مصدر الطلب</label>
+              <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} className="w-full border-2 border-slate-100 rounded-2xl px-4 py-3 font-bold text-slate-700 bg-slate-50 focus:border-indigo-500 outline-none appearance-none">
+                  <option value="all">الكل (شامل)</option>
+                  <option value="restaurant">المطعم (Restaurant)</option>
+                  <option value="showroom">المعرض (Showroom)</option>
               </select>
           </div>
           <div>

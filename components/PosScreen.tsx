@@ -1269,6 +1269,48 @@ const PosScreen = () => {
     }
   };
 
+  const handlePayLater = async () => {
+    if (!activeOrder || !activeOrder.orderId) return;
+    
+    if (!activeOrder.customer) {
+      showToast('يجب تحديد عميل مسجل لإتمام عملية الدفع الآجل', 'warning');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من تسجيل الفاتورة كـ "دفع آجل" على حساب العميل: ${activeOrder.customer.name}؟`)) {
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      const subtotal = activeOrder.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+      const discountAmount = activeOrder.discount?.type === 'fixed' 
+        ? activeOrder.discount.value 
+        : subtotal * ((activeOrder.discount?.value || 0) / 100);
+      const loyaltyAmount = activeOrder.loyaltyDiscount?.amount || 0;
+      
+      const subtotalAfterDiscount = subtotal - discountAmount - loyaltyAmount;
+      const tax = subtotalAfterDiscount * ((settings.vatRate || 15) / 100);
+      const total = subtotalAfterDiscount + tax + (activeOrder.deliveryFee || 0);
+
+      setIsProformaPrint(false);
+      setOrderToPrint(activeOrder);
+      setLastOrder(activeOrder);
+
+      // استخدام 'as any' لتجاوز فحص الأنواع الصارم للدفع الآجل
+      await completeRestaurantOrder(activeOrder.orderId, 'CREDIT' as any, total, null);
+
+      showToast('تم تسجيل الفاتورة كذمة على العميل بنجاح ✅', 'success');
+      setActiveOrder(null);
+    } catch (error: any) {
+      console.error(error);
+      showToast('حدث خطأ أثناء تسجيل الدفع الآجل: ' + error.message, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
     const handleReprintLast = () => {
       if (lastOrder) {
         setIsProformaPrint(false);
@@ -1406,7 +1448,7 @@ const PosScreen = () => {
             isSubmitting={isSubmitting}
             onSelectCustomer={() => setIsCustomerModalOpen(true)}
             onAddDiscount={handleAddDiscount}
-            onPayLater={() => { /* Logic for pay later */ }}
+            onPayLater={handlePayLater}
             onRedeemPoints={handleRedeemPoints}
           />
         </section>

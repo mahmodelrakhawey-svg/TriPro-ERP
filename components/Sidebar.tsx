@@ -27,6 +27,7 @@ const Sidebar = () => {
   const role = currentUser?.role || 'viewer';
   const isSuperAdmin = role === 'super_admin';
   const isAdmin = role === 'admin' || isSuperAdmin;
+  const isChef = (role as string) === 'chef';
 
   // Helper to check permissions
   const hasAccess = (modules: string[]) => {
@@ -86,7 +87,7 @@ const Sidebar = () => {
   const canAccessSales = hasAccess(['sales', 'customers']);
   const canAccessPurchases = hasAccess(['purchases', 'suppliers']);
   const canAccessInventory = hasAccess(['inventory', 'products']);
-  const canAccessRestaurant = hasAccess(['restaurant', 'pos', 'kds']);
+  const canAccessRestaurant = hasAccess(['restaurant', 'pos', 'kds']) || isChef;
   const canAccessAccounting = hasAccess(['journal_entries', 'accounting', 'reports']);
   const canAccessAdvancedReports = hasAccess(['reports', 'analysis']);
   const canAccessHR = hasAccess(['hr']);
@@ -106,10 +107,12 @@ const Sidebar = () => {
       </div>
 
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {!isChef && (
         <Link to="/" className={getNavClass('/')}>
           <LayoutDashboard size={18} />
           <span>لوحة القيادة</span>
         </Link>
+        )}
 
         {canAccessAccounting && (
             <>
@@ -296,30 +299,42 @@ const Sidebar = () => {
                     <span className="whitespace-nowrap">مديول المطاعم</span>
                     <span className="w-full h-px bg-slate-200"></span>
                 </div>
+                {!isChef && (
                 <Link to="/pos" className={getNavClass('/pos')}>
                     <Utensils size={18} />
                     <span>نقطة البيع (POS)</span>
                 </Link>
+                )}
                 <Link to="/kds" className={getNavClass('/kds')}>
                     <MonitorSmartphone size={18} />
                     <span>شاشة المطبخ (KDS)</span>
                 </Link>
-                {canShow(['reports', 'restaurant'], ['read', 'view', 'sales']) && (
+                <Link to="/kitchen-end-day" className={getNavClass('/kitchen-end-day')}>
+                    <ClipboardList size={18} />
+                    <span>جرد نهاية اليوم (المطبخ)</span>
+                </Link>
+                {!isChef && canShow(['reports', 'restaurant'], ['read', 'view', 'sales']) && (
                 <Link to="/reports/restaurant-sales" className={getNavClass('/reports/restaurant-sales')}>
                     <BarChart2 size={18} />
                     <span>تقرير مبيعات المطعم</span>
                 </Link>
                 )}
-                {canShow(['reports', 'restaurant', 'sales'], ['read', 'view']) && (
+                {!isChef && canShow(['reports', 'restaurant', 'sales'], ['read', 'view']) && (
                 <Link to="/reports/sales-by-user" className={getNavClass('/reports/sales-by-user')}>
                     <Users size={18} />
                     <span>مبيعات الكاشير</span>
                 </Link>
                 )}
-                {canShow(['reports', 'restaurant', 'inventory'], ['read', 'view']) && (
+                {!isChef && canShow(['reports', 'restaurant', 'inventory'], ['read', 'view']) && (
                 <Link to="/reports/wastage-analysis" className={getNavClass('/reports/wastage-analysis')}>
                     <Trash2 size={18} className="text-red-500" />
                     <span>تحليل الهدر</span>
+                </Link>
+                )}
+                {!isChef && canShow(['reports', 'restaurant'], ['read', 'view']) && (
+                <Link to="/reports/restaurant-profit" className={getNavClass('/reports/restaurant-profit')}>
+                    <TrendingUp size={18} />
+                    <span>ربحية الوجبات</span>
                 </Link>
                 )}
             </>

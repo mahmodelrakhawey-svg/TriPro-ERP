@@ -120,6 +120,27 @@ const StockCard = () => {
       // إضافة استعلام الرصيد الافتتاحي
       let queryOpening = supabase.from('opening_inventories').select('id, quantity, warehouse_id, created_at').eq('product_id', selectedProductId);
 
+      // --- حركات المطعم ---
+      // 1. مبيعات المطعم (بيع مباشر للصنف)
+      let queryRestDirect = supabase.from('order_items')
+        .select('id, quantity, unit_cost, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
+        .eq('product_id', selectedProductId)
+        .eq('orders.status', 'COMPLETED');
+
+      // 2. استهلاك المطعم (إذا كان الصنف مادة خام)
+      const { data: boms } = await supabase.from('bill_of_materials')
+        .select('product_id, quantity_required')
+        .eq('raw_material_id', selectedProductId);
+      
+      let queryRestConsumption: any = null;
+      if (boms && boms.length > 0) {
+          const parentIds = boms.map(b => b.product_id);
+          queryRestConsumption = supabase.from('order_items')
+            .select('id, product_id, quantity, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
+            .in('product_id', parentIds)
+            .eq('orders.status', 'COMPLETED');
+      }
+
       // تطبيق فلتر المستودع إذا تم اختياره
       if (selectedWarehouseId) {
         querySales = querySales.eq('invoices.warehouse_id', selectedWarehouseId);
@@ -128,11 +149,17 @@ const StockCard = () => {
         queryPurchaseReturns = queryPurchaseReturns.eq('purchase_returns.warehouse_id', selectedWarehouseId);
         queryAdjustments = queryAdjustments.eq('stock_adjustments.warehouse_id', selectedWarehouseId);
         queryOpening = queryOpening.eq('warehouse_id', selectedWarehouseId);
+        
+        // فلترة حركات المطعم حسب المستودع
+        queryRestDirect = queryRestDirect.eq('orders.warehouse_id', selectedWarehouseId);
+        if (queryRestConsumption) queryRestConsumption = queryRestConsumption.eq('orders.warehouse_id', selectedWarehouseId);
       }
 
       // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening] = await Promise.all([
-        querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption] = await Promise.all([
+        querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
+        queryRestDirect,
+        queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] })
       ]);
 
       const allTxns: Transaction[] = [];
@@ -270,6 +297,40 @@ const StockCard = () => {
             }
         });
       }
+
+      // معالجة مبيعات المطعم المباشرة
+      restDirect.data?.forEach((item: any) => {
+          allTxns.push({
+              id: `REST-SALE-${item.id}`,
+              date: item.orders.created_at,
+              type: 'OUT',
+              quantity: item.quantity,
+              documentType: 'مبيعات مطعم',
+              documentNumber: item.orders.order_number,
+              warehouseName: getWName(item.orders.warehouse_id),
+              createdAt: item.orders.created_at,
+              notes: `بيع مباشر (${item.orders.order_type === 'DINE_IN' ? 'محلي' : item.orders.order_type === 'DELIVERY' ? 'توصيل' : 'سفري'})`
+          });
+      });
+
+      // معالجة استهلاك المواد الخام في المطعم
+      restConsumption.data?.forEach((item: any) => {
+          const bom = boms?.find(b => b.product_id === item.product_id);
+          if (bom) {
+              const consumedQty = item.quantity * bom.quantity_required;
+              allTxns.push({
+                  id: `REST-CONS-${item.id}-${selectedProductId}`,
+                  date: item.orders.created_at,
+                  type: 'OUT',
+                  quantity: consumedQty,
+                  documentType: 'استهلاك مطعم',
+                  documentNumber: item.orders.order_number,
+                  warehouseName: getWName(item.orders.warehouse_id),
+                  createdAt: item.orders.created_at,
+                  notes: `استهلاك في وجبة (BOM)`
+              });
+          }
+      });
 
       // ترتيب زمني (من الأقدم للأحدث) لحساب الرصيد التراكمي
       allTxns.sort((a, b) => {

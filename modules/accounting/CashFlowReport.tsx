@@ -59,13 +59,13 @@ export default function CashFlowReport() {
     entries.forEach(entry => {
       if (entry.status !== 'posted') return;
 
-      entry.lines.forEach(line => {
+      entry.lines.forEach((line, index) => {
         if (accountIds.includes(line.accountId)) {
           if (entry.date < startDate) {
             openBal += (line.debit - line.credit);
           } else if (entry.date <= endDate) {
             periodTransactions.push({
-              id: entry.id + line.accountId, // Unique key
+              id: `${entry.id}-${index}`, // Unique key using index to avoid duplicates
               date: entry.date,
               reference: entry.reference,
               description: line.description || entry.description,
