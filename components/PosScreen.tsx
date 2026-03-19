@@ -4,7 +4,7 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import type { RestaurantTable, Product, OrderItem, SelectedModifier } from '../types';
-import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode } from 'lucide-react';
+import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode, Clock, Users } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from './PrintableInvoice';
 import { KitchenTicket } from './KitchenTicket';
@@ -32,24 +32,83 @@ const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve, onQr
   const statusStyles: { [key: string]: string } = {
     AVAILABLE: 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200',
     OCCUPIED: 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200',
-    RESERVED: 'bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200',
+    RESERVED: 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200',
   };
   const statusText: { [key: string]: string } = { AVAILABLE: 'متاحة', OCCUPIED: 'مشغولة', RESERVED: 'محجوزة' };
 
+  // حساب وقت الفتح (إذا كانت مشغولة)
+  const getElapsedTime = () => {
+    const startTime = (table as any).session_start || (table as any).active_session?.start_time;
+    if (!startTime) return null;
+    
+    const start = new Date(startTime);
+    const now = new Date();
+    const diffMs = now.getTime() - start.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    
+    if (diffMins < 60) return `${diffMins} دقيقة`;
+    const hours = Math.floor(diffMins / 60);
+    const mins = diffMins % 60;
+    return `${hours}:${mins.toString().padStart(2, '0')}`;
+  };
+
+  const elapsedTime = table.status === 'OCCUPIED' ? getElapsedTime() : null;
+
   return (
-    <div className={`rounded-lg border-2 cursor-pointer transition-all flex flex-col ${statusStyles[table.status]} ${isActive ? 'ring-4 ring-blue-400' : ''}`}>
-      <div onClick={onClick} className="p-3 flex-1">
-        <div className="font-bold text-xl">{table.name}</div>
-        <div className="text-xs">{statusText[table.status]} {(table as any).reservation_info?.customerName ? `- ${(table as any).reservation_info.customerName}` : ''}</div>
+    <div className={`rounded-xl border-2 cursor-pointer transition-all flex flex-col shadow-sm ${statusStyles[table.status]} ${isActive ? 'ring-4 ring-blue-400 scale-[1.02]' : ''}`}>
+      <div onClick={onClick} className="p-3 flex-1 flex flex-col justify-between min-h-[100px]">
+        <div className="flex justify-between items-start">
+            <div className="font-black text-xl truncate w-2/3" title={table.name}>{table.name}</div>
+            <div className="flex items-center gap-1 text-xs font-bold bg-black/10 px-2 py-1 rounded-full whitespace-nowrap" title="سعة الطاولة">
+                <Users size={12} /> {table.capacity}
+            </div>
+        </div>
+        
+        <div className="mt-2">
+            <div className="text-xs font-medium flex items-center gap-1">
+                <span className={`w-2 h-2 rounded-full ${table.status === 'AVAILABLE' ? 'bg-green-500' : table.status === 'OCCUPIED' ? 'bg-red-500' : 'bg-amber-500'}`}></span>
+                {statusText[table.status]} 
+            </div>
+            
+            {table.status === 'RESERVED' && (table as any).reservation_info && (
+                <div className="mt-2 bg-white/50 p-2 rounded-lg text-xs border border-black/5">
+                    <div className="font-bold flex items-center gap-1 truncate">
+                        <User size={12} /> {(table as any).reservation_info.customerName}
+                    </div>
+                    {(table as any).reservation_info.arrivalTime && (
+                        <div className="mt-1 flex items-center gap-1 opacity-75 font-mono">
+                            <Clock size={12} /> {(table as any).reservation_info.arrivalTime}
+                        </div>
+                    )}
+                </div>
+            )}
+            
+            {elapsedTime && (
+                <div className="mt-2 flex items-center gap-1 text-xs font-black bg-white/30 px-2 py-1.5 rounded-lg w-fit">
+                    <Clock size={12} />
+                    <span>{elapsedTime}</span>
+                </div>
+            )}
+        </div>
       </div>
 
-      <div className="flex mt-1 justify-between border-t-2 border-dashed p-2 text-[10px]">
-        <button onClick={onQrCode} className="text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1">
-          <QrCode size={12} /> QR
+      <div className="flex mt-auto justify-between border-t-2 border-dashed border-black/10 p-2 text-[10px] bg-white/20">
+        <button onClick={onQrCode} className="hover:bg-white/50 p-1 rounded transition-colors flex items-center gap-1" title="رمز QR">
+          <QrCode size={14} />
         </button>
-        <button onClick={onEdit} className="text-blue-500 hover:text-blue-700 font-bold">تعديل</button>
-        {table.status === 'AVAILABLE' && <button onClick={onReserve} className="text-emerald-600 hover:text-emerald-800 font-bold">حجز</button>}
-        {table.status !== 'OCCUPIED' && <button onClick={onDelete} className="text-red-500 hover:text-red-700 font-bold">حذف</button>}
+        <button onClick={onEdit} className="hover:bg-white/50 p-1 rounded transition-colors flex items-center gap-1" title="تعديل">
+            <Edit size={14} />
+        </button>
+        {table.status === 'AVAILABLE' && (
+            <button onClick={onReserve} className="hover:bg-white/50 p-1 rounded transition-colors flex items-center gap-1" title="حجز">
+                <CalendarCheck size={14} />
+            </button>
+        )}
+        {table.status !== 'OCCUPIED' && (
+            <button onClick={onDelete} className="hover:bg-red-200 text-red-700 p-1 rounded transition-colors flex items-center gap-1" title="حذف">
+                <Trash2 size={14} />
+            </button>
+        )}
       </div>
     </div>
 
@@ -104,9 +163,16 @@ const ReservationModal = ({ isOpen, onClose, onConfirm, table }: { isOpen: boole
 };
 
 const MenuItemCard = ({ item, onClick }: { item: Product; onClick: () => void }) => (
-  <div onClick={onClick} className="bg-white border border-slate-200 rounded-lg p-3 text-center cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all h-full flex flex-col justify-between shadow-sm">
+  <div onClick={onClick} className="bg-white border border-slate-200 rounded-lg p-2 text-center cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all h-full flex flex-col justify-between shadow-sm group overflow-hidden">
+    <div className="w-full aspect-[4/3] mb-2 bg-slate-50 rounded-md flex items-center justify-center overflow-hidden relative border border-slate-100">
+      {(item as any).image_url ? (
+        <img src={(item as any).image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+      ) : (
+        <Utensils className="text-slate-300/50" size={32} />
+      )}
+    </div>
     <div className="font-semibold text-slate-800 text-sm line-clamp-2">{item.name}</div>
-    <div className="text-sm font-bold text-blue-600 mt-2">{(item.sales_price || item.price || 0).toFixed(2)} SAR</div>
+    <div className="text-sm font-bold text-blue-600 mt-1">{(item.sales_price || (item as any).price || 0).toFixed(2)} <span className="text-xs font-normal text-slate-500">SAR</span></div>
   </div>
 );
 
@@ -1419,7 +1485,15 @@ const PosScreen = () => {
                   onClick={() => setActiveCategory(cat.id)}
                   className={`px-4 py-2 rounded-full text-sm font-semibold whitespace-nowrap transition-colors flex items-center gap-2 ${activeCategory === cat.id ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                   >
-                  {getCategoryIcon(cat.name)}
+                  {(cat as any).image_url ? (
+                    <img 
+                        src={(cat as any).image_url} 
+                        alt={cat.name} 
+                        className="w-6 h-6 rounded-full object-cover border border-white/20"
+                    />
+                  ) : (
+                    getCategoryIcon(cat.name)
+                  )}
                   {cat.name}
                 </button>
               ))}

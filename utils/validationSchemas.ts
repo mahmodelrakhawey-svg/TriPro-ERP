@@ -54,6 +54,7 @@ export type UpdateSupplier = z.infer<typeof updateSupplierSchema>;
 const baseProductSchema = z.object({
   name: nameSchema,
   sku: z.string().max(50).optional(),
+  unit: z.string().max(50).optional().default('piece'), // إضافة وحدة القياس
   item_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL']),
   purchase_price: amountSchema,
   sales_price: amountSchema,

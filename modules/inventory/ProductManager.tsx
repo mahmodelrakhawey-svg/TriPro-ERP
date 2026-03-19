@@ -14,6 +14,7 @@ import { z } from 'zod';
 const createProductSchema = z.object({
     name: z.string().min(1, 'اسم الصنف مطلوب'),
     sku: z.string().optional(),
+    unit: z.string().optional(),
     product_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL', 'MANUFACTURED']),
     purchase_price: z.number().min(0, 'سعر الشراء يجب أن يكون 0 أو أكثر'),
     sales_price: z.number().min(0, 'سعر البيع يجب أن يكون 0 أو أكثر'),
@@ -113,6 +114,9 @@ const ProductManager = () => {
   const [isConsumptionModalOpen, setIsConsumptionModalOpen] = useState(false);
   const [consumptionData, setConsumptionData] = useState<any[]>([]);
   const [consumptionFilterWarehouseId, setConsumptionFilterWarehouseId] = useState<string>('');
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [categoryFormData, setCategoryFormData] = useState({ id: '', name: '', image_url: '' });
+  const [categoryUploading, setCategoryUploading] = useState(false);
 
   useEffect(() => {
     if (warehouses.length > 0 && !importWarehouseId) {
@@ -532,6 +536,105 @@ const ProductManager = () => {
     }
   };
 
+  const handleAddCategory = () => {
+    setCategoryFormData({ id: '', name: '', image_url: '' });
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleEditCategory = () => {
+    if (!formData.category_id) return;
+    const category = categories.find(c => c.id === formData.category_id);
+    if (!category) return;
+    setCategoryFormData({ 
+        id: category.id, 
+        name: category.name, 
+        image_url: (category as any).image_url || '' 
+    });
+    setIsCategoryModalOpen(true);
+  };
+
+  const handleCategoryImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    if (currentUser?.role === 'demo') {
+        showToast('رفع الصور غير متاح في النسخة التجريبية', 'warning');
+        return;
+    }
+
+    const file = e.target.files[0];
+    const fileExt = file.name.split('.').pop();
+    const fileName = `cat-${Date.now()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    try {
+      setCategoryUploading(true);
+      const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
+      if (uploadError) throw uploadError;
+      
+      const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+      setCategoryFormData(prev => ({ ...prev, image_url: data.publicUrl }));
+    } catch (error: any) {
+      showToast('فشل رفع الصورة: ' + error.message, 'error');
+    } finally {
+      setCategoryUploading(false);
+    }
+  };
+
+  const handleSaveCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!categoryFormData.name) return;
+
+    if (currentUser?.role === 'demo') {
+        showToast('تم حفظ التصنيف بنجاح (محاكاة)', 'success');
+        setIsCategoryModalOpen(false);
+        return;
+    }
+
+    try {
+        const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
+        
+        if (categoryFormData.id) {
+            const { error } = await supabase.from('item_categories')
+                .update({ name: categoryFormData.name, image_url: categoryFormData.image_url })
+                .eq('id', categoryFormData.id);
+            if (error) throw error;
+        } else {
+            const { error } = await supabase.from('item_categories')
+                .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, organization_id: orgData?.id });
+            if (error) throw error;
+        }
+        
+        showToast('تم حفظ التصنيف بنجاح', 'success');
+        await refreshData();
+        setIsCategoryModalOpen(false);
+    } catch (error: any) {
+        showToast('فشل حفظ التصنيف: ' + error.message, 'error');
+    }
+  };
+
+  const handleDeleteCategory = async () => {
+    if (!formData.category_id) return;
+
+    if (!window.confirm('هل أنت متأكد من حذف هذا التصنيف؟')) return;
+
+    if (currentUser?.role === 'demo') {
+        showToast('تم حذف التصنيف بنجاح (محاكاة)', 'success');
+        setFormData(prev => ({ ...prev, category_id: null }));
+        return;
+    }
+
+    try {
+        const { error } = await supabase.from('item_categories').delete().eq('id', formData.category_id);
+        if (error) throw error;
+        
+        showToast('تم حذف التصنيف بنجاح', 'success');
+        setFormData(prev => ({ ...prev, category_id: null }));
+        await refreshData();
+    } catch (error: any) {
+        showToast('فشل حذف التصنيف (قد يكون مرتبطاً بمنتجات): ' + error.message, 'error');
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -539,6 +642,7 @@ const ProductManager = () => {
     const validationData = {
         name: formData.name,
         sku: formData.sku || undefined,
+        unit: formData.unit,
         product_type: formData.product_type,
         purchase_price: formData.purchase_price,
         sales_price: formData.sales_price,
@@ -584,6 +688,7 @@ const ProductManager = () => {
             name: formData.name,
             sku: formData.sku || null,
             barcode: formData.barcode || null,
+            unit: formData.unit,
             sales_price: formData.sales_price,
             purchase_price: formData.purchase_price,
             product_type: formData.product_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
@@ -613,6 +718,7 @@ const ProductManager = () => {
           name: formData.name,
           sku: formData.sku || null,
           barcode: formData.barcode || null,
+          unit: formData.unit,
           sales_price: formData.sales_price,
           purchase_price: formData.purchase_price,
           cost: formData.purchase_price, // Set initial cost to purchase price
@@ -1389,6 +1495,23 @@ const ProductManager = () => {
                         <option value="MANUFACTURED">وجبة مطعم (تُصنع عند الطلب)</option>
                       </select>
                     </div>
+                    <div>
+                      <label className="block text-sm font-bold mb-1 text-slate-700">وحدة القياس</label>
+                      <select 
+                        value={formData.unit} 
+                        onChange={e => setFormData({...formData, unit: e.target.value})}
+                        className="w-full border rounded-lg p-2 bg-white"
+                      >
+                        <option value="piece">قطعة (Piece)</option>
+                        <option value="count">عدد (Count)</option>
+                        <option value="kg">كجم (KG)</option>
+                        <option value="g">جرام (Gram)</option>
+                        <option value="l">لتر (Liter)</option>
+                        <option value="ml">مللي (ML)</option>
+                        <option value="box">علبة/كرتون (Box)</option>
+                        <option value="m">متر (Meter)</option>
+                      </select>
+                    </div>
                     <div className="col-span-2 md:col-span-1">
                         <label className="block text-sm font-bold mb-1 text-slate-700">الكود (SKU)</label>
                         <input type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full border rounded-lg p-2 font-mono" />
@@ -1407,10 +1530,26 @@ const ProductManager = () => {
                     </div>
                   <div>
                     <label className="block text-sm font-bold mb-1 text-slate-700">التصنيف</label>
-                    <select value={formData.category_id || ''} onChange={e => setFormData({...formData, category_id: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
-                        <option value="">-- بدون تصنيف --</option>
-                        {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-                    </select>
+                    <div className="flex gap-2">
+                        <select value={formData.category_id || ''} onChange={e => setFormData({...formData, category_id: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
+                            <option value="">-- بدون تصنيف --</option>
+                            {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                        </select>
+                        {formData.category_id && categories.find(c => c.id === formData.category_id) && (categories.find(c => c.id === formData.category_id) as any).image_url && (
+                            <img 
+                                src={(categories.find(c => c.id === formData.category_id) as any).image_url} 
+                                alt="Category" 
+                                className="w-10 h-10 rounded-lg border object-cover bg-slate-50"
+                            />
+                        )}
+                        <button type="button" onClick={handleAddCategory} className="bg-slate-100 text-slate-600 p-2 rounded-lg hover:bg-slate-200" title="إضافة تصنيف جديد"><Plus size={20} /></button>
+                        {formData.category_id && (
+                            <>
+                                <button type="button" onClick={handleEditCategory} className="bg-blue-50 text-blue-600 p-2 rounded-lg hover:bg-blue-100" title="تعديل التصنيف"><Edit size={20} /></button>
+                                <button type="button" onClick={handleDeleteCategory} className="bg-red-50 text-red-600 p-2 rounded-lg hover:bg-red-100" title="حذف التصنيف"><Trash2 size={20} /></button>
+                            </>
+                        )}
+                    </div>
                   </div>
                   </div>
                 </div>
@@ -1695,6 +1834,40 @@ const ProductManager = () => {
 
                     <button type="submit" disabled={isBulkSaving} className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 mt-2 disabled:opacity-50">
                         {isBulkSaving ? 'جاري التطبيق...' : 'تأكيد العرض'}
+                    </button>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* Category Modal */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+                <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
+                    <h3 className="font-bold text-lg text-slate-800">{categoryFormData.id ? 'تعديل التصنيف' : 'تصنيف جديد'}</h3>
+                    <button onClick={() => setIsCategoryModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                <form onSubmit={handleSaveCategory} className="p-6 space-y-4">
+                    <div className="flex justify-center">
+                        <div className="relative group cursor-pointer w-24 h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden">
+                            {categoryFormData.image_url ? (
+                                <img src={categoryFormData.image_url} alt="Preview" className="w-full h-full object-cover" />
+                            ) : (
+                                <ImageIcon className="text-slate-400 w-8 h-8" />
+                            )}
+                            <label className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-xl cursor-pointer">
+                                {categoryUploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
+                                <input type="file" accept="image/*" onChange={handleCategoryImageUpload} className="hidden" disabled={categoryUploading} />
+                            </label>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold mb-1 text-slate-700">اسم التصنيف <span className="text-red-500">*</span></label>
+                        <input required type="text" value={categoryFormData.name} onChange={e => setCategoryFormData({...categoryFormData, name: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-purple-500 outline-none" />
+                    </div>
+                    <button type="submit" disabled={categoryUploading} className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 mt-2 disabled:opacity-50">
+                        حفظ التصنيف
                     </button>
                 </form>
             </div>

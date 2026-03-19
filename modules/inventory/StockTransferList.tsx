@@ -32,7 +32,7 @@ const StockTransferList = () => {
           *,
           stock_transfer_items (
             quantity,
-            products (name)
+            products (name, unit)
           )
         `)
         .order('transfer_date', { ascending: false });
@@ -69,12 +69,13 @@ const StockTransferList = () => {
         ['من مستودع:', getWarehouseName(selectedTransfer.from_warehouse_id)],
         ['إلى مستودع:', getWarehouseName(selectedTransfer.to_warehouse_id)],
         [''], // Spacer
-        ['الصنف', 'الكمية'] // Table header
+        ['الصنف', 'الكمية', 'الوحدة'] // Table header
     ];
 
     const itemsData = selectedTransfer.stock_transfer_items.map((item: any) => [
         item.products?.name || 'صنف محذوف',
-        item.quantity
+        item.quantity,
+        item.products?.unit || '-'
     ]);
 
     const finalData = header.concat(itemsData);
@@ -188,7 +189,7 @@ const StockTransferList = () => {
                             {selectedTransfer.stock_transfer_items.map((item: any, idx: number) => (
                                 <tr key={idx}>
                                     <td className="p-3">{item.products?.name || 'صنف محذوف'}</td>
-                                    <td className="p-3 font-bold">{item.quantity}</td>
+                                    <td className="p-3 font-bold">{item.quantity} <span className="text-xs font-normal text-slate-500">{item.products?.unit || ''}</span></td>
                                 </tr>
                             ))}
                         </tbody>
