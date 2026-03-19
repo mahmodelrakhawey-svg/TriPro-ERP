@@ -21,6 +21,8 @@ const createProductSchema = z.object({
     inventory_account_id: z.string().uuid('حساب المخزون غير صحيح').optional(),
     cogs_account_id: z.string().uuid('حساب التكلفة غير صحيح').optional(),
     sales_account_id: z.string().uuid('حساب المبيعات غير صحيح').optional(),
+    labor_cost: z.number().optional(),
+    overhead_cost: z.number().optional(),
 }).refine(data => data.sales_price >= data.purchase_price, {
     message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
     path: ['sales_price']
@@ -50,6 +52,9 @@ type Item = {
   category_id?: string | null;
   unit?: string;
   offer_max_qty?: number | null;
+  labor_cost?: number;
+  overhead_cost?: number;
+  is_overhead_percentage?: boolean;
 };
 
 const ProductManager = () => {
@@ -199,7 +204,10 @@ const ProductManager = () => {
     offer_start_date: '',
     offer_end_date: '',
     offer_max_qty: 0,
-    available_modifiers: [] as any[]
+    available_modifiers: [] as any[],
+    labor_cost: 0,
+    overhead_cost: 0,
+    is_overhead_percentage: false
   });
 
   const handleOpenModal = (item?: Item) => {
@@ -234,7 +242,10 @@ const ProductManager = () => {
         offer_start_date: item.offer_start_date || '',
         offer_end_date: item.offer_end_date || '',
         offer_max_qty: item.offer_max_qty || 0,
-        available_modifiers: (item as any).available_modifiers || []
+        available_modifiers: (item as any).available_modifiers || [],
+        labor_cost: item.labor_cost || 0,
+        overhead_cost: item.overhead_cost || 0,
+        is_overhead_percentage: item.is_overhead_percentage || false
       });
     } else {
       setEditingId(null);
@@ -263,7 +274,10 @@ const ProductManager = () => {
         offer_start_date: '',
         offer_end_date: '',
         offer_max_qty: 0,
-        available_modifiers: []
+        available_modifiers: [],
+        labor_cost: 0,
+        overhead_cost: 0,
+        is_overhead_percentage: false
       });
     }
     setIsModalOpen(true);
@@ -649,6 +663,8 @@ const ProductManager = () => {
         inventory_account_id: formData.inventory_account_id || undefined,
         cogs_account_id: formData.cogs_account_id || undefined,
         sales_account_id: formData.sales_account_id || undefined,
+        labor_cost: formData.labor_cost,
+        overhead_cost: formData.overhead_cost,
     };
 
     const validationResult = createProductSchema.safeParse(validationData);
@@ -705,7 +721,10 @@ const ProductManager = () => {
             offer_start_date: formData.offer_start_date || null,
             offer_end_date: formData.offer_end_date || null,
             offer_max_qty: formData.offer_max_qty || null,
-            available_modifiers: formData.available_modifiers || []
+            available_modifiers: formData.available_modifiers || [],
+            labor_cost: formData.labor_cost || 0,
+            overhead_cost: formData.overhead_cost || 0,
+            is_overhead_percentage: formData.is_overhead_percentage || false
         };
         await updateProduct(editingId, itemData);
       } else {
@@ -735,7 +754,10 @@ const ProductManager = () => {
           offer_start_date: formData.offer_start_date || null,
           offer_end_date: formData.offer_end_date || null,
           offer_max_qty: formData.offer_max_qty || null,
-          available_modifiers: formData.available_modifiers || []
+          available_modifiers: formData.available_modifiers || [],
+          labor_cost: formData.labor_cost || 0,
+          overhead_cost: formData.overhead_cost || 0,
+          is_overhead_percentage: formData.is_overhead_percentage || false
         };
 
         const newProduct = await addProduct(productPayload as any);
@@ -900,7 +922,10 @@ const ProductManager = () => {
         offer_end_date: newEnd,
         category_id: item.category_id || null,
         offer_max_qty: item.offer_max_qty || 0,
-        available_modifiers: (item as any).available_modifiers || []
+        available_modifiers: (item as any).available_modifiers || [],
+        labor_cost: item.labor_cost || 0,
+        overhead_cost: item.overhead_cost || 0,
+        is_overhead_percentage: item.is_overhead_percentage || false
       });
       setIsModalOpen(true);
   };
@@ -1613,6 +1638,26 @@ const ProductManager = () => {
                     <PlusCircle size={16} /> إضافة خيار جديد
                   </button>
                 </div>
+              )}
+
+              {/* قسم تكاليف التصنيع (للأصناف المصنعة فقط) */}
+              {formData.product_type === 'MANUFACTURED' && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <h4 className="font-bold text-slate-800 mb-3 text-sm">تكاليف التصنيع الإضافية (للوحدة الواحدة)</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                          <div><label className="block text-xs font-bold text-slate-600 mb-1">تكلفة عمالة مباشرة</label><input type="number" min="0" step="0.01" value={formData.labor_cost} onChange={e => setFormData({...formData, labor_cost: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2 text-sm" /></div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">مصاريف غير مباشرة</label>
+                            <div className="flex gap-2">
+                              <input type="number" min="0" step="0.01" value={formData.overhead_cost} onChange={e => setFormData({...formData, overhead_cost: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2 text-sm" />
+                              <label className="flex items-center gap-1 cursor-pointer bg-slate-100 px-2 rounded border border-slate-200 text-xs font-bold">
+                                <input type="checkbox" checked={formData.is_overhead_percentage} onChange={e => setFormData({...formData, is_overhead_percentage: e.target.checked})} className="rounded text-blue-600" />
+                                <span>%</span>
+                              </label>
+                            </div>
+                          </div>
+                      </div>
+                  </div>
               )}
 
               {/* حقل الرصيد الافتتاحي (يظهر فقط عند الإضافة) */}

@@ -28,19 +28,9 @@ const getCategoryIcon = (name: string) => {
 
 // --- المكونات الفرعية ---
 
-const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve, onQrCode }: { table: RestaurantTable; onClick: () => void; isActive: boolean, onDelete: () => void, onEdit: () => void, onReserve: () => void, onQrCode: () => void }) => {
-  const statusStyles: { [key: string]: string } = {
-    AVAILABLE: 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200',
-    OCCUPIED: 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200',
-    RESERVED: 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200',
-  };
-  const statusText: { [key: string]: string } = { AVAILABLE: 'متاحة', OCCUPIED: 'مشغولة', RESERVED: 'محجوزة' };
-
-  // حساب وقت الفتح (إذا كانت مشغولة)
-  const getElapsedTime = () => {
-    const startTime = (table as any).session_start || (table as any).active_session?.start_time;
-    if (!startTime) return null;
-    
+// مكون جديد للتحديث التلقائي للوقت
+const LiveElapsedTime = ({ startTime }: { startTime: string }) => {
+  const calculateTime = () => {
     const start = new Date(startTime);
     const now = new Date();
     const diffMs = now.getTime() - start.getTime();
@@ -52,7 +42,27 @@ const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve, onQr
     return `${hours}:${mins.toString().padStart(2, '0')}`;
   };
 
-  const elapsedTime = table.status === 'OCCUPIED' ? getElapsedTime() : null;
+  const [timeString, setTimeString] = useState(calculateTime());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeString(calculateTime());
+    }, 60000); // تحديث كل دقيقة
+    return () => clearInterval(interval);
+  }, [startTime]);
+
+  return <span>{timeString}</span>;
+};
+
+const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve, onQrCode }: { table: RestaurantTable; onClick: () => void; isActive: boolean, onDelete: () => void, onEdit: () => void, onReserve: () => void, onQrCode: () => void }) => {
+  const statusStyles: { [key: string]: string } = {
+    AVAILABLE: 'bg-green-100 text-green-800 border-green-300 hover:bg-green-200',
+    OCCUPIED: 'bg-red-100 text-red-800 border-red-300 hover:bg-red-200',
+    RESERVED: 'bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200',
+  };
+  const statusText: { [key: string]: string } = { AVAILABLE: 'متاحة', OCCUPIED: 'مشغولة', RESERVED: 'محجوزة' };
+
+  const startTime = (table as any).session_start || (table as any).active_session?.start_time;
 
   return (
     <div className={`rounded-xl border-2 cursor-pointer transition-all flex flex-col shadow-sm ${statusStyles[table.status]} ${isActive ? 'ring-4 ring-blue-400 scale-[1.02]' : ''}`}>
@@ -83,10 +93,10 @@ const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve, onQr
                 </div>
             )}
             
-            {elapsedTime && (
+            {table.status === 'OCCUPIED' && startTime && (
                 <div className="mt-2 flex items-center gap-1 text-xs font-black bg-white/30 px-2 py-1.5 rounded-lg w-fit">
                     <Clock size={12} />
-                    <span>{elapsedTime}</span>
+                    <LiveElapsedTime startTime={startTime} />
                 </div>
             )}
         </div>

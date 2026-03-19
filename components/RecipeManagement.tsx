@@ -19,6 +19,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
   const [saving, setSaving] = useState(false);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [additionalCosts, setAdditionalCosts] = useState({ labor: 0, overhead: 0, isOverheadPercentage: false });
 
   useEffect(() => {
     if (productId) fetchRecipe();
@@ -27,6 +28,16 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
   const fetchRecipe = async () => {
     setLoading(true);
     try {
+      // جلب تكاليف المنتج الإضافية
+      const { data: productData } = await supabase.from('products').select('labor_cost, overhead_cost, is_overhead_percentage').eq('id', productId).single();
+      if (productData) {
+          setAdditionalCosts({ 
+              labor: productData.labor_cost || 0, 
+              overhead: productData.overhead_cost || 0,
+              isOverheadPercentage: productData.is_overhead_percentage || false
+          });
+      }
+
       const { data, error } = await supabase
         .from('bill_of_materials')
         .select(`
@@ -122,8 +133,12 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
   ).slice(0, 5);
 
   const totalRecipeCost = useMemo(() => {
-    return ingredients.reduce((sum, ing) => sum + (ing.quantity_required * (ing.cost || 0)), 0);
-  }, [ingredients]);
+    const materialsCost = ingredients.reduce((sum, ing) => sum + (ing.quantity_required * (ing.cost || 0)), 0);
+    const overheadAmount = additionalCosts.isOverheadPercentage 
+        ? materialsCost * (additionalCosts.overhead / 100) 
+        : additionalCosts.overhead;
+    return materialsCost + additionalCosts.labor + overheadAmount;
+  }, [ingredients, additionalCosts]);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
@@ -227,12 +242,27 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
             </div>
           </div>
 
-          <div className="bg-blue-50 p-3 rounded-xl border border-blue-100 flex justify-between items-center">
-            <h4 className="font-bold text-blue-800 flex items-center gap-2">
-              <DollarSign size={16} />
-              التكلفة الإجمالية للوصفة
-            </h4>
-            <span className="text-lg font-black text-blue-700">{totalRecipeCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency}</span>
+          <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-2">
+            <div className="flex justify-between text-sm text-blue-800">
+                <span>تكلفة المواد الخام:</span>
+                <span className="font-bold">{(ingredients.reduce((sum, ing) => sum + (ing.quantity_required * (ing.cost || 0)), 0)).toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-sm text-slate-600">
+                <span>+ عمالة ومصاريف:</span>
+                <span className="font-bold">
+                  {(additionalCosts.labor + (additionalCosts.isOverheadPercentage 
+                    ? (ingredients.reduce((sum, ing) => sum + (ing.quantity_required * (ing.cost || 0)), 0) * (additionalCosts.overhead / 100)) 
+                    : additionalCosts.overhead)).toFixed(2)}
+                  {additionalCosts.isOverheadPercentage && <span className="text-xs font-normal text-slate-400 mx-1">({additionalCosts.overhead}%)</span>}
+                </span>
+            </div>
+            <div className="flex justify-between items-center border-t border-blue-200 pt-2 mt-2">
+                <h4 className="font-bold text-blue-900 flex items-center gap-2">
+                <DollarSign size={16} />
+                إجمالي تكلفة الوجبة
+                </h4>
+                <span className="text-xl font-black text-blue-700">{totalRecipeCost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency}</span>
+            </div>
           </div>
 
           <div className="flex gap-3 pt-4 border-t">
