@@ -160,7 +160,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
             onClick={onPrintProforma}
             className="col-span-2 bg-slate-100 text-slate-700 font-bold py-2 rounded-lg hover:bg-slate-200 transition-colors text-sm flex items-center justify-center gap-2 border border-slate-200 mb-1" 
             disabled={!order.items || order.items.length === 0}>
-          <Printer size={16} /> طباعة مراجعة (Pro-forma)
+          <Printer size={16} /> طباعة شيك (Check)
         </button>
         <button 
             onClick={onAcceptOrder}

@@ -6,7 +6,7 @@ interface KitchenTicketProps {
 }
 
 export const KitchenTicket = React.forwardRef<HTMLDivElement, KitchenTicketProps>(({ tableName, items }, ref) => {
-  if (!items || items.length === 0) return null;
+  if (!items || items.length === 0) return <div ref={ref} className="hidden" />;
 
   return (
     <div ref={ref} className="p-4 text-black bg-white w-[80mm] font-sans" dir="rtl">

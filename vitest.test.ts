@@ -17,7 +17,7 @@ import React from 'react';
 describe('🔐 Security & Validation Tests', () => {
   describe('Input Sanitization', () => {
     it('يجب إزالة الأكواد الضارة مثل <script>', () => {
-      const dangerous = '<script>alert("xss")</script>';
+      const dangerous = '<script>console.log("xss")</script>';
       const result = sanitizeInput(dangerous);
       expect(result).not.toContain('<script>');
       expect(result).not.toContain('</script>');
@@ -44,7 +44,7 @@ describe('🔐 Security & Validation Tests', () => {
 
   describe('HTML Sanitization', () => {
     it('يجب تنظيف HTML الخطر', () => {
-      const dangerous = '<div onclick="alert()">Click</div>';
+      const dangerous = '<div onclick="console.log()">Click</div>';
       const result = sanitizeHtml(dangerous);
       expect(result).not.toContain('onclick');
     });

@@ -1,9 +1,9 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Calculator, RefreshCw, Save, Search, CheckCircle2, AlertTriangle, Loader2 } from 'lucide-react';
+import { Calculator, RefreshCw, Save, Search, CheckCircle2, AlertTriangle, Loader2, Scan, RotateCcw } from 'lucide-react';
 import { PhysicalStockItem } from '../../types';
 import { z } from 'zod';
 
@@ -17,6 +17,7 @@ const InventoryCountForm = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [saving, setSaving] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [barcodeInput, setBarcodeInput] = useState('');
 
   const handleStartCount = async () => {
     if (!warehouseId) {
@@ -149,6 +150,51 @@ const InventoryCountForm = () => {
       }, 0);
   }, [items, products]);
 
+  const handleBarcodeInput = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!barcodeInput.trim()) return;
+      
+      const scannedCode = barcodeInput.trim();
+      // البحث في المنتجات الموجودة في السياق للحصول على المعرف
+      const product = products.find((p: any) => 
+        (p.barcode && p.barcode.trim() === scannedCode) || (p.sku && p.sku.trim() === scannedCode)
+      );
+
+      if (product) {
+        setItems(prev => {
+          const idx = prev.findIndex(item => item.productId === product.id);
+          if (idx >= 0) {
+            const newItems = [...prev];
+            const currentActual = Number(newItems[idx].actualQty) || 0;
+            newItems[idx] = {
+              ...newItems[idx],
+              actualQty: currentActual + 1,
+              difference: (currentActual + 1) - newItems[idx].systemQty
+            };
+            showToast(`تم عد: ${product.name} (+1)`, 'success');
+            return newItems;
+          } else {
+             showToast('الصنف غير موجود في قائمة الجرد الحالية (قد يكون في مستودع آخر)', 'warning');
+             return prev;
+          }
+        });
+      } else {
+        showToast('لم يتم العثور على صنف بهذا الباركود', 'error');
+      }
+      setBarcodeInput('');
+    }
+  };
+
+  const handleZeroActuals = () => {
+    if (!window.confirm('هل أنت متأكد من تصفير جميع الكميات الفعلية؟ (للجرد من الصفر - Blind Count)')) return;
+    setItems(prev => prev.map(item => ({
+        ...item,
+        actualQty: 0,
+        difference: 0 - item.systemQty
+    })));
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -190,9 +236,14 @@ const InventoryCountForm = () => {
                         </button>
                       </>
                   ) : (
-                      <button onClick={() => setItems([])} className="w-full bg-red-50 text-red-600 py-3 rounded-2xl font-black border border-red-100 hover:bg-red-100 transition-all">
-                          إلغاء الجرد
-                      </button>
+                      <div className="flex gap-2 w-full">
+                        <button onClick={handleZeroActuals} className="px-4 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 font-bold" title="تصفير الكميات الفعلية">
+                            <RotateCcw size={20} />
+                        </button>
+                        <button onClick={() => setItems([])} className="flex-1 bg-red-50 text-red-600 py-3 rounded-2xl font-black border border-red-100 hover:bg-red-100 transition-all">
+                            إلغاء الجرد
+                        </button>
+                      </div>
                   )}
               </div>
           </div>
@@ -200,7 +251,20 @@ const InventoryCountForm = () => {
           {items.length > 0 && (
               <div className="mt-8 animate-in fade-in slide-in-from-bottom-4">
                   <div className="bg-white p-4 rounded-t-[32px] border-x border-t border-slate-200 flex justify-between items-center">
-                      <div className="relative w-72">
+                      <div className="flex gap-4">
+                        <div className="relative w-64">
+                            <Scan className="absolute right-3 top-2.5 text-blue-500 animate-pulse" size={18} />
+                            <input 
+                                type="text" 
+                                placeholder="مسح الباركود هنا..." 
+                                value={barcodeInput} 
+                                onChange={e => setBarcodeInput(e.target.value)}
+                                onKeyDown={handleBarcodeInput}
+                                className="w-full pr-10 pl-4 py-2 bg-blue-50 border border-blue-200 rounded-xl text-sm focus:border-blue-500 outline-none font-bold text-blue-900 placeholder-blue-300" 
+                                autoFocus
+                            />
+                        </div>
+                        <div className="relative w-64">
                           <Search className="absolute right-3 top-2.5 text-slate-400" size={18} />
                           <input 
                             type="text" 
@@ -209,6 +273,7 @@ const InventoryCountForm = () => {
                             onChange={e => setSearchTerm(e.target.value)}
                             className="w-full pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:border-purple-500 outline-none font-bold" 
                           />
+                        </div>
                       </div>
                       <div className={`px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 ${totalValueDiff >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                           {totalValueDiff >= 0 ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}

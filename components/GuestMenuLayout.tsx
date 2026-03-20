@@ -35,6 +35,7 @@ type CartItem = {
   image_url: string | null;
   notes: string;
   selectedModifiers: SelectedModifier[];
+  cost: number;
 };
 
 const isOfferActive = (item: Product) => {
@@ -107,6 +108,7 @@ const GuestMenuLayout = () => {
         image_url: product.image_url,
         notes: '',
         selectedModifiers: [],
+        cost: product.cost || 0,
       };
       setCart(prev => [...prev, newItem]);
     }
@@ -125,6 +127,7 @@ const GuestMenuLayout = () => {
       image_url: productForModifiers.image_url,
       notes: notes,
       selectedModifiers: selectedModifiers,
+      cost: totalUnitCost,
     };
     setCart(prev => [...prev, newItem]);
     setIsModifierModalOpen(false);
@@ -148,29 +151,62 @@ const updateItemNotes = (localId: string, newNotes: string) => {
   };
   const sendOrder = async () => {
     if (cart.length === 0) return;
+    
+    // تنظيف رمز QR (إزالة المسافات الزائدة) دون فرض regex صارم
+    const cleanQrKey = qrKey ? qrKey.trim() : '';
+    if (!cleanQrKey) {
+      showToast('❌ رمز QR مفقود في الرابط.', 'error');
+      return;
+    }
+
     setIsSending(true);
     try {
-      const { error } = await supabase.rpc('create_guest_order', {
-        p_qr_key: qrKey,
-        p_items: cart.map(item => ({
-          productId: item.id,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          notes: item.notes,
-          modifiers: item.selectedModifiers.map(m => ({
-            modifier_id: m.modifierId,
-            price_at_order: m.price,
-            quantity: 1
-          }))
+      // تجهيز البيانات (snake_case فقط لتوافق قاعدة البيانات وتجنب التعارض)
+      const payloadItems = cart.map(item => ({
+        product_id: item.id,
+        quantity: Number(item.quantity),
+        unit_price: Number(item.unitPrice),
+        unit_cost: Number(item.cost || 0),
+        notes: item.notes || '',
+        modifiers: (item.selectedModifiers || []).map(m => ({
+          modifier_id: m.modifierId,
+          name: m.name,
+          price: Number(m.price || 0),
+          cost: Number(m.cost || 0),
+          quantity: 1
         }))
+      }));
+
+      const { error } = await supabase.rpc('create_public_order', {
+        p_qr_key: cleanQrKey,
+        p_items: payloadItems
       });
+      
       if (error) throw error;
+
       showToast('✅ تم إرسال طلبك بنجاح! سيصلك قريباً.', 'success');
       setCart([]);
       setIsCartOpen(false);
     } catch (err: any) {
-      showToast('❌ حدث خطأ أثناء إرسال الطلب. يرجى استدعاء النادل.', 'error');
-      console.error(err);
+      console.error("Guest Order Error:", err);
+      // عرض تفاصيل الخطأ الفعلية للمساعدة في التشخيص
+      let errorMsg = err.message || err.details || 'خطأ غير معروف';
+      
+      // معالجة خطأ الكاش (Schema Cache) الشائع عند إضافة دوال جديدة
+      if (err.code === 'PGRST202') {
+          errorMsg = 'خطأ اتصال (Schema Cache). يرجى من المسؤول تحديث قاعدة البيانات.';
+          console.warn("⚠️ FIX REQUIRED: Run this SQL in Supabase: NOTIFY pgrst, 'reload config';");
+          
+          if (process.env.NODE_ENV === 'development') {
+             errorMsg += ` (نفذ أمر SQL: NOTIFY pgrst, 'reload config';)`;
+          }
+      } 
+      // معالجة خطأ تنسيق UUID من قاعدة البيانات (Code 22P02)
+      else if (err.code === '22P02' || err.message?.includes('invalid input syntax for type uuid')) {
+          errorMsg = 'رابط القائمة يحتوي على رمز غير صالح. يرجى إعادة مسح رمز QR.';
+      }
+
+      showToast(`❌ فشل إرسال الطلب: ${errorMsg}`, 'error');
     } finally {
       setIsSending(false);
     }

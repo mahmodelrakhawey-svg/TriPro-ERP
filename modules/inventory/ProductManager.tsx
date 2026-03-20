@@ -120,8 +120,10 @@ const ProductManager = () => {
   const [consumptionData, setConsumptionData] = useState<any[]>([]);
   const [consumptionFilterWarehouseId, setConsumptionFilterWarehouseId] = useState<string>('');
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
-  const [categoryFormData, setCategoryFormData] = useState({ id: '', name: '', image_url: '' });
+  const [categoryFormData, setCategoryFormData] = useState({ id: '', name: '', image_url: '', description: '' });
   const [categoryUploading, setCategoryUploading] = useState(false);
+  const [autoCreatedProducts, setAutoCreatedProducts] = useState<any[]>([]);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   useEffect(() => {
     if (warehouses.length > 0 && !importWarehouseId) {
@@ -348,6 +350,13 @@ const ProductManager = () => {
             const ws = wb.Sheets[wsname];
             const data = XLSX.utils.sheet_to_json(ws);
 
+            // إعداد البيانات اللازمة لإنشاء أصناف جديدة (تلقائياً)
+            const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
+            const orgId = orgData?.id;
+            const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || null;
+            const defaultCogs = getSystemAccount('COGS')?.id || null;
+            const defaultSales = getSystemAccount('SALES_REVENUE')?.id || null;
+
             // جلب جميع المنتجات للبحث السريع (Map for fast lookup)
             const { data: allProducts } = await supabase.from('products').select('id, name, sku, unit');
             const productMap = new Map(); // Key: SKU or Name, Value: ID
@@ -355,43 +364,190 @@ const ProductManager = () => {
             
             allProducts?.forEach(p => {
                 productDetailsMap.set(p.id, p);
-                if (p.sku) productMap.set(p.sku.trim(), p.id);
-                productMap.set(p.name.trim(), p.id);
+                // تخزين المفاتيح بحروف صغيرة وبدون مسافات لضمان المطابقة
+                if (p.sku) productMap.set(String(p.sku).trim().toLowerCase(), p.id);
+                if (p.name) productMap.set(String(p.name).trim().toLowerCase(), p.id);
             });
 
             let successCount = 0;
             let failCount = 0;
             const bomInserts: any[] = [];
             const unitUpdates = new Map<string, string>(); // تجميع التحديثات: ID -> New Unit
+            const createdList: any[] = []; // قائمة لتتبع المنتجات المنشأة تلقائياً
 
-            for (const row of data as any[]) {
-                const pSku = row['كود الوجبة (SKU)'];
-                const pName = row['اسم الوجبة'];
-                const mSku = row['كود المكون (SKU)'];
-                const mName = row['اسم المكون'];
-                const qty = row['الكمية المطلوبة'];
-                const unit = row['الوحدة'];
+            // دالة مساعدة للتحويل بين الوحدات (كيلو <-> جرام، لتر <-> مل)
+            const getConversionFactor = (fromUnit: string, toUnit: string) => {
+                const normalize = (u: string) => {
+                    if (!u) return '';
+                    u = u.toLowerCase().trim();
+                // إزالة الأرقام والأقواس للتطبيع (مثلاً "carton 24" -> "carton")
+                u = u.replace(/[0-9.()]/g, '').trim();
+                if (['kg', 'kilo', 'kilogram', 'kgs', 'كجم', 'كيلو', 'كيلوجرام'].includes(u)) return 'kg';
+                if (['g', 'gm', 'gram', 'gr', 'grams', 'جرام', 'جم'].includes(u)) return 'g';
+                if (['l', 'liter', 'litre', 'liters', 'لتر'].includes(u)) return 'l';
+                if (['ml', 'milli', 'milliliter', 'milliliters', 'مل', 'ملل', 'مللي'].includes(u)) return 'ml';
+                if (['piece', 'pcs', 'pc', 'unit', 'قطعة', 'حبه', 'حبة', 'عدد', 'وحدة'].includes(u)) return 'piece';
+                if (['dozen', 'doz', 'dz', 'دسته', 'دستة'].includes(u)) return 'dozen';
+                if (['carton', 'ctn', 'box', 'pack', 'crate', 'كرتونة', 'كرتون', 'علبة', 'باكيت', 'صندوق'].includes(u)) return 'carton';
+                if (['pallet', 'pl', 'plt', 'بالتة', 'بالته', 'طبلية'].includes(u)) return 'pallet';
+                    return u;
+                };
 
-                const productId = productMap.get(pSku ? String(pSku).trim() : '') || productMap.get(pName ? String(pName).trim() : '');
-                const materialId = productMap.get(mSku ? String(mSku).trim() : '') || productMap.get(mName ? String(mName).trim() : '');
+            const extractNumber = (str: string) => {
+                if (!str) return 1;
+                const match = str.match(/(\d+(\.\d+)?)/);
+                return match ? parseFloat(match[0]) : 1;
+            };
+
+                const nFrom = normalize(fromUnit);
+                const nTo = normalize(toUnit);
+            
+            // استخراج المعاملات (مثلاً كرتونة 24 -> 24)
+            const fromFactor = extractNumber(fromUnit);
+            const toFactor = extractNumber(toUnit);
+
+            if (nFrom === nTo) {
+                // إذا نفس الوحدة (مثلاً كرتونة لكرتونة) نراعي اختلاف الحجم
+                if (nFrom === 'carton' || nFrom === 'pallet') return fromFactor / toFactor;
+                return 1;
+            }
+            
+                if (nFrom === 'g' && nTo === 'kg') return 0.001;
+                if (nFrom === 'kg' && nTo === 'g') return 1000;
+                if (nFrom === 'ml' && nTo === 'l') return 0.001;
+                if (nFrom === 'l' && nTo === 'ml') return 1000;
+
+            // منطق الدسته والكرتونة
+            let fromBase = 1;
+            if (nFrom === 'dozen') fromBase = 12;
+            else if (nFrom === 'carton') fromBase = fromFactor > 1 ? fromFactor : 1;
+            else if (nFrom === 'pallet') fromBase = fromFactor > 1 ? fromFactor : 1;
+
+            let toBase = 1;
+            if (nTo === 'dozen') toBase = 12;
+            else if (nTo === 'carton') toBase = toFactor > 1 ? toFactor : 1;
+            else if (nTo === 'pallet') toBase = toFactor > 1 ? toFactor : 1;
+
+            // التحويل إذا كانت الوحدات من نوع العدد
+            if ((nFrom === 'piece' || nFrom === 'dozen' || nFrom === 'carton' || nFrom === 'pallet') && 
+                (nTo === 'piece' || nTo === 'dozen' || nTo === 'carton' || nTo === 'pallet')) {
+                return fromBase / toBase;
+            }
+
+                return 1;
+            };
+
+            for (const rawRow of data as any[]) {
+                // تطبيع مفاتيح الصف (إزالة المسافات الزائدة من أسماء الأعمدة)
+                const row: any = {};
+                Object.keys(rawRow).forEach(key => {
+                    row[key.trim()] = rawRow[key];
+                });
+
+                // دعم مسميات أعمدة مرنة لتتوافق مع ملفات المستخدم المختلفة
+                const pSku = row['كود الوجبة (SKU)'] || row['كود الوجبة'];
+                const pName = row['اسم الوجبة'] || row['اسم المنتج التام'];
+                
+                const mSku = row['كود المكون (SKU)'] || row['كود المكون'] || row['كود الصنف'];
+                const mName = row['اسم المكون'] || row['المكونات'] || row['اسم الصنف'];
+                
+                const qty = row['الكمية المطلوبة'] || row['الكمية'];
+                const unit = row['الوحدة'] || row['الوحدات'];
+
+                // محاولة البحث بالكود أولاً ثم الاسم (مع التطبيع)
+                const pKeySku = pSku ? String(pSku).trim().toLowerCase() : '';
+                const pKeyName = pName ? String(pName).trim().toLowerCase() : '';
+                
+                const mKeySku = mSku ? String(mSku).trim().toLowerCase() : '';
+                const mKeyName = mName ? String(mName).trim().toLowerCase() : '';
+
+                let productId = (pKeySku && productMap.get(pKeySku)) || (pKeyName && productMap.get(pKeyName));
+                let materialId = (mKeySku && productMap.get(mKeySku)) || (mKeyName && productMap.get(mKeyName));
+
+                // إذا لم يتم العثور على الوجبة (المنتج التام)، قم بإنشائها تلقائياً
+                if (!productId && pName) {
+                    try {
+                        const { data: newProduct, error: createError } = await supabase.from('products').insert({
+                            name: String(pName).trim(),
+                            sku: pSku ? String(pSku).trim() : null,
+                            product_type: 'MANUFACTURED', // افتراضي للوجبات ذات الوصفات
+                            item_type: 'MANUFACTURED',
+                            sales_price: 0,
+                            purchase_price: 0,
+                            cost: 0,
+                            stock: 0,
+                            organization_id: orgId,
+                            inventory_account_id: defaultInventory,
+                            cogs_account_id: defaultCogs,
+                            sales_account_id: defaultSales,
+                            is_active: true
+                        }).select('id, name, sku').single();
+
+                        if (!createError && newProduct) {
+                            productId = newProduct.id;
+                            // تحديث الخريطة فوراً لكي تجدها الصفوف التالية لنفس الوجبة في الملف
+                            if (newProduct.sku) productMap.set(String(newProduct.sku).trim().toLowerCase(), newProduct.id);
+                            productMap.set(String(newProduct.name).trim().toLowerCase(), newProduct.id);
+                            createdList.push({ name: newProduct.name, sku: newProduct.sku, type: 'وجبة (Meal)' });
+                        }
+                    } catch (err) {
+                        console.error("Failed to auto-create meal:", err);
+                    }
+                }
+
+                // إذا لم يتم العثور على المكون (المادة الخام)، قم بإنشائها تلقائياً
+                if (!materialId && mName) {
+                    try {
+                        const { data: newMaterial, error: createMatError } = await supabase.from('products').insert({
+                            name: String(mName).trim(),
+                            sku: mSku ? String(mSku).trim() : null,
+                            product_type: 'RAW_MATERIAL', // مادة خام
+                            item_type: 'RAW_MATERIAL',
+                            sales_price: 0,
+                            purchase_price: 0,
+                            cost: 0,
+                            stock: 0,
+                            organization_id: orgId,
+                            inventory_account_id: defaultInventory,
+                            cogs_account_id: defaultCogs,
+                            sales_account_id: defaultSales,
+                            is_active: true,
+                            unit: unit ? String(unit).trim() : 'kg' // استخدام الوحدة من الملف أو افتراضي
+                        }).select('id, name, sku, unit').single();
+
+                        if (!createMatError && newMaterial) {
+                            materialId = newMaterial.id;
+                            if (newMaterial.sku) productMap.set(String(newMaterial.sku).trim().toLowerCase(), newMaterial.id);
+                            productMap.set(String(newMaterial.name).trim().toLowerCase(), newMaterial.id);
+                            productDetailsMap.set(newMaterial.id, newMaterial);
+                            createdList.push({ name: newMaterial.name, sku: newMaterial.sku, type: 'مادة خام (Raw Material)' });
+                        }
+                    } catch (err) {
+                        console.error("Failed to auto-create raw material:", err);
+                    }
+                }
 
                 if (productId && materialId && qty && Number(qty) > 0) {
                     if (productId !== materialId) {
+                        const material = productDetailsMap.get(materialId);
+                        const baseUnit = material?.unit;
+                        const recipeUnit = unit ? String(unit).trim() : '';
+                        
+                        // حساب الكمية بناءً على معامل التحويل (مثلاً 200 جرام -> 0.2 كيلو)
+                        const factor = (baseUnit && recipeUnit) ? getConversionFactor(recipeUnit, baseUnit) : 1;
+                        const finalQty = Number(qty) * factor;
+
                         bomInserts.push({
                             product_id: productId,
                             raw_material_id: materialId,
-                            quantity_required: Number(qty)
+                            quantity_required: finalQty
                         });
 
-                        // منطق تحديث الوحدة: إذا كانت موجودة في الملف وغير موجودة في النظام
-                        if (unit && String(unit).trim()) {
-                            const material = productDetailsMap.get(materialId);
-                            // إذا وجدنا المادة الخام، وكانت وحدتها فارغة (null أو نص فارغ)
-                            if (material && !material.unit) {
-                                const newUnit = String(unit).trim();
+                        // تحديث الوحدة فقط إذا كانت المادة الخام ليس لها وحدة مسجلة
+                        if (material && !material.unit && recipeUnit) {
+                            const newUnit = recipeUnit;
                                 unitUpdates.set(materialId, newUnit);
-                                material.unit = newUnit; // تحديث محلي لمنع التكرار في نفس العملية
-                            }
+                                material.unit = newUnit; // تحديث محلي
                         }
 
                         successCount++;
@@ -413,6 +569,11 @@ const ProductManager = () => {
                 );
                 await Promise.all(updates);
                 refresh(); // تحديث القائمة في الواجهة
+            }
+
+            if (createdList.length > 0) {
+                setAutoCreatedProducts(createdList);
+                setIsReportModalOpen(true);
             }
 
             showToast(`تم استيراد ${successCount} وصفة بنجاح.${failCount > 0 ? ` فشل ${failCount} صف.` : ''}`, 'success');
@@ -551,7 +712,7 @@ const ProductManager = () => {
   };
 
   const handleAddCategory = () => {
-    setCategoryFormData({ id: '', name: '', image_url: '' });
+    setCategoryFormData({ id: '', name: '', image_url: '', description: '' });
     setIsCategoryModalOpen(true);
   };
 
@@ -562,7 +723,8 @@ const ProductManager = () => {
     setCategoryFormData({ 
         id: category.id, 
         name: category.name, 
-        image_url: (category as any).image_url || '' 
+        image_url: (category as any).image_url || '',
+        description: (category as any).description || ''
     });
     setIsCategoryModalOpen(true);
   };
@@ -609,12 +771,13 @@ const ProductManager = () => {
         
         if (categoryFormData.id) {
             const { error } = await supabase.from('item_categories')
-                .update({ name: categoryFormData.name, image_url: categoryFormData.image_url })
+                .update({ name: categoryFormData.name, image_url: categoryFormData.image_url, description: categoryFormData.description })
                 .eq('id', categoryFormData.id);
             if (error) throw error;
         } else {
             const { error } = await supabase.from('item_categories')
-                .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, organization_id: orgData?.id });
+                // .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, organization_id: orgData?.id });
+                .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, description: categoryFormData.description });
             if (error) throw error;
         }
         
@@ -1307,7 +1470,7 @@ const ProductManager = () => {
                     >
                         <option value="">تغيير التصنيف...</option>
                         {categories.map(cat => (
-                            <option key={cat.id} value={cat.id}>{cat.name}</option>
+                            <option key={cat.id} value={cat.id}>{cat.name} {(cat as any).description ? ` (${(cat as any).description})` : ''}</option>
                         ))}
                     </select>
                     <button onClick={() => setIsBulkOfferModalOpen(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-purple-700 animate-in zoom-in">
@@ -1534,6 +1697,8 @@ const ProductManager = () => {
                         <option value="l">لتر (Liter)</option>
                         <option value="ml">مللي (ML)</option>
                         <option value="box">علبة/كرتون (Box)</option>
+                        <option value="crate">صندوق (Crate)</option>
+                        <option value="pallet">بالتة (Pallet)</option>
                         <option value="m">متر (Meter)</option>
                       </select>
                     </div>
@@ -1558,7 +1723,9 @@ const ProductManager = () => {
                     <div className="flex gap-2">
                         <select value={formData.category_id || ''} onChange={e => setFormData({...formData, category_id: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
                             <option value="">-- بدون تصنيف --</option>
-                            {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                            {categories.map(cat => (
+                                <option key={cat.id} value={cat.id}>{cat.name} {(cat as any).description ? ` (${(cat as any).description})` : ''}</option>
+                            ))}
                         </select>
                         {formData.category_id && categories.find(c => c.id === formData.category_id) && (categories.find(c => c.id === formData.category_id) as any).image_url && (
                             <img 
@@ -1911,10 +2078,60 @@ const ProductManager = () => {
                         <label className="block text-sm font-bold mb-1 text-slate-700">اسم التصنيف <span className="text-red-500">*</span></label>
                         <input required type="text" value={categoryFormData.name} onChange={e => setCategoryFormData({...categoryFormData, name: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-purple-500 outline-none" />
                     </div>
+                    <div>
+                        <label className="block text-sm font-bold mb-1 text-slate-700">الوصف</label>
+                        <textarea rows={3} value={categoryFormData.description} onChange={e => setCategoryFormData({...categoryFormData, description: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-purple-500 outline-none" />
+                    </div>
                     <button type="submit" disabled={categoryUploading} className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 mt-2 disabled:opacity-50">
                         حفظ التصنيف
                     </button>
                 </form>
+            </div>
+        </div>
+      )}
+
+      {/* Auto-created Products Report Modal */}
+      {isReportModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80] p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95">
+                <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                        <CheckSquare size={20} className="text-emerald-600" /> تقرير المنتجات التي تم إنشاؤها تلقائياً
+                    </h3>
+                    <button onClick={() => setIsReportModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                <div className="p-6 max-h-[60vh] overflow-y-auto">
+                    <div className="bg-emerald-50 text-emerald-800 p-4 rounded-lg mb-4 text-sm font-medium">
+                        تم إنشاء {autoCreatedProducts.length} صنف جديد تلقائياً أثناء استيراد الوصفات لأنها لم تكن موجودة في النظام.
+                    </div>
+                    <table className="w-full text-right text-sm border rounded-lg overflow-hidden">
+                        <thead className="bg-slate-100 font-bold text-slate-700">
+                            <tr>
+                                <th className="p-3">اسم الصنف</th>
+                                <th className="p-3">الكود (SKU)</th>
+                                <th className="p-3">النوع</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                            {autoCreatedProducts.map((item, idx) => (
+                                <tr key={idx} className="hover:bg-slate-50">
+                                    <td className="p-3 font-bold">{item.name}</td>
+                                    <td className="p-3 font-mono text-slate-500">{item.sku || '-'}</td>
+                                    <td className="p-3">
+                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.type.includes('Meal') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                                            {item.type}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="bg-slate-50 px-6 py-4 border-t flex justify-end">
+                    <button onClick={() => setIsReportModalOpen(false)} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-900">
+                        إغلاق
+                    </button>
+                </div>
             </div>
         </div>
       )}

@@ -9,7 +9,7 @@ interface PrintableInvoiceProps {
 }
 
 export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoiceProps>(({ order, settings, isProforma }, ref) => {
-  if (!order) return null;
+  if (!order) return <div ref={ref} className="hidden" />;
 
   const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0); // Use base price for subtotal
   const modifiersTotal = order.items.reduce((sum, item) => sum + ((item.unitPrice - item.price) * item.quantity), 0);
@@ -26,7 +26,7 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
     <div ref={ref} className="p-4 text-black bg-white w-[80mm] font-sans text-xs leading-tight" dir="rtl">
       {isProforma && (
         <div className="text-center border-2 border-black p-1 mb-2 font-black text-sm uppercase">
-          ** نسخة أولية (PRO-FORMA) **
+          ** شيك مراجعة (CHECK) **
         </div>
       )}
       

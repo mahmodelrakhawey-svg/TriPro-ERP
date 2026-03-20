@@ -705,7 +705,7 @@ const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary }: { isOpen: bool
 
 
 const PosScreen = () => {
-  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser } = useAccounting();
+  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, refreshData } = useAccounting();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dine-in');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -742,8 +742,10 @@ const PosScreen = () => {
 
   const handlePrint = useReactToPrint({
     content: () => printRef.current,
+    contentRef: printRef, // Added to satisfy internal check in some versions
     documentTitle: 'فاتورة', 
     onAfterPrint: handleAfterPrint,
+    suppressErrors: true, // Suppress "nothing to print" errors
   } as any);
 
   const kitchenPrintRef = useRef<HTMLDivElement>(null);
@@ -753,8 +755,10 @@ const PosScreen = () => {
 
   const handleKitchenPrint = useReactToPrint({
     content: () => kitchenPrintRef.current,
+    contentRef: kitchenPrintRef, // Added to satisfy internal check in some versions
     documentTitle: 'طلب مطبخ',
     onAfterPrint: handleKitchenAfterPrint,
+    suppressErrors: true, // Suppress "nothing to print" errors
   } as any);
 
   useEffect(() => {
@@ -791,6 +795,17 @@ const PosScreen = () => {
     }
   }, [isDemo]);
 
+  // الاشتراك في تحديثات الطاولات (لظهور الطلبات الجديدة من رمز QR فوراً كطاولة مشغولة)
+  useEffect(() => {
+    const channel = supabase.channel('pos-table-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
+        refreshData();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [refreshData]);
+
   // Effect to trigger print when orderToPrint is set
   useEffect(() => {
     if (orderToPrint) {
@@ -800,14 +815,13 @@ const PosScreen = () => {
         if (printRef.current) {
           handlePrint();
         } else {
-          console.error("Printing failed: component to print is not available.");
-          showToast("فشل الطباعة: المحتوى لم يكن جاهزاً.", "error");
+          // Silently fail or reset to prevent stuck state
           setOrderToPrint(null); // Reset state if printing fails
         }
       }, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [orderToPrint, handlePrint, showToast]);
+  }, [orderToPrint, handlePrint]);
 
   // تأثير لتشغيل طباعة المطبخ عند تجهيز البيانات
   useEffect(() => {
@@ -816,14 +830,13 @@ const PosScreen = () => {
         if (kitchenPrintRef.current) {
           handleKitchenPrint();
         } else {
-          console.error("Kitchen printing failed: component to print is not available.");
-          showToast("فشل طباعة طلب المطبخ: المحتوى لم يكن جاهزاً.", "error");
+          // Silently fail or reset to prevent stuck state
           setKitchenOrderToPrint(null); // Reset if it fails
         }
       }, 500);
       return () => clearTimeout(timeoutId);
     }
-  }, [kitchenOrderToPrint, handleKitchenPrint, showToast]);
+  }, [kitchenOrderToPrint, handleKitchenPrint]);
 
   // --- Customer Display Sync ---
   useEffect(() => {
@@ -1162,6 +1175,7 @@ const PosScreen = () => {
 
     const handlePrintProforma = () => {
       if (!activeOrder || !activeOrder.items || activeOrder.items.length === 0) return;
+      showToast('جاري تحضير الشيك للمعانية...', 'info');
       setIsProformaPrint(true);
       setOrderToPrint(activeOrder);
     };
