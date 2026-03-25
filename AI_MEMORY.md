@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٩‏/٣‏/٢٠٢٦، ١٠:٤٢:٠٢ ص
+📅 تاريخ التحديث: ٢٥‏/٣‏/٢٠٢٦، ١١:٥٨:٠٦ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -68,6 +68,8 @@
     📄 PayrollReport.tsx
     📄 PayrollRun.tsx
   📁 inventory/
+    📄 2026-04-05_add_notes_to_inventory_counts.sql
+    📄 add_category_image.sql
     📄 DetailedStockMovementReport.tsx
     📄 InventoryCountForm.tsx
     📄 InventoryCountList.tsx
@@ -75,6 +77,7 @@
     📄 InventoryRevaluation.tsx
     📄 ItemMovementReport.tsx
     📄 ItemProfitReport.tsx
+    📄 KitchenEndDayCount.tsx
     📄 OpeningInventory.tsx
     📄 ProductManager.tsx
     📄 secure_journals.sql
@@ -108,6 +111,7 @@
     📄 SupplierManager.tsx
     📄 SupplierStatement.tsx
   📁 reports/
+    📄 add_product_unit.sql
     📄 AttachmentsReport.tsx
     📄 DailySalesReport.tsx
     📄 DeficitReport.tsx
@@ -120,6 +124,7 @@
     📄 PerformanceComparisonReport.tsx
     📄 ProductionCostAnalysis.tsx
     📄 Reports.tsx
+    📄 RestaurantProfitReport.tsx
     📄 RestaurantSalesReport.tsx
     📄 SalesByUserReport.tsx
     📄 TaxReturnReport.tsx
@@ -149,6 +154,8 @@
   📄 2026-03-19_accounting_integration.sql
   📄 2026-03-21_restaurant_accounting.sql
   📄 About.tsx
+  📄 add_overhead_percentage.sql
+  📄 add_product_costs.sql
   📄 BulkQRCodeModal.tsx
   📄 CopyModifiersModal.tsx
   📄 CustomerDisplay.tsx
@@ -205,6 +212,10 @@
     📄 2026-03-25_realtime_inventory_deduction.sql
     📄 2026-03-26_wastage_management.sql
     📄 2026-03-27_wastage_analysis_report.sql
+    📄 2026-03-30_fix_unbalanced_journals.sql
+    📄 2026-03-31_fix_historical_unbalanced_journals.sql
+    📄 2026-04-01_fix_report_account_types.sql
+    📄 2026-04-03_enforce_lowercase_types.sql
     📄 OrderSummary.tsx
   📄 accountService.ts
   📄 add_account_mappings.sql
@@ -486,8 +497,10 @@ import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
 import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
+import KitchenEndDayCount from './modules/inventory/KitchenEndDayCount'; // إضافة جرد المطبخ
 import SalesByUserReport from './modules/reports/SalesByUserReport';
 import WastageAnalysisReport from './modules/reports/WastageAnalysisReport'; // تأكد من أن الملف في هذا المسار
+import RestaurantProfitReport from './modules/reports/RestaurantProfitReport'; // إضافة تقرير الربحية
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 import CustomerDisplay from './components/CustomerDisplay';
 
@@ -612,6 +625,8 @@ const DemoWatermark = () => {
 };
 
 const MainLayout = () => {
+    const { currentUser } = useAccounting();
+
     useEffect(() => {
         // بدء جدول الإخطارات الذكية
         NotificationScheduler.start({
@@ -643,7 +658,7 @@ const MainLayout = () => {
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
                         <Routes>
                 <Route path="/login" element={<Navigate to="/" replace />} />
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
                 <Route path="/financial-ratios" element={<FinancialRatios />} />
                 <Route path="/expense-analysis" element={<ExpenseAnalysisReport />} />
                   <Route path="/budget-setup" element={<BudgetManager />} />
@@ -736,6 +751,7 @@ const MainLayout = () => {
                 <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
                 <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
                 <Route path="/reports/wastage-analysis" element={<WastageAnalysisReport />} />
+                <Route path="/reports/restaurant-profit" element={<RestaurantProfitReport />} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
                 <Route path="/purchase-reports" element={<PurchaseReports />} />
                 <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
@@ -751,6 +767,7 @@ const MainLayout = () => {
                 <Route path="/about" element={<About />} />
                 <Route path="/pos" element={<PosScreen />} /> {/* التأكد من أن هذا السطر موجود */}
                 <Route path="/kds" element={<KdsScreen />} /> {/* إضافة مسار شاشة المطبخ */}
+                <Route path="/kitchen-end-day" element={<KitchenEndDayCount />} /> {/* إضافة مسار جرد المطبخ */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>

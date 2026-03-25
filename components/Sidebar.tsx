@@ -4,13 +4,19 @@ import { useAccounting } from '../context/AccountingContext';
 import { 
     LayoutDashboard, BookOpen, FileText, PieChart, Settings,
     ScrollText, Library, ShoppingCart, Users, Truck, Package, 
-    Receipt, RotateCcw, ClipboardList, History, Banknote, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Scale, Store, Wallet, TrendingUp, LogOut, Shield, ListChecks, Landmark, MonitorSmartphone, Briefcase, Settings as Cog, PenTool, FileCheck, Calculator, Gauge, Target, BarChartHorizontal, Bell, BarChartBig, FileMinus, FilePlus, PackageX, CircleDollarSign, FileSpreadsheet, PackageOpen, ShieldAlert, X, BarChart2, ShieldCheck, HelpCircle
+    Receipt, RotateCcw, ClipboardList, History, Banknote, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Scale, Store, Wallet, TrendingUp, LogOut, Shield, ListChecks, Landmark, MonitorSmartphone, Briefcase, Settings as Cog, PenTool, FileCheck, Calculator, Gauge, Target, BarChartHorizontal, Bell, BarChartBig, FileMinus, FilePlus, PackageX, CircleDollarSign, FileSpreadsheet, PackageOpen, ShieldAlert, X, BarChart2, ShieldCheck, HelpCircle, ChevronDown
     , Lock, Trash2, AlertTriangle, Percent, Database, Utensils, Clock
 } from 'lucide-react';
 
 const Sidebar = () => {
   const location = useLocation();
   const { currentUser, userPermissions, settings } = useAccounting();
+
+  const [openSection, setOpenSection] = React.useState<string | null>(null);
+
+  const toggleSection = (section: string) => {
+    setOpenSection(openSection === section ? null : section);
+  };
 
   const getNavClass = (path: string) => {
     const isActive = path === '/' 
@@ -93,6 +99,33 @@ const Sidebar = () => {
   const canAccessHR = hasAccess(['hr']);
   const canAccessManufacturing = hasAccess(['manufacturing']);
   
+  // مكون فرعي لرأس القائمة القابلة للطي
+  const SidebarSection = ({ title, icon: Icon, id, children, show }: { title: string, icon: any, id: string, children: React.ReactNode, show: boolean }) => {
+    if (!show) return null;
+    const isOpen = openSection === id;
+    return (
+      <div className="mb-2">
+        <button
+          onClick={() => toggleSection(id)}
+          className={`w-full flex items-center justify-between px-4 py-2.5 rounded-lg transition-all ${
+            isOpen ? 'bg-slate-50 text-blue-600' : 'text-slate-600 hover:bg-slate-100'
+          }`}
+        >
+          <div className="flex items-center gap-3 font-bold">
+            <Icon size={18} />
+            <span>{title}</span>
+          </div>
+          <ChevronDown size={16} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        </button>
+        <div className={`overflow-hidden transition-all duration-300 ${isOpen ? 'max-h-[1000px] opacity-100 mt-1' : 'max-h-0 opacity-0'}`}>
+          <div className="mr-4 flex flex-col gap-1 border-r-2 border-slate-50 pr-2">
+            {children}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <aside className="w-64 bg-white border-l border-slate-200 h-screen sticky top-0 flex flex-col shadow-sm print:hidden">
       <div className="p-6 border-b border-slate-100 bg-gradient-to-b from-white to-slate-50 relative">
@@ -126,13 +159,7 @@ const Sidebar = () => {
         )}
         
         {/* Treasury Module (Mapped to 'treasury' in DB) */}
-        {(canAccessFinancials || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">الخزينة والبنوك</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="الخزينة والبنوك" icon={Landmark} id="treasury" show={canAccessFinancials || role === 'demo'}>
                 {canShow(['treasury'], ['create']) && (
                 <Link to="/receipt-voucher" className={getNavClass('/receipt-voucher')}>
                 <ArrowDownLeft size={18} />
@@ -205,17 +232,10 @@ const Sidebar = () => {
                 <span>تقرير طرق الدفع</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* Sales & CRM Module (Mapped to 'sales' and 'customers' in DB) */}
-        {(canAccessSales || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">المبيعات والعملاء</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="المبيعات والعملاء" icon={ShoppingCart} id="sales" show={canAccessSales || role === 'demo'}>
                 {canShow(['sales'], ['create']) && (
                 <Link to="/quotations-new" className={getNavClass('/quotations-new')}>
                 <FileText size={18} />
@@ -288,17 +308,10 @@ const Sidebar = () => {
                 <span>المستفيدين من العروض</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* Restaurant Module */}
-        {(canAccessRestaurant || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">مديول المطاعم</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="مديول المطاعم" icon={Utensils} id="restaurant" show={canAccessRestaurant || role === 'demo'}>
                 {!isChef && (
                 <Link to="/pos" className={getNavClass('/pos')}>
                     <Utensils size={18} />
@@ -337,17 +350,10 @@ const Sidebar = () => {
                     <span>ربحية الوجبات</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* Purchasing Module (Mapped to 'purchases' and 'suppliers' in DB) */}
-        {(canAccessPurchases || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">إدارة المشتريات</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="إدارة المشتريات" icon={Truck} id="purchases" show={canAccessPurchases || role === 'demo'}>
                 {canShow(['purchases'], ['create']) && (
                 <Link to="/purchase-order-new" className={getNavClass('/purchase-order-new')}>
                 <FileCheck size={18} />
@@ -414,34 +420,20 @@ const Sidebar = () => {
                 <span>تقارير المشتريات</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* Manufacturing Module */}
-        {(canAccessManufacturing || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">التصنيع</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="التصنيع" icon={Cog} id="manufacturing" show={canAccessManufacturing || role === 'demo'}>
                 {canShow(['manufacturing'], ['create', 'read']) && (
                 <Link to="/manufacturing" className={getNavClass('/manufacturing')}>
                     <Cog size={18} />
                     <span>التصنيع والإنتاج</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* Inventory Module (Mapped to 'inventory' and 'products' in DB) */}
-        {(canAccessInventory || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">إدارة المخزون</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="إدارة المخزون" icon={Package} id="inventory" show={canAccessInventory || role === 'demo'}>
                 {canShow(['inventory', 'reports'], ['dashboard', 'view', 'read']) && (
                 <Link to="/inventory-dashboard" className={getNavClass('/inventory-dashboard')}>
                 <LayoutDashboard size={18} />
@@ -544,17 +536,10 @@ const Sidebar = () => {
                 <span>كارت الصنف</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* HR Module (Mapped to 'hr' in DB) */}
-        {(canAccessHR || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">الموارد البشرية</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="الموارد البشرية" icon={Briefcase} id="hr" show={canAccessHR || role === 'demo'}>
                 {canShow(['hr'], ['create', 'read', 'view']) && (
                 <Link to="/employees" className={getNavClass('/employees')}>
                     <Briefcase size={18} />
@@ -591,17 +576,10 @@ const Sidebar = () => {
                     <span>تقارير الموظفين</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* Accounting Module (Mapped to 'journal_entries' and 'reports' in DB) */}
-        {(canAccessAccounting || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">المحاسبة العامة</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="المحاسبة العامة" icon={Calculator} id="accounting" show={canAccessAccounting || role === 'demo'}>
                 {canShow(['reports'], ['view', 'read']) && (
                 <Link to="/accounting-dashboard" className={getNavClass('/accounting-dashboard')}>
                 <LayoutDashboard size={18} />
@@ -698,17 +676,10 @@ const Sidebar = () => {
                 <span>إغلاق السنة المالية</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
         {/* Advanced Reports Module */}
-        {(canAccessAdvancedReports || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">التقارير المتقدمة</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="التقارير المتقدمة" icon={PieChart} id="advanced_reports" show={canAccessAdvancedReports || role === 'demo'}>
                 {canShow(['reports', 'accounting'], ['ratio', 'analysis', 'report', 'read']) && (
                 <Link to="/financial-ratios" className={getNavClass('/financial-ratios')}>
                     <Gauge size={18} />
@@ -757,16 +728,9 @@ const Sidebar = () => {
                     <span>انحرافات الموازنة</span>
                 </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
 
-        {(isAdmin || role === 'demo') && (
-            <>
-                <div className="pt-4 pb-2 text-xs font-bold text-slate-400 px-4 flex items-center gap-2">
-                    <span className="w-full h-px bg-slate-200"></span>
-                    <span className="whitespace-nowrap">الإدارة</span>
-                    <span className="w-full h-px bg-slate-200"></span>
-                </div>
+        <SidebarSection title="الإدارة" icon={Settings} id="admin" show={isAdmin || role === 'demo'}>
                 <Link to="/users" className={getNavClass('/users')}>
                     <Shield size={18} />
                     <span>المستخدمين والصلاحيات</span>
@@ -801,8 +765,7 @@ const Sidebar = () => {
                         <span>إعدادات النظام</span>
                     </Link>
                 )}
-            </>
-        )}
+        </SidebarSection>
       </nav>
 
       {/* The user info and logout button have been moved to the Header component */}
