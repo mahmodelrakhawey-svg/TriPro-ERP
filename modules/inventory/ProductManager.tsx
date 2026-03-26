@@ -66,6 +66,7 @@ const ProductManager = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showOffersOnly, setShowOffersOnly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [recipeCost, setRecipeCost] = useState(0); // تخزين تكلفة المكونات
 
   // تأخير البحث
   useEffect(() => {
@@ -123,6 +124,8 @@ const ProductManager = () => {
   const [categoryFormData, setCategoryFormData] = useState({ id: '', name: '', image_url: '', description: '' });
   const [categoryUploading, setCategoryUploading] = useState(false);
   const [autoCreatedProducts, setAutoCreatedProducts] = useState<any[]>([]);
+  const [isBulkPriceUpdateModalOpen, setIsBulkPriceUpdateModalOpen] = useState(false);
+  const [bulkPricePercentage, setBulkPricePercentage] = useState(0);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   useEffect(() => {
@@ -212,8 +215,35 @@ const ProductManager = () => {
     is_overhead_percentage: false
   });
 
-  const handleOpenModal = (item?: Item) => {
+  // 🚀 تحديث تلقائي لسعر التكلفة التقديري بناءً على العمالة والمصاريف (للوجبات)
+  useEffect(() => {
+    if (formData.product_type === 'MANUFACTURED') {
+      const labor = Number(formData.labor_cost) || 0;
+      const overhead = Number(formData.overhead_cost) || 0;
+      let totalAdditional = 0;
+
+      if (formData.is_overhead_percentage) {
+        totalAdditional = labor * (1 + overhead / 100);
+      } else {
+        totalAdditional = labor + overhead;
+      }
+      
+      // 🎯 دمج تكلفة المكونات المجلوبة مع تكاليف التصنيع
+      const finalCost = recipeCost + totalAdditional;
+      setFormData(prev => ({ ...prev, purchase_price: Number(finalCost.toFixed(2)) }));
+    }
+  }, [formData.labor_cost, formData.overhead_cost, formData.is_overhead_percentage, formData.product_type, recipeCost]);
+
+  const handleOpenModal = async (item?: Item) => {
     if (item) {
+      // جلب تكلفة المكونات من قاعدة البيانات عند فتح الصنف للتعديل
+      try {
+        const { data } = await supabase.rpc('get_product_recipe_cost', { p_product_id: item.id });
+        setRecipeCost(Number(data) || 0);
+      } catch (e) {
+        setRecipeCost(0);
+      }
+
       const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
       const defaultCogs = getSystemAccount('COGS')?.id || '';
       const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
@@ -250,6 +280,7 @@ const ProductManager = () => {
         is_overhead_percentage: item.is_overhead_percentage || false
       });
     } else {
+      setRecipeCost(0);
       setEditingId(null);
       // تعيين قيم افتراضية للحسابات إذا وجدت لتسهيل الإدخال
       const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
@@ -1351,6 +1382,54 @@ const ProductManager = () => {
     }
   };
 
+  const handleBulkPriceUpdateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedIds.size === 0) return;
+    
+    if (!can('products', 'update')) {
+        showToast('ليس لديك صلاحية تعديل المنتجات', 'error');
+        return;
+    }
+
+    if (currentUser?.role === 'demo') {
+        showToast(`تم تحديث الأسعار بنسبة ${bulkPricePercentage}% لـ ${selectedIds.size} صنف (محاكاة)`, 'success');
+        setIsBulkPriceUpdateModalOpen(false);
+        setSelectedIds(new Set());
+        return;
+    }
+
+    setIsBulkSaving(true);
+    try {
+        const updates = Array.from(selectedIds).map(async (id) => {
+            const item = (items as Item[]).find(i => i.id === id);
+            if (!item) return;
+
+            const multiplier = 1 + (bulkPricePercentage / 100);
+            let newPrice = item.sales_price * multiplier;
+            
+            // تقريب محاسبي لأقرب خانتين عشريتين
+            newPrice = Math.max(0, Math.round(newPrice * 100) / 100);
+
+            return supabase.from('products').update({
+                sales_price: newPrice
+            }).eq('id', id);
+        });
+
+        await Promise.all(updates);
+        
+        showToast(`تم تحديث أسعار ${selectedIds.size} صنف بنجاح ✅`, 'success');
+        refresh();
+        setIsBulkPriceUpdateModalOpen(false);
+        setBulkPricePercentage(0);
+        setSelectedIds(new Set());
+    } catch (error: any) {
+        console.error(error);
+        showToast('حدث خطأ أثناء تحديث الأسعار: ' + error.message, 'error');
+    } finally {
+        setIsBulkSaving(false);
+    }
+  };
+
   const handleBulkCategoryChange = async (categoryId: string) => {
     if (!categoryId || selectedIds.size === 0) {
         showToast('الرجاء اختيار تصنيف وأصناف أولاً.', 'warning');
@@ -1476,6 +1555,10 @@ const ProductManager = () => {
                     <button onClick={() => setIsBulkOfferModalOpen(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-purple-700 animate-in zoom-in">
                         <Tag size={18} />
                         تطبيق عرض ({selectedIds.size})
+                    </button>
+                    <button onClick={() => setIsBulkPriceUpdateModalOpen(true)} className="bg-orange-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-orange-700 animate-in zoom-in">
+                        <RefreshCw size={18} />
+                        تعديل الأسعار ({selectedIds.size})
                     </button>
                     <button onClick={handleBulkPrintBarcodes} className="bg-slate-800 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-slate-900 animate-in zoom-in">
                         <Barcode size={18} />
@@ -1824,6 +1907,25 @@ const ProductManager = () => {
                             </div>
                           </div>
                       </div>
+                      
+                      {/* 📊 ملخص التكلفة التقديرية (BOM Breakdown) */}
+                      <div className="mt-4 pt-4 border-t border-slate-200">
+                          <h5 className="font-bold text-slate-700 mb-2 text-sm">ملخص التكلفة التقديرية:</h5>
+                          <div className="space-y-1 text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
+                              <div className="flex justify-between">
+                                  <span>تكلفة المكونات (من الوصفة):</span>
+                                  <span className="font-mono font-bold text-indigo-600">{recipeCost.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between">
+                                  <span>تكلفة العمالة والمصاريف:</span>
+                                  <span className="font-mono font-bold">{(formData.purchase_price - recipeCost).toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between font-black text-slate-800 border-t border-slate-200 pt-2 mt-2">
+                                  <span>إجمالي التكلفة النهائية:</span>
+                                  <span className="font-mono text-lg text-emerald-600">{formData.purchase_price.toFixed(2)}</span>
+                              </div>
+                          </div>
+                      </div>
                   </div>
               )}
 
@@ -1998,6 +2100,44 @@ const ProductManager = () => {
           productName={modifierTarget.name} 
           onClose={() => setModifierTarget(null)} 
         />
+      )}
+
+      {/* Bulk Price Update Modal */}
+      {isBulkPriceUpdateModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                <div className="flex justify-between items-center mb-6">
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                        <Percent size={20} className="text-orange-600" /> تحديث أسعار البيع جماعياً
+                    </h3>
+                    <button onClick={() => setIsBulkPriceUpdateModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                <form onSubmit={handleBulkPriceUpdateSubmit} className="space-y-4">
+                    <div className="bg-orange-50 p-3 rounded-lg text-sm text-orange-800 mb-4">
+                        سيتم تعديل سعر البيع لـ <strong>{selectedIds.size}</strong> صنف محدد. 
+                        استخدم قيمة موجبة للزيادة (مثلاً 10 للزيادة 10%) وقيمة سالبة للخصم (مثلاً -5 لخفض السعر 5%).
+                    </div>
+                    
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">نسبة التغيير (%)</label>
+                        <div className="relative">
+                            <input 
+                                type="number" 
+                                required 
+                                step="0.01" 
+                                value={bulkPricePercentage} 
+                                onChange={e => setBulkPricePercentage(parseFloat(e.target.value))} 
+                                className="w-full border rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-orange-500 outline-none font-bold text-lg text-center" 
+                            />
+                        </div>
+                    </div>
+
+                    <button type="submit" disabled={isBulkSaving} className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700 mt-2 disabled:opacity-50 shadow-lg">
+                        {isBulkSaving ? 'جاري التحديث...' : 'تحديث الأسعار الآن'}
+                    </button>
+                </form>
+            </div>
+        </div>
       )}
 
       {/* Bulk Offer Modal */}

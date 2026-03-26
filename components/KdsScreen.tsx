@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useToast } from '../context/ToastContext';
 import { useAccounting } from '../context/AccountingContext';
@@ -37,7 +37,7 @@ const TimeAgo = ({ date }: { date: string }) => {
 
   return <>{time}</>;
 };
-const OrderTicket = ({ ticket, onUpdateStatus, borderColor }: { ticket: KitchenOrderTicket, onUpdateStatus: (id: string, status: 'PREPARING' | 'READY' | 'SERVED') => void, borderColor: string }) => {
+const OrderTicket = React.memo(({ ticket, onUpdateStatus, borderColor }: { ticket: KitchenOrderTicket, onUpdateStatus: (id: string, status: 'PREPARING' | 'READY' | 'SERVED') => void, borderColor: string }) => {
 
   const getStatusColor = (status: KitchenOrderItem['status']) => {
     switch (status) {
@@ -109,7 +109,7 @@ const OrderTicket = ({ ticket, onUpdateStatus, borderColor }: { ticket: KitchenO
       </main>
     </div>
   );
-};
+});
 
 // --- المكون الرئيسي ---
 const KdsScreen = () => {
@@ -118,7 +118,7 @@ const KdsScreen = () => {
   const { showToast } = useToast();
   const { updateKitchenOrderStatus } = useAccounting();
   const [audioEnabled, setAudioEnabled] = useState(false);
-
+  
   const fetchKitchenOrders = async () => {
     try {
       const { data, error } = await supabase
@@ -188,11 +188,23 @@ const KdsScreen = () => {
     }
   };
 
+  const memoizedFetchKitchenOrders = useCallback(fetchKitchenOrders, [showToast, setTickets, setLoading]);
+
+  // 🚀 تحسين الأداء: منع تكرار جلب البيانات في وقت قصير جداً (Throttling) لتخفيف الضغط
+  const lastFetchTime = useRef(0);
+  const throttledFetch = useCallback(() => {
+    const now = Date.now();
+    if (now - lastFetchTime.current > 1500) { // حد أدنى 1.5 ثانية بين التحديثات اللحظية
+      lastFetchTime.current = now;
+      memoizedFetchKitchenOrders();
+    }
+  }, [memoizedFetchKitchenOrders]);
+
   useEffect(() => {
-    fetchKitchenOrders();
+    throttledFetch();
     const subscription = supabase.channel('public:kitchen_orders')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'kitchen_orders' }, payload => {
-        fetchKitchenOrders();
+        throttledFetch();
         if (payload.eventType === 'INSERT') {
             try {
                 const audio = new Audio('/notification.mp3');
@@ -201,15 +213,30 @@ const KdsScreen = () => {
         }
       }).subscribe();
     return () => { supabase.removeChannel(subscription); };
-  }, []);
+  }, [throttledFetch]);
 
-  const handleUpdateStatus = async (kitchenOrderItemId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => {
-    // Note: Since we are aggregating, updating status for one aggregated item
-    // should ideally update all original kitchen_order items.
-    // This part of logic might need backend adjustment for full aggregation support.
-    // For now, we update the first item's ID which is a simplification.
-    await updateKitchenOrderStatus(kitchenOrderItemId, newStatus);
-  };
+  const handleUpdateStatus = useCallback(async (kitchenOrderItemId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => {
+    // ⚡ تحديث تفاؤلي (Optimistic UI): نقوم بنقل الطلب في الواجهة فوراً ليشعر الشيف بسرعة النظام
+    setTickets(prev => prev.map(ticket => ({
+      ...ticket,
+      items: ticket.items.map(item => 
+        item.id === kitchenOrderItemId ? { ...item, status: newStatus } : item
+      )
+    })).filter(ticket => {
+      // إذا تم تسليم الطلب، نخفي التذكرة من الشاشة إذا كانت جميع أصنافها اكتملت
+      if (newStatus === 'SERVED') {
+        return ticket.items.some(i => i.id !== kitchenOrderItemId && i.status !== 'SERVED');
+      }
+      return true;
+    }));
+
+    try {
+      await updateKitchenOrderStatus(kitchenOrderItemId, newStatus);
+    } catch (err) {
+      // في حالة فشل الاتصال، نعيد جلب البيانات الأصلية لضمان الدقة
+      memoizedFetchKitchenOrders();
+    }
+  }, [updateKitchenOrderStatus, setTickets, memoizedFetchKitchenOrders]);
 
   const newTickets = useMemo(() => tickets.filter(t => t.items.some(i => i.status === 'NEW')), [tickets]);
   const preparingTickets = useMemo(() => tickets.filter(t => !t.items.some(i => i.status === 'NEW') && t.items.some(i => i.status === 'PREPARING')), [tickets]);

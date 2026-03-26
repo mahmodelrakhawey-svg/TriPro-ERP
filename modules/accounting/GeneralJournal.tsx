@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -23,6 +23,7 @@ const getEntrySource = (reference: string) => {
     if (ref.startsWith('SR-')) return { label: 'مرتجع مبيعات', color: 'bg-blue-50 text-blue-600' };
     if (ref.startsWith('PR-')) return { label: 'مرتجع مشتريات', color: 'bg-purple-50 text-purple-600' };
     if (ref.startsWith('ASSET-')) return { label: 'أصل ثابت', color: 'bg-cyan-100 text-cyan-700' };
+    if (ref.startsWith('SHIFT-')) return { label: 'إغلاق وردية', color: 'bg-indigo-100 text-indigo-700' };
     return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
 };
 
