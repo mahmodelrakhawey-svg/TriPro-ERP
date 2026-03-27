@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
 import { JournalEntryLine, Account } from '../../types';
 import { useAccounting } from '../../context/AccountingContext';
@@ -61,7 +61,12 @@ const JournalEntryForm = () => {
     
     let processedValue = value;
     if (field === 'debit' || field === 'credit') {
-        processedValue = Math.max(0, parseFloat(value) || 0);
+        // السماح بالقيم النصية أثناء الكتابة لمنع مشاكل العلامة العشرية والمسح
+        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+            processedValue = value;
+        } else {
+            return;
+        }
     }
 
     newLines[index] = { ...newLines[index], [field]: processedValue };

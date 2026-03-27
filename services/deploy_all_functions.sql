@@ -159,11 +159,21 @@ BEGIN
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '103' LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '10204' LIMIT 1;
-    IF v_vat_acc_id IS NULL THEN SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1; END IF;
+    
+    -- تحسين: البحث في ربط الحسابات المخصص أولاً، ثم الكود الافتراضي الصحيح 1241
+    SELECT (account_mappings->>'VAT_INPUT')::uuid INTO v_vat_acc_id FROM public.company_settings LIMIT 1;
+    IF v_vat_acc_id IS NULL THEN 
+        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' LIMIT 1; 
+    END IF;
+    
     SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' LIMIT 1;
 
-    IF v_inventory_acc_id IS NULL OR v_supplier_acc_id IS NULL THEN RAISE EXCEPTION 'حسابات المخزون أو الموردين غير معرّفة'; END IF;
+    -- فحص صارم لضمان عدم وجود NULL في القيد
+    IF v_inventory_acc_id IS NULL THEN RAISE EXCEPTION 'حساب المخزون (103) غير موجود'; END IF;
+    IF v_supplier_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الموردين (201) غير موجود'; END IF;
+    IF v_invoice.tax_amount > 0 AND v_vat_acc_id IS NULL THEN 
+        RAISE EXCEPTION 'حساب ضريبة المدخلات غير معرّف. يرجى التأكد من وجود حساب بالكود 1241 أو ربطه في الإعدادات.'; 
+    END IF;
 
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
         v_item_price_base := v_item.price * v_exchange_rate;
@@ -571,6 +581,10 @@ ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS reservation_info J
 -- ================================================================
 -- 13. دالة فتح جلسة طاولة (Open Table Session)
 -- ================================================================
+-- حذف النسخ القديمة لمنع تعارض الأسماء (Function Overloading)
+DROP FUNCTION IF EXISTS public.open_table_session(uuid, uuid);
+DROP FUNCTION IF EXISTS public.open_table_session(uuid, uuid, text);
+
 CREATE OR REPLACE FUNCTION public.open_table_session(p_table_id uuid, p_user_id uuid)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -603,12 +617,34 @@ $$;
 -- ================================================================
 -- 14. دالة إنشاء طلب مطعم (Create Restaurant Order)
 -- ================================================================
+-- إصلاح مشكلة نوع البيانات: تحويل الأعمدة من Enum إلى Text لضمان التوافق (Self-Healing)
+ALTER TABLE IF EXISTS public.orders ALTER COLUMN order_type TYPE text USING order_type::text;
+ALTER TABLE IF EXISTS public.orders ALTER COLUMN status TYPE text USING status::text;
+
+-- التأكد من وجود هيكل الجدول الصحيح قبل إنشاء الدالة (Self-Healing)
+ALTER TABLE IF EXISTS public.orders ADD COLUMN IF NOT EXISTS created_by uuid REFERENCES auth.users(id);
+ALTER TABLE IF EXISTS public.orders ADD COLUMN IF NOT EXISTS order_type text;
+ALTER TABLE IF EXISTS public.orders ADD COLUMN IF NOT EXISTS customer_id uuid REFERENCES public.customers(id);
+ALTER TABLE IF EXISTS public.orders ADD COLUMN IF NOT EXISTS status text DEFAULT 'PENDING';
+ALTER TABLE IF EXISTS public.orders ADD COLUMN IF NOT EXISTS notes text;
+
+ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS total_price numeric DEFAULT 0;
+ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS unit_cost numeric DEFAULT 0;
+ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS modifiers jsonb DEFAULT '[]'::jsonb;
+
+-- حذف النسخ القديمة لمنع تعارض الأسماء
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, public.order_type, text, jsonb, uuid);
+
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_session_id uuid,
     p_user_id uuid,
     p_order_type text,
     p_notes text,
-    p_items jsonb
+    p_items jsonb,
+    p_customer_id uuid DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -617,22 +653,33 @@ DECLARE
     v_order_id uuid;
     v_item jsonb;
     v_order_item_id uuid;
+    v_order_number text;
+    v_qty numeric;
+    v_price numeric;
 BEGIN
-    -- 1. إنشاء رأس الطلب
-    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, created_at)
-    VALUES (p_session_id, p_user_id, p_order_type::text, p_notes, 'PENDING', now())
+    -- توليد رقم طلب تلقائي فريد
+    v_order_number := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+
+    -- 1. إنشاء رأس الطلب مع ربط العميل إذا وُجد
+    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, created_at, order_number)
+    VALUES (p_session_id, p_user_id, p_order_type::text, p_notes, 'PENDING', p_customer_id, now(), v_order_number)
     RETURNING id INTO v_order_id;
 
     -- 2. الدوران على البنود وإضافتها
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        v_qty := (v_item->>'quantity')::numeric;
+        v_price := (v_item->>'unitPrice')::numeric;
+
         INSERT INTO public.order_items (
-            order_id, product_id, quantity, unit_price, notes, modifiers, created_at
+            order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, modifiers, created_at
         )
         VALUES (
             v_order_id,
             (v_item->>'productId')::uuid,
-            (v_item->>'quantity')::numeric,
-            (v_item->>'unitPrice')::numeric,
+            v_qty,
+            v_price,
+            (v_qty * v_price),
+            COALESCE((v_item->>'unitCost')::numeric, 0),
             v_item->>'notes',
             COALESCE(v_item->'modifiers', '[]'::jsonb),
             now()

@@ -125,9 +125,9 @@ const Settings = () => {
       const settingsSchema = z.object({
           companyName: z.string().min(1, 'اسم المنشأة مطلوب'),
           email: z.string().email('البريد الإلكتروني غير صحيح').optional().or(z.literal('')),
-          vatRate: z.number().min(0).max(1, 'نسبة الضريبة يجب أن تكون بين 0 و 1'),
-          maxCashDeficitLimit: z.number().min(0, 'الحد الأقصى للعجز يجب أن يكون 0 أو أكثر'),
-          decimalPlaces: z.number().min(0).max(4, 'عدد الكسور العشرية يجب أن يكون بين 0 و 4')
+          vatRate: z.coerce.number().min(0).max(100, 'نسبة الضريبة يجب أن تكون بين 0 و 100'),
+          maxCashDeficitLimit: z.coerce.number().min(0, 'الحد الأقصى للعجز يجب أن يكون 0 أو أكثر'),
+          decimalPlaces: z.coerce.number().min(0).max(4, 'عدد الكسور العشرية يجب أن يكون بين 0 و 4')
       });
 
       const validationResult = settingsSchema.safeParse(formData);
@@ -674,8 +674,8 @@ const Settings = () => {
                                   <input 
                                     type="number" 
                                     min="0"
-                                    value={formData.maxCashDeficitLimit}
-                                    onChange={(e) => setFormData({...formData, maxCashDeficitLimit: parseFloat(e.target.value)})}
+                                    value={formData.maxCashDeficitLimit || ''}
+                                    onChange={(e) => setFormData({...formData, maxCashDeficitLimit: e.target.value as any})}
                                     className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
                                   />
                               </div>
@@ -685,19 +685,24 @@ const Settings = () => {
                               <label className="block text-sm font-medium text-slate-700 mb-1">نسبة ضريبة القيمة المضافة (VAT)</label>
                               <div className="relative">
                                   <input 
-                                    type="number" 
-                                    step="0.01"
+                                    type="text"
+                                    inputMode="decimal"
                                     min="0"
-                                    max="1"
-                                    value={formData.vatRate}
-                                    onChange={(e) => setFormData({...formData, vatRate: parseFloat(e.target.value)})}
+                                    max="100"
+                                    value={formData.vatRate || ''}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setFormData({...formData, vatRate: val as any});
+                                        }
+                                    }}
                                     className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none text-left"
-                                    placeholder="0.14"
+                                    placeholder="15"
                                     disabled={!formData.enableTax}
                                   />
-                                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">% (عشري)</span>
+                                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">%</span>
                               </div>
-                              <p className="text-xs text-slate-500 mt-1">أدخل 0.14 لنسبة 14% (مصر)</p>
+                              <p className="text-xs text-slate-500 mt-1">أدخل 15 لنسبة 15%</p>
                           </div>
                           <div>
                               <label className="block text-sm font-medium text-slate-700 mb-1">العملة الافتراضية</label>
@@ -727,8 +732,8 @@ const Settings = () => {
                                     type="number" 
                                     min="0"
                                     max="4"
-                                    value={formData.decimalPlaces}
-                                    onChange={(e) => setFormData({...formData, decimalPlaces: parseInt(e.target.value)})}
+                                    value={formData.decimalPlaces || ''}
+                                    onChange={(e) => setFormData({...formData, decimalPlaces: e.target.value as any})}
                                     className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
                                   />
                               </div>

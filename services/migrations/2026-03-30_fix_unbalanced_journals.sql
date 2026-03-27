@@ -44,6 +44,11 @@ BEGIN
     IF v_shift IS NULL THEN RAISE EXCEPTION 'Shift not found'; END IF;
     IF v_shift.end_time IS NULL THEN RAISE EXCEPTION 'Shift is not closed yet'; END IF;
 
+    -- منع التكرار: إذا كان هناك قيد مرتبط مسبقاً، نرجعه فوراً ولا ننشئ واحداً جديداً (حل مشكلة الخطأ 409)
+    IF v_shift.related_journal_entry_id IS NOT NULL THEN
+        RETURN v_shift.related_journal_entry_id;
+    END IF;
+
     -- 2. جلب نسبة الضريبة وحالة تفعيلها من إعدادات الشركة
     SELECT vat_rate, enable_tax INTO v_vat_rate, v_enable_tax FROM public.company_settings LIMIT 1;
     -- إذا كانت الضريبة مفعلة ولكن النسبة صفر، نستخدم 15% كافتراضي
@@ -53,6 +58,10 @@ BEGIN
         v_vat_rate := 0; -- إذا كانت الضريبة غير مفعلة، تكون النسبة صفر
     ELSE
         v_vat_rate := COALESCE(v_vat_rate, 0); -- استخدام النسبة الموجودة أو صفر إذا كانت NULL
+        -- تصحيح: إذا كانت النسبة مسجلة كرقم صحيح (مثلاً 14) وليس كسر عشري (0.14)
+        IF v_vat_rate >= 1 THEN
+            v_vat_rate := v_vat_rate / 100;
+        END IF;
     END IF;
 
     -- 3 & 5. جلب إحصائيات التحصيل بناءً على "وقت الوردية" حصراً

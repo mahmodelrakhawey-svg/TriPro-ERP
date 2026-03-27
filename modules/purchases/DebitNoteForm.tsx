@@ -32,8 +32,7 @@ const DebitNoteForm = () => {
       }
   }, [location.state]);
 
-  // @ts-ignore
-  const taxRate = settings?.enableTax ? (settings.vatRate ?? 0.15) : 0;
+  const taxRate = settings?.enableTax ? ((settings.vatRate || 15) / 100) : 0;
   const taxAmount = formData.amount * taxRate;
   const totalAmount = formData.amount + taxAmount;
 

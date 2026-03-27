@@ -705,7 +705,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         supabase.from('company_settings').select('*').limit(1).single(),
         shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(100) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('customers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('suppliers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('products').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
@@ -1845,7 +1845,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // إعادة احتساب المخزون لضمان ظهور الكميات المشتراة فوراً
       await supabase.rpc('recalculate_stock_rpc');
       
-      await fetchData();
+      await fetchData(); // تحديث الأرصدة
+      showToast('تم ترحيل فاتورة المشتريات وتسجيل الضريبة بنجاح ✅', 'success');
     } catch (err: any) {
       if (process.env.NODE_ENV === 'development') console.error('Error approving purchase invoice:', err);
       throw new Error(err.message || 'فشل اعتماد فاتورة المشتريات');
@@ -3998,12 +3999,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               p_notes: notes
           });
           if (error) throw error;
-          
-          // --- المرحلة 3: توليد القيد المحاسبي المجمع تلقائياً ---
-          try {
-              await supabase.rpc('generate_shift_closing_entry', { p_shift_id: currentShift.id });
-          } catch (accErr) { console.error("Accounting entry failed:", accErr); }
-          // -----------------------------------------------------
 
           setCurrentShift(null);
           showToast('تم إغلاق الوردية بنجاح', 'success');

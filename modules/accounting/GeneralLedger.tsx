@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
@@ -33,6 +33,7 @@ const GeneralLedger = () => {
   const { accounts, currentUser } = useAccounting(); // استخدام السياق بدلاً من الجلب المحلي
   const { showToast } = useToast();
   const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [accountSearch, setAccountSearch] = useState('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
@@ -67,6 +68,13 @@ const GeneralLedger = () => {
       setTimeout(() => document.getElementById('search-btn')?.click(), 100);
     }
   }, [location.state]);
+
+  const filteredAccounts = useMemo(() => {
+    return accounts.filter(acc => 
+      acc.name.toLowerCase().includes(accountSearch.toLowerCase()) || 
+      acc.code.includes(accountSearch)
+    );
+  }, [accounts, accountSearch]);
 
   // دالة مساعدة لجلب معرفات الحساب والحسابات الفرعية (شجرياً)
   const getAccountAndChildrenIds = (accountId: string, allAccounts: Account[]): string[] => {
@@ -210,19 +218,31 @@ const GeneralLedger = () => {
       {/* فلاتر البحث */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 bg-slate-50 p-4 rounded-xl border border-slate-200 no-print">
         <div className="md:col-span-2">
-            <label className="block text-sm font-bold text-slate-700 mb-1">اختر الحساب</label>
-            <select 
-                value={selectedAccount}
-                onChange={(e) => setSelectedAccount(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
-            >
-                <option value="">-- اختر حساب --</option>
-                {accounts.map(acc => (
-                    <option key={acc.id} value={acc.id} className={acc.is_group ? 'font-bold bg-slate-100' : ''}>
-                        {acc.code} - {acc.name} {acc.is_group ? '(رئيسي)' : ''}
-                    </option>
-                ))}
-            </select>
+            <label className="block text-sm font-bold text-slate-700 mb-1">ابحث واختر الحساب</label>
+            <div className="flex gap-2">
+                <div className="relative flex-1">
+                    <input 
+                        type="text" 
+                        placeholder="بحث بالكود أو الاسم..."
+                        value={accountSearch}
+                        onChange={(e) => setAccountSearch(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg px-3 py-2 pr-10 focus:outline-none focus:border-blue-500 text-sm"
+                    />
+                    <Search className="absolute right-3 top-2.5 text-slate-400" size={16} />
+                </div>
+                <select 
+                    value={selectedAccount}
+                    onChange={(e) => setSelectedAccount(e.target.value)}
+                    className="border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 flex-[2]"
+                >
+                    <option value="">-- اختر حساب ({filteredAccounts.length}) --</option>
+                    {filteredAccounts.map(acc => (
+                        <option key={acc.id} value={acc.id} className={acc.is_group ? 'font-bold bg-slate-100' : ''}>
+                            {acc.code} - {acc.name} {acc.is_group ? '(رئيسي)' : ''}
+                        </option>
+                    ))}
+                </select>
+            </div>
         </div>
         <div>
             <label className="block text-sm font-bold text-slate-700 mb-1">من تاريخ</label>

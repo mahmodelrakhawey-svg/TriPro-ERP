@@ -276,7 +276,13 @@ const UserManager = () => {
             error = funcError;
         }
 
-        if (error) throw error;
+        if (error) {
+            // إذا كان الخطأ متعلق بالسياسة الأمنية CORS
+            if (error.message?.includes('fetch')) {
+                throw new Error('فشل الاتصال بالخادم (CORS Error). يرجى التأكد من إعدادات الـ Edge Function.');
+            }
+            throw error;
+        }
 
         // تسجيل الحدث في سجلات الأمان
         await supabase.from('security_logs').insert({

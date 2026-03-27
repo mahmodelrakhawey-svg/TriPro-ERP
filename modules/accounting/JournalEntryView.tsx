@@ -199,8 +199,10 @@ const JournalEntryView = () => {
           <tbody>
             {(entry.lines || []).map((line, index) => (
               <tr key={index} className="border-t border-slate-100">
-                <td className="p-3 font-mono text-slate-500">{line.accountCode}</td>
-                <td className="p-3 font-medium text-slate-800">{line.accountName || 'حساب غير معروف'}</td>
+                <td className="p-3 font-mono text-slate-500">{line.accountCode || '---'}</td>
+                <td className="p-3 font-medium text-slate-800">
+                    {line.accountName || <span className="text-red-600 font-bold bg-red-50 px-2 py-1 rounded border border-red-100 italic">⚠️ حساب غير معرّف (يرجى مراجعة ربط الحسابات)</span>}
+                </td>
                 <td className="p-3 text-center font-mono text-emerald-600">{line.debit > 0 ? line.debit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                 <td className="p-3 text-center font-mono text-red-600">{line.credit > 0 ? line.credit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
               </tr>

@@ -49,7 +49,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
     const subtotalAfterDiscount = subtotal - discountAmount;
     const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
     const subtotalAfterLoyalty = subtotalAfterDiscount - loyaltyDiscountAmount;
-    const tax = subtotalAfterLoyalty * ((settings.vatRate || 15) / 100);
+    const tax = subtotalAfterLoyalty * ((parseFloat(settings.vatRate as any) || 15) / 100);
     const total = subtotalAfterLoyalty + tax + (order.deliveryFee || 0);
     return { subtotal, tax, total, discountAmount };
   }, [order, settings.vatRate]);

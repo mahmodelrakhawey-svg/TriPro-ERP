@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { 
-    Plus, Trash2, Save, ShoppingCart,
+    Plus, Trash2, Save, ShoppingCart, Search,
     CircleDollarSign, Loader2, CheckCircle
 } from 'lucide-react';
 import { Product } from '../../types';
@@ -90,16 +90,31 @@ const PurchaseInvoiceForm = () => {
   }, [location, settings]);
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + (item.total || 0), 0), [items]);
-  const taxAmount = useMemo(() => subtotal * (settings.enableTax ? (settings.vatRate || 0) : 0), [subtotal, settings]);
+  const taxAmount = useMemo(() => subtotal * (settings.enableTax ? ((settings.vatRate || 0) / 100) : 0), [subtotal, settings]);
   const totalAmount = useMemo(() => subtotal + taxAmount, [subtotal, taxAmount]);
 
   const filteredProducts = useMemo(() => {
-      if (!productSearchTerm.trim()) return [];
-      const term = productSearchTerm.toLowerCase();
-      return products.filter(p =>
-          p.name.toLowerCase().includes(term) ||
-          (p.sku && p.sku.toLowerCase().includes(term))
-      ).slice(0, 8);
+      const term = productSearchTerm.trim().toLowerCase();
+      if (!term) return [];
+      
+      return products
+          .filter(p =>
+              p.name.toLowerCase().includes(term) ||
+              (p.sku && p.sku.toLowerCase().includes(term))
+          )
+          .sort((a, b) => {
+              const aName = a.name.toLowerCase();
+              const bName = b.name.toLowerCase();
+              const aStarts = aName.startsWith(term);
+              const bStarts = bName.startsWith(term);
+              
+              // إعطاء الأولوية للأصناف التي تبدأ بكلمة البحث لضمان التجميع (Grouping)
+              if (aStarts && !bStarts) return -1;
+              if (!aStarts && bStarts) return 1;
+              // ترتيب أبجدي تصاعدي لباقي النتائج
+              return aName.localeCompare(bName);
+          })
+          .slice(0, 10);
   }, [productSearchTerm, products]);
 
   const addProductToInvoice = (product: Product) => {
@@ -323,6 +338,32 @@ const PurchaseInvoiceForm = () => {
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
           <h3 className="font-bold">بنود الفاتورة</h3>
+
+          {/* حقل البحث السريع والذكي عن الأصناف */}
+          <div className="relative mb-4 no-print">
+            <div className="relative">
+              <input 
+                type="text" 
+                placeholder="ابحث عن صنف (أرز، زيت...) للإضافة السريعة..."
+                value={productSearchTerm}
+                onChange={(e) => { setProductSearchTerm(e.target.value); setShowProductResults(true); }}
+                onFocus={() => setShowProductResults(true)}
+                className="w-full border-2 border-slate-100 rounded-xl px-4 py-2.5 pr-10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+              />
+              <Search className="absolute right-3 top-3 text-slate-400" size={18} />
+            </div>
+            {showProductResults && filteredProducts.length > 0 && (
+              <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+                {filteredProducts.map(p => (
+                  <div key={p.id} onClick={() => addProductToInvoice(p)} className="p-3 hover:bg-emerald-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group">
+                    <div><span className="font-bold text-slate-700 group-hover:text-emerald-700">{p.name}</span><p className="text-[10px] text-slate-400 font-mono">{p.sku}</p></div>
+                    <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">{(p.purchase_price || p.cost || 0).toLocaleString()} SAR</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {items.map((item, index) => (
             <div key={index} className="grid grid-cols-12 gap-2 items-center">
               <div className="col-span-5">

@@ -54,6 +54,7 @@ export default function AccountingDashboard() {
 
       let revenue = 0;
       let expenses = 0;
+      let totalTax = 0;
       const monthlyStats: Record<string, { revenue: number, expense: number }> = {};
       const expenseMap: Record<string, number> = {};
       
@@ -92,6 +93,10 @@ export default function AccountingDashboard() {
                   if (amount > 0) {
                       expenseMap[accName] = (expenseMap[accName] || 0) + amount;
                   }
+              }
+              // تتبع الضرائب (حسابات تبدأ بـ 223 أو تحتوي على كلمة ضريبة)
+              if (account.code.startsWith('223') || account.name.includes('ضريبة') || account.name.toLowerCase().includes('tax')) {
+                  totalTax += (credit - debit);
               }
           });
       });
@@ -186,7 +191,8 @@ export default function AccountingDashboard() {
               totalExpenses: expenses,
               netProfit: revenue - expenses,
               cashBalance,
-              profitMargin
+              profitMargin,
+              totalTax
           },
           monthlyData: chartData,
           expenseData: expenseChartData,
@@ -399,7 +405,7 @@ export default function AccountingDashboard() {
 
       {/* Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <DashboardCard 
+        <DashboardCard
           title="إجمالي الإيرادات" 
           value={metrics.totalRevenue} 
           icon={<TrendingUp className="text-emerald-500" />} 
@@ -421,10 +427,10 @@ export default function AccountingDashboard() {
           color="blue"
         />
         <DashboardCard 
-          title="السيولة النقدية" 
-          value={metrics.cashBalance} 
-          icon={<Wallet className="text-purple-500" />} 
-          trend="neutral"
+          title="إجمالي الضرائب" 
+          value={metrics.totalTax} 
+          icon={<Percent className="text-amber-500" />} 
+          trend={metrics.totalTax > 0 ? "up" : "neutral"}
           color="purple"
         />
         <DashboardCard 

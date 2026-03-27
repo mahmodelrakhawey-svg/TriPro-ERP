@@ -70,10 +70,13 @@ const FiscalYearClosing = () => {
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-2">السنة المالية المراد إقفالها</label>
             <div className="relative">
-              <input 
-                type="number" 
+              <input
+                type="text" 
                 value={year} 
-                onChange={e => setYear(parseInt(e.target.value))} 
+                  onChange={e => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  setYear(val ? parseInt(val, 10) : 0);
+                }} 
                 className="w-full border-2 border-slate-200 rounded-xl px-4 py-3 font-black text-lg focus:border-red-500 outline-none"
               />
               <Calendar className="absolute left-4 top-3.5 text-slate-400" />
