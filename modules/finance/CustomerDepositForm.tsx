@@ -12,17 +12,23 @@ const CustomerDepositForm = () => {
   const navigate = useNavigate();
   const { showToast } = useToast();
   
+  // NEW: State for treasury account search term
+  const [treasurySearchTerm, setTreasurySearchTerm] = useState('');
+
   // تصفية حسابات النقدية والبنوك فقط
   const treasuryAccounts = useMemo(() => accounts.filter(a => 
     !a.isGroup && (
-      a.type === 'ASSET' && (
-      a.code.startsWith('123') || a.code.startsWith('101') || 
-      a.name.includes('صندوق') || 
-      a.name.includes('خزينة') || 
-      a.name.includes('بنك') || 
-      a.name.includes('نقد')
-      )
-    )
+      a.code?.startsWith('123') || a.code?.startsWith('101') || 
+      a.name?.includes('صندوق') || 
+      a.name?.includes('خزينة') || 
+      a.name?.includes('بنك') || 
+      a.name?.includes('نقد') ||
+      a.name?.toLowerCase().includes('cash') ||
+      a.name?.toLowerCase().includes('bank')
+    ) // NEW: Filter by search term
+  ).filter(a => 
+    a.name?.toLowerCase().includes(treasurySearchTerm.toLowerCase()) ||
+    a.code?.toLowerCase().includes(treasurySearchTerm.toLowerCase())
   ), [accounts]);
 
   // حالة لتخزين السندات المجلوبة من قاعدة البيانات
@@ -87,6 +93,7 @@ const CustomerDepositForm = () => {
           paymentMethod: voucher.payment_method || 'cash',
           voucherNumber: voucher.voucher_number || ''
       });
+      setTreasurySearchTerm(''); // NEW: Reset search term when loading a voucher
   };
 
   const handleNew = () => {
@@ -95,12 +102,13 @@ const CustomerDepositForm = () => {
       setFormData({
         date: new Date().toISOString().split('T')[0],
         customerId: '',
-        treasuryAccountId: '',
+        treasuryAccountId: treasuryAccounts.length > 0 ? treasuryAccounts[0].id : '',
         amount: '',
         description: '',
         paymentMethod: 'cash',
         voucherNumber: ''
       });
+      setTreasurySearchTerm(''); // NEW: Reset search term when creating a new voucher
   };
 
   const handlePrevious = () => {
@@ -320,7 +328,18 @@ const CustomerDepositForm = () => {
 
             {/* اختيار الخزينة/البنك */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">إيداع في (الخزينة / البنك)</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">إيداع في (الخزينة / البنك)</label> 
+              {/* NEW: Search input for treasury accounts */}
+              <div className="relative mb-2">
+                <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="بحث عن حساب..."
+                  value={treasurySearchTerm}
+                  onChange={(e) => setTreasurySearchTerm(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+              </div>
               <select 
                 required
                 value={formData.treasuryAccountId}
