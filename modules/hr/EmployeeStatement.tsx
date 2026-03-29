@@ -47,7 +47,7 @@ const EmployeeStatement = () => {
                 advances_deducted, 
                 other_deductions, 
                 net_salary,
-                payrolls!inner(payroll_month, payroll_year, created_at)
+                payrolls!inner(payroll_month, payroll_year, created_at, payment_date)
             `)
             .eq('employee_id', selectedEmployeeId);
 
@@ -66,7 +66,7 @@ const EmployeeStatement = () => {
 
         // الرواتب
         payrollItems?.forEach((item: any) => {
-            const date = item.payrolls.created_at.split('T')[0];
+            const date = item.payrolls.payment_date || item.payrolls.created_at.split('T')[0];
             const monthYear = `${item.payrolls.payroll_month}/${item.payrolls.payroll_year}`;
             
             // استحقاق الراتب (دائن)

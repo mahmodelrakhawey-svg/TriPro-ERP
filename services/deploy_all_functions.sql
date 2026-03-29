@@ -617,6 +617,12 @@ $$;
 -- ================================================================
 -- 14. دالة إنشاء طلب مطعم (Create Restaurant Order)
 -- ================================================================
+-- 🛑 خطوة وقائية: حذف الرؤية المعتمدة على جدول الطلبات مؤقتاً للسماح بتغيير أنواع البيانات
+DROP VIEW IF EXISTS public.monthly_sales_dashboard CASCADE;
+
+-- إضافة عمود الحذف المنطقي لجدول الفواتير لضمان عمل الرؤية الموحدة والتقارير
+ALTER TABLE IF EXISTS public.invoices ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+
 -- إصلاح مشكلة نوع البيانات: تحويل الأعمدة من Enum إلى Text لضمان التوافق (Self-Healing)
 ALTER TABLE IF EXISTS public.orders ALTER COLUMN order_type TYPE text USING order_type::text;
 ALTER TABLE IF EXISTS public.orders ALTER COLUMN status TYPE text USING status::text;
@@ -632,6 +638,26 @@ ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS total_price nu
 ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS unit_cost numeric DEFAULT 0;
 ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS notes text;
 ALTER TABLE IF EXISTS public.order_items ADD COLUMN IF NOT EXISTS modifiers jsonb DEFAULT '[]'::jsonb;
+
+-- ✅ إعادة إنشاء الرؤية الموحدة للمبيعات (Unified Sales View) بعد تحديث الجداول
+CREATE OR REPLACE VIEW public.monthly_sales_dashboard AS
+ SELECT 
+    i.id,
+    i.invoice_date AS transaction_date,
+    i.total_amount AS amount,
+    (SELECT COALESCE(SUM(ii.cost * ii.quantity), 0) FROM public.invoice_items ii WHERE ii.invoice_id = i.id) AS total_cost,
+    'Standard Invoice'::text AS type
+ FROM public.invoices i
+ WHERE i.status != 'draft' AND i.deleted_at IS NULL
+ UNION ALL
+ SELECT 
+    o.id,
+    o.created_at::date AS transaction_date,
+    (SELECT COALESCE(SUM(oi.total_price), 0) FROM public.order_items oi WHERE oi.order_id = o.id) AS amount,
+    (SELECT COALESCE(SUM(oi.unit_cost * oi.quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id) AS total_cost,
+    'Restaurant Order'::text AS type
+ FROM public.orders o
+ WHERE o.status IN ('COMPLETED', 'PAID', 'posted', 'PENDING');
 
 -- حذف النسخ القديمة لمنع تعارض الأسماء
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb);
@@ -706,29 +732,46 @@ RETURNS TABLE (
 ) 
 LANGUAGE plpgsql
 AS $$
+DECLARE
+    v_org_id uuid;
 BEGIN
+    v_org_id := public.get_my_org();
+
     RETURN QUERY
-    WITH draft_items AS (
-        -- جلب كافة بنود الفواتير المسودة
+    WITH pending_items AS (
+        -- 1. بنود الفواتير المسودة (Standard Invoices)
         SELECT ii.product_id, ii.quantity, ii.modifiers
         FROM public.invoice_items ii
         JOIN public.invoices i ON i.id = ii.invoice_id
         WHERE i.status = 'draft' AND i.deleted_at IS NULL
         AND (p_warehouse_id IS NULL OR i.warehouse_id = p_warehouse_id)
+        AND i.organization_id = v_org_id
+
+        UNION ALL
+
+        -- 2. بنود طلبات المطعم المعلقة (Restaurant Orders)
+        SELECT oi.product_id, oi.quantity, oi.modifiers
+        FROM public.order_items oi
+        JOIN public.orders o ON o.id = oi.order_id
+        WHERE o.status = 'PENDING'
+        AND (p_warehouse_id IS NULL OR o.warehouse_id = p_warehouse_id)
+        AND o.organization_id = v_org_id
     ),
     bom_requirements AS (
         -- 1. استهلاك المكونات الخام للأصناف الرئيسية
-        SELECT bom.raw_material_id, (di.quantity * bom.quantity_required) as qty
-        FROM draft_items di
-        JOIN public.bill_of_materials bom ON bom.product_id = di.product_id
+        SELECT bom.raw_material_id, (pi.quantity * bom.quantity_required) as qty
+        FROM pending_items pi
+        JOIN public.bill_of_materials bom ON bom.product_id = pi.product_id
+        WHERE bom.organization_id = v_org_id
         
         UNION ALL
         
         -- 2. استهلاك المكونات الخام للإضافات (Modifiers)
-        SELECT bom.raw_material_id, (di.quantity * bom.quantity_required) as qty
-        FROM draft_items di,
-        LATERAL jsonb_array_elements(COALESCE(di.modifiers, '[]'::jsonb)) AS m
+        SELECT bom.raw_material_id, (pi.quantity * bom.quantity_required) as qty
+        FROM pending_items pi,
+        LATERAL jsonb_array_elements(COALESCE(pi.modifiers, '[]'::jsonb)) AS m
         JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid
+        WHERE bom.organization_id = v_org_id
     )
     SELECT 
         br.raw_material_id, 
@@ -743,6 +786,7 @@ BEGIN
         )
     FROM bom_requirements br
     JOIN public.products p ON p.id = br.raw_material_id
+    WHERE p.organization_id = v_org_id
     GROUP BY br.raw_material_id, p.name, p.stock, p.warehouse_stock;
 END;
 $$;

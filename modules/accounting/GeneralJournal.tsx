@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -106,8 +106,8 @@ const GeneralJournal = () => {
             return {
               id: line.id,
               accountId: line.account_id,
-              accountName: account?.name || '⚠️ حساب غير معرّف (ربط الحسابات مفقود)',
-              accountCode: account?.code || '????',
+              accountName: account?.name || `⚠️ حساب غير موجود (المعرف: ${line.account_id?.slice(0,8)}...)`,
+              accountCode: account?.code || line.account_code || '????',
               debit: line.debit,
               credit: line.credit,
               description: line.description,
