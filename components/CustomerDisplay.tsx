@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import type { ActiveOrder } from './OrderSummary';
 import { Utensils } from 'lucide-react';
+import { secureStorage } from '../utils/securityMiddleware';
 
 const CustomerDisplay = () => {
   const { settings } = useAccounting();
@@ -22,8 +23,8 @@ const CustomerDisplay = () => {
 
     // تحميل الطلب الأولي عند فتح الشاشة
     try {
-        const initialOrder = localStorage.getItem('tripro-customer-display-order');
-        if(initialOrder) setOrder(JSON.parse(initialOrder));
+        const initialOrder = secureStorage.getItem<ActiveOrder>('tripro-customer-display-order');
+        if(initialOrder) setOrder(initialOrder);
     } catch(e) {
         console.error("Failed to parse initial order", e);
     }

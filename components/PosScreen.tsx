@@ -13,6 +13,7 @@ import { OrderSummary, ActiveOrder } from './OrderSummary';
 import { ModifierSelectionModal } from './ModifierSelectionModal';
 import { QRCodeModal } from './QRCodeModal';
 import { BulkQRCodeModal } from './BulkQRCodeModal';
+import { secureStorage } from '../utils/securityMiddleware';
 
 
 const DELIVERY_FEE = 15; // قيمة افتراضية لرسوم التوصيل
@@ -842,9 +843,9 @@ const PosScreen = () => {
   useEffect(() => {
     try {
       if (activeOrder) {
-        localStorage.setItem('tripro-customer-display-order', JSON.stringify(activeOrder));
+        secureStorage.setItem('tripro-customer-display-order', activeOrder);
       } else {
-        localStorage.removeItem('tripro-customer-display-order');
+        secureStorage.removeItem('tripro-customer-display-order');
       }
     } catch (e) {
       console.error("Could not write to localStorage for customer display", e);
