@@ -31,10 +31,14 @@ interface FinancialSummary {
   totalRevenue: number;
   totalExpenses: number;
   netIncome: number;
+  monthlySales: number;
+  monthlyPurchases: number;
+  grossProfit: number;
 }
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
+  BANK_ACCOUNTS: '1232', // حسابات البنوك
   CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
   INVENTORY: '103', // المخزون (مجموعة)
@@ -43,7 +47,7 @@ export const SYSTEM_ACCOUNTS = {
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
   SUPPLIERS: '201', // الموردين
   VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
-  VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
+  VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات) - مصر
   CUSTOMER_DEPOSITS: '226', // تأمينات العملاء
   NOTES_PAYABLE: '222', // أوراق الدفع
   SALES_REVENUE: '411', // إيراد المبيعات
@@ -479,14 +483,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const getSystemAccount = (key: keyof typeof SYSTEM_ACCOUNTS) => {
     // 1. البحث في الإعدادات (الربط المخصص)
-    if (settings.account_mappings && settings.account_mappings[key]) {
-      const mappedId = settings.account_mappings[key];
+    const mappings = settings.account_mappings || {};
+    if (mappings[key]) {
+      const mappedId = mappings[key];
       const acc = accounts.find(a => a.id === mappedId);
       if (acc) return acc;
     }
     // 2. البحث بالكود الافتراضي
-    const defaultCode = SYSTEM_ACCOUNTS[key];
-    return accounts.find(a => a.code === defaultCode);
+    return accounts.find(a => a.code === SYSTEM_ACCOUNTS[key]);
   };
 
   const calculateInitialDemoState = () => {
@@ -806,6 +810,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
       await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
+      await ensureAccount(SYSTEM_ACCOUNTS.BANK_ACCOUNTS, 'البنك الرئيسي', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY, 'المخزون', 'ASSET');
@@ -2860,16 +2865,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
 
   const getFinancialSummary = () => {
-    let s = { totalAssets: 0, totalLiabilities: 0, totalEquity: 0, totalRevenue: 0, totalExpenses: 0, netIncome: 0 };
+    let s = { 
+      totalAssets: 0, totalLiabilities: 0, totalEquity: 0, totalRevenue: 0, totalExpenses: 0, netIncome: 0,
+      monthlySales: 0, monthlyPurchases: 0, grossProfit: 0 
+    };
     accounts.forEach(a => {
-        if (a.isGroup) return;
-        const type = a.type as string;
-        if (type === AccountType.ASSET || type === 'ASSET' || type === 'أصول') s.totalAssets += a.balance;
-        else if (type === AccountType.LIABILITY || type === 'LIABILITY' || type === 'خصوم') s.totalLiabilities += Math.abs(a.balance);
-        else if (type === AccountType.EQUITY || type === 'EQUITY' || type === 'حقوق ملكية') s.totalEquity += Math.abs(a.balance);
-        else if (type === AccountType.REVENUE || type === 'REVENUE' || type === 'إيرادات') s.totalRevenue += Math.abs(a.balance);
-        else if (type === AccountType.EXPENSE || type === 'EXPENSE' || type === 'مصروفات') s.totalExpenses += a.balance;
+        if (a.isGroup || a.is_group) return; // ضمان تجاهل الحسابات الرئيسية مثل 103 في حسابات الأرصدة
+        const type = String(a.type || '').toUpperCase();
+        const code = String(a.code || '');
+
+        if (type.includes('ASSET') || type.includes('أصول')) s.totalAssets += a.balance;
+        else if (type.includes('LIABILITY') || type.includes('خصوم')) s.totalLiabilities += Math.abs(a.balance);
+        else if (type.includes('EQUITY') || type.includes('حقوق ملكية')) s.totalEquity += Math.abs(a.balance);
+        else if (type.includes('REVENUE') || type.includes('إيرادات')) s.totalRevenue += Math.abs(a.balance);
+        else if (type.includes('EXPENSE') || type.includes('مصروفات')) s.totalExpenses += a.balance;
     });
+
+    // حساب المبيعات والمشتريات الصافية (بدون ضريبة) من واقع الفواتير
+    s.monthlySales = invoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0);
+    s.monthlyPurchases = purchaseInvoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0);
+    
+    // مجمل الربح = صافي المبيعات - تكلفة البضاعة المباعة (حساب 511)
+    const cogs = accounts.find(a => a.code === '511' || a.code === SYSTEM_ACCOUNTS.COGS)?.balance || 0;
+    s.grossProfit = s.monthlySales - cogs;
+
     s.netIncome = s.totalRevenue - s.totalExpenses;
     s.totalEquity += s.netIncome;
     return s;
@@ -4086,7 +4105,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               address: newSettings.address,
               phone: newSettings.phone,
               email: newSettings.email,
-              vat_rate: newSettings.vatRate,
+              vat_rate: Number(newSettings.vatRate) / 100, // ضمان تحويل الرقم (14) إلى (0.14)
               currency: newSettings.currency,
               footer_text: newSettings.footerText,
               enable_tax: newSettings.enableTax,

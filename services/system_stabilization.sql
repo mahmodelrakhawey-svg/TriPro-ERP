@@ -131,7 +131,7 @@ WHERE currency = 'SAR' OR currency IS NULL;
 -- 7. تحديث نسبة الضريبة الافتراضية إلى 14% (مصر)
 UPDATE public.company_settings 
 SET vat_rate = 0.14 
-WHERE vat_rate = 0.15;
+WHERE vat_rate = 0.15 OR vat_rate = 15 OR vat_rate = 14;
 
 -- 4. تنظيف البيانات الفاسدة (اختياري - يحذف التفاصيل التي ليس لها رأس)
 -- DELETE FROM public.invoice_items WHERE invoice_id NOT IN (SELECT id FROM public.invoices);

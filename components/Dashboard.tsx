@@ -29,6 +29,7 @@ const Dashboard = () => {
     monthPurchases: 0,
     prevMonthPurchases: 0,
     monthCogs: 0,
+    monthExpenses: 0,
     receivables: 0,
     payables: 0,
     totalReceipts: 0,
@@ -74,6 +75,7 @@ const Dashboard = () => {
                   monthPurchases: data.monthPurchases || 0,
                   prevMonthPurchases: data.prevMonthPurchases || 0,
                   monthCogs: data.monthCogs || 0,
+                  monthExpenses: data.monthExpenses || 0,
                   receivables: data.receivables || 0,
                   payables: data.payables || 0,
                   totalReceipts: data.totalReceipts || 0,
@@ -109,21 +111,26 @@ const Dashboard = () => {
             const currentMonth = today.getMonth();
             const currentYear = today.getFullYear();
 
-            const monthSales = (demoInvoices || []).filter(inv => new Date(inv.date).getMonth() === currentMonth && new Date(inv.date).getFullYear() === currentYear && inv.status !== 'draft').reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
-            const monthPurchases = (demoPurchaseInvoices || []).filter(pInv => new Date(pInv.date).getMonth() === currentMonth && new Date(pInv.date).getFullYear() === currentYear && pInv.status !== 'draft').reduce((sum, pInv) => sum + (pInv.total_amount || 0), 0);
+            const monthSales = (demoInvoices || []).filter(inv => new Date(inv.date).getMonth() === currentMonth && new Date(inv.date).getFullYear() === currentYear && inv.status !== 'draft').reduce((sum, inv) => sum + (inv.subtotal || 0), 0);
+            const monthPurchases = (demoPurchaseInvoices || []).filter(pInv => new Date(pInv.date).getMonth() === currentMonth && new Date(pInv.date).getFullYear() === currentYear && pInv.status !== 'draft').reduce((sum, pInv) => sum + (pInv.subtotal || 0), 0);
             const lowStockCount = (demoProducts || []).filter(p => (p.stock || 0) <= (p.min_stock_level || 0)).length;
+
+            const monthCogs = (demoInvoices || []).filter(inv => new Date(inv.date).getMonth() === currentMonth && inv.status !== 'draft').reduce((sum, inv) => sum + (inv.items || []).reduce((s, item) => s + ((demoProducts.find(p => p.id === item.productId)?.cost || 0) * item.quantity), 0), 0);
+
+            // محاكاة مصروفات تشغيلية للديمو
+            const monthExpenses = 2500;
 
             const customerSales: Record<string, number> = {};
             (demoInvoices || []).forEach(inv => {
                 if (inv.status !== 'draft' && inv.customer_id) {
-                    customerSales[inv.customer_id] = (customerSales[inv.customer_id] || 0) + (inv.total_amount || 0);
+                    customerSales[inv.customer_id] = (customerSales[inv.customer_id] || 0) + (inv.subtotal || 0);
                 }
             });
             const topCustomersData = Object.entries(customerSales).map(([customerId, total]) => ({ name: (demoCustomers || []).find(c => c.id === customerId)?.name || 'Unknown Customer', total })).sort((a, b) => b.total - a.total).slice(0, 5);
 
             setStats({
                 monthSales, monthPurchases, lowStockCount, 
-                prevMonthSales: 75000, prevMonthPurchases: 45000, monthCogs: 60000,
+                prevMonthSales: 75000, prevMonthPurchases: 45000, monthCogs: monthCogs, monthExpenses: monthExpenses,
                 receivables: getSystemAccount('CUSTOMERS')?.balance ?? 0,
                 payables: getSystemAccount('SUPPLIERS')?.balance ?? 0,
                 totalReceipts: 0, totalPayments: 0,
@@ -329,9 +336,10 @@ const Dashboard = () => {
                 </div>
             )}
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 dashboard-stats">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 dashboard-stats">
                 <StatCard title="مبيعات الشهر" value={stats.monthSales} previousValue={stats.prevMonthSales} icon={ShoppingCart} color="bg-blue-100" isGood={true} />
                 <StatCard title="مجمل الربح" value={stats.monthSales - stats.monthCogs} icon={DollarSign} color="bg-emerald-100" isGood={true} />
+                <StatCard title="صافي الربح" value={stats.monthSales - stats.monthCogs - stats.monthExpenses} icon={Activity} color="bg-indigo-100" isGood={true} subLabel="بعد خصم المصروفات الإدارية" />
                 <StatCard title="مشتريات الشهر" value={stats.monthPurchases} previousValue={stats.prevMonthPurchases} icon={Truck} color="bg-purple-100" isGood={false} />
             </div>
             {/* Monthly Performance Chart */}
@@ -364,8 +372,8 @@ const Dashboard = () => {
                     <Link to="/invoices-list" className="text-xs text-blue-600 font-bold hover:underline">عرض الكل</Link>
                 </div>
                 <div className="space-y-3">
-                    {recentInvoices.length > 0 ? recentInvoices.map((inv) => (
-                        <div key={inv.id} className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-lg">
+                    {recentInvoices.length > 0 ? recentInvoices.map((inv, idx) => (
+                        <div key={inv.id || inv.invoice_number || idx} className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-lg">
                             <div className="flex items-center gap-3">
                                 <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><FileText size={16} /></div>
                                 <div>
@@ -426,8 +434,8 @@ const Dashboard = () => {
                     <span className="bg-red-100 text-red-600 text-xs font-black px-2 py-1 rounded-full">{stats.lowStockCount}</span>
                 </div>
                 <div className="space-y-3">
-                    {lowStockItems.length > 0 ? lowStockItems.map((item) => (
-                        <div key={item.id} className="flex justify-between items-center p-3 bg-red-50 rounded-xl border border-red-100">
+                    {lowStockItems.length > 0 ? lowStockItems.map((item, idx) => (
+                        <div key={item.id || item.sku || idx} className="flex justify-between items-center p-3 bg-red-50 rounded-xl border border-red-100">
                             <div>
                                 <p className="text-sm font-bold text-slate-800">{item.name}</p>
                                 <p className="text-xs text-slate-500 font-mono">{item.sku || 'No SKU'}</p>

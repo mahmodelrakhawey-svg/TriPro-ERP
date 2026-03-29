@@ -43,12 +43,9 @@ BEGIN
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
     -- ب. جلب الحسابات
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '1105' LIMIT 1; -- المخزون
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1205' LIMIT 1; -- ضريبة مدخلات
-    IF v_vat_acc_id IS NULL THEN 
-        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2103' LIMIT 1; -- احتياطي
-    END IF;
-    SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '2201' LIMIT 1; -- الموردين
+    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- مخزون المنتج التام (فرعي)
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' LIMIT 1; -- ضريبة مدخلات (مصر)
+    SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' LIMIT 1; -- الموردين (مصر)
 
     IF v_inventory_acc_id IS NULL OR v_supplier_acc_id IS NULL THEN
         RAISE EXCEPTION 'حسابات المخزون أو الموردين غير معرّفة في دليل الحسابات';

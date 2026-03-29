@@ -219,6 +219,9 @@ CREATE TABLE public.products (
     deletion_reason text,
     is_active boolean DEFAULT true,
     created_at timestamptz DEFAULT now() NOT NULL,
+    labor_cost numeric(19,4) DEFAULT 0,
+    overhead_cost numeric(19,4) DEFAULT 0,
+    is_overhead_percentage boolean DEFAULT false
 );
 
 CREATE TABLE public.bill_of_materials (
@@ -798,51 +801,72 @@ CREATE TABLE public.notification_audit_log (
 CREATE OR REPLACE FUNCTION public.approve_invoice(p_invoice_id uuid)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
-    v_invoice record; v_item record; v_org_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid; v_customer_acc_id uuid; v_cogs_acc_id uuid; v_inventory_acc_id uuid; v_discount_acc_id uuid; v_treasury_acc_id uuid; v_journal_id uuid; v_total_cost numeric := 0; v_item_cost numeric; v_exchange_rate numeric; v_total_amount_base numeric; v_paid_amount_base numeric; v_subtotal_base numeric; v_tax_amount_base numeric; v_discount_amount_base numeric;
+    v_invoice record; 
+    v_item record; 
+    v_org_id uuid; 
+    v_sales_acc_id uuid; 
+    v_vat_acc_id uuid; 
+    v_customer_acc_id uuid; 
+    v_cogs_acc_id uuid;
+    v_inventory_acc_id uuid;
+    v_journal_id uuid; 
+    v_exchange_rate numeric;
+    v_total_cost numeric := 0;
+    v_item_cost numeric;
 BEGIN
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
-    IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
-
+    IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RETURN; END IF;
+    
+    -- جلب معرّفات الحسابات بناءً على الدليل المصري المعتمد في إعداداتك
     SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
-    v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
-    IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
-
     SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' LIMIT 1;
     SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1;
-    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' LIMIT 1;
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- استخدام حساب المنتج التام
-    SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '413' LIMIT 1;
-    v_treasury_acc_id := v_invoice.treasury_account_id;
+    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' LIMIT 1; -- تكلفة البضاعة المباعة
+    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- مخزون المنتج التام
 
+    IF v_sales_acc_id IS NULL OR v_vat_acc_id IS NULL OR v_customer_acc_id IS NULL OR v_cogs_acc_id IS NULL OR v_inventory_acc_id IS NULL THEN
+        RAISE EXCEPTION 'خطأ: بعض الحسابات الأساسية غير معرّفة في الدليل (411, 2231, 1221, 511, 10302)';
+    END IF;
+
+    v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
+
+    -- تحديث المخزون وحساب التكلفة الإجمالية للفاتورة
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
-        SELECT weighted_average_cost INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
-        IF v_item_cost IS NULL OR v_item_cost = 0 THEN SELECT cost INTO v_item_cost FROM public.products WHERE id = v_item.product_id; END IF;
-        IF v_item_cost IS NULL OR v_item_cost = 0 THEN SELECT purchase_price INTO v_item_cost FROM public.products WHERE id = v_item.product_id; END IF;
+        SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
         v_total_cost := v_total_cost + (COALESCE(v_item_cost, 0) * v_item.quantity);
 
-        UPDATE public.products SET stock = stock - v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id;
+        UPDATE public.products SET stock = stock - v_item.quantity WHERE id = v_item.product_id;
     END LOOP;
 
-    v_total_amount_base := v_invoice.total_amount * v_exchange_rate;
-    v_paid_amount_base := COALESCE(v_invoice.paid_amount, 0) * v_exchange_rate;
-    v_subtotal_base := v_invoice.subtotal * v_exchange_rate;
-    v_tax_amount_base := COALESCE(v_invoice.tax_amount, 0) * v_exchange_rate;
-    v_discount_amount_base := COALESCE(v_invoice.discount_amount, 0) * v_exchange_rate;
+    -- إنشاء القيد المحاسبي
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
+    VALUES (v_invoice.invoice_date, 'فاتورة مبيعات رقم ' || v_invoice.invoice_number, v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'invoice', true) 
+    RETURNING id INTO v_journal_id;
 
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) VALUES (v_invoice.invoice_date, 'فاتورة مبيعات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'invoice', true) RETURNING id INTO v_journal_id;
+    -- 1. المدين: العملاء (الإجمالي)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES 
+    (v_journal_id, v_customer_acc_id, (v_invoice.total_amount * v_exchange_rate), 0, 'استحقاق عميل - فاتورة ' || v_invoice.invoice_number);
+    
+    -- 2. الدائن: المبيعات (الصافي)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES 
+    (v_journal_id, v_sales_acc_id, 0, (v_invoice.subtotal * v_exchange_rate), 'إيراد مبيعات - فاتورة ' || v_invoice.invoice_number);
+    
+    -- 3. الدائن: الضريبة (القيمة)
+    IF COALESCE(v_invoice.tax_amount, 0) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES 
+        (v_journal_id, v_vat_acc_id, 0, (v_invoice.tax_amount * v_exchange_rate), 'ضريبة القيمة المضافة');
+    END IF;
 
-    IF (v_total_amount_base - v_paid_amount_base) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_customer_acc_id, (v_total_amount_base - v_paid_amount_base), 0, 'استحقاق عميل', v_org_id); END IF;
-    IF v_paid_amount_base > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_treasury_acc_id, v_paid_amount_base, 0, 'تحصيل نقدي', v_org_id); END IF;
-    IF v_discount_amount_base > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_discount_acc_id, v_discount_amount_base, 0, 'خصم ممنوح', v_org_id); END IF;
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, v_subtotal_base, 'إيراد مبيعات', v_org_id);
-    IF v_tax_amount_base > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, v_tax_amount_base, 'ضريبة القيمة المضافة', v_org_id); END IF;
-    IF v_total_cost > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة بضاعة مباعة', v_org_id); INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون', v_org_id); END IF;
+    -- 4. إثبات تكلفة المبيعات (الجرد المستمر)
+    IF v_total_cost > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES 
+        (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة بضاعة مباعة - فاتورة ' || v_invoice.invoice_number, v_org_id),
+        (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون - فاتورة ' || v_invoice.invoice_number, v_org_id);
+    END IF;
 
-    UPDATE public.invoices SET status = CASE WHEN (total_amount - COALESCE(paid_amount, 0)) <= 0 THEN 'paid' ELSE 'posted' END, related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
-END;
-$$;
+    UPDATE public.invoices SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
+END; $$;
 
 -- دالة اعتماد فاتورة المشتريات
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid)

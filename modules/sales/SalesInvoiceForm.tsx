@@ -252,7 +252,7 @@ const SalesInvoiceForm = () => {
   discountAmount = Math.min(discountAmount, subtotal);
 
   const netSales = subtotal - discountAmount;
-  const taxRate = settings.enableTax ? (settings.vat_rate || 0.14) : 0;
+  const taxRate = settings.enableTax ? ((settings.vat_rate || 14) / 100) : 0;
   const taxAmount = netSales * taxRate;
   const totalAmount = netSales + taxAmount;
   const remainingBalance = Math.max(0, totalAmount - formData.paidAmount);

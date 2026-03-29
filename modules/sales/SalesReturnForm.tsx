@@ -137,7 +137,7 @@ const SalesReturnForm = () => {
 
     try {
       const subtotal = calculateTotal();
-      const taxRate = settings.enableTax ? (settings.vatRate ?? 0.15) : 0;
+      const taxRate = settings.enableTax ? ((settings.vatRate || 14) / 100) : 0;
       const taxAmount = subtotal * taxRate;
       const totalAmount = subtotal + taxAmount;
       

@@ -59,7 +59,7 @@ const PurchaseReturnForm = () => {
   };
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.total, 0), [items]);
-  const taxAmount = useMemo(() => subtotal * (settings.enableTax ? (settings.vatRate || 0) : 0), [subtotal, settings]);
+  const taxAmount = useMemo(() => subtotal * (settings.enableTax ? ((settings.vatRate || 0) / 100) : 0), [subtotal, settings]);
   const totalAmount = useMemo(() => subtotal + taxAmount, [subtotal, taxAmount]);
 
   const handleSave = async (e: React.FormEvent) => {

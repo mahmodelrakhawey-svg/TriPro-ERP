@@ -179,7 +179,11 @@ const FinancialRatios = () => {
       try {
         const { data, error } = await supabase.rpc('get_historical_ratios');
         if (error) throw error;
-        setHistoricalData(data || { profitabilityData: [], liquidityData: [] });
+
+        // التحقق من أن البيانات كائن يحتوي على المصفوفات المطلوبة قبل التحديث
+        if (data && !Array.isArray(data)) {
+          setHistoricalData(data);
+        }
       } catch (error) {
         console.error("Error fetching historical ratios:", error);
         // يمكنك إضافة رسالة خطأ للمستخدم هنا
