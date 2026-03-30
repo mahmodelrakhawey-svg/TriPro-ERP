@@ -86,6 +86,8 @@ CREATE TABLE public.company_settings (
     logo_url text,
     vat_rate numeric DEFAULT 0.15,
     currency text DEFAULT 'SAR',
+    vat_rate numeric DEFAULT 0.14,
+    currency text DEFAULT 'EGP',
     enable_tax boolean DEFAULT true,
     allow_negative_stock boolean DEFAULT false,
     prevent_price_modification boolean DEFAULT false,
@@ -769,6 +771,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
     status text DEFAULT 'COMPLETED', -- COMPLETED, REFUNDED
     transaction_ref text,
     organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 
@@ -1420,6 +1423,7 @@ $$;
 -- إنشاء المنظمة والإعدادات الافتراضية
 INSERT INTO public.organizations (name) VALUES ('الشركة النموذجية للتجارة');
 INSERT INTO public.company_settings (company_name, currency, enable_tax) VALUES ('الشركة النموذجية للتجارة', 'SAR', true);
+INSERT INTO public.company_settings (company_name, currency, enable_tax, vat_rate) VALUES ('الشركة النموذجية للتجارة', 'EGP', true, 0.14);
 -- إنشاء مستودع افتراضي
 INSERT INTO public.warehouses (name, location) VALUES ('المستودع الرئيسي', 'الفرع الرئيسي');
 -- إنشاء مركز تكلفة افتراضي
@@ -1534,6 +1538,7 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('122', 'العملاء والمدينون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
 ('1221', 'العملاء', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
 ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
+('1204', 'أوراق القبض (شيكات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
 ('1223', 'سلف الموظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
 ('1224', 'عهد موظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122'));
 
@@ -1581,6 +1586,7 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('22', 'الخصوم المتداولة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '2')),
 ('201', 'الموردين', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
+('2202', 'أوراق الدفع', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
 ('222', 'أوراق الدفع (شيكات صادرة)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
 ('223', 'مصلحة الضرائب (التزامات)', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '22')),
 ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '223')),
@@ -1795,6 +1801,7 @@ END $$;
 -- 5. Notifications (User specific)
 CREATE POLICY "Users view own notifications" ON notifications FOR SELECT USING (auth.uid() = user_id AND organization_id = get_my_org());
 CREATE POLICY "Users update own notifications" ON notifications FOR UPDATE USING (auth.uid() = user_id AND organization_id = get_my_org());
+CREATE POLICY "Users can create notifications" ON public.notifications FOR INSERT TO authenticated WITH CHECK (true);
 
 -- 6. Security Logs (Insert for all, View for Admin)
 CREATE POLICY "Everyone insert logs" ON security_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = performed_by AND organization_id = get_my_org());

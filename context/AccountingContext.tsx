@@ -378,6 +378,7 @@ interface AccountingContextType {
   currentUser: User | null;
   users: User[];
   login: (username: string, pin: string) => Promise<{ success: boolean; message?: string }>;
+  organizationId: string | null;
   logout: () => Promise<void>;
   addUser: (user: any) => void;
   updateUser: (id: string, user: Partial<User>) => void;
@@ -1469,8 +1470,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 name: profile?.full_name || user.user_metadata?.full_name || user.email,
                 username: user.email,
                 role: roleName,
-                is_active: profile?.is_active ?? true
-            });
+            is_active: profile?.is_active ?? true,
+            organization_id: profile?.organization_id
+            } as any);
             setUserRole(roleName);
 
             // تعيين الصلاحيات بناءً على الدور
@@ -3624,7 +3626,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             order_id: orderId,
             payment_method: paymentMethod,
             amount: amount,
-            status: 'COMPLETED'
+            status: 'COMPLETED',
+            organization_id: (currentUser as any)?.organization_id
         });
         if (payErr) throw payErr;
 
@@ -4096,6 +4099,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       salespeople,
       getSystemAccount,
       currentUser, users, login, logout, addUser, updateUser, deleteUser: (id) => setUsers(prev => prev.filter(u => u.id !== id)),
+      organizationId: (currentUser as any)?.organization_id || null,
       settings, updateSettings: (newSettings) => {
           setSettings(newSettings);
           supabase.from('company_settings').upsert({

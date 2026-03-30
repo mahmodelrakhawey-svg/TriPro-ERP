@@ -37,7 +37,7 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
     IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := public.get_my_org();
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
@@ -154,7 +154,7 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة'; END IF;
     IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := public.get_my_org();
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
@@ -272,7 +272,7 @@ DECLARE
 BEGIN
     SELECT * INTO v_voucher FROM public.receipt_vouchers WHERE id = p_voucher_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند القبض غير موجود'; END IF;
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := public.get_my_org();
     v_exchange_rate := COALESCE(v_voucher.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
     v_amount_base := v_voucher.amount * v_exchange_rate;
@@ -302,7 +302,7 @@ DECLARE
 BEGIN
     SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود'; END IF;
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := public.get_my_org();
     v_exchange_rate := COALESCE(v_voucher.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
     v_amount_base := v_voucher.amount * v_exchange_rate;
@@ -329,7 +329,7 @@ BEGIN
     SELECT * INTO v_return FROM public.sales_returns WHERE id = p_return_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'مرتجع المبيعات غير موجود'; END IF;
     IF v_return.status = 'posted' THEN RAISE EXCEPTION 'المرتجع مرحل بالفعل'; END IF;
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := public.get_my_org();
 
     SELECT id INTO v_sales_return_acc_id FROM public.accounts WHERE code = '412' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '202' LIMIT 1;
@@ -363,7 +363,7 @@ BEGIN
     SELECT * INTO v_return FROM public.purchase_returns WHERE id = p_return_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'مرتجع المشتريات غير موجود'; END IF;
     IF v_return.status = 'posted' THEN RAISE EXCEPTION 'المرتجع مرحل بالفعل'; END IF;
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := public.get_my_org();
 
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '103' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '10204' LIMIT 1;
@@ -663,6 +663,7 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard AS
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, public.order_type, text, jsonb, uuid);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
 
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_session_id uuid,
@@ -670,10 +671,13 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_order_type text,
     p_notes text,
     p_items jsonb,
-    p_customer_id uuid DEFAULT NULL
+    p_customer_id uuid DEFAULT NULL,
+    p_warehouse_id uuid DEFAULT NULL,
+    p_delivery_info jsonb DEFAULT NULL
 )
 RETURNS uuid
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 DECLARE
     v_order_id uuid;
@@ -682,13 +686,16 @@ DECLARE
     v_order_number text;
     v_qty numeric;
     v_price numeric;
+    v_org_id uuid;
 BEGIN
+    v_org_id := public.get_my_org();
+
     -- توليد رقم طلب تلقائي فريد
     v_order_number := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
 
     -- 1. إنشاء رأس الطلب مع ربط العميل إذا وُجد
-    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, created_at, order_number)
-    VALUES (p_session_id, p_user_id, p_order_type::text, p_notes, 'PENDING', p_customer_id, now(), v_order_number)
+    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, warehouse_id, created_at, order_number, organization_id)
+    VALUES (p_session_id, p_user_id, p_order_type::text, p_notes, 'PENDING', p_customer_id, p_warehouse_id, now(), v_order_number, v_org_id)
     RETURNING id INTO v_order_id;
 
     -- 2. الدوران على البنود وإضافتها
@@ -697,7 +704,7 @@ BEGIN
         v_price := (v_item->>'unitPrice')::numeric;
 
         INSERT INTO public.order_items (
-            order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, modifiers, created_at
+            order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, modifiers, created_at, organization_id
         )
         VALUES (
             v_order_id,
@@ -708,15 +715,20 @@ BEGIN
             COALESCE((v_item->>'unitCost')::numeric, 0),
             v_item->>'notes',
             COALESCE(v_item->'modifiers', '[]'::jsonb),
-            now()
+            now(),
+            v_org_id
         ) RETURNING id INTO v_order_item_id;
 
         -- 3. إرسال البند للمطبخ تلقائياً
-        INSERT INTO public.kitchen_orders (order_item_id, status, created_at)
-        VALUES (v_order_item_id, 'NEW', now());
+        INSERT INTO public.kitchen_orders (order_item_id, status, created_at, organization_id)
+        VALUES (v_order_item_id, 'NEW', now(), v_org_id);
     END LOOP;
 
     RETURN v_order_id;
+EXCEPTION WHEN OTHERS THEN
+    -- تسجيل الخطأ بالتفصيل في الجدول قبل إظهاره للمستخدم
+    PERFORM public.log_system_error(SQLERRM, SQLSTATE, jsonb_build_object('session_id', p_session_id, 'items_count', jsonb_array_length(p_items)), 'create_restaurant_order');
+    RAISE; -- إعادة رفع الخطأ لكي يظهر في واجهة البرنامج أيضاً
 END;
 $$;
 
@@ -909,9 +921,52 @@ BEGIN
     UPDATE public.orders SET session_id = p_target_session_id WHERE session_id = p_source_session_id;
 
     -- 4. إغلاق جلسة المصدر وتفريغ الطاولة
-    UPDATE public.table_sessions SET status = 'CLOSED', end_time = now() WHERE id = p_source_session_id;
+    UPDATE public.table_sessions SET status = 'CLOSED', closed_at = now() WHERE id = p_source_session_id;
     UPDATE public.restaurant_tables SET status = 'AVAILABLE', updated_at = now() WHERE id = v_source_table_id;
 
     -- ملاحظة: طاولة الهدف ستبقى 'OCCUPIED' وجلستها ستبقى 'OPEN' وتحمل الآن جميع الطلبات
+END;
+$$;
+
+-- ================================================================
+-- 19. دالة إنشاء قيد يومية متوازن (Create Balanced Journal Entry)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.create_journal_entry(
+    entry_date date,
+    description text,
+    reference text,
+    entries jsonb,
+    status text DEFAULT 'posted',
+    org_id uuid DEFAULT NULL
+) 
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+AS $$
+DECLARE 
+    new_entry_id uuid; 
+    entry_record jsonb;
+    v_total_debit numeric := 0;
+    v_total_credit numeric := 0;
+BEGIN
+    -- 1. التحقق من توازن القيد محاسبياً (المدين = الدائن) قبل الحفظ
+    SELECT SUM((item->>'debit')::numeric), SUM((item->>'credit')::numeric)
+    INTO v_total_debit, v_total_credit
+    FROM jsonb_array_elements(entries) AS item;
+
+    IF ABS(COALESCE(v_total_debit, 0) - COALESCE(v_total_credit, 0)) > 0.001 THEN
+        RAISE EXCEPTION 'القيد غير متوازن: إجمالي المدين (%) لا يساوي إجمالي الدائن (%)', v_total_debit, v_total_credit;
+    END IF;
+
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id) 
+    VALUES (entry_date, description, reference, status, COALESCE(org_id, public.get_my_org())) 
+    RETURNING id INTO new_entry_id;
+
+    FOR entry_record IN SELECT * FROM jsonb_array_elements(entries) LOOP
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, cost_center_id, organization_id) 
+        VALUES (new_entry_id, (entry_record->>'account_id')::uuid, (entry_record->>'debit')::numeric, (entry_record->>'credit')::numeric, (entry_record->>'description'), (entry_record->>'cost_center_id')::uuid, COALESCE(org_id, public.get_my_org()));
+    END LOOP;
+
+    RETURN new_entry_id;
 END;
 $$;

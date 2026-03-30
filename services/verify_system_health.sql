@@ -5,6 +5,11 @@ DO $$
 DECLARE
     v_count integer;
     v_missing text := '';
+    t text;
+    tables text[] := ARRAY[
+        'accounts', 'products', 'customers', 'suppliers', 'warehouses', 
+        'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'invoices'
+    ];
 BEGIN
     RAISE NOTICE '🚀 بدء فحص سلامة النظام...';
     
@@ -82,6 +87,29 @@ BEGIN
     ELSE
         RAISE NOTICE '❌ خطأ حرج: عمود unit_cost غير موجود! يرجى تشغيل ملف create_restaurant_module.sql مرة أخرى.';
     END IF;
+
+    -- 6. فحص درع الحماية (RLS & Organization Isolation)
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '6️⃣ فحص درع الحماية وعزل البيانات (Multi-tenancy):';
+    
+    FOREACH t IN ARRAY tables LOOP
+        DECLARE
+            v_rls boolean;
+            v_col boolean;
+            v_nulls int;
+        BEGIN
+            SELECT rowsecurity INTO v_rls FROM pg_tables WHERE schemaname = 'public' AND tablename = t;
+            SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = t AND column_name = 'organization_id') INTO v_col;
+            
+            IF v_col THEN
+                EXECUTE format('SELECT count(*) FROM public.%I WHERE organization_id IS NULL', t) INTO v_nulls;
+                RAISE NOTICE '   • الجدول [%]: الحماية=% | العمود=% | بيانات يتيمة=%', 
+                    t, (CASE WHEN v_rls THEN '✅' ELSE '❌' END), (CASE WHEN v_col THEN '✅' ELSE '❌' END), v_nulls;
+            ELSE
+                RAISE NOTICE '   • الجدول [%]: ❌ عمود organization_id مفقود!', t;
+            END IF;
+        END;
+    END LOOP;
 
     RAISE NOTICE '--------------------------------------------------';
     RAISE NOTICE '🏁 انتهى الفحص.';
