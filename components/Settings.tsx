@@ -939,8 +939,13 @@ const Settings = () => {
                                   >
                                       <option value="">-- الافتراضي ({defaultCode}) --</option>
                                       {accounts.sort((a, b) => a.code.localeCompare(b.code)).map(acc => (
-                                          <option key={acc.id} value={acc.id} className={acc.isGroup ? 'font-bold bg-slate-50' : ''}>
-                                              {acc.code} - {acc.name} {acc.isGroup ? '(رئيسي)' : ''}
+                                          <option 
+                                              key={acc.id} 
+                                              value={acc.id} 
+                                              disabled={acc.isGroup} 
+                                              className={acc.isGroup ? 'font-bold bg-slate-100 text-slate-400' : ''}
+                                          >
+                                              {acc.code} - {acc.name} {acc.isGroup ? ' (حساب رئيسي - لا يمكن الاختيار)' : ''}
                                           </option>
                                       ))}
                                   </select>

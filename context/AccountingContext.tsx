@@ -38,10 +38,10 @@ interface FinancialSummary {
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
-  BANK_ACCOUNTS: '1232', // حسابات البنوك
+  BANK_ACCOUNTS: '123201', // حسابات البنوك (الافتراضي: البنك الأهلي المصري)
   CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
-  INVENTORY: '103', // المخزون (مجموعة)
+  INVENTORY: '10302', // المخزون - الافتراضي هو مخزون المنتج التام (حساب فرعي)
   INVENTORY_RAW_MATERIALS: '10301', // خامات
   INVENTORY_FINISHED_GOODS: '10302', // منتج تام
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
@@ -64,7 +64,7 @@ export const SYSTEM_ACCOUNTS = {
   CASH_DIFF: '541', // تسوية عجز الصندوق
   BANK_CHARGES: '534', // مصروفات بنكية
   BANK_INTEREST_INCOME: '423', // فوائد بنكية دائنة
-  TAX_AUTHORITY: '223', // مصلحة الضرائب (التزام)
+  TAX_AUTHORITY: '2231', // مصلحة الضرائب (قيمة مضافة - فرعي)
   SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
   WITHHOLDING_TAX: '2232', // ضريبة الخصم والتحصيل
   EMPLOYEE_ADVANCES: '1223', // سلف الموظفين
@@ -816,10 +816,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
       await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.BANK_ACCOUNTS, 'البنك الرئيسي', 'ASSET');
+      await ensureAccount('123201', 'البنك الأهلي المصري', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY, 'المخزون', 'ASSET');
+      // ملاحظة: لا نقوم بإنشاء حساب 103 هنا لأنه حساب رئيسي يتم إنشاؤه عبر ملف SQL
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET'); // 10301
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET'); // 10302
       await ensureAccount(SYSTEM_ACCOUNTS.SALARIES_EXPENSE, 'الرواتب والأجور', 'EXPENSE');

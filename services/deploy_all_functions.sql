@@ -158,7 +158,7 @@ BEGIN
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '103' LIMIT 1;
+    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- استخدام حساب المنتج التام بدلاً من مجموعة المخزون
     
     -- تحسين: البحث في ربط الحسابات المخصص أولاً، ثم الكود الافتراضي الصحيح 1241
     SELECT (account_mappings->>'VAT_INPUT')::uuid INTO v_vat_acc_id FROM public.company_settings LIMIT 1;
@@ -169,7 +169,7 @@ BEGIN
     SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' LIMIT 1;
 
     -- فحص صارم لضمان عدم وجود NULL في القيد
-    IF v_inventory_acc_id IS NULL THEN RAISE EXCEPTION 'حساب المخزون (103) غير موجود'; END IF;
+    IF v_inventory_acc_id IS NULL THEN RAISE EXCEPTION 'حساب المخزون (10302) غير موجود'; END IF;
     IF v_supplier_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الموردين (201) غير موجود'; END IF;
     IF v_invoice.tax_amount > 0 AND v_vat_acc_id IS NULL THEN 
         RAISE EXCEPTION 'حساب ضريبة المدخلات غير معرّف. يرجى التأكد من وجود حساب بالكود 1241 أو ربطه في الإعدادات.'; 
@@ -854,7 +854,7 @@ BEGIN
     IF v_total_cost > 0 THEN
         SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
         SELECT id INTO v_adj_acc_id FROM public.accounts WHERE code = '512' LIMIT 1; -- حساب فروقات الجرد/الهالك
-        SELECT id INTO v_inv_acc_id FROM public.accounts WHERE code = '103' LIMIT 1; -- حساب المخزون العام
+        SELECT id INTO v_inv_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- حساب المخزون الفرعي
 
         IF v_adj_acc_id IS NOT NULL AND v_inv_acc_id IS NOT NULL THEN
             INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted)
@@ -1144,8 +1144,8 @@ BEGIN
 
     -- 3. تحديد الحسابات المحاسبية (Egyptian COA)
     SELECT id INTO v_cash_acc_id FROM public.accounts WHERE code = '1231' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_card_acc_id FROM public.accounts WHERE code = '1232' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_wallet_acc_id FROM public.accounts WHERE code = '1233' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_card_acc_id FROM public.accounts WHERE code = '123201' AND organization_id = v_org_id LIMIT 1; -- البنك الأهلي المصري
+    SELECT id INTO v_wallet_acc_id FROM public.accounts WHERE code = '123301' AND organization_id = v_org_id LIMIT 1; -- فودافون كاش
     SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_diff_acc_id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1;
