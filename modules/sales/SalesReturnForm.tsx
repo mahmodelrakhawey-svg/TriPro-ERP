@@ -51,7 +51,7 @@ const SalesReturnForm = () => {
             productId: item.product_id,
             name: item.products?.name,
             quantity: returnPartialQuantities ? 0 : item.quantity, // هنا يتم ضبط الكمية بناءً على خيار الإرجاع الجزئي
-            price: item.price,
+            price: item.unit_price || item.price,
             maxQuantity: item.quantity // نحتفظ بالكمية الأصلية هنا
         }));
         setItems(newItems);
@@ -188,14 +188,14 @@ const SalesReturnForm = () => {
            return accounts?.find(a => nameKeywords.some(k => normalizeText(a.name).includes(k)));
       };
 
-      const salesReturnAcc = getSystemAccount('SALES_REVENUE') || findAccount(['412', '401'], ['مردودات مبيعات', 'sales return']); 
-      const salesAcc = getSystemAccount('SALES_REVENUE') || findAccount(['411', '401'], ['مبيعات', 'sales']);
+      const salesReturnAcc = findAccount(['412'], ['مردودات مبيعات', 'sales return']); 
+      const salesAcc = getSystemAccount('SALES_REVENUE') || findAccount(['411'], ['مبيعات', 'sales']);
       const targetSalesAcc = salesReturnAcc || salesAcc;
 
-      const taxAcc = getSystemAccount('VAT') || findAccount(['2231', '202'], ['ضريبة', 'tax', 'vat']); 
+      const taxAcc = getSystemAccount('VAT') || findAccount(['2231'], ['ضريبة', 'tax', 'vat']); 
       const customerAcc = getSystemAccount('CUSTOMERS') || findAccount(['1221', '10201'], ['عملاء', 'customer']); 
       const cogsAcc = getSystemAccount('COGS') || findAccount(['511', '501'], ['تكلفة', 'cogs']);
-      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || findAccount(['1213', '10302', '103'], ['مخزون', 'inventory']);
+      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || findAccount(['10302'], ['مخزون', 'inventory']);
 
       if (targetSalesAcc && customerAcc) {
         // حساب تكلفة البضاعة المرتجعة
@@ -339,7 +339,7 @@ const SalesReturnForm = () => {
           <tfoot className="font-bold text-lg">
             <tr className="bg-slate-50">
               <td colSpan={3} className="p-4 text-left text-red-600">إجمالي المرتجع {settings.enableTax ? '(شامل الضريبة)' : ''}:</td>
-              <td className="p-4 text-red-600">{(calculateTotal() * (1 + (settings.enableTax ? (settings.vatRate ?? 0.15) : 0))).toLocaleString()}</td>
+              <td className="p-4 text-red-600">{(calculateTotal() * (1 + (settings.enableTax ? ((settings.vatRate || 14) / 100) : 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
             </tr>
           </tfoot>
         </table>

@@ -86,8 +86,6 @@ CREATE TABLE public.company_settings (
     logo_url text,
     vat_rate numeric DEFAULT 0.15,
     currency text DEFAULT 'SAR',
-    vat_rate numeric DEFAULT 0.14,
-    currency text DEFAULT 'EGP',
     enable_tax boolean DEFAULT true,
     allow_negative_stock boolean DEFAULT false,
     prevent_price_modification boolean DEFAULT false,
@@ -763,6 +761,18 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     created_at timestamptz DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS public.delivery_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
+    customer_name text,
+    customer_phone text,
+    delivery_address text,
+    delivery_fee numeric DEFAULT 0,
+    status text DEFAULT 'PENDING',
+    organization_id uuid REFERENCES public.organizations(id),
+    created_at timestamptz DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS public.payments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
@@ -771,7 +781,6 @@ CREATE TABLE IF NOT EXISTS public.payments (
     status text DEFAULT 'COMPLETED', -- COMPLETED, REFUNDED
     transaction_ref text,
     organization_id uuid REFERENCES public.organizations(id),
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 
@@ -1343,22 +1352,89 @@ BEGIN
     RETURN v_session_id;
 END; $$;
 
+-- حذف الدوال القديمة بجميع نسخها لمنع تعارض الأسماء (Ambiguity)
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, public.order_type, text, jsonb, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
+
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
-    p_session_id uuid, p_user_id uuid, p_order_type text, p_notes text, p_items jsonb, p_customer_id uuid DEFAULT NULL
+    p_session_id uuid,
+    p_user_id uuid,
+    p_order_type text,
+    p_notes text,
+    p_items jsonb,
+    p_customer_id uuid DEFAULT NULL,
+    p_warehouse_id uuid DEFAULT NULL,
+    p_delivery_info jsonb DEFAULT NULL
 ) RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_org_id uuid; v_order_item_id uuid;
+DECLARE 
+    v_order_id uuid; 
+    v_item jsonb; 
+    v_order_num text; 
+    v_org_id uuid; 
+    v_order_item_id uuid;
+    v_tax_rate numeric;
+    v_subtotal numeric := 0;
 BEGIN
     v_org_id := public.get_my_org();
+    
+    -- 1. جلب نسبة الضريبة من الإعدادات
+    SELECT COALESCE(vat_rate, 0.15) INTO v_tax_rate 
+    FROM public.company_settings 
+    WHERE organization_id = v_org_id LIMIT 1;
+
+    -- 2. توليد رقم طلب فريد
     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
-    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, order_number, organization_id)
-    VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'PENDING', p_customer_id, v_order_num, v_org_id) RETURNING id INTO v_order_id;
+
+    -- 3. إنشاء رأس الطلب
+    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
+    VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'PENDING', p_customer_id, v_order_num, v_org_id, p_warehouse_id) 
+    RETURNING id INTO v_order_id;
+
+    -- 4. إدراج الأصناف وحساب الإجماليات
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id)
-        VALUES (v_order_id, (v_item->>'productId')::uuid, (v_item->>'quantity')::numeric, (v_item->>'unitPrice')::numeric, 
-               ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), COALESCE((v_item->>'unitCost')::numeric, 0), v_item->>'notes', v_org_id)
-        RETURNING id INTO v_order_item_id;
-        INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) VALUES (v_order_item_id, 'NEW', v_org_id);
+        VALUES (
+            v_order_id, 
+            (v_item->>'productId')::uuid, 
+            (v_item->>'quantity')::numeric, 
+            (v_item->>'unitPrice')::numeric, 
+            ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), 
+            COALESCE((v_item->>'unitCost')::numeric, 0), 
+            v_item->>'notes', 
+            v_org_id
+        ) RETURNING id INTO v_order_item_id;
+
+        v_subtotal := v_subtotal + ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric);
+
+        -- إرسال للمطبخ آلياً
+        INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) 
+        VALUES (v_order_item_id, 'NEW', v_org_id);
     END LOOP;
+
+    -- 5. تحديث الإجماليات النهائية والضريبة
+    UPDATE public.orders SET 
+        subtotal = v_subtotal,
+        total_tax = v_subtotal * v_tax_rate,
+        grand_total = v_subtotal + (v_subtotal * v_tax_rate)
+    WHERE id = v_order_id;
+
+    -- 6. معالجة بيانات التوصيل إذا وجدت
+    IF p_delivery_info IS NOT NULL THEN
+        INSERT INTO public.delivery_orders (order_id, customer_name, customer_phone, delivery_address, delivery_fee, organization_id)
+        VALUES (
+            v_order_id,
+            p_delivery_info->>'customer_name',
+            p_delivery_info->>'customer_phone',
+            p_delivery_info->>'delivery_address',
+            COALESCE((p_delivery_info->>'delivery_fee')::numeric, 0),
+            v_org_id
+        );
+    END IF;
+
     RETURN v_order_id;
 END; $$;
 
@@ -1418,241 +1494,216 @@ END;
 $$;
 
 -- ================================================================
+-- 3.5 دوال التقارير والتحليلات (Dashboard & Analytics)
+-- ================================================================
+
+-- دالة إحصائيات لوحة البيانات الشاملة
+CREATE OR REPLACE FUNCTION public.get_dashboard_stats()
+RETURNS json LANGUAGE plpgsql AS $$
+DECLARE
+    v_stats json;
+    v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    SELECT json_build_object(
+        'monthSales', COALESCE((SELECT SUM(subtotal) FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE)), 0),
+        'restaurantSales', COALESCE((SELECT SUM(grand_total) FROM public.orders WHERE organization_id = v_org_id AND status = 'COMPLETED' AND date_trunc('month', created_at) = date_trunc('month', CURRENT_DATE)), 0),
+        'pendingOrdersCount', (SELECT COUNT(*) FROM public.orders WHERE organization_id = v_org_id AND status = 'PENDING'),
+        'occupiedTablesCount', (SELECT COUNT(*) FROM public.restaurant_tables WHERE organization_id = v_org_id AND status = 'OCCUPIED'),
+        'receivables', COALESCE((SELECT SUM(balance) FROM public.accounts WHERE organization_id = v_org_id AND code = '1221'), 0),
+        'payables', COALESCE((SELECT SUM(balance) FROM public.accounts WHERE organization_id = v_org_id AND code = '201'), 0),
+        'lowStockCount', (SELECT COUNT(*) FROM public.products WHERE organization_id = v_org_id AND stock <= min_stock_level AND deleted_at IS NULL)
+    ) INTO v_stats;
+
+    RETURN v_stats;
+END; $$;
+
+-- دالة النسب المالية التاريخية (الربحية والسيولة)
+CREATE OR REPLACE FUNCTION public.get_historical_ratios()
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_org_id uuid; BEGIN
+    v_org_id := public.get_my_org();
+    RETURN jsonb_build_object(
+        'profitabilityData', (
+            SELECT jsonb_agg(jsonb_build_object('name', m, 'ربحية', round(random()*20 + 10, 2))) -- بيانات تجريبية مهيأة للنمو
+            FROM (SELECT to_char(generate_series(now() - interval '5 months', now(), '1 month'), 'YYYY-MM') as m) t
+        ),
+        'liquidityData', (
+            SELECT jsonb_agg(jsonb_build_object('name', m, 'سيولة', round(random()*2 + 1, 2)))
+            FROM (SELECT to_char(generate_series(now() - interval '5 months', now(), '1 month'), 'YYYY-MM') as m) t
+        )
+    );
+END; $$;
+
+-- ================================================================
+-- 3.6 إدارة الورديات ونقاط البيع (Shift & POS Management)
+-- ================================================================
+
+CREATE OR REPLACE FUNCTION public.start_shift(p_user_id uuid, p_opening_balance numeric)
+RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_new_shift_id uuid; v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    IF EXISTS (SELECT 1 FROM public.shifts WHERE user_id = p_user_id AND end_time IS NULL) THEN
+        RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم';
+    END IF;
+    INSERT INTO public.shifts (user_id, start_time, opening_balance, organization_id)
+    VALUES (p_user_id, now(), p_opening_balance, v_org_id) RETURNING id INTO v_new_shift_id;
+    RETURN v_new_shift_id;
+END; $$;
+
+-- دالة ملخص الوردية (العمليات المالية داخل الوردية)
+CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_shift record; v_summary jsonb;
+BEGIN
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    SELECT jsonb_build_object(
+        'opening_balance', v_shift.opening_balance,
+        'total_sales', COALESCE(SUM(amount), 0),
+        'cash_sales', COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0),
+        'card_sales', COALESCE(SUM(CASE WHEN payment_method = 'CARD' THEN amount ELSE 0 END), 0),
+        'wallet_sales', COALESCE(SUM(CASE WHEN payment_method = 'WALLET' THEN amount ELSE 0 END), 0),
+        'expected_cash', v_shift.opening_balance + COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0)
+    ) INTO v_summary
+    FROM public.payments p JOIN public.orders o ON p.order_id = o.id
+    WHERE o.created_at >= v_shift.start_time 
+      AND o.created_at <= COALESCE(v_shift.end_time, now())
+      AND p.status = 'COMPLETED'
+      AND o.organization_id = v_shift.organization_id;
+    RETURN v_summary;
+END; $$;
+
+-- ================================================================
+-- 3.7 صيانة وتحديث الأرصدة (Balance Maintenance)
+-- ================================================================
+
+-- تحديث رصيد العميل الواحد (مدين - دائن)
+CREATE OR REPLACE FUNCTION public.update_single_customer_balance(p_customer_id uuid)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_balance numeric := 0;
+BEGIN
+    -- فواتير (مدين) - سندات (دائن) - مرتجعات (دائن)
+    SELECT COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) INTO v_balance FROM public.invoices WHERE customer_id = p_customer_id AND status != 'draft';
+    SELECT v_balance - COALESCE((SELECT SUM(amount) FROM public.receipt_vouchers WHERE customer_id = p_customer_id), 0) INTO v_balance;
+    UPDATE public.customers SET balance = v_balance WHERE id = p_customer_id;
+END; $$;
+
+-- تحديث رصيد المورد الواحد
+CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id uuid)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_balance numeric := 0;
+BEGIN
+    SELECT COALESCE(SUM(total_amount), 0) INTO v_balance FROM public.purchase_invoices WHERE supplier_id = p_supplier_id AND status != 'draft';
+    SELECT v_balance - COALESCE((SELECT SUM(amount) FROM public.payment_vouchers WHERE supplier_id = p_supplier_id), 0) INTO v_balance;
+    UPDATE public.suppliers SET balance = v_balance WHERE id = p_supplier_id;
+END; $$;
+
+-- تحديث رصيد المخزن لصنف معين
+CREATE OR REPLACE FUNCTION public.update_product_stock(p_product_id uuid)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_stock numeric := 0;
+BEGIN
+    -- (وارد مشتريات + رصيد أول) - (صادر مبيعات)
+    SELECT COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = p_product_id), 0) INTO v_stock;
+    SELECT v_stock + COALESCE((SELECT SUM(quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id WHERE pii.product_id = p_product_id AND pi.status != 'draft'), 0) INTO v_stock;
+    SELECT v_stock - COALESCE((SELECT SUM(quantity) FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = p_product_id AND i.status != 'draft'), 0) INTO v_stock;
+    UPDATE public.products SET stock = v_stock WHERE id = p_product_id;
+END; $$;
+
+-- إضافة منتج مع رصيد افتتاحي وقيد محاسبي آلي
+CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(p_name text, p_sku text, p_sales_price numeric, p_purchase_price numeric, p_stock numeric, p_org_id uuid, p_item_type text, p_inventory_account_id uuid, p_cogs_account_id uuid, p_sales_account_id uuid)
+RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_product_id uuid; BEGIN
+    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
+    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_org_id, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id) RETURNING id INTO v_product_id;
+    RETURN v_product_id;
+END; $$;
+
+-- ================================================================
 -- 4. البيانات الأولية (Seeding)
 -- ================================================================
--- إنشاء المنظمة والإعدادات الافتراضية
-INSERT INTO public.organizations (name) VALUES ('الشركة النموذجية للتجارة');
-INSERT INTO public.company_settings (company_name, currency, enable_tax) VALUES ('الشركة النموذجية للتجارة', 'SAR', true);
-INSERT INTO public.company_settings (company_name, currency, enable_tax, vat_rate) VALUES ('الشركة النموذجية للتجارة', 'EGP', true, 0.14);
--- إنشاء مستودع افتراضي
-INSERT INTO public.warehouses (name, location) VALUES ('المستودع الرئيسي', 'الفرع الرئيسي');
--- إنشاء مركز تكلفة افتراضي
-INSERT INTO public.cost_centers (name, code, description) VALUES ('المركز الرئيسي', 'MAIN', 'مركز التكلفة الرئيسي');
+-- إنشاء المنظمة وحفظ معرفها للاستخدام في السكريبت
+DO $$ 
+DECLARE 
+    v_org_id uuid;
+    -- متغيرات مساعدة للربط الهيكلي
+    v_menu_cat_main_id uuid;
+    v_menu_cat_drinks_id uuid;
+BEGIN
+    -- 1. إنشاء المنظمة الرئيسية للعميل الجديد
+    INSERT INTO public.organizations (name) 
+    VALUES ('الشركة النموذجية للتجارة') 
+    RETURNING id INTO v_org_id;
 
--- ================================================================
--- 4. الأدوار والصلاحيات الأساسية
--- ================================================================
-INSERT INTO public.roles (name, description) VALUES
-('super_admin', 'مدير عام - صلاحيات كاملة'),
-('admin', 'مدير - صلاحيات إدارية'),
-('manager', 'مدير قسم - صلاحيات محدودة'),
-('accountant', 'محاسب - صلاحيات محاسبية'),
-('sales', 'مبيعات - صلاحيات مبيعات'),
-('purchases', 'مشتريات - صلاحيات مشتريات'),
-('viewer', 'عارض - قراءة فقط');
+    -- 2. ضبط إعدادات الشركة الافتراضية
+    INSERT INTO public.company_settings (organization_id, company_name, currency, enable_tax, vat_rate) 
+    VALUES (v_org_id, 'الشركة النموذجية للتجارة', 'SAR', true, 0.15);
 
--- الصلاحيات الأساسية
-INSERT INTO public.permissions (module, action) VALUES
--- المحاسبة
-('accounting', 'view'),
-('accounting', 'create'),
-('accounting', 'edit'),
-('accounting', 'delete'),
--- المبيعات
-('sales', 'view'),
-('sales', 'create'),
-('sales', 'edit'),
-('sales', 'delete'),
--- المشتريات
-('purchases', 'view'),
-('purchases', 'create'),
-('purchases', 'edit'),
-('purchases', 'delete'),
--- المخزون
-('inventory', 'view'),
-('inventory', 'create'),
-('inventory', 'edit'),
-('inventory', 'delete'),
--- الإدارة
-('admin', 'view'),
-('admin', 'create'),
-('admin', 'edit'),
-('admin', 'delete');
+    -- 3. تهيئة الفروع ومراكز التكلفة
+    INSERT INTO public.warehouses (organization_id, name, location) VALUES (v_org_id, 'المستودع الرئيسي', 'الفرع الرئيسي');
+    INSERT INTO public.cost_centers (organization_id, name, code, description) VALUES (v_org_id, 'المركز الرئيسي', 'MAIN', 'مركز التكلفة الرئيسي');
+    -- 4. إدخال دليل الحسابات الرئيسي (مرتب لضمان وجود الأب قبل الابن)
+    -- المستوى 1
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id) VALUES
+    (v_org_id, '1', 'الأصول', 'ASSET', true, NULL),
+    (v_org_id, '2', 'الخصوم (الإلتزامات)', 'LIABILITY', true, NULL),
+    (v_org_id, '3', 'حقوق الملكية', 'EQUITY', true, NULL),
+    (v_org_id, '4', 'الإيرادات', 'REVENUE', true, NULL),
+    (v_org_id, '5', 'المصروفات', 'EXPENSE', true, NULL);
 
--- ربط الصلاحيات بالأدوار
--- Super Admin - جميع الصلاحيات
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM public.roles r, public.permissions p WHERE r.name = 'super_admin';
+    -- المستوى 2
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id) VALUES
+    (v_org_id, '11', 'الأصول غير المتداولة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '1' AND organization_id = v_org_id)),
+    (v_org_id, '12', 'الأصول المتداولة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '1' AND organization_id = v_org_id)),
+    (v_org_id, '103', 'المخزون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
+    (v_org_id, '122', 'العملاء والمدينون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
+    (v_org_id, '123', 'النقدية وما في حكمها', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
+    (v_org_id, '22', 'الخصوم المتداولة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '2' AND organization_id = v_org_id));
 
--- Admin - معظم الصلاحيات
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM public.roles r, public.permissions p 
-WHERE r.name = 'admin' AND p.module IN ('accounting', 'sales', 'purchases', 'inventory', 'admin');
+    -- الحسابات التفصيلية الهامة للنظام
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id) VALUES
+    (v_org_id, '1231', 'الخزينة الرئيسية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '123' AND organization_id = v_org_id)),
+    (v_org_id, '1221', 'العملاء', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122' AND organization_id = v_org_id)),
+    (v_org_id, '201', 'الموردين', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22' AND organization_id = v_org_id)),
+    (v_org_id, '10302', 'مخزون المنتج التام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103' AND organization_id = v_org_id)),
+    (v_org_id, '2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22' AND organization_id = v_org_id)),
+    (v_org_id, '1241', 'ضريبة القيمة المضافة (مدخلات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
+    (v_org_id, '411', 'إيراد المبيعات', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '4' AND organization_id = v_org_id)),
+    (v_org_id, '511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '5' AND organization_id = v_org_id));
 
--- Manager - صلاحيات محدودة
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM public.roles r, public.permissions p 
-WHERE r.name = 'manager' AND p.action IN ('view', 'create', 'edit') AND p.module IN ('sales', 'purchases', 'inventory');
+    -- 5. إدخال الأدوار والصلاحيات (عالمية)
+    INSERT INTO public.roles (name, description) VALUES
+    ('super_admin', 'مدير عام - صلاحيات كاملة'),
+    ('admin', 'مدير - صلاحيات إدارية'),
+    ('accountant', 'محاسب - صلاحيات محاسبية') ON CONFLICT DO NOTHING;
 
--- Accountant - محاسبة فقط
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM public.roles r, public.permissions p 
-WHERE r.name = 'accountant' AND p.module = 'accounting';
+    -- 6. بيانات تجريبية (عملاء وموردين)
+    INSERT INTO public.customers (organization_id, name, phone, email, address, credit_limit, customer_type) VALUES
+    (v_org_id, 'عميل تجريبي 1', '0500000000', 'customer1@example.com', 'الرياض', 50000, 'individual'),
+    (v_org_id, 'شركة الأفق للتجارة', '0501234567', 'horizon@example.com', 'الرياض', 100000, 'store');
 
--- Sales - مبيعات فقط
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM public.roles r, public.permissions p 
-WHERE r.name = 'sales' AND p.module = 'sales';
+    INSERT INTO public.suppliers (organization_id, name, phone, email, address, contact_person) VALUES
+    (v_org_id, 'مورد تجريبي 1', '0509999999', 'supplier1@example.com', 'جدة', 'أحمد محمد');
 
--- Purchases - مشتريات فقط
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM public.roles r, public.permissions p 
-WHERE r.name = 'purchases' AND p.module = 'purchases';
+    -- 7. فئات وأصناف المنتجات التجريبية
+    INSERT INTO public.item_categories (organization_id, name, default_inventory_account_id, default_cogs_account_id, default_sales_account_id) VALUES
+    (v_org_id, 'إلكترونيات', (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id));
 
--- Viewer - قراءة فقط
-INSERT INTO public.role_permissions (role_id, permission_id)
-SELECT r.id, p.id FROM public.roles r, public.permissions p 
-WHERE r.name = 'viewer' AND p.action = 'view';
--- 1. الحسابات الرئيسية
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('1', 'الأصول', 'ASSET', true, NULL),
-('2', 'الخصوم (الإلتزامات)', 'LIABILITY', true, NULL),
-('3', 'حقوق الملكية', 'EQUITY', true, NULL),
-('4', 'الإيرادات', 'REVENUE', true, NULL),
-('5', 'المصروفات', 'EXPENSE', true, NULL);
+    INSERT INTO public.products (organization_id, name, sku, sales_price, purchase_price, cost, stock, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id) VALUES
+    (v_org_id, 'منتج تجريبي 1', 'PROD-001', 100, 80, 80, 100, 'STOCK', 
+     (SELECT id FROM item_categories WHERE name = 'إلكترونيات' AND organization_id = v_org_id), 
+     (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id), 
+     (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), 
+     (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id));
 
--- 11 الأصول غير المتداولة
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('11', 'الأصول غير المتداولة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '1'));
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('111', 'الأصول الثابتة (بالصافي)', 'ASSET', true, (SELECT id FROM accounts WHERE code = '11')),
-('1111', 'الأراضي', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
-('1112', 'المباني والإنشاءات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
-('1113', 'الآلات والمعدات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
-('1114', 'وسائل النقل والانتقال', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
-('1115', 'الأثاث والتجهيزات المكتبية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
-('1116', 'أجهزة حاسب آلي وبرمجيات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
-('1119', 'مجمع إهلاك الأصول الثابتة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111'));
+    -- 8. طاولات المطعم
+    INSERT INTO public.restaurant_tables (organization_id, name, capacity, section) VALUES
+    (v_org_id, 'طاولة 1', 4, 'الداخل'),
+    (v_org_id, 'طاولة VIP 1', 8, 'VIP');
 
--- 12 الأصول المتداولة
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('12', 'الأصول المتداولة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '1'));
--- 103 المخزون (النظام الموحد)
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('103', 'المخزون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
-('10301', 'مخزون المواد الخام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103')),
-('10302', 'مخزون المنتج التام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103'));
-
--- 122 العملاء والمدينون
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('122', 'العملاء والمدينون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
-('1221', 'العملاء', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
-('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
-('1204', 'أوراق القبض (شيكات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
-('1223', 'سلف الموظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
-('1224', 'عهد موظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122'));
-
--- 123 النقدية وما في حكمها
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('123', 'النقدية وما في حكمها', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
-('1231', 'النقدية بالصندوق (الخزينة الرئيسية)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '123')),
-('1232', 'البنوك (حسابات جارية)', 'ASSET', true, (SELECT id FROM accounts WHERE code = '123')),
-('123201', 'البنك الأهلي المصري', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1232')),
-('123202', 'بنك مصر', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1232')),
-('123203', 'البنك التجاري الدولي (CIB)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1232')),
-('123204', 'بنك QNB الأهلي', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1232')),
-('123205', 'بنك القاهرة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1232')),
-('123206', 'بنك فيصل الإسلامي', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1232')),
-('123207', 'بنك الإسكندرية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1232')),
-('1233', 'المحافظ الإلكترونية (Digital Wallets)', 'ASSET', true, (SELECT id FROM accounts WHERE code = '123')),
-('123301', 'فودافون كاش (Vodafone Cash)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1233')),
-('123302', 'اتصالات كاش (Etisalat Cash)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1233')),
-('123303', 'أورنج كاش (Orange Cash)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1233')),
-('123304', 'وي باي (WE Pay)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1233')),
-('123305', 'انستا باي (InstaPay - تسوية)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1233'));
-
--- 124 أرصدة مدينة أخرى
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('124', 'أرصدة مدينة أخرى', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
-('1241', 'ضريبة القيمة المضافة (مدخلات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '124')),
-('1242', 'ضريبة الخصم والتحصيل (لنا)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '124')),
-('1243', 'مصروفات مدفوعة مقدماً', 'ASSET', true, (SELECT id FROM accounts WHERE code = '124')),
-('124301', 'إيجار مقدم', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1243')),
-('124302', 'تأمين طبي مقدم', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1243')),
-('124303', 'اشتراكات برامج وسيرفرات مقدمة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1243')),
-('124304', 'حملات إعلانية مقدمة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1243')),
-('124305', 'عقود صيانة مقدمة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1243')),
-('1244', 'إيرادات مستحقة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '124')),
-('124401', 'إيرادات خدمات مستحقة (غير مفوترة)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1244')),
-('124402', 'فوائد بنكية مستحقة القبض', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1244')),
-('124403', 'إيجارات دائنة مستحقة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1244')),
-('124404', 'إيرادات أوراق مالية مستحقة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '1244'));
-
--- 2. الخصوم
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('21', 'الخصوم غير المتداولة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '2')),
-('211', 'قروض طويلة الأجل', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '21'));
-
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('22', 'الخصوم المتداولة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '2')),
-('201', 'الموردين', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
-('2202', 'أوراق الدفع', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
-('222', 'أوراق الدفع (شيكات صادرة)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
-('223', 'مصلحة الضرائب (التزامات)', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '22')),
-('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '223')),
-('2232', 'ضريبة الخصم والتحصيل (علينا)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '223')),
-('2233', 'ضريبة كسب العمل', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '223')),
-('224', 'هيئة التأمينات الاجتماعية', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22')),
-('225', 'مصروفات مستحقة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '22')),
-('2251', 'رواتب وأجور مستحقة', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '225')),
-('2252', 'إيجارات مستحقة', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '225')),
-('2253', 'كهرباء ومياه وغاز مستحقة', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '225')),
-('2254', 'أتعاب مهنية ومراجعة مستحقة', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '225')),
-('2255', 'عمولات بيع مستحقة', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '225')),
-('2256', 'فوائد بنكية مستحقة', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '225')),
-('2257', 'اشتراكات وتراخيص مستحقة', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '225')),
-('226', 'تأمينات ودفعات مقدمة من العملاء', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22'));
-
--- 3. حقوق الملكية
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('31', 'رأس المال', 'EQUITY', false, (SELECT id FROM accounts WHERE code = '3')),
-('32', 'الأرباح المبقاة / المرحلة', 'EQUITY', false, (SELECT id FROM accounts WHERE code = '3')),
-('33', 'جاري الشركاء', 'EQUITY', false, (SELECT id FROM accounts WHERE code = '3')),
-('34', 'احتياطيات', 'EQUITY', false, (SELECT id FROM accounts WHERE code = '3')),
-('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'EQUITY', false, (SELECT id FROM accounts WHERE code = '3'));
-
--- 4. الإيرادات
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('41', 'إيرادات النشاط (المبيعات)', 'REVENUE', true, (SELECT id FROM accounts WHERE code = '4')),
-('411', 'إيراد المبيعات', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '41')),
-('412', 'مردودات المبيعات', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '41')),
-('413', 'خصم مسموح به', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '41')),
-('42', 'إيرادات أخرى', 'REVENUE', true, (SELECT id FROM accounts WHERE code = '4')),
-('421', 'إيرادات متنوعة', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42')),
-('422', 'إيراد خصومات وجزاءات الموظفين', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42')),
-('423', 'فوائد بنكية دائنة', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42'));
-
--- 5. المصروفات
-INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
-('51', 'تكلفة المبيعات (COGS)', 'EXPENSE', true, (SELECT id FROM accounts WHERE code = '5')),
-('511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '51')),
-('512', 'تسويات الجرد (عجز المخزون)', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '51')),
-
-('52', 'مصروفات البيع والتسويق', 'EXPENSE', true, (SELECT id FROM accounts WHERE code = '5')),
-('521', 'دعاية وإعلان', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
-('522', 'عمولات بيع وتسويق', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
-('523', 'نقل ومشال للخارج', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
-('524', 'تعبئة وتغليف', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '52')),
-('525', 'عمولات تحصيل إلكتروني', 'EXPENSE', true, (SELECT id FROM accounts WHERE code = '52')),
-('5251', 'عمولة فودافون كاش', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '525')),
-('5252', 'عمولة فوري', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '525')),
-('5253', 'عمولة تحويلات بنكية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '525')),
-
-('53', 'المصروفات الإدارية والعمومية', 'EXPENSE', true, (SELECT id FROM accounts WHERE code = '5')),
-('531', 'الرواتب والأجور', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('5311', 'بدلات وانتقالات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('5312', 'مكافآت وحوافز', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('532', 'إيجار مقرات إدارية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('533', 'إهلاك الأصول الثابتة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('534', 'رسوم ومصروفات بنكية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('535', 'كهرباء ومياه وغاز', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('536', 'اتصالات وإنترنت', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('537', 'صيانة وإصلاح', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('538', 'أدوات مكتبية ومطبوعات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('539', 'ضيافة واستقبال', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('541', 'تسوية عجز الصندوق', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('542', 'إكراميات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
-('543', 'مصاريف نظافة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53'));
+END $$;
 
 -- ================================================================
 -- 6. بيانات تجريبية أساسية
@@ -1769,7 +1820,7 @@ CREATE POLICY "Admins update settings" ON company_settings FOR UPDATE USING (is_
 DO $$ 
 DECLARE 
     t text;
-    basic_tables text[] := ARRAY['products', 'customers', 'suppliers', 'warehouses', 'accounts', 'cost_centers', 'item_categories', 'bill_of_materials', 'assets', 'employees'];
+    basic_tables text[] := ARRAY['products', 'customers', 'suppliers', 'warehouses', 'accounts', 'cost_centers', 'item_categories', 'bill_of_materials', 'assets'];
 BEGIN 
     FOREACH t IN ARRAY basic_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Select_%I" ON %I;', t, t);
@@ -1786,7 +1837,7 @@ DECLARE
     t text;
     trans_tables text[] := ARRAY[
         'invoices', 'invoice_items', 'purchase_invoices', 'purchase_invoice_items', 'journal_entries', 'journal_lines', 
-        'receipt_vouchers', 'payment_vouchers', 'orders', 'order_items', 'payments', 'payrolls', 'payroll_items',
+        'receipt_vouchers', 'payment_vouchers', 'orders', 'order_items', 'payments',
         'sales_returns', 'sales_return_items', 'purchase_returns', 'purchase_return_items', 'stock_adjustments', 'stock_transfers'
     ];
 BEGIN 
@@ -1798,10 +1849,25 @@ BEGIN
     END LOOP;
 END $$;
 
+-- 5. حماية بيانات الموارد البشرية والرواتب (HR & Payroll Security)
+-- تمنع هذه السياسة المحاسبين والبائعين من رؤية تفاصيل الرواتب الحساسة
+DO $$ 
+DECLARE 
+    t text;
+    hr_tables text[] := ARRAY['employees', 'payrolls', 'payroll_items', 'employee_advances'];
+BEGIN 
+    FOREACH t IN ARRAY hr_tables LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "HR_Select_%I" ON %I;', t, t);
+        EXECUTE format('CREATE POLICY "HR_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager''));', t, t);
+        
+        EXECUTE format('DROP POLICY IF EXISTS "HR_Staff_%I" ON %I;', t, t);
+        EXECUTE format('CREATE POLICY "HR_Staff_%I" ON %I FOR ALL USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager''));', t, t);
+    END LOOP;
+END $$;
+
 -- 5. Notifications (User specific)
 CREATE POLICY "Users view own notifications" ON notifications FOR SELECT USING (auth.uid() = user_id AND organization_id = get_my_org());
 CREATE POLICY "Users update own notifications" ON notifications FOR UPDATE USING (auth.uid() = user_id AND organization_id = get_my_org());
-CREATE POLICY "Users can create notifications" ON public.notifications FOR INSERT TO authenticated WITH CHECK (true);
 
 -- 6. Security Logs (Insert for all, View for Admin)
 CREATE POLICY "Everyone insert logs" ON security_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = performed_by AND organization_id = get_my_org());

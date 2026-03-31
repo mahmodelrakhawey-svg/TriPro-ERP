@@ -8,7 +8,7 @@ import { CustomerDepositPrint } from './CustomerDepositPrint';
 import { z } from 'zod';
 
 const CustomerDepositForm = () => {
-  const { customers, accounts, addEntry, getSystemAccount, updateVoucher } = useAccounting();
+  const { customers, accounts, addEntry, getSystemAccount, updateVoucher, currentUser } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   
@@ -192,6 +192,10 @@ const CustomerDepositForm = () => {
                 throw new Error('حساب تأمينات العملاء غير موجود في النظام.');
             }
 
+            // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
+            const orgId = (currentUser as any)?.organization_id || 
+                         (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
             // 1. حفظ السند في جدول receipt_vouchers
             const { data: voucherData, error: voucherError } = await supabase.from('receipt_vouchers').insert({
                 voucher_number: voucherNumber,
@@ -201,6 +205,7 @@ const CustomerDepositForm = () => {
                 treasury_account_id: formData.treasuryAccountId,
                 notes: formData.description || `تأمين مستلم من ${customer?.name}`,
                 payment_method: formData.paymentMethod,
+                organization_id: orgId
                 // لا يوجد عمود subType في الجدول، نعتمد على الملاحظات أو التوجيه المحاسبي
             }).select().single();
 

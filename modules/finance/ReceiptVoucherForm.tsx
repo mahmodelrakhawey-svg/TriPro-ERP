@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -268,6 +268,10 @@ const ReceiptVoucherForm = () => {
             return;
         }
 
+        // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
+        const orgId = (currentUser as any)?.organization_id || 
+                     (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
         // 1. حفظ سند القبض
         const { data: voucherData, error: voucherError } = await supabase.from('receipt_vouchers').insert({
             voucher_number: voucherNumber,
@@ -279,7 +283,8 @@ const ReceiptVoucherForm = () => {
             payment_method: formData.paymentMethod,
             currency: formData.currency,
             exchange_rate: formData.exchangeRate,
-            cost_center_id: formData.costCenterId || null
+            cost_center_id: formData.costCenterId || null,
+            organization_id: orgId
         }).select().single();
 
         if (voucherError) throw voucherError;

@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٢٥‏/٣‏/٢٠٢٦، ١١:٥٨:٠٦ ص
+📅 تاريخ التحديث: ٣١‏/٣‏/٢٠٢٦، ١٠:٣٩:٠٧ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -216,7 +216,12 @@
     📄 2026-03-31_fix_historical_unbalanced_journals.sql
     📄 2026-04-01_fix_report_account_types.sql
     📄 2026-04-03_enforce_lowercase_types.sql
+    📄 2026-04-05_auto_assign_qr_orders.sql
+    📄 2026-04-06_fix_sales_account_missing.sql
+    📄 2026-04-10_fix_sync_role_permissions.sql
     📄 OrderSummary.tsx
+    📄 PaymentModal.tsx
+    📄 PendingOrdersSidebar.tsx
   📄 accountService.ts
   📄 add_account_mappings.sql
   📄 add_created_by_columns.sql
@@ -235,6 +240,7 @@
   📄 approve_sales_return_rpc.sql
   📄 cash_closing_setup.sql
   📄 create_fix_schema_function.sql
+  📄 Dashboard.tsx
   📄 deploy_all_functions.sql
   📄 egyptian_coa_full.sql
   📄 ensure_returns_columns.sql
@@ -872,10 +878,14 @@ interface FinancialSummary {
   totalRevenue: number;
   totalExpenses: number;
   netIncome: number;
+  monthlySales: number;
+  monthlyPurchases: number;
+  grossProfit: number;
 }
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
+  BANK_ACCOUNTS: '1232', // حسابات البنوك
   CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
   INVENTORY: '103', // المخزون (مجموعة)
@@ -884,7 +894,7 @@ export const SYSTEM_ACCOUNTS = {
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
   SUPPLIERS: '201', // الموردين
   VAT: '2231', // ضريبة القيمة المضافة (مخرجات)
-  VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات)
+  VAT_INPUT: '1241', // ضريبة القيمة المضافة (مدخلات) - مصر
   CUSTOMER_DEPOSITS: '226', // تأمينات العملاء
   NOTES_PAYABLE: '222', // أوراق الدفع
   SALES_REVENUE: '411', // إيراد المبيعات
@@ -1215,6 +1225,7 @@ interface AccountingContextType {
   currentUser: User | null;
   users: User[];
   login: (username: string, pin: string) => Promise<{ success: boolean; message?: string }>;
+  organizationId: string | null;
   logout: () => Promise<void>;
   addUser: (user: any) => void;
   updateUser: (id: string, user: Partial<User>) => void;
@@ -1320,14 +1331,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const getSystemAccount = (key: keyof typeof SYSTEM_ACCOUNTS) => {
     // 1. البحث في الإعدادات (الربط المخصص)
-    if (settings.account_mappings && settings.account_mappings[key]) {
-      const mappedId = settings.account_mappings[key];
+    const mappings = settings.account_mappings || {};
+    if (mappings[key]) {
+      const mappedId = mappings[key];
       const acc = accounts.find(a => a.id === mappedId);
       if (acc) return acc;
     }
     // 2. البحث بالكود الافتراضي
-    const defaultCode = SYSTEM_ACCOUNTS[key];
-    return accounts.find(a => a.code === defaultCode);
+    return accounts.find(a => a.code === SYSTEM_ACCOUNTS[key]);
   };
 
   const calculateInitialDemoState = () => {
@@ -1546,7 +1557,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         supabase.from('company_settings').select('*').limit(1).single(),
         shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(100) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('customers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('suppliers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('products').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
@@ -1647,6 +1658,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
       await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
+      await ensureAccount(SYSTEM_ACCOUNTS.BANK_ACCOUNTS, 'البنك الرئيسي', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY, 'المخزون', 'ASSET');
@@ -2305,8 +2317,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 name: profile?.full_name || user.user_metadata?.full_name || user.email,
                 username: user.email,
                 role: roleName,
-                is_active: profile?.is_active ?? true
-            });
+            is_active: profile?.is_active ?? true,
+            organization_id: profile?.organization_id
+            } as any);
             setUserRole(roleName);
 
             // تعيين الصلاحيات بناءً على الدور
@@ -2686,7 +2699,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // إعادة احتساب المخزون لضمان ظهور الكميات المشتراة فوراً
       await supabase.rpc('recalculate_stock_rpc');
       
-      await fetchData();
+      await fetchData(); // تحديث الأرصدة
+      showToast('تم ترحيل فاتورة المشتريات وتسجيل الضريبة بنجاح ✅', 'success');
     } catch (err: any) {
       if (process.env.NODE_ENV === 'development') console.error('Error approving purchase invoice:', err);
       throw new Error(err.message || 'فشل اعتماد فاتورة المشتريات');
@@ -3700,16 +3714,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
 
   const getFinancialSummary = () => {
-    let s = { totalAssets: 0, totalLiabilities: 0, totalEquity: 0, totalRevenue: 0, totalExpenses: 0, netIncome: 0 };
+    let s = { 
+      totalAssets: 0, totalLiabilities: 0, totalEquity: 0, totalRevenue: 0, totalExpenses: 0, netIncome: 0,
+      monthlySales: 0, monthlyPurchases: 0, grossProfit: 0 
+    };
     accounts.forEach(a => {
-        if (a.isGroup) return;
-        const type = a.type as string;
-        if (type === AccountType.ASSET || type === 'ASSET' || type === 'أصول') s.totalAssets += a.balance;
-        else if (type === AccountType.LIABILITY || type === 'LIABILITY' || type === 'خصوم') s.totalLiabilities += Math.abs(a.balance);
-        else if (type === AccountType.EQUITY || type === 'EQUITY' || type === 'حقوق ملكية') s.totalEquity += Math.abs(a.balance);
-        else if (type === AccountType.REVENUE || type === 'REVENUE' || type === 'إيرادات') s.totalRevenue += Math.abs(a.balance);
-        else if (type === AccountType.EXPENSE || type === 'EXPENSE' || type === 'مصروفات') s.totalExpenses += a.balance;
+        if (a.isGroup || a.is_group) return; // ضمان تجاهل الحسابات الرئيسية مثل 103 في حسابات الأرصدة
+        const type = String(a.type || '').toUpperCase();
+        const code = String(a.code || '');
+
+        if (type.includes('ASSET') || type.includes('أصول')) s.totalAssets += a.balance;
+        else if (type.includes('LIABILITY') || type.includes('خصوم')) s.totalLiabilities += Math.abs(a.balance);
+        else if (type.includes('EQUITY') || type.includes('حقوق ملكية')) s.totalEquity += Math.abs(a.balance);
+        else if (type.includes('REVENUE') || type.includes('إيرادات')) s.totalRevenue += Math.abs(a.balance);
+        else if (type.includes('EXPENSE') || type.includes('مصروفات')) s.totalExpenses += a.balance;
     });
+
+    // حساب المبيعات والمشتريات الصافية (بدون ضريبة) من واقع الفواتير
+    s.monthlySales = invoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0);
+    s.monthlyPurchases = purchaseInvoices.reduce((sum, inv) => sum + (inv.subtotal || 0), 0);
+    
+    // مجمل الربح = صافي المبيعات - تكلفة البضاعة المباعة (حساب 511)
+    const cogs = accounts.find(a => a.code === '511' || a.code === SYSTEM_ACCOUNTS.COGS)?.balance || 0;
+    s.grossProfit = s.monthlySales - cogs;
+
     s.netIncome = s.totalRevenue - s.totalExpenses;
     s.totalEquity += s.netIncome;
     return s;
@@ -4445,7 +4473,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             order_id: orderId,
             payment_method: paymentMethod,
             amount: amount,
-            status: 'COMPLETED'
+            status: 'COMPLETED',
+            organization_id: (currentUser as any)?.organization_id
         });
         if (payErr) throw payErr;
 
@@ -4839,12 +4868,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               p_notes: notes
           });
           if (error) throw error;
-          
-          // --- المرحلة 3: توليد القيد المحاسبي المجمع تلقائياً ---
-          try {
-              await supabase.rpc('generate_shift_closing_entry', { p_shift_id: currentShift.id });
-          } catch (accErr) { console.error("Accounting entry failed:", accErr); }
-          // -----------------------------------------------------
 
           setCurrentShift(null);
           showToast('تم إغلاق الوردية بنجاح', 'success');
@@ -4923,6 +4946,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       salespeople,
       getSystemAccount,
       currentUser, users, login, logout, addUser, updateUser, deleteUser: (id) => setUsers(prev => prev.filter(u => u.id !== id)),
+      organizationId: (currentUser as any)?.organization_id || null,
       settings, updateSettings: (newSettings) => {
           setSettings(newSettings);
           supabase.from('company_settings').upsert({
@@ -4932,7 +4956,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               address: newSettings.address,
               phone: newSettings.phone,
               email: newSettings.email,
-              vat_rate: newSettings.vatRate,
+              vat_rate: Number(newSettings.vatRate) / 100, // ضمان تحويل الرقم (14) إلى (0.14)
               currency: newSettings.currency,
               footer_text: newSettings.footerText,
               enable_tax: newSettings.enableTax,

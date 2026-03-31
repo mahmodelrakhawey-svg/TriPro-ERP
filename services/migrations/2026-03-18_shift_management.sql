@@ -7,7 +7,8 @@
 -- 1. دالة لبدء وردية جديدة
 CREATE OR REPLACE FUNCTION public.start_shift(
     p_user_id UUID,
-    p_opening_balance NUMERIC
+    p_opening_balance NUMERIC,
+    p_resume_existing BOOLEAN DEFAULT FALSE
 )
 RETURNS UUID
 LANGUAGE plpgsql
@@ -21,6 +22,11 @@ BEGIN
     FROM public.shifts
     WHERE user_id = p_user_id AND end_time IS NULL
     LIMIT 1;
+
+    -- إذا كانت هناك وردية مفتوحة ونريد استئنافها بدلاً من التوقف بخطأ
+    IF v_existing_shift_id IS NOT NULL AND p_resume_existing THEN
+        RETURN v_existing_shift_id;
+    END IF;
 
     IF v_existing_shift_id IS NOT NULL THEN
         RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم (ID: %)', v_existing_shift_id;
@@ -40,6 +46,7 @@ $$;
 CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 DECLARE
     v_shift RECORD;
@@ -68,7 +75,7 @@ BEGIN
     ) INTO v_summary
     FROM public.payments p
     JOIN public.orders o ON p.order_id = o.id
-    WHERE o.user_id = v_shift.user_id
+    WHERE o.created_by = v_shift.user_id
       AND o.created_at >= v_start_time
       AND o.created_at <= v_end_time
       AND p.status = 'COMPLETED';
@@ -85,6 +92,7 @@ CREATE OR REPLACE FUNCTION public.close_shift(
 )
 RETURNS VOID
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 DECLARE
     v_summary JSONB;

@@ -247,6 +247,10 @@ const ExpenseVoucherForm = () => {
         const expenseAccountName = accounts.find(a => a.id === formData.expenseAccountId)?.name;
         const voucherNumber = formData.voucherNumber || `EXP-${Date.now().toString().slice(-6)}`;
 
+        // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
+        const orgId = (currentUser as any)?.organization_id || 
+                     (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
         if (isEditing && currentVoucherId) {
             // Update existing voucher
             await updateVoucher(currentVoucherId, 'payment', { 
@@ -268,7 +272,8 @@ const ExpenseVoucherForm = () => {
                 payment_method: 'cash',
                 cost_center_id: formData.costCenterId || null,
                 supplier_id: null, // Explicitly null for expenses
-                recipient_name: formData.recipientName
+                recipient_name: formData.recipientName,
+                organization_id: orgId
             }).select().single();
 
             if (voucherError) throw voucherError;

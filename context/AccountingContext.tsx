@@ -60,6 +60,8 @@ export const SYSTEM_ACCOUNTS = {
   RETAINED_EARNINGS: '32', // الأرباح المبقاة
   EMPLOYEE_BONUSES: '5312', // مكافآت وحوافز
   EMPLOYEE_DEDUCTIONS: '422', // إيراد خصومات وجزاءات
+  DIGITAL_WALLETS: '1233', // المحافظ الإلكترونية
+  CASH_DIFF: '541', // تسوية عجز الصندوق
   BANK_CHARGES: '534', // مصروفات بنكية
   BANK_INTEREST_INCOME: '423', // فوائد بنكية دائنة
   TAX_AUTHORITY: '223', // مصلحة الضرائب (التزام)
@@ -421,6 +423,8 @@ interface AccountingContextType {
   addDemoPaymentVoucher: (voucher: any) => void;
   addDemoReceiptVoucher: (voucher: any) => void;
   isDemo: boolean;
+  openShifts: any[];
+  fetchOpenShifts: () => Promise<void>;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -474,6 +478,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [bankReconciliations, setBankReconciliations] = useState<any[]>([]);
   const [currentShift, setCurrentShift] = useState<any | null>(null);
+  const [openShifts, setOpenShifts] = useState<any[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -1453,6 +1458,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [currentUser, isDemoState]);
 
+  const fetchOpenShifts = async () => {
+    // جلب كافة الورديات المفتوحة (للإدارة فقط)
+    if (isDemoState) {
+      setOpenShifts([{ id: 'demo-s1', full_name: 'أحمد محمد (ديمو)', start_time: new Date().toISOString(), opening_balance: 1000 }]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('shifts')
+        .select('*, profiles:user_id(full_name)')
+        .is('end_time', null)
+        .order('start_time', { ascending: false });
+      if (error) throw error;
+      setOpenShifts(data || []);
+    } catch (err) {
+      console.error("Error fetching open shifts", err);
+    }
+  };
+
   const handleAuthChange = useCallback(async (user: any) => {
     if (user) {
         try {
@@ -1534,7 +1558,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 description: details,
                 performed_by: isHardcodedAdmin ? null : currentUser.id,
                 created_at: new Date().toISOString(),
-                metadata: metadata
+                metadata: amount ? { ...metadata, amount } : metadata
             });
         }
     } catch (error) {
@@ -1885,6 +1909,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
+      const orgId = (currentUser as any)?.organization_id || 
+                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
       // حفظ السند في قاعدة البيانات
       await supabase.from('receipt_vouchers').insert({
         id: id,
@@ -1895,7 +1923,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         treasury_account_id: debitAccount,
         notes: data.description,
         related_journal_entry_id: entryId,
-        payment_method: data.paymentMethod || 'cash'
+        payment_method: data.paymentMethod || 'cash',
+        organization_id: orgId
       });
 
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt' }, ...prev]);
@@ -1929,18 +1958,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // جلب معرف المنظمة مع صمام أمان
+      const orgId = (currentUser as any)?.organization_id || 
+                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
       // حفظ السند في قاعدة البيانات
       await supabase.from('receipt_vouchers').insert({
         id: id,
         voucher_number: vNum,
         receipt_date: data.date,
         amount: data.amount,
-        customer_id: data.partyId, // في حالة التأمين، الطرف هو العميل
+        customer_id: data.partyId,
         treasury_account_id: debitAccount,
         notes: data.description,
         related_journal_entry_id: entryId,
         payment_method: 'cash',
-        type: 'deposit' // تمييزه كسند تأمين إذا كان الجدول يدعم ذلك
+        type: 'deposit',
+        organization_id: orgId
       });
 
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt', subType: 'customer_deposit' }, ...prev]);
@@ -2006,17 +2040,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // جلب معرف المنظمة مع صمام أمان
+      const orgId = (currentUser as any)?.organization_id || 
+                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
       // حفظ السند في قاعدة البيانات
       await supabase.from('payment_vouchers').insert({
         id: id,
         voucher_number: vNum,
         payment_date: data.date,
         amount: data.amount,
-        supplier_id: data.subType === 'supplier' ? data.partyId : null, // ربط المورد إذا كان سداد مورد
+        supplier_id: data.subType === 'supplier' ? data.partyId : null,
         treasury_account_id: creditAccount,
         notes: data.description,
         related_journal_entry_id: entryId,
-        payment_method: data.paymentMethod || 'cash'
+        payment_method: data.paymentMethod || 'cash',
+        organization_id: orgId
       });
 
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'payment' }, ...prev]);
@@ -2538,7 +2577,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           asset_account_id: data.assetAccountId,
           accumulated_depreciation_account_id: data.accumulatedDepreciationAccountId || null,
           depreciation_expense_account_id: data.depreciationExpenseAccountId || null,
-          organization_id: (await supabase.from('organizations').select('id').limit(1).single()).data?.id // ضمان الربط بالمنشأة
+          organization_id: (currentUser as any)?.organization_id // استخدام معرف المنظمة من المستخدم الحالي مباشرة
         })
         .select()
         .single();
@@ -2900,7 +2939,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const { data, error } = await supabase
         .from('warehouses')
-        .insert({ ...warehouseData })
+        .insert({ 
+          ...warehouseData, 
+          organization_id: (currentUser as any)?.organization_id 
+        })
         .select()
         .single();
       if (error) throw error;
@@ -3981,11 +4023,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           showToast('تم فتح الوردية (ديمو)', 'success');
           return true;
       }
+
+      // التحقق أولاً إذا كان النظام يعلم بوجود وردية مفتوحة فعلياً لتوفير طلب الشبكة
+      if (currentShift) return true;
+
       try {
           const { data, error } = await supabase.rpc('start_shift', {
               p_user_id: currentUser?.id,
-              p_opening_balance: openingBalance
+              p_opening_balance: openingBalance,
+              p_resume_existing: true // تفعيل خيار الاستئناف لتجنب الخطأ 400
           });
+
           if (error) throw error;
           await checkOpenShift();
           showToast('تم فتح الوردية بنجاح', 'success');
@@ -4024,9 +4072,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
           setCurrentShift(null);
           showToast('تم إغلاق الوردية بنجاح', 'success');
+          logActivity('إغلاق وردية', `تم إغلاق الوردية بنجاح بمبلغ فعلي ${actualCash}`, actualCash, { shift_id: currentShift.id });
           return true;
       } catch (err: any) {
-          showToast('فشل إغلاق الوردية: ' + err.message, 'error');
+          console.error("Shift closure failed:", err);
+          logActivity('فشل إغلاق الوردية', `محاولة إغلاق فاشلة: ${err.message}`, actualCash, { 
+              error: err.message, 
+              shift_id: currentShift?.id 
+          });
+          showToast('فشل إغلاق الوردية: ' + (err.message || 'خطأ غير معروف'), 'error');
           return false;
       }
   };
@@ -4044,7 +4098,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               type: accountData.type,
               is_group: accountData.is_group,
               parent_id: accountData.parent_id,
-              sub_type: accountData.sub_type || null
+              sub_type: accountData.sub_type || null,
+              organization_id: (currentUser as any)?.organization_id
             })
             .select()
             .single();
@@ -4136,6 +4191,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       closeCurrentShift,
       getCurrentShiftSummary,
       processSplitPayment,
+      openShifts,
+      fetchOpenShifts,
       checkSystemAccounts, createMissingSystemAccounts,
   addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher,
       isDemo: isDemoState
