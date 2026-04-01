@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Building2, UserPlus, ShieldCheck, Loader2 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { supabase } from '../supabaseClient';
 
 export default function SaasAdmin() {
   const [loading, setLoading] = useState(false);
@@ -17,9 +18,14 @@ export default function SaasAdmin() {
     setLoading(true);
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
       const response = await fetch('/api/create-client', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`
+        },
         body: JSON.stringify(formData)
       });
 

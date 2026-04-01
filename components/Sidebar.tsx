@@ -739,10 +739,6 @@ const Sidebar = () => {
                     <ShieldCheck size={18} />
                     <span>إدارة الأدوار والصلاحيات</span>
                 </Link>
-                <Link to="/security-logs" className={getNavClass('/security-logs')}>
-                    <ShieldAlert size={18} />
-                    <span>سجلات الأمان</span>
-                </Link>
                 {isSuperAdmin && (
                     <Link to="/saas-admin" className={getNavClass('/saas-admin')}>
                         <ShieldCheck size={18} />

@@ -1276,6 +1276,7 @@ CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_invoice record; v_item record; v_org_id uuid; v_inventory_acc_id uuid; v_vat_acc_id uuid; v_supplier_acc_id uuid; v_journal_id uuid; v_current_stock numeric; v_current_avg_cost numeric; v_new_avg_cost numeric; v_exchange_rate numeric; v_item_price_base numeric; v_total_amount_base numeric; v_tax_amount_base numeric; v_net_amount_base numeric;
+    v_total_bom_cost numeric; v_bom_item record; v_item_qty numeric; v_raw_material_price numeric;
 BEGIN
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;

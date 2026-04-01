@@ -11,6 +11,21 @@ export default async function handler(req: any, res: any) {
   // تأمين الـ API: السماح فقط بطلبات POST
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
+  // التحقق من صلاحية المستخدم (يجب أن يكون Super Admin)
+  const authHeader = req.headers.authorization
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' })
+  
+  const token = authHeader.split(' ')[1]
+  const { data: { user }, error: userError } = await supabaseAdmin.auth.getUser(token)
+
+  if (userError || !user) return res.status(401).json({ error: 'Invalid session' })
+
+  // التحقق من الدور في قاعدة البيانات
+  const { data: profile } = await supabaseAdmin.from('profiles').select('role').eq('id', user.id).single()
+  if (profile?.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Only Super Admins can create clients' })
+  }
+
   const { email, password, companyName, adminName } = req.body
 
   try {
