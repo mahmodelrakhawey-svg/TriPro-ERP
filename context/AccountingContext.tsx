@@ -742,8 +742,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: menuCategoriesData }
       ] = await Promise.all([
         shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        supabase.from('company_settings').select('*').limit(1).single(),
-        shouldFetchProtected ? supabase.from('organizations').select('*').eq('id', session?.user?.user_metadata?.org_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
         shouldFetchProtected ? supabase.from('company_settings').select('*').eq('organization_id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
         shouldFetchProtected ? supabase.from('organizations').select('*').eq('id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
         shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
@@ -4201,10 +4199,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       settings, updateSettings: (newSettings) => {
           setSettings(newSettings);
           const orgId = (currentUser as any)?.organization_id;
-          const orgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
           if (!orgId) return;
           supabase.from('company_settings').upsert({
-              organization_id: orgId,
               organization_id: orgId, // استخدام معرف الشركة كفتاح فريد للتحديث
               company_name: newSettings.companyName,
               tax_number: newSettings.taxNumber,
@@ -4222,7 +4218,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               // @ts-ignore
               decimal_places: newSettings.decimalPlaces,
               account_mappings: newSettings.account_mappings
-          }).then(({ error }) => {
           }, { onConflict: 'organization_id' }).then(({ error }) => {
               if (error) console.error("Failed to save settings:", error);
           });
