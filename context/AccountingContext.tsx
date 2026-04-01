@@ -2883,6 +2883,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const logout = async () => {
       try {
+          // مسح الذاكرة المؤقتة تماماً لمنع تسرب البيانات بين الحسابات
+          secureStorage.removeItem('cached_accounts');
+          secureStorage.removeItem('cached_customers');
+          secureStorage.removeItem('cached_suppliers');
+          secureStorage.removeItem('cached_products');
           await authLogout();
       } catch (error) {
           console.error("Logout failed:", error);
@@ -4167,8 +4172,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       organization,
       settings, updateSettings: (newSettings) => {
           setSettings(newSettings);
+          const orgId = (currentUser as any)?.organization_id;
           supabase.from('company_settings').upsert({
-              id: ADMIN_USER_ID,
+              organization_id: orgId,
               company_name: newSettings.companyName,
               tax_number: newSettings.taxNumber,
               address: newSettings.address,
