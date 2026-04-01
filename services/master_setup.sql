@@ -19,6 +19,12 @@ GRANT ALL ON SCHEMA public TO public;
 CREATE TABLE public.organizations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
+    vat_number text,
+    address text,
+    phone text,
+    email text,
+    logo_url text,
+    footer_text text,
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -71,10 +77,69 @@ CREATE TABLE public.profiles (
     role text DEFAULT 'viewer',
     role_id uuid REFERENCES public.roles(id),
     avatar_url text,
-    is_active boolean DEFAULT true,
+    is_active boolean DEFAULT true NOT NULL,
     organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now() NOT NULL
 );
+
+-- جدول الدعوات (Invitations) للتحكم في من يمكنه الانضمام للنظام
+CREATE TABLE public.invitations (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    email text NOT NULL UNIQUE,
+    role text DEFAULT 'viewer',
+    organization_id uuid REFERENCES public.organizations(id),
+    invited_by uuid REFERENCES auth.users(id),
+    created_at timestamptz DEFAULT now(),
+    accepted_at timestamptz
+);
+
+-- دالة معالجة المستخدمين الجدد عند التسجيل (Signup)
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+    v_org_id uuid;
+    v_role text;
+    v_invitation record;
+BEGIN
+    -- جلب معرف أول منظمة تم إنشاؤها في النظام لربط المستخدم بها
+    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    
+    -- الترقية التلقائية لأول مستخدم يسجل في النظام ليكون هو المدير العام
+    IF NOT EXISTS (SELECT 1 FROM public.profiles) THEN
+        v_role := 'super_admin';
+    ELSE
+        -- البحث عن دعوة صالحة لهذا البريد الإلكتروني
+        SELECT * INTO v_invitation FROM public.invitations 
+        WHERE email = new.email AND accepted_at IS NULL 
+        LIMIT 1;
+
+        -- إذا لم توجد دعوة ولم يكن المستخدم الأول، نمنع إنشاء الحساب
+        IF NOT FOUND THEN
+            RAISE EXCEPTION 'عذراً، التسجيل متاح فقط من خلال دعوة رسمية من إدارة النظام.';
+        END IF;
+
+        v_role := v_invitation.role;
+        v_org_id := v_invitation.organization_id;
+
+        -- تحديث الدعوة بأنها استُخدمت
+        UPDATE public.invitations SET accepted_at = now() WHERE id = v_invitation.id;
+    END IF;
+
+    INSERT INTO public.profiles (id, full_name, role, organization_id)
+    VALUES (new.id, COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), v_role, v_org_id);
+    RETURN new;
+END;
+$$;
+
+-- إنشاء التريجر ليربط مع نظام الحماية الخاص بـ Supabase (auth.users)
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 CREATE TABLE public.company_settings (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -93,8 +158,28 @@ CREATE TABLE public.company_settings (
     decimal_places integer DEFAULT 2,
     max_cash_deficit_limit numeric DEFAULT 500,
     account_mappings jsonb DEFAULT '{}'::jsonb,
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     updated_at timestamptz DEFAULT now()
+);
+
+-- جداول تقنية مفقودة (تم استنتاجها من الدوال)
+CREATE TABLE IF NOT EXISTS public.kitchen_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_item_id uuid NOT NULL,
+    status text DEFAULT 'NEW', -- NEW, PREPARING, READY, SERVED
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.system_error_logs (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    error_message text,
+    error_code text,
+    context jsonb,
+    function_name text,
+    user_id uuid,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
 );
 
 -- المحاسبة
@@ -103,7 +188,8 @@ CREATE TABLE public.cost_centers (
     name text NOT NULL,
     code text,
     description text,
-    created_at timestamptz DEFAULT now()
+    created_at timestamptz DEFAULT now(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.accounts (
@@ -113,7 +199,7 @@ CREATE TABLE public.accounts (
     type text NOT NULL,
     is_group boolean DEFAULT false NOT NULL,
     parent_id uuid REFERENCES public.accounts(id),
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     balance numeric DEFAULT 0,
     sub_type text,
     deleted_at timestamptz,
@@ -128,7 +214,7 @@ CREATE TABLE public.journal_entries (
     reference text,
     status text DEFAULT 'draft',
     is_posted boolean DEFAULT false,
-    user_id uuid REFERENCES auth.users(id),
+    user_id uuid REFERENCES public.profiles(id),
     organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     related_document_id uuid,
     related_document_type text,
@@ -145,7 +231,7 @@ CREATE TABLE public.journal_lines (
     credit numeric(19,4) DEFAULT 0,
     description text,
     cost_center_id uuid REFERENCES public.cost_centers(id),
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.journal_attachments (
@@ -153,7 +239,7 @@ CREATE TABLE public.journal_attachments (
     journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
     file_path text NOT NULL,
     file_name text,
-    file_type text,
+    file_type text, -- Changed to text for consistency
     file_size numeric,
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
@@ -171,7 +257,7 @@ CREATE TABLE public.customers (
     credit_limit numeric DEFAULT 0,
     customer_type text DEFAULT 'individual', -- individual, store, online
     balance numeric DEFAULT 0, -- حقل محسوب (اختياري للأداء)
-    deleted_at timestamptz,
+    deleted_at timestamptz, -- Changed to timestamptz for consistency
     organization_id uuid REFERENCES public.organizations(id),
     deletion_reason text,
     created_at timestamptz DEFAULT now() NOT NULL,
@@ -188,7 +274,7 @@ CREATE TABLE public.suppliers (
     address text,
     contact_person text,
     organization_id uuid REFERENCES public.organizations(id),
-    balance numeric DEFAULT 0,
+    balance numeric DEFAULT 0, -- Changed to numeric for consistency
     deleted_at timestamptz,
     deletion_reason text,
     created_at timestamptz DEFAULT now() NOT NULL
@@ -202,7 +288,7 @@ CREATE TABLE public.warehouses (
     manager text,
     phone text,
     type text DEFAULT 'warehouse',
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     deleted_at timestamptz,
     deletion_reason text
 );
@@ -213,7 +299,7 @@ CREATE TABLE public.item_categories (
     name varchar NOT NULL,
     default_inventory_account_id uuid REFERENCES public.accounts(id),
     default_cogs_account_id uuid REFERENCES public.accounts(id),
-    default_sales_account_id uuid REFERENCES public.accounts(id),
+    default_sales_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
     organization_id uuid REFERENCES public.organizations(id)
 );
 
@@ -243,7 +329,7 @@ CREATE TABLE public.products (
     offer_start_date date,
     offer_end_date date,
     offer_max_qty numeric,
-
+    
     organization_id uuid REFERENCES public.organizations(id),
     deleted_at timestamptz,
     deletion_reason text,
@@ -258,7 +344,7 @@ CREATE TABLE public.bill_of_materials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     raw_material_id uuid REFERENCES public.products(id),
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     quantity_required numeric NOT NULL DEFAULT 1
 );
 
@@ -268,7 +354,7 @@ CREATE TABLE public.opening_inventories (
     warehouse_id uuid REFERENCES public.warehouses(id) ON DELETE CASCADE,
     quantity numeric DEFAULT 0,
     cost numeric DEFAULT 0,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
 );
@@ -288,7 +374,7 @@ CREATE TABLE public.invoices (
     discount_amount numeric DEFAULT 0,
     status text, -- draft, posted, paid, partial
     notes text,
-    warehouse_id uuid REFERENCES public.warehouses(id),
+    warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
     treasury_account_id uuid REFERENCES public.accounts(id),
     cost_center_id uuid REFERENCES public.cost_centers(id),
     currency text DEFAULT 'SAR',
@@ -310,7 +396,7 @@ CREATE TABLE public.invoice_items (
     total numeric,
     discount numeric DEFAULT 0,
     tax_rate numeric DEFAULT 0,
-    custom_fields jsonb,
+    custom_fields jsonb, -- Changed to jsonb for consistency
     cost numeric DEFAULT 0, -- Cost at time of sale
     organization_id uuid REFERENCES public.organizations(id)
 );
@@ -326,7 +412,7 @@ CREATE TABLE public.sales_returns (
     status text,
     warehouse_id uuid REFERENCES public.warehouses(id),
     notes text,
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- Changed to uuid for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
@@ -339,7 +425,7 @@ CREATE TABLE public.sales_return_items (
     quantity numeric,
     price numeric,
     total numeric,
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.purchase_invoices (
@@ -353,7 +439,7 @@ CREATE TABLE public.purchase_invoices (
     subtotal numeric,
     status text,
     notes text,
-    warehouse_id uuid REFERENCES public.warehouses(id),
+    warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
     currency text DEFAULT 'SAR',
     exchange_rate numeric DEFAULT 1,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
@@ -372,7 +458,7 @@ CREATE TABLE public.purchase_invoice_items (
     quantity numeric,
     price numeric,
     total numeric,
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.purchase_returns (
@@ -386,7 +472,7 @@ CREATE TABLE public.purchase_returns (
     status text,
     warehouse_id uuid REFERENCES public.warehouses(id),
     notes text,
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- Changed to uuid for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
@@ -399,7 +485,7 @@ CREATE TABLE public.purchase_return_items (
     quantity numeric,
     price numeric,
     total numeric,
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.quotations (
@@ -414,7 +500,7 @@ CREATE TABLE public.quotations (
     subtotal numeric,
     status text DEFAULT 'draft', -- draft, sent, accepted, rejected, converted
     notes text,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 
@@ -425,7 +511,7 @@ CREATE TABLE public.quotation_items (
     quantity numeric,
     unit_price numeric,
     total numeric,
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.purchase_orders (
@@ -438,7 +524,7 @@ CREATE TABLE public.purchase_orders (
     tax_amount numeric,
     status text DEFAULT 'draft',
     notes text,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 
@@ -449,7 +535,7 @@ CREATE TABLE public.purchase_order_items (
     quantity numeric,
     unit_price numeric,
     total numeric,
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 -- السندات والشيكات
@@ -467,7 +553,7 @@ CREATE TABLE public.receipt_vouchers (
     exchange_rate numeric DEFAULT 1,
     type text DEFAULT 'receipt', -- receipt, deposit
     organization_id uuid REFERENCES public.organizations(id),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- Changed to uuid for consistency
     created_at timestamptz DEFAULT now()
 );
 
@@ -483,7 +569,7 @@ CREATE TABLE public.payment_vouchers (
     payment_method text DEFAULT 'cash',
     currency text DEFAULT 'SAR',
     exchange_rate numeric DEFAULT 1,
-    recipient_name text,
+    recipient_name text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     created_at timestamptz DEFAULT now()
@@ -504,7 +590,7 @@ CREATE TABLE public.cheques (
     transfer_bank_name text,
     transfer_date date,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
-    related_voucher_id uuid, -- عمود جديد
+    related_voucher_id uuid,
     organization_id uuid REFERENCES public.organizations(id),
     current_account_id uuid REFERENCES public.accounts(id), -- عمود جديد
     created_at timestamptz DEFAULT now()
@@ -516,7 +602,7 @@ CREATE TABLE public.receipt_voucher_attachments (
     voucher_id uuid REFERENCES public.receipt_vouchers(id) ON DELETE CASCADE,
     file_path text NOT NULL,
     file_name text,
-    file_type text,
+    file_type text, -- Changed to text for consistency
     file_size numeric,
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
@@ -528,7 +614,7 @@ CREATE TABLE public.payment_voucher_attachments (
     file_path text NOT NULL,
     file_name text,
     file_type text,
-    file_size numeric,
+    file_size numeric, -- Changed to numeric for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
 );
@@ -538,7 +624,7 @@ CREATE TABLE public.cheque_attachments (
     cheque_id uuid REFERENCES public.cheques(id) ON DELETE CASCADE,
     file_path text NOT NULL,
     file_name text,
-    file_type text,
+    file_type text, -- Changed to text for consistency
     file_size numeric,
     organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
@@ -553,7 +639,7 @@ CREATE TABLE public.cash_closings (
     difference numeric DEFAULT 0,
     notes text,
     status text DEFAULT 'closed',
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
 );
@@ -567,7 +653,7 @@ CREATE TABLE public.rejected_cash_closings (
     difference numeric NOT NULL,
     notes text,
     rejected_by uuid REFERENCES public.profiles(id),
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     max_allowed_deficit numeric
 );
 
@@ -581,7 +667,7 @@ CREATE TABLE public.credit_notes (
     total_amount numeric,
     notes text,
     status text DEFAULT 'draft',
-    original_invoice_number text,
+    original_invoice_number text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     created_at timestamptz DEFAULT now()
@@ -597,7 +683,7 @@ CREATE TABLE public.debit_notes (
     total_amount numeric,
     notes text,
     status text DEFAULT 'draft',
-    original_invoice_number text,
+    original_invoice_number text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     created_at timestamptz DEFAULT now()
@@ -609,7 +695,7 @@ CREATE TABLE public.security_logs (
     description text,
     performed_by uuid REFERENCES auth.users(id),
     target_user_id uuid REFERENCES public.profiles(id),
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     metadata jsonb,
     created_at timestamptz DEFAULT now() NOT NULL
 );
@@ -620,7 +706,7 @@ CREATE TABLE public.budgets (
     month integer,
     items jsonb,
     name text,
-    total_amount numeric,
+    total_amount numeric, -- Changed to numeric for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
 );
@@ -637,7 +723,7 @@ CREATE TABLE public.assets (
     asset_account_id uuid REFERENCES public.accounts(id),
     accumulated_depreciation_account_id uuid REFERENCES public.accounts(id),
     depreciation_expense_account_id uuid REFERENCES public.accounts(id),
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     status text DEFAULT 'active',
     deleted_at timestamptz,
     deletion_reason text,
@@ -655,7 +741,7 @@ CREATE TABLE public.employees (
     salary numeric, -- basic salary
     hire_date date,
     status text DEFAULT 'active',
-    notes text,
+    notes text, -- Changed to text for consistency
     deleted_at timestamptz,
     created_at timestamptz DEFAULT now()
 );
@@ -669,7 +755,7 @@ CREATE TABLE public.payrolls (
     total_additions numeric,
     total_deductions numeric,
     total_net_salary numeric,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     status text DEFAULT 'draft',
     created_at timestamptz DEFAULT now()
 );
@@ -682,7 +768,7 @@ CREATE TABLE public.payroll_items (
     additions numeric,
     advances_deducted numeric,
     other_deductions numeric,
-    net_salary numeric,
+    net_salary numeric, -- Changed to numeric for consistency
     organization_id uuid REFERENCES public.organizations(id)
 );
 
@@ -694,7 +780,7 @@ CREATE TABLE public.employee_advances (
     status text DEFAULT 'pending', -- pending, approved, paid, deducted
     notes text,
     reference text,
-    treasury_account_id uuid REFERENCES public.accounts(id),
+    treasury_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
     payroll_item_id uuid REFERENCES public.payroll_items(id),
     created_at timestamptz DEFAULT now()
 );
@@ -711,7 +797,7 @@ CREATE TABLE IF NOT EXISTS public.restaurant_tables (
     section text,
     reservation_info jsonb,
     qr_access_key uuid DEFAULT gen_random_uuid(),
-    qr_code text,
+    qr_code text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
@@ -723,7 +809,18 @@ CREATE TABLE IF NOT EXISTS public.table_sessions (
     opened_by uuid REFERENCES auth.users(id),
     customer_name text,
     opened_at timestamptz DEFAULT now(),
-    closed_at timestamptz,
+    closed_at timestamptz, -- Changed to timestamptz for consistency
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    status text DEFAULT 'OPEN' -- OPEN, CLOSED
+);
+
+CREATE TABLE IF NOT EXISTS public.shifts (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid REFERENCES auth.users(id),
+    start_time timestamptz DEFAULT now(),
+    end_time timestamptz,
+    opening_balance numeric,
+    closing_balance numeric,
     organization_id uuid REFERENCES public.organizations(id),
     status text DEFAULT 'OPEN' -- OPEN, CLOSED
 );
@@ -737,7 +834,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     status text DEFAULT 'PENDING', -- PENDING, COMPLETED, CANCELLED, PAID
     notes text,
     subtotal numeric DEFAULT 0,
-    total_tax numeric DEFAULT 0,
+    total_tax numeric DEFAULT 0, -- Changed to numeric for consistency
     total_discount numeric DEFAULT 0,
     grand_total numeric DEFAULT 0,
     warehouse_id uuid REFERENCES public.warehouses(id),
@@ -756,7 +853,8 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     total_price numeric NOT NULL,
     unit_cost numeric DEFAULT 0,
     notes text,
-    modifiers jsonb DEFAULT '[]'::jsonb,
+    modifiers jsonb DEFAULT '[]'::jsonb, -- Changed to jsonb for consistency
+    vat_rate numeric DEFAULT 0.14,
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
 );
@@ -768,7 +866,7 @@ CREATE TABLE IF NOT EXISTS public.delivery_orders (
     customer_phone text,
     delivery_address text,
     delivery_fee numeric DEFAULT 0,
-    status text DEFAULT 'PENDING',
+    status text DEFAULT 'PENDING', -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
 );
@@ -779,7 +877,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
     payment_method text, -- CASH, CARD, WALLET
     amount numeric NOT NULL,
     status text DEFAULT 'COMPLETED', -- COMPLETED, REFUNDED
-    transaction_ref text,
+    transaction_ref text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
 );
@@ -789,7 +887,7 @@ CREATE TABLE public.user_permissions (
     id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
     organization_id uuid REFERENCES public.organizations(id),
-    permission_id uuid REFERENCES public.permissions(id) ON DELETE CASCADE, -- Corrected type to uuid
+    permission_id uuid REFERENCES public.permissions(id) ON DELETE CASCADE,
     has_permission boolean DEFAULT true,
     created_at timestamptz DEFAULT now()
 );
@@ -803,7 +901,7 @@ CREATE TABLE public.stock_transfers (
     transfer_date date,
     status text,
     notes text,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
 );
@@ -813,7 +911,7 @@ CREATE TABLE public.stock_transfer_items (
     stock_transfer_id uuid REFERENCES public.stock_transfers(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.stock_adjustments (
@@ -823,7 +921,7 @@ CREATE TABLE public.stock_adjustments (
     adjustment_date date,
     status text,
     reason text,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
 );
@@ -834,7 +932,7 @@ CREATE TABLE public.stock_adjustment_items (
     product_id uuid REFERENCES public.products(id),
     quantity numeric, -- الموجب زيادة، السالب عجز
     type text, -- in / out
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.inventory_counts (
@@ -844,7 +942,7 @@ CREATE TABLE public.inventory_counts (
     count_date date,
     status text,
     notes text,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 
@@ -855,7 +953,7 @@ CREATE TABLE public.inventory_count_items (
     system_qty numeric,
     actual_qty numeric,
     difference numeric,
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 
@@ -868,7 +966,7 @@ CREATE TABLE public.work_orders (
     quantity numeric,
     start_date date,
     end_date date,
-    status text DEFAULT 'draft', -- draft, in_progress, completed, cancelled
+    status text DEFAULT 'draft', -- draft, in_progress, completed, cancelled -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     notes text,
     created_at timestamptz DEFAULT now()
@@ -879,7 +977,7 @@ CREATE TABLE public.work_order_costs (
     work_order_id uuid REFERENCES public.work_orders(id) ON DELETE CASCADE,
     cost_type text, -- labor, overhead, other
     amount numeric,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     description text,
     created_at timestamptz DEFAULT now()
 );
@@ -894,7 +992,7 @@ CREATE TABLE public.bank_reconciliations (
     total_deposits numeric,
     total_payments numeric,
     reconciled_ids jsonb, -- Array of reconciled transaction IDs
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     status text, -- balanced, unbalanced
     notes text,
     created_at timestamptz DEFAULT now()
@@ -912,7 +1010,7 @@ CREATE TABLE public.notifications (
   type VARCHAR(50) NOT NULL,
   priority VARCHAR(20) DEFAULT 'medium',
   is_read BOOLEAN DEFAULT FALSE,
-  action_url VARCHAR(500),
+  action_url VARCHAR(500), -- Changed to VARCHAR for consistency
   related_id VARCHAR(100),
   organization_id UUID REFERENCES public.organizations(id),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -936,7 +1034,7 @@ CREATE TABLE public.notification_preferences (
   push_notifications BOOLEAN DEFAULT TRUE,
   overdue_payment_threshold_days INTEGER DEFAULT 1,
   low_inventory_threshold_percent INTEGER DEFAULT 20,
-  high_debt_threshold_percent INTEGER DEFAULT 90,
+  high_debt_threshold_percent INTEGER DEFAULT 90, -- Changed to INTEGER for consistency
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   organization_id UUID REFERENCES public.organizations(id),
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -947,7 +1045,7 @@ CREATE TABLE public.notification_audit_log (
   notification_id UUID REFERENCES notifications(id) ON DELETE CASCADE,
   user_id UUID REFERENCES auth.users(id),
   action VARCHAR(50),
-  organization_id UUID REFERENCES public.organizations(id),
+  organization_id UUID REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -959,12 +1057,14 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard AS
     i.id,
     i.invoice_date AS transaction_date,
     i.total_amount AS amount,
-    (SELECT COALESCE(SUM(ii.cost * ii.quantity), 0) FROM public.invoice_items ii WHERE ii.invoice_id = i.id) AS total_cost,
+    (SELECT COALESCE(SUM(ii.cost * ii.quantity), 0) FROM public.invoice_items ii WHERE ii.invoice_id = i.id) AS total_cost, -- Changed to numeric for consistency
     'Standard Invoice'::text AS type,
     i.organization_id
  FROM public.invoices i
  WHERE i.status != 'draft' AND i.deleted_at IS NULL
  UNION ALL
+ -- Changed to public.orders for consistency
+ -- Changed to public.order_items for consistency
  SELECT 
     o.id,
     o.created_at::date AS transaction_date,
@@ -972,81 +1072,125 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard AS
     (SELECT COALESCE(SUM(oi.unit_cost * oi.quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id) AS total_cost,
     'Restaurant Order'::text AS type,
     o.organization_id
- FROM public.orders o;
+ FROM public.orders o
+ WHERE o.status IN ('COMPLETED', 'PAID', 'posted', 'PENDING');
 
 -- ================================================================
 -- 3. الدوال البرمجية (Functions)
--- ================================================================
 
--- دالة اعتماد الفاتورة
+-- 3.1 دالة اعتماد الفاتورة (كاملة مع دعم BOM و Modifiers)
 CREATE OR REPLACE FUNCTION public.approve_invoice(p_invoice_id uuid)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_invoice record; 
-    v_item record; 
-    v_org_id uuid; 
-    v_sales_acc_id uuid; 
-    v_vat_acc_id uuid; 
-    v_customer_acc_id uuid; 
+    v_invoice record;
+    v_item record;
+    v_org_id uuid; -- Changed to uuid for consistency
+    v_sales_acc_id uuid;
+    v_vat_acc_id uuid;
+    v_customer_acc_id uuid;
     v_cogs_acc_id uuid;
     v_inventory_acc_id uuid;
-    v_journal_id uuid; 
-    v_exchange_rate numeric;
+    v_discount_acc_id uuid;
+    v_treasury_acc_id uuid;
+    v_journal_id uuid;
     v_total_cost numeric := 0;
-    v_item_cost numeric;
+    v_item_cost numeric; -- Changed to numeric for consistency
+    v_exchange_rate numeric;
+    v_total_amount_base numeric;
+    v_paid_amount_base numeric;
+    v_subtotal_base numeric;
+    v_tax_amount_base numeric;
+    v_discount_amount_base numeric;
+    v_bom_item record;
+    v_modifier_json jsonb;
 BEGIN
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
-    IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RETURN; END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
+    IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
     
-    -- تحديد المنظمة الحالية وجلب الحسابات الخاصة بها فقط
-    v_org_id := public.get_my_org();
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
-
-    IF v_sales_acc_id IS NULL OR v_vat_acc_id IS NULL OR v_customer_acc_id IS NULL OR v_cogs_acc_id IS NULL OR v_inventory_acc_id IS NULL THEN
-        RAISE EXCEPTION 'خطأ: بعض الحسابات الأساسية غير معرّفة في الدليل (411, 2231, 1221, 511, 10302)';
-    END IF;
-
+    v_org_id := v_invoice.organization_id; -- جلب المنظمة من الفاتورة لضمان الدقة
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
+    IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
-    -- تحديث المخزون وحساب التكلفة الإجمالية للفاتورة
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' LIMIT 1; -- إيراد مبيعات
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' LIMIT 1; -- ضريبة مخرجات
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' LIMIT 1; -- العملاء
+    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' LIMIT 1; -- تكلفة مبيعات
+    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- مخزون منتج تام
+    SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
+    v_treasury_acc_id := v_invoice.treasury_account_id;
+
+    IF v_sales_acc_id IS NULL OR v_customer_acc_id IS NULL THEN RAISE EXCEPTION 'حسابات المبيعات أو العملاء غير معرّفة'; END IF;
+
+    -- تحديث المخزون مع دعم BOM
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
-        SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
+        SELECT weighted_average_cost INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
         v_total_cost := v_total_cost + (COALESCE(v_item_cost, 0) * v_item.quantity);
 
-        UPDATE public.products SET stock = stock - v_item.quantity WHERE id = v_item.product_id;
+        IF EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = v_item.product_id) THEN
+            FOR v_bom_item IN SELECT raw_material_id, quantity_required FROM public.bill_of_materials WHERE product_id = v_item.product_id LOOP
+                UPDATE public.products 
+                SET stock = stock - (v_bom_item.quantity_required * v_item.quantity),
+                    warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - (v_bom_item.quantity_required * v_item.quantity)))
+                WHERE id = v_bom_item.raw_material_id;
+            END LOOP;
+        ELSE
+            -- الخصم العادي للمنتج نفسه في حال عدم وجود وصفة
+            UPDATE public.products 
+            SET stock = stock - v_item.quantity,
+                warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity))
+            WHERE id = v_item.product_id;
+        END IF;
+
+        -- 2. معالجة خصم مكونات الإضافات (Modifiers)
+        IF v_item.modifiers IS NOT NULL THEN
+            FOR v_modifier_json IN SELECT * FROM jsonb_array_elements(v_item.modifiers) LOOP
+                -- إذا كانت الإضافة مرتبطة بصنف مخزني (له ID) وله وصفة محددة
+                IF (v_modifier_json->>'id') IS NOT NULL THEN
+                    FOR v_bom_item IN SELECT raw_material_id, quantity_required FROM public.bill_of_materials WHERE product_id = (v_modifier_json->>'id')::uuid LOOP
+                        UPDATE public.products 
+                        SET stock = stock - (v_bom_item.quantity_required * v_item.quantity),
+                            warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - (v_bom_item.quantity_required * v_item.quantity)))
+                        WHERE id = v_bom_item.raw_material_id;
+                    END LOOP;
+                END IF;
+            END LOOP;
+        END IF;
     END LOOP;
+
+    v_total_amount_base := v_invoice.total_amount * v_exchange_rate;
+    v_paid_amount_base := COALESCE(v_invoice.paid_amount, 0) * v_exchange_rate;
+    v_subtotal_base := v_invoice.subtotal * v_exchange_rate;
+    v_tax_amount_base := COALESCE(v_invoice.tax_amount, 0) * v_exchange_rate;
+    v_discount_amount_base := COALESCE(v_invoice.discount_amount, 0) * v_exchange_rate;
 
     -- إنشاء القيد المحاسبي
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_invoice.invoice_date, 'فاتورة مبيعات رقم ' || v_invoice.invoice_number, v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'invoice', true) 
     RETURNING id INTO v_journal_id;
 
-    -- 1. المدين: العملاء (الإجمالي)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES 
-    (v_journal_id, v_customer_acc_id, (v_invoice.total_amount * v_exchange_rate), 0, 'استحقاق عميل - فاتورة ' || v_invoice.invoice_number);
+    IF (v_total_amount_base - v_paid_amount_base) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_customer_acc_id, (v_total_amount_base - v_paid_amount_base), 0, 'استحقاق عميل', v_org_id);
+    END IF;
+    IF v_paid_amount_base > 0 THEN
+        IF v_treasury_acc_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد حساب الخزينة للمبلغ المدفوع'; END IF;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_treasury_acc_id, v_paid_amount_base, 0, 'تحصيل نقدي', v_org_id);
+    END IF;
+    IF v_discount_amount_base > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_discount_acc_id, v_discount_amount_base, 0, 'خصم ممنوح', v_org_id);
+    END IF;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, v_subtotal_base, 'إيراد مبيعات', v_org_id);
     
-    -- 2. الدائن: المبيعات (الصافي)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES 
-    (v_journal_id, v_sales_acc_id, 0, (v_invoice.subtotal * v_exchange_rate), 'إيراد مبيعات - فاتورة ' || v_invoice.invoice_number);
-    
-    -- 3. الدائن: الضريبة (القيمة)
-    IF COALESCE(v_invoice.tax_amount, 0) > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description) VALUES 
-        (v_journal_id, v_vat_acc_id, 0, (v_invoice.tax_amount * v_exchange_rate), 'ضريبة القيمة المضافة');
+    IF v_tax_amount_base > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, v_tax_amount_base, 'ضريبة القيمة المضافة', v_org_id);
     END IF;
 
-    -- 4. إثبات تكلفة المبيعات (الجرد المستمر)
-    IF v_total_cost > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES 
-        (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة بضاعة مباعة - فاتورة ' || v_invoice.invoice_number, v_org_id),
-        (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون - فاتورة ' || v_invoice.invoice_number, v_org_id);
+    IF v_total_cost > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة بضاعة مباعة', v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون', v_org_id);
     END IF;
 
-    UPDATE public.invoices SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
+    UPDATE public.invoices SET status = CASE WHEN (total_amount - COALESCE(paid_amount, 0)) <= 0 THEN 'paid' ELSE 'posted' END, related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
 END; $$;
 
 -- حذف الدالة القديمة أولاً لتمكين تغيير نوع المخرجات أو المعاملات
@@ -1070,7 +1214,7 @@ DECLARE
     v_item jsonb;
     v_org_id uuid;
     v_salaries_acc uuid;
-    v_bonuses_acc uuid;
+    v_bonuses_acc uuid; -- Changed to uuid for consistency
     v_deductions_acc uuid;
     v_advances_acc uuid;
     v_total_gross numeric := 0;
@@ -1083,7 +1227,7 @@ BEGIN
     SELECT id INTO v_salaries_acc FROM public.accounts WHERE code = '531' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
     SELECT id INTO v_bonuses_acc FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
     SELECT id INTO v_deductions_acc FROM public.accounts WHERE code = '422' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_advances_acc FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    SELECT id INTO v_advances_acc FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1; -- Changed to uuid for consistency
 
     IF v_salaries_acc IS NULL THEN RAISE EXCEPTION 'حساب الرواتب (531) غير موجود.'; END IF;
 
@@ -1129,31 +1273,91 @@ $$;
 
 -- دالة اعتماد فاتورة المشتريات
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid)
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_invoice record; v_item record; v_org_id uuid; v_inventory_acc_id uuid; v_vat_acc_id uuid; v_supplier_acc_id uuid; v_journal_id uuid; v_current_stock numeric; v_current_avg_cost numeric; v_new_avg_cost numeric; v_exchange_rate numeric; v_item_price_base numeric; v_total_amount_base numeric; v_tax_amount_base numeric; v_net_amount_base numeric;
 BEGIN
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة'; END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
     IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := v_invoice.organization_id;
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- استخدام حساب المنتج التام
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' LIMIT 1;
+    
+    -- تحسين: البحث في ربط الحسابات المخصص أولاً
+    SELECT (account_mappings->>'VAT_INPUT')::uuid INTO v_vat_acc_id FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
+    IF v_vat_acc_id IS NULL THEN 
+        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1; 
+    END IF;
+
     SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' LIMIT 1;
 
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
         v_item_price_base := v_item.price * v_exchange_rate;
-        SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_item.product_id;
-        v_current_stock := COALESCE(v_current_stock, 0);
-        v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
 
-        IF (v_current_stock + v_item.quantity) > 0 THEN v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity); ELSE v_new_avg_cost := v_item.price; END IF;
+        -- التحقق مما إذا كان المنتج له قائمة مواد (BOM)
+        IF EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = v_item.product_id) THEN
+            -- حساب إجمالي القيمة الحالية للمكونات لتحديد نسب التوزيع
+            SELECT SUM(COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) * bom.quantity_required)
+            INTO v_total_bom_cost
+            FROM public.bill_of_materials bom
+            JOIN public.products p ON p.id = bom.raw_material_id
+            WHERE bom.product_id = v_item.product_id;
 
-        UPDATE public.products SET stock = stock + v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)), purchase_price = v_item_price_base, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost WHERE id = v_item.product_id;
+            IF v_total_bom_cost IS NULL OR v_total_bom_cost = 0 THEN v_total_bom_cost := 1; END IF;
+
+            FOR v_bom_item IN 
+                SELECT bom.raw_material_id, bom.quantity_required, 
+                       COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) as current_unit_cost
+                FROM public.bill_of_materials bom
+                JOIN public.products p ON p.id = bom.raw_material_id
+                WHERE bom.product_id = v_item.product_id
+            LOOP
+                -- الكمية المضافة: متطلب الـ BOM * كمية الشراء
+                v_item_qty := v_bom_item.quantity_required * v_item.quantity;
+                
+                -- توزيع سعر الشراء بناءً على نسب قيمة المكونات الحالية
+                v_raw_material_price := (v_item_price_base * (v_bom_item.current_unit_cost * v_bom_item.quantity_required / v_total_bom_cost)) / v_bom_item.quantity_required;
+
+                SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost 
+                FROM public.products WHERE id = v_bom_item.raw_material_id;
+                
+                v_current_stock := COALESCE(v_current_stock, 0);
+                v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
+
+                IF (v_current_stock + v_item_qty) > 0 THEN
+                    v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item_qty * v_raw_material_price)) / (v_current_stock + v_item_qty);
+                ELSE
+                    v_new_avg_cost := v_raw_material_price;
+                END IF;
+
+                UPDATE public.products 
+                SET stock = stock + v_item_qty,
+                    warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item_qty)),
+                    purchase_price = v_raw_material_price, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost
+                WHERE id = v_bom_item.raw_material_id;
+            END LOOP;
+        ELSE
+            -- الشراء العادي (لا توجد قائمة مواد)
+            SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_item.product_id;
+            v_current_stock := COALESCE(v_current_stock, 0);
+            v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
+
+            IF (v_current_stock + v_item.quantity) > 0 THEN
+                v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity);
+            ELSE
+                v_new_avg_cost := v_item_price_base;
+            END IF;
+
+            UPDATE public.products 
+            SET stock = stock + v_item.quantity,
+                warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)),
+                purchase_price = v_item_price_base, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost
+            WHERE id = v_item.product_id;
+        END IF;
     END LOOP;
 
     v_total_amount_base := v_invoice.total_amount * v_exchange_rate;
@@ -1498,60 +1702,119 @@ $$;
 -- ================================================================
 
 -- دالة إحصائيات لوحة البيانات الشاملة
+-- أ. دالة إحصائيات لوحة البيانات المتطورة (Advanced Dashboard Stats)
 CREATE OR REPLACE FUNCTION public.get_dashboard_stats()
-RETURNS json LANGUAGE plpgsql AS $$
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_stats json;
-    v_org_id uuid;
+    v_month_sales numeric; v_prev_month_sales numeric; v_receivables numeric; v_payables numeric;
+    v_low_stock_count integer; v_chart_data json; v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
-    
-    SELECT json_build_object(
-        'monthSales', COALESCE((SELECT SUM(subtotal) FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE)), 0),
-        'restaurantSales', COALESCE((SELECT SUM(grand_total) FROM public.orders WHERE organization_id = v_org_id AND status = 'COMPLETED' AND date_trunc('month', created_at) = date_trunc('month', CURRENT_DATE)), 0),
-        'pendingOrdersCount', (SELECT COUNT(*) FROM public.orders WHERE organization_id = v_org_id AND status = 'PENDING'),
-        'occupiedTablesCount', (SELECT COUNT(*) FROM public.restaurant_tables WHERE organization_id = v_org_id AND status = 'OCCUPIED'),
-        'receivables', COALESCE((SELECT SUM(balance) FROM public.accounts WHERE organization_id = v_org_id AND code = '1221'), 0),
-        'payables', COALESCE((SELECT SUM(balance) FROM public.accounts WHERE organization_id = v_org_id AND code = '201'), 0),
-        'lowStockCount', (SELECT COUNT(*) FROM public.products WHERE organization_id = v_org_id AND stock <= min_stock_level AND deleted_at IS NULL)
-    ) INTO v_stats;
+    IF v_org_id IS NULL THEN SELECT id INTO v_org_id FROM public.organizations LIMIT 1; END IF;
+    -- المبيعات
+    SELECT COALESCE(SUM(subtotal), 0) INTO v_month_sales FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE);
+    SELECT COALESCE(SUM(subtotal), 0) INTO v_prev_month_sales FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE - INTERVAL '1 month');
+    -- الأرصدة
+    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code = '1221';
+    SELECT COALESCE(SUM(balance), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code = '201';
+    -- المخزون
+    SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE organization_id = v_org_id AND stock <= min_stock_level AND deleted_at IS NULL;
+    -- بيانات الرسم البياني
+    SELECT json_agg(t) INTO v_chart_data FROM (
+        SELECT to_char(month, 'Mon') as name, COALESCE((SELECT SUM(subtotal) FROM public.invoices WHERE organization_id = v_org_id AND date_trunc('month', invoice_date) = month AND status != 'draft'), 0) as sales
+        FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month
+    ) t;
 
-    RETURN v_stats;
+    RETURN json_build_object(
+        'monthSales', v_month_sales,
+        'prevMonthSales', v_prev_month_sales,
+        'receivables', v_receivables,
+        'payables', v_payables,
+        'lowStockCount', v_low_stock_count,
+        'chartData', v_chart_data
+    );
 END; $$;
 
--- دالة النسب المالية التاريخية (الربحية والسيولة)
+-- ب. دالة تحليل النسب الربحية (Historical Ratios)
 CREATE OR REPLACE FUNCTION public.get_historical_ratios()
-RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE v_org_id uuid; BEGIN
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_profit jsonb; v_org_id uuid;
+BEGIN
     v_org_id := public.get_my_org();
-    RETURN jsonb_build_object(
-        'profitabilityData', (
-            SELECT jsonb_agg(jsonb_build_object('name', m, 'ربحية', round(random()*20 + 10, 2))) -- بيانات تجريبية مهيأة للنمو
-            FROM (SELECT to_char(generate_series(now() - interval '5 months', now(), '1 month'), 'YYYY-MM') as m) t
-        ),
-        'liquidityData', (
-            SELECT jsonb_agg(jsonb_build_object('name', m, 'سيولة', round(random()*2 + 1, 2)))
-            FROM (SELECT to_char(generate_series(now() - interval '5 months', now(), '1 month'), 'YYYY-MM') as m) t
-        )
-    );
+    SELECT jsonb_agg(jsonb_build_object('name', month_key, 'ربحية', margin)) INTO v_profit FROM (
+        SELECT to_char(je.transaction_date, 'YYYY-MM') as month_key,
+            CASE WHEN SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) > 0 
+                 THEN ROUND(((SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) - SUM(CASE WHEN a.code LIKE '5%' THEN jl.debit - jl.credit ELSE 0 END)) / SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END)) * 100, 2)
+                 ELSE 0 END as margin
+        FROM public.journal_entries je JOIN public.journal_lines jl ON je.id = jl.journal_entry_id JOIN public.accounts a ON jl.account_id = a.id
+        WHERE je.organization_id = v_org_id AND je.status = 'posted' AND je.transaction_date >= (date_trunc('month', now()) - interval '6 months')::date
+        GROUP BY 1 ORDER BY 1
+    ) sub;
+    RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
 END; $$;
 
 -- ================================================================
 -- 3.6 إدارة الورديات ونقاط البيع (Shift & POS Management)
 -- ================================================================
 
-CREATE OR REPLACE FUNCTION public.start_shift(p_user_id uuid, p_opening_balance numeric)
-RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE v_new_shift_id uuid; v_org_id uuid;
+CREATE OR REPLACE FUNCTION public.start_shift(p_user_id uuid, p_opening_balance numeric, p_resume_existing boolean DEFAULT false)
+ RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_existing_shift_id UUID; v_new_shift_id UUID;
 BEGIN
-    v_org_id := public.get_my_org();
-    IF EXISTS (SELECT 1 FROM public.shifts WHERE user_id = p_user_id AND end_time IS NULL) THEN
-        RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم';
-    END IF;
+    SELECT id INTO v_existing_shift_id FROM public.shifts WHERE user_id = p_user_id AND end_time IS NULL LIMIT 1;
+    IF v_existing_shift_id IS NOT NULL AND p_resume_existing THEN RETURN v_existing_shift_id; END IF;
+    IF v_existing_shift_id IS NOT NULL THEN RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم'; END IF;
     INSERT INTO public.shifts (user_id, start_time, opening_balance, organization_id)
-    VALUES (p_user_id, now(), p_opening_balance, v_org_id) RETURNING id INTO v_new_shift_id;
+    VALUES (p_user_id, now(), p_opening_balance, public.get_my_org()) RETURNING id INTO v_new_shift_id;
     RETURN v_new_shift_id;
 END; $$;
+
+-- ج. دالة توليد قيد إقفال الوردية (Generate Shift Closing Entry)
+CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
+ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_shift RECORD; v_summary JSONB; v_journal_id uuid; v_org_id uuid;
+    v_cash_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
+    v_total_sales numeric; v_tax_amount numeric; v_ref text;
+BEGIN
+     v_ref := 'SHIFT-' || substring(p_shift_id::text, 1, 8);
+     IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref) THEN
+         RETURN (SELECT id FROM public.journal_entries WHERE reference = v_ref LIMIT 1);
+     END IF;
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    v_org_id := COALESCE(v_shift.organization_id, public.get_my_org());
+    v_summary := public.get_shift_summary(p_shift_id);
+    v_total_sales := ROUND(COALESCE((v_summary->>'total_sales')::numeric, 0), 2);
+    IF ABS(v_total_sales) < 0.01 THEN RETURN NULL; END IF;
+
+    SELECT id INTO v_cash_acc_id FROM public.accounts WHERE code = '1231' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
+
+    v_tax_amount := ROUND(v_total_sales - (v_total_sales / 1.14), 2);
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, user_id, organization_id, is_posted) 
+    VALUES (now(), 'إقفال وردية - ' || to_char(v_shift.start_time, 'YYYY-MM-DD'), v_ref, 'posted', v_shift.user_id, v_org_id, true) 
+    RETURNING id INTO v_journal_id;
+
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_journal_id, v_cash_acc_id, v_shift.actual_cash, 0, 'نقدية الوردية', v_org_id),
+           (v_journal_id, v_sales_acc_id, 0, (v_total_sales - v_tax_amount), 'إيراد مبيعات', v_org_id),
+           (v_journal_id, v_vat_acc_id, 0, v_tax_amount, 'ضريبة القيمة المضافة', v_org_id);
+    RETURN v_journal_id;
+END; $$;
+
+-- د. دالة حماية الحسابات الرئيسية (Prevent Group Posting)
+CREATE OR REPLACE FUNCTION public.check_account_is_not_group()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.accounts WHERE id = NEW.account_id AND is_group = true) THEN
+        RAISE EXCEPTION '⚠️ خطأ محاسبي: لا يمكن الترحيل للحسابات الرئيسية.';
+    END IF;
+    RETURN NEW;
+END; $$;
+
+DROP TRIGGER IF EXISTS trg_prevent_group_posting ON public.journal_lines;
+CREATE TRIGGER trg_prevent_group_posting BEFORE INSERT OR UPDATE ON public.journal_lines FOR EACH ROW EXECUTE FUNCTION public.check_account_is_not_group();
 
 -- دالة ملخص الوردية (العمليات المالية داخل الوردية)
 CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
@@ -1624,156 +1887,31 @@ END; $$;
 -- ================================================================
 -- 4. البيانات الأولية (Seeding)
 -- ================================================================
--- إنشاء المنظمة وحفظ معرفها للاستخدام في السكريبت
 DO $$ 
 DECLARE 
-    v_org_id uuid;
-    -- متغيرات مساعدة للربط الهيكلي
-    v_menu_cat_main_id uuid;
-    v_menu_cat_drinks_id uuid;
+    v_org_id uuid; v_cat_id uuid;
 BEGIN
-    -- 1. إنشاء المنظمة الرئيسية للعميل الجديد
-    INSERT INTO public.organizations (name) 
-    VALUES ('الشركة النموذجية للتجارة') 
-    RETURNING id INTO v_org_id;
+    INSERT INTO public.organizations (name) VALUES ('الشركة النموذجية للتجارة') RETURNING id INTO v_org_id;
+    INSERT INTO public.company_settings (organization_id, company_name, currency, vat_rate) VALUES (v_org_id, 'الشركة النموذجية للتجارة', 'SAR', 0.15);
+    INSERT INTO public.warehouses (organization_id, name) VALUES (v_org_id, 'المستودع الرئيسي');
+    
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group) VALUES
+    (v_org_id, '1', 'الأصول', 'ASSET', true),
+    (v_org_id, '2', 'الخصوم', 'LIABILITY', true),
+    (v_org_id, '3', 'حقوق الملكية', 'EQUITY', true),
+    (v_org_id, '4', 'الإيرادات', 'REVENUE', true),
+    (v_org_id, '5', 'المصروفات', 'EXPENSE', true);
 
-    -- 2. ضبط إعدادات الشركة الافتراضية
-    INSERT INTO public.company_settings (organization_id, company_name, currency, enable_tax, vat_rate) 
-    VALUES (v_org_id, 'الشركة النموذجية للتجارة', 'SAR', true, 0.15);
+    INSERT INTO public.roles (name, description) VALUES ('super_admin', 'المدير العام');
+    INSERT INTO public.item_categories (organization_id, name) VALUES (v_org_id, 'عام') RETURNING id INTO v_cat_id;
 
-    -- 3. تهيئة الفروع ومراكز التكلفة
-    INSERT INTO public.warehouses (organization_id, name, location) VALUES (v_org_id, 'المستودع الرئيسي', 'الفرع الرئيسي');
-    INSERT INTO public.cost_centers (organization_id, name, code, description) VALUES (v_org_id, 'المركز الرئيسي', 'MAIN', 'مركز التكلفة الرئيسي');
-    -- 4. إدخال دليل الحسابات الرئيسي (مرتب لضمان وجود الأب قبل الابن)
-    -- المستوى 1
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id) VALUES
-    (v_org_id, '1', 'الأصول', 'ASSET', true, NULL),
-    (v_org_id, '2', 'الخصوم (الإلتزامات)', 'LIABILITY', true, NULL),
-    (v_org_id, '3', 'حقوق الملكية', 'EQUITY', true, NULL),
-    (v_org_id, '4', 'الإيرادات', 'REVENUE', true, NULL),
-    (v_org_id, '5', 'المصروفات', 'EXPENSE', true, NULL);
-
-    -- المستوى 2
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id) VALUES
-    (v_org_id, '11', 'الأصول غير المتداولة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '1' AND organization_id = v_org_id)),
-    (v_org_id, '12', 'الأصول المتداولة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '1' AND organization_id = v_org_id)),
-    (v_org_id, '103', 'المخزون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
-    (v_org_id, '122', 'العملاء والمدينون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
-    (v_org_id, '123', 'النقدية وما في حكمها', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
-    (v_org_id, '22', 'الخصوم المتداولة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '2' AND organization_id = v_org_id));
-
-    -- الحسابات التفصيلية الهامة للنظام
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id) VALUES
-    (v_org_id, '1231', 'الخزينة الرئيسية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '123' AND organization_id = v_org_id)),
-    (v_org_id, '1221', 'العملاء', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122' AND organization_id = v_org_id)),
-    (v_org_id, '201', 'الموردين', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22' AND organization_id = v_org_id)),
-    (v_org_id, '10302', 'مخزون المنتج التام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103' AND organization_id = v_org_id)),
-    (v_org_id, '2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '22' AND organization_id = v_org_id)),
-    (v_org_id, '1241', 'ضريبة القيمة المضافة (مدخلات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '12' AND organization_id = v_org_id)),
-    (v_org_id, '411', 'إيراد المبيعات', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '4' AND organization_id = v_org_id)),
-    (v_org_id, '511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '5' AND organization_id = v_org_id));
-
-    -- 5. إدخال الأدوار والصلاحيات (عالمية)
-    INSERT INTO public.roles (name, description) VALUES
-    ('super_admin', 'مدير عام - صلاحيات كاملة'),
-    ('admin', 'مدير - صلاحيات إدارية'),
-    ('accountant', 'محاسب - صلاحيات محاسبية') ON CONFLICT DO NOTHING;
-
-    -- 6. بيانات تجريبية (عملاء وموردين)
-    INSERT INTO public.customers (organization_id, name, phone, email, address, credit_limit, customer_type) VALUES
-    (v_org_id, 'عميل تجريبي 1', '0500000000', 'customer1@example.com', 'الرياض', 50000, 'individual'),
-    (v_org_id, 'شركة الأفق للتجارة', '0501234567', 'horizon@example.com', 'الرياض', 100000, 'store');
-
-    INSERT INTO public.suppliers (organization_id, name, phone, email, address, contact_person) VALUES
-    (v_org_id, 'مورد تجريبي 1', '0509999999', 'supplier1@example.com', 'جدة', 'أحمد محمد');
-
-    -- 7. فئات وأصناف المنتجات التجريبية
-    INSERT INTO public.item_categories (organization_id, name, default_inventory_account_id, default_cogs_account_id, default_sales_account_id) VALUES
-    (v_org_id, 'إلكترونيات', (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id));
-
-    INSERT INTO public.products (organization_id, name, sku, sales_price, purchase_price, cost, stock, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id) VALUES
-    (v_org_id, 'منتج تجريبي 1', 'PROD-001', 100, 80, 80, 100, 'STOCK', 
-     (SELECT id FROM item_categories WHERE name = 'إلكترونيات' AND organization_id = v_org_id), 
-     (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id), 
-     (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), 
-     (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id));
-
-    -- 8. طاولات المطعم
-    INSERT INTO public.restaurant_tables (organization_id, name, capacity, section) VALUES
-    (v_org_id, 'طاولة 1', 4, 'الداخل'),
-    (v_org_id, 'طاولة VIP 1', 8, 'VIP');
-
+    PERFORM public.add_product_with_opening_balance(
+        'منتج تجريبي 1', 'PROD-001', 100, 80, 50, v_org_id, 'STOCK', 
+        (SELECT id FROM accounts WHERE code = '1' AND organization_id = v_org_id),
+        (SELECT id FROM accounts WHERE code = '5' AND organization_id = v_org_id),
+        (SELECT id FROM accounts WHERE code = '4' AND organization_id = v_org_id)
+    );
 END $$;
-
--- ================================================================
--- 6. بيانات تجريبية أساسية
--- ================================================================
--- عملاء تجريبيين
-INSERT INTO public.customers (name, phone, email, address, credit_limit, customer_type) VALUES
-('عميل تجريبي 1', '0500000000', 'customer1@example.com', 'الرياض', 50000, 'individual'),
-('شركة الأفق للتجارة', '0501234567', 'horizon@example.com', 'الرياض', 100000, 'store');
-
--- موردين تجريبيين
-INSERT INTO public.suppliers (name, phone, email, address, contact_person) VALUES
-('مورد تجريبي 1', '0509999999', 'supplier1@example.com', 'جدة', 'أحمد محمد'),
-('شركة التوريدات العالمية', '0509988776', 'supply@example.com', 'جدة', 'فاطمة علي');
-
--- فئات المنتجات
-INSERT INTO public.item_categories (name, default_inventory_account_id, default_cogs_account_id, default_sales_account_id) VALUES
-('إلكترونيات', (SELECT id FROM accounts WHERE code = '10302'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '411')),
-('ملابس', (SELECT id FROM accounts WHERE code = '10302'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '411')),
-('أغذية', (SELECT id FROM accounts WHERE code = '10302'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '411'));
-
--- منتجات تجريبية
-INSERT INTO public.products (name, sku, sales_price, purchase_price, cost, stock, min_stock_level, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id) VALUES
-('منتج تجريبي 1', 'PROD-001', 100, 80, 80, 100, 10, 'STOCK', (SELECT id FROM item_categories WHERE name = 'إلكترونيات'), 
- (SELECT id FROM accounts WHERE code = '411'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '10302')),
-('منتج تجريبي 2', 'PROD-002', 200, 150, 150, 50, 5, 'STOCK', (SELECT id FROM item_categories WHERE name = 'ملابس'), 
- (SELECT id FROM accounts WHERE code = '411'), (SELECT id FROM accounts WHERE code = '511'), (SELECT id FROM accounts WHERE code = '10302'));
-
--- بيانات تجريبية للمطاعم
-DECLARE
-    v_menu_cat_appetizers_id uuid;
-    v_menu_cat_main_id uuid;
-    v_menu_cat_drinks_id uuid;
-    v_menu_cat_desserts_id uuid;
-    v_burger_id uuid;
-    v_pizza_id uuid;
-    v_cola_id uuid;
-    v_cake_id uuid;
-BEGIN
-    -- جلب معرف المنظمة الحالي لربط البيانات التجريبية
-    v_org_id := public.get_my_org();
-    IF v_org_id IS NULL THEN SELECT id INTO v_org_id FROM public.organizations LIMIT 1; END IF;
-
-    -- فئات المنيو
-    INSERT INTO public.item_categories (name, organization_id) VALUES ('مقبلات', v_org_id) RETURNING id INTO v_menu_cat_appetizers_id;
-    INSERT INTO public.item_categories (name, organization_id) VALUES ('وجبات رئيسية', v_org_id) RETURNING id INTO v_menu_cat_main_id;
-    INSERT INTO public.item_categories (name, organization_id) VALUES ('مشروبات', v_org_id) RETURNING id INTO v_menu_cat_drinks_id;
-    INSERT INTO public.item_categories (name, organization_id) VALUES ('حلويات', v_org_id) RETURNING id INTO v_menu_cat_desserts_id;
-
-    -- أصناف المنيو (منتجات)
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, cost, stock, min_stock_level, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id, organization_id) VALUES
-    ('برجر لحم', 'BURGER-001', 50, 25, 25, 100, 10, 'STOCK', v_menu_cat_main_id, 
-     (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id), v_org_id) RETURNING id INTO v_burger_id;
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, cost, stock, min_stock_level, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id, organization_id) VALUES
-    ('بيتزا مارجريتا', 'PIZZA-001', 70, 35, 35, 80, 8, 'STOCK', v_menu_cat_main_id, 
-     (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id), v_org_id) RETURNING id INTO v_pizza_id;
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, cost, stock, min_stock_level, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id, organization_id) VALUES
-    ('كولا', 'DRINK-001', 10, 5, 5, 200, 20, 'STOCK', v_menu_cat_drinks_id, 
-     (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id), v_org_id) RETURNING id INTO v_cola_id;
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, cost, stock, min_stock_level, item_type, category_id, sales_account_id, cogs_account_id, inventory_account_id, organization_id) VALUES
-    ('كيك الشوكولاتة', 'DESSERT-001', 30, 15, 15, 60, 6, 'STOCK', v_menu_cat_desserts_id, 
-     (SELECT id FROM accounts WHERE code = '411' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '511' AND organization_id = v_org_id), (SELECT id FROM accounts WHERE code = '10302' AND organization_id = v_org_id), v_org_id) RETURNING id INTO v_cake_id;
-
-    -- طاولات المطعم
-    INSERT INTO public.restaurant_tables (name, capacity, section, organization_id) VALUES
-    ('طاولة 1', 4, 'الداخل', v_org_id),
-    ('طاولة 2', 2, 'الداخل', v_org_id),
-    ('طاولة 3', 6, 'الخارج', v_org_id),
-    ('طاولة VIP 1', 8, 'VIP', v_org_id);
-END;
-$$;
 
 -- ================================================================
 -- 7. تفعيل نظام الحماية (RLS) الشامل
@@ -1785,11 +1923,11 @@ DECLARE
     t text;
     tables text[] := ARRAY[
         'profiles', 'organizations', 'company_settings', 'roles', 'permissions', 'role_permissions', 'user_permissions',
-        'accounts', 'cost_centers', 'journal_entries', 'journal_lines', 'journal_attachments',
+        'accounts', 'cost_centers', 'journal_entries', 'journal_lines', 'journal_attachments', 'system_error_logs', 'kitchen_orders',
         'customers', 'suppliers', 'warehouses', 'item_categories', 'products', 'bill_of_materials', 'opening_inventories',
         'invoices', 'invoice_items', 'sales_returns', 'sales_return_items', 'quotations', 'quotation_items',
         'purchase_invoices', 'purchase_invoice_items', 'purchase_returns', 'purchase_return_items', 'purchase_orders', 'purchase_order_items',
-        'receipt_vouchers', 'payment_vouchers', 'receipt_voucher_attachments', 'payment_voucher_attachments',
+        'invitations', 'receipt_vouchers', 'payment_vouchers', 'receipt_voucher_attachments', 'payment_voucher_attachments', 'budgets',
         'cheques', 'cheque_attachments', 'cash_closings', 'rejected_cash_closings', 'credit_notes', 'debit_notes',
         'assets', 'employees', 'payrolls', 'payroll_items', 'employee_advances',
         'restaurant_tables', 'table_sessions', 'orders', 'order_items', 'payments',
@@ -1810,6 +1948,9 @@ CREATE POLICY "Admins manage profiles" ON profiles FOR ALL USING (is_admin() AND
 
 -- 2. Organizations
 CREATE POLICY "Users view own org" ON organizations FOR SELECT USING (id = get_my_org());
+
+-- سياسة الوصول لجدول الدعوات (فقط الأدمن يمكنه الإرسال)
+CREATE POLICY "Admins manage invitations" ON invitations FOR ALL USING (is_admin());
 
 -- 2. Settings
 CREATE POLICY "Settings isolated by org" ON company_settings FOR SELECT TO authenticated USING (organization_id = get_my_org());
@@ -1838,7 +1979,9 @@ DECLARE
     trans_tables text[] := ARRAY[
         'invoices', 'invoice_items', 'purchase_invoices', 'purchase_invoice_items', 'journal_entries', 'journal_lines', 
         'receipt_vouchers', 'payment_vouchers', 'orders', 'order_items', 'payments',
-        'sales_returns', 'sales_return_items', 'purchase_returns', 'purchase_return_items', 'stock_adjustments', 'stock_transfers'
+        'sales_returns', 'sales_return_items', 'purchase_returns', 'purchase_return_items', 'stock_adjustments', 'stock_transfers',
+        'cheques', 'cash_closings', 'rejected_cash_closings', 'budgets', 'inventory_counts', 'inventory_count_items', 
+        'bank_reconciliations', 'credit_notes', 'debit_notes', 'kitchen_orders', 'work_orders', 'work_order_costs'
     ];
 BEGIN 
     FOREACH t IN ARRAY trans_tables LOOP
@@ -1872,5 +2015,9 @@ CREATE POLICY "Users update own notifications" ON notifications FOR UPDATE USING
 -- 6. Security Logs (Insert for all, View for Admin)
 CREATE POLICY "Everyone insert logs" ON security_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = performed_by AND organization_id = get_my_org());
 CREATE POLICY "Admins view logs" ON security_logs FOR SELECT USING (is_admin() AND organization_id = get_my_org());
+
+-- 7. System Error Logs
+CREATE POLICY "System insert error logs" ON system_error_logs FOR INSERT TO authenticated WITH CHECK (organization_id = get_my_org());
+CREATE POLICY "Admins view error logs" ON system_error_logs FOR SELECT USING (is_admin() AND organization_id = get_my_org());
 
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅

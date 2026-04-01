@@ -542,39 +542,6 @@ BEGIN
     UPDATE public.debit_notes SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_note_id;
 END;
 $$;
-
--- ================================================================
--- 12. دالة حساب عمولة المندوبين (Calculate Sales Commission)
--- ================================================================
-CREATE OR REPLACE FUNCTION public.calculate_sales_commission(
-    p_salesperson_id uuid,
-    p_start_date date,
-    p_end_date date,
-    p_commission_rate numeric DEFAULT 1.0
-)
-RETURNS jsonb
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_total_sales numeric;
-    v_total_returns numeric;
-    v_net_sales numeric;
-    v_commission numeric;
-BEGIN
-    -- 1. إجمالي المبيعات (بدون ضريبة)
-    SELECT COALESCE(SUM(subtotal), 0) INTO v_total_sales FROM public.invoices WHERE salesperson_id = p_salesperson_id AND status IN ('posted', 'paid') AND invoice_date BETWEEN p_start_date AND p_end_date;
-
-    -- 2. إجمالي المرتجعات (بدون ضريبة)
-    SELECT COALESCE(SUM(sr.total_amount - COALESCE(sr.tax_amount, 0)), 0) INTO v_total_returns FROM public.sales_returns sr JOIN public.invoices i ON sr.original_invoice_id = i.id WHERE i.salesperson_id = p_salesperson_id AND sr.status = 'posted' AND sr.return_date BETWEEN p_start_date AND p_end_date;
-
-    -- 3. الصافي والعمولة
-    v_net_sales := v_total_sales - v_total_returns;
-    v_commission := v_net_sales * (p_commission_rate / 100);
-
-    RETURN jsonb_build_object('total_sales', v_total_sales, 'total_returns', v_total_returns, 'net_sales', v_net_sales, 'commission_amount', v_commission);
-END;
-$$;
-
 -- إضافة عمود لتخزين بيانات الحجز (اسم العميل والوقت)
 ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS reservation_info JSONB;
 
@@ -731,78 +698,6 @@ EXCEPTION WHEN OTHERS THEN
     RAISE; -- إعادة رفع الخطأ لكي يظهر في واجهة البرنامج أيضاً
 END;
 $$;
-
--- ================================================================
--- 15. دالة حساب الاستهلاك المتوقع للمواد الخام (Expected Consumption)
--- ================================================================
-CREATE OR REPLACE FUNCTION public.get_expected_raw_material_consumption(p_warehouse_id uuid DEFAULT NULL)
-RETURNS TABLE (
-    raw_material_id uuid,
-    raw_material_name text,
-    expected_quantity numeric,
-    current_stock numeric
-) 
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    v_org_id uuid;
-BEGIN
-    v_org_id := public.get_my_org();
-
-    RETURN QUERY
-    WITH pending_items AS (
-        -- 1. بنود الفواتير المسودة (Standard Invoices)
-        SELECT ii.product_id, ii.quantity, ii.modifiers
-        FROM public.invoice_items ii
-        JOIN public.invoices i ON i.id = ii.invoice_id
-        WHERE i.status = 'draft' AND i.deleted_at IS NULL
-        AND (p_warehouse_id IS NULL OR i.warehouse_id = p_warehouse_id)
-        AND i.organization_id = v_org_id
-
-        UNION ALL
-
-        -- 2. بنود طلبات المطعم المعلقة (Restaurant Orders)
-        SELECT oi.product_id, oi.quantity, oi.modifiers
-        FROM public.order_items oi
-        JOIN public.orders o ON o.id = oi.order_id
-        WHERE o.status = 'PENDING'
-        AND (p_warehouse_id IS NULL OR o.warehouse_id = p_warehouse_id)
-        AND o.organization_id = v_org_id
-    ),
-    bom_requirements AS (
-        -- 1. استهلاك المكونات الخام للأصناف الرئيسية
-        SELECT bom.raw_material_id, (pi.quantity * bom.quantity_required) as qty
-        FROM pending_items pi
-        JOIN public.bill_of_materials bom ON bom.product_id = pi.product_id
-        WHERE bom.organization_id = v_org_id
-        
-        UNION ALL
-        
-        -- 2. استهلاك المكونات الخام للإضافات (Modifiers)
-        SELECT bom.raw_material_id, (pi.quantity * bom.quantity_required) as qty
-        FROM pending_items pi,
-        LATERAL jsonb_array_elements(COALESCE(pi.modifiers, '[]'::jsonb)) AS m
-        JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid
-        WHERE bom.organization_id = v_org_id
-    )
-    SELECT 
-        br.raw_material_id, 
-        p.name, 
-        SUM(br.qty), 
-        COALESCE(
-            CASE 
-                WHEN p_warehouse_id IS NULL THEN p.stock 
-                ELSE (p.warehouse_stock->>p_warehouse_id::text)::numeric 
-            END, 
-            0
-        )
-    FROM bom_requirements br
-    JOIN public.products p ON p.id = br.raw_material_id
-    WHERE p.organization_id = v_org_id
-    GROUP BY br.raw_material_id, p.name, p.stock, p.warehouse_stock;
-END;
-$$;
-
 -- ================================================================
 -- 16. دالة معالجة الهالك (Process Wastage)
 -- ================================================================
@@ -1020,41 +915,6 @@ BEGIN
     RETURN v_new_shift_id;
 END;
 $$;
-
--- ================================================================
--- 21. دالة ملخص الوردية المطورة (Unified Summary)
--- ================================================================
-CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id UUID)
-RETURNS JSONB
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    v_shift RECORD;
-    v_summary JSONB;
-BEGIN
-    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
-    IF v_shift IS NULL THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
-
-    SELECT jsonb_build_object(
-        'opening_balance', v_shift.opening_balance,
-        'total_sales', COALESCE(SUM(p.amount), 0),
-        'cash_sales', COALESCE(SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END), 0),
-        'card_sales', COALESCE(SUM(CASE WHEN p.payment_method = 'CARD' THEN p.amount ELSE 0 END), 0),
-        'wallet_sales', COALESCE(SUM(CASE WHEN p.payment_method = 'WALLET' THEN p.amount ELSE 0 END), 0),
-        'expected_cash', v_shift.opening_balance + COALESCE(SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END), 0)
-    ) INTO v_summary
-    FROM public.payments p
-    JOIN public.orders o ON p.order_id = o.id
-    WHERE o.created_by = v_shift.user_id 
-      AND o.created_at >= v_shift.start_time
-      AND o.created_at <= COALESCE(v_shift.end_time, now())
-      AND p.status = 'COMPLETED'
-      AND (v_shift.organization_id IS NULL OR o.organization_id = v_shift.organization_id);
-    RETURN v_summary;
-END;
-$$;
-
 -- ================================================================
 -- 22. دالة إغلاق الوردية (Close Shift)
 -- ================================================================
@@ -1230,3 +1090,182 @@ DROP TRIGGER IF EXISTS trg_prevent_group_posting ON public.journal_lines;
 CREATE TRIGGER trg_prevent_group_posting
 BEFORE INSERT OR UPDATE ON public.journal_lines
 FOR EACH ROW EXECUTE FUNCTION public.check_account_is_not_group();
+-- ================================================================
+-- 29. قسم التقارير المالية ولوحة البيانات (Dashboard & Reports)
+-- ================================================================
+
+-- أ. دالة إحصائيات لوحة البيانات المتطورة (Advanced Dashboard Stats)
+CREATE OR REPLACE FUNCTION public.get_dashboard_stats()
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_month_sales numeric; v_prev_month_sales numeric; v_receivables numeric; v_payables numeric;
+    v_low_stock_count integer; v_chart_data json; v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    -- المبيعات
+    SELECT COALESCE(SUM(subtotal), 0) INTO v_month_sales FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE);
+    SELECT COALESCE(SUM(subtotal), 0) INTO v_prev_month_sales FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE - INTERVAL '1 month');
+    -- الأرصدة
+    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code = '1221';
+    SELECT COALESCE(SUM(balance), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code = '201';
+    -- المخزون
+    SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE organization_id = v_org_id AND stock <= min_stock_level AND deleted_at IS NULL;
+    -- بيانات الرسم البياني (آخر 6 أشهر)
+    SELECT json_agg(t) INTO v_chart_data FROM (
+        SELECT to_char(month, 'Mon') as name, COALESCE((SELECT SUM(subtotal) FROM public.invoices WHERE organization_id = v_org_id AND date_trunc('month', invoice_date) = month AND status != 'draft'), 0) as sales
+        FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month
+    ) t;
+
+    RETURN json_build_object(
+        'monthSales', v_month_sales,
+        'prevMonthSales', v_prev_month_sales,
+        'receivables', v_receivables,
+        'payables', v_payables,
+        'lowStockCount', v_low_stock_count,
+        'chartData', v_chart_data
+    );
+END; $$;
+
+-- ب. دالة تحليل النسب الربحية (Historical Ratios)
+CREATE OR REPLACE FUNCTION public.get_historical_ratios()
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_profit jsonb; v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    SELECT jsonb_agg(jsonb_build_object('name', month_key, 'ربحية', margin)) INTO v_profit FROM (
+        SELECT to_char(je.transaction_date, 'YYYY-MM') as month_key,
+            CASE WHEN SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) > 0 
+                 THEN ROUND(((SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) - SUM(CASE WHEN a.code LIKE '5%' THEN jl.debit - jl.credit ELSE 0 END)) / SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END)) * 100, 2)
+                 ELSE 0 END as margin
+        FROM public.journal_entries je JOIN public.journal_lines jl ON je.id = jl.journal_entry_id JOIN public.accounts a ON jl.account_id = a.id
+        WHERE je.organization_id = v_org_id AND je.status = 'posted' AND je.transaction_date >= (date_trunc('month', now()) - interval '6 months')::date
+        GROUP BY 1 ORDER BY 1
+    ) sub;
+    RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
+END; $$;
+
+-- ج. دالة عمولة المندوبين (Calculate Sales Commission)
+CREATE OR REPLACE FUNCTION public.calculate_sales_commission(p_salesperson_id uuid, p_start_date date, p_end_date date, p_commission_rate numeric DEFAULT 1.0)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_total_sales numeric; v_total_returns numeric; v_net_sales numeric; v_commission numeric;
+BEGIN
+    SELECT COALESCE(SUM(subtotal), 0) INTO v_total_sales FROM public.invoices WHERE salesperson_id = p_salesperson_id AND status IN ('posted', 'paid') AND invoice_date BETWEEN p_start_date AND p_end_date;
+    SELECT COALESCE(SUM(sr.total_amount - COALESCE(sr.tax_amount, 0)), 0) INTO v_total_returns FROM public.sales_returns sr JOIN public.invoices i ON sr.original_invoice_id = i.id WHERE i.salesperson_id = p_salesperson_id AND sr.status = 'posted' AND sr.return_date BETWEEN p_start_date AND p_end_date;
+    v_net_sales := v_total_sales - v_total_returns;
+    v_commission := v_net_sales * (p_commission_rate / 100);
+    RETURN jsonb_build_object('total_sales', v_total_sales, 'total_returns', v_total_returns, 'net_sales', v_net_sales, 'commission_amount', v_commission);
+END; $$;
+
+-- د. دالة ملخص الوردية (Get Shift Summary)
+CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_shift RECORD; v_summary JSONB;
+BEGIN
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    SELECT jsonb_build_object(
+        'opening_balance', v_shift.opening_balance,
+        'total_sales', COALESCE(SUM(p.amount), 0),
+        'cash_sales', COALESCE(SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END), 0),
+        'expected_cash', v_shift.opening_balance + COALESCE(SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END), 0)
+    ) INTO v_summary
+    FROM public.payments p JOIN public.orders o ON p.order_id = o.id
+    WHERE o.created_by = v_shift.user_id AND o.created_at >= v_shift.start_time AND o.created_at <= COALESCE(v_shift.end_time, now()) AND p.status = 'COMPLETED';
+    RETURN v_summary;
+END; $$;
+
+-- هـ. دالة الاستهلاك المتوقع للمواد الخام (Raw Material Consumption)
+CREATE OR REPLACE FUNCTION public.get_expected_raw_material_consumption(p_warehouse_id uuid DEFAULT NULL)
+RETURNS TABLE (raw_material_id uuid, raw_material_name text, expected_quantity numeric, current_stock numeric) 
+LANGUAGE plpgsql AS $$
+DECLARE v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    RETURN QUERY
+    WITH pending_items AS (
+        SELECT ii.product_id, ii.quantity FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE i.status = 'draft' AND i.organization_id = v_org_id AND (p_warehouse_id IS NULL OR i.warehouse_id = p_warehouse_id)
+        UNION ALL
+        SELECT oi.product_id, oi.quantity FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE o.status = 'PENDING' AND o.organization_id = v_org_id AND (p_warehouse_id IS NULL OR o.warehouse_id = p_warehouse_id)
+    )
+    SELECT br.raw_material_id, p.name, SUM(pi.quantity * bom.quantity_required), p.stock
+    FROM pending_items pi JOIN public.bill_of_materials bom ON bom.product_id = pi.product_id JOIN public.products p ON p.id = bom.raw_material_id
+    GROUP BY br.raw_material_id, p.name, p.stock;
+END; $$;
+
+-- و. تقرير مبيعات المطعم التفصيلي (Restaurant Sales Report)
+CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_start_date text, p_end_date text)
+ RETURNS TABLE(item_name text, category_name text, quantity numeric, total_sales numeric)
+ LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN QUERY
+  SELECT p.name::text, COALESCE(p.item_type, 'غير مصنف')::text, COALESCE(SUM(oi.quantity), 0)::numeric, COALESCE(SUM(oi.total_price), 0)::numeric
+  FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id JOIN public.products p ON oi.product_id = p.id
+  WHERE o.status IN ('CONFIRMED', 'COMPLETED') AND o.created_at >= p_start_date::timestamptz AND o.created_at <= p_end_date::timestamptz
+  GROUP BY 1, 2 ORDER BY total_sales DESC;
+END; $$;
+
+-- ================================================================
+-- 26. دالة تشغيل الرواتب (Run Payroll)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.run_payroll_rpc(p_month int, p_year int, p_date date, p_treasury_account_id uuid, p_items jsonb)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_payroll_id uuid; v_journal_id uuid; v_item jsonb; v_org_id uuid;
+    v_salaries_acc uuid; v_total_net numeric := 0;
+BEGIN
+    v_org_id := public.get_my_org();
+    SELECT id INTO v_salaries_acc FROM public.accounts WHERE code = '531' AND organization_id = v_org_id LIMIT 1;
+    
+    INSERT INTO public.payrolls (payroll_month, payroll_year, payment_date, status, organization_id)
+    VALUES (p_month, p_year, p_date, 'posted', v_org_id) RETURNING id INTO v_payroll_id;
+
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
+        INSERT INTO public.payroll_items (payroll_id, employee_id, net_salary, organization_id)
+        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'net_salary')::numeric, v_org_id);
+    END LOOP;
+
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted)
+    VALUES (p_date, 'رواتب شهر ' || p_month, 'PAY-' || p_month, 'posted', v_org_id, true) RETURNING id INTO v_journal_id;
+
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_journal_id, v_salaries_acc, v_total_net, 0, 'مصروف رواتب', v_org_id),
+           (v_journal_id, p_treasury_account_id, 0, v_total_net, 'صرف رواتب', v_org_id);
+
+    RETURN v_payroll_id;
+END; $$;
+
+-- ================================================================
+-- 27. دالة إضافة منتج مع رصيد افتتاحي (Add Product with Opening Balance)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(p_name text, p_sku text, p_sales_price numeric, p_purchase_price numeric, p_stock numeric, p_org_id uuid, p_item_type text DEFAULT 'STOCK', p_inventory_account_id uuid DEFAULT NULL, p_cogs_account_id uuid DEFAULT NULL, p_sales_account_id uuid DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_product_id UUID; v_inventory_acc UUID; v_opening_acc UUID; v_journal_id UUID;
+BEGIN
+    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
+    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_org_id, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id)
+    RETURNING id INTO v_product_id;
+
+    IF p_stock > 0 AND p_purchase_price > 0 THEN
+        SELECT id INTO v_inventory_acc FROM public.accounts WHERE code = '10302' AND organization_id = p_org_id LIMIT 1;
+        SELECT id INTO v_opening_acc FROM public.accounts WHERE code = '3999' AND organization_id = p_org_id LIMIT 1;
+
+        IF v_inventory_acc IS NOT NULL AND v_opening_acc IS NOT NULL THEN
+            INSERT INTO public.journal_entries (transaction_date, reference, description, status, is_posted, organization_id)
+            VALUES (CURRENT_DATE, 'OP-' || p_sku, 'رصيد افتتاحي: ' || p_name, 'posted', true, p_org_id) RETURNING id INTO v_journal_id;
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES (v_journal_id, v_inventory_acc, (p_stock * p_purchase_price), 0, 'مخزون افتتاحي', p_org_id),
+                   (v_journal_id, v_opening_acc, 0, (p_stock * p_purchase_price), 'مقابل افتتاحي', p_org_id);
+        END IF;
+    END IF;
+    RETURN v_product_id;
+END; $$;
+
+-- ================================================================
+-- 28. دالة تسجيل الخطأ (System Error Logger)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.log_system_error(p_message text, p_code text, p_context jsonb, p_function_name text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, user_id, organization_id)
+    VALUES (p_message, p_code, p_context, p_function_name, auth.uid(), public.get_my_org());
+END; $$;
