@@ -1496,7 +1496,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const isDemoUser = email === DEMO_EMAIL;
             
             // تحديد الدور: الديمو أولاً، ثم البيانات الوصفية، ثم البروفايل، وأخيراً viewer
-            const roleName = isDemoUser ? 'demo' : (user.user_metadata?.app_role || profile?.role || 'viewer');
+            const roleName = isDemoUser ? 'demo' : (user.user_metadata?.role || user.user_metadata?.app_role || profile?.role || 'viewer');
             
             setCurrentUser({
                 id: user.id,

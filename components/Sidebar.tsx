@@ -12,9 +12,9 @@ const Sidebar = () => {
   const location = useLocation();
   const { currentUser, userPermissions, settings, organization } = useAccounting();
 
-  const role = currentUser?.role || 'viewer';
+  const role = (currentUser?.role as string)?.toLowerCase() || 'viewer';
   const isSuperAdmin = role === 'super_admin';
-  const isAdmin = role === 'admin' || isSuperAdmin;
+  const isAdmin = role === 'admin' || role === 'manager' || isSuperAdmin;
   const isChef = (role as string) === 'chef';
 
   const [openSection, setOpenSection] = React.useState<string | null>(null);
