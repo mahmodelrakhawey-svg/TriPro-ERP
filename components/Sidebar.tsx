@@ -42,7 +42,7 @@ const Sidebar = () => {
   // Helper to check permissions
   const hasAccess = (modules: string[]) => {
       if (isSuperAdmin) return true; 
-      if (isAdmin) return modules.some(m => isModuleAllowed(m)); // العميل يرى فقط ما سمحت له به
+      if (isAdmin) return modules.some(m => isModuleAllowed(m)) && organization; // التأكد من تحميل بيانات الشركة أولاً
       if (role === 'demo') return true; // السماح لمستخدم الديمو برؤية كل المديولات
       if (!userPermissions || userPermissions.size === 0) return false;
       
