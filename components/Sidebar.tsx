@@ -743,6 +743,12 @@ const Sidebar = () => {
                     <ShieldAlert size={18} />
                     <span>سجلات الأمان</span>
                 </Link>
+                {isSuperAdmin && (
+                    <Link to="/saas-admin" className={getNavClass('/saas-admin')}>
+                        <ShieldCheck size={18} />
+                        <span>إدارة المنصة (SaaS)</span>
+                    </Link>
+                )}
                 <Link to="/deficit-report" className={getNavClass('/deficit-report')}>
                     <AlertTriangle size={18} />
                     <span>تقارير العجز</span>

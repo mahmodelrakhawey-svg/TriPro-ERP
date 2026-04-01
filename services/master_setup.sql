@@ -105,28 +105,28 @@ DECLARE
     v_role text;
     v_invitation record;
 BEGIN
-    -- جلب معرف أول منظمة تم إنشاؤها في النظام لربط المستخدم بها
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
-    
-    -- الترقية التلقائية لأول مستخدم يسجل في النظام ليكون هو المدير العام
-    IF NOT EXISTS (SELECT 1 FROM public.profiles) THEN
+    -- 1. محاولة جلب معرف الشركة والدور من بيانات المستخدم الإضافية (User Metadata)
+    -- هذه البيانات سنرسلها من خلال كود الـ Backend
+    v_org_id := (new.raw_user_meta_data->>'org_id')::uuid;
+    v_role := COALESCE(new.raw_user_meta_data->>'role', 'admin');
+
+    -- 2. حالة خاصة: إذا كان هذا أول مستخدم في النظام بالكامل
+    IF v_org_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.profiles) THEN
+        -- إنشاء منظمة افتراضية للمدير الأول
+        INSERT INTO public.organizations (name) VALUES ('الشركة الرئيسية') RETURNING id INTO v_org_id;
         v_role := 'super_admin';
-    ELSE
-        -- البحث عن دعوة صالحة لهذا البريد الإلكتروني
-        SELECT * INTO v_invitation FROM public.invitations 
-        WHERE email = new.email AND accepted_at IS NULL 
-        LIMIT 1;
+    END IF;
 
-        -- إذا لم توجد دعوة ولم يكن المستخدم الأول، نمنع إنشاء الحساب
-        IF NOT FOUND THEN
-            RAISE EXCEPTION 'عذراً، التسجيل متاح فقط من خلال دعوة رسمية من إدارة النظام.';
+    -- 3. إذا لم يتم توفير معرف شركة (تسجيل عادي)، نتحقق من وجود دعوة (المنطق القديم)
+    IF v_org_id IS NULL THEN
+        SELECT organization_id, role INTO v_org_id, v_role FROM public.invitations 
+        WHERE email = new.email AND accepted_at IS NULL LIMIT 1;
+        
+        IF v_org_id IS NOT NULL THEN
+            UPDATE public.invitations SET accepted_at = now() WHERE email = new.email;
+        ELSE
+            RAISE EXCEPTION 'التسجيل متاح فقط للمدراء أو عبر دعوة.';
         END IF;
-
-        v_role := v_invitation.role;
-        v_org_id := v_invitation.organization_id;
-
-        -- تحديث الدعوة بأنها استُخدمت
-        UPDATE public.invitations SET accepted_at = now() WHERE id = v_invitation.id;
     END IF;
 
     INSERT INTO public.profiles (id, full_name, role, organization_id)
