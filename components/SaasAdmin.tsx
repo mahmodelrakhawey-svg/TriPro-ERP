@@ -10,8 +10,19 @@ export default function SaasAdmin() {
     companyName: '',
     adminName: '',
     email: '',
-    password: ''
+    password: '',
+    modules: ['accounting'] as string[]
   });
+
+  const availableModules = [
+    { id: 'accounting', label: 'المحاسبة العامة' },
+    { id: 'sales', label: 'المبيعات والعملاء' },
+    { id: 'purchases', label: 'المشتريات والموردين' },
+    { id: 'inventory', label: 'المخازن والأصناف' },
+    { id: 'restaurant', label: 'مديول المطاعم' },
+    { id: 'hr', label: 'الموارد البشرية' },
+    { id: 'manufacturing', label: 'التصنيع والإنتاج' },
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,6 +111,28 @@ export default function SaasAdmin() {
             value={formData.password}
             onChange={e => setFormData({...formData, password: e.target.value})}
           />
+        </div>
+
+        <div className="space-y-3">
+          <label className="text-sm font-semibold text-gray-700">الموديولات المتاحة لهذا العميل:</label>
+          <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+            {availableModules.map(mod => (
+              <label key={mod.id} className="flex items-center gap-2 cursor-pointer hover:bg-white p-1 rounded transition-colors">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 text-indigo-600 rounded"
+                  checked={formData.modules.includes(mod.id)}
+                  onChange={e => {
+                    const newModules = e.target.checked 
+                      ? [...formData.modules, mod.id]
+                      : formData.modules.filter(m => m !== mod.id);
+                    setFormData({...formData, modules: newModules});
+                  }}
+                />
+                <span className="text-sm text-gray-600">{mod.label}</span>
+              </label>
+            ))}
+          </div>
         </div>
 
         <button

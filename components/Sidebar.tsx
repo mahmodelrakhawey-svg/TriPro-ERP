@@ -10,9 +10,13 @@ import {
 
 const Sidebar = () => {
   const location = useLocation();
-  const { currentUser, userPermissions, settings } = useAccounting();
+  const { currentUser, userPermissions, settings, organization } = useAccounting();
 
   const [openSection, setOpenSection] = React.useState<string | null>(null);
+
+  // جلب الموديولات المسموحة للشركة (إذا لم توجد نعتبر الكل متاح للتوافق)
+  const allowedModules = (organization as any)?.allowed_modules || [];
+  const isModuleAllowed = (mod: string) => isSuperAdmin || allowedModules.includes(mod) || allowedModules.length === 0;
 
   const toggleSection = (section: string) => {
     setOpenSection(openSection === section ? null : section);
@@ -89,15 +93,15 @@ const Sidebar = () => {
   };
 
   // Permission Logic - Updated to match DB modules: 'treasury', 'sales', 'purchases', 'inventory', 'journal_entries', 'hr', 'reports'
-  const canAccessFinancials = hasAccess(['treasury', 'finance']);
-  const canAccessSales = hasAccess(['sales', 'customers']);
-  const canAccessPurchases = hasAccess(['purchases', 'suppliers']);
-  const canAccessInventory = hasAccess(['inventory', 'products']);
-  const canAccessRestaurant = hasAccess(['restaurant', 'pos', 'kds']) || isChef;
-  const canAccessAccounting = hasAccess(['journal_entries', 'accounting', 'reports']);
-  const canAccessAdvancedReports = hasAccess(['reports', 'analysis']);
-  const canAccessHR = hasAccess(['hr']);
-  const canAccessManufacturing = hasAccess(['manufacturing']);
+  const canAccessFinancials = hasAccess(['treasury', 'finance']) && isModuleAllowed('accounting');
+  const canAccessSales = hasAccess(['sales', 'customers']) && isModuleAllowed('sales');
+  const canAccessPurchases = hasAccess(['purchases', 'suppliers']) && isModuleAllowed('purchases');
+  const canAccessInventory = hasAccess(['inventory', 'products']) && isModuleAllowed('inventory');
+  const canAccessRestaurant = (hasAccess(['restaurant', 'pos', 'kds']) || isChef) && isModuleAllowed('restaurant');
+  const canAccessAccounting = hasAccess(['journal_entries', 'accounting', 'reports']) && isModuleAllowed('accounting');
+  const canAccessAdvancedReports = hasAccess(['reports', 'analysis']) && isModuleAllowed('accounting');
+  const canAccessHR = hasAccess(['hr']) && isModuleAllowed('hr');
+  const canAccessManufacturing = hasAccess(['manufacturing']) && isModuleAllowed('manufacturing');
   
   // مكون فرعي لرأس القائمة القابلة للطي
   const SidebarSection = ({ title, icon: Icon, id, children, show }: { title: string, icon: any, id: string, children: React.ReactNode, show: boolean }) => {

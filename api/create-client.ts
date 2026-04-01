@@ -26,13 +26,13 @@ export default async function handler(req: any, res: any) {
     return res.status(403).json({ error: 'Only Super Admins can create clients' })
   }
 
-  const { email, password, companyName, adminName } = req.body
+  const { email, password, companyName, adminName, modules } = req.body
 
   try {
     // 1. إنشاء المنظمة (الشركة) الجديدة
     const { data: org, error: orgError } = await supabaseAdmin
       .from('organizations')
-      .insert({ name: companyName })
+      .insert({ name: companyName, allowed_modules: modules || ['accounting'] })
       .select()
       .single()
 
