@@ -40,12 +40,18 @@ export default function SaasAdmin() {
         body: JSON.stringify(formData)
       });
 
-      const result = await response.json();
+      // التحقق أولاً مما إذا كان الرد ناجحاً وبصيغة بيانات
+      const contentType = response.headers.get("content-type");
+      if (response.ok && contentType && contentType.indexOf("application/json") !== -1) {
+        showToast('تم إنشاء العميل الجديد بنجاح!', 'success');
+        setFormData({ companyName: '', adminName: '', email: '', password: '', modules: ['accounting'] });
+      } else {
+        // في حال كان هناك خطأ (مثل 404 على الجهاز المحلي)
+        const errorText = await response.text();
+        const errorData = contentType?.includes("application/json") ? JSON.parse(errorText) : null;
+        throw new Error(errorData?.error || `خطأ في الاتصال بالخادم (رمز: ${response.status}). إذا كنت تجرب من جهازك المحلي، يرجى التجربة من رابط الموقع المباشر على فيرسل.`);
+      }
 
-      if (!response.ok) throw new Error(result.error);
-
-      showToast('تم إنشاء العميل الجديد بنجاح!', 'success');
-      setFormData({ companyName: '', adminName: '', email: '', password: '' });
     } catch (error: any) {
       showToast(error.message, 'error');
     } finally {

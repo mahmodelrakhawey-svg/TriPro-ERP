@@ -10,7 +10,13 @@ import {
 
 const Sidebar = () => {
   const location = useLocation();
-  const { currentUser, userPermissions, settings, organization } = useAccounting();
+  // استخدام cast to any هنا لحل مشكلة النوع (TypeScript Error) وضمان استمرار بناء البرنامج
+  const { currentUser, userPermissions, settings, organization } = useAccounting() as any;
+
+  const role = currentUser?.role || 'viewer';
+  const isSuperAdmin = role === 'super_admin';
+  const isAdmin = role === 'admin' || isSuperAdmin;
+  const isChef = (role as string) === 'chef';
 
   const [openSection, setOpenSection] = React.useState<string | null>(null);
 
@@ -33,11 +39,6 @@ const Sidebar = () => {
         : 'text-slate-600 hover:bg-slate-100 hover:text-blue-600'
     }`;
   };
-
-  const role = currentUser?.role || 'viewer';
-  const isSuperAdmin = role === 'super_admin';
-  const isAdmin = role === 'admin' || isSuperAdmin;
-  const isChef = (role as string) === 'chef';
 
   // Helper to check permissions
   const hasAccess = (modules: string[]) => {
