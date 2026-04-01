@@ -10,8 +10,7 @@ import {
 
 const Sidebar = () => {
   const location = useLocation();
-  // استخدام cast to any هنا لحل مشكلة النوع (TypeScript Error) وضمان استمرار بناء البرنامج
-  const { currentUser, userPermissions, settings, organization } = useAccounting() as any;
+  const { currentUser, userPermissions, settings, organization } = useAccounting();
 
   const role = currentUser?.role || 'viewer';
   const isSuperAdmin = role === 'super_admin';
@@ -42,7 +41,7 @@ const Sidebar = () => {
 
   // Helper to check permissions
   const hasAccess = (modules: string[]) => {
-      if (isSuperAdmin) return true;
+      if (isAdmin) return true; // السماح لمدير الشركة برؤية الموديولات المشترك بها
       if (role === 'demo') return true; // السماح لمستخدم الديمو برؤية كل المديولات
       if (!userPermissions || userPermissions.size === 0) return false;
       
@@ -55,7 +54,7 @@ const Sidebar = () => {
 
   // Helper to check granular permissions (Link Level)
   const canShow = (module: string | string[], keywords: string[]) => {
-      if (isSuperAdmin) return true;
+      if (isAdmin) return true; // السماح لمدير الشركة برؤية الروابط الداخلية
       if (role === 'demo') return true; // السماح لمستخدم الديمو برؤية كل الروابط
       if (!userPermissions || userPermissions.size === 0) return false;
 

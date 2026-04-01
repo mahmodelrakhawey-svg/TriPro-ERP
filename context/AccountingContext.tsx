@@ -380,6 +380,7 @@ interface AccountingContextType {
   currentUser: User | null;
   users: User[];
   login: (username: string, pin: string) => Promise<{ success: boolean; message?: string }>;
+  organization: any | null;
   organizationId: string | null;
   logout: () => Promise<void>;
   addUser: (user: any) => void;
@@ -447,6 +448,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set());
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [organization, setOrganization] = useState<any | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -693,6 +695,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const [
         { data: whs, error: wError },
         { data: sysSettings },
+        { data: orgData },
         { data: fetchedAccounts, error: accError },
         { data: jEntries, error: jError },
         { data: custs },
@@ -714,6 +717,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ] = await Promise.all([
         shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         supabase.from('company_settings').select('*').limit(1).single(),
+        shouldFetchProtected ? supabase.from('organizations').select('*').limit(1).single() : Promise.resolve({ data: null, error: null }),
         shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('customers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
@@ -733,6 +737,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('restaurant_tables').select('*') : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('menu_categories').select('*').order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
+
+      // حفظ بيانات المنظمة الحالية (بما فيها الموديولات المسموحة)
+      if (orgData) {
+        setOrganization(orgData);
+      }
 
       // 1. معالجة المستودعات
       if (whs && whs.length > 0) {
@@ -4155,6 +4164,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getSystemAccount,
       currentUser, users, login, logout, addUser, updateUser, deleteUser: (id) => setUsers(prev => prev.filter(u => u.id !== id)),
       organizationId: (currentUser as any)?.organization_id || null,
+      organization,
       settings, updateSettings: (newSettings) => {
           setSettings(newSettings);
           supabase.from('company_settings').upsert({
