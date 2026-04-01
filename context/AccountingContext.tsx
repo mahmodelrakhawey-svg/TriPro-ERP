@@ -592,6 +592,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const fetchData = async () => {
     setIsLoading(true);
+    
+    // تنظيف الحالة (State) فوراً قبل جلب بيانات جديدة لمنع تسرب البيانات بين الحسابات
+    if (!isDemoState) {
+      setAccounts([]);
+      setEntries([]);
+      setCustomers([]);
+      setSuppliers([]);
+      setProducts([]);
+      setInvoices([]);
+      setVouchers([]);
+      setNotifications([]);
+    }
+
     // التحقق من هوية المستخدم (لإخفاء التكلفة عن الديمو)
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
@@ -717,7 +730,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ] = await Promise.all([
         shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         supabase.from('company_settings').select('*').limit(1).single(),
-        shouldFetchProtected ? supabase.from('organizations').select('*').limit(1).single() : Promise.resolve({ data: null, error: null }),
+        shouldFetchProtected ? supabase.from('organizations').select('*').eq('id', session?.user?.user_metadata?.org_id).maybeSingle() : Promise.resolve({ data: null, error: null }),
         shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('customers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
