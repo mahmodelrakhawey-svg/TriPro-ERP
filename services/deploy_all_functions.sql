@@ -662,7 +662,7 @@ BEGIN
 
     -- 1. إنشاء رأس الطلب مع ربط العميل إذا وُجد
     INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, warehouse_id, created_at, order_number, organization_id)
-    VALUES (p_session_id, p_user_id, p_order_type::text, p_notes, 'PENDING', p_customer_id, p_warehouse_id, now(), v_order_number, v_org_id)
+    VALUES (p_session_id, p_user_id, p_order_type::text, p_notes, 'CONFIRMED', p_customer_id, p_warehouse_id, now(), v_order_number, v_org_id)
     RETURNING id INTO v_order_id;
 
     -- 2. الدوران على البنود وإضافتها
@@ -768,6 +768,30 @@ END;
 $$;
 
 -- ================================================================
+-- 14.5 دالة جلب طلبات السفرى والتوصيل المعلقة للدفع
+-- ================================================================
+DROP FUNCTION IF EXISTS public.get_pending_payment_orders();
+CREATE OR REPLACE FUNCTION public.get_pending_payment_orders()
+ RETURNS TABLE(id uuid, order_number text, order_type text, grand_total numeric, created_at timestamp with time zone, status text, customer_phone text)
+ LANGUAGE sql
+AS $$
+    SELECT 
+        o.id, 
+        o.order_number, 
+        o.order_type::text, 
+        o.grand_total, 
+        o.created_at, 
+        o.status::text,
+        COALESCE(d.customer_phone, c.phone) as customer_phone
+    FROM public.orders o
+    LEFT JOIN public.delivery_orders d ON o.id = d.order_id
+    LEFT JOIN public.customers c ON o.customer_id = c.id
+    WHERE o.status::text IN ('CONFIRMED', 'COMPLETED', 'PENDING') -- تم تعديل الحالات لتشمل ما بعد المطبخ
+    AND (o.session_id IS NULL OR o.order_type::text != 'DINE_IN')
+    ORDER BY o.created_at DESC;
+$$;
+
+-- ================================================================
 -- 17. دالة تحويل الطاولة (Transfer Table Session)
 -- ================================================================
 CREATE OR REPLACE FUNCTION public.transfer_table_session(p_session_id uuid, p_target_table_id uuid)
@@ -826,6 +850,8 @@ $$;
 -- ================================================================
 -- 19. دالة إنشاء قيد يومية متوازن (Create Balanced Journal Entry)
 -- ================================================================
+DROP FUNCTION IF EXISTS public.create_journal_entry(date, text, text, jsonb, text, uuid);
+
 CREATE OR REPLACE FUNCTION public.create_journal_entry(
     entry_date date,
     description text,
@@ -883,6 +909,8 @@ WHERE s.end_time IS NULL;
 -- ================================================================
 -- 20. دالة إدارة الورديات المطورة (Shift Management)
 -- ================================================================
+DROP FUNCTION IF EXISTS public.start_shift(uuid, numeric, boolean);
+
 CREATE OR REPLACE FUNCTION public.start_shift(
     p_user_id UUID,
     p_opening_balance NUMERIC,
@@ -1174,6 +1202,8 @@ BEGIN
 END; $$;
 
 -- هـ. دالة الاستهلاك المتوقع للمواد الخام (Raw Material Consumption)
+DROP FUNCTION IF EXISTS public.get_expected_raw_material_consumption(uuid);
+
 CREATE OR REPLACE FUNCTION public.get_expected_raw_material_consumption(p_warehouse_id uuid DEFAULT NULL)
 RETURNS TABLE (raw_material_id uuid, raw_material_name text, expected_quantity numeric, current_stock numeric) 
 LANGUAGE plpgsql AS $$
@@ -1192,6 +1222,8 @@ BEGIN
 END; $$;
 
 -- و. تقرير مبيعات المطعم التفصيلي (Restaurant Sales Report)
+DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(text, text);
+
 CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_start_date text, p_end_date text)
  RETURNS TABLE(item_name text, category_name text, quantity numeric, total_sales numeric)
  LANGUAGE plpgsql AS $$
@@ -1206,6 +1238,8 @@ END; $$;
 -- ================================================================
 -- 26. دالة تشغيل الرواتب (Run Payroll)
 -- ================================================================
+DROP FUNCTION IF EXISTS public.run_payroll_rpc(int, int, date, uuid, jsonb);
+
 CREATE OR REPLACE FUNCTION public.run_payroll_rpc(p_month int, p_year int, p_date date, p_treasury_account_id uuid, p_items jsonb)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -1237,6 +1271,8 @@ END; $$;
 -- ================================================================
 -- 27. دالة إضافة منتج مع رصيد افتتاحي (Add Product with Opening Balance)
 -- ================================================================
+DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(p_name text, p_sku text, p_sales_price numeric, p_purchase_price numeric, p_stock numeric, p_org_id uuid, p_item_type text DEFAULT 'STOCK', p_inventory_account_id uuid DEFAULT NULL, p_cogs_account_id uuid DEFAULT NULL, p_sales_account_id uuid DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE v_product_id UUID; v_inventory_acc UUID; v_opening_acc UUID; v_journal_id UUID;

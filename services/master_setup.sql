@@ -1595,7 +1595,7 @@ BEGIN
 
     -- 3. إنشاء رأس الطلب
     INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
-    VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'PENDING', p_customer_id, v_order_num, v_org_id, p_warehouse_id) 
+    VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, v_org_id, p_warehouse_id) 
     RETURNING id INTO v_order_id;
 
     -- 4. إدراج الأصناف وحساب الإجماليات
@@ -1847,9 +1847,12 @@ CREATE OR REPLACE FUNCTION public.update_single_customer_balance(p_customer_id u
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_balance numeric := 0;
 BEGIN
-    -- فواتير (مدين) - سندات (دائن) - مرتجعات (دائن)
+    -- فواتير (مدين) - سندات (دائن) - مرتجعات (دائن) - إشعارات دائنة (دائن)
     SELECT COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) INTO v_balance FROM public.invoices WHERE customer_id = p_customer_id AND status != 'draft';
     SELECT v_balance - COALESCE((SELECT SUM(amount) FROM public.receipt_vouchers WHERE customer_id = p_customer_id), 0) INTO v_balance;
+    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.sales_returns WHERE customer_id = p_customer_id AND status = 'posted'), 0) INTO v_balance;
+    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.credit_notes WHERE customer_id = p_customer_id AND status = 'posted'), 0) INTO v_balance;
+
     UPDATE public.customers SET balance = v_balance WHERE id = p_customer_id;
 END; $$;
 
@@ -1858,8 +1861,12 @@ CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id u
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_balance numeric := 0;
 BEGIN
+    -- فواتير (دائن) - سندات (مدين) - مرتجعات (مدين) - إشعارات مدينة (مدين)
     SELECT COALESCE(SUM(total_amount), 0) INTO v_balance FROM public.purchase_invoices WHERE supplier_id = p_supplier_id AND status != 'draft';
     SELECT v_balance - COALESCE((SELECT SUM(amount) FROM public.payment_vouchers WHERE supplier_id = p_supplier_id), 0) INTO v_balance;
+    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.purchase_returns WHERE supplier_id = p_supplier_id AND status = 'posted'), 0) INTO v_balance;
+    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.debit_notes WHERE supplier_id = p_supplier_id AND status = 'posted'), 0) INTO v_balance;
+
     UPDATE public.suppliers SET balance = v_balance WHERE id = p_supplier_id;
 END; $$;
 
@@ -1868,10 +1875,14 @@ CREATE OR REPLACE FUNCTION public.update_product_stock(p_product_id uuid)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_stock numeric := 0;
 BEGIN
-    -- (وارد مشتريات + رصيد أول) - (صادر مبيعات)
+    -- (وارد مشتريات + رصيد أول + مرتجع مبيعات) - (صادر مبيعات + مرتجع مشتريات) +/- تسويات
     SELECT COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = p_product_id), 0) INTO v_stock;
     SELECT v_stock + COALESCE((SELECT SUM(quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id WHERE pii.product_id = p_product_id AND pi.status != 'draft'), 0) INTO v_stock;
     SELECT v_stock - COALESCE((SELECT SUM(quantity) FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = p_product_id AND i.status != 'draft'), 0) INTO v_stock;
+    SELECT v_stock + COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sri.sales_return_id = sr.id WHERE sri.product_id = p_product_id AND sr.status != 'draft'), 0) INTO v_stock;
+    SELECT v_stock - COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id WHERE pri.product_id = p_product_id AND pr.status != 'draft'), 0) INTO v_stock;
+    SELECT v_stock + COALESCE((SELECT SUM(CASE WHEN type = 'in' THEN quantity WHEN type = 'out' THEN -quantity ELSE 0 END) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = p_product_id AND sa.status != 'draft'), 0) INTO v_stock;
+
     UPDATE public.products SET stock = v_stock WHERE id = p_product_id;
 END; $$;
 
