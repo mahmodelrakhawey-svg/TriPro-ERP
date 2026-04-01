@@ -627,9 +627,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
 
-    const currentOrgId = session?.user?.user_metadata?.org_id;
-
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
+    const currentOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+
+    if (!currentOrgId && !isDemo) {
+        if (process.env.NODE_ENV === 'development') console.warn("No Org ID found, skipping fetch to prevent leakage");
+        setIsLoading(false);
+        return;
+    }
+
     setIsDemoState(isDemo);
     // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
     const shouldFetchProtected = !!session;
@@ -741,27 +747,27 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: restaurantTablesData },
         { data: menuCategoriesData }
       ] = await Promise.all([
-        shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('warehouses').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('company_settings').select('*').eq('organization_id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
         shouldFetchProtected ? supabase.from('organizations').select('*').eq('id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-        shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('customers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('suppliers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('products').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('cheques').select('*') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('assets').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('employees').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('accounts').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').eq('organization_id', currentOrgId).order('transaction_date', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('customers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('suppliers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('products').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('cheques').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('assets').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('employees').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('profiles').select('*') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('invoices').select('*').order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('purchase_invoices').select('*').order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('payment_vouchers').select('*').order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('notifications').select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('restaurant_tables').select('*') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('menu_categories').select('*').order('display_order') : Promise.resolve({ data: [], error: null })
+        shouldFetchProtected ? supabase.from('invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('purchase_invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').eq('organization_id', currentOrgId).order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('payment_vouchers').select('*').eq('organization_id', currentOrgId).order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('notifications').select('*').eq('organization_id', currentOrgId).eq('is_read', false).limit(20) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('organization_id', currentOrgId).eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }), // الـ RPC محمي داخلياً بـ get_my_org()
+        shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
 
       // حفظ بيانات المنظمة الحالية (بما فيها الموديولات المسموحة)
