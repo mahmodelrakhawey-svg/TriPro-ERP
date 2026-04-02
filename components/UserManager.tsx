@@ -54,6 +54,7 @@ const UserManager = () => {
       const { data: profiles, error: profilesError } = await supabase
         .from('profiles')
         .select('*')
+        .eq('organization_id', (currentUser as any)?.organization_id)
         .order('created_at', { ascending: false });
 
       if (profilesError) throw profilesError;

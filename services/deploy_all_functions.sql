@@ -1158,11 +1158,12 @@ BEGIN
 END; $$;
 
 -- ب. دالة تحليل النسب الربحية (Historical Ratios)
-CREATE OR REPLACE FUNCTION public.get_historical_ratios()
+-- تم التعديل لتستقبل p_org_id لحل خطأ 404 في شاشة التحليلات
+CREATE OR REPLACE FUNCTION public.get_historical_ratios(p_org_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_profit jsonb; v_org_id uuid;
 BEGIN
-    v_org_id := public.get_my_org();
+    v_org_id := p_org_id;
     SELECT jsonb_agg(jsonb_build_object('name', month_key, 'ربحية', margin)) INTO v_profit FROM (
         SELECT to_char(je.transaction_date, 'YYYY-MM') as month_key,
             CASE WHEN SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) > 0 

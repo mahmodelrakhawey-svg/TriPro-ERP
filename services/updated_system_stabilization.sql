@@ -25,6 +25,33 @@ END $$;
 -- إعدادات الكسور العشرية
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS decimal_places integer DEFAULT 2;
 
+-- إضافة عمود الموديولات المسموحة لجدول المنظمات للتحكم في باقات العملاء (SaaS)
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS allowed_modules text[] DEFAULT '{"accounting"}';
+
+-- إضافة عمود حالة الحساب (نشط/موقف) لإدارة اشتراكات العملاء
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+
+-- إضافة عمود تاريخ انتهاء الاشتراك
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS subscription_expiry date;
+
+-- إضافة عمود الحد الأقصى للمستخدمين (باقات SaaS)
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS max_users integer DEFAULT 5;
+
+-- 🛡️ استثناء للسوبر أدمن: السماح برؤية كافة المنظمات لإدارة المنصة
+ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Super admins view all organizations" ON public.organizations;
+CREATE POLICY "Super admins view all organizations" ON public.organizations FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
+
+-- 🛡️ استثناء للسوبر أدمن: السماح برؤية كافة المستخدمين لإدارة المنصة
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY; -- التأكد من تفعيل RLS على جدول المستخدمين
+DROP POLICY IF EXISTS "Super admins view all profiles" ON public.profiles;
+CREATE POLICY "Super admins view all profiles" ON public.profiles FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
+
+-- السماح للسوبر أدمن بتحديث ملفه الشخصي (بما في ذلك التبديل بين المنظمات)
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Super admins update own profiles" ON public.profiles;
+CREATE POLICY "Super admins update own profiles" ON public.profiles FOR UPDATE TO authenticated USING (public.get_my_role() = 'super_admin');
+
 -- ربط الفواتير والشيكات بالقيود المحاسبية
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
@@ -191,7 +218,12 @@ WHERE vat_rate = 0.15 OR vat_rate = 15 OR vat_rate = 14;
 DO $$ 
 DECLARE 
     t text;
-    tables text[] := ARRAY['accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 'invoices', 'receipt_vouchers', 'payment_vouchers'];
+    tables text[] := ARRAY[
+        'accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 
+        'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 
+        'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'receipt_vouchers', 'payment_vouchers',
+        'cheques', 'credit_notes', 'debit_notes', 'stock_adjustments', 'stock_transfers', 'inventory_counts', 'work_orders'
+    ];
     v_count_before int;
 BEGIN 
     RAISE NOTICE '🛡️ جاري مراجعة وتأمين درع الحماية لجميع الجداول...';

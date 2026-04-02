@@ -248,6 +248,43 @@ const DemoWatermark = () => {
     );
 };
 
+const SuspendedScreen = () => (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center" dir="rtl">
+        <div className="bg-white p-10 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full">
+            <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6"><X className="text-rose-600" size={40} /></div>
+            <h1 className="text-2xl font-black text-slate-800 mb-2">عذراً، هذا الحساب متوقف</h1>
+            <p className="text-slate-500 mb-6 font-medium">يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل.</p>
+            <button onClick={() => supabase.auth.signOut()} className="w-full bg-slate-100 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">تسجيل الخروج</button>
+        </div>
+    </div>
+);
+
+const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
+    const { organization, currentUser, isLoading } = useAccounting();
+    
+    if (isLoading) return null;
+
+    const role = currentUser?.role || '';
+    const isSuperAdmin = role === 'super_admin';
+    const isDemo = role === 'demo';
+    const allowedModules = (organization as any)?.allowed_modules || [];
+    
+    const expiryDate = (organization as any)?.subscription_expiry;
+    const isExpired = expiryDate && expiryDate < new Date().toISOString().split('T')[0];
+
+    if (organization && ((organization as any).is_active === false || isExpired) && !isSuperAdmin) {
+        return <SuspendedScreen />;
+    }
+
+    const isAllowed = isSuperAdmin || isDemo || (organization && (allowedModules.includes(module) || allowedModules.length === 0));
+
+    if (!isAllowed) {
+        return <Navigate to="/" replace />;
+    }
+
+    return <>{children}</>;
+};
+
 const MainLayout = () => {
     const { currentUser } = useAccounting();
 
@@ -283,104 +320,104 @@ const MainLayout = () => {
                         <Routes>
                 <Route path="/login" element={<Navigate to="/" replace />} />
                 <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
-                <Route path="/financial-ratios" element={<FinancialRatios />} />
-                <Route path="/expense-analysis" element={<ExpenseAnalysisReport />} />
-                  <Route path="/budget-setup" element={<BudgetManager />} />
-                <Route path="/budget-report" element={<BudgetVarianceReport />} />
-                <Route path="/fiscal-year-closing" element={<FiscalYearClosing />} />
-                <Route path="/receipt-voucher" element={<ReceiptVoucherForm />} />
-                <Route path="/receipt-vouchers-list" element={<ReceiptVoucherList />} />
-                <Route path="/payment-voucher" element={<PaymentVoucherForm />} />
-                <Route path="/payment-vouchers-list" element={<PaymentVoucherList />} />
-                <Route path="/expense-voucher" element={<ExpenseVoucherForm />} />
-                <Route path="/customer-deposit" element={<CustomerDepositForm />} />
-                <Route path="/transfer" element={<TransferForm />} />
-                <Route path="/stock-transfer" element={<StockTransfer />} />
-                <Route path="/stock-transfer-list" element={<StockTransferList />} />
+                <Route path="/financial-ratios" element={<ModuleGuard module="accounting"><FinancialRatios /></ModuleGuard>} />
+                <Route path="/expense-analysis" element={<ModuleGuard module="accounting"><ExpenseAnalysisReport /></ModuleGuard>} />
+                  <Route path="/budget-setup" element={<ModuleGuard module="accounting"><BudgetManager /></ModuleGuard>} />
+                <Route path="/budget-report" element={<ModuleGuard module="accounting"><BudgetVarianceReport /></ModuleGuard>} />
+                <Route path="/fiscal-year-closing" element={<ModuleGuard module="accounting"><FiscalYearClosing /></ModuleGuard>} />
+                <Route path="/receipt-voucher" element={<ModuleGuard module="accounting"><ReceiptVoucherForm /></ModuleGuard>} />
+                <Route path="/receipt-vouchers-list" element={<ModuleGuard module="accounting"><ReceiptVoucherList /></ModuleGuard>} />
+                <Route path="/payment-voucher" element={<ModuleGuard module="accounting"><PaymentVoucherForm /></ModuleGuard>} />
+                <Route path="/payment-vouchers-list" element={<ModuleGuard module="accounting"><PaymentVoucherList /></ModuleGuard>} />
+                <Route path="/expense-voucher" element={<ModuleGuard module="accounting"><ExpenseVoucherForm /></ModuleGuard>} />
+                <Route path="/customer-deposit" element={<ModuleGuard module="accounting"><CustomerDepositForm /></ModuleGuard>} />
+                <Route path="/transfer" element={<ModuleGuard module="accounting"><TransferForm /></ModuleGuard>} />
+                <Route path="/stock-transfer" element={<ModuleGuard module="inventory"><StockTransfer /></ModuleGuard>} />
+                <Route path="/stock-transfer-list" element={<ModuleGuard module="inventory"><StockTransferList /></ModuleGuard>} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationForm />} />
                 <Route path="/deficit-report" element={<DeficitReport />} />
-                <Route path="/cash-closing" element={<CashClosingForm />} />
-                <Route path="/cheques" element={<ChequesPage />} />
-                <Route path="/cheque-movement-report" element={<ChequeMovementReport />} />
-                <Route path="/returned-cheques-report" element={<ReturnedChequesReport />} />
-                <Route path="/sales-invoice" element={<SalesInvoiceForm />} />
-                <Route path="/invoices-list" element={<InvoiceList />} />
-                <Route path="/sales-return" element={<SalesReturnForm />} />
-                <Route path="/customers" element={<CustomerManager />} />
-                <Route path="/customer-statement" element={<CustomerStatement />} />
-                <Route path="/customer-aging" element={<CustomerAgingReport />} />
-                <Route path="/quotations-new" element={<QuotationForm />} />
-                <Route path="/quotations-list" element={<QuotationList />} />
-                <Route path="/credit-note" element={<CreditNoteForm />} />
-                <Route path="/credit-notes-list" element={<CreditNoteList />} />
-                <Route path="/debit-notes-list" element={<DebitNoteList />} />
-                <Route path="/purchase-order-new" element={<PurchaseOrderForm />} />
-                <Route path="/purchase-order-list" element={<PurchaseOrderList />} />
-                <Route path="/purchase-invoice" element={<PurchaseInvoiceForm />} />
-                <Route path="/purchase-invoices-list" element={<PurchaseInvoiceList />} />
-                <Route path="/net-purchases-report" element={<NetPurchasesReport />} />
-                <Route path="/purchase-return" element={<PurchaseReturnForm />} />
-                <Route path="/debit-note" element={<DebitNoteForm />} />
-                <Route path="/suppliers" element={<SupplierManager />} />
-                <Route path="/supplier-statement" element={<SupplierStatement />} />
-                <Route path="/supplier-aging" element={<SupplierAgingReport />} />
-                <Route path="/supplier-reconciliation" element={<SupplierBalanceReconciliation />} />
-                <Route path="/supplier-balances" element={<SupplierBalancesReport />} />
-                <Route path="/warehouses" element={<WarehouseManager />} />
-                <Route path="/inventory-dashboard" element={<InventoryDashboard />} />
-                <Route path="/products" element={<ProductManager />} />
-                <Route path="/inventory-count" element={<InventoryCountForm />} />
-                <Route path="/item-movement" element={<ItemMovementReport />} />
-                <Route path="/top-selling" element={<TopSellingReport />} />
-                <Route path="/slow-moving" element={<SlowMovingReport />} />
-                <Route path="/item-profit" element={<ItemProfitReport />} />
-                <Route path="/inventory-history" element={<InventoryCountList />} />
-                <Route path="/stock-adjustment" element={<StockAdjustmentForm />} />
-                <Route path="/wastage" element={<WastageManager />} />
-                <Route path="/stock-card" element={<StockCard />} />
-                <Route path="/inventory-revaluation" element={<InventoryRevaluation />} />
-                <Route path="/detailed-stock-movement" element={<DetailedStockMovementReport />} />
-                <Route path="/stock-movement-cost" element={<StockMovementCostReport />} />
-                <Route path="/opening-inventory" element={<OpeningInventory />} />
-                <Route path="/manufacturing" element={<ManufacturingManager />} />
-                <Route path="/work-orders" element={<WorkOrderManager />} />
-                <Route path="/production-cost-analysis" element={<ProductionCostAnalysis />} />
-                <Route path="/employees" element={<EmployeeManager />} />
-                <Route path="/payroll" element={<PayrollRun />} />
-                <Route path="/employee-advances" element={<EmployeeAdvances />} />
-                            <Route path="/payroll-report" element={<PayrollReport />} />
-                <Route path="/employee-statement" element={<EmployeeStatement />} />
-                <Route path="/employee-reports" element={<EmployeeReports />} />
-                <Route path="/journal" element={<JournalEntryForm />} />
-                <Route path="/draft-journals" element={<DraftJournalsList />} />
-                <Route path="/general-journal" element={<GeneralJournal />} />
-                <Route path="/ledger" element={<GeneralLedger />} />
-                <Route path="/trial-balance-advanced" element={<TrialBalanceAdvanced />} />
-                <Route path="/income-statement" element={<IncomeStatement />} />
-                <Route path="/balance-sheet" element={<BalanceSheet />} />
-                <Route path="/cash-flow" element={<CashFlowStatement />} />
-                <Route path="/cash-flow-report" element={<CashFlowReport />} />
-                <Route path="/tax-return" element={<TaxReturnReport />} />
-                <Route path="/performance-comparison" element={<PerformanceComparisonReport />} />
-                <Route path="/multi-currency-statement" element={<MultiCurrencyStatement />} />
-                <Route path="/payment-method-report" element={<PaymentMethodReport />} />
-                <Route path="/attachments-report" element={<AttachmentsReport />} />
+                <Route path="/cash-closing" element={<ModuleGuard module="accounting"><CashClosingForm /></ModuleGuard>} />
+                <Route path="/cheques" element={<ModuleGuard module="accounting"><ChequesPage /></ModuleGuard>} />
+                <Route path="/cheque-movement-report" element={<ModuleGuard module="accounting"><ChequeMovementReport /></ModuleGuard>} />
+                <Route path="/returned-cheques-report" element={<ModuleGuard module="accounting"><ReturnedChequesReport /></ModuleGuard>} />
+                <Route path="/sales-invoice" element={<ModuleGuard module="sales"><SalesInvoiceForm /></ModuleGuard>} />
+                <Route path="/invoices-list" element={<ModuleGuard module="sales"><InvoiceList /></ModuleGuard>} />
+                <Route path="/sales-return" element={<ModuleGuard module="sales"><SalesReturnForm /></ModuleGuard>} />
+                <Route path="/customers" element={<ModuleGuard module="sales"><CustomerManager /></ModuleGuard>} />
+                <Route path="/customer-statement" element={<ModuleGuard module="sales"><CustomerStatement /></ModuleGuard>} />
+                <Route path="/customer-aging" element={<ModuleGuard module="sales"><CustomerAgingReport /></ModuleGuard>} />
+                <Route path="/quotations-new" element={<ModuleGuard module="sales"><QuotationForm /></ModuleGuard>} />
+                <Route path="/quotations-list" element={<ModuleGuard module="sales"><QuotationList /></ModuleGuard>} />
+                <Route path="/credit-note" element={<ModuleGuard module="sales"><CreditNoteForm /></ModuleGuard>} />
+                <Route path="/credit-notes-list" element={<ModuleGuard module="sales"><CreditNoteList /></ModuleGuard>} />
+                <Route path="/debit-notes-list" element={<ModuleGuard module="purchases"><DebitNoteList /></ModuleGuard>} />
+                <Route path="/purchase-order-new" element={<ModuleGuard module="purchases"><PurchaseOrderForm /></ModuleGuard>} />
+                <Route path="/purchase-order-list" element={<ModuleGuard module="purchases"><PurchaseOrderList /></ModuleGuard>} />
+                <Route path="/purchase-invoice" element={<ModuleGuard module="purchases"><PurchaseInvoiceForm /></ModuleGuard>} />
+                <Route path="/purchase-invoices-list" element={<ModuleGuard module="purchases"><PurchaseInvoiceList /></ModuleGuard>} />
+                <Route path="/net-purchases-report" element={<ModuleGuard module="purchases"><NetPurchasesReport /></ModuleGuard>} />
+                <Route path="/purchase-return" element={<ModuleGuard module="purchases"><PurchaseReturnForm /></ModuleGuard>} />
+                <Route path="/debit-note" element={<ModuleGuard module="purchases"><DebitNoteForm /></ModuleGuard>} />
+                <Route path="/suppliers" element={<ModuleGuard module="purchases"><SupplierManager /></ModuleGuard>} />
+                <Route path="/supplier-statement" element={<ModuleGuard module="purchases"><SupplierStatement /></ModuleGuard>} />
+                <Route path="/supplier-aging" element={<ModuleGuard module="purchases"><SupplierAgingReport /></ModuleGuard>} />
+                <Route path="/supplier-reconciliation" element={<ModuleGuard module="purchases"><SupplierBalanceReconciliation /></ModuleGuard>} />
+                <Route path="/supplier-balances" element={<ModuleGuard module="purchases"><SupplierBalancesReport /></ModuleGuard>} />
+                <Route path="/warehouses" element={<ModuleGuard module="inventory"><WarehouseManager /></ModuleGuard>} />
+                <Route path="/inventory-dashboard" element={<ModuleGuard module="inventory"><InventoryDashboard /></ModuleGuard>} />
+                <Route path="/products" element={<ModuleGuard module="inventory"><ProductManager /></ModuleGuard>} />
+                <Route path="/inventory-count" element={<ModuleGuard module="inventory"><InventoryCountForm /></ModuleGuard>} />
+                <Route path="/item-movement" element={<ModuleGuard module="inventory"><ItemMovementReport /></ModuleGuard>} />
+                <Route path="/top-selling" element={<ModuleGuard module="inventory"><TopSellingReport /></ModuleGuard>} />
+                <Route path="/slow-moving" element={<ModuleGuard module="inventory"><SlowMovingReport /></ModuleGuard>} />
+                <Route path="/item-profit" element={<ModuleGuard module="inventory"><ItemProfitReport /></ModuleGuard>} />
+                <Route path="/inventory-history" element={<ModuleGuard module="inventory"><InventoryCountList /></ModuleGuard>} />
+                <Route path="/stock-adjustment" element={<ModuleGuard module="inventory"><StockAdjustmentForm /></ModuleGuard>} />
+                <Route path="/wastage" element={<ModuleGuard module="inventory"><WastageManager /></ModuleGuard>} />
+                <Route path="/stock-card" element={<ModuleGuard module="inventory"><StockCard /></ModuleGuard>} />
+                <Route path="/inventory-revaluation" element={<ModuleGuard module="inventory"><InventoryRevaluation /></ModuleGuard>} />
+                <Route path="/detailed-stock-movement" element={<ModuleGuard module="inventory"><DetailedStockMovementReport /></ModuleGuard>} />
+                <Route path="/stock-movement-cost" element={<ModuleGuard module="inventory"><StockMovementCostReport /></ModuleGuard>} />
+                <Route path="/opening-inventory" element={<ModuleGuard module="inventory"><OpeningInventory /></ModuleGuard>} />
+                <Route path="/manufacturing" element={<ModuleGuard module="manufacturing"><ManufacturingManager /></ModuleGuard>} />
+                <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
+                <Route path="/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
+                <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
+                <Route path="/payroll" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
+                <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />
+                            <Route path="/payroll-report" element={<ModuleGuard module="hr"><PayrollReport /></ModuleGuard>} />
+                <Route path="/employee-statement" element={<ModuleGuard module="hr"><EmployeeStatement /></ModuleGuard>} />
+                <Route path="/employee-reports" element={<ModuleGuard module="hr"><EmployeeReports /></ModuleGuard>} />
+                <Route path="/journal" element={<ModuleGuard module="accounting"><JournalEntryForm /></ModuleGuard>} />
+                <Route path="/draft-journals" element={<ModuleGuard module="accounting"><DraftJournalsList /></ModuleGuard>} />
+                <Route path="/general-journal" element={<ModuleGuard module="accounting"><GeneralJournal /></ModuleGuard>} />
+                <Route path="/ledger" element={<ModuleGuard module="accounting"><GeneralLedger /></ModuleGuard>} />
+                <Route path="/trial-balance-advanced" element={<ModuleGuard module="accounting"><TrialBalanceAdvanced /></ModuleGuard>} />
+                <Route path="/income-statement" element={<ModuleGuard module="accounting"><IncomeStatement /></ModuleGuard>} />
+                <Route path="/balance-sheet" element={<ModuleGuard module="accounting"><BalanceSheet /></ModuleGuard>} />
+                <Route path="/cash-flow" element={<ModuleGuard module="accounting"><CashFlowStatement /></ModuleGuard>} />
+                <Route path="/cash-flow-report" element={<ModuleGuard module="accounting"><CashFlowReport /></ModuleGuard>} />
+                <Route path="/tax-return" element={<ModuleGuard module="accounting"><TaxReturnReport /></ModuleGuard>} />
+                <Route path="/performance-comparison" element={<ModuleGuard module="accounting"><PerformanceComparisonReport /></ModuleGuard>} />
+                <Route path="/multi-currency-statement" element={<ModuleGuard module="accounting"><MultiCurrencyStatement /></ModuleGuard>} />
+                <Route path="/payment-method-report" element={<ModuleGuard module="accounting"><PaymentMethodReport /></ModuleGuard>} />
+                <Route path="/attachments-report" element={<ModuleGuard module="accounting"><AttachmentsReport /></ModuleGuard>} />
                 <Route path="/user-guide" element={<UserGuide />} />
-                <Route path="/accounting-dashboard" element={<AccountingDashboard />} />
-                <Route path="/journal-export" element={<JournalEntriesExport />} />
-                <Route path="/accounts" element={<AccountList />} />
-                <Route path="/assets" element={<AssetManager />} />
-                <Route path="/important-reports" element={<ImportantReports />} />
-                <Route path="/sales-reports" element={<SalesReports />} />
-                <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
-                <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
-                <Route path="/reports/wastage-analysis" element={<WastageAnalysisReport />} />
-                <Route path="/reports/restaurant-profit" element={<RestaurantProfitReport />} />
+                <Route path="/accounting-dashboard" element={<ModuleGuard module="accounting"><AccountingDashboard /></ModuleGuard>} />
+                <Route path="/journal-export" element={<ModuleGuard module="accounting"><JournalEntriesExport /></ModuleGuard>} />
+                <Route path="/accounts" element={<ModuleGuard module="accounting"><AccountList /></ModuleGuard>} />
+                <Route path="/assets" element={<ModuleGuard module="accounting"><AssetManager /></ModuleGuard>} />
+                <Route path="/important-reports" element={<ModuleGuard module="accounting"><ImportantReports /></ModuleGuard>} />
+                <Route path="/sales-reports" element={<ModuleGuard module="sales"><SalesReports /></ModuleGuard>} />
+                <Route path="/reports/restaurant-sales" element={<ModuleGuard module="restaurant"><RestaurantSalesReport /></ModuleGuard>} />
+                <Route path="/reports/sales-by-user" element={<ModuleGuard module="restaurant"><SalesByUserReport /></ModuleGuard>} />
+                <Route path="/reports/wastage-analysis" element={<ModuleGuard module="restaurant"><WastageAnalysisReport /></ModuleGuard>} />
+                <Route path="/reports/restaurant-profit" element={<ModuleGuard module="restaurant"><RestaurantProfitReport /></ModuleGuard>} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
-                <Route path="/purchase-reports" element={<PurchaseReports />} />
-                <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
-                <Route path="/item-sales-analysis" element={<ItemSalesAnalysis />} />
-                <Route path="/purchase-analysis" element={<PurchaseAnalysisReport />} />
+                <Route path="/purchase-reports" element={<ModuleGuard module="purchases"><PurchaseReports /></ModuleGuard>} />
+                <Route path="/offer-beneficiaries" element={<ModuleGuard module="sales"><OfferBeneficiariesReport /></ModuleGuard>} />
+                <Route path="/item-sales-analysis" element={<ModuleGuard module="sales"><ItemSalesAnalysis /></ModuleGuard>} />
+                <Route path="/purchase-analysis" element={<ModuleGuard module="purchases"><PurchaseAnalysisReport /></ModuleGuard>} />
                 <Route path="/users" element={<UserManager />} />
                 <Route path="/security-logs" element={<SecurityLogs />} />
                 <Route path="/permissions" element={<PermissionsManager />} />
@@ -390,9 +427,9 @@ const MainLayout = () => {
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
-                <Route path="/pos" element={<PosScreen />} /> {/* التأكد من أن هذا السطر موجود */}
-                <Route path="/kds" element={<KdsScreen />} /> {/* إضافة مسار شاشة المطبخ */}
-                <Route path="/kitchen-end-day" element={<KitchenEndDayCount />} /> {/* إضافة مسار جرد المطبخ */}
+                <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> {/* التأكد من أن هذا السطر موجود */}
+                <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> {/* إضافة مسار شاشة المطبخ */}
+                <Route path="/kitchen-end-day" element={<ModuleGuard module="restaurant"><KitchenEndDayCount /></ModuleGuard>} /> {/* إضافة مسار جرد المطبخ */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>

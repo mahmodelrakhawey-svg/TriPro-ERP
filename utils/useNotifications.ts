@@ -31,11 +31,12 @@ export const useNotifications = (): UseNotificationsReturn => {
 
     setLoading(true);
     setError(null);
+    const orgId = (currentUser as any).organization_id || '';
 
     try {
       const [allNotifications, count] = await Promise.all([
-        NotificationService.getAllNotifications(currentUser.id, 50),
-        NotificationService.getUnreadCount(currentUser.id),
+        NotificationService.getAllNotifications(currentUser.id, orgId, 50),
+        NotificationService.getUnreadCount(currentUser.id, orgId),
       ]);
 
       setNotifications(allNotifications);
@@ -73,9 +74,10 @@ export const useNotifications = (): UseNotificationsReturn => {
   // تعليم جميع الإخطارات كمقروءة
   const markAllAsRead = useCallback(async () => {
     if (!currentUser?.id) return;
+    const orgId = (currentUser as any).organization_id || '';
 
     try {
-      const success = await NotificationService.markAllAsRead(currentUser.id);
+      const success = await NotificationService.markAllAsRead(currentUser.id, orgId);
       if (success) {
         setNotifications((prev) => prev.map((notif) => ({ ...notif, is_read: true })));
         setUnreadCount(0);

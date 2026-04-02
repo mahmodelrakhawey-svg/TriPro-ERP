@@ -758,7 +758,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('cheques').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('assets').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('employees').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('profiles').select('*') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('profiles').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('purchase_invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').eq('organization_id', currentOrgId).order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),

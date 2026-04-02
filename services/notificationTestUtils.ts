@@ -21,6 +21,7 @@ export async function testNotificationSystem() {
 
     const testNotification = await NotificationService.createNotification(
       userId,
+      'demo-org-id',
       '🧪 اختبار الإخطارات',
       'هذا إخطار تجريبي لاختبار النظام. يمكنك حذفه بأمان.',
       'success',
@@ -37,7 +38,7 @@ export async function testNotificationSystem() {
 
     // اختبار 2: جلب الإخطارات غير المقروءة
     console.log('\n✅ اختبار 2: جلب الإخطارات غير المقروءة');
-    const unreadNotifications = await NotificationService.getUnreadNotifications(userId);
+    const unreadNotifications = await NotificationService.getUnreadNotifications(userId, 'demo-org-id');
     console.log(`✔ عدد الإخطارات غير المقروءة: ${unreadNotifications.length}`);
     if (unreadNotifications.length > 0) {
       console.log('  أول إخطار:', unreadNotifications[0].title);
@@ -45,7 +46,7 @@ export async function testNotificationSystem() {
 
     // اختبار 3: عد الإخطارات غير المقروءة
     console.log('\n✅ اختبار 3: عد الإخطارات غير المقروءة');
-    const count = await NotificationService.getUnreadCount(userId);
+    const count = await NotificationService.getUnreadCount(userId, 'demo-org-id');
     console.log(`✔ عدد الإخطارات: ${count}`);
 
     // اختبار 4: تعليم الإخطار كمقروء

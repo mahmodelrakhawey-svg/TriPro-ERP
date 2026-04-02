@@ -21,7 +21,17 @@ const Sidebar = () => {
 
   // جلب الموديولات المسموحة للشركة (إذا لم توجد نعتبر الكل متاح للتوافق)
   const allowedModules = (organization as any)?.allowed_modules || [];
-  const isModuleAllowed = (mod: string) => isSuperAdmin || allowedModules.includes(mod) || allowedModules.length === 0;
+  const isModuleAllowed = (mod: string) => isSuperAdmin || (organization && (allowedModules.includes(mod) || allowedModules.length === 0));
+
+  // حساب الأيام المتبقية على انتهاء الاشتراك لإظهار التنبيه
+  const daysRemaining = React.useMemo(() => {
+    const expiry = (organization as any)?.subscription_expiry;
+    if (!expiry || isSuperAdmin) return null;
+    const expiryDate = new Date(expiry);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  }, [organization, isSuperAdmin]);
 
   const toggleSection = (section: string) => {
     setOpenSection(openSection === section ? null : section);
@@ -42,7 +52,7 @@ const Sidebar = () => {
   // Helper to check permissions
   const hasAccess = (modules: string[]) => {
       if (isSuperAdmin) return true; 
-      if (isAdmin) return modules.some(m => isModuleAllowed(m)) && organization; // التأكد من تحميل بيانات الشركة أولاً
+      if (isAdmin) return true; // سنعتمد على متغيرات canAccess في الأسفل لفحص ترخيص الشركة
       if (role === 'demo') return true; // السماح لمستخدم الديمو برؤية كل المديولات
       if (!userPermissions || userPermissions.size === 0) return false;
       
@@ -145,6 +155,28 @@ const Sidebar = () => {
       </div>
 
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {/* تنبيه قرب انتهاء الاشتراك - يظهر فقط للعملاء قبل 7 أيام من الانتهاء */}
+        {daysRemaining !== null && daysRemaining <= 7 && (
+          <div className={`mb-4 p-3 rounded-xl border flex flex-col gap-2 animate-pulse ${daysRemaining <= 0 ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
+            <div className="flex items-center gap-2 font-bold text-xs">
+              <AlertTriangle size={16} className={daysRemaining <= 0 ? 'text-rose-600' : 'text-amber-600'} />
+              <span>{daysRemaining <= 0 ? 'انتهى الاشتراك' : 'تنبيه انتهاء الاشتراك'}</span>
+            </div>
+            <p className="text-[10px] leading-relaxed font-medium">
+              {daysRemaining <= 0 
+                ? 'يرجى تجديد الاشتراك لضمان استمرار الخدمة وتجنب حظر الدخول.' 
+                : `باقي ${daysRemaining} ${daysRemaining === 1 ? 'يوم واحد' : 'أيام'} على انتهاء اشتراككم الحالي.`}
+            </p>
+            <a 
+              href="https://wa.me/201008495405" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className={`text-[10px] font-black text-center py-1.5 rounded-lg transition-all ${daysRemaining <= 0 ? 'bg-rose-600 text-white hover:bg-rose-700' : 'bg-amber-600 text-white hover:bg-amber-700'}`}>
+              تجديد الآن 🚀
+            </a>
+          </div>
+        )}
+
         {!isChef && (
         <Link to="/" className={getNavClass('/')}>
           <LayoutDashboard size={18} />

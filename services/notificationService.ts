@@ -38,6 +38,7 @@ class NotificationService {
    */
   static async createNotification(
     userId: string,
+    orgId: string,
     title: string,
     message: string,
     type: NotificationType,
@@ -51,6 +52,7 @@ class NotificationService {
         .from('notifications')
         .insert({
           user_id: userId,
+          organization_id: orgId,
           title,
           message,
           type,
@@ -79,12 +81,13 @@ class NotificationService {
   /**
    * جلب الإخطارات غير المقروءة للمستخدم
    */
-  static async getUnreadNotifications(userId: string): Promise<Notification[]> {
+  static async getUnreadNotifications(userId: string, orgId: string): Promise<Notification[]> {
     try {
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
         .eq('user_id', userId)
+        .eq('organization_id', orgId)
         .eq('is_read', false)
         .order('created_at', { ascending: false })
         .limit(20);
@@ -106,6 +109,7 @@ class NotificationService {
    */
   static async getAllNotifications(
     userId: string,
+    orgId: string,
     limit: number = 50,
     offset: number = 0
   ): Promise<Notification[]> {
@@ -114,6 +118,7 @@ class NotificationService {
         .from('notifications')
         .select('*')
         .eq('user_id', userId)
+        .eq('organization_id', orgId)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -154,12 +159,13 @@ class NotificationService {
   /**
    * تعليم جميع الإخطارات كمقروءة
    */
-  static async markAllAsRead(userId: string): Promise<boolean> {
+  static async markAllAsRead(userId: string, orgId: string): Promise<boolean> {
     try {
       const { error } = await supabase
         .from('notifications')
         .update({ is_read: true })
         .eq('user_id', userId)
+        .eq('organization_id', orgId)
         .eq('is_read', false);
 
       if (error) {
@@ -225,6 +231,7 @@ class NotificationService {
           .from('customers')
           .select('id, responsible_user_id')
           .eq('id', invoice.customer_id)
+          .eq('organization_id', orgId)
           .single();
 
         if (customer?.responsible_user_id) {
@@ -234,6 +241,7 @@ class NotificationService {
 
           await this.createNotification(
             customer.responsible_user_id,
+            orgId,
             `دفعة مستحقة منذ ${daysOverdue} يوم`,
             `الفاتورة رقم ${invoice.invoice_number} استحقت منذ ${daysOverdue} يوم`,
             'overdue_payment',
@@ -271,6 +279,7 @@ class NotificationService {
       const { data: admins } = await supabase
         .from('profiles')
         .select('id')
+        .eq('organization_id', orgId)
         .in('role', ['admin', 'super_admin']);
 
       if (!admins) return;
@@ -281,6 +290,7 @@ class NotificationService {
            for (const admin of admins) {
               await this.createNotification(
                 admin.id,
+                orgId,
                 `مخزون منخفض: ${item.name}`,
                 `المخزون الحالي: ${item.stock} والحد الأدنى: ${minLevel}`,
             'low_inventory',
@@ -312,24 +322,22 @@ class NotificationService {
       // ملاحظة: يجب تعديل الـ RPC في قاعدة البيانات ليستقبل org_id
       const { data: customers, error } = await supabase.rpc('get_over_limit_customers', { org_id: orgId });
 
-      if (error) {
-          console.warn('RPC get_over_limit_customers failed or not found.', error);
+      if (error || !customers) {
+          if (error) console.error('Error in checkHighDebt:', error);
           return;
       }
-
-      if (error || !customers) return;
-
       // جلب المسؤولين كاحتياطي
       const { data: admins } = await supabase
         .from('profiles')
         .select('id')
+        .eq('organization_id', orgId)
         .in('role', ['admin', 'super_admin'])
         .limit(1);
       const adminId = admins?.[0]?.id;
 
       for (const customer of customers) {
         // محاولة جلب المستخدم المسؤول
-        const { data: custDetails } = await supabase.from('customers').select('responsible_user_id').eq('id', customer.id).single();
+        const { data: custDetails } = await supabase.from('customers').select('responsible_user_id').eq('id', customer.id).eq('organization_id', orgId).single();
         const targetUser = custDetails?.responsible_user_id || adminId;
 
         if (targetUser) {
@@ -339,6 +347,7 @@ class NotificationService {
 
           await this.createNotification(
             targetUser,
+            orgId,
             `تجاوز حد الائتمان: ${customer.name}`,
             `الدين الحالي (${customer.total_debt}) يتجاوز الحد (${customer.credit_limit}) بنسبة ${exceedPercentage}%`,
             'high_debt',
@@ -377,13 +386,14 @@ class NotificationService {
       const { data: admins } = await supabase
         .from('profiles')
         .select('id')
+        .eq('organization_id', orgId)
         .in('role', ['admin', 'super_admin']);
-
       if (pendingInvoices && admins) {
         for (const invoice of pendingInvoices) {
           for (const admin of admins) {
              await this.createNotification(
               admin.id,
+              orgId,
               `مسودة فاتورة معلقة: ${invoice.invoice_number}`,
               `الفاتورة لا تزال مسودة منذ أكثر من 24 ساعة`,
               'pending_approval',
@@ -435,6 +445,7 @@ class NotificationService {
             .from('customers')
             .select('responsible_user_id')
             .eq('id', invoice.customer_id)
+            .eq('organization_id', orgId)
             .single();
 
           if (customer?.responsible_user_id) {
@@ -444,6 +455,7 @@ class NotificationService {
 
             await this.createNotification(
               customer.responsible_user_id,
+              orgId,
               `تاريخ دفع قريب: ${invoice.invoice_number}`,
               `ستستحق الفاتورة رقم ${invoice.invoice_number} بعد ${daysUntilDue} يوم`,
               'due_date_approaching',
@@ -483,12 +495,13 @@ class NotificationService {
   /**
    * الحصول على عدد الإخطارات غير المقروءة
    */
-  static async getUnreadCount(userId: string): Promise<number> {
+  static async getUnreadCount(userId: string, orgId: string): Promise<number> {
     try {
       const { count, error } = await supabase
         .from('notifications')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', userId)
+        .eq('organization_id', orgId)
         .eq('is_read', false);
 
       if (error) {

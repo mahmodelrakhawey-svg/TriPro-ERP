@@ -25,6 +25,10 @@ CREATE TABLE public.organizations (
     email text,
     logo_url text,
     footer_text text,
+    allowed_modules text[] DEFAULT '{"accounting"}',
+    is_active boolean DEFAULT true,
+    subscription_expiry date,
+    max_users integer DEFAULT 5,
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -383,6 +387,7 @@ CREATE TABLE public.invoices (
     approver_id uuid REFERENCES auth.users(id), -- عمود جديد
     reference text, -- عمود جديد
     deleted_at timestamptz,
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now() NOT NULL
 );
@@ -447,6 +452,7 @@ CREATE TABLE public.purchase_invoices (
     approver_id uuid REFERENCES auth.users(id),
     reference text,
     deleted_at timestamptz,
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now() NOT NULL
 );
@@ -1962,15 +1968,16 @@ END $$;
 -- سياسات الوصول (Policies)
 -- 1. Profiles
 CREATE POLICY "Profiles isolated by org" ON profiles FOR SELECT USING (organization_id = get_my_org());
+CREATE POLICY "Super admins view all profiles" ON profiles FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
 CREATE POLICY "Users update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
 CREATE POLICY "Admins manage profiles" ON profiles FOR ALL USING (is_admin() AND organization_id = get_my_org());
-
+CREATE POLICY "Super admins manage all profiles" ON profiles FOR ALL TO authenticated USING (public.get_my_role() = 'super_admin');
 -- 2. Organizations
 CREATE POLICY "Users view own org" ON organizations FOR SELECT USING (id = get_my_org());
+CREATE POLICY "Super admins view all organizations" ON organizations FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
 
 -- سياسة الوصول لجدول الدعوات (فقط الأدمن يمكنه الإرسال)
-CREATE POLICY "Admins manage invitations" ON invitations FOR ALL USING (is_admin());
-
+CREATE POLICY "Admins manage invitations" ON invitations FOR ALL USING (is_admin() AND organization_id = get_my_org());
 -- 2. Settings
 CREATE POLICY "Settings isolated by org" ON company_settings FOR SELECT TO authenticated USING (organization_id = get_my_org());
 CREATE POLICY "Admins update settings" ON company_settings FOR UPDATE USING (is_admin() AND organization_id = get_my_org());

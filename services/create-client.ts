@@ -11,13 +11,13 @@ export default async function handler(req: any, res: any) {
   // تأمين الـ API: السماح فقط بطلبات POST
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
-  const { email, password, companyName, adminName } = req.body
+  const { email, password, companyName, adminName, modules, subscriptionExpiry } = req.body
 
   try {
     // 1. إنشاء المنظمة (الشركة) الجديدة
     const { data: org, error: orgError } = await supabaseAdmin
       .from('organizations')
-      .insert({ name: companyName })
+      .insert({ name: companyName, allowed_modules: modules || ['accounting'], subscription_expiry: subscriptionExpiry || null })
       .select()
       .single()
 
