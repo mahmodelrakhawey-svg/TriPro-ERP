@@ -26,10 +26,16 @@ const PaymentMethodReport = () => {
     }
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // 1. Fetch receipts
       const { data: receipts, error: receiptsError } = await supabase
         .from('receipt_vouchers')
-        .select('payment_method, amount')
+        .select('payment_method, amount, organization_id')
+        .eq('organization_id', userOrgId)
         .gte('receipt_date', startDate)
         .lte('receipt_date', endDate);
       
@@ -38,7 +44,8 @@ const PaymentMethodReport = () => {
       // 2. Fetch payments
       const { data: payments, error: paymentsError } = await supabase
         .from('payment_vouchers')
-        .select('payment_method, amount')
+        .select('payment_method, amount, organization_id')
+        .eq('organization_id', userOrgId)
         .gte('payment_date', startDate)
         .lte('payment_date', endDate);
 

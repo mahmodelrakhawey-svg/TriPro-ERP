@@ -40,10 +40,16 @@ const SlowMovingReport = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // 1. جلب جميع الأصناف التي لها رصيد بالمخزون
       const { data: products, error: prodError } = await supabase
         .from('products')
         .select('id, name, sku, stock, purchase_price')
+        .eq('organization_id', userOrgId) // 🔒 فلترة المنتجات حسب المنظمة
         .gt('stock', 0); // نهتم فقط بما هو موجود بالمخزون
 
       if (prodError) throw prodError;
@@ -52,6 +58,7 @@ const SlowMovingReport = () => {
       const { data: sales, error: salesError } = await supabase
         .from('invoice_items')
         .select('product_id, quantity, invoices!inner(invoice_date)')
+        .eq('invoices.organization_id', userOrgId) // 🔒 فلترة المبيعات حسب المنظمة
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate);
 
@@ -61,6 +68,7 @@ const SlowMovingReport = () => {
       const { data: restSales } = await supabase
         .from('order_items')
         .select('product_id, quantity, orders!inner(created_at, status)')
+        .eq('orders.organization_id', userOrgId) // 🔒 فلترة طلبات المطاعم حسب المنظمة
         .eq('orders.status', 'COMPLETED')
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);

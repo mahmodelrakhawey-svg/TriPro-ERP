@@ -39,10 +39,16 @@ const TopSellingReport = () => {
     }
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // 1. جلب بنود فواتير المبيعات خلال الفترة
       const { data: items, error } = await supabase
         .from('invoice_items')
         .select('quantity, total, product_id, products:product_id(name, sku), invoices!inner(invoice_date)')
+        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة لضمان العزل
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate);
 
@@ -52,6 +58,7 @@ const TopSellingReport = () => {
       const { data: restItems } = await supabase
         .from('order_items')
         .select('quantity, total_price, product_id, products:product_id(name, sku), orders!inner(created_at, status)')
+        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة لضمان العزل
         .eq('orders.status', 'COMPLETED')
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);

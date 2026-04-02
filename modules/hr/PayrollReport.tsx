@@ -16,11 +16,21 @@ const PayrollReport = () => {
   const fetchPayrollData = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        showToast('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.', 'error');
+        setLoading(false);
+        return;
+      }
+
       // 1. جلب بيانات المسير الرئيسي للشهر والسنة المحددين
       // تعديل: استخدام select بدلاً من single للتعامل مع احتمالية وجود أكثر من سجل
       const { data: payrollsList, error: payrollError } = await supabase
         .from('payrolls')
         .select('*')
+        .eq('organization_id', userOrgId)
         .eq('payroll_month', selectedMonth)
         .eq('payroll_year', selectedYear);
 
@@ -43,6 +53,7 @@ const PayrollReport = () => {
         const { data: items, error: itemsError } = await supabase
           .from('payroll_items')
           .select('*, employees(full_name, position)')
+          .eq('organization_id', userOrgId)
           .in('payroll_id', payrollIds);
 
         if (itemsError) throw itemsError;

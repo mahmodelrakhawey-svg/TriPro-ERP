@@ -49,9 +49,15 @@ const SecurityLogs = () => {
       }
 
       try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const userOrgId = user?.user_metadata?.org_id;
+
+        if (!userOrgId) return;
+
         let query = supabase
           .from('security_logs')
           .select('*')
+          .eq('organization_id', userOrgId)
           .order('created_at', { ascending: false })
           .limit(500);
 

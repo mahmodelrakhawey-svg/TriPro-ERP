@@ -45,33 +45,41 @@ const SupplierStatement = () => {
     }
 
     try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const userOrgId = user?.user_metadata?.org_id;
+
+        if (!userOrgId) return;
+
+        const filter = { supplier_id: selectedSupplierId, organization_id: userOrgId };
+
         // 1. جلب الفواتير (دائن - تزيد الرصيد)
         const { data: invoices } = await supabase.from('purchase_invoices')
             .select('id, invoice_number, invoice_date, total_amount, notes')
-            .eq('supplier_id', selectedSupplierId)
+            .match(filter)
             .neq('status', 'draft'); // فقط الفواتير المرحلة
 
         // 2. جلب المرتجعات (مدين - تنقص الرصيد)
         const { data: returns } = await supabase.from('purchase_returns')
             .select('id, return_number, return_date, total_amount, notes')
-            .eq('supplier_id', selectedSupplierId)
+            .match(filter)
             .eq('status', 'posted'); // شرط الترحيل لضمان التطابق مع المحاسبة
 
         // 3. جلب سندات الصرف (مدين - تنقص الرصيد)
         const { data: payments } = await supabase.from('payment_vouchers')
             .select('id, voucher_number, payment_date, amount, notes')
-            .eq('supplier_id', selectedSupplierId)
+            .match(filter)
             // .eq('status', 'posted'); // يمكن تفعيله إذا كان للسندات حالة
 
         // 4. جلب الإشعارات المدينة (مدين - تنقص الرصيد)
         const { data: debitNotes } = await supabase.from('debit_notes')
             .select('id, debit_note_number, note_date, total_amount, notes')
-            .eq('supplier_id', selectedSupplierId);
+            .match(filter);
 
         // 5. جلب الشيكات الصادرة (مدين - تنقص الرصيد)
         const { data: cheques } = await supabase.from('cheques')
             .select('id, cheque_number, due_date, amount, notes, created_at')
             .eq('party_id', selectedSupplierId)
+            .eq('organization_id', userOrgId)
             .eq('type', 'outgoing')
             .neq('status', 'rejected');
 

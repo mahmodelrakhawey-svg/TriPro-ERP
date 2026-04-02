@@ -34,7 +34,16 @@ const RestaurantSalesReport = () => {
     }
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        showToast('لم يتم العثور على معرف المنظمة', 'error');
+        return;
+      }
+
       const { data, error } = await supabase.rpc('get_restaurant_sales_report', {
+        p_org_id: userOrgId, // المعامل الجديد الضروري للعزل
         p_start_date: startDate,
         p_end_date: endDate
       });

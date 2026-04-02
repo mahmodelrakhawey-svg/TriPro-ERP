@@ -29,9 +29,13 @@ const SalesReturnForm = () => {
     if (!searchInvoiceNumber.trim()) return;
     setIsSearching(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
       const { data: invoice, error } = await supabase
         .from('invoices')
         .select('*, invoice_items(*, products(name))')
+        .eq('organization_id', userOrgId)
         .ilike('invoice_number', `%${searchInvoiceNumber.trim()}%`)
         .limit(1)
         .maybeSingle();
@@ -136,6 +140,11 @@ const SalesReturnForm = () => {
     }
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
+
       const subtotal = calculateTotal();
       const taxRate = settings.enableTax ? ((settings.vatRate || 14) / 100) : 0;
       const taxAmount = subtotal * taxRate;
@@ -146,6 +155,7 @@ const SalesReturnForm = () => {
 
       // 1. حفظ المرتجع
       const { data: returnDoc, error: retError } = await supabase.from('sales_returns').insert({
+        organization_id: userOrgId,
         customer_id: formData.customerId,
         warehouse_id: formData.warehouseId,
         original_invoice_id: originalInvoiceId,
@@ -165,6 +175,7 @@ const SalesReturnForm = () => {
       // 2. حفظ البنود وتحديث المخزون (زيادة)
       for (const item of items) {
         await supabase.from('sales_return_items').insert({
+          organization_id: userOrgId,
           sales_return_id: returnDoc.id,
           product_id: item.productId,
           quantity: item.quantity,

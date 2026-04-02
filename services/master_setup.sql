@@ -742,6 +742,7 @@ CREATE TABLE public.employees (
     hire_date date,
     status text DEFAULT 'active',
     notes text, -- Changed to text for consistency
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     deleted_at timestamptz,
     created_at timestamptz DEFAULT now()
 );
@@ -781,6 +782,7 @@ CREATE TABLE public.employee_advances (
     notes text,
     reference text,
     treasury_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     payroll_item_id uuid REFERENCES public.payroll_items(id),
     created_at timestamptz DEFAULT now()
 );
@@ -967,7 +969,7 @@ CREATE TABLE public.work_orders (
     start_date date,
     end_date date,
     status text DEFAULT 'draft', -- draft, in_progress, completed, cancelled -- Changed to text for consistency
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     notes text,
     created_at timestamptz DEFAULT now()
 );
@@ -1198,6 +1200,7 @@ DROP FUNCTION IF EXISTS public.run_payroll_rpc(integer, integer, date, uuid, jso
 
 -- دالة تشغيل الرواتب المطورة (تمنع خطأ الحسابات غير المعرفة)
 CREATE OR REPLACE FUNCTION public.run_payroll_rpc(
+    p_org_id uuid,
     p_month int,
     p_year int,
     p_date date,
@@ -1223,7 +1226,7 @@ DECLARE
     v_total_deductions numeric := 0;
     v_total_net numeric := 0;
 BEGIN
-    v_org_id := public.get_my_org();
+    v_org_id := p_org_id;
     SELECT id INTO v_salaries_acc FROM public.accounts WHERE code = '531' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
     SELECT id INTO v_bonuses_acc FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
     SELECT id INTO v_deductions_acc FROM public.accounts WHERE code = '422' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
@@ -1385,7 +1388,7 @@ BEGIN
     SELECT * INTO v_return FROM public.sales_returns WHERE id = p_return_id;
     IF v_return.status = 'posted' THEN RETURN; END IF;
     
-    v_org_id := public.get_my_org();
+    v_org_id := v_return.organization_id;
     SELECT id INTO v_acc_sales_ret FROM public.accounts WHERE code = '412' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_vat FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_cust FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1;
@@ -1423,7 +1426,7 @@ BEGIN
     SELECT * INTO v_return FROM public.purchase_returns WHERE id = p_return_id;
     IF v_return.status = 'posted' THEN RETURN; END IF;
 
-    v_org_id := public.get_my_org();
+    v_org_id := v_return.organization_id;
     SELECT id INTO v_acc_inv FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_vat FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_supp FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1;
@@ -1458,7 +1461,7 @@ BEGIN
     SELECT * INTO v_note FROM public.credit_notes WHERE id = p_note_id;
     IF v_note.status = 'posted' THEN RETURN; END IF;
 
-    v_org_id := public.get_my_org();
+    v_org_id := v_note.organization_id;
     SELECT id INTO v_acc_allowance FROM public.accounts WHERE code = '413' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_vat FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_cust FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1;
@@ -1491,7 +1494,7 @@ BEGIN
     SELECT * INTO v_note FROM public.debit_notes WHERE id = p_note_id;
     IF v_note.status = 'posted' THEN RETURN; END IF;
 
-    v_org_id := public.get_my_org();
+    v_org_id := v_note.organization_id;
     SELECT id INTO v_acc_supp FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_cogs FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_acc_vat FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1;
@@ -1516,12 +1519,14 @@ END; $$;
 -- دوال الاعتماد المفقودة (Financial Approvals)
 -- ================================================================
 
-CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_voucher_id uuid, p_credit_account_id uuid)
+DROP FUNCTION IF EXISTS public.approve_receipt_voucher(uuid, uuid);
+
+CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_org_id uuid, p_voucher_id uuid, p_credit_account_id uuid)
 RETURNS void AS $$
 DECLARE v_voucher record; v_org_id uuid; v_journal_id uuid;
 BEGIN
     SELECT * INTO v_voucher FROM public.receipt_vouchers WHERE id = p_voucher_id;
-    v_org_id := public.get_my_org();
+    v_org_id := p_org_id;
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.receipt_date, 'سند قبض رقم ' || COALESCE(v_voucher.voucher_number, '-'), v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'receipt_voucher', true) RETURNING id INTO v_journal_id;
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id);
@@ -1529,12 +1534,14 @@ BEGIN
     UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
 END; $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_voucher_id uuid, p_debit_account_id uuid)
+DROP FUNCTION IF EXISTS public.approve_payment_voucher(uuid, uuid);
+
+CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_org_id uuid, p_voucher_id uuid, p_debit_account_id uuid)
 RETURNS void AS $$
 DECLARE v_voucher record; v_org_id uuid; v_journal_id uuid;
 BEGIN
     SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id;
-    v_org_id := public.get_my_org();
+    v_org_id := p_org_id;
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.payment_date, 'سند صرف رقم ' || COALESCE(v_voucher.voucher_number, '-'), v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'payment_voucher', true) RETURNING id INTO v_journal_id;
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id);
@@ -1566,6 +1573,7 @@ DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, j
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
 
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
+    p_org_id uuid,
     p_session_id uuid,
     p_user_id uuid,
     p_order_type text,
@@ -1584,12 +1592,11 @@ DECLARE
     v_tax_rate numeric;
     v_subtotal numeric := 0;
 BEGIN
-    v_org_id := public.get_my_org();
+    v_org_id := p_org_id;
     
     -- 1. جلب نسبة الضريبة من الإعدادات
-    SELECT COALESCE(vat_rate, 0.15) INTO v_tax_rate 
-    FROM public.company_settings 
-    WHERE organization_id = v_org_id LIMIT 1;
+    SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
+    IF v_tax_rate IS NULL THEN v_tax_rate := 0.15; END IF;
 
     -- 2. توليد رقم طلب فريد
     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));

@@ -67,17 +67,25 @@ const CustomerManager = () => {
     
     setStatsLoading(true);
     try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const userOrgId = user?.user_metadata?.org_id;
+
+        if (!userOrgId) throw new Error('Org ID missing');
+
+        const filter = { organization_id: userOrgId };
+
         // Fetch invoices (debit)
-        const { data: invoices } = await supabase.from('invoices').select('customer_id, total_amount, invoice_date').neq('status', 'draft');
+        const { data: invoices } = await supabase.from('invoices').select('customer_id, total_amount, invoice_date').match(filter).neq('status', 'draft');
         // Fetch receipts (credit)
-        const { data: receipts } = await supabase.from('receipt_vouchers').select('customer_id, amount');
+        const { data: receipts } = await supabase.from('receipt_vouchers').select('customer_id, amount').match(filter);
         // Fetch sales returns (credit)
-        const { data: returns } = await supabase.from('sales_returns').select('customer_id, total_amount').neq('status', 'draft');
+        const { data: returns } = await supabase.from('sales_returns').select('customer_id, total_amount').match(filter).neq('status', 'draft');
         // Fetch credit notes (credit)
-        const { data: creditNotes } = await supabase.from('credit_notes').select('customer_id, total_amount');
+        const { data: creditNotes } = await supabase.from('credit_notes').select('customer_id, total_amount').match(filter);
         // Fetch collected cheques (credit)
         const { data: cheques } = await supabase.from('cheques')
             .select('party_id, amount')
+            .match(filter)
             .eq('type', 'incoming')
             .eq('status', 'collected');
 

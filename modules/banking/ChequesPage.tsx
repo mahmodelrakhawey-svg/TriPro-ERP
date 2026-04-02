@@ -91,20 +91,28 @@ export const ChequesPage = () => {
         return;
     }
 
+    const { data: { session } } = await supabase.auth.getSession();
+    const userOrgId = session?.user?.user_metadata?.org_id;
+
+    if (!userOrgId) {
+        setLoading(false);
+        return;
+    }
+
     // 1. Fetch Cheques
-    const { data: chequesData } = await supabase.from('cheques').select('*, cheque_attachments(*)').order('created_at', { ascending: false });
+    const { data: chequesData } = await supabase.from('cheques').select('*, cheque_attachments(*)').eq('organization_id', userOrgId).order('created_at', { ascending: false });
     if (chequesData) setCheques(chequesData);
 
     // 2. Fetch Parties
-    const { data: supps } = await supabase.from('suppliers').select('id, name, phone');
+    const { data: supps } = await supabase.from('suppliers').select('id, name, phone').eq('organization_id', userOrgId);
     if (supps) setSuppliers(supps);
     
-    const { data: custs } = await supabase.from('customers').select('id, name, phone');
+    const { data: custs } = await supabase.from('customers').select('id, name, phone').eq('organization_id', userOrgId);
     if (custs) setCustomers(custs);
 
     // 3. Fetch Bank Accounts
     // جلب الحسابات التي تحتوي على كلمة "بنك" أو "Bank" أو تبدأ بالكود 1232 (كود البنوك في الدليل المصري)
-    const { data: accounts } = await supabase.from('accounts').select('id, name, code')
+    const { data: accounts } = await supabase.from('accounts').select('id, name, code').eq('organization_id', userOrgId)
       .or('code.like.1232%,code.like.10102%,name.ilike.%بنك%,name.ilike.%bank%');
     if (accounts) setBanks(accounts);
     
@@ -129,10 +137,15 @@ export const ChequesPage = () => {
     }
 
     try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id;
+        if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
+
         const partyList = activeTab === 'outgoing' ? suppliers : customers;
         const party = partyList.find(p => p.id === formData.partyId);
 
         await addCheque({
+            organization_id: userOrgId,
             cheque_number: formData.chequeNumber,
             type: activeTab,
             amount: formData.amount,
@@ -176,6 +189,10 @@ export const ChequesPage = () => {
   };
 
   const handleTransferCheque = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const userOrgId = session?.user?.user_metadata?.org_id;
+    if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
+
     if (!selectedCheque || !transferData.date || !transferData.ourBankId) {
         showToast('يرجى تعبئة جميع البيانات واختيار البنك الخاص بنا', 'warning');
         return;
@@ -190,7 +207,7 @@ export const ChequesPage = () => {
             transfer_account_number: transferData.accountNumber?.trim() || null,
             transfer_bank_name: transferData.bankName?.trim() || null,
             transfer_date: transferData.date
-        }).eq('id', selectedCheque.id);
+        }).eq('id', selectedCheque.id).eq('organization_id', userOrgId);
 
 
 

@@ -28,15 +28,22 @@ const SupplierBalancesReport = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
+      const filter = { organization_id: userOrgId };
+
       // 1. جلب الموردين
-      const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone').is('deleted_at', null);
+      const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone').match(filter).is('deleted_at', null);
       
       // 2. جلب الحركات المالية
-      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount').eq('status', 'posted');
-      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount');
-      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').eq('status', 'posted');
-      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount');
-      const { data: cheques } = await supabase.from('cheques').select('party_id, amount').eq('type', 'outgoing').neq('status', 'rejected');
+      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
+      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter);
+      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
+      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter);
+      const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected');
       
       if (!suppliers) return;
 

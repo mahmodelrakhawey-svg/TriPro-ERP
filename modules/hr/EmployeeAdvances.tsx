@@ -26,21 +26,28 @@ const EmployeeAdvances = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // 1. جلب السلف
       const { data: advData } = await supabase
         .from('employee_advances')
         .select('*, employees(full_name)')
+        .eq('organization_id', userOrgId)
         .order('created_at', { ascending: false });
       if (advData) setAdvances(advData);
 
       // 2. جلب الموظفين
-      const { data: empData } = await supabase.from('employees').select('id, full_name');
+      const { data: empData } = await supabase.from('employees').select('id, full_name').eq('organization_id', userOrgId);
       if (empData) setEmployees(empData);
 
       // 3. جلب حسابات الخزينة
       const { data: accData } = await supabase
         .from('accounts')
         .select('id, name')
+        .eq('organization_id', userOrgId)
         .ilike('type', '%asset%')
         .or('code.like.123%,code.like.101%,name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
       if (accData) setTreasuryAccounts(accData);
@@ -75,11 +82,17 @@ const EmployeeAdvances = () => {
     
     setSaving(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) throw new Error('تعذر تحديد المنظمة.');
+
       const employee = employees.find(e => e.id === formData.employeeId);
       const reference = `ADV-${Date.now().toString().slice(-6)}`;
 
       // 1. حفظ السلفة
       const { error: advError } = await supabase.from('employee_advances').insert({
+        organization_id: userOrgId,
         employee_id: formData.employeeId,
         amount: formData.amount,
         request_date: formData.date,

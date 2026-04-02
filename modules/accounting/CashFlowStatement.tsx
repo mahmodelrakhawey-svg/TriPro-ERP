@@ -44,10 +44,18 @@ const CashFlowStatement = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        throw new Error('تعذر تحديد المنظمة.');
+      }
+
       // 1. جلب الحسابات
       const { data: accounts, error: accountsError } = await supabase
         .from('accounts')
         .select('id, code, name, type')
+        .eq('organization_id', userOrgId)
         .order('code');
 
       if (accountsError) throw accountsError;
@@ -55,8 +63,9 @@ const CashFlowStatement = () => {
       // 2. جلب الحركات المرحلة خلال الفترة
       const { data: lines, error: linesError } = await supabase
         .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(status, transaction_date)')
+        .select('account_id, debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
         .eq('journal_entries.status', 'posted')
+        .eq('journal_entries.organization_id', userOrgId)
         .gte('journal_entries.transaction_date', startDate)
         .lte('journal_entries.transaction_date', endDate);
 
@@ -168,9 +177,10 @@ const CashFlowStatement = () => {
       if (cashAccountIds.length > 0) {
           const { data: openingData } = await supabase
               .from('journal_lines')
-              .select('debit, credit, journal_entries!inner(status, transaction_date)')
+              .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
               .in('account_id', cashAccountIds)
               .eq('journal_entries.status', 'posted')
+              .eq('journal_entries.organization_id', userOrgId)
               .lt('journal_entries.transaction_date', startDate);
           
           if (openingData) openingCash = openingData.reduce((sum, line) => sum + (line.debit - line.credit), 0);

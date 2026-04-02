@@ -32,6 +32,11 @@ const ItemSalesAnalysis = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // جلب بنود الفواتير (غير المسودة) مع تفاصيل المنتج
       const { data, error } = await supabase
         .from('invoice_items')
@@ -43,6 +48,7 @@ const ItemSalesAnalysis = () => {
           products (name, sku),
           invoices!inner (invoice_date, status, invoice_number)
         `)
+        .eq('invoices.organization_id', userOrgId) // 🔒 فلترة المبيعات حسب المنظمة
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate)
         .neq('invoices.status', 'draft');

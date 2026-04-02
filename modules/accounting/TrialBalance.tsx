@@ -35,11 +35,19 @@ const TrialBalance = () => {
     }
 
     try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const userOrgId = user?.user_metadata?.org_id;
+
+        if (!userOrgId) {
+            throw new Error('تعذر تحديد المنظمة.');
+        }
+
         await refreshData(); // تحديث الحسابات
         const { data, error } = await supabase
             .from('journal_lines')
-            .select('account_id, debit, credit, journal_entries!inner(status, transaction_date)')
+            .select('account_id, debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
             .eq('journal_entries.status', 'posted')
+            .eq('journal_entries.organization_id', userOrgId)
             .lte('journal_entries.transaction_date', asOfDate);
         
         if (error) throw error;

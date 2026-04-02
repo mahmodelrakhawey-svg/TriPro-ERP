@@ -34,6 +34,11 @@ const SalesReports = () => {
         if (currentUser?.role === 'demo') return;
 
         try {
+            const { data: { user } } = await supabase.auth.getUser();
+            const userOrgId = user?.user_metadata?.org_id;
+
+            if (!userOrgId) return;
+
             const { data, error } = await supabase
                 .from('orders')
                 .select(`
@@ -43,6 +48,7 @@ const SalesReports = () => {
                         products (name, sku)
                     )
                 `)
+                .eq('organization_id', userOrgId)
                 .eq('status', 'COMPLETED')
                 .gte('created_at', `${startDate}T00:00:00`)
                 .lte('created_at', `${endDate}T23:59:59`);

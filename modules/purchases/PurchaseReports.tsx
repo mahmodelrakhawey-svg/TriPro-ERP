@@ -35,10 +35,16 @@ const PurchaseReports = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
+
       // Fetch Purchase Invoices
       const { data: invData, error: invError } = await supabase
         .from('purchase_invoices')
         .select('*, suppliers(name)')
+        .eq('organization_id', userOrgId)
         .gte('invoice_date', startDate)
         .lte('invoice_date', endDate);
 
@@ -51,6 +57,7 @@ const PurchaseReports = () => {
           const { data: itemsData, error: itemsError } = await supabase
             .from('purchase_invoice_items')
             .select('*, products(name)')
+            .eq('organization_id', userOrgId) // 🔒 فلترة بنود المشتريات مباشرة
             .in('invoice_id', invIds);
             
           if (itemsError) throw itemsError;

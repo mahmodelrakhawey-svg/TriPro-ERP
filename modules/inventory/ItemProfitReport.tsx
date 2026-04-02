@@ -44,10 +44,16 @@ const ItemProfitReport = () => {
     }
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // 1. جلب بنود فواتير المبيعات خلال الفترة مع بيانات المنتج (بما في ذلك التكلفة)
       const { data: items, error } = await supabase
         .from('invoice_items')
         .select('quantity, total, cost, product_id, products(name, sku, purchase_price), invoices!inner(invoice_date)')
+        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate);
 
@@ -57,6 +63,7 @@ const ItemProfitReport = () => {
       const { data: restItems } = await supabase
         .from('order_items')
         .select('quantity, total_price, unit_cost, product_id, products(name, sku, purchase_price), orders!inner(created_at, status)')
+        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة
         .eq('orders.status', 'COMPLETED')
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);

@@ -22,6 +22,11 @@ const FreeReturnsReport = () => {
   const fetchReport = async () => {
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       let selectStr = '*, customers(name), warehouses(name), invoices(invoice_number)';
       if (customerSearch.trim()) {
           selectStr = '*, customers!inner(name), warehouses(name), invoices(invoice_number)';
@@ -30,6 +35,7 @@ const FreeReturnsReport = () => {
       let query = supabase
         .from('sales_returns')
         .select(selectStr)
+        .eq('organization_id', userOrgId)
         .gte('return_date', startDate)
         .lte('return_date', endDate)
         .neq('status', 'draft');

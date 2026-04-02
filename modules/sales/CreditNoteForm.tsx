@@ -53,6 +53,11 @@ const CreditNoteForm = () => {
     
     setSaving(true);
 
+    const { data: { session } } = await supabase.auth.getSession();
+    const userOrgId = session?.user?.user_metadata?.org_id;
+
+    if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
+
     if (currentUser?.role === 'demo') {
         showToast('تم حفظ الإشعار الدائن وترحيل القيد بنجاح ✅ (محاكاة)', 'success');
         setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], amount: 0, notes: '', noteNumber: '', originalInvoiceNumber: '' });
@@ -65,6 +70,7 @@ const CreditNoteForm = () => {
 
       // 1. حفظ الإشعار كمسودة (Draft)
       const { data: note, error: noteError } = await supabase.from('credit_notes').insert({
+        organization_id: userOrgId,
         credit_note_number: noteNumber,
         customer_id: formData.customerId,
         note_date: formData.date,

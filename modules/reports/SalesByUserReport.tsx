@@ -26,10 +26,15 @@ const SalesByUserReport = () => {
           return;
       }
 
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
+
       // جلب الطلبات المكتملة وتجميعها حسب المستخدم
       const { data: orders, error } = await supabase
         .from('orders')
         .select('grand_total, user_id, profiles(full_name)')
+        .eq('organization_id', userOrgId)
         .eq('status', 'COMPLETED')
         .gte('created_at', `${startDate}T00:00:00`)
         .lte('created_at', `${endDate}T23:59:59`);

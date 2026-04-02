@@ -436,14 +436,14 @@ DECLARE
     v_asset record; v_monthly_depreciation numeric; v_journal_id uuid; v_processed_count integer := 0; v_skipped_count integer := 0; v_dep_exp_acc_id uuid; v_acc_dep_acc_id uuid;
 BEGIN
     FOR v_asset IN SELECT * FROM public.assets WHERE status = 'active' AND (purchase_cost - salvage_value) > 0 AND organization_id = p_org_id LOOP
-        PERFORM 1 FROM public.journal_entries WHERE related_document_id = v_asset.id AND related_document_type = 'asset_depreciation' AND to_char(transaction_date, 'YYYY-MM') = to_char(p_date, 'YYYY-MM');
+        PERFORM 1 FROM public.journal_entries WHERE related_document_id = v_asset.id AND related_document_type = 'asset_depreciation' AND to_char(transaction_date, 'YYYY-MM') = to_char(p_date, 'YYYY-MM') AND organization_id = p_org_id;
         IF FOUND THEN v_skipped_count := v_skipped_count + 1; CONTINUE; END IF;
 
         IF v_asset.useful_life > 0 THEN v_monthly_depreciation := (v_asset.purchase_cost - v_asset.salvage_value) / (v_asset.useful_life * 12); ELSE v_monthly_depreciation := 0; END IF;
 
         IF v_monthly_depreciation > 0 THEN
-            v_dep_exp_acc_id := COALESCE(v_asset.depreciation_expense_account_id, (SELECT id FROM public.accounts WHERE code = '5202' LIMIT 1));
-            v_acc_dep_acc_id := COALESCE(v_asset.accumulated_depreciation_account_id, (SELECT id FROM public.accounts WHERE code = '1399' LIMIT 1));
+            v_dep_exp_acc_id := COALESCE(v_asset.depreciation_expense_account_id, (SELECT id FROM public.accounts WHERE code = '5202' AND organization_id = p_org_id LIMIT 1));
+            v_acc_dep_acc_id := COALESCE(v_asset.accumulated_depreciation_account_id, (SELECT id FROM public.accounts WHERE code = '1399' AND organization_id = p_org_id LIMIT 1));
 
             IF v_dep_exp_acc_id IS NOT NULL AND v_acc_dep_acc_id IS NOT NULL THEN
                 INSERT INTO public.journal_entries (transaction_date, description, reference, status, is_posted, organization_id, related_document_id, related_document_type) 
@@ -493,7 +493,7 @@ BEGIN
     SELECT * INTO v_note FROM public.credit_notes WHERE id = p_note_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الإشعار الدائن غير موجود'; END IF;
     IF v_note.status = 'posted' THEN RAISE EXCEPTION 'الإشعار مرحل بالفعل'; END IF;
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := v_note.organization_id;
 
     SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
     IF v_sales_allowance_acc_id IS NULL THEN SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4101' LIMIT 1; END IF;
@@ -523,7 +523,7 @@ BEGIN
     SELECT * INTO v_note FROM public.debit_notes WHERE id = p_note_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الإشعار المدين غير موجود'; END IF;
     IF v_note.status = 'posted' THEN RAISE EXCEPTION 'الإشعار مرحل بالفعل'; END IF;
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := v_note.organization_id;
 
     SELECT id INTO v_purchase_discount_acc_id FROM public.accounts WHERE code = '5101' LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '10204' LIMIT 1;
@@ -631,8 +631,10 @@ DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, j
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, public.order_type, text, jsonb, uuid);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
 
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
+    p_org_id uuid,
     p_session_id uuid,
     p_user_id uuid,
     p_order_type text,
@@ -770,8 +772,8 @@ $$;
 -- ================================================================
 -- 14.5 دالة جلب طلبات السفرى والتوصيل المعلقة للدفع
 -- ================================================================
-DROP FUNCTION IF EXISTS public.get_pending_payment_orders();
-CREATE OR REPLACE FUNCTION public.get_pending_payment_orders()
+DROP FUNCTION IF EXISTS public.get_pending_payment_orders(uuid);
+CREATE OR REPLACE FUNCTION public.get_pending_payment_orders(p_org_id uuid)
  RETURNS TABLE(id uuid, order_number text, order_type text, grand_total numeric, created_at timestamp with time zone, status text, customer_phone text)
  LANGUAGE sql
 AS $$
@@ -786,7 +788,8 @@ AS $$
     FROM public.orders o
     LEFT JOIN public.delivery_orders d ON o.id = d.order_id
     LEFT JOIN public.customers c ON o.customer_id = c.id
-    WHERE o.status::text IN ('CONFIRMED', 'COMPLETED', 'PENDING') -- تم تعديل الحالات لتشمل ما بعد المطبخ
+    WHERE o.organization_id = p_org_id
+    AND o.status::text IN ('CONFIRMED', 'COMPLETED', 'PENDING')
     AND (o.session_id IS NULL OR o.order_type::text != 'DINE_IN')
     ORDER BY o.created_at DESC;
 $$;
@@ -1185,21 +1188,8 @@ BEGIN
 END; $$;
 
 -- د. دالة ملخص الوردية (Get Shift Summary)
-CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id UUID)
-RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_shift RECORD; v_summary JSONB;
-BEGIN
-    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
-    SELECT jsonb_build_object(
-        'opening_balance', v_shift.opening_balance,
-        'total_sales', COALESCE(SUM(p.amount), 0),
-        'cash_sales', COALESCE(SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END), 0),
-        'expected_cash', v_shift.opening_balance + COALESCE(SUM(CASE WHEN p.payment_method = 'CASH' THEN p.amount ELSE 0 END), 0)
-    ) INTO v_summary
-    FROM public.payments p JOIN public.orders o ON p.order_id = o.id
-    WHERE o.created_by = v_shift.user_id AND o.created_at >= v_shift.start_time AND o.created_at <= COALESCE(v_shift.end_time, now()) AND p.status = 'COMPLETED';
-    RETURN v_summary;
-END; $$;
+-- ملاحظة: تم دمج هذه الدالة مع الدالة الموجودة في القسم 3.6 (السطر 560) لضمان تفصيل طرق الدفع (بطاقة/محفظة) وعزل البيانات.
+-- تم حذف النسخة المكررة هنا لضمان استقرار النظام.
 
 -- هـ. دالة الاستهلاك المتوقع للمواد الخام (Raw Material Consumption)
 DROP FUNCTION IF EXISTS public.get_expected_raw_material_consumption(uuid);
@@ -1223,15 +1213,19 @@ END; $$;
 
 -- و. تقرير مبيعات المطعم التفصيلي (Restaurant Sales Report)
 DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(text, text);
+DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(uuid, text, text);
 
-CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_start_date text, p_end_date text)
+CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_org_id uuid, p_start_date text, p_end_date text)
  RETURNS TABLE(item_name text, category_name text, quantity numeric, total_sales numeric)
  LANGUAGE plpgsql AS $$
 BEGIN
   RETURN QUERY
   SELECT p.name::text, COALESCE(p.item_type, 'غير مصنف')::text, COALESCE(SUM(oi.quantity), 0)::numeric, COALESCE(SUM(oi.total_price), 0)::numeric
   FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id JOIN public.products p ON oi.product_id = p.id
-  WHERE o.status IN ('CONFIRMED', 'COMPLETED') AND o.created_at >= p_start_date::timestamptz AND o.created_at <= p_end_date::timestamptz
+  WHERE o.organization_id = p_org_id -- 🔒 صمام الأمان لمنع تسريب المبيعات
+  AND o.status IN ('CONFIRMED', 'COMPLETED') 
+  AND o.created_at >= p_start_date::timestamptz 
+  AND o.created_at <= p_end_date::timestamptz
   GROUP BY 1, 2 ORDER BY total_sales DESC;
 END; $$;
 
@@ -1240,35 +1234,6 @@ END; $$;
 -- ================================================================
 DROP FUNCTION IF EXISTS public.run_payroll_rpc(int, int, date, uuid, jsonb);
 
-CREATE OR REPLACE FUNCTION public.run_payroll_rpc(p_month int, p_year int, p_date date, p_treasury_account_id uuid, p_items jsonb)
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_payroll_id uuid; v_journal_id uuid; v_item jsonb; v_org_id uuid;
-    v_salaries_acc uuid; v_total_net numeric := 0;
-BEGIN
-    v_org_id := public.get_my_org();
-    SELECT id INTO v_salaries_acc FROM public.accounts WHERE code = '531' AND organization_id = v_org_id LIMIT 1;
-    
-    INSERT INTO public.payrolls (payroll_month, payroll_year, payment_date, status, organization_id)
-    VALUES (p_month, p_year, p_date, 'posted', v_org_id) RETURNING id INTO v_payroll_id;
-
-    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
-        INSERT INTO public.payroll_items (payroll_id, employee_id, net_salary, organization_id)
-        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'net_salary')::numeric, v_org_id);
-    END LOOP;
-
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted)
-    VALUES (p_date, 'رواتب شهر ' || p_month, 'PAY-' || p_month, 'posted', v_org_id, true) RETURNING id INTO v_journal_id;
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, v_salaries_acc, v_total_net, 0, 'مصروف رواتب', v_org_id),
-           (v_journal_id, p_treasury_account_id, 0, v_total_net, 'صرف رواتب', v_org_id);
-
-    RETURN v_payroll_id;
-END; $$;
-
--- ================================================================
 -- 27. دالة إضافة منتج مع رصيد افتتاحي (Add Product with Opening Balance)
 -- ================================================================
 DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid);

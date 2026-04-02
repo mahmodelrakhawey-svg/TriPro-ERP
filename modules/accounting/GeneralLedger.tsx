@@ -114,6 +114,13 @@ const GeneralLedger = () => {
       // تحديد الحسابات المستهدفة (الحساب المختار + أبنائه)
       const targetAccountIds = getAccountAndChildrenIds(selectedAccount, accounts as unknown as Account[]);
       
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        throw new Error('تعذر تحديد المنظمة التابع لها.');
+      }
+
       // حفظ المعايير لاستخدامها في التصفح اللانهائي
       setSearchParamsState({ ids: targetAccountIds, start: startDate, end: endDate });
 
@@ -121,9 +128,10 @@ const GeneralLedger = () => {
       // نجمع كل الحركات المرحلة لهذا الحساب التي تاريخها قبل "تاريخ البداية"
       const { data: openingData, error: openingError } = await supabase
         .from('journal_lines')
-        .select('debit, credit, journal_entries!inner(transaction_date, status)')
+        .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
         .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
         .eq('journal_entries.status', 'posted') // الاعتماد على status='posted' أدق
+        .eq('journal_entries.organization_id', userOrgId)
         .lt('journal_entries.transaction_date', startDate || '1970-01-01');
 
       if (openingError) throw openingError;
@@ -148,16 +156,24 @@ const GeneralLedger = () => {
       const from = pageIndex * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        throw new Error('تعذر تحديد المنظمة.');
+      }
+
       const { data: periodData, error: periodError } = await supabase
         .from('journal_lines')
         .select(`
           id, debit, credit,
           journal_entries!inner ( 
-            id, transaction_date, reference, description, status
+            id, transaction_date, reference, description, status, organization_id
           )
         `) 
         .in('account_id', ids)
         .eq('journal_entries.status', 'posted')
+        .eq('journal_entries.organization_id', userOrgId)
         .gte('journal_entries.transaction_date', start || '1970-01-01')
         .lte('journal_entries.transaction_date', end)
         .order('transaction_date', { foreignTable: 'journal_entries', ascending: true }) // ترتيب من السيرفر

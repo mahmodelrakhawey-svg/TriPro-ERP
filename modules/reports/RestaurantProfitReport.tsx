@@ -48,26 +48,36 @@ const RestaurantProfitReport = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // 1. جلب المنتجات المصنعة (وجبات المطعم)
       const { data: products, error: prodError } = await supabase
         .from('products')
         .select('id, name, sku, sales_price, cost, category_id, product_type, item_categories(name)')
+        .eq('organization_id', userOrgId)
         .eq('product_type', 'MANUFACTURED') 
         .eq('is_active', true);
 
       if (prodError) throw prodError;
 
-      // 2. جلب جميع مكونات الوصفات (BOM) مع تكلفة المواد الخام
+      // 2. جلب مكونات الوصفات (BOM) للمنتجات الخاصة بهذه المنظمة فقط
+      // نستخدم مصفوفة المعرفات المفلترة سابقاً لتجنب الخطأ في حال عدم وجود عمود organization_id في جدول BOM
+      const productIds = products?.map(p => p.id) || [];
       const { data: boms, error: bomError } = await supabase
         .from('bill_of_materials')
-        .select('product_id, quantity_required, raw_material_id, products:raw_material_id(purchase_price, cost, weighted_average_cost)');
+        .select('product_id, quantity_required, raw_material_id, products:raw_material_id(purchase_price, cost, weighted_average_cost)')
+        .in('product_id', productIds);
 
       if (bomError) throw bomError;
 
       // 2.5 جلب كميات المبيعات للفترة المحددة لحساب الخسارة المتراكمة
       const { data: salesItems } = await supabase
         .from('order_items')
-        .select('product_id, quantity, orders!inner(created_at, status)')
+        .select('product_id, quantity, orders!inner(created_at, status, organization_id)')
+        .eq('orders.organization_id', userOrgId)
         .eq('orders.status', 'COMPLETED')
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);

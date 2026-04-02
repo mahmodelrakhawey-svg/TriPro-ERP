@@ -6,9 +6,15 @@ export const useProducts = () => {
   return useQuery({
     queryKey: ['products'],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) throw new Error('Organization ID missing');
+
       const { data, error } = await supabase
         .from('products')
         .select('*')
+        .eq('organization_id', userOrgId)
         .is('deleted_at', null)
         .order('name');
       
@@ -24,9 +30,15 @@ export const useCustomers = (searchTerm: string = '') => {
   return useQuery({
     queryKey: ['customers', searchTerm], // إعادة الجلب عند تغيير كلمة البحث
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return [];
+
       let query = supabase
         .from('customers')
         .select('*')
+        .eq('organization_id', userOrgId)
         .is('deleted_at', null);
 
       if (searchTerm) {
@@ -47,9 +59,15 @@ export const useJournalEntries = (page: number = 1, pageSize: number = 20, searc
   return useQuery({
     queryKey: ['journal_entries', page, pageSize, searchTerm],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return { data: [], count: 0 };
+
       let query = supabase
         .from('journal_entries')
-        .select('*, journal_lines(*)', { count: 'exact' });
+        .select('*, journal_lines(*)', { count: 'exact' })
+        .eq('organization_id', userOrgId);
 
       if (searchTerm) {
         query = query.or(`reference.ilike.%${searchTerm}%,description.ilike.%${searchTerm}%`);
@@ -74,10 +92,16 @@ export const useTopSellingProducts = (limit: number = 5) => {
   return useQuery({
     queryKey: ['top_selling_products', limit],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return [];
+
       const { data: items, error } = await supabase
         .from('invoice_items')
         .select('product_id, quantity, products(name, sku)')
-        .not('product_id', 'is', null);
+        .not('product_id', 'is', null)
+        .eq('organization_id', userOrgId); // تصفية مباشرة لضمان عدم تسرب أصناف من شركات أخرى
 
       if (error) throw error;
 
@@ -112,10 +136,16 @@ export const useTopCustomers = (limit: number = 5) => {
   return useQuery({
     queryKey: ['top_customers', limit],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return [];
+
       const { data: invoices, error } = await supabase
         .from('invoices')
         .select('customer_id, total_amount, customers(name)')
-        .neq('status', 'draft');
+        .neq('status', 'draft')
+        .eq('organization_id', userOrgId);
 
       if (error) throw error;
 
@@ -149,9 +179,15 @@ export const usePurchaseOrders = (page: number = 1, pageSize: number = 20, searc
   return useQuery({
     queryKey: ['purchase_orders', page, pageSize, searchTerm],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return { data: [], count: 0 };
+
       let query = supabase
         .from('purchase_orders')
-        .select('*, suppliers(name)', { count: 'exact' });
+        .select('*, suppliers(name)', { count: 'exact' })
+        .eq('organization_id', userOrgId);
 
       if (searchTerm) {
         query = query.ilike('po_number', `%${searchTerm}%`);
@@ -176,9 +212,15 @@ export const useRecentInvoices = () => {
   return useQuery({
     queryKey: ['recent_invoices'],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return [];
+
       const { data, error } = await supabase
         .from('invoices')
         .select('id, invoice_number, invoice_date, total_amount, status, customers(name)')
+        .eq('organization_id', userOrgId)
         .order('invoice_date', { ascending: false })
         .limit(5);
       
@@ -201,11 +243,16 @@ export const useMonthlyStats = () => {
   return useQuery({
     queryKey: ['monthly_stats'],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return { monthSales: 0, monthPurchases: 0 };
+
       const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
       
       const [salesRes, purchasesRes] = await Promise.all([
-        supabase.from('invoices').select('total_amount').gte('invoice_date', startOfMonth).neq('status', 'draft'),
-        supabase.from('purchase_invoices').select('total_amount').gte('invoice_date', startOfMonth).neq('status', 'draft')
+        supabase.from('invoices').select('total_amount').gte('invoice_date', startOfMonth).neq('status', 'draft').eq('organization_id', userOrgId),
+        supabase.from('purchase_invoices').select('total_amount').gte('invoice_date', startOfMonth).neq('status', 'draft').eq('organization_id', userOrgId)
       ]);
 
       return {
@@ -222,9 +269,15 @@ export const useInvoices = (page: number = 1, pageSize: number = 20, searchTerm:
   return useQuery({
     queryKey: ['invoices', page, pageSize, searchTerm],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return { data: [], count: 0 };
+
       let query = supabase
         .from('invoices')
-        .select('*, customers(name)', { count: 'exact' });
+        .select('*, customers(name)', { count: 'exact' })
+        .eq('organization_id', userOrgId);
 
       if (searchTerm) {
         query = query.ilike('invoice_number', `%${searchTerm}%`);
@@ -249,10 +302,16 @@ export const useSuppliers = (searchTerm: string = '') => {
   return useQuery({
     queryKey: ['suppliers', searchTerm], // إعادة الجلب عند تغيير كلمة البحث
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return [];
+
       let query = supabase
         .from('suppliers')
         .select('*')
-        .is('deleted_at', null);
+        .is('deleted_at', null)
+        .eq('organization_id', userOrgId);
 
       if (searchTerm) {
         query = query.ilike('name', `%${searchTerm}%`);
@@ -272,10 +331,16 @@ export const useLowStockProducts = (threshold: number = 5) => {
   return useQuery({
     queryKey: ['low_stock_products', threshold],
     queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return [];
+
       const { data, error } = await supabase
         .from('products')
         .select('id, name, sku, stock')
         .lt('stock', threshold)
+        .eq('organization_id', userOrgId)
         .is('deleted_at', null)
         .order('stock', { ascending: true });
       

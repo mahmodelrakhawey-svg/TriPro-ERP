@@ -26,13 +26,21 @@ const CustomerAgingReport = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
+      const filter = { organization_id: userOrgId };
+
       // 1. جلب العملاء
-      const { data: customers } = await supabase.from('customers').select('id, name').is('deleted_at', null);
+      const { data: customers } = await supabase.from('customers').select('id, name').match(filter).is('deleted_at', null);
       
       // 2. جلب الفواتير غير المدفوعة بالكامل
       const { data: invoices } = await supabase
         .from('invoices')
         .select('id, customer_id, invoice_number, invoice_date, total_amount, paid_amount')
+        .match(filter)
         .neq('status', 'paid')
         .neq('status', 'draft');
 

@@ -23,10 +23,18 @@ const IncomeStatement = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
+      }
+
       const { data, error } = await supabase
         .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference)')
+        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
         .eq('journal_entries.status', 'posted')
+        .eq('journal_entries.organization_id', userOrgId)
         .gte('journal_entries.transaction_date', startDate)
         .lte('journal_entries.transaction_date', endDate);
 

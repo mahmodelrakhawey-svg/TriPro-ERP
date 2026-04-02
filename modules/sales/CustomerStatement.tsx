@@ -62,30 +62,40 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     }
 
     try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id;
+
+        if (!userOrgId) {
+            showToast('تعذر تحديد المنظمة. يرجى تسجيل الدخول مرة أخرى.', 'error');
+            setLoading(false);
+            return;
+        }
+
+        const filter = { customer_id: selectedCustomerId, organization_id: userOrgId };       
         // 1. Fetch Invoices (Debit)
         const { data: invoices } = await supabase.from('invoices')
             .select('id, invoice_number, invoice_date, total_amount, paid_amount')
-            .eq('customer_id', selectedCustomerId)
+            .match(filter) // Apply filter here
             .neq('status', 'draft');
 
         // 2. Fetch Returns (Credit)
         const { data: returns } = await supabase.from('sales_returns')
             .select('id, return_number, return_date, total_amount')
-            .eq('customer_id', selectedCustomerId)
+            .match(filter) // Apply filter here
             .eq('status', 'posted');
 
         // 3. Fetch Receipts (Credit)
         const { data: receipts } = await supabase.from('receipt_vouchers')
             .select('id, voucher_number, receipt_date, amount, notes')
-            .eq('customer_id', selectedCustomerId)
+            .match(filter) // Apply filter here
             // استبعاد سندات التأمين (التي تبدأ بـ DEP-)
             .not('voucher_number', 'like', 'DEP-%');
 
         // 4. Fetch Credit Notes (Credit)
         const { data: creditNotes } = await supabase.from('credit_notes')
             .select('id, credit_note_number, note_date, total_amount')
-            .eq('customer_id', selectedCustomerId);
-
+            .match(filter) // Apply filter here
+            .eq('status', 'posted'); // Assuming credit notes have a status
         // 5. Fetch Cheques (Credit)
         const { data: cheques } = await supabase.from('cheques')
             .select('id, cheque_number, due_date, amount, created_at')
@@ -96,7 +106,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         // 6. Fetch Restaurant Orders (Debit) - جلب طلبات المطعم (توصيل/سفري/محلي)
         const { data: restOrders } = await supabase.from('orders')
             .select('id, order_number, created_at, subtotal, total_tax, order_type')
-            .eq('customer_id', selectedCustomerId)
+            .match(filter) // Apply filter here
             .neq('status', 'CANCELLED');
 
         // 7. Fetch Restaurant Payments (Credit) - جلب مدفوعات المطعم المرتبطة
@@ -104,9 +114,9 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         if (restOrders && restOrders.length > 0) {
             const orderIds = restOrders.map(o => o.id);
             const { data: payData } = await supabase.from('payments')
-                .select('id, order_id, amount, created_at, payment_method')
+                .select('id, order_id, amount, created_at, payment_method, organization_id')
                 .in('order_id', orderIds);
-            restPayments = payData || [];
+            restPayments = payData?.filter(p => p.organization_id === userOrgId) || []; // Apply filter here
         }
 
         // Combine all transactions

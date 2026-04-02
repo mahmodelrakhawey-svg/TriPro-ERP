@@ -140,11 +140,15 @@ const SalesInvoiceForm = () => {
       }
       
       try {
+          const { data: { user } } = await supabase.auth.getUser();
+          const userOrgId = user?.user_metadata?.org_id;
+
           // الاعتماد على الرصيد المحسوب تلقائياً في قاعدة البيانات (Smart Engine)
           const { data, error } = await supabase
               .from('customers')
               .select('balance')
               .eq('id', formData.customerId)
+              .eq('organization_id', userOrgId)
               .single();
           
           if (data) {
@@ -156,6 +160,7 @@ const SalesInvoiceForm = () => {
               .from('invoices')
               .select('total_amount, paid_amount, due_date, status')
               .eq('customer_id', formData.customerId)
+              .eq('organization_id', userOrgId)
               .neq('status', 'draft');
 
           const today = new Date().toISOString().split('T')[0];

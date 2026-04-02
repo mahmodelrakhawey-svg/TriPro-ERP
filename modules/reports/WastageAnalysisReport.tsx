@@ -25,9 +25,18 @@ const WastageAnalysisReport = () => {
   const generateReport = async () => {
     setLoading(true);
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        showToast('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.', 'error');
+        return;
+      }
+
       const { data, error } = await supabase.rpc('analyze_wastage_reasons', {
         p_start_date: startDate,
         p_end_date: endDate,
+        p_org_id: userOrgId // تمرير معرف المنظمة لضمان فصل البيانات داخل الدالة
       });
 
       if (error) throw error;

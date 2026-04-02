@@ -51,6 +51,11 @@ export default function PurchaseAnalysisReport() {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       const { data, error } = await supabase
         .from('purchase_invoice_items')
         .select(`
@@ -61,10 +66,12 @@ export default function PurchaseAnalysisReport() {
             invoice_date,
             status,
             supplier_id,
+            organization_id,
             suppliers (name)
           ),
           products:product_id (id, name, sku)
         `)
+        .eq('purchase_invoices.organization_id', userOrgId)
         .gte('purchase_invoices.invoice_date', startDate)
         .lte('purchase_invoices.invoice_date', endDate)
         .eq('purchase_invoices.status', 'posted');

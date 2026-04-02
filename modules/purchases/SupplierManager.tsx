@@ -40,7 +40,15 @@ const SupplierManager = () => {
     
     const fetchSuppliers = async () => {
         setIsServerLoading(true);
-        let query = supabase.from('suppliers').select('*').is('deleted_at', null);
+        const { data: { user } } = await supabase.auth.getUser();
+        const userOrgId = user?.user_metadata?.org_id;
+
+        if (!userOrgId) {
+            setIsServerLoading(false);
+            return;
+        }
+
+        let query = supabase.from('suppliers').select('*').is('deleted_at', null).eq('organization_id', userOrgId);
         if (debouncedSearch) {
             query = query.ilike('name', `%${debouncedSearch}%`);
         }
@@ -83,11 +91,18 @@ const SupplierManager = () => {
     
     setStatsLoading(true);
     try {
-        const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, invoice_date').neq('status', 'draft');
-        const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount');
-        const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').neq('status', 'draft');
-        const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount');
-        const { data: cheques } = await supabase.from('cheques').select('party_id, amount').eq('type', 'outgoing').eq('status', 'collected');
+        const { data: { user } } = await supabase.auth.getUser();
+        const userOrgId = user?.user_metadata?.org_id;
+
+        if (!userOrgId) throw new Error('Org ID missing');
+
+        const filter = { organization_id: userOrgId };
+
+        const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, invoice_date').match(filter).neq('status', 'draft');
+        const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter);
+        const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
+        const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter);
+        const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').eq('status', 'collected');
 
         const newStats: Record<string, any> = {};
         suppliers.forEach(s => { newStats[s.id] = { balance: 0, totalPurchases: 0, lastInvoice: null }; });
@@ -228,6 +243,10 @@ const SupplierManager = () => {
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id;
+        if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
+
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
@@ -251,9 +270,9 @@ const SupplierManager = () => {
               const date = new Date().toISOString().split('T')[0];
               const ref = `OB-SUP-${newSupplier.id.slice(0, 6)}`;
               if (isCredit) {
-                await supabase.from('purchase_invoices').insert({ invoice_number: ref, supplier_id: newSupplier.id, invoice_date: date, total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي' });
+                await supabase.from('purchase_invoices').insert({ organization_id: userOrgId, invoice_number: ref, supplier_id: newSupplier.id, invoice_date: date, total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي' });
               } else {
-                await supabase.from('debit_notes').insert({ debit_note_number: ref, supplier_id: newSupplier.id, note_date: date, total_amount: amount, amount_before_tax: amount, status: 'posted', notes: 'رصيد افتتاحي' });
+                await supabase.from('debit_notes').insert({ organization_id: userOrgId, debit_note_number: ref, supplier_id: newSupplier.id, note_date: date, total_amount: amount, amount_before_tax: amount, status: 'posted', notes: 'رصيد افتتاحي' });
               }
               const supplierAcc = getSystemAccount('SUPPLIERS');
               const openingAcc = accounts.find(a => a.code === '3999');

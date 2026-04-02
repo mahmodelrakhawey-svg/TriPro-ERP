@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { Hammer, Save, Loader2, Package, AlertTriangle, CheckCircle } from 'lucide-react';
@@ -47,10 +47,14 @@ const ManufacturingManager = () => {
     setSuccessMsg('');
 
     try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id;
+
         // 1. إنشاء أمر تشغيل "مكتمل" في الخلفية لتوثيق العملية
         // هذا ضروري لضمان دقة "إعادة احتساب المخزون" مستقبلاً
         const orderNumber = `MFG-${Date.now().toString().slice(-6)}`;
         const { data: wo, error: woError } = await supabase.from('work_orders').insert({
+            organization_id: userOrgId,
             order_number: orderNumber,
             product_id: formData.productId,
             warehouse_id: formData.warehouseId,

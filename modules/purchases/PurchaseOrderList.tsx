@@ -57,9 +57,17 @@ const PurchaseOrderList = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        throw new Error('تعذر تحديد المنظمة.');
+      }
+
       let query = supabase
         .from('purchase_orders')
         .select('*, suppliers(name)', { count: 'exact' })
+        .eq('organization_id', userOrgId)
         .order('created_at', { ascending: false });
 
       if (debouncedSearch) {
@@ -130,7 +138,11 @@ const PurchaseOrderList = () => {
   const handleDelete = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف أمر الشراء هذا؟')) return;
     try {
-        const { error } = await supabase.from('purchase_orders').delete().eq('id', id);
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id;
+        if (!userOrgId) return;
+
+        const { error } = await supabase.from('purchase_orders').delete().eq('id', id).eq('organization_id', userOrgId);
         if (error) throw error;
         fetchOrders();
         showToast('تم حذف أمر الشراء بنجاح', 'success');
@@ -141,11 +153,16 @@ const PurchaseOrderList = () => {
   };
 
   const handlePrint = async (order: any) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const userOrgId = session?.user?.user_metadata?.org_id;
+    if (!userOrgId) return;
+
     // Fetch full order details including items
     const { data, error } = await supabase
       .from('purchase_orders')
       .select('*, suppliers(*), purchase_order_items(*, products(name, sku))')
       .eq('id', order.id)
+      .eq('organization_id', userOrgId)
       .single();
 
     if (error) {

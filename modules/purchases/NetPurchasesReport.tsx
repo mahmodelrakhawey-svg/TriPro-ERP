@@ -26,10 +26,16 @@ const NetPurchasesReport = () => {
     }
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;
+
       // 1. جلب الموردين
       const { data: suppliers, error: suppError } = await supabase
         .from('suppliers')
         .select('id, name')
+        .eq('organization_id', userOrgId)
         .is('deleted_at', null);
       
       if (suppError) throw suppError;
@@ -38,6 +44,7 @@ const NetPurchasesReport = () => {
       const { data: invoices, error: invError } = await supabase
         .from('purchase_invoices')
         .select('supplier_id, total_amount, tax_amount')
+        .eq('organization_id', userOrgId)
         .eq('status', 'posted')
         .gte('invoice_date', startDate)
         .lte('invoice_date', endDate);

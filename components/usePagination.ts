@@ -43,17 +43,25 @@ export function usePagination<T>(
     setError(null);
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (!session) {
+        setLoading(false);
+        return;
+      }
+
+      const userOrgId = session.user.user_metadata?.org_id;
 
       let query = supabase
         .from(tableName)
         .select(select, { count: 'exact' });
 
-      // Ensure that all queries are scoped to the user's organization
-      if (userOrgId) {
-        query = query.eq('organization_id', userOrgId);
+      if (!userOrgId) {
+        throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
+
+      // فرض التصفية دائماً لضمان عدم تداخل بيانات الشركات
+      query = query.eq('organization_id', userOrgId);
 
       if (queryModifier) {
         query = queryModifier(query);

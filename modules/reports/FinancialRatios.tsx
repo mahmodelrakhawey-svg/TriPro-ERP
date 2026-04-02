@@ -1,4 +1,4 @@
-﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -177,7 +177,12 @@ const FinancialRatios = () => {
     const fetchHistoricalData = async () => {
       setLoadingCharts(true);
       try {
-        const { data, error } = await supabase.rpc('get_historical_ratios');
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id;
+
+        if (!userOrgId) return;
+
+        const { data, error } = await supabase.rpc('get_historical_ratios', { p_org_id: userOrgId });
         if (error) throw error;
 
         // التحقق من أن البيانات كائن يحتوي على المصفوفات المطلوبة قبل التحديث

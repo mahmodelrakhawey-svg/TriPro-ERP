@@ -40,10 +40,15 @@ const DetailedStockMovementReport = () => {
     const allMovements: StockMovement[] = [];
 
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
+
       // 1. المبيعات (Sales) - إخراج (OUT)
       let salesQuery = supabase
         .from('invoice_items')
         .select('quantity, product_id, products(name), invoices!inner(invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
+        .eq('organization_id', userOrgId)
         .neq('invoices.status', 'draft')
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate);
@@ -70,6 +75,7 @@ const DetailedStockMovementReport = () => {
       let purchaseQuery = supabase
         .from('purchase_invoice_items')
         .select('quantity, product_id, products(name), purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
+        .eq('purchase_invoices.organization_id', userOrgId)
         .neq('purchase_invoices.status', 'draft')
         .gte('purchase_invoices.invoice_date', startDate)
         .lte('purchase_invoices.invoice_date', endDate);
@@ -96,6 +102,7 @@ const DetailedStockMovementReport = () => {
       let salesRetQuery = supabase
         .from('sales_return_items')
         .select('quantity, product_id, products(name), sales_returns!inner(return_number, return_date, warehouse_id, warehouses(name), notes)')
+        .eq('sales_returns.organization_id', userOrgId)
         .gte('sales_returns.return_date', startDate)
         .lte('sales_returns.return_date', endDate);
 
@@ -121,6 +128,7 @@ const DetailedStockMovementReport = () => {
       let purRetQuery = supabase
         .from('purchase_return_items')
         .select('quantity, product_id, products(name), purchase_returns!inner(return_number, return_date, warehouse_id, warehouses(name), notes)')
+        .eq('purchase_returns.organization_id', userOrgId)
         .gte('purchase_returns.return_date', startDate)
         .lte('purchase_returns.return_date', endDate);
 
@@ -147,6 +155,7 @@ const DetailedStockMovementReport = () => {
       let productionInQuery = supabase
         .from('work_orders')
         .select('id, order_number, end_date, quantity, product_id, warehouse_id, products(name), warehouses(name), notes')
+        .eq('organization_id', userOrgId)
         .eq('status', 'completed')
         .gte('end_date', startDate)
         .lte('end_date', endDate);
@@ -173,6 +182,7 @@ const DetailedStockMovementReport = () => {
       let productionOutQuery = supabase
         .from('work_orders')
         .select('id, order_number, end_date, quantity, product_id, warehouse_id, warehouses(name), notes')
+        .eq('organization_id', userOrgId)
         .eq('status', 'completed')
         .gte('end_date', startDate)
         .lte('end_date', endDate);
@@ -216,6 +226,7 @@ const DetailedStockMovementReport = () => {
       let adjustmentsQuery = supabase
         .from('stock_adjustment_items')
         .select('quantity, product_id, products(name), stock_adjustments!inner(adjustment_number, adjustment_date, status, warehouse_id, warehouses(name), reason)')
+        .eq('stock_adjustments.organization_id', userOrgId)
         .neq('stock_adjustments.status', 'draft')
         .gte('stock_adjustments.adjustment_date', startDate)
         .lte('stock_adjustments.adjustment_date', endDate);
@@ -244,6 +255,7 @@ const DetailedStockMovementReport = () => {
       let transfersQuery = supabase
         .from('stock_transfer_items')
         .select('quantity, product_id, products(name), stock_transfers!inner(transfer_number, transfer_date, from_warehouse_id, to_warehouse_id, status, notes)')
+        .eq('stock_transfers.organization_id', userOrgId)
         .eq('stock_transfers.status', 'posted')
         .gte('stock_transfers.transfer_date', startDate)
         .lte('stock_transfers.transfer_date', endDate);
@@ -316,7 +328,8 @@ const DetailedStockMovementReport = () => {
       // أ. مباشر
       const { data: restDirect } = await supabase
         .from('order_items')
-        .select('quantity, product_id, products(name), orders!inner(created_at, order_number, status)')
+        .select('quantity, product_id, products(name), orders!inner(created_at, order_number, status, organization_id)')
+        .eq('orders.organization_id', userOrgId)
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`)
         .eq('orders.status', 'COMPLETED');
@@ -345,7 +358,8 @@ const DetailedStockMovementReport = () => {
       // 8. رصيد أول المدة (Opening Inventory)
       let openingQuery = supabase
         .from('opening_inventories')
-        .select('quantity, product_id, products(name), warehouse_id, created_at')
+        .select('quantity, product_id, products(name), warehouse_id, created_at, organization_id')
+        .eq('organization_id', userOrgId)
         // ملاحظة: تاريخ الإنشاء هو تاريخ الحركة هنا تقريباً
         .gte('created_at', `${startDate}T00:00:00`)
         .lte('created_at', `${endDate}T23:59:59`);

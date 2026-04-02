@@ -22,6 +22,10 @@ const ProductionCostAnalysis = () => {
     }
     setLoading(true);
     try {
+       const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) return;     
       // 1. جلب أوامر التشغيل المكتملة
       // ملاحظة: نفترض وجود جدول work_orders وجدول work_order_costs كما تم إنشاؤه في manufacturing_upgrade.sql
       // إذا لم يتم تفعيل تلك الجداول بعد، سيعود التقرير فارغاً أو بخطأ، لذا يجب التأكد من تشغيل ملف SQL الخاص بالتصنيع.
@@ -30,8 +34,12 @@ const ProductionCostAnalysis = () => {
         .from('work_orders')
         .select(`
             id, order_number, quantity, start_date, end_date, status,
+            organization_id,
+ 
             product:products(id, name, bom:bill_of_materials!product_id(raw_material_id, quantity_required))
         `)
+        .eq('organization_id', userOrgId)
+ 
         .eq('status', 'completed') // فقط الأوامر المكتملة
         .gte('end_date', startDate)
         .lte('end_date', endDate);
@@ -59,6 +67,7 @@ const ProductionCostAnalysis = () => {
                       .from('products')
                       .select('purchase_price, cost')
                       .eq('id', bomItem.raw_material_id)
+                      .eq('organization_id', userOrgId)
                       .single();
                   
                   const price = rawMaterial?.cost || rawMaterial?.purchase_price || 0;
@@ -75,7 +84,8 @@ const ProductionCostAnalysis = () => {
           const { data: additionalCosts } = await supabase
               .from('work_order_costs')
               .select('amount')
-              .eq('work_order_id', order.id);
+              .eq('work_order_id', order.id)
+              .eq('organization_id', userOrgId);
           
           const totalAdditionalCost = additionalCosts?.reduce((sum, c) => sum + Number(c.amount), 0) || 0;
           

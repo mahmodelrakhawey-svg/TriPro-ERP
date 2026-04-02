@@ -199,11 +199,19 @@ class NotificationService {
   /**
    * التحقق من الدفعات المستحقة
    */
-  static async checkOverduePayments(): Promise<void> {
+  static async checkOverduePayments(organizationId?: string): Promise<void> {
     try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
       const { data: overdueInvoices, error } = await supabase
         .from('invoices')
         .select('id, customer_id, due_date, invoice_number')
+        .eq('organization_id', orgId)
         .lt('due_date', new Date().toISOString().split('T')[0])
         .neq('status', 'paid')
         .neq('status', 'draft')
@@ -243,11 +251,19 @@ class NotificationService {
   /**
    * التحقق من المخزون المنخفض
    */
-  static async checkLowInventory(): Promise<void> {
+  static async checkLowInventory(organizationId?: string): Promise<void> {
     try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
       const { data: products, error } = await supabase
         .from('products')
-        .select('id, sku, name, stock, min_stock');
+        .select('id, sku, name, stock, min_stock')
+        .eq('organization_id', orgId);
 
       if (error || !products) return;
 
@@ -283,10 +299,18 @@ class NotificationService {
   /**
    * التحقق من الديون العالية
    */
-  static async checkHighDebt(): Promise<void> {
+  static async checkHighDebt(organizationId?: string): Promise<void> {
     try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
       // استخدام RPC لتجنب خطأ 400 في المقارنة بين الأعمدة
-      const { data: customers, error } = await supabase.rpc('get_over_limit_customers');
+      // ملاحظة: يجب تعديل الـ RPC في قاعدة البيانات ليستقبل org_id
+      const { data: customers, error } = await supabase.rpc('get_over_limit_customers', { org_id: orgId });
 
       if (error) {
           console.warn('RPC get_over_limit_customers failed or not found.', error);
@@ -332,12 +356,20 @@ class NotificationService {
   /**
    * التحقق من المستندات المعلقة للموافقة
    */
-  static async checkPendingApprovals(): Promise<void> {
+  static async checkPendingApprovals(organizationId?: string): Promise<void> {
     try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
       // فواتير مبيعات معلقة (مسودات قديمة)
       const { data: pendingInvoices } = await supabase
         .from('invoices')
         .select('id, invoice_number, created_by')
+        .eq('organization_id', orgId)
         .eq('status', 'draft')
         .lt('invoice_date', new Date(Date.now() - 86400000).toISOString().split('T')[0]);
 
@@ -370,8 +402,15 @@ class NotificationService {
   /**
    * التحقق من تواريخ استحقاق الفواتير القريبة
    */
-  static async checkUpcomingDueDates(): Promise<void> {
+  static async checkUpcomingDueDates(organizationId?: string): Promise<void> {
     try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
       const nextWeek = new Date();
@@ -383,6 +422,7 @@ class NotificationService {
       const { data: upcomingPayments } = await supabase
         .from('invoices')
         .select('id, customer_id, due_date, invoice_number')
+        .eq('organization_id', orgId)
         .gte('due_date', tomorrowStr)
         .lte('due_date', nextWeekStr)
         .neq('status', 'paid')
@@ -426,6 +466,7 @@ class NotificationService {
   static async runAllChecks(): Promise<void> {
     console.log('🔔 Running periodic notification checks...');
     try {
+      // الوظائف الآن قادرة على جلب orgId بنفسها إذا لم يتم تمريره
       await Promise.all([
         this.checkOverduePayments(),
         this.checkLowInventory(),
