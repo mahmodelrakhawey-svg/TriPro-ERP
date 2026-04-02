@@ -1,5 +1,5 @@
 -- 🛠️ ملف نشر جميع دوال النظام (Deploy All Functions)
--- 🛠️ ملف نشر جميع دوال النظام (Deploy All Functions) - النسخة الكاملة
+-- 🛠️ ملف نشر جميع دوال النظام (Deploy All Functions) - النسخة الاحترافية الموحدة
 -- هذا الملف يجمع كافة الدوال البرمجية (RPCs) اللازمة لتشغيل النظام.
 -- يجب تشغيله بعد إنشاء الجداول (setup_new_client_db.sql).
 
@@ -124,119 +124,44 @@ $$;
 -- ================================================================
 -- 2. دالة اعتماد فاتورة المشتريات (Purchase Invoice)
 -- ================================================================
-CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-AS $$
+DROP FUNCTION IF EXISTS public.approve_purchase_invoice(uuid);
+CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_invoice record;
-    v_item record;
-    v_org_id uuid;
-    v_inventory_acc_id uuid;
-    v_vat_acc_id uuid;
-    v_supplier_acc_id uuid;
-    v_journal_id uuid;
-    v_current_stock numeric;
-    v_current_avg_cost numeric;
-    v_new_avg_cost numeric;
-    v_exchange_rate numeric;
-    v_item_price_base numeric;
-    v_total_amount_base numeric;
-    v_tax_amount_base numeric;
-    v_net_amount_base numeric;
-    -- متغيرات منطق الـ BOM
-    v_bom_item record;
-    v_total_bom_cost numeric;
-    v_raw_material_price numeric;
-    v_item_qty numeric;
+    v_invoice record; v_item record; v_org_id uuid; v_inventory_acc_id uuid; v_vat_acc_id uuid; v_supplier_acc_id uuid; v_journal_id uuid; v_current_stock numeric; v_current_avg_cost numeric; v_new_avg_cost numeric; v_exchange_rate numeric; v_item_price_base numeric; v_total_amount_base numeric; v_tax_amount_base numeric; v_net_amount_base numeric;
+    v_total_bom_cost numeric; v_bom_item record; v_item_qty numeric; v_raw_material_price numeric;
 BEGIN
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة'; END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
     IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
 
-    v_org_id := public.get_my_org();
+    v_org_id := v_invoice.organization_id;
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- استخدام حساب المنتج التام بدلاً من مجموعة المخزون
-    
-    -- تحسين: البحث في ربط الحسابات المخصص أولاً، ثم الكود الافتراضي الصحيح 1241
-    SELECT (account_mappings->>'VAT_INPUT')::uuid INTO v_vat_acc_id FROM public.company_settings LIMIT 1;
-    IF v_vat_acc_id IS NULL THEN 
-        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' LIMIT 1; 
-    END IF;
-    
+    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1;
+    SELECT (account_mappings->>'VAT_INPUT')::uuid INTO v_vat_acc_id FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
+    IF v_vat_acc_id IS NULL THEN SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1; END IF;
     SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' LIMIT 1;
-
-    -- فحص صارم لضمان عدم وجود NULL في القيد
-    IF v_inventory_acc_id IS NULL THEN RAISE EXCEPTION 'حساب المخزون (10302) غير موجود'; END IF;
-    IF v_supplier_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الموردين (201) غير موجود'; END IF;
-    IF v_invoice.tax_amount > 0 AND v_vat_acc_id IS NULL THEN 
-        RAISE EXCEPTION 'حساب ضريبة المدخلات غير معرّف. يرجى التأكد من وجود حساب بالكود 1241 أو ربطه في الإعدادات.'; 
-    END IF;
 
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
         v_item_price_base := v_item.price * v_exchange_rate;
-
-        -- التحقق مما إذا كان المنتج له قائمة مواد (BOM)
         IF EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = v_item.product_id) THEN
-            -- حساب إجمالي القيمة الحالية للمكونات لتحديد نسب التوزيع
-            SELECT SUM(COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) * bom.quantity_required)
-            INTO v_total_bom_cost
-            FROM public.bill_of_materials bom
-            JOIN public.products p ON p.id = bom.raw_material_id
-            WHERE bom.product_id = v_item.product_id;
-
+            SELECT SUM(COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) * bom.quantity_required) INTO v_total_bom_cost FROM public.bill_of_materials bom JOIN public.products p ON p.id = bom.raw_material_id WHERE bom.product_id = v_item.product_id;
             IF v_total_bom_cost IS NULL OR v_total_bom_cost = 0 THEN v_total_bom_cost := 1; END IF;
-
-            FOR v_bom_item IN 
-                SELECT bom.raw_material_id, bom.quantity_required, 
-                       COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) as current_unit_cost
-                FROM public.bill_of_materials bom
-                JOIN public.products p ON p.id = bom.raw_material_id
-                WHERE bom.product_id = v_item.product_id
-            LOOP
-                -- الكمية المضافة: متطلب الـ BOM * كمية الشراء
+            FOR v_bom_item IN SELECT bom.raw_material_id, bom.quantity_required, COALESCE(p.weighted_average_cost, p.purchase_price, p.cost, 0) as current_unit_cost FROM public.bill_of_materials bom JOIN public.products p ON p.id = bom.raw_material_id WHERE bom.product_id = v_item.product_id LOOP
                 v_item_qty := v_bom_item.quantity_required * v_item.quantity;
-                
-                -- توزيع سعر الشراء بناءً على نسب قيمة المكونات الحالية
                 v_raw_material_price := (v_item_price_base * (v_bom_item.current_unit_cost * v_bom_item.quantity_required / v_total_bom_cost)) / v_bom_item.quantity_required;
-
-                SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost 
-                FROM public.products WHERE id = v_bom_item.raw_material_id;
-                
-                v_current_stock := COALESCE(v_current_stock, 0);
-                v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
-
-                IF (v_current_stock + v_item_qty) > 0 THEN
-                    v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item_qty * v_raw_material_price)) / (v_current_stock + v_item_qty);
-                ELSE
-                    v_new_avg_cost := v_raw_material_price;
-                END IF;
-
-                UPDATE public.products 
-                SET stock = stock + v_item_qty,
-                    warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item_qty)),
-                    purchase_price = v_raw_material_price, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost
-                WHERE id = v_bom_item.raw_material_id;
+                SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_bom_item.raw_material_id;
+                v_current_stock := COALESCE(v_current_stock, 0); v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
+                IF (v_current_stock + v_item_qty) > 0 THEN v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item_qty * v_raw_material_price)) / (v_current_stock + v_item_qty); ELSE v_new_avg_cost := v_raw_material_price; END IF;
+                UPDATE public.products SET stock = stock + v_item_qty, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item_qty)), purchase_price = v_raw_material_price, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost WHERE id = v_bom_item.raw_material_id;
             END LOOP;
         ELSE
-            -- الشراء العادي (لا توجد قائمة مواد)
             SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_item.product_id;
-            v_current_stock := COALESCE(v_current_stock, 0);
-            v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
-
-            IF (v_current_stock + v_item.quantity) > 0 THEN
-                v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity);
-            ELSE
-                v_new_avg_cost := v_item_price_base;
-            END IF;
-
-            UPDATE public.products 
-            SET stock = stock + v_item.quantity,
-                warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)),
-                purchase_price = v_item_price_base, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost
-            WHERE id = v_item.product_id;
+            v_current_stock := COALESCE(v_current_stock, 0); v_current_avg_cost := COALESCE(v_current_avg_cost, 0);
+            IF (v_current_stock + v_item.quantity) > 0 THEN v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity); ELSE v_new_avg_cost := v_item_price_base; END IF;
+            UPDATE public.products SET stock = stock + v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)), purchase_price = v_item_price_base, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost WHERE id = v_item.product_id;
         END IF;
     END LOOP;
 
@@ -244,79 +169,46 @@ BEGIN
     v_tax_amount_base := COALESCE(v_invoice.tax_amount, 0) * v_exchange_rate;
     v_net_amount_base := v_total_amount_base - v_tax_amount_base;
 
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
-    VALUES (v_invoice.invoice_date, 'فاتورة مشتريات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'purchase_invoice', true) 
-    RETURNING id INTO v_journal_id;
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) VALUES (v_invoice.invoice_date, 'فاتورة مشتريات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'purchase_invoice', true) RETURNING id INTO v_journal_id;
 
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, v_net_amount_base, 0, 'مخزون - فاتورة مشتريات', v_org_id);
-    IF v_tax_amount_base > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, v_tax_amount_base, 0, 'ضريبة مدخلات', v_org_id);
-    END IF;
+    IF v_tax_amount_base > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, v_tax_amount_base, 0, 'ضريبة مدخلات', v_org_id); END IF;
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_supplier_acc_id, 0, v_total_amount_base, 'استحقاق مورد', v_org_id);
 
     UPDATE public.purchase_invoices SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
-END;
-$$;
+END; $$;
 
 -- ================================================================
 -- 3. دالة اعتماد سند القبض (Receipt Voucher)
 -- ================================================================
-CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_voucher_id uuid, p_credit_account_id uuid)
-RETURNS void AS $$
-DECLARE
-    v_voucher public.receipt_vouchers%ROWTYPE;
-    v_org_id uuid;
-    v_journal_id uuid;
-    v_exchange_rate numeric;
-    v_amount_base numeric;
+DROP FUNCTION IF EXISTS public.approve_receipt_voucher(uuid, uuid, uuid);
+CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_org_id uuid, p_voucher_id uuid, p_credit_account_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_voucher record; v_journal_id uuid;
 BEGIN
     SELECT * INTO v_voucher FROM public.receipt_vouchers WHERE id = p_voucher_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'سند القبض غير موجود'; END IF;
-    v_org_id := public.get_my_org();
-    v_exchange_rate := COALESCE(v_voucher.exchange_rate, 1);
-    IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
-    v_amount_base := v_voucher.amount * v_exchange_rate;
-
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
-    VALUES (v_voucher.receipt_date, 'سند قبض رقم ' || COALESCE(v_voucher.voucher_number, '-'), v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'receipt_voucher', true) 
-    RETURNING id INTO v_journal_id;
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_voucher.treasury_account_id, v_amount_base, 0, v_voucher.notes, v_org_id);
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_credit_account_id, 0, v_amount_base, v_voucher.notes, v_org_id);
-
+    VALUES (v_voucher.receipt_date, 'سند قبض رقم ' || COALESCE(v_voucher.voucher_number, '-'), v_voucher.voucher_number, 'posted', p_org_id, p_voucher_id, 'receipt_voucher', true) RETURNING id INTO v_journal_id;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, p_org_id);
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_credit_account_id, 0, v_voucher.amount, v_voucher.notes, p_org_id);
     UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
-END;
-$$ LANGUAGE plpgsql;
+END; $$;
 
 -- ================================================================
 -- 4. دالة اعتماد سند الصرف (Payment Voucher)
 -- ================================================================
-CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_voucher_id uuid, p_debit_account_id uuid)
-RETURNS void AS $$
-DECLARE
-    v_voucher public.payment_vouchers%ROWTYPE;
-    v_org_id uuid;
-    v_journal_id uuid;
-    v_exchange_rate numeric;
-    v_amount_base numeric;
+DROP FUNCTION IF EXISTS public.approve_payment_voucher(uuid, uuid, uuid);
+CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_org_id uuid, p_voucher_id uuid, p_debit_account_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_voucher record; v_journal_id uuid;
 BEGIN
     SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود'; END IF;
-    v_org_id := public.get_my_org();
-    v_exchange_rate := COALESCE(v_voucher.exchange_rate, 1);
-    IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
-    v_amount_base := v_voucher.amount * v_exchange_rate;
-
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
-    VALUES (v_voucher.payment_date, 'سند صرف رقم ' || COALESCE(v_voucher.voucher_number, '-'), v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'payment_voucher', true) 
-    RETURNING id INTO v_journal_id;
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_debit_account_id, v_amount_base, 0, v_voucher.notes, v_org_id);
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_voucher.treasury_account_id, 0, v_amount_base, v_voucher.notes, v_org_id);
-
+    VALUES (v_voucher.payment_date, 'سند صرف رقم ' || COALESCE(v_voucher.voucher_number, '-'), v_voucher.voucher_number, 'posted', p_org_id, p_voucher_id, 'payment_voucher', true) RETURNING id INTO v_journal_id;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, p_org_id);
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_voucher.treasury_account_id, 0, v_voucher.amount, v_voucher.notes, p_org_id);
     UPDATE public.payment_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
-END;
-$$ LANGUAGE plpgsql;
+END; $$;
 
 -- ================================================================
 -- 5. دالة اعتماد مرتجع المبيعات (Sales Return)
@@ -690,7 +582,7 @@ BEGIN
 
         -- 3. إرسال البند للمطبخ تلقائياً
         INSERT INTO public.kitchen_orders (order_item_id, status, created_at, organization_id)
-        VALUES (v_order_item_id, 'NEW', now(), v_org_id);
+        VALUES (v_order_item_id, 'NEW', p_org_id);
     END LOOP;
 
     RETURN v_order_id;
@@ -1175,10 +1067,35 @@ BEGIN
     ) sub;
     RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
 END; $$;
+-- دالة جلب العملاء الذين تجاوزوا حد الائتمان (لحساب الإشعارات الذكية)
+CREATE OR REPLACE FUNCTION public.get_over_limit_customers(org_id UUID)
+RETURNS TABLE (
+    id UUID,
+    name TEXT,
+    total_debt NUMERIC,
+    credit_limit NUMERIC
+) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        c.id,
+        c.name,
+        COALESCE(c.balance, 0) as total_debt,
+        COALESCE(c.credit_limit, 0) as credit_limit
+    FROM public.customers c
+    WHERE c.organization_id = org_id
+      AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0)
+      AND COALESCE(c.credit_limit, 0) > 0;
+END;
+$$;
 
+-- ================================================================
 -- ج. دالة عمولة المندوبين (Calculate Sales Commission)
-CREATE OR REPLACE FUNCTION public.calculate_sales_commission(p_salesperson_id uuid, p_start_date date, p_end_date date, p_commission_rate numeric DEFAULT 1.0)
-RETURNS jsonb LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.calculate_sales_commission(p_salesperson_id uuid, p_start_date date, p_end_date date, p_commission_rate numeric DEFAULT 1.0) 
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_total_sales numeric; v_total_returns numeric; v_net_sales numeric; v_commission numeric;
 BEGIN
     SELECT COALESCE(SUM(subtotal), 0) INTO v_total_sales FROM public.invoices WHERE salesperson_id = p_salesperson_id AND status IN ('posted', 'paid') AND invoice_date BETWEEN p_start_date AND p_end_date;
@@ -1216,9 +1133,9 @@ END; $$;
 DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(text, text);
 DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(uuid, text, text);
 
-CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_org_id uuid, p_start_date text, p_end_date text)
- RETURNS TABLE(item_name text, category_name text, quantity numeric, total_sales numeric)
- LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_org_id uuid, p_start_date text, p_end_date text) 
+ RETURNS TABLE(item_name text, category_name text, quantity numeric, total_sales numeric) 
+ LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
   RETURN QUERY
   SELECT p.name::text, COALESCE(p.item_type, 'غير مصنف')::text, COALESCE(SUM(oi.quantity), 0)::numeric, COALESCE(SUM(oi.total_price), 0)::numeric
@@ -1233,7 +1150,82 @@ END; $$;
 -- ================================================================
 -- 26. دالة تشغيل الرواتب (Run Payroll)
 -- ================================================================
-DROP FUNCTION IF EXISTS public.run_payroll_rpc(int, int, date, uuid, jsonb);
+CREATE OR REPLACE FUNCTION public.run_payroll_rpc(
+    p_month integer,
+    p_year integer,
+    p_date date,
+    p_treasury_account_id uuid,
+    p_items jsonb
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid;
+    v_payroll_id uuid;
+    v_total_gross numeric := 0;
+    v_total_additions numeric := 0;
+    v_total_deductions numeric := 0;
+    v_total_advances numeric := 0;
+    v_total_net numeric := 0;
+    v_item jsonb;
+    v_je_id uuid;
+    v_salaries_acc_id uuid;
+    v_bonuses_acc_id uuid;
+    v_deductions_acc_id uuid;
+    v_advances_acc_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+
+    SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '5201' LIMIT 1;
+    SELECT id INTO v_bonuses_acc_id FROM public.accounts WHERE code = '5312' LIMIT 1;
+    SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '404' LIMIT 1;
+    SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '10203' LIMIT 1;
+
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric;
+        v_total_additions := v_total_additions + (v_item->>'additions')::numeric;
+        v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
+        v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
+        v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
+    END LOOP;
+
+    INSERT INTO public.payrolls (
+        payroll_month, payroll_year, payment_date, 
+        total_gross_salary, total_additions, total_deductions, total_net_salary, 
+        status, organization_id
+    ) VALUES (
+        p_month, p_year, p_date,
+        v_total_gross, v_total_additions, (v_total_deductions + v_total_advances), v_total_net,
+        'paid', v_org_id
+    ) RETURNING id INTO v_payroll_id;
+
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        INSERT INTO public.payroll_items (
+            payroll_id, employee_id, 
+            gross_salary, additions, advances_deducted, other_deductions, net_salary,
+            organization_id
+        ) VALUES (
+            v_payroll_id, (v_item->>'employee_id')::uuid,
+            (v_item->>'gross_salary')::numeric,
+            (v_item->>'additions')::numeric,
+            (v_item->>'advances_deducted')::numeric,
+            (v_item->>'other_deductions')::numeric,
+            (v_item->>'net_salary')::numeric,
+            v_org_id
+        );
+    END LOOP;
+
+    -- إضافة لاحقة عشوائية للمرجع لمنع خطأ 23505 (Duplicate Key) عند إعادة التشغيل
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
+    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year || '-' || floor(random()*1000)::text, 'posted', v_org_id, true) RETURNING id INTO v_je_id;
+
+    -- فحص وجود الحساب قبل الإدراج لتجنب الأخطاء المحاسبية
+    IF v_total_gross > 0 AND v_salaries_acc_id IS NOT NULL THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); 
+    END IF;
+    
+    IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_account_id, 0, v_total_net, 'صرف الرواتب', v_org_id); END IF;
+END;
+$$;
 
 -- 27. دالة إضافة منتج مع رصيد افتتاحي (Add Product with Opening Balance)
 -- ================================================================

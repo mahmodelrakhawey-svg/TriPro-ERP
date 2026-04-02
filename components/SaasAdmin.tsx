@@ -23,10 +23,10 @@ export default function SaasAdmin() {
   // جلب قائمة الشركات الموجودة
   useEffect(() => {
     const fetchClients = async () => {
-      const { data: orgs, error: orgError } = await supabase.from('organizations').select('id, name, allowed_modules, is_active, subscription_expiry, max_users').order('name');
+      const { data: orgs, error: orgError } = await supabase.from('organizations').select('*').order('name');
       
       if (orgError) {
-        if (process.env.NODE_ENV === 'development') console.error("SaasAdmin Error: Failed to fetch clients:", orgError);
+        showToast('فشل جلب قائمة الشركات: ' + orgError.message, 'error');
         return;
       }
 
@@ -342,19 +342,6 @@ export default function SaasAdmin() {
               onChange={e => setFormData({...formData, maxUsers: parseInt(e.target.value)})}
             />
           </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-            <Calendar className="w-4 h-4" /> تاريخ انتهاء الاشتراك
-          </label>
-          <input
-            type="date"
-            className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-            value={formData.subscriptionExpiry}
-            onChange={e => setFormData({...formData, subscriptionExpiry: e.target.value})}
-          />
-          <p className="text-[10px] text-gray-400 font-medium">اتركه فارغاً للاشتراك غير المحدود</p>
         </div>
 
         <div className="space-y-3">

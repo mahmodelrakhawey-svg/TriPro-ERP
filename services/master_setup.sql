@@ -145,6 +145,34 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
+-- دالة التحقق من عدد المستخدمين (منع تجاوز حدود الباقة)
+CREATE OR REPLACE FUNCTION public.check_user_limit()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_max_users integer;
+    v_current_users integer;
+BEGIN
+    -- 1. جلب الحد الأقصى المسموح به لهذه الشركة
+    SELECT max_users INTO v_max_users FROM public.organizations WHERE id = NEW.organization_id;
+    
+    -- 2. حساب عدد المستخدمين الحاليين (باستثناء السوبر أدمن)
+    SELECT count(*) INTO v_current_users FROM public.profiles 
+    WHERE organization_id = NEW.organization_id AND role != 'super_admin';
+
+    -- 3. التحقق من التجاوز
+    IF v_current_users >= COALESCE(v_max_users, 5) THEN
+        RAISE EXCEPTION '⚠️ عذراً، لقد وصلت للحد الأقصى للمستخدمين المسموح بهم في باقتك الحالية (%). يرجى ترقية الباقة لإضافة المزيد.', v_max_users;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_limit_users ON public.profiles;
+CREATE TRIGGER trg_limit_users
+BEFORE INSERT ON public.profiles
+FOR EACH ROW EXECUTE FUNCTION public.check_user_limit();
+
 CREATE TABLE public.company_settings (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     company_name text,
@@ -1205,22 +1233,19 @@ END; $$;
 DROP FUNCTION IF EXISTS public.run_payroll_rpc(integer, integer, date, uuid, jsonb);
 
 -- دالة تشغيل الرواتب المطورة (تمنع خطأ الحسابات غير المعرفة)
+-- دالة تشغيل الرواتب المتوازنة (Balanced Payroll)
 CREATE OR REPLACE FUNCTION public.run_payroll_rpc(
-    p_org_id uuid,
-    p_month int,
-    p_year int,
-    p_date date,
     p_treasury_account_id uuid,
     p_items jsonb
 )
 RETURNS uuid
+RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER
 AS $$
 DECLARE
+    v_org_id uuid;
     v_payroll_id uuid;
     v_journal_id uuid;
-    v_item jsonb;
     v_org_id uuid;
     v_salaries_acc uuid;
     v_bonuses_acc uuid; -- Changed to uuid for consistency
@@ -1228,46 +1253,82 @@ DECLARE
     v_advances_acc uuid;
     v_total_gross numeric := 0;
     v_total_additions numeric := 0;
+    v_total_deductions numeric := 0;
     v_total_advances numeric := 0;
     v_total_deductions numeric := 0;
     v_total_net numeric := 0;
+    v_item jsonb;
+    v_je_id uuid;
+    v_salaries_acc_id uuid;
+    v_bonuses_acc_id uuid;
+    v_deductions_acc_id uuid;
+    v_advances_acc_id uuid;
 BEGIN
     v_org_id := p_org_id;
     SELECT id INTO v_salaries_acc FROM public.accounts WHERE code = '531' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
     SELECT id INTO v_bonuses_acc FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
     SELECT id INTO v_deductions_acc FROM public.accounts WHERE code = '422' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
     SELECT id INTO v_advances_acc FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1; -- Changed to uuid for consistency
+    v_org_id := public.get_my_org();
 
     IF v_salaries_acc IS NULL THEN RAISE EXCEPTION 'حساب الرواتب (531) غير موجود.'; END IF;
+    -- جلب الحسابات بناءً على الأكواد القياسية
+    SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '5201' LIMIT 1;
+    SELECT id INTO v_bonuses_acc_id FROM public.accounts WHERE code = '5312' LIMIT 1;
+    SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '404' LIMIT 1;
+    SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '10203' LIMIT 1;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric;
         v_total_additions := v_total_additions + (v_item->>'additions')::numeric;
+        v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
         v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
         v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
         v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
     END LOOP;
-
     INSERT INTO public.payrolls (payroll_month, payroll_year, payment_date, total_gross_salary, total_additions, total_deductions, total_net_salary, status, organization_id)
     VALUES (p_month, p_year, p_date, v_total_gross, v_total_additions, (v_total_advances + v_total_deductions), v_total_net, 'posted', v_org_id)
     RETURNING id INTO v_payroll_id;
+    INSERT INTO public.payrolls (
+        status, organization_id
+    ) VALUES (
+        p_month, p_year, p_date,
 
     INSERT INTO public.payroll_items (payroll_id, employee_id, gross_salary, additions, advances_deducted, other_deductions, net_salary, organization_id)
     SELECT v_payroll_id, (item->>'employee_id')::uuid, (item->>'gross_salary')::numeric, (item->>'additions')::numeric, (item->>'advances_deducted')::numeric, (item->>'other_deductions')::numeric, (item->>'net_salary')::numeric, v_org_id
     FROM jsonb_array_elements(p_items) AS item;
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        INSERT INTO public.payroll_items (
+            payroll_id, employee_id, 
+            gross_salary, additions, advances_deducted, other_deductions, net_salary,
+            organization_id
+        ) VALUES (
+            v_payroll_id, (v_item->>'employee_id')::uuid,
+            (v_item->>'gross_salary')::numeric,
+            (v_item->>'additions')::numeric,
+            (v_item->>'advances_deducted')::numeric,
+        );
+    END LOOP;
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, is_posted, organization_id)
     VALUES (p_date, 'مسير رواتب شهر ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year || '-' || floor(random()*1000), 'posted', true, v_org_id)
     RETURNING id INTO v_journal_id;
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
+    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year || '-' || floor(random()*1000)::text, 'posted', v_org_id, true) RETURNING id INTO v_je_id;
 
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES 
     (v_journal_id, v_salaries_acc, v_total_gross, 0, 'مصاريف الرواتب', v_org_id);
 
     IF v_total_additions > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_bonuses_acc, v_total_additions, 0, 'المكافآت والحوافز', v_org_id);
+    IF v_total_gross > 0 AND v_salaries_acc_id IS NOT NULL THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); 
     END IF;
     IF v_total_advances > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_advances_acc, 0, v_total_advances, 'استرداد سلف', v_org_id);
+    
+    IF v_total_net > 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_account_id, 0, v_total_net, 'صرف الرواتب', v_org_id); 
     END IF;
     IF v_total_deductions > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_deductions_acc, 0, v_total_deductions, 'جزاءات الموظفين', v_org_id);
@@ -1751,10 +1812,13 @@ END; $$;
 
 -- ب. دالة تحليل النسب الربحية (Historical Ratios)
 CREATE OR REPLACE FUNCTION public.get_historical_ratios()
+-- تم التعديل لتستقبل p_org_id لضمان عزل البيانات في الرسوم البيانية
+CREATE OR REPLACE FUNCTION public.get_historical_ratios(p_org_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_profit jsonb; v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
+    v_org_id := p_org_id;
     SELECT jsonb_agg(jsonb_build_object('name', month_key, 'ربحية', margin)) INTO v_profit FROM (
         SELECT to_char(je.transaction_date, 'YYYY-MM') as month_key,
             CASE WHEN SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) > 0 
@@ -1765,6 +1829,39 @@ BEGIN
         GROUP BY 1 ORDER BY 1
     ) sub;
     RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
+END; $$;
+
+-- دالة جلب العملاء الذين تجاوزوا حد الائتمان (لحساب الإشعارات الذكية)
+CREATE OR REPLACE FUNCTION public.get_over_limit_customers(org_id UUID)
+RETURNS TABLE (
+    id UUID,
+    name TEXT,
+    total_debt NUMERIC,
+    credit_limit NUMERIC
+) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        c.id,
+        c.name,
+        COALESCE(c.balance, 0) as total_debt,
+        COALESCE(c.credit_limit, 0) as credit_limit
+    FROM public.customers c
+    WHERE c.organization_id = org_id
+      AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0)
+      AND COALESCE(c.credit_limit, 0) > 0;
+END;
+$$;
+
+-- دالة تسجيل أخطاء النظام (System Error Logger)
+CREATE OR REPLACE FUNCTION public.log_system_error(p_message text, p_code text, p_context jsonb, p_function_name text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, user_id, organization_id)
+    VALUES (p_message, p_code, p_context, p_function_name, auth.uid(), public.get_my_org());
 END; $$;
 
 -- ================================================================
