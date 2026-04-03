@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٣١‏/٣‏/٢٠٢٦، ١٠:٣٩:٠٧ ص
+📅 تاريخ التحديث: ٣‏/٤‏/٢٠٢٦، ١١:٥١:٤٤ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -187,6 +187,7 @@
   📄 RecipeManagement.tsx
   📄 ReportHeader.tsx
   📄 run-flow-test.ts
+  📄 SaasAdmin.tsx
   📄 search-tool.ts
   📄 SecurityLogs.tsx
   📄 Settings.tsx
@@ -240,8 +241,10 @@
   📄 approve_sales_return_rpc.sql
   📄 cash_closing_setup.sql
   📄 create_fix_schema_function.sql
+  📄 create-client.ts
   📄 Dashboard.tsx
   📄 deploy_all_functions.sql
+  📄 deploy_all_functionss.sql
   📄 egyptian_coa_full.sql
   📄 ensure_returns_columns.sql
   📄 factory_reset_complete.sql
@@ -294,6 +297,7 @@
   📄 test_payment_voucher.sql
   📄 test_receipt_voucher_logic.sql
   📄 test_receipt_voucher_v2.sql
+  📄 updated_system_stabilization.sql
   📄 UserManagement.tsx
   📄 verify_and_fix_returns_schema.sql
   📄 verify_demo_security.sql
@@ -484,6 +488,7 @@ import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
 import RecycleBin from './modules/admin/RecycleBin';
+import SaasAdmin from './components/SaasAdmin'; // <--- أضف هذا السطر
 import DataMigrationCenter from './modules/admin/DataMigrationCenter';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement';
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
@@ -630,6 +635,43 @@ const DemoWatermark = () => {
     );
 };
 
+const SuspendedScreen = () => (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center" dir="rtl">
+        <div className="bg-white p-10 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full">
+            <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6"><X className="text-rose-600" size={40} /></div>
+            <h1 className="text-2xl font-black text-slate-800 mb-2">عذراً، هذا الحساب متوقف</h1>
+            <p className="text-slate-500 mb-6 font-medium">يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل.</p>
+            <button onClick={() => supabase.auth.signOut()} className="w-full bg-slate-100 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">تسجيل الخروج</button>
+        </div>
+    </div>
+);
+
+const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
+    const { organization, currentUser, isLoading } = useAccounting();
+    
+    if (isLoading) return null;
+
+    const role = currentUser?.role || '';
+    const isSuperAdmin = role === 'super_admin';
+    const isDemo = role === 'demo';
+    const allowedModules = (organization as any)?.allowed_modules || [];
+    
+    const expiryDate = (organization as any)?.subscription_expiry;
+    const isExpired = expiryDate && expiryDate < new Date().toISOString().split('T')[0];
+
+    if (organization && ((organization as any).is_active === false || isExpired) && !isSuperAdmin) {
+        return <SuspendedScreen />;
+    }
+
+    const isAllowed = isSuperAdmin || isDemo || (organization && (allowedModules.includes(module) || allowedModules.length === 0));
+
+    if (!isAllowed) {
+        return <Navigate to="/" replace />;
+    }
+
+    return <>{children}</>;
+};
+
 const MainLayout = () => {
     const { currentUser } = useAccounting();
 
@@ -665,115 +707,116 @@ const MainLayout = () => {
                         <Routes>
                 <Route path="/login" element={<Navigate to="/" replace />} />
                 <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
-                <Route path="/financial-ratios" element={<FinancialRatios />} />
-                <Route path="/expense-analysis" element={<ExpenseAnalysisReport />} />
-                  <Route path="/budget-setup" element={<BudgetManager />} />
-                <Route path="/budget-report" element={<BudgetVarianceReport />} />
-                <Route path="/fiscal-year-closing" element={<FiscalYearClosing />} />
-                <Route path="/receipt-voucher" element={<ReceiptVoucherForm />} />
-                <Route path="/receipt-vouchers-list" element={<ReceiptVoucherList />} />
-                <Route path="/payment-voucher" element={<PaymentVoucherForm />} />
-                <Route path="/payment-vouchers-list" element={<PaymentVoucherList />} />
-                <Route path="/expense-voucher" element={<ExpenseVoucherForm />} />
-                <Route path="/customer-deposit" element={<CustomerDepositForm />} />
-                <Route path="/transfer" element={<TransferForm />} />
-                <Route path="/stock-transfer" element={<StockTransfer />} />
-                <Route path="/stock-transfer-list" element={<StockTransferList />} />
+                <Route path="/financial-ratios" element={<ModuleGuard module="accounting"><FinancialRatios /></ModuleGuard>} />
+                <Route path="/expense-analysis" element={<ModuleGuard module="accounting"><ExpenseAnalysisReport /></ModuleGuard>} />
+                  <Route path="/budget-setup" element={<ModuleGuard module="accounting"><BudgetManager /></ModuleGuard>} />
+                <Route path="/budget-report" element={<ModuleGuard module="accounting"><BudgetVarianceReport /></ModuleGuard>} />
+                <Route path="/fiscal-year-closing" element={<ModuleGuard module="accounting"><FiscalYearClosing /></ModuleGuard>} />
+                <Route path="/receipt-voucher" element={<ModuleGuard module="accounting"><ReceiptVoucherForm /></ModuleGuard>} />
+                <Route path="/receipt-vouchers-list" element={<ModuleGuard module="accounting"><ReceiptVoucherList /></ModuleGuard>} />
+                <Route path="/payment-voucher" element={<ModuleGuard module="accounting"><PaymentVoucherForm /></ModuleGuard>} />
+                <Route path="/payment-vouchers-list" element={<ModuleGuard module="accounting"><PaymentVoucherList /></ModuleGuard>} />
+                <Route path="/expense-voucher" element={<ModuleGuard module="accounting"><ExpenseVoucherForm /></ModuleGuard>} />
+                <Route path="/customer-deposit" element={<ModuleGuard module="accounting"><CustomerDepositForm /></ModuleGuard>} />
+                <Route path="/transfer" element={<ModuleGuard module="accounting"><TransferForm /></ModuleGuard>} />
+                <Route path="/stock-transfer" element={<ModuleGuard module="inventory"><StockTransfer /></ModuleGuard>} />
+                <Route path="/stock-transfer-list" element={<ModuleGuard module="inventory"><StockTransferList /></ModuleGuard>} />
                 <Route path="/bank-reconciliation" element={<BankReconciliationForm />} />
                 <Route path="/deficit-report" element={<DeficitReport />} />
-                <Route path="/cash-closing" element={<CashClosingForm />} />
-                <Route path="/cheques" element={<ChequesPage />} />
-                <Route path="/cheque-movement-report" element={<ChequeMovementReport />} />
-                <Route path="/returned-cheques-report" element={<ReturnedChequesReport />} />
-                <Route path="/sales-invoice" element={<SalesInvoiceForm />} />
-                <Route path="/invoices-list" element={<InvoiceList />} />
-                <Route path="/sales-return" element={<SalesReturnForm />} />
-                <Route path="/customers" element={<CustomerManager />} />
-                <Route path="/customer-statement" element={<CustomerStatement />} />
-                <Route path="/customer-aging" element={<CustomerAgingReport />} />
-                <Route path="/quotations-new" element={<QuotationForm />} />
-                <Route path="/quotations-list" element={<QuotationList />} />
-                <Route path="/credit-note" element={<CreditNoteForm />} />
-                <Route path="/credit-notes-list" element={<CreditNoteList />} />
-                <Route path="/debit-notes-list" element={<DebitNoteList />} />
-                <Route path="/purchase-order-new" element={<PurchaseOrderForm />} />
-                <Route path="/purchase-order-list" element={<PurchaseOrderList />} />
-                <Route path="/purchase-invoice" element={<PurchaseInvoiceForm />} />
-                <Route path="/purchase-invoices-list" element={<PurchaseInvoiceList />} />
-                <Route path="/net-purchases-report" element={<NetPurchasesReport />} />
-                <Route path="/purchase-return" element={<PurchaseReturnForm />} />
-                <Route path="/debit-note" element={<DebitNoteForm />} />
-                <Route path="/suppliers" element={<SupplierManager />} />
-                <Route path="/supplier-statement" element={<SupplierStatement />} />
-                <Route path="/supplier-aging" element={<SupplierAgingReport />} />
-                <Route path="/supplier-reconciliation" element={<SupplierBalanceReconciliation />} />
-                <Route path="/supplier-balances" element={<SupplierBalancesReport />} />
-                <Route path="/warehouses" element={<WarehouseManager />} />
-                <Route path="/inventory-dashboard" element={<InventoryDashboard />} />
-                <Route path="/products" element={<ProductManager />} />
-                <Route path="/inventory-count" element={<InventoryCountForm />} />
-                <Route path="/item-movement" element={<ItemMovementReport />} />
-                <Route path="/top-selling" element={<TopSellingReport />} />
-                <Route path="/slow-moving" element={<SlowMovingReport />} />
-                <Route path="/item-profit" element={<ItemProfitReport />} />
-                <Route path="/inventory-history" element={<InventoryCountList />} />
-                <Route path="/stock-adjustment" element={<StockAdjustmentForm />} />
-                <Route path="/wastage" element={<WastageManager />} />
-                <Route path="/stock-card" element={<StockCard />} />
-                <Route path="/inventory-revaluation" element={<InventoryRevaluation />} />
-                <Route path="/detailed-stock-movement" element={<DetailedStockMovementReport />} />
-                <Route path="/stock-movement-cost" element={<StockMovementCostReport />} />
-                <Route path="/opening-inventory" element={<OpeningInventory />} />
-                <Route path="/manufacturing" element={<ManufacturingManager />} />
-                <Route path="/work-orders" element={<WorkOrderManager />} />
-                <Route path="/production-cost-analysis" element={<ProductionCostAnalysis />} />
-                <Route path="/employees" element={<EmployeeManager />} />
-                <Route path="/payroll" element={<PayrollRun />} />
-                <Route path="/employee-advances" element={<EmployeeAdvances />} />
-                            <Route path="/payroll-report" element={<PayrollReport />} />
-                <Route path="/employee-statement" element={<EmployeeStatement />} />
-                <Route path="/employee-reports" element={<EmployeeReports />} />
-                <Route path="/journal" element={<JournalEntryForm />} />
-                <Route path="/draft-journals" element={<DraftJournalsList />} />
-                <Route path="/general-journal" element={<GeneralJournal />} />
-                <Route path="/ledger" element={<GeneralLedger />} />
-                <Route path="/trial-balance-advanced" element={<TrialBalanceAdvanced />} />
-                <Route path="/income-statement" element={<IncomeStatement />} />
-                <Route path="/balance-sheet" element={<BalanceSheet />} />
-                <Route path="/cash-flow" element={<CashFlowStatement />} />
-                <Route path="/cash-flow-report" element={<CashFlowReport />} />
-                <Route path="/tax-return" element={<TaxReturnReport />} />
-                <Route path="/performance-comparison" element={<PerformanceComparisonReport />} />
-                <Route path="/multi-currency-statement" element={<MultiCurrencyStatement />} />
-                <Route path="/payment-method-report" element={<PaymentMethodReport />} />
-                <Route path="/attachments-report" element={<AttachmentsReport />} />
+                <Route path="/cash-closing" element={<ModuleGuard module="accounting"><CashClosingForm /></ModuleGuard>} />
+                <Route path="/cheques" element={<ModuleGuard module="accounting"><ChequesPage /></ModuleGuard>} />
+                <Route path="/cheque-movement-report" element={<ModuleGuard module="accounting"><ChequeMovementReport /></ModuleGuard>} />
+                <Route path="/returned-cheques-report" element={<ModuleGuard module="accounting"><ReturnedChequesReport /></ModuleGuard>} />
+                <Route path="/sales-invoice" element={<ModuleGuard module="sales"><SalesInvoiceForm /></ModuleGuard>} />
+                <Route path="/invoices-list" element={<ModuleGuard module="sales"><InvoiceList /></ModuleGuard>} />
+                <Route path="/sales-return" element={<ModuleGuard module="sales"><SalesReturnForm /></ModuleGuard>} />
+                <Route path="/customers" element={<ModuleGuard module="sales"><CustomerManager /></ModuleGuard>} />
+                <Route path="/customer-statement" element={<ModuleGuard module="sales"><CustomerStatement /></ModuleGuard>} />
+                <Route path="/customer-aging" element={<ModuleGuard module="sales"><CustomerAgingReport /></ModuleGuard>} />
+                <Route path="/quotations-new" element={<ModuleGuard module="sales"><QuotationForm /></ModuleGuard>} />
+                <Route path="/quotations-list" element={<ModuleGuard module="sales"><QuotationList /></ModuleGuard>} />
+                <Route path="/credit-note" element={<ModuleGuard module="sales"><CreditNoteForm /></ModuleGuard>} />
+                <Route path="/credit-notes-list" element={<ModuleGuard module="sales"><CreditNoteList /></ModuleGuard>} />
+                <Route path="/debit-notes-list" element={<ModuleGuard module="purchases"><DebitNoteList /></ModuleGuard>} />
+                <Route path="/purchase-order-new" element={<ModuleGuard module="purchases"><PurchaseOrderForm /></ModuleGuard>} />
+                <Route path="/purchase-order-list" element={<ModuleGuard module="purchases"><PurchaseOrderList /></ModuleGuard>} />
+                <Route path="/purchase-invoice" element={<ModuleGuard module="purchases"><PurchaseInvoiceForm /></ModuleGuard>} />
+                <Route path="/purchase-invoices-list" element={<ModuleGuard module="purchases"><PurchaseInvoiceList /></ModuleGuard>} />
+                <Route path="/net-purchases-report" element={<ModuleGuard module="purchases"><NetPurchasesReport /></ModuleGuard>} />
+                <Route path="/purchase-return" element={<ModuleGuard module="purchases"><PurchaseReturnForm /></ModuleGuard>} />
+                <Route path="/debit-note" element={<ModuleGuard module="purchases"><DebitNoteForm /></ModuleGuard>} />
+                <Route path="/suppliers" element={<ModuleGuard module="purchases"><SupplierManager /></ModuleGuard>} />
+                <Route path="/supplier-statement" element={<ModuleGuard module="purchases"><SupplierStatement /></ModuleGuard>} />
+                <Route path="/supplier-aging" element={<ModuleGuard module="purchases"><SupplierAgingReport /></ModuleGuard>} />
+                <Route path="/supplier-reconciliation" element={<ModuleGuard module="purchases"><SupplierBalanceReconciliation /></ModuleGuard>} />
+                <Route path="/supplier-balances" element={<ModuleGuard module="purchases"><SupplierBalancesReport /></ModuleGuard>} />
+                <Route path="/warehouses" element={<ModuleGuard module="inventory"><WarehouseManager /></ModuleGuard>} />
+                <Route path="/inventory-dashboard" element={<ModuleGuard module="inventory"><InventoryDashboard /></ModuleGuard>} />
+                <Route path="/products" element={<ModuleGuard module="inventory"><ProductManager /></ModuleGuard>} />
+                <Route path="/inventory-count" element={<ModuleGuard module="inventory"><InventoryCountForm /></ModuleGuard>} />
+                <Route path="/item-movement" element={<ModuleGuard module="inventory"><ItemMovementReport /></ModuleGuard>} />
+                <Route path="/top-selling" element={<ModuleGuard module="inventory"><TopSellingReport /></ModuleGuard>} />
+                <Route path="/slow-moving" element={<ModuleGuard module="inventory"><SlowMovingReport /></ModuleGuard>} />
+                <Route path="/item-profit" element={<ModuleGuard module="inventory"><ItemProfitReport /></ModuleGuard>} />
+                <Route path="/inventory-history" element={<ModuleGuard module="inventory"><InventoryCountList /></ModuleGuard>} />
+                <Route path="/stock-adjustment" element={<ModuleGuard module="inventory"><StockAdjustmentForm /></ModuleGuard>} />
+                <Route path="/wastage" element={<ModuleGuard module="inventory"><WastageManager /></ModuleGuard>} />
+                <Route path="/stock-card" element={<ModuleGuard module="inventory"><StockCard /></ModuleGuard>} />
+                <Route path="/inventory-revaluation" element={<ModuleGuard module="inventory"><InventoryRevaluation /></ModuleGuard>} />
+                <Route path="/detailed-stock-movement" element={<ModuleGuard module="inventory"><DetailedStockMovementReport /></ModuleGuard>} />
+                <Route path="/stock-movement-cost" element={<ModuleGuard module="inventory"><StockMovementCostReport /></ModuleGuard>} />
+                <Route path="/opening-inventory" element={<ModuleGuard module="inventory"><OpeningInventory /></ModuleGuard>} />
+                <Route path="/manufacturing" element={<ModuleGuard module="manufacturing"><ManufacturingManager /></ModuleGuard>} />
+                <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
+                <Route path="/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
+                <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
+                <Route path="/payroll" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
+                <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />
+                            <Route path="/payroll-report" element={<ModuleGuard module="hr"><PayrollReport /></ModuleGuard>} />
+                <Route path="/employee-statement" element={<ModuleGuard module="hr"><EmployeeStatement /></ModuleGuard>} />
+                <Route path="/employee-reports" element={<ModuleGuard module="hr"><EmployeeReports /></ModuleGuard>} />
+                <Route path="/journal" element={<ModuleGuard module="accounting"><JournalEntryForm /></ModuleGuard>} />
+                <Route path="/draft-journals" element={<ModuleGuard module="accounting"><DraftJournalsList /></ModuleGuard>} />
+                <Route path="/general-journal" element={<ModuleGuard module="accounting"><GeneralJournal /></ModuleGuard>} />
+                <Route path="/ledger" element={<ModuleGuard module="accounting"><GeneralLedger /></ModuleGuard>} />
+                <Route path="/trial-balance-advanced" element={<ModuleGuard module="accounting"><TrialBalanceAdvanced /></ModuleGuard>} />
+                <Route path="/income-statement" element={<ModuleGuard module="accounting"><IncomeStatement /></ModuleGuard>} />
+                <Route path="/balance-sheet" element={<ModuleGuard module="accounting"><BalanceSheet /></ModuleGuard>} />
+                <Route path="/cash-flow" element={<ModuleGuard module="accounting"><CashFlowStatement /></ModuleGuard>} />
+                <Route path="/cash-flow-report" element={<ModuleGuard module="accounting"><CashFlowReport /></ModuleGuard>} />
+                <Route path="/tax-return" element={<ModuleGuard module="accounting"><TaxReturnReport /></ModuleGuard>} />
+                <Route path="/performance-comparison" element={<ModuleGuard module="accounting"><PerformanceComparisonReport /></ModuleGuard>} />
+                <Route path="/multi-currency-statement" element={<ModuleGuard module="accounting"><MultiCurrencyStatement /></ModuleGuard>} />
+                <Route path="/payment-method-report" element={<ModuleGuard module="accounting"><PaymentMethodReport /></ModuleGuard>} />
+                <Route path="/attachments-report" element={<ModuleGuard module="accounting"><AttachmentsReport /></ModuleGuard>} />
                 <Route path="/user-guide" element={<UserGuide />} />
-                <Route path="/accounting-dashboard" element={<AccountingDashboard />} />
-                <Route path="/journal-export" element={<JournalEntriesExport />} />
-                <Route path="/accounts" element={<AccountList />} />
-                <Route path="/assets" element={<AssetManager />} />
-                <Route path="/important-reports" element={<ImportantReports />} />
-                <Route path="/sales-reports" element={<SalesReports />} />
-                <Route path="/reports/restaurant-sales" element={<RestaurantSalesReport />} />
-                <Route path="/reports/sales-by-user" element={<SalesByUserReport />} />
-                <Route path="/reports/wastage-analysis" element={<WastageAnalysisReport />} />
-                <Route path="/reports/restaurant-profit" element={<RestaurantProfitReport />} />
+                <Route path="/accounting-dashboard" element={<ModuleGuard module="accounting"><AccountingDashboard /></ModuleGuard>} />
+                <Route path="/journal-export" element={<ModuleGuard module="accounting"><JournalEntriesExport /></ModuleGuard>} />
+                <Route path="/accounts" element={<ModuleGuard module="accounting"><AccountList /></ModuleGuard>} />
+                <Route path="/assets" element={<ModuleGuard module="accounting"><AssetManager /></ModuleGuard>} />
+                <Route path="/important-reports" element={<ModuleGuard module="accounting"><ImportantReports /></ModuleGuard>} />
+                <Route path="/sales-reports" element={<ModuleGuard module="sales"><SalesReports /></ModuleGuard>} />
+                <Route path="/reports/restaurant-sales" element={<ModuleGuard module="restaurant"><RestaurantSalesReport /></ModuleGuard>} />
+                <Route path="/reports/sales-by-user" element={<ModuleGuard module="restaurant"><SalesByUserReport /></ModuleGuard>} />
+                <Route path="/reports/wastage-analysis" element={<ModuleGuard module="restaurant"><WastageAnalysisReport /></ModuleGuard>} />
+                <Route path="/reports/restaurant-profit" element={<ModuleGuard module="restaurant"><RestaurantProfitReport /></ModuleGuard>} />
                   {/*<Route path="/reports" element={<Reports />} />*/}
-                <Route path="/purchase-reports" element={<PurchaseReports />} />
-                <Route path="/offer-beneficiaries" element={<OfferBeneficiariesReport />} />
-                <Route path="/item-sales-analysis" element={<ItemSalesAnalysis />} />
-                <Route path="/purchase-analysis" element={<PurchaseAnalysisReport />} />
+                <Route path="/purchase-reports" element={<ModuleGuard module="purchases"><PurchaseReports /></ModuleGuard>} />
+                <Route path="/offer-beneficiaries" element={<ModuleGuard module="sales"><OfferBeneficiariesReport /></ModuleGuard>} />
+                <Route path="/item-sales-analysis" element={<ModuleGuard module="sales"><ItemSalesAnalysis /></ModuleGuard>} />
+                <Route path="/purchase-analysis" element={<ModuleGuard module="purchases"><PurchaseAnalysisReport /></ModuleGuard>} />
                 <Route path="/users" element={<UserManager />} />
                 <Route path="/security-logs" element={<SecurityLogs />} />
                 <Route path="/permissions" element={<PermissionsManager />} />
                 <Route path="/recycle-bin" element={<RecycleBin />} />
                 <Route path="/data-migration" element={<DataMigrationCenter />} />
+                <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} /> {/* <--- أضف هذا السطر */}
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} />
-                <Route path="/pos" element={<PosScreen />} /> {/* التأكد من أن هذا السطر موجود */}
-                <Route path="/kds" element={<KdsScreen />} /> {/* إضافة مسار شاشة المطبخ */}
-                <Route path="/kitchen-end-day" element={<KitchenEndDayCount />} /> {/* إضافة مسار جرد المطبخ */}
+                <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> {/* التأكد من أن هذا السطر موجود */}
+                <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> {/* إضافة مسار شاشة المطبخ */}
+                <Route path="/kitchen-end-day" element={<ModuleGuard module="restaurant"><KitchenEndDayCount /></ModuleGuard>} /> {/* إضافة مسار جرد المطبخ */}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>
@@ -885,10 +928,10 @@ interface FinancialSummary {
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231', // النقدية بالصندوق
-  BANK_ACCOUNTS: '1232', // حسابات البنوك
+  BANK_ACCOUNTS: '123201', // حسابات البنوك (الافتراضي: البنك الأهلي المصري)
   CUSTOMERS: '1221', // العملاء
   NOTES_RECEIVABLE: '1222', // أوراق القبض
-  INVENTORY: '103', // المخزون (مجموعة)
+  INVENTORY: '10302', // المخزون - الافتراضي هو مخزون المنتج التام (حساب فرعي)
   INVENTORY_RAW_MATERIALS: '10301', // خامات
   INVENTORY_FINISHED_GOODS: '10302', // منتج تام
   ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
@@ -907,9 +950,11 @@ export const SYSTEM_ACCOUNTS = {
   RETAINED_EARNINGS: '32', // الأرباح المبقاة
   EMPLOYEE_BONUSES: '5312', // مكافآت وحوافز
   EMPLOYEE_DEDUCTIONS: '422', // إيراد خصومات وجزاءات
+  DIGITAL_WALLETS: '1233', // المحافظ الإلكترونية
+  CASH_DIFF: '541', // تسوية عجز الصندوق
   BANK_CHARGES: '534', // مصروفات بنكية
   BANK_INTEREST_INCOME: '423', // فوائد بنكية دائنة
-  TAX_AUTHORITY: '223', // مصلحة الضرائب (التزام)
+  TAX_AUTHORITY: '2231', // مصلحة الضرائب (قيمة مضافة - فرعي)
   SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
   WITHHOLDING_TAX: '2232', // ضريبة الخصم والتحصيل
   EMPLOYEE_ADVANCES: '1223', // سلف الموظفين
@@ -1225,6 +1270,7 @@ interface AccountingContextType {
   currentUser: User | null;
   users: User[];
   login: (username: string, pin: string) => Promise<{ success: boolean; message?: string }>;
+  organization: any | null;
   organizationId: string | null;
   logout: () => Promise<void>;
   addUser: (user: any) => void;
@@ -1268,6 +1314,8 @@ interface AccountingContextType {
   addDemoPaymentVoucher: (voucher: any) => void;
   addDemoReceiptVoucher: (voucher: any) => void;
   isDemo: boolean;
+  openShifts: any[];
+  fetchOpenShifts: () => Promise<void>;
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -1290,6 +1338,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set());
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [organization, setOrganization] = useState<any | null>(null);
   const [authInitialized, setAuthInitialized] = useState(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -1321,6 +1370,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [menuCategories, setMenuCategories] = useState<MenuCategory[]>([]);
   const [bankReconciliations, setBankReconciliations] = useState<any[]>([]);
   const [currentShift, setCurrentShift] = useState<any | null>(null);
+  const [openShifts, setOpenShifts] = useState<any[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -1432,6 +1482,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const fetchData = async () => {
     setIsLoading(true);
+    
+    // تنظيف الحالة (State) فوراً قبل جلب بيانات جديدة لمنع تسرب البيانات بين الحسابات
+    if (!isDemoState) {
+      setAccounts([]);
+      setEntries([]);
+      setCustomers([]);
+      setSuppliers([]);
+      setProducts([]);
+      setInvoices([]);
+      setVouchers([]);
+      setNotifications([]);
+    }
+
+    // تنظيف الحالة (State) فوراً وبشكل شامل قبل أي عملية جلب
+    setAccounts([]);
+    setEntries([]);
+    setCustomers([]);
+    setSuppliers([]);
+    setProducts([]);
+    setInvoices([]);
+    setVouchers([]);
+    setNotifications([]);
+    setPurchaseInvoices([]);
+
     // التحقق من هوية المستخدم (لإخفاء التكلفة عن الديمو)
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
@@ -1444,6 +1518,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
+    const currentOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+
+    if (!currentOrgId && !isDemo) {
+        if (process.env.NODE_ENV === 'development') console.warn("No Org ID found, skipping fetch to prevent leakage");
+        setIsLoading(false);
+        return;
+    }
+
     setIsDemoState(isDemo);
     // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
     const shouldFetchProtected = !!session;
@@ -1535,6 +1617,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const [
         { data: whs, error: wError },
         { data: sysSettings },
+        { data: orgData },
         { data: fetchedAccounts, error: accError },
         { data: jEntries, error: jError },
         { data: custs },
@@ -1554,27 +1637,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: restaurantTablesData },
         { data: menuCategoriesData }
       ] = await Promise.all([
-        shouldFetchProtected ? supabase.from('warehouses').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        supabase.from('company_settings').select('*').limit(1).single(),
-        shouldFetchProtected ? supabase.from('accounts').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('customers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('suppliers').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('products').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('cheques').select('*') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('assets').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('employees').select('*').is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('profiles').select('*') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('invoices').select('*').order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('purchase_invoices').select('*').order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('payment_vouchers').select('*').order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('notifications').select('*').eq('is_read', false).order('created_at', { ascending: false }).limit(20) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('restaurant_tables').select('*') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('menu_categories').select('*').order('display_order') : Promise.resolve({ data: [], error: null })
+        shouldFetchProtected ? supabase.from('warehouses').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('company_settings').select('*').eq('organization_id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        shouldFetchProtected ? supabase.from('organizations').select('*').eq('id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        shouldFetchProtected ? supabase.from('accounts').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').eq('organization_id', currentOrgId).order('transaction_date', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('customers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('suppliers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('products').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('cheques').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('assets').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('employees').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('profiles').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('purchase_invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').eq('organization_id', currentOrgId).order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('payment_vouchers').select('*').eq('organization_id', currentOrgId).order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('notifications').select('*').eq('organization_id', currentOrgId).eq('is_read', false).limit(20) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('organization_id', currentOrgId).eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }), // الـ RPC محمي داخلياً بـ get_my_org()
+        shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
+
+      // حفظ بيانات المنظمة الحالية (بما فيها الموديولات المسموحة)
+      if (orgData) {
+        setOrganization(orgData);
+      }
 
       // 1. معالجة المستودعات
       if (whs && whs.length > 0) {
@@ -1658,10 +1747,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
       await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.BANK_ACCOUNTS, 'البنك الرئيسي', 'ASSET');
+      await ensureAccount('123201', 'البنك الأهلي المصري', 'ASSET');
       await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
       await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY, 'المخزون', 'ASSET');
+      // ملاحظة: لا نقوم بإنشاء حساب 103 هنا لأنه حساب رئيسي يتم إنشاؤه عبر ملف SQL
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET'); // 10301
       await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET'); // 10302
       await ensureAccount(SYSTEM_ACCOUNTS.SALARIES_EXPENSE, 'الرواتب والأجور', 'EXPENSE');
@@ -2300,6 +2389,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [currentUser, isDemoState]);
 
+  const fetchOpenShifts = async () => {
+    // جلب كافة الورديات المفتوحة (للإدارة فقط)
+    if (isDemoState) {
+      setOpenShifts([{ id: 'demo-s1', full_name: 'أحمد محمد (ديمو)', start_time: new Date().toISOString(), opening_balance: 1000 }]);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('shifts')
+        .select('*, profiles:user_id(full_name)')
+        .is('end_time', null)
+        .order('start_time', { ascending: false });
+      if (error) throw error;
+      setOpenShifts(data || []);
+    } catch (err) {
+      console.error("Error fetching open shifts", err);
+    }
+  };
+
   const handleAuthChange = useCallback(async (user: any) => {
     if (user) {
         try {
@@ -2310,7 +2418,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             const isDemoUser = email === DEMO_EMAIL;
             
             // تحديد الدور: الديمو أولاً، ثم البيانات الوصفية، ثم البروفايل، وأخيراً viewer
-            const roleName = isDemoUser ? 'demo' : (user.user_metadata?.app_role || profile?.role || 'viewer');
+            const roleName = isDemoUser ? 'demo' : (user.user_metadata?.role || user.user_metadata?.app_role || profile?.role || 'viewer');
             
             setCurrentUser({
                 id: user.id,
@@ -2381,7 +2489,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 description: details,
                 performed_by: isHardcodedAdmin ? null : currentUser.id,
                 created_at: new Date().toISOString(),
-                metadata: metadata
+                metadata: amount ? { ...metadata, amount } : metadata
             });
         }
     } catch (error) {
@@ -2732,6 +2840,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
+      const orgId = (currentUser as any)?.organization_id || 
+                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
       // حفظ السند في قاعدة البيانات
       await supabase.from('receipt_vouchers').insert({
         id: id,
@@ -2742,7 +2854,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         treasury_account_id: debitAccount,
         notes: data.description,
         related_journal_entry_id: entryId,
-        payment_method: data.paymentMethod || 'cash'
+        payment_method: data.paymentMethod || 'cash',
+        organization_id: orgId
       });
 
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt' }, ...prev]);
@@ -2776,18 +2889,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // جلب معرف المنظمة مع صمام أمان
+      const orgId = (currentUser as any)?.organization_id || 
+                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
       // حفظ السند في قاعدة البيانات
       await supabase.from('receipt_vouchers').insert({
         id: id,
         voucher_number: vNum,
         receipt_date: data.date,
         amount: data.amount,
-        customer_id: data.partyId, // في حالة التأمين، الطرف هو العميل
+        customer_id: data.partyId,
         treasury_account_id: debitAccount,
         notes: data.description,
         related_journal_entry_id: entryId,
         payment_method: 'cash',
-        type: 'deposit' // تمييزه كسند تأمين إذا كان الجدول يدعم ذلك
+        type: 'deposit',
+        organization_id: orgId
       });
 
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt', subType: 'customer_deposit' }, ...prev]);
@@ -2853,17 +2971,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         attachments: data.attachments
     });
     if (entryId) {
+      // جلب معرف المنظمة مع صمام أمان
+      const orgId = (currentUser as any)?.organization_id || 
+                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+
       // حفظ السند في قاعدة البيانات
       await supabase.from('payment_vouchers').insert({
         id: id,
         voucher_number: vNum,
         payment_date: data.date,
         amount: data.amount,
-        supplier_id: data.subType === 'supplier' ? data.partyId : null, // ربط المورد إذا كان سداد مورد
+        supplier_id: data.subType === 'supplier' ? data.partyId : null,
         treasury_account_id: creditAccount,
         notes: data.description,
         related_journal_entry_id: entryId,
-        payment_method: data.paymentMethod || 'cash'
+        payment_method: data.paymentMethod || 'cash',
+        organization_id: orgId
       });
 
       setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'payment' }, ...prev]);
@@ -3385,7 +3508,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           asset_account_id: data.assetAccountId,
           accumulated_depreciation_account_id: data.accumulatedDepreciationAccountId || null,
           depreciation_expense_account_id: data.depreciationExpenseAccountId || null,
-          organization_id: (await supabase.from('organizations').select('id').limit(1).single()).data?.id // ضمان الربط بالمنشأة
+          organization_id: (currentUser as any)?.organization_id // استخدام معرف المنظمة من المستخدم الحالي مباشرة
         })
         .select()
         .single();
@@ -3682,6 +3805,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const logout = async () => {
       try {
+          // مسح الذاكرة المؤقتة تماماً لمنع تسرب البيانات بين الحسابات
+          secureStorage.removeItem('cached_accounts');
+          secureStorage.removeItem('cached_customers');
+          secureStorage.removeItem('cached_suppliers');
+          secureStorage.removeItem('cached_products');
           await authLogout();
       } catch (error) {
           console.error("Logout failed:", error);
@@ -3747,7 +3875,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const { data, error } = await supabase
         .from('warehouses')
-        .insert({ ...warehouseData })
+        .insert({ 
+          ...warehouseData, 
+          organization_id: (currentUser as any)?.organization_id 
+        })
         .select()
         .single();
       if (error) throw error;
@@ -4828,11 +4959,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           showToast('تم فتح الوردية (ديمو)', 'success');
           return true;
       }
+
+      // التحقق أولاً إذا كان النظام يعلم بوجود وردية مفتوحة فعلياً لتوفير طلب الشبكة
+      if (currentShift) return true;
+
       try {
           const { data, error } = await supabase.rpc('start_shift', {
               p_user_id: currentUser?.id,
-              p_opening_balance: openingBalance
+              p_opening_balance: openingBalance,
+              p_resume_existing: true // تفعيل خيار الاستئناف لتجنب الخطأ 400
           });
+
           if (error) throw error;
           await checkOpenShift();
           showToast('تم فتح الوردية بنجاح', 'success');
@@ -4871,9 +5008,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
           setCurrentShift(null);
           showToast('تم إغلاق الوردية بنجاح', 'success');
+          logActivity('إغلاق وردية', `تم إغلاق الوردية بنجاح بمبلغ فعلي ${actualCash}`, actualCash, { shift_id: currentShift.id });
           return true;
       } catch (err: any) {
-          showToast('فشل إغلاق الوردية: ' + err.message, 'error');
+          console.error("Shift closure failed:", err);
+          logActivity('فشل إغلاق الوردية', `محاولة إغلاق فاشلة: ${err.message}`, actualCash, { 
+              error: err.message, 
+              shift_id: currentShift?.id 
+          });
+          showToast('فشل إغلاق الوردية: ' + (err.message || 'خطأ غير معروف'), 'error');
           return false;
       }
   };
@@ -4891,7 +5034,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               type: accountData.type,
               is_group: accountData.is_group,
               parent_id: accountData.parent_id,
-              sub_type: accountData.sub_type || null
+              sub_type: accountData.sub_type || null,
+              organization_id: (currentUser as any)?.organization_id
             })
             .select()
             .single();
@@ -4947,10 +5091,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       getSystemAccount,
       currentUser, users, login, logout, addUser, updateUser, deleteUser: (id) => setUsers(prev => prev.filter(u => u.id !== id)),
       organizationId: (currentUser as any)?.organization_id || null,
+      organization,
       settings, updateSettings: (newSettings) => {
           setSettings(newSettings);
+          const orgId = (currentUser as any)?.organization_id;
+          if (!orgId) return;
           supabase.from('company_settings').upsert({
-              id: ADMIN_USER_ID,
+              organization_id: orgId, // استخدام معرف الشركة كفتاح فريد للتحديث
               company_name: newSettings.companyName,
               tax_number: newSettings.taxNumber,
               address: newSettings.address,
@@ -4967,7 +5114,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               // @ts-ignore
               decimal_places: newSettings.decimalPlaces,
               account_mappings: newSettings.account_mappings
-          }).then(({ error }) => {
+          }, { onConflict: 'organization_id' }).then(({ error }) => {
               if (error) console.error("Failed to save settings:", error);
           });
       },
@@ -4983,6 +5130,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       closeCurrentShift,
       getCurrentShiftSummary,
       processSplitPayment,
+      openShifts,
+      fetchOpenShifts,
       checkSystemAccounts, createMissingSystemAccounts,
   addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher,
       isDemo: isDemoState
@@ -4991,6 +5140,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     </AccountingContext.Provider>
   );
 };
+
 ```
 
 ### 📄 supabaseClient.ts
