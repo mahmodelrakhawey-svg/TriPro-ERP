@@ -793,16 +793,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           // Database seeding is now handled by SQL script
       }
 
-      // إذا كان الدليل فارغاً تماماً (شركة جديدة)، نقوم بتأسيسه من الثوابت فوراً
-      if (shouldFetchProtected && !accError && accs.length === 0 && !isDemo) {
+      // إذا كان الدليل فارغاً أو ينقصه الحسابات الرئيسية (مثل الأصول 1)، نقوم بتأسيسه فوراً
+      if (shouldFetchProtected && !accError && !isDemo && (accs.length === 0 || !accs.find(a => a.code === '1'))) {
           if (process.env.NODE_ENV === 'development') console.log("New organization detected, seeding default Chart of Accounts...");
           // نستخدم منطق createMissingSystemAccounts ولكن بشكل مباشر هنا
           for (const accDef of INITIAL_ACCOUNTS) {
               const parentId = accDef.parent_account ? accs.find(a => a.code === accDef.parent_account)?.id : null;
               const { data: newAcc } = await supabase.from('accounts').insert({
                   id: generateUUID(), code: accDef.code, name: accDef.name, type: accDef.type,
-                  is_group: accDef.is_group, parent_id: parentId
-              }).select().single();
+                  organization_id: currentOrgId,
+                  is_active: true              }).select().single();
               if (newAcc) accs.push(newAcc);
           }
       }
@@ -3522,12 +3522,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // نمر على جميع الحسابات المعرفة في الثوابت (INITIAL_ACCOUNTS)
       // هذا يضمن إضافة أي حساب جديد تم تعريفه في الكود ولم يتم إضافته لقاعدة البيانات
       for (const accDef of INITIAL_ACCOUNTS) {
-          if (codeToId.has(accDef.code)) continue; // الحساب موجود بالفعل
+          // البحث عن الحساب بالكود داخل الحالة المحلية لضمان عدم التكرار
+          if (accounts.some(a => a.code === accDef.code)) continue; 
 
           // محاولة العثور على معرف الحساب الأب
           let parentId = null;
           if (accDef.parent_account) {
-              parentId = codeToId.get(accDef.parent_account) || null;
+              // نبحث عن الأب في الحالة المحلية أو في الحسابات التي أنشأناها للتو
+              parentId = accounts.find(a => a.code === accDef.parent_account)?.id || codeToId.get(accDef.parent_account) || null;
           }
 
           try {
@@ -3539,7 +3541,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   type: accDef.type,
                   is_group: accDef.is_group,
                   parent_id: parentId,
-                  is_active: true
+                  is_active: true,
+                  organization_id: (currentUser as any)?.organization_id
               });
               
               codeToId.set(accDef.code, newId); // تحديث الخريطة للحسابات اللاحقة
