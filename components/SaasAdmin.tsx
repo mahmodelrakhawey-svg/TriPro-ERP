@@ -206,6 +206,12 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'فشل إنشاء العميل');
 
+      // استدعاء دالة تأسيس دليل الحسابات بناءً على القالب المختار
+      await supabase.rpc('initialize_egyptian_coa', { 
+        p_org_id: result.organization.id, 
+        p_activity_type: formData.coaTemplate 
+      });
+
       showToast('تم إنشاء الشركة وحساب المدير بنجاح ✅', 'success');
       onSuccess();
       setCreatedData(result);
