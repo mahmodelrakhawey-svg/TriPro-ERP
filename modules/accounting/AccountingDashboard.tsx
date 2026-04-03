@@ -33,6 +33,77 @@ import {
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
+// --- مكونات الرسوم البيانية المحسنة (Memoized Components) ---
+
+const MonthlyRevenueChart = React.memo(({ data }: { data: any[] }) => (
+  <ResponsiveContainer width="100%" height="100%" minHeight={320}>
+    <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+      <defs>
+        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+        </linearGradient>
+        <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+          <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+        </linearGradient>
+      </defs>
+      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
+      <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(val) => `${val/1000}k`} />
+      <CartesianGrid vertical={false} stroke="#f1f5f9" />
+      <Tooltip 
+        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+        formatter={(value: number) => value.toLocaleString()}
+      />
+      <Area type="monotone" dataKey="revenue" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenue)" name="الإيرادات" strokeWidth={2} />
+      <Area type="monotone" dataKey="expense" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" name="المصروفات" strokeWidth={2} />
+    </AreaChart>
+  </ResponsiveContainer>
+));
+
+const ExpensesBreakdownChart = React.memo(({ data }: { data: any[] }) => (
+  <ResponsiveContainer width="100%" height="100%" minHeight={320}>
+    <PieChart>
+      <Pie
+        data={data}
+        cx="50%"
+        cy="50%"
+        innerRadius={60}
+        outerRadius={80}
+        paddingAngle={5}
+        dataKey="value"
+      >
+        {data.map((entry, index) => (
+          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+        ))}
+      </Pie>
+      <Tooltip formatter={(value: number) => value.toLocaleString()} />
+      <Legend layout="horizontal" verticalAlign="bottom" align="center" />
+    </PieChart>
+  </ResponsiveContainer>
+));
+
+const WeeklyCashFlowChart = React.memo(({ data }: { data: any[] }) => (
+  <ResponsiveContainer width="100%" height="100%" minHeight={320}>
+    <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+      <defs>
+        <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#8884d8" stopOpacity={0.1}/>
+          <stop offset="95%" stopColor="#8884d8" stopOpacity={0}/>
+        </linearGradient>
+      </defs>
+      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
+      <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
+      <CartesianGrid vertical={false} stroke="#f1f5f9" />
+      <Tooltip 
+        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+        formatter={(value: number) => value.toLocaleString('ar-EG', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+      />
+      <Area type="monotone" dataKey="balance" stroke="#8884d8" fillOpacity={1} fill="url(#colorCash)" name="رصيد النقدية" strokeWidth={2} />
+    </AreaChart>
+  </ResponsiveContainer>
+));
+
 export default function AccountingDashboard() {
   const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin } = useAccounting();
   const { showToast } = useToast();
@@ -448,29 +519,7 @@ export default function AccountingDashboard() {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6">تحليل الإيرادات والمصروفات (شهري)</h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={monthlyData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(val) => `${val/1000}k`} />
-                <CartesianGrid vertical={false} stroke="#f1f5f9" />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => value.toLocaleString()}
-                />
-                <Area type="monotone" dataKey="revenue" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenue)" name="الإيرادات" strokeWidth={2} />
-                <Area type="monotone" dataKey="expense" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" name="المصروفات" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <MonthlyRevenueChart data={monthlyData} />
           </div>
         </div>
       </div>
@@ -482,25 +531,7 @@ export default function AccountingDashboard() {
             <PieChartIcon size={18} className="text-slate-400" /> توزيع المصروفات
           </h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={expenseData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {expenseData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value: number) => value.toLocaleString()} />
-                <Legend layout="horizontal" verticalAlign="bottom" align="center" />
-              </PieChart>
-            </ResponsiveContainer>
+            <ExpensesBreakdownChart data={expenseData} />
           </div>
         </div>
 
@@ -510,24 +541,7 @@ export default function AccountingDashboard() {
             <Wallet size={18} className="text-slate-400" /> تطور السيولة النقدية الأسبوعي
           </h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={weeklyCashData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#8884d8" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#8884d8" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
-                <CartesianGrid vertical={false} stroke="#f1f5f9" />
-                <Tooltip 
-                  contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  formatter={(value: number) => value.toLocaleString('ar-EG', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
-                />
-                <Area type="monotone" dataKey="balance" stroke="#8884d8" fillOpacity={1} fill="url(#colorCash)" name="رصيد النقدية" strokeWidth={2} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <WeeklyCashFlowChart data={weeklyCashData} />
           </div>
         </div>
       </div>

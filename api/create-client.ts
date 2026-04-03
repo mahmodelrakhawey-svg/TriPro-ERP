@@ -26,7 +26,7 @@ export default async function handler(req: any, res: any) {
     return res.status(403).json({ error: 'Only Super Admins can create clients' })
   }
 
-  const { email, password, companyName, adminName, modules, subscriptionExpiry, maxUsers } = req.body
+  const { email, password, companyName, adminName, modules, subscriptionExpiry, maxUsers, currency, vatRate, coaTemplate, plan, logoUrl } = req.body
 
   try {
     // 1. إنشاء المنظمة (الشركة) الجديدة
@@ -57,19 +57,69 @@ export default async function handler(req: any, res: any) {
     }
 
     // 3. تهيئة البيانات الأساسية للشركة الجديدة (اختياري: مثل دليل الحسابات الافتراضي)
-    // بما أنك محاسب، سنقوم هنا بإضافة حساب "الصندوق" و"المبيعات" كبداية
-    await supabaseAdmin.from('accounts').insert([
-      { code: '1231', name: 'الصندوق الرئيسي', type: 'ASSET', organization_id: org.id },
-      { code: '411', name: 'إيراد مبيعات', type: 'REVENUE', organization_id: org.id },
-      { code: '1221', name: 'حساب العملاء', type: 'ASSET', organization_id: org.id }
-    ])
+    const templates: Record<string, any[]> = {
+      restaurant: [
+        { code: '1231', name: 'صندوق الكاشير الرئيسي', type: 'ASSET', organization_id: org.id },
+        { code: '411', name: 'إيرادات المأكولات والمشروبات', type: 'REVENUE', organization_id: org.id },
+        { code: '10301', name: 'مخزون المواد الخام (المطبخ)', type: 'ASSET', organization_id: org.id },
+        { code: '511', name: 'تكلفة الأغذية المستهلكة (COGS)', type: 'EXPENSE', organization_id: org.id }
+      ],
+      construction: [
+        { code: '1221', name: 'مستخلصات العملاء', type: 'ASSET', organization_id: org.id },
+        { code: '411', name: 'إيرادات مشاريع المقاولات', type: 'REVENUE', organization_id: org.id },
+        { code: '511', name: 'تكاليف العمليات والمواد', type: 'EXPENSE', organization_id: org.id },
+        { code: '1223', name: 'تأمينات محتجزة لدى الغير', type: 'ASSET', organization_id: org.id }
+      ],
+      commercial: [
+        { code: '1231', name: 'الصندوق الرئيسي', type: 'ASSET', organization_id: org.id },
+        { code: '1221', name: 'حساب العملاء', type: 'ASSET', organization_id: org.id },
+        { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', organization_id: org.id },
+        { code: '10302', name: 'مخزون بضاعة جاهزة', type: 'ASSET', organization_id: org.id },
+        { code: '201', name: 'حساب الموردين', type: 'LIABILITY', organization_id: org.id }
+      ],
+      clinic: [
+        { code: '1231', name: 'الصندوق الرئيسي', type: 'ASSET', organization_id: org.id },
+        { code: '1221', name: 'حسابات المرضى والعملاء', type: 'ASSET', organization_id: org.id },
+        { code: '411', name: 'إيرادات الخدمات والعمليات الطبية', type: 'REVENUE', organization_id: org.id },
+        { code: '10303', name: 'مخزون الأدوية والمستلزمات الطبية', type: 'ASSET', organization_id: org.id },
+        { code: '536', name: 'مصروفات طبية وتشغيلية', type: 'EXPENSE', organization_id: org.id }
+      ],
+      legal: [
+        { code: '1231', name: 'الصندوق الرئيسي', type: 'ASSET', organization_id: org.id },
+        { code: '1221', name: 'حسابات الموكلين والعملاء', type: 'ASSET', organization_id: org.id },
+        { code: '411', name: 'أتعاب المحاماة والاستشارات القانونية', type: 'REVENUE', organization_id: org.id },
+        { code: '226', name: 'حساب أمانات الموكلين (قضايا)', type: 'LIABILITY', organization_id: org.id },
+        { code: '537', name: 'رسوم ومصروفات قضائية', type: 'EXPENSE', organization_id: org.id }
+      ],
+      transport: [
+        { code: '1231', name: 'الصندوق الرئيسي', type: 'ASSET', organization_id: org.id },
+        { code: '1221', name: 'حسابات العملاء (شحن وتفريغ)', type: 'ASSET', organization_id: org.id },
+        { code: '411', name: 'إيرادات خدمات النقل واللوجستيات', type: 'REVENUE', organization_id: org.id },
+        { code: '511', name: 'تكاليف تشغيل الأسطول (وقود وصيانة)', type: 'EXPENSE', organization_id: org.id },
+        { code: '1116', name: 'أسطول السيارات والشاحنات', type: 'ASSET', organization_id: org.id }
+      ],
+      charity: [
+        { code: '1231', name: 'صندوق التبرعات والصدقات', type: 'ASSET', organization_id: org.id },
+        { code: '411', name: 'إيرادات التبرعات والمساهمات', type: 'REVENUE', organization_id: org.id },
+        { code: '531', name: 'مصروفات المشاريع الخيرية والمساعدات', type: 'EXPENSE', organization_id: org.id },
+        { code: '226', name: 'أمانات مستحقي المساعدة والزكاة', type: 'LIABILITY', organization_id: org.id },
+        { code: '1232', name: 'حساب بنك التبرعات', type: 'ASSET', organization_id: org.id }
+      ]
+    };
+
+    const selectedAccounts = templates[coaTemplate as string] || templates.commercial;
+    
+    const { error: accError } = await supabaseAdmin.from('accounts').insert(selectedAccounts);
+    if (accError) console.error("Template accounts insertion failed:", accError);
+
 
     // 4. إضافة إعدادات الشركة الافتراضية
     await supabaseAdmin.from('company_settings').insert({
       company_name: companyName,
       organization_id: org.id,
-      currency: 'EGP',
-      vat_rate: 0.14
+      currency: currency || 'EGP',
+      vat_rate: (vatRate !== undefined ? vatRate : 14) / 100,
+      logo_url: logoUrl || null
     })
 
     return res.status(200).json({ message: 'تم إنشاء العميل والشركة بنجاح', orgId: org.id })

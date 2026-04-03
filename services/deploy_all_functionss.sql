@@ -379,3 +379,88 @@ BEGIN
     INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, user_id, organization_id)
     VALUES (p_message, p_code, p_context, p_func, auth.uid(), public.get_my_org());
 END; $$;
+
+-- ================================================================
+-- 29. دالة جلب إحصائيات المنصة الشاملة (للسوبر أدمن فقط)
+-- ================================================================
+CREATE OR REPLACE FUNCTION get_admin_platform_metrics()
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER 
+AS $$
+DECLARE
+    total_sales DECIMAL;
+    total_orgs INTEGER;
+    active_orgs INTEGER;
+    new_orgs_this_month INTEGER;
+    new_orgs_last_month INTEGER;
+    growth_percentage DECIMAL;
+    result JSON;
+BEGIN
+    -- 1. حساب إجمالي المبيعات عبر كافة المنظمات
+    SELECT COALESCE(SUM(total_amount), 0) INTO total_sales
+    FROM invoices 
+    WHERE status = 'posted';
+
+    -- 2. إحصائيات المنظمات
+    SELECT COUNT(*) INTO total_orgs FROM organizations;
+    SELECT COUNT(*) INTO active_orgs FROM organizations WHERE is_active = true AND subscription_expiry > CURRENT_DATE;
+
+    -- 3. حساب النمو
+    SELECT COUNT(*) INTO new_orgs_this_month 
+    FROM organizations 
+    WHERE created_at >= date_trunc('month', CURRENT_DATE);
+
+    SELECT COUNT(*) INTO new_orgs_last_month 
+    FROM organizations 
+    WHERE created_at >= date_trunc('month', CURRENT_DATE - INTERVAL '1 month') 
+      AND created_at < date_trunc('month', CURRENT_DATE);
+
+    IF new_orgs_last_month > 0 THEN
+        growth_percentage := ((new_orgs_this_month::DECIMAL - new_orgs_last_month) / new_orgs_last_month) * 100;
+    ELSE
+        growth_percentage := 100;
+    END IF;
+
+    result := json_build_object(
+        'total_platform_sales', total_sales,
+        'total_organizations', total_orgs,
+        'active_subscriptions', active_orgs,
+        'growth_this_month_percent', ROUND(growth_percentage, 2),
+        'new_registrations_today', (SELECT COUNT(*) FROM organizations WHERE created_at::DATE = CURRENT_DATE)
+    );
+    RETURN result;
+END; $$;
+
+-- ================================================================
+-- 30. دالة إصلاح وتنشيط هيكل بيانات الـ SaaS
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.refresh_saas_schema()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 1. التأكد من وجود عمود الحد الأقصى للمستخدمين
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='organizations' AND column_name='max_users') THEN
+        ALTER TABLE public.organizations ADD COLUMN max_users INTEGER DEFAULT 5;
+    END IF;
+
+    -- 2. التأكد من وجود عمود سبب التعطيل
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='organizations' AND column_name='suspension_reason') THEN
+        ALTER TABLE public.organizations ADD COLUMN suspension_reason TEXT;
+    END IF;
+
+    -- 3. التأكد من وجود عمود إجمالي التحصيل
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='organizations' AND column_name='total_collected') THEN
+        ALTER TABLE public.organizations ADD COLUMN total_collected NUMERIC DEFAULT 0;
+    END IF;
+
+    -- 4. التأكد من وجود عمود تاريخ الدفع القادم
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='organizations' AND column_name='next_payment_date') THEN
+        ALTER TABLE public.organizations ADD COLUMN next_payment_date DATE;
+    END IF;
+
+    -- 3. الأمر السحري لإعادة تحميل كاش الـ API (Schema Reload)
+    -- هذا السطر هو الذي يحل مشكلة الـ Schema Cache التي واجهتك
+    EXECUTE 'NOTIFY pgrst, ''reload config''';
+    
+    RETURN 'تم تحديث هيكل البيانات وتنشيط الكاش بنجاح ✅';
+END; $$;

@@ -101,7 +101,7 @@ import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
 import RecycleBin from './modules/admin/RecycleBin';
-import SaasAdmin from './components/SaasAdmin'; // <--- أضف هذا السطر
+import SaasAdmin from './components/SaasAdmin';
 import DataMigrationCenter from './modules/admin/DataMigrationCenter';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement';
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
@@ -248,12 +248,14 @@ const DemoWatermark = () => {
     );
 };
 
-const SuspendedScreen = () => (
+const SuspendedScreen = ({ message }: { message?: string }) => (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center" dir="rtl">
         <div className="bg-white p-10 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full">
             <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6"><X className="text-rose-600" size={40} /></div>
             <h1 className="text-2xl font-black text-slate-800 mb-2">عذراً، هذا الحساب متوقف</h1>
-            <p className="text-slate-500 mb-6 font-medium">يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل.</p>
+            <p className="text-slate-500 mb-6 font-medium">
+                {message || "يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل."}
+            </p>
             <button onClick={() => supabase.auth.signOut()} className="w-full bg-slate-100 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">تسجيل الخروج</button>
         </div>
     </div>
@@ -262,7 +264,8 @@ const SuspendedScreen = () => (
 const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
     const { organization, currentUser, isLoading } = useAccounting();
     
-    if (isLoading) return null;
+    // إذا كان هناك مستخدم مسجل بالفعل، لا نغلق الشاشة أثناء تحديث البيانات في الخلفية
+    if (isLoading && !currentUser) return null;
 
     const role = currentUser?.role || '';
     const isSuperAdmin = role === 'super_admin';
@@ -273,7 +276,8 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     const isExpired = expiryDate && expiryDate < new Date().toISOString().split('T')[0];
 
     if (organization && ((organization as any).is_active === false || isExpired) && !isSuperAdmin) {
-        return <SuspendedScreen />;
+        const message = (organization as any).suspension_reason || (isExpired ? "لقد انتهت فترة اشتراككم. يرجى التجديد للمتابعة." : undefined);
+        return <SuspendedScreen message={message} />;
     }
 
     const isAllowed = isSuperAdmin || isDemo || (organization && (allowedModules.includes(module) || allowedModules.length === 0));
@@ -315,7 +319,7 @@ const MainLayout = () => {
                     <Header />
                 </div>
                 {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
-                <main className="flex-1 p-8 overflow-y-auto bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
+                <main className="flex-1 p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
                         <Routes>
                 <Route path="/login" element={<Navigate to="/" replace />} />

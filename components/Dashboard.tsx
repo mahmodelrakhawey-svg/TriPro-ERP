@@ -5,7 +5,7 @@
 
 
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext'; // Assuming context provides demo data
 import { supabase } from '../supabaseClient';
 import { 
@@ -20,7 +20,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useToast } from '../context/ToastContext';
 
 const Dashboard = () => {
-  const { currentUser, settings, getSystemAccount, products: demoProducts, invoices: demoInvoices, purchaseInvoices: demoPurchaseInvoices, customers: demoCustomers } = useAccounting();
+  const { currentUser, settings, getSystemAccount, getFinancialSummary, products: demoProducts, invoices: demoInvoices, purchaseInvoices: demoPurchaseInvoices, customers: demoCustomers, entries, accounts } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -52,6 +52,45 @@ const Dashboard = () => {
 
   const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#64748b'];
 
+  // دالة حساب إحصائيات الشهر الحالي محلياً لضمان الدقة 100%
+  const calculateCurrentMonthStats = useCallback(() => {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+    
+    let mSales = 0;
+    let mPurchases = 0;
+    let mCogs = 0;
+    let mExpenses = 0;
+
+    // حساب المبيعات والمشتريات من الفواتير
+    demoInvoices.filter(inv => inv.date >= startOfMonth && inv.status !== 'draft')
+      .forEach(inv => mSales += (inv.subtotal || 0));
+    
+    demoPurchaseInvoices.filter(inv => inv.date >= startOfMonth && inv.status !== 'draft')
+      .forEach(inv => mPurchases += (inv.subtotal || 0));
+
+    // حساب المصروفات والتكاليف من دفتر الأستاذ (القيود)
+    entries.filter(e => e.date >= startOfMonth && e.status === 'posted').forEach(entry => {
+      entry.lines.forEach(line => {
+        const acc = accounts.find(a => a.id === line.accountId);
+        if (!acc) return;
+        const code = String(acc.code);
+        const type = String(acc.type).toLowerCase();
+
+        // تكلفة البضاعة (COGS)
+        if (code.startsWith('511') || acc.name.includes('تكلفة')) {
+          mCogs += (line.debit - line.credit);
+        }
+        // مصروفات تشغيلية وإدارية
+        else if (code.startsWith('5') && !code.startsWith('511')) {
+          mExpenses += (line.debit - line.credit);
+        }
+      });
+    });
+
+    return { mSales, mPurchases, mCogs, mExpenses };
+  }, [demoInvoices, demoPurchaseInvoices, entries, accounts]);
+
   useEffect(() => {
     // Effect for non-demo (real) users, relies on RPC
     const fetchRealData = async () => {
@@ -68,14 +107,16 @@ const Dashboard = () => {
               throw error;
           }
 
+          const localStats = calculateCurrentMonthStats();
+
           if (data) {
               setStats({
-                  monthSales: data.monthSales || 0,
+                  monthSales: localStats.mSales || data.monthSales || 0,
                   prevMonthSales: data.prevMonthSales || 0,
-                  monthPurchases: data.monthPurchases || 0,
+                  monthPurchases: localStats.mPurchases || data.monthPurchases || 0,
                   prevMonthPurchases: data.prevMonthPurchases || 0,
-                  monthCogs: data.monthCogs || 0,
-                  monthExpenses: data.monthExpenses || 0,
+                  monthCogs: localStats.mCogs || data.monthCogs || 0,
+                  monthExpenses: localStats.mExpenses || data.monthExpenses || 0,
                   receivables: data.receivables || 0,
                   payables: data.payables || 0,
                   totalReceipts: data.totalReceipts || 0,

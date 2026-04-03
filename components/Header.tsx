@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { secureStorage } from '../utils/securityMiddleware';
-import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart } from 'lucide-react';
+import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2 } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
@@ -25,7 +25,7 @@ const routeTitles: Record<string, string> = {
 
 const Header = () => {
     const location = useLocation();
-    const { lastUpdated, refreshData, clearCache, settings } = useAccounting();
+    const { lastUpdated, refreshData, clearCache, settings, isLoading } = useAccounting();
     const navigate = useNavigate();
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -149,8 +149,12 @@ const Header = () => {
                 )}
 
                 <div className="flex items-center gap-3 text-sm text-slate-500">
-                    <div className="flex items-center gap-1 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => refreshData()} title="تحديث البيانات">
-                        <RefreshCw size={14} />
+                    <div className="flex items-center gap-2 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => refreshData()} title="تحديث البيانات">
+                        {isLoading ? (
+                            <Loader2 size={14} className="animate-spin text-blue-600" />
+                        ) : (
+                            <RefreshCw size={14} />
+                        )}
                         <span>
                             آخر تحديث: {lastUpdated ? lastUpdated.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
                         </span>

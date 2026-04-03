@@ -593,29 +593,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const fetchData = async () => {
     setIsLoading(true);
     
-    // تنظيف الحالة (State) فوراً قبل جلب بيانات جديدة لمنع تسرب البيانات بين الحسابات
-    if (!isDemoState) {
-      setAccounts([]);
-      setEntries([]);
-      setCustomers([]);
-      setSuppliers([]);
-      setProducts([]);
-      setInvoices([]);
-      setVouchers([]);
-      setNotifications([]);
-    }
-
-    // تنظيف الحالة (State) فوراً وبشكل شامل قبل أي عملية جلب
-    setAccounts([]);
-    setEntries([]);
-    setCustomers([]);
-    setSuppliers([]);
-    setProducts([]);
-    setInvoices([]);
-    setVouchers([]);
-    setNotifications([]);
-    setPurchaseInvoices([]);
-
     // التحقق من هوية المستخدم (لإخفاء التكلفة عن الديمو)
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
@@ -637,8 +614,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     setIsDemoState(isDemo);
-    // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
-    const shouldFetchProtected = !!session;
+    // لا نسمح بجلب البيانات المحمية إلا إذا كان هناك جلسة صالحة وغير منتهية
+    const shouldFetchProtected = !!session && !sessionError;
 
     // --- معالجة وضع الديمو بشكل منفصل تماماً لمنع التضارب ---
     if (isDemo) {
@@ -952,7 +929,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         setAccounts(accountsWithBalances);
         secureStorage.setItem('cached_accounts', accs); // تحديث الكاش
-      } else if (shouldFetchProtected && !accError && (!accs || accs.length === 0)) {
+      } else if (shouldFetchProtected && !accError && accs.length === 0 && !isDemo) {
         if (process.env.NODE_ENV === 'development') console.error("Chart of Accounts is empty. Please run the setup SQL script on your database.");
       }
 
@@ -1462,7 +1439,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   useEffect(() => {
-    fetchData();
+    // إزالة fetchData() من هنا لأن handleAuthChange سيقوم باستدعائها 
+    // فور التأكد من حالة المستخدم، وهذا يمنع التكرار والاهتزاز.
+    
+    // التأكد من حالة الجلسة عند بدء التشغيل
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) handleAuthChange(session.user);
+        else setIsLoading(false);
+    });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       handleAuthChange(session?.user || null);
@@ -2951,7 +2935,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
 
-  const getFinancialSummary = () => {
+  const financialSummaryResult = useMemo(() => {
     let s = { 
       totalAssets: 0, totalLiabilities: 0, totalEquity: 0, totalRevenue: 0, totalExpenses: 0, netIncome: 0,
       monthlySales: 0, monthlyPurchases: 0, grossProfit: 0 
@@ -2979,7 +2963,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     s.netIncome = s.totalRevenue - s.totalExpenses;
     s.totalEquity += s.netIncome;
     return s;
-  };
+  }, [accounts, invoices, purchaseInvoices, settings.vatRate]);
+
+  const getFinancialSummary = useCallback(() => financialSummaryResult, [financialSummaryResult]);
 
   const addWarehouse = async (warehouseData: Omit<Warehouse, 'id'>) => {
     try {
