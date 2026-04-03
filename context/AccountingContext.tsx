@@ -591,19 +591,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const fetchData = async () => {
-    setIsLoading(true);
-    
-    // التحقق من هوية المستخدم (لإخفاء التكلفة عن الديمو)
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-    // معالجة خطأ التوكن غير الصالح (يحدث عند مسح قاعدة البيانات أو انتهاء الجلسة)
-    if (sessionError && (sessionError.message.includes('Refresh Token') || sessionError.status === 400)) {
-        console.warn("Invalid session detected, signing out...", sessionError);
-        await supabase.auth.signOut();
-        setIsLoading(false);
-        return;
-    }
-
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
     const currentOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
 
@@ -805,42 +793,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           // Database seeding is now handled by SQL script
       }
 
-      // دالة مساعدة للتحقق من وجود الحسابات وإضافتها
-      const ensureAccount = async (code: string, name: string, type: string) => {
-          if (accs) {
-              const exists = accs.find((a: any) => a.code === code);
-              if (!exists) {
-                  const { data: newAcc, error: createError } = await supabase.from('accounts').insert({
-                      id: generateUUID(),
-                      code: code,
-                      name: name,
-                      type: type,
-                      is_group: false
-                  }).select().single();
-                  if (!createError && newAcc) accs.push(newAcc);
-              }
+      // إذا كان الدليل فارغاً تماماً (شركة جديدة)، نقوم بتأسيسه من الثوابت فوراً
+      if (shouldFetchProtected && !accError && accs.length === 0 && !isDemo) {
+          if (process.env.NODE_ENV === 'development') console.log("New organization detected, seeding default Chart of Accounts...");
+          // نستخدم منطق createMissingSystemAccounts ولكن بشكل مباشر هنا
+          for (const accDef of INITIAL_ACCOUNTS) {
+              const parentId = accDef.parent_account ? accs.find(a => a.code === accDef.parent_account)?.id : null;
+              const { data: newAcc } = await supabase.from('accounts').insert({
+                  id: generateUUID(), code: accDef.code, name: accDef.name, type: accDef.type,
+                  is_group: accDef.is_group, parent_id: parentId
+              }).select().single();
+              if (newAcc) accs.push(newAcc);
           }
-      };
-
-      // التحقق من الحسابات الأساسية
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_ADJUSTMENTS, 'فروقات جرد وتسويات مخزنية', 'EXPENSE');
-      await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_BONUSES, 'مصروف مكافآت وإضافي', 'EXPENSE');
-      await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_DEDUCTIONS, 'إيراد خصومات وجزاءات', 'REVENUE');
-      await ensureAccount(SYSTEM_ACCOUNTS.VAT_INPUT, 'ضريبة القيمة المضافة - مدخلات', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.BANK_CHARGES, 'مصروفات بنكية', 'EXPENSE');
-      await ensureAccount(SYSTEM_ACCOUNTS.BANK_INTEREST_INCOME, 'فوائد بنكية (إيراد)', 'REVENUE');
-      await ensureAccount(SYSTEM_ACCOUNTS.TAX_AUTHORITY, 'مصلحة الضرائب المصرية', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.SOCIAL_INSURANCE, 'هيئة التأمينات الاجتماعية', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
-      await ensureAccount('123201', 'البنك الأهلي المصري', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
-      await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
-      // ملاحظة: لا نقوم بإنشاء حساب 103 هنا لأنه حساب رئيسي يتم إنشاؤه عبر ملف SQL
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET'); // 10301
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET'); // 10302
-      await ensureAccount(SYSTEM_ACCOUNTS.SALARIES_EXPENSE, 'الرواتب والأجور', 'EXPENSE');
+      }
 
       // 4. معالجة القيود وحساب الأرصدة
       if (jError && process.env.NODE_ENV === 'development') console.error("Journal Fetch Error:", jError);

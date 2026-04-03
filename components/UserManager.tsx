@@ -28,7 +28,7 @@ const UserManager = () => {
     email: '',
     password: '',
     fullName: '',
-    role: 'viewer'
+    role: 'admin' // تغيير الافتراضي إلى admin لتقليل أخطاء التأسيس
   });
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -105,7 +105,7 @@ const UserManager = () => {
         setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole as any } : u));
         return;
     }
-    if (currentUserRole !== 'super_admin') {
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
       showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
       return;
     }
@@ -126,7 +126,7 @@ const UserManager = () => {
         setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !currentStatus } : u));
         return;
     }
-    if (currentUserRole !== 'super_admin') {
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
       showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
       return;
     }
@@ -151,7 +151,7 @@ const UserManager = () => {
         setEditingUserId(null);
         return;
     }
-    if (currentUserRole !== 'super_admin') {
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
         showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
         return;
     }
@@ -230,7 +230,7 @@ const UserManager = () => {
         }
         return;
     }
-    if (currentUserRole !== 'super_admin') {
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
       showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
       return;
     }
@@ -384,14 +384,14 @@ const UserManager = () => {
                     <div 
                         className="group flex items-center gap-2 cursor-pointer"
                         onClick={() => {
-                            if (currentUserRole === 'super_admin') {
+                            if (currentUserRole === 'super_admin' || currentUserRole === 'admin') {
                                 setEditingUserId(user.id);
                                 setEditingName(user.full_name || '');
                             }
                         }}
                     >
                         <div className="font-bold text-slate-800">{user.full_name || user.email || (user.role === 'viewer' && user.id.startsWith('f95') ? 'مستخدم ديمو' : `مستخدم (${user.id.slice(0, 8)})`)}</div>
-                        {currentUserRole === 'super_admin' && <PenTool size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                        {(currentUserRole === 'super_admin' || currentUserRole === 'admin') && <PenTool size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
                     </div>
                   )}
                   <div className="font-mono text-xs text-slate-400 mt-1">{user.id.slice(0, 8)}...</div>
@@ -400,13 +400,13 @@ const UserManager = () => {
                   <select 
                     value={user.role}
                     onChange={(e) => updateUserRole(user.id, e.target.value)}
-                    disabled={currentUserRole !== 'super_admin'}
+                    disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
                     className={`px-3 py-1.5 rounded-lg text-sm font-bold border-2 outline-none cursor-pointer
                       ${user.role === 'super_admin' ? 'border-purple-200 bg-purple-50 text-purple-700' : 
                         user.role === 'admin' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' :
                         'border-slate-200 bg-white text-slate-700'}`}
                   >
-                    <option value="super_admin">Super Admin</option>
+                    {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">Super Admin</option>}
                     <option value="admin">Admin</option>
                     <option value="manager">Manager</option>
                     <option value="accountant">Accountant</option>
@@ -432,7 +432,7 @@ const UserManager = () => {
                     )}
                 </td>
                 <td className="px-6 py-4 text-center">
-                  {currentUserRole === 'super_admin' && (
+                  {(currentUserRole === 'super_admin' || currentUserRole === 'admin') && (
                     <div className="flex items-center justify-center gap-2">
                       <button
                         onClick={() => toggleUserStatus(user.id, user.is_active)}
@@ -533,7 +533,7 @@ const UserManager = () => {
                             <option value="accountant">Accountant (محاسب)</option>
                             <option value="manager">Manager (مدير)</option>
                             <option value="admin">Admin (مسؤول)</option>
-                            <option value="super_admin">Super Admin (مدير النظام)</option>
+                            {currentUserRole === 'super_admin' && <option value="super_admin">Super Admin (مدير النظام)</option>}
                             <option value="demo">Demo (تجريبي)</option>
                             <option value="chef">Chef (شيف مطبخ)</option>
                         </select>

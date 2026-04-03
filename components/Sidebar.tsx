@@ -798,7 +798,7 @@ const Sidebar = () => {
                     <HelpCircle size={18} />
                     <span>دليل المستخدم</span>
                 </Link>
-                {isSuperAdmin && (
+                {isAdmin && (
                     <Link to="/settings" className={getNavClass('/settings')}>
                         <Settings size={18} />
                         <span>إعدادات النظام</span>

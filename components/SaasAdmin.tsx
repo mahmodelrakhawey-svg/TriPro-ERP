@@ -208,13 +208,58 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
 
       showToast('تم إنشاء الشركة وحساب المدير بنجاح ✅', 'success');
       onSuccess();
-      onClose();
+      setCreatedData(result);
     } catch (error: any) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
     }
   };
+
+  if (createdData) {
+    return (
+      <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+        <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="p-8 text-center space-y-6">
+            <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <CheckCircle size={48} className="text-emerald-600" />
+            </div>
+            <h3 className="font-black text-2xl text-slate-800">تم التأسيس بنجاح! 🎉</h3>
+            <p className="text-slate-500">تم إنشاء بيئة العمل وحساب المدير بنجاح. يمكنك الآن نسخ البيانات وإرسالها للعميل.</p>
+            
+            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 space-y-4 text-right">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">رابط الدخول</label>
+                <div className="font-mono text-sm text-blue-600 break-all">{window.location.origin}</div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">البريد الإلكتروني</label>
+                <div className="font-bold text-slate-700">{formData.email}</div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">كلمة المرور</label>
+                <div className="font-mono font-bold text-slate-700">{formData.password}</div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => {
+                  const text = `مرحباً ${formData.adminName}،\nتم تفعيل حسابكم في TriPro ERP لشركة ${formData.companyName}.\n\nرابط الدخول: ${window.location.origin}\nالبريد: ${formData.email}\nكلمة المرور: ${formData.password}\n\nنتمنى لكم تجربة مميزة!`;
+                  navigator.clipboard.writeText(text);
+                  showToast('تم نسخ بيانات الدخول بنجاح ✅', 'success');
+                }}
+                className="w-full bg-blue-600 text-white font-black py-4 rounded-2xl hover:bg-blue-700 flex items-center justify-center gap-2 shadow-lg shadow-blue-100"
+              >
+                <Copy size={20} /> نسخ بيانات الدخول
+              </button>
+              <button onClick={onClose} className="w-full py-3 text-slate-500 font-bold hover:text-slate-700">إغلاق النافذة</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
