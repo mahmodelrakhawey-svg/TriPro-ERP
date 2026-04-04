@@ -1305,6 +1305,101 @@ RETURNS TABLE (account_id uuid, account_code text, account_name text, parent_id 
 $$ LANGUAGE sql SECURITY DEFINER;
 
 -- ================================================================
+-- 35. دالة تأسيس الدليل المحاسبي المصري (Initialize Egyptian COA)
+-- ================================================================
+DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid);
+CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_count int := 0;
+    v_parent_id uuid;
+    v_rec record;
+BEGIN
+    -- إنشاء جدول مؤقت لهيكل الدليل (4 مستويات)
+    CREATE TEMPORARY TABLE coa_template (
+        code text PRIMARY KEY,
+        name text NOT NULL,
+        type text NOT NULL,
+        is_group boolean NOT NULL,
+        parent_code text
+    ) ON COMMIT DROP;
+
+    INSERT INTO coa_template (code, name, type, is_group, parent_code) VALUES
+    -- المستوى 1 و 2 (أساسيات)
+    ('1', 'الأصول', 'ASSET', true, NULL),
+    ('11', 'الأصول غير المتداولة', 'ASSET', true, '1'),
+    ('12', 'الأصول المتداولة', 'ASSET', true, '1'),
+    ('2', 'الخصوم', 'LIABILITY', true, NULL),
+    ('3', 'حقوق الملكية', 'EQUITY', true, NULL),
+    ('4', 'الإيرادات', 'REVENUE', true, NULL),
+    ('5', 'المصروفات', 'EXPENSE', true, NULL),
+
+    -- 🏗️ مديول المخزون (المستوى 3 و 4)
+    ('103', 'المخزون', 'ASSET', true, '12'),
+    ('10301', 'مخزون المواد الخام واللف والحزم', 'ASSET', false, '103'),
+    ('10302', 'مخزون قطع الغيار والمهمات', 'ASSET', false, '103'),
+    ('10303', 'مخزون الوقود والزيوت', 'ASSET', false, '103'),
+    ('10304', 'مخزون إنتاج غير تام', 'ASSET', false, '103'),
+    ('10305', 'مخزون المنتج التام (تصنيع)', 'ASSET', false, '103'),
+    ('10306', 'بضائع بغرض البيع (تجارية)', 'ASSET', false, '103'),
+    ('10307', 'اعتمادات مستندية لشراء بضائع', 'ASSET', false, '103'),
+
+    -- 💰 مديول المبيعات (المستوى 3 و 4)
+    ('41', 'إيرادات النشاط (المبيعات)', 'REVENUE', true, '4'),
+    ('411', 'مبيعات سلع ومنتجات', 'REVENUE', true, '41'),
+    ('4111', 'مبيعات محلية', 'REVENUE', false, '411'),
+    ('4112', 'مبيعات تصدير', 'REVENUE', false, '411'),
+    ('4113', 'إيراد تشغيل للغير (خدمات)', 'REVENUE', false, '411'),
+    ('412', 'مردودات ومسموحات مبيعات', 'REVENUE', false, '41'),
+    ('413', 'خصم مسموح به', 'REVENUE', false, '41'),
+
+    -- 💳 النقدية والمدينون
+    ('122', 'العملاء والمدينون', 'ASSET', true, '12'),
+    ('1221', 'العملاء', 'ASSET', false, '122'),
+    ('1222', 'أوراق القبض', 'ASSET', false, '122'),
+    ('1223', 'سلف الموظفين', 'ASSET', false, '122'),
+    ('123', 'النقدية وما في حكمها', 'ASSET', true, '12'),
+    ('1231', 'النقدية بالصناديق', 'ASSET', false, '123'),
+    ('1232', 'الحسابات الجارية بالبنوك', 'ASSET', false, '123'),
+    
+    -- ⚖️ الالتزامات وحقوق الملكية
+    ('22', 'الخصوم المتداولة', 'LIABILITY', true, '2'),
+    ('201', 'الموردين', 'LIABILITY', false, '22'),
+    ('222', 'أوراق الدفع', 'LIABILITY', false, '22'),
+    ('223', 'مصلحة الضرائب (التزامات)', 'LIABILITY', true, '22'),
+    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, '223'),
+    ('31', 'رأس المال المدفوع', 'EQUITY', false, '3'),
+    ('32', 'الأرباح (الخسائر) المرحبة', 'EQUITY', false, '3'),
+    ('3999', 'حساب الأرصدة الافتتاحية', 'EQUITY', false, '3'),
+
+    -- 🛠️ المصروفات والتكاليف
+    ('51', 'تكاليف النشاط (تكلفة المبيعات)', 'EXPENSE', true, '5'),
+    ('511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, '51'),
+    ('512', 'تسويات جردية (عجز/زيادة)', 'EXPENSE', false, '51'),
+    ('52', 'مصروفات عمومية وإدارية', 'EXPENSE', true, '5'),
+    ('5201', 'الأجور والمرتبات', 'EXPENSE', false, '52'),
+    ('53', 'مصروفات صناعية (تشغيل)', 'EXPENSE', true, '5'),
+    ('531', 'أجور عمال الإنتاج', 'EXPENSE', false, '53'),
+    ('532', 'مصروفات كهرباء ومياه المصنع', 'EXPENSE', false, '53');
+
+    -- تنفيذ الإدراج مع ربط الآباء
+    FOR v_rec IN SELECT * FROM coa_template ORDER BY code ASC LOOP
+        v_parent_id := NULL;
+        IF v_rec.parent_code IS NOT NULL THEN
+            SELECT id INTO v_parent_id FROM public.accounts WHERE code = v_rec.parent_code AND organization_id = p_org_id;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE code = v_rec.code AND organization_id = p_org_id) THEN
+            INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id, is_active)
+            VALUES (v_rec.code, v_rec.name, v_rec.type, v_rec.is_group, v_parent_id, p_org_id, true);
+            v_count := v_count + 1;
+        END IF;
+    END LOOP;
+
+    RETURN 'تم تأسيس الدليل المصري بنجاح وإضافة (' || v_count || ') حساباً جديداً ✅';
+END; $$;
+
+-- ================================================================
 -- 35. دالة تنظيف البيانات التجريبية (Clear Demo Data)
 -- ================================================================
 -- هذه الدالة تقوم بمسح جميع البيانات التشغيلية لشركة معينة
@@ -1361,4 +1456,12 @@ BEGIN
     UPDATE public.accounts SET balance = 0 WHERE organization_id = p_org_id;
 
     RETURN 'تم تنظيف البيانات التجريبية بنجاح ✅';
+END; $$;
+
+-- تحديث دالة الإصلاح لتستخدم نفس المنطق الموسع
+CREATE OR REPLACE FUNCTION public.repair_missing_accounts()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- استدعاء دالة التأسيس للمنظمة الحالية
+    RETURN public.initialize_egyptian_coa(public.get_my_org());
 END; $$;

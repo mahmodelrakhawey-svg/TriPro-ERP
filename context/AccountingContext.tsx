@@ -3586,48 +3586,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createMissingSystemAccounts = async () => {
-      const created: string[] = [];
-      
-      // خريطة لتتبع الأكواد الموجودة (سواء كانت في قاعدة البيانات أو تم إنشاؤها للتو)
-      const codeToId = new Map<string, string>();
-      accounts.forEach(a => codeToId.set(a.code, a.id));
+    try {
+      const orgId = (currentUser as any)?.organization_id;
+      if (!orgId) throw new Error("معرف المنظمة غير موجود.");
 
-      // نمر على جميع الحسابات المعرفة في الثوابت (INITIAL_ACCOUNTS)
-      // هذا يضمن إضافة أي حساب جديد تم تعريفه في الكود ولم يتم إضافته لقاعدة البيانات
-      for (const accDef of INITIAL_ACCOUNTS) {
-          if (codeToId.has(accDef.code)) continue; // الحساب موجود بالفعل
+      const { data, error } = await supabase.rpc('repair_missing_accounts');
+      if (error) throw error;
 
-          // محاولة العثور على معرف الحساب الأب
-          let parentId = null;
-          if (accDef.parent_account) {
-              parentId = codeToId.get(accDef.parent_account) || null;
-          }
-
-          try {
-              const newId = generateUUID();
-              await supabase.from('accounts').insert({
-                  id: newId,
-                  code: accDef.code,
-                  name: accDef.name,
-                  type: accDef.type,
-                  is_group: accDef.is_group,
-                  parent_id: parentId,
-                  is_active: true,
-                  organization_id: (currentUser as any)?.organization_id // حرج جداً
-              });
-              
-              codeToId.set(accDef.code, newId); // تحديث الخريطة للحسابات اللاحقة
-              created.push(`${accDef.code} - ${accDef.name}`);
-          } catch (e) {
-              console.error(`Failed to create ${accDef.code}`, e);
-          }
-      }
-
-      await fetchData();
-      if (created.length > 0) {
-          return { success: true, message: `تم إنشاء ${created.length} حساب جديد بنجاح.`, created };
-      } else {
-          return { success: true, message: 'جميع الحسابات متطابقة مع الدليل الافتراضي.', created: [] };
+      await fetchData(); // إعادة جلب البيانات لتحديث دليل الحسابات في الواجهة
+      return { success: true, message: data || 'تم فحص وإصلاح دليل الحسابات بنجاح.', created: [] };
+    } catch (err: any) {
+      console.error("Error repairing missing accounts:", err);
+      throw new Error("فشل إصلاح دليل الحسابات: " + err.message);
       }
   };
 
