@@ -244,6 +244,7 @@ BEGIN
 END $$;
 
 -- 9. دالة التحقق من حالة الاشتراك لبروزة التنبيهات
+DROP FUNCTION IF EXISTS public.check_subscription_status(uuid);
 CREATE OR REPLACE FUNCTION public.check_subscription_status(p_org_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE

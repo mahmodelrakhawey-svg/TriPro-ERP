@@ -1,12 +1,13 @@
 -- 🛠️ ملف نشر جميع دوال النظام (Deploy All Functions) - النسخة الاحترافية الموحدة
--- هذا الملف يجمع كافة الدوال البرمجية (RPCs) اللازمة لتشغيل النظام بشكل آمن واحترافي.
+-- 🛠️ النسخة الذهبية الموحدة لدوال النظام (Golden Deploy Script)
+-- هذا الملف يحتوي على كافة الدوال البرمجية (RPCs) منظمة وبدون تكرار.
 
 -- ================================================================
 -- 1. دوال الاعتماد المالي (Financial Approvals)
 -- ================================================================
 
 -- أ. اعتماد فاتورة المبيعات (Sales Invoice)
-DROP FUNCTION IF EXISTS public.approve_invoice(uuid);
+DROP FUNCTION IF EXISTS public.approve_invoice(uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.approve_invoice(p_invoice_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -15,8 +16,7 @@ DECLARE
     v_discount_acc_id uuid; v_treasury_acc_id uuid;
     v_total_cost numeric := 0; v_item_cost numeric; v_exchange_rate numeric; v_modifier_json jsonb; v_bom_item record;
 BEGIN
-    SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
-    -- تم نقل هذا الجزء إلى بداية الدالة لضمان توفره قبل أي عمليات أخرى
+    SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id; -- جلب بيانات الفاتورة
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
     IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
 
@@ -30,7 +30,7 @@ BEGIN
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
 
     -- إضافة حساب الخصم الممنوح
-    SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' AND organization_id = v_org_id LIMIT 1;
+    -- SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' AND organization_id = v_org_id LIMIT 1; -- تم تحديثه لـ 413 في الدليل المصري
     -- إضافة حساب الخزينة/البنك من الفاتورة
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
@@ -52,7 +52,7 @@ BEGIN
                 warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity))
             WHERE id = v_item.product_id AND organization_id = v_org_id;
         END IF;
-        -- معالجة خصم مكونات الإضافات (Modifiers) - تم نقلها من الدالة القديمة
+        -- معالجة خصم مكونات الإضافات (Modifiers)
         IF v_item.modifiers IS NOT NULL THEN
             FOR v_modifier_json IN SELECT * FROM jsonb_array_elements(v_item.modifiers) LOOP
                 IF (v_modifier_json->>'id') IS NOT NULL THEN
@@ -67,6 +67,11 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- جلب حساب الخصم الممنوح (413) من الدليل المحاسبي المصري
+    SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '413' AND organization_id = v_org_id LIMIT 1;
+    IF v_discount_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الخصم الممنوح (413) غير موجود في الدليل المحاسبي.'; END IF;
+
+    -- تسجيل القيد المحاسبي للفاتورة
     -- تسجيل القيد المحاسبي للفاتورة
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_invoice.invoice_date, 'فاتورة مبيعات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'invoice', true) 
@@ -97,7 +102,7 @@ BEGIN
 END; $$;
 
 -- ب. اعتماد فاتورة المشتريات (Purchase Invoice)
-DROP FUNCTION IF EXISTS public.approve_purchase_invoice(uuid);
+DROP FUNCTION IF EXISTS public.approve_purchase_invoice(uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -105,11 +110,11 @@ DECLARE
     v_current_stock numeric; v_current_avg_cost numeric; v_new_avg_cost numeric; v_item_price_base numeric;
 BEGIN
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة'; END IF;
     v_org_id := v_invoice.organization_id;
 
     SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1; -- ضريبة مدخلات
     SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1;
 
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
@@ -146,7 +151,7 @@ BEGIN
 END; $$;
 
 -- ج. اعتماد سند القبض (Receipt Voucher)
-DROP FUNCTION IF EXISTS public.approve_receipt_voucher(uuid, uuid, uuid);
+DROP FUNCTION IF EXISTS public.approve_receipt_voucher(uuid, uuid, uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_org_id uuid, p_voucher_id uuid, p_credit_account_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_voucher record; v_journal_id uuid;
@@ -162,7 +167,7 @@ BEGIN
 END; $$;
 
 -- د. اعتماد سند الصرف (Payment Voucher)
-DROP FUNCTION IF EXISTS public.approve_payment_voucher(uuid, uuid, uuid);
+DROP FUNCTION IF EXISTS public.approve_payment_voucher(uuid, uuid, uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_org_id uuid, p_voucher_id uuid, p_debit_account_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_voucher record; v_journal_id uuid;
@@ -178,7 +183,7 @@ BEGIN
 END; $$;
 -- هـ. اعتماد مرتجع المبيعات (Sales Return) مع معالجة التكلفة والمخزون
 DROP FUNCTION IF EXISTS public.approve_sales_return(uuid);
-CREATE OR REPLACE FUNCTION public.approve_sales_return(p_return_id uuid)
+CREATE OR REPLACE FUNCTION public.approve_sales_return(p_return_id uuid) -- حذف النسخة القديمة
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_return record; v_item record; v_org_id uuid; v_journal_id uuid;
@@ -231,7 +236,7 @@ BEGIN
 END; $$;
 
 -- و. اعتماد مرتجع المشتريات (Purchase Return)
-DROP FUNCTION IF EXISTS public.approve_purchase_return(uuid);
+DROP FUNCTION IF EXISTS public.approve_purchase_return(uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.approve_purchase_return(p_return_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -266,7 +271,7 @@ BEGIN
 END; $$;
 
 -- ز. اعتماد الإشعار الدائن (Credit Note)
-DROP FUNCTION IF EXISTS public.approve_credit_note(uuid);
+DROP FUNCTION IF EXISTS public.approve_credit_note(uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.approve_credit_note(p_note_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_note record; v_org_id uuid; v_journal_id uuid;
@@ -301,7 +306,7 @@ BEGIN
 END; $$;
 
 -- ح. اعتماد الإشعار المدين (Debit Note)
-DROP FUNCTION IF EXISTS public.approve_debit_note(uuid);
+DROP FUNCTION IF EXISTS public.approve_debit_note(uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.approve_debit_note(p_note_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_note record; v_org_id uuid; v_journal_id uuid;
@@ -334,7 +339,7 @@ BEGIN
 END; $$;
 -- أ. فتح جلسة طاولة
 DROP FUNCTION IF EXISTS public.open_table_session(uuid, uuid);
-CREATE OR REPLACE FUNCTION public.open_table_session(p_table_id uuid, p_user_id uuid) 
+CREATE OR REPLACE FUNCTION public.open_table_session(p_table_id uuid, p_user_id uuid) -- حذف النسخة القديمة
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_session_id uuid; v_org_id uuid;
 BEGIN
@@ -346,7 +351,7 @@ BEGIN
 END; $$;
 
 -- ب. إنشاء طلب مطعم متكامل
-DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, uuid, text, text, jsonb, uuid, uuid, jsonb); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_org_id uuid, p_session_id uuid, p_user_id uuid, p_order_type text, p_notes text, p_items jsonb,
     p_customer_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL, p_delivery_info jsonb DEFAULT NULL
@@ -373,7 +378,7 @@ END; $$;
 -- ================================================================
 
 -- أ. إعادة احتساب أرصدة المخزون بالكامل
-DROP FUNCTION IF EXISTS public.recalculate_stock_rpc();
+DROP FUNCTION IF EXISTS public.recalculate_stock_rpc(); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.recalculate_stock_rpc(p_org_id uuid DEFAULT NULL) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE prod_record RECORD; wh_record RECORD; total_qty NUMERIC; wh_json JSONB; wh_qty NUMERIC; v_org_id uuid;
@@ -398,7 +403,7 @@ BEGIN
 END; $$;
 
 -- ب. إنشاء قيد يومية متوازن
-DROP FUNCTION IF EXISTS public.create_journal_entry(date, text, text, jsonb, text, uuid);
+DROP FUNCTION IF EXISTS public.create_journal_entry(date, text, text, jsonb, text, uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.create_journal_entry(entry_date date, description text, reference text, entries jsonb, status text DEFAULT 'posted', org_id uuid DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE new_entry_id uuid; entry_record jsonb; v_debit numeric := 0; v_credit numeric := 0;
@@ -417,7 +422,7 @@ END; $$;
 -- ================================================================
 
 -- تشغيل مسير الرواتب
-DROP FUNCTION IF EXISTS public.run_payroll_rpc(integer, integer, date, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.run_payroll_rpc(integer, integer, date, uuid, jsonb); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.run_payroll_rpc(p_month integer, p_year integer, p_date date, p_treasury_account_id uuid, p_items jsonb) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_org_id uuid; v_payroll_id uuid; v_total_gross numeric := 0; v_total_additions numeric := 0; v_total_deductions numeric := 0; v_total_advances numeric := 0; v_total_net numeric := 0; v_item jsonb; v_je_id uuid;
@@ -459,7 +464,7 @@ END; $$;
 -- ================================================================
 
 -- أ. تشغيل الإهلاك الشهري (Run Depreciation)
-DROP FUNCTION IF EXISTS public.run_period_depreciation(date, uuid);
+DROP FUNCTION IF EXISTS public.run_period_depreciation(date, uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.run_period_depreciation(p_date date, p_org_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -491,7 +496,7 @@ BEGIN
 END; $$;
 
 -- ب. حساب عمولة المندوبين (Sales Commission)
-DROP FUNCTION IF EXISTS public.calculate_sales_commission(uuid, date, date, numeric);
+DROP FUNCTION IF EXISTS public.calculate_sales_commission(uuid, date, date, numeric); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.calculate_sales_commission(p_salesperson_id uuid, p_start_date date, p_end_date date, p_rate numeric DEFAULT 1.0) 
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_sales numeric; v_returns numeric; v_net numeric; v_comm numeric;
@@ -504,8 +509,7 @@ BEGIN
 END; $$;
 
 -- ج. تقرير مبيعات المطعم التفصيلي (Restaurant Sales Report)
-DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(uuid, text, text);
-DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(text, text); -- 👈 إضافة هذا السطر
+DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(uuid, text, text); -- حذف النسخ القديمة
 CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_start_date text, p_end_date text) 
 RETURNS TABLE(item_name text, category_name text, quantity numeric, total_sales numeric) LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_org_id uuid;
@@ -525,7 +529,7 @@ BEGIN
 END; $$;
 
 -- د. إضافة منتج مع رصيد افتتاحي (Add Product with OB)
-DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid);
+DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(
     p_name text, p_sku text, p_sales_price numeric, p_purchase_price numeric, p_stock numeric, 
     p_org_id uuid, p_item_type text DEFAULT 'STOCK', p_inv_acc uuid DEFAULT NULL, p_cogs_acc uuid DEFAULT NULL, p_sales_acc uuid DEFAULT NULL
@@ -569,7 +573,8 @@ DROP TRIGGER IF EXISTS trg_limit_users ON public.profiles;
 CREATE TRIGGER trg_limit_users BEFORE INSERT ON public.profiles FOR EACH ROW EXECUTE FUNCTION public.check_user_limit();
 
 -- ب. إحصائيات لوحة البيانات
-CREATE OR REPLACE FUNCTION public.get_dashboard_stats() RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
+DROP FUNCTION IF EXISTS public.get_dashboard_stats(); -- حذف النسخة القديمة
+CREATE OR REPLACE FUNCTION public.get_dashboard_stats() RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$ -- تم تحديثها لتشمل المزيد من الإحصائيات
 DECLARE v_sales numeric; v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
@@ -578,22 +583,31 @@ BEGIN
 END; $$;
 
 -- ج. جلب العملاء المتجاوزين لحد الائتمان
+-- حذف كافة النسخ السابقة بجميع أشكالها لضمان عدم التعارض
 DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid);
-DROP FUNCTION IF EXISTS public.get_over_limit_customers(); -- 👈 إضافة هذا السطر لحل المشكلة
+DROP FUNCTION IF EXISTS public.get_over_limit_customers(org_id uuid); -- إضافة هذا السطر
+DROP FUNCTION IF EXISTS public.get_over_limit_customers(org_id uuid); -- إضافة هذا السطر
+DROP FUNCTION IF EXISTS public.get_over_limit_customers(org_id uuid); -- إضافة هذا السطر
+DROP FUNCTION IF EXISTS public.get_over_limit_customers();
+
 CREATE OR REPLACE FUNCTION public.get_over_limit_customers(p_org_id uuid DEFAULT NULL)
-RETURNS TABLE (id UUID, name TEXT, total_debt NUMERIC, credit_limit NUMERIC)
+RETURNS TABLE (id UUID, name TEXT, total_debt NUMERIC, credit_limit NUMERIC) 
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_org_id uuid;
 BEGIN
     v_org_id := COALESCE(p_org_id, public.get_my_org());
-    RETURN QUERY SELECT c.id, c.name, COALESCE(c.balance, 0), COALESCE(c.credit_limit, 0)
-    FROM public.customers c WHERE c.organization_id = v_org_id AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0);
+    RETURN QUERY 
+    SELECT c.id, c.name, COALESCE(c.balance, 0), COALESCE(c.credit_limit, 0)
+    FROM public.customers c 
+    WHERE c.organization_id = v_org_id 
+      AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0)
+      AND COALESCE(c.credit_limit, 0) > 0;
 END; $$;
 
 -- د. جلب النسب المالية التاريخية
-DROP FUNCTION IF EXISTS public.get_historical_ratios(uuid);
-DROP FUNCTION IF EXISTS public.get_historical_ratios(); -- 👈 إضافة هذا السطر لضمان عدم التعارض
+DROP FUNCTION IF EXISTS public.get_historical_ratios(uuid); -- حذف النسخ القديمة
+DROP FUNCTION IF EXISTS public.get_historical_ratios();
 CREATE OR REPLACE FUNCTION public.get_historical_ratios() RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_profit jsonb; v_org_id uuid;
 BEGIN
@@ -607,7 +621,7 @@ BEGIN
 END; $$;
 
 -- هـ. تسجيل أخطاء النظام
-DROP FUNCTION IF EXISTS public.log_system_error(text, text, jsonb, text);
+DROP FUNCTION IF EXISTS public.log_system_error(text, text, jsonb, text); -- حذف النسخة القديمة
 CREATE OR REPLACE FUNCTION public.log_system_error(p_message text, p_code text, p_context jsonb, p_func text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
@@ -815,110 +829,6 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
     PERFORM public.log_system_error(SQLERRM, SQLSTATE, jsonb_build_object('wo_id', p_wo_id), 'complete_work_order');
     RAISE;
-END; $$;
-
--- ================================================================
--- 31. دوال الصيانة الذاتية للعميل (Client Self-Maintenance)
--- ================================================================
--- أ. فحص وإنشاء الحسابات الأساسية المفقودة (Repair Missing Accounts)
--- تضمن هذه الدالة وجود الحسابات "الحرجة" لعمل القيود الآلية (مثل الصندوق والمبيعات)
-DROP FUNCTION IF EXISTS public.repair_missing_accounts();
-CREATE OR REPLACE FUNCTION public.repair_missing_accounts()
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_org_id uuid;
-    v_count int := 0;
-    v_parent_id uuid;
-    v_account_code text;
-    v_account_name text;
-    v_account_type text;
-    v_is_group boolean;
-    v_parent_code text;
-BEGIN
-    v_org_id := public.get_my_org();
-
-    -- قائمة الحسابات الأساسية التي يجب التأكد من وجودها
-    -- مرتبة بحيث يتم إنشاء الآباء قبل الأبناء
-    CREATE TEMPORARY TABLE IF NOT EXISTS essential_accounts (
-        code text PRIMARY KEY,
-        name text NOT NULL,
-        type text NOT NULL,
-        is_group boolean NOT NULL,
-        parent_code text
-    );
-
-    -- حذف البيانات القديمة قبل الإدراج لتجنب التكرار في الجلسة الواحدة
-    TRUNCATE TABLE essential_accounts;
-
-    INSERT INTO essential_accounts (code, name, type, is_group, parent_code) VALUES
-    ('1', 'الأصول', 'ASSET', true, NULL),
-    ('11', 'الأصول غير المتداولة', 'ASSET', true, '1'),
-    ('111', 'الأصول الثابتة (بالصافي)', 'ASSET', true, '11'),
-    ('1115', 'الأثاث والتجهيزات المكتبية', 'ASSET', false, '111'),
-    ('1119', 'مجمع الإهلاك', 'ASSET', false, '111'), -- حساب مجمع الإهلاك
-    ('12', 'الأصول المتداولة', 'ASSET', true, '1'),
-    ('103', 'المخزون', 'ASSET', true, '12'),
-    ('10301', 'مخزون المواد الخام', 'ASSET', false, '103'),
-    ('10302', 'مخزون المنتج التام', 'ASSET', false, '103'),
-    ('122', 'العملاء والمدينون', 'ASSET', true, '12'),
-    ('1221', 'العملاء', 'ASSET', false, '122'),
-    ('1222', 'أوراق القبض', 'ASSET', false, '122'),
-    ('1223', 'سلف الموظفين', 'ASSET', false, '122'), -- سلف الموظفين
-    ('123', 'النقدية وما في حكمها', 'ASSET', true, '12'),
-    ('1231', 'النقدية بالصندوق', 'ASSET', false, '123'),
-    ('1232', 'البنك الأهلي', 'ASSET', false, '123'),
-    ('124', 'أرصدة مدينة أخرى', 'ASSET', true, '12'),
-    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'ASSET', false, '124'),
-    ('2', 'الخصوم', 'LIABILITY', true, NULL),
-    ('22', 'الخصوم المتداولة', 'LIABILITY', true, '2'),
-    ('201', 'الموردين', 'LIABILITY', false, '22'),
-    ('222', 'أوراق الدفع', 'LIABILITY', false, '22'),
-    ('223', 'مصلحة الضرائب (التزامات)', 'LIABILITY', true, '22'),
-    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, '223'),
-    ('2239', 'حساب تسوية الضرائب', 'LIABILITY', false, '223'), -- حساب تسوية الضرائب
-    ('224', 'هيئة التأمينات الاجتماعية', 'LIABILITY', false, '22'), -- هيئة التأمينات
-    ('226', 'تأمينات العملاء', 'LIABILITY', false, '22'), -- تأمينات العملاء
-    ('3', 'حقوق الملكية', 'EQUITY', true, NULL),
-    ('31', 'رأس المال', 'EQUITY', false, '3'),
-    ('32', 'الأرباح المبقاة', 'EQUITY', false, '3'),
-    ('3999', 'الأرصدة الافتتاحية', 'EQUITY', false, '3'), -- حساب الأرصدة الافتتاحية
-    ('4', 'الإيرادات', 'REVENUE', true, NULL),
-    ('411', 'إيراد المبيعات', 'REVENUE', false, '4'),
-    ('412', 'مردودات ومسموحات مبيعات', 'REVENUE', false, '4'), -- مردودات مبيعات
-    ('413', 'خصم مسموح به', 'REVENUE', false, '4'), -- خصم مسموح به
-    ('421', 'إيرادات متنوعة', 'REVENUE', false, '4'),
-    ('423', 'فوائد بنكية دائنة', 'REVENUE', false, '4'), -- فوائد بنكية دائنة
-    ('5', 'المصروفات', 'EXPENSE', true, NULL),
-    ('511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, '5'),
-    ('512', 'تسويات الجرد', 'EXPENSE', false, '5'), -- تسويات الجرد
-    ('5201', 'الرواتب والأجور', 'EXPENSE', false, '5'), -- الرواتب والأجور
-    ('5312', 'مكافآت وحوافز', 'EXPENSE', false, '5'), -- مكافآت وحوافز
-    ('533', 'مصروف الإهلاك', 'EXPENSE', false, '5'), -- مصروف الإهلاك
-    ('534', 'مصروفات بنكية', 'EXPENSE', false, '5'), -- مصروفات بنكية
-    ('535', 'كهرباء ومياه وغاز', 'EXPENSE', false, '5'),
-    ('541', 'تسوية عجز الصندوق', 'EXPENSE', false, '5'); -- تسوية عجز الصندوق
-
-    FOR v_account_code, v_account_name, v_account_type, v_is_group, v_parent_code IN
-        SELECT code, name, type, is_group, parent_code FROM essential_accounts ORDER BY code ASC -- الترتيب يضمن إنشاء الآباء أولاً
-    LOOP
-        v_parent_id := NULL;
-        IF v_parent_code IS NOT NULL THEN
-            SELECT id INTO v_parent_id FROM public.accounts WHERE code = v_parent_code AND organization_id = v_org_id;
-            -- إذا كان الأب غير موجود، يمكننا تخطيه أو إجباره على الإنشاء (هنا نفترض أنه سيتم إنشاؤه بترتيب الكود)
-            IF v_parent_id IS NULL THEN
-                RAISE WARNING 'Parent account % not found for %', v_parent_code, v_account_code;
-            END IF;
-        END IF;
-
-        IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE code = v_account_code AND organization_id = v_org_id) THEN
-            INSERT INTO public.accounts (code, name, type, is_group, parent_id, is_active, organization_id)
-            VALUES (v_account_code, v_account_name, v_account_type, v_is_group, v_parent_id, true, v_org_id);
-            v_count := v_count + 1;
-        END IF;
-    END LOOP;
-
-    DROP TABLE essential_accounts; -- تنظيف الجدول المؤقت
-    RETURN 'تم فحص الدليل وإضافة (' || v_count || ') حساباً مفقوداً بنجاح ✅';
 END; $$;
 
 -- ب. تنظيف الأصناف والبيانات المحذوفة نهائياً (Purge Deleted Items)
@@ -1307,7 +1217,9 @@ $$ LANGUAGE sql SECURITY DEFINER;
 -- ================================================================
 -- 35. دالة تأسيس الدليل المحاسبي المصري (Initialize Egyptian COA)
 -- ================================================================
+-- حذف كافة النسخ القديمة لإنهاء مشكلة "is not unique"
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid);
+DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid, text);
 CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -1326,61 +1238,51 @@ BEGIN
 
     INSERT INTO coa_template (code, name, type, is_group, parent_code) VALUES
     -- المستوى 1 و 2 (أساسيات)
-    ('1', 'الأصول', 'ASSET', true, NULL),
-    ('11', 'الأصول غير المتداولة', 'ASSET', true, '1'),
-    ('12', 'الأصول المتداولة', 'ASSET', true, '1'),
-    ('2', 'الخصوم', 'LIABILITY', true, NULL),
-    ('3', 'حقوق الملكية', 'EQUITY', true, NULL),
-    ('4', 'الإيرادات', 'REVENUE', true, NULL),
-    ('5', 'المصروفات', 'EXPENSE', true, NULL),
+    ('1', 'الأصول', 'asset', true, NULL),
+    ('11', 'الأصول غير المتداولة', 'asset', true, '1'),
+    ('12', 'الأصول المتداولة', 'asset', true, '1'),
+    ('2', 'الخصوم', 'liability', true, NULL),
+    ('3', 'حقوق الملكية', 'equity', true, NULL),
+    ('4', 'الإيرادات', 'revenue', true, NULL),
+    ('5', 'المصروفات', 'expense', true, NULL),
 
     -- 🏗️ مديول المخزون (المستوى 3 و 4)
-    ('103', 'المخزون', 'ASSET', true, '12'),
-    ('10301', 'مخزون المواد الخام واللف والحزم', 'ASSET', false, '103'),
-    ('10302', 'مخزون قطع الغيار والمهمات', 'ASSET', false, '103'),
-    ('10303', 'مخزون الوقود والزيوت', 'ASSET', false, '103'),
-    ('10304', 'مخزون إنتاج غير تام', 'ASSET', false, '103'),
-    ('10305', 'مخزون المنتج التام (تصنيع)', 'ASSET', false, '103'),
-    ('10306', 'بضائع بغرض البيع (تجارية)', 'ASSET', false, '103'),
-    ('10307', 'اعتمادات مستندية لشراء بضائع', 'ASSET', false, '103'),
+    ('103', 'المخزون', 'asset', true, '12'),
+    ('10301', 'مخزون المواد الخام واللف والحزم', 'asset', false, '103'),
+    ('10302', 'مخزون المنتج التام (تصنيع)', 'asset', false, '103'),
 
     -- 💰 مديول المبيعات (المستوى 3 و 4)
-    ('41', 'إيرادات النشاط (المبيعات)', 'REVENUE', true, '4'),
-    ('411', 'مبيعات سلع ومنتجات', 'REVENUE', true, '41'),
-    ('4111', 'مبيعات محلية', 'REVENUE', false, '411'),
-    ('4112', 'مبيعات تصدير', 'REVENUE', false, '411'),
-    ('4113', 'إيراد تشغيل للغير (خدمات)', 'REVENUE', false, '411'),
-    ('412', 'مردودات ومسموحات مبيعات', 'REVENUE', false, '41'),
-    ('413', 'خصم مسموح به', 'REVENUE', false, '41'),
+    ('41', 'إيرادات النشاط', 'revenue', true, '4'),
+    ('411', 'إيرادات المبيعات (صالة/تيك أوي)', 'revenue', false, '41'),
+    ('412', 'إيرادات التوصيل (Delivery)', 'revenue', false, '41'),
+    ('413', 'خصم مسموح به', 'revenue', false, '41'),
 
     -- 💳 النقدية والمدينون
-    ('122', 'العملاء والمدينون', 'ASSET', true, '12'),
-    ('1221', 'العملاء', 'ASSET', false, '122'),
-    ('1222', 'أوراق القبض', 'ASSET', false, '122'),
-    ('1223', 'سلف الموظفين', 'ASSET', false, '122'),
-    ('123', 'النقدية وما في حكمها', 'ASSET', true, '12'),
-    ('1231', 'النقدية بالصناديق', 'ASSET', false, '123'),
-    ('1232', 'الحسابات الجارية بالبنوك', 'ASSET', false, '123'),
+    ('122', 'العملاء والمدينون', 'asset', true, '12'),
+    ('1221', 'العملاء', 'asset', false, '122'),
+    ('1222', 'أوراق القبض', 'asset', false, '122'),
+    ('1223', 'سلف الموظفين', 'asset', false, '122'),
+    ('123', 'النقدية وما في حكمها', 'asset', true, '12'),
+    ('1231', 'النقدية بالصناديق', 'asset', false, '123'),
+    ('1232', 'الحسابات الجارية بالبنوك', 'asset', false, '123'),
     
     -- ⚖️ الالتزامات وحقوق الملكية
-    ('22', 'الخصوم المتداولة', 'LIABILITY', true, '2'),
-    ('201', 'الموردين', 'LIABILITY', false, '22'),
-    ('222', 'أوراق الدفع', 'LIABILITY', false, '22'),
-    ('223', 'مصلحة الضرائب (التزامات)', 'LIABILITY', true, '22'),
-    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, '223'),
-    ('31', 'رأس المال المدفوع', 'EQUITY', false, '3'),
-    ('32', 'الأرباح (الخسائر) المرحبة', 'EQUITY', false, '3'),
-    ('3999', 'حساب الأرصدة الافتتاحية', 'EQUITY', false, '3'),
+    ('22', 'الخصوم المتداولة', 'liability', true, '2'),
+    ('201', 'الموردين', 'liability', false, '22'),
+    ('222', 'أوراق الدفع', 'liability', false, '22'),
+    ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '22'),
+    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'),
+    ('31', 'رأس المال والاحتياطيات', 'equity', true, '3'),
+    ('32', 'الأرباح (الخسائر) المرحبة', 'equity', false, '31'),
+    ('3999', 'حساب الأرصدة الافتتاحية', 'equity', false, '3'),
 
     -- 🛠️ المصروفات والتكاليف
-    ('51', 'تكاليف النشاط (تكلفة المبيعات)', 'EXPENSE', true, '5'),
-    ('511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, '51'),
-    ('512', 'تسويات جردية (عجز/زيادة)', 'EXPENSE', false, '51'),
-    ('52', 'مصروفات عمومية وإدارية', 'EXPENSE', true, '5'),
-    ('5201', 'الأجور والمرتبات', 'EXPENSE', false, '52'),
-    ('53', 'مصروفات صناعية (تشغيل)', 'EXPENSE', true, '5'),
-    ('531', 'أجور عمال الإنتاج', 'EXPENSE', false, '53'),
-    ('532', 'مصروفات كهرباء ومياه المصنع', 'EXPENSE', false, '53');
+    ('51', 'تكاليف النشاط', 'expense', true, '5'),
+    ('511', 'تكلفة المواد الخام المستهلكة', 'expense', false, '51'),
+    ('512', 'تكلفة الهالك والضيافة', 'expense', false, '51'),
+    ('52', 'مصروفات إدارية وعمومية', 'expense', true, '5'),
+    ('5201', 'الأجور والمرتبات', 'expense', false, '52'),
+    ('53', 'مصروفات صناعية (تشغيل)', 'expense', true, '5');
 
     -- تنفيذ الإدراج مع ربط الآباء
     FOR v_rec IN SELECT * FROM coa_template ORDER BY code ASC LOOP

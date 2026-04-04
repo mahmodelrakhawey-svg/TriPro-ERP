@@ -1068,66 +1068,6 @@ BEGIN
     RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
 END; $$;
 -- دالة جلب العملاء الذين تجاوزوا حد الائتمان (لحساب الإشعارات الذكية)
-CREATE OR REPLACE FUNCTION public.get_over_limit_customers(org_id UUID)
-RETURNS TABLE (
-    id UUID,
-    name TEXT,
-    total_debt NUMERIC,
-    credit_limit NUMERIC
-) 
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT 
-        c.id,
-        c.name,
-        COALESCE(c.balance, 0) as total_debt,
-        COALESCE(c.credit_limit, 0) as credit_limit
-    FROM public.customers c
-    WHERE c.organization_id = org_id
-      AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0)
-      AND COALESCE(c.credit_limit, 0) > 0;
-END;
-$$;
-
--- ================================================================
--- ج. دالة عمولة المندوبين (Calculate Sales Commission)
-CREATE OR REPLACE FUNCTION public.calculate_sales_commission(p_salesperson_id uuid, p_start_date date, p_end_date date, p_commission_rate numeric DEFAULT 1.0) 
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_total_sales numeric; v_total_returns numeric; v_net_sales numeric; v_commission numeric;
-BEGIN
-    SELECT COALESCE(SUM(subtotal), 0) INTO v_total_sales FROM public.invoices WHERE salesperson_id = p_salesperson_id AND status IN ('posted', 'paid') AND invoice_date BETWEEN p_start_date AND p_end_date;
-    SELECT COALESCE(SUM(sr.total_amount - COALESCE(sr.tax_amount, 0)), 0) INTO v_total_returns FROM public.sales_returns sr JOIN public.invoices i ON sr.original_invoice_id = i.id WHERE i.salesperson_id = p_salesperson_id AND sr.status = 'posted' AND sr.return_date BETWEEN p_start_date AND p_end_date;
-    v_net_sales := v_total_sales - v_total_returns;
-    v_commission := v_net_sales * (p_commission_rate / 100);
-    RETURN jsonb_build_object('total_sales', v_total_sales, 'total_returns', v_total_returns, 'net_sales', v_net_sales, 'commission_amount', v_commission);
-END; $$;
-
--- د. دالة ملخص الوردية (Get Shift Summary)
--- ملاحظة: تم دمج هذه الدالة مع الدالة الموجودة في القسم 3.6 (السطر 560) لضمان تفصيل طرق الدفع (بطاقة/محفظة) وعزل البيانات.
--- تم حذف النسخة المكررة هنا لضمان استقرار النظام.
-
--- هـ. دالة الاستهلاك المتوقع للمواد الخام (Raw Material Consumption)
-DROP FUNCTION IF EXISTS public.get_expected_raw_material_consumption(uuid);
-
-CREATE OR REPLACE FUNCTION public.get_expected_raw_material_consumption(p_warehouse_id uuid DEFAULT NULL)
-RETURNS TABLE (raw_material_id uuid, raw_material_name text, expected_quantity numeric, current_stock numeric) 
-LANGUAGE plpgsql AS $$
-DECLARE v_org_id uuid;
-BEGIN
-    v_org_id := public.get_my_org();
-    RETURN QUERY
-    WITH pending_items AS (
-        SELECT ii.product_id, ii.quantity FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE i.status = 'draft' AND i.organization_id = v_org_id AND (p_warehouse_id IS NULL OR i.warehouse_id = p_warehouse_id)
-        UNION ALL
-        SELECT oi.product_id, oi.quantity FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE o.status = 'PENDING' AND o.organization_id = v_org_id AND (p_warehouse_id IS NULL OR o.warehouse_id = p_warehouse_id)
-    )
-    SELECT br.raw_material_id, p.name, SUM(pi.quantity * bom.quantity_required), p.stock
-    FROM pending_items pi JOIN public.bill_of_materials bom ON bom.product_id = pi.product_id JOIN public.products p ON p.id = bom.raw_material_id
-    GROUP BY br.raw_material_id, p.name, p.stock;
-END; $$;
 
 -- و. تقرير مبيعات المطعم التفصيلي (Restaurant Sales Report)
 DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(text, text);
@@ -1257,6 +1197,7 @@ END; $$;
 -- ================================================================
 -- 28. دالة تسجيل الخطأ (System Error Logger)
 -- ================================================================
+DROP FUNCTION IF EXISTS public.log_system_error(text, text, jsonb, text);
 CREATE OR REPLACE FUNCTION public.log_system_error(p_message text, p_code text, p_context jsonb, p_function_name text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
