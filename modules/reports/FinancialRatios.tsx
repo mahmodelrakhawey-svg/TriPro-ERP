@@ -25,48 +25,54 @@ const FinancialRatios = () => {
         if (acc.isGroup) return;
         const code = acc.code;
         const balance = acc.balance || 0;
-        const type = String(acc.type).toLowerCase();
+        const type = String(acc.type || '').toUpperCase();
+        const subType = String(acc.sub_type || '').toLowerCase();
 
         // 1. تصنيف الأصول (متداولة vs غير متداولة)
-        if (type === 'asset' || type === 'ASSET' || type === 'أصول') {
+        if (type === 'ASSET' || type === 'أصول') {
             totalAssets += balance;
             
-            // الاعتماد على sub_type إذا وجد، وإلا نستخدم المنطق القديم كاحتياطي
-            if (acc.sub_type === 'current') {
-                currentAssets += balance;
-            } else if (!acc.sub_type && (code.startsWith('10') || !code.startsWith('11'))) {
-                // Fallback logic for old accounts
+            // الأولوية لـ sub_type لضمان التوافق مع الدليل الشجري
+            if (subType === 'current' || code.startsWith('12') || code.startsWith('11')) {
                 currentAssets += balance;
             }
         }
 
         // 2. تصنيف الخصوم
-        if (type === 'liability' || type === 'LIABILITY' || type === 'خصوم') {
-            if (acc.sub_type === 'current') {
-                currentLiabilities += Math.abs(balance);
-            } else if (!acc.sub_type && code.startsWith('2')) {
-                // Fallback: assume all liabilities starting with 2 are current unless specified
-                currentLiabilities += Math.abs(balance);
+        if (type === 'LIABILITY' || type === 'خصوم') {
+            const absBalance = Math.abs(balance);
+            if (subType === 'current' || code.startsWith('22') || code.startsWith('21')) {
+                currentLiabilities += absBalance;
             }
         }
 
-        // المخزون (103)
-        if (code.startsWith('121') || code.startsWith('103') || acc.name.includes('مخزون')) inventory += balance;
+        // المخزون (121 في الدليل الجديد أو 103 في القديم)
+        if (code.startsWith('121') || code.startsWith('103') || subType === 'inventory') {
+            inventory += balance;
+        }
 
-        // العملاء (102)
-        if (code.startsWith('122') || code.startsWith('102') || acc.name.includes('عملاء')) receivables += balance;
+        // العملاء (122 في الدليل الجديد)
+        if (code.startsWith('122') || code.startsWith('102') || subType === 'receivable') {
+            receivables += balance;
+        }
 
         // حقوق الملكية
-        if (code.startsWith('3') || type === 'equity') totalEquity += Math.abs(balance);
+        if (type === 'EQUITY' || type === 'حقوق ملكية' || code.startsWith('3')) {
+            totalEquity += Math.abs(balance);
+        }
 
-        // المبيعات (4)
-        if (code.startsWith('4') || type === 'revenue') sales += Math.abs(balance);
+        // المبيعات (4) - الدائن يزيد الربح
+        if (type === 'REVENUE' || type === 'INCOME' || code.startsWith('4')) {
+            sales += Math.abs(balance);
+        }
 
-        // المصروفات (5)
-        if (code.startsWith('5') || type === 'expense') {
+        // المصروفات (5) - المدين ينقص الربح
+        if (type === 'EXPENSE' || code.startsWith('5')) {
             totalExpenses += balance;
-            // تكلفة البضاعة (501)
-            if (code.startsWith('511') || code.startsWith('501') || acc.name.includes('تكلفة')) cogs += balance;
+            // تكلفة البضاعة المباعة (51)
+            if (code.startsWith('51') || subType === 'cogs') {
+                cogs += balance;
+            }
         }
     });
 

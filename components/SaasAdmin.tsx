@@ -72,6 +72,7 @@ interface Organization {
   allowed_modules: string[];
   created_at: string;
   max_users: number;
+  activity_type?: string; // 👈 إضافة الحقل للواجهة
   user_count?: number;
   suspension_reason?: string;
   total_sales?: number;
@@ -205,12 +206,6 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
 
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'فشل إنشاء العميل');
-
-      // استدعاء دالة تأسيس دليل الحسابات بناءً على القالب المختار
-      await supabase.rpc('initialize_egyptian_coa', { 
-        p_org_id: result.organization.id, 
-        p_activity_type: formData.coaTemplate 
-      });
 
       showToast('تم إنشاء الشركة وحساب المدير بنجاح ✅', 'success');
       onSuccess();
@@ -449,6 +444,7 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
     vatRate: 14,
     suspensionReason: '',
     plan: '',
+    activityType: '', // 👈 إضافة الحقل للنموذج
     totalCollected: 0,
     nextPaymentDate: ''
   });
@@ -478,6 +474,7 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
           vatRate: settings?.vat_rate ? (settings.vat_rate <= 1 ? settings.vat_rate * 100 : settings.vat_rate) : 14,
           suspensionReason: organization.suspension_reason || '',
           plan: inferredPlan,
+          activityType: organization.activity_type || '', // 👈 جلب القيمة من قاعدة البيانات
           totalCollected: organization.total_collected || 0,
           nextPaymentDate: organization.next_payment_date ? organization.next_payment_date.split('T')[0] : ''
         });
@@ -510,6 +507,7 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
           subscription_expiry: formData.subscriptionExpiry || null,
           max_users: formData.maxUsers,
           allowed_modules: formData.modules,
+          activity_type: formData.activityType, // 👈 تحديث القيمة
           suspension_reason: formData.suspensionReason,
           total_collected: formData.totalCollected,
           next_payment_date: formData.nextPaymentDate || null
@@ -596,6 +594,20 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
                   />
                 </div>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">نوع النشاط</label>
+              <select 
+                className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white font-bold" 
+                value={formData.activityType} 
+                onChange={e => setFormData({...formData, activityType: e.target.value})}
+              >
+                <option value="commercial">🏢 نشاط تجاري عام</option>
+                <option value="restaurant">🍽️ مديول المطاعم</option>
+                <option value="construction">🏗️ نشاط المقاولات</option>
+                <option value="clinic">⚕️ العيادات الطبية</option>
+              </select>
             </div>
 
             <div className="space-y-4">
@@ -713,6 +725,7 @@ const SaasAdmin: React.FC = () => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [activityTypeFilter, setActivityTypeFilter] = useState('all'); // 👈 حالة جديدة لفلتر نوع النشاط
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const { showToast } = useToast();
 
@@ -840,14 +853,15 @@ const SaasAdmin: React.FC = () => {
       const matchesSearch = org.name.toLowerCase().includes(searchTerm.toLowerCase());
       const isExpired = org.subscription_expiry && new Date(org.subscription_expiry) < new Date();
       const isActive = org.is_active && !isExpired;
+      const matchesActivityType = activityTypeFilter === 'all' || org.activity_type === activityTypeFilter; // 👈 منطق فلترة جديد
 
-      if (filterStatus === 'all') return matchesSearch;
-      if (filterStatus === 'active') return matchesSearch && isActive;
-      if (filterStatus === 'inactive') return matchesSearch && !isActive;
+      if (filterStatus === 'all') return matchesSearch && matchesActivityType;
+      if (filterStatus === 'active') return matchesSearch && isActive && matchesActivityType;
+      if (filterStatus === 'inactive') return matchesSearch && !isActive && matchesActivityType;
       
-      return matchesSearch;
+      return matchesSearch && matchesActivityType;
     });
-  }, [orgs, searchTerm, filterStatus]);
+  }, [orgs, searchTerm, filterStatus, activityTypeFilter]); // 👈 إضافة activityTypeFilter للتبعيات
 
   if (loading && !stats) {
     return (
@@ -965,6 +979,24 @@ const SaasAdmin: React.FC = () => {
                     <option value="inactive">متوقف / منتهي</option>
                 </select>
             </div>
+            {/* 👈 فلتر نوع النشاط الجديد */}
+            <div className="relative">
+                <Filter className="absolute right-3 top-2.5 text-slate-400 pointer-events-none" size={20} />
+                <select 
+                    value={activityTypeFilter}
+                    onChange={(e) => setActivityTypeFilter(e.target.value)}
+                    className="appearance-none pr-10 pl-4 py-2 rounded-xl border border-slate-300 focus:outline-none focus:border-blue-500 bg-white text-slate-700 font-medium"
+                >
+                    <option value="all">كل الأنشطة</option>
+                    <option value="commercial">تجاري</option>
+                    <option value="restaurant">مطاعم</option>
+                    <option value="construction">مقاولات</option>
+                    <option value="clinic">عيادات</option>
+                    <option value="legal">قانوني</option>
+                    <option value="transport">نقل</option>
+                    <option value="charity">خيري</option>
+                </select>
+            </div>
         </div>
         
         {loadingOrgs ? (
@@ -985,6 +1017,7 @@ const SaasAdmin: React.FC = () => {
                 <tr>
                   <th className="p-4 border-b border-slate-100">اسم الشركة</th>
                   <th className="p-4 border-b border-slate-100">الحالة</th>
+                  <th className="p-4 border-b border-slate-100">نوع النشاط</th>
                   <th className="p-4 border-b border-slate-100">إجمالي المبيعات</th>
                   <th className="p-4 border-b border-slate-100">أيام التحصيل</th>
                   <th className="p-4 border-b border-slate-100">تاريخ الانتهاء</th>
@@ -997,6 +1030,13 @@ const SaasAdmin: React.FC = () => {
                   const isExpired = org.subscription_expiry && new Date(org.subscription_expiry) < new Date();
                   const isActive = org.is_active && !isExpired;
                   const isOverLimit = org.user_count && org.user_count >= org.max_users;
+                  
+                  const activityLabels: Record<string, string> = {
+                    'commercial': 'تجاري',
+                    'restaurant': 'مطاعم',
+                    'construction': 'مقاولات',
+                    'clinic': 'عيادات'
+                  };
 
                   // حساب الأيام المتبقية لموعد الدفع القادم
                   const targetDate = org.next_payment_date ? new Date(org.next_payment_date) : null;
@@ -1024,6 +1064,11 @@ const SaasAdmin: React.FC = () => {
                             <XCircle size={14} /> {isExpired ? 'منتهي' : 'متوقف'}
                           </span>
                         )}
+                    </td>
+                    <td className="p-4">
+                      <span className="bg-blue-50 text-blue-700 px-3 py-1 rounded-lg text-xs font-bold border border-blue-100">
+                        {activityLabels[org.activity_type || ''] || org.activity_type || 'تجاري'}
+                      </span>
                       </td>
                       <td className="p-4 text-slate-500 font-medium">
                         <div className="flex items-center gap-1 text-emerald-600 font-black">

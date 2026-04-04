@@ -94,8 +94,12 @@ const RestaurantProfitReport = () => {
           
           productRecipes.forEach((recipe: any) => {
               const ingredient = recipe.products;
-              // أولوية التكلفة: متوسط التكلفة المرجح > سعر الشراء > التكلفة المعيارية
-              const unitCost = Number(ingredient?.weighted_average_cost || ingredient?.purchase_price || ingredient?.cost || 0);
+              // تحسين: الاعتماد الصارم على التكلفة المرجحة لضمان دقة COGS
+              const unitCost = Number(
+                ingredient?.weighted_average_cost ?? 
+                ingredient?.purchase_price ?? 
+                ingredient?.cost ?? 0
+              );
               totalIngredientsCost += (unitCost * Number(recipe.quantity_required));
           });
 
