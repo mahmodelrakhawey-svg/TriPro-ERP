@@ -124,6 +124,17 @@ ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS discount numeric DEFAU
 ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS tax_rate numeric DEFAULT 0;
 ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS custom_fields jsonb;
 
+-- تحديثات مديول التصنيع لتتبع الهالك والفروقات الكمية
+CREATE TABLE IF NOT EXISTS public.work_order_material_usage (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    work_order_id uuid REFERENCES public.work_orders(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id), -- المادة الخام
+    standard_quantity numeric NOT NULL, -- الكمية المعيارية (BOM)
+    actual_quantity numeric NOT NULL,   -- الكمية المستهلكة فعلياً
+    wastage_quantity numeric GENERATED ALWAYS AS (actual_quantity - standard_quantity) STORED,
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+);
+
 -- 3. التأكد من وجود الحسابات المحاسبية الحرجة (لتجنب أخطاء القيود الآلية)
 -- أوراق القبض (1204)
 INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active)
@@ -185,7 +196,7 @@ WHERE vat_rate = 0.15 OR vat_rate = 15 OR vat_rate = 14;
 DO $$ 
 DECLARE 
     t text;
-    tables text[] := ARRAY['accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 'invoices', 'receipt_vouchers', 'payment_vouchers'];
+    tables text[] := ARRAY['accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 'invoices', 'receipt_vouchers', 'payment_vouchers', 'work_order_material_usage'];
     v_count_before int;
 BEGIN 
     RAISE NOTICE '🛡️ جاري مراجعة وتأمين درع الحماية لجميع الجداول...';
@@ -231,6 +242,26 @@ BEGIN
         END IF;
     END LOOP;
 END $$;
+
+-- 9. دالة التحقق من حالة الاشتراك لبروزة التنبيهات
+CREATE OR REPLACE FUNCTION public.check_subscription_status(p_org_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_expiry date; v_days_left int; v_is_active boolean;
+BEGIN
+    SELECT subscription_expiry, is_active INTO v_expiry, v_is_active 
+    FROM public.organizations WHERE id = p_org_id;
+
+    v_days_left := v_expiry - CURRENT_DATE;
+
+    RETURN jsonb_build_object(
+        'is_active', v_is_active,
+        'expiry_date', v_expiry,
+        'days_remaining', COALESCE(v_days_left, 0),
+        'needs_alert', (v_days_left <= 7 AND v_days_left >= 0),
+        'is_expired', (v_days_left < 0)
+    );
+END; $$;
 
 COMMIT;
 

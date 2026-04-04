@@ -5,7 +5,7 @@ import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap } from 'lucide-react';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../utils/runRestaurantFlowTest';
 
@@ -52,7 +52,7 @@ const Settings = () => {
   const { showToast } = useToast();
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts } = useAccounting();
+  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema } = useAccounting();
   const currentUserRole = currentUser?.role || '';
 
   const currencies = [
@@ -352,43 +352,6 @@ const Settings = () => {
       }
   };
 
-  const handleRecalculateAllBalances = async () => {
-      if (currentUserRole === 'demo') {
-          showToast("تم إعادة مطابقة الأرصدة بنجاح ✅ (محاكاة)", 'success');
-          return;
-      }
-
-      if (!window.confirm('سيقوم النظام بإعادة احتساب أرصدة المخازن والعملاء والموردين من واقع القيود الفعلية لضمان المطابقة. هل تريد الاستمرار؟')) return;
-      
-      setLoading(true);
-      try {
-          const { data, error } = await supabase.rpc('recalculate_all_system_balances');
-          if (error) throw error;
-          showToast(data || 'تمت إعادة مطابقة الأرصدة بنجاح ✅', 'success');
-          window.location.reload();
-      } catch (e: any) {
-          showToast('حدث خطأ أثناء المزامنة: ' + e.message, 'error');
-      } finally {
-          setLoading(false);
-      }
-  };
-
-  const handlePurgeDeletedRecords = async () => {
-      if (!window.confirm('⚠️ تحذير: سيتم حذف كافة السجلات الموجودة في سلة المحذوفات نهائياً لتوفير المساحة. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟')) return;
-
-      setLoading(true);
-      try {
-          const { data, error } = await supabase.rpc('purge_deleted_records');
-          if (error) throw error;
-          showToast(data || 'تم تنظيف قاعدة البيانات بنجاح ✅', 'success');
-          await useAccounting().refreshData();
-      } catch (e: any) {
-          showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
-      } finally {
-          setLoading(false);
-      }
-  };
-
   const handleCleanOrphanedOpeningEntries = async () => {
       if (currentUserRole === 'demo') {
           showToast("تم فحص وتنظيف القيود اليتيمة بنجاح ✅ (محاكاة)", 'success');
@@ -472,7 +435,10 @@ const Settings = () => {
 
       setLoading(true);
       try {
-          const { error } = await supabase.rpc('clear_demo_data');
+          const { data: { session } } = await supabase.auth.getSession();
+          const orgId = session?.user?.user_metadata?.org_id;
+          if (!orgId) throw new Error("معرف المنظمة غير موجود.");
+          const { error } = await supabase.rpc('clear_demo_data', { p_org_id: orgId });
           if (error) throw error;
           
           showToast('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅', 'success');
@@ -804,6 +770,36 @@ const Settings = () => {
                           </button>
                       </div>
 
+                      {/* أدوات الصيانة والربط (SaaS Maintenance) - تم نقله هنا لسهولة الوصول */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
+                          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                              <Wrench size={20} className="text-orange-600" /> أدوات الصيانة والربط (SaaS)
+                          </h3>
+                          <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+                              استخدم هذه الأدوات لإصلاح تضارب البيانات الناتج عن التحديثات، أو لإعادة مطابقة أرصدة العميل مع دفتر الأستاذ وتحديث كاش النظام.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                              <button 
+                                onClick={recalculateAllBalances}
+                                className="flex items-center gap-2 bg-white text-blue-700 border border-blue-200 px-4 py-3 rounded-lg hover:bg-blue-100 font-bold shadow-sm transition-all"
+                              >
+                                  <RotateCcw size={18} /> إعادة مطابقة الأرصدة
+                              </button>
+                              <button 
+                                onClick={refreshSaasSchema}
+                                className="flex items-center gap-2 bg-white text-purple-700 border border-purple-200 px-4 py-3 rounded-lg hover:bg-purple-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Zap size={18} /> تحديث كاش النظام
+                              </button>
+                              <button 
+                                onClick={purgeDeletedRecords}
+                                className="flex items-center gap-2 bg-white text-red-700 border border-red-200 px-4 py-3 rounded-lg hover:bg-red-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Trash2 size={18} /> تنظيف قاعدة البيانات
+                              </button>
+                          </div>
+                      </div>
+
                       {/* System Health Section */}
                       <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
                           <h3 className="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2">
@@ -880,23 +876,6 @@ const Settings = () => {
                                   <Package size={18} /> تصدير الأصناف
                               </button>
                           </div>
-                      </div>
-
-                      {/* Data Backup Section */}
-                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
-                          <div className="absolute top-0 right-0 w-16 h-16 bg-amber-100 rounded-bl-full -mr-8 -mt-8"></div>
-                          <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2 relative z-10">
-                              <Archive size={20} /> إقفال السنة المالية
-                          </h3>
-                          <p className="text-sm text-amber-800 mb-6 max-w-2xl leading-relaxed">
-                              تستخدم هذه الميزة عند انتهاء السنة المالية. سيقوم النظام بحساب الأرباح والخسائر، ترحيلها لحقوق الملكية، وإنشاء قيد إقفال لتصفير حسابات النتيجة (الإيرادات والمصروفات).
-                          </p>
-                          <button 
-                            onClick={handleCloseYear}
-                            className="flex items-center gap-2 bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md transition-all"
-                          >
-                              <Archive size={18} /> إقفال السنة وفتح سنة جديدة
-                          </button>
                       </div>
 
                       {/* Data Backup Section */}

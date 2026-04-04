@@ -45,6 +45,8 @@ const Dashboard = () => {
   const [lowStockItems, setLowStockItems] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
   const [rpcError, setRpcError] = useState<string | null>(null);
+  const [overLimitCustomers, setOverLimitCustomers] = useState<any[]>([]);
+  const [subStatus, setSubStatus] = useState<any>(null);
 
   // State for editing sales target
   const [isEditingTarget, setIsEditingTarget] = useState(false);
@@ -96,8 +98,31 @@ const Dashboard = () => {
     const fetchRealData = async () => {
       if (currentUser && currentUser.role !== 'demo') {
         setLoading(true);
+        const orgId = (currentUser as any)?.organization_id;
+
+        // فحص حالة الاشتراك
+        const checkSub = async () => {
+            const { data } = await supabase.rpc('check_subscription_status', { p_org_id: orgId });
+            if (data) setSubStatus(data);
+        };
+        
+        // دالة فحص العملاء المتجاوزين للحد (إصلاح المعامل p_org_id)
+        const checkHighDebt = async (orgId: string) => {
+          try {
+            const { data, error } = await supabase.rpc('get_over_limit_customers', { p_org_id: orgId });
+            if (error) throw error;
+            setOverLimitCustomers(data || []);
+          } catch (err) {
+            if (process.env.NODE_ENV === 'development') console.error("Error in checkHighDebt:", err);
+          }
+        };
+
         try {
           setRpcError(null);
+          if (orgId) {
+              await Promise.all([checkSub(), checkHighDebt(orgId)]);
+          }
+
           const { data, error } = await supabase.rpc('get_dashboard_stats');
           
           if (error) {
@@ -370,12 +395,39 @@ const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Column */}
         <div className="lg:col-span-2 space-y-8">
+            {subStatus?.needs_alert && (
+                <div className="bg-red-600 text-white p-4 rounded-xl flex items-center justify-between shadow-lg animate-pulse">
+                    <div className="flex items-center gap-3">
+                        <Crown size={24} />
+                        <p className="font-bold text-sm">تنبيه: سينتهي اشتراكك خلال {subStatus.days_remaining} أيام ({subStatus.expiry_date}). يرجى التجديد لضمان استمرار الخدمة.</p>
+                    </div>
+                    <button className="bg-white text-red-600 px-4 py-1 rounded-lg font-black text-xs">تجديد الآن</button>
+                </div>
+            )}
             {rpcError && (
                 <div className="bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 flex items-center gap-3">
                     <AlertTriangle size={20} />
                     <p className="font-bold">{rpcError}</p>
                 </div>
             )}
+
+            {overLimitCustomers.length > 0 && (
+                <div className="bg-amber-50 text-amber-800 p-4 rounded-xl border border-amber-200 flex flex-col gap-2 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-center gap-2 font-black">
+                        <AlertTriangle size={20} className="text-amber-600" />
+                        تنبيه: يوجد {overLimitCustomers.length} عملاء تجاوزوا حد الائتمان
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {overLimitCustomers.slice(0, 4).map(c => (
+                            <div key={c.id} className="text-xs bg-white/50 p-2 rounded-lg border border-amber-100 flex justify-between">
+                                <span className="font-bold">{c.name}</span>
+                                <span className="font-mono text-red-600">{Number(c.total_debt).toLocaleString()} / {Number(c.credit_limit).toLocaleString()}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 dashboard-stats">
                 <StatCard title="مبيعات الشهر" value={stats.monthSales} previousValue={stats.prevMonthSales} icon={ShoppingCart} color="bg-blue-100" isGood={true} />

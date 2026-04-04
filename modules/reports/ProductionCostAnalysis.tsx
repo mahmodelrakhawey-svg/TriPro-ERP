@@ -26,88 +26,33 @@ const ProductionCostAnalysis = () => {
       const userOrgId = session?.user?.user_metadata?.org_id;
 
       if (!userOrgId) return;     
-      // 1. جلب أوامر التشغيل المكتملة
-      // ملاحظة: نفترض وجود جدول work_orders وجدول work_order_costs كما تم إنشاؤه في manufacturing_upgrade.sql
-      // إذا لم يتم تفعيل تلك الجداول بعد، سيعود التقرير فارغاً أو بخطأ، لذا يجب التأكد من تشغيل ملف SQL الخاص بالتصنيع.
-      
-      const { data: workOrders, error } = await supabase
-        .from('work_orders')
-        .select(`
-            id, order_number, quantity, start_date, end_date, status,
-            organization_id,
- 
-            product:products(id, name, bom:bill_of_materials!product_id(raw_material_id, quantity_required))
-        `)
-        .eq('organization_id', userOrgId)
- 
-        .eq('status', 'completed') // فقط الأوامر المكتملة
-        .gte('end_date', startDate)
-        .lte('end_date', endDate);
+
+      // استدعاء الدالة البرمجية الجديدة للحصول على تحليل جاهز
+      const { data, error } = await supabase.rpc('get_manufacturing_analysis', {
+          p_org_id: userOrgId,
+          p_start_date: startDate,
+          p_end_date: endDate
+      });
 
       if (error) {
-          console.warn("Work orders table might not exist yet or query error:", error);
-          setReportData([]); // Fallback to empty if table doesn't exist
-          setLoading(false);
-          return;
+          console.error("Error in manufacturing analysis RPC:", error);
+          throw error;
       }
 
-      if (!workOrders || workOrders.length === 0) {
-          setReportData([]);
-          setLoading(false);
-          return;
-      }
-
-      const analysisData = await Promise.all(workOrders.map(async (order: any) => {
-          // أ. حساب التكلفة المعيارية (Standard Cost)
-          // = (كمية المواد في BOM * سعر الشراء الحالي للمادة) * كمية الأمر
-          let standardMaterialCost = 0;
-          if (order.product?.bom) {
-              for (const bomItem of order.product.bom) {
-                  const { data: rawMaterial } = await supabase
-                      .from('products')
-                      .select('purchase_price, cost')
-                      .eq('id', bomItem.raw_material_id)
-                      .eq('organization_id', userOrgId)
-                      .single();
-                  
-                  const price = rawMaterial?.cost || rawMaterial?.purchase_price || 0;
-                  standardMaterialCost += (bomItem.quantity_required * price);
-              }
-          }
-          const totalStandardCost = standardMaterialCost * order.quantity;
-
-          // ب. حساب التكلفة الفعلية (Actual Cost)
-          // 1. تكلفة المواد المنصرفة فعلياً (من حركات المخزون المرتبطة بأمر التشغيل - إن وجدت)
-          // للتبسيط حالياً، سنفترض أن المواد صرفت حسب المعياري، ولكن سنضيف التكاليف الإضافية المسجلة
-          
-          // 2. التكاليف الإضافية المسجلة (عمالة، كهرباء، إلخ)
-          const { data: additionalCosts } = await supabase
-              .from('work_order_costs')
-              .select('amount')
-              .eq('work_order_id', order.id)
-              .eq('organization_id', userOrgId);
-          
-          const totalAdditionalCost = additionalCosts?.reduce((sum, c) => sum + Number(c.amount), 0) || 0;
-          
-          // التكلفة الفعلية = تكلفة المواد (المعيارية مؤقتاً) + التكاليف الإضافية الفعلية
-          // في نظام متقدم، يجب جلب كميات الصرف الفعلية من stock_movements
-          const totalActualCost = totalStandardCost + totalAdditionalCost;
-
-          const variance = totalActualCost - totalStandardCost;
-          const variancePercent = totalStandardCost > 0 ? (variance / totalStandardCost) * 100 : 0;
-
-          return {
-              id: order.id,
-              orderNumber: order.order_number,
-              productName: order.product?.name,
-              quantity: order.quantity,
-              date: order.end_date,
-              standardCost: totalStandardCost,
-              actualCost: totalActualCost,
-              variance: variance,
-              variancePercent: variancePercent,
-              status: Math.abs(variancePercent) < 1 ? 'match' : (variance > 0 ? 'over' : 'under')
-          };
+      // تحويل البيانات من snake_case (SQL) إلى camelCase (JS)
+      const analysisData = data.map((item: any) => ({
+          id: item.id,
+          orderNumber: item.order_number,
+          productName: item.product_name,
+          quantity: item.quantity,
+          date: item.end_date,
+          standardCost: Number(item.standard_cost),
+          actualCost: Number(item.actual_cost),
+          materialVariance: Number(item.material_variance),
+          wastageQty: Number(item.wastage_qty),
+          variance: Number(item.variance),
+          variancePercent: Number(item.variance_percent),
+          status: Math.abs(item.variance_percent) < 1 ? 'match' : (item.variance > 0 ? 'over' : 'under')
       }));
 
       setReportData(analysisData);
@@ -125,13 +70,14 @@ const ProductionCostAnalysis = () => {
       ['تقرير تحليل تكاليف الإنتاج'],
       ['من تاريخ:', startDate, 'إلى تاريخ:', endDate],
       [],
-      ['رقم الأمر', 'المنتج', 'الكمية', 'التكلفة المعيارية', 'التكلفة الفعلية', 'الانحراف', 'نسبة الانحراف'],
+      ['رقم الأمر', 'المنتج', 'الكمية', 'التكلفة المعيارية', 'التكلفة الفعلية', 'انحراف المواد (الهالك)', 'إجمالي الانحراف', 'نسبة الانحراف'],
       ...reportData.map(item => [
         item.orderNumber,
         item.productName,
         item.quantity,
         item.standardCost,
         item.actualCost,
+        item.materialVariance,
         item.variance,
         `${item.variancePercent.toFixed(2)}%`
       ])
@@ -185,7 +131,8 @@ const ProductionCostAnalysis = () => {
               <th className="p-4">المنتج (الكمية)</th>
               <th className="p-4 text-center">التكلفة المعيارية</th>
               <th className="p-4 text-center">التكلفة الفعلية</th>
-              <th className="p-4 text-center">الانحراف</th>
+              <th className="p-4 text-center">انحراف المواد (الهالك)</th>
+              <th className="p-4 text-center">إجمالي الانحراف</th>
               <th className="p-4 text-center">الحالة</th>
                 </tr>
             </thead>
@@ -199,6 +146,10 @@ const ProductionCostAnalysis = () => {
                             <td className="p-4 font-bold text-slate-800">{item.productName} <span className="text-xs text-slate-400">({item.quantity})</span></td>
                             <td className="p-4 text-center font-mono text-blue-600">{item.standardCost.toLocaleString()}</td>
                             <td className="p-4 text-center font-mono text-purple-600">{item.actualCost.toLocaleString()}</td>
+                            <td className={`p-4 text-center font-mono ${item.materialVariance > 0 ? 'text-red-500' : 'text-emerald-500'}`}>
+                              {item.materialVariance > 0 ? '+' : ''}{item.materialVariance.toLocaleString()} 
+                              {item.wastageQty > 0 && <span className="text-[10px] block text-slate-400">(هالك: {item.wastageQty})</span>}
+                            </td>
                             <td className={`p-4 text-center font-mono font-bold ${item.variance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                               {item.variance > 0 ? '+' : ''}{item.variance.toLocaleString()}
                             </td>

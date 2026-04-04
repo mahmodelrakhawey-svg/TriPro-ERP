@@ -399,6 +399,9 @@ interface AccountingContextType {
   lastUpdated: Date | null;
   recalculateStock: () => Promise<void>;
   clearCache: () => Promise<void>;
+  recalculateAllBalances: () => Promise<void>; // New
+  purgeDeletedRecords: () => Promise<void>; // New
+  refreshSaasSchema: () => Promise<void>; // New
   exportJournalToCSV: () => void;
   authInitialized: boolean;
   isLoading: boolean;
@@ -731,7 +734,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('payment_vouchers').select('*').eq('organization_id', currentOrgId).order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('notifications').select('*').eq('organization_id', currentOrgId).eq('is_read', false).limit(20) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('organization_id', currentOrgId).eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }), // الـ RPC محمي داخلياً بـ get_my_org()
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances', { p_org_id: currentOrgId }) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
@@ -2360,7 +2363,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       // استدعاء دالة قاعدة البيانات (RPC) بدلاً من الحساب في المتصفح
       // هذا أسرع بكثير ويمنع تجميد المتصفح عند وجود بيانات كثيرة
-      const { error } = await supabase.rpc('recalculate_stock_rpc');
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      
+      const { error } = await supabase.rpc('recalculate_stock_rpc', { p_org_id: orgId });
       
       if (error) throw error;
 
@@ -2369,6 +2375,52 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (err: any) {
       console.error("Recalculate Stock Error:", err);
       showToast("حدث خطأ أثناء تحديث الأرصدة: " + err.message, 'error');
+    }
+  };
+
+  const recalculateAllBalances = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      if (!orgId) throw new Error("معرف المنظمة غير موجود.");
+
+      const { error } = await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      if (error) throw error;
+      showToast('تمت إعادة مطابقة جميع الأرصدة بنجاح ✅', 'success');
+      await fetchData();
+    } catch (err: any) {
+      console.error("Error recalculating all balances:", err);
+      showToast("فشل إعادة مطابقة الأرصدة: " + err.message, 'error');
+    }
+  };
+
+  const purgeDeletedRecords = async () => {
+    if (!window.confirm('تحذير: هذا الإجراء سيقوم بحذف جميع السجلات التي تم وضع علامة "محذوف" عليها نهائياً من قاعدة البيانات. لا يمكن التراجع عن هذا الإجراء.')) {
+      return;
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      if (!orgId) throw new Error("معرف المنظمة غير موجود.");
+
+      const { error } = await supabase.rpc('purge_deleted_records', { p_org_id: orgId });
+      if (error) throw error;
+      showToast('تم تنظيف البيانات المحذوفة نهائياً بنجاح ✅', 'success');
+      await fetchData();
+    } catch (err: any) {
+      console.error("Error purging deleted records:", err);
+      showToast("فشل تنظيف البيانات: " + err.message, 'error');
+    }
+  };
+
+  const refreshSaasSchema = async () => {
+    try {
+      const { error } = await supabase.rpc('refresh_saas_schema');
+      if (error) throw error;
+      showToast('تم تحديث كاش النظام بنجاح ✅', 'success');
+    } catch (err: any) {
+      console.error("Error refreshing SaaS schema:", err);
+      showToast("فشل تحديث كاش النظام: " + err.message, 'error');
     }
   };
 
@@ -3635,6 +3687,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
         const { data, error } = await supabase.rpc('create_restaurant_order', {
+            p_org_id: (currentUser as any)?.organization_id,
             p_session_id: orderData.sessionId,
             p_user_id: currentUser.id,
             p_order_type: orderData.orderType.toUpperCase(),
@@ -4206,6 +4259,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userPermissions, can, lastUpdated, recalculateStock, clearCache, exportJournalToCSV,
       authInitialized, isLoading,
       getInvoicesPaginated, getJournalEntriesPaginated,
+      recalculateAllBalances, // New
+      purgeDeletedRecords, // New
+      refreshSaasSchema, // New
       restoreItem, permanentDeleteItem, emptyRecycleBin,
       calculateProductPrice, clearTransactions, addOpeningBalanceTransaction,
       currentShift,
