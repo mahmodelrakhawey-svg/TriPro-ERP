@@ -10,13 +10,13 @@ type AccountInsert = Database['public']['Tables']['accounts']['Insert'];
  * @param accountData بيانات الحساب (يجب أن تستخدم snake_case مثل is_active, parent_account)
  */
 export const createAccount = async (accountData: AccountInsert) => {
-  // الحصول على المستخدم الحالي لربط الحساب به
-  const { data: { user } } = await supabase.auth.getUser();
+  // الحصول على المنظمة الحالية من بيانات الجلسة لضمان عزل البيانات
+  const { data: { session } } = await supabase.auth.getSession();
+  const orgId = session?.user?.user_metadata?.org_id;
   
   const { data, error } = await supabase
     .from('accounts')
-    // ندمج user_id إذا كان المستخدم مسجلاً، وإلا نعتمد على القيمة الافتراضية في القاعدة
-    .insert({ ...accountData, user_id: user?.id })
+    .insert({ ...accountData, organization_id: orgId })
     .select() // لإرجاع الصف الذي تم إنشاؤه
     .single();
 
@@ -32,9 +32,13 @@ export const createAccount = async (accountData: AccountInsert) => {
  * دالة لجلب جميع الحسابات
  */
 export const getAccounts = async () => {
+  const { data: { session } } = await supabase.auth.getSession();
+  const orgId = session?.user?.user_metadata?.org_id;
+
   const { data, error } = await supabase
     .from('accounts')
     .select('*')
+    .eq('organization_id', orgId) // 🔒 فلترة تلقائية بناءً على المنظمة الحالية
     .order('code', { ascending: true });
 
   if (error) {

@@ -352,6 +352,43 @@ const Settings = () => {
       }
   };
 
+  const handleRecalculateAllBalances = async () => {
+      if (currentUserRole === 'demo') {
+          showToast("تم إعادة مطابقة الأرصدة بنجاح ✅ (محاكاة)", 'success');
+          return;
+      }
+
+      if (!window.confirm('سيقوم النظام بإعادة احتساب أرصدة المخازن والعملاء والموردين من واقع القيود الفعلية لضمان المطابقة. هل تريد الاستمرار؟')) return;
+      
+      setLoading(true);
+      try {
+          const { data, error } = await supabase.rpc('recalculate_all_system_balances');
+          if (error) throw error;
+          showToast(data || 'تمت إعادة مطابقة الأرصدة بنجاح ✅', 'success');
+          window.location.reload();
+      } catch (e: any) {
+          showToast('حدث خطأ أثناء المزامنة: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handlePurgeDeletedRecords = async () => {
+      if (!window.confirm('⚠️ تحذير: سيتم حذف كافة السجلات الموجودة في سلة المحذوفات نهائياً لتوفير المساحة. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟')) return;
+
+      setLoading(true);
+      try {
+          const { data, error } = await supabase.rpc('purge_deleted_records');
+          if (error) throw error;
+          showToast(data || 'تم تنظيف قاعدة البيانات بنجاح ✅', 'success');
+          await useAccounting().refreshData();
+      } catch (e: any) {
+          showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleCleanOrphanedOpeningEntries = async () => {
       if (currentUserRole === 'demo') {
           showToast("تم فحص وتنظيف القيود اليتيمة بنجاح ✅ (محاكاة)", 'success');

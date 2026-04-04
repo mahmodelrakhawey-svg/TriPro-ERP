@@ -32,8 +32,9 @@ const ItemSalesAnalysis = () => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      // تحسين: استخدام getSession لسرعة الأداء وتجنب مكالمات الشبكة الزائدة
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
 
       if (!userOrgId) return;
 

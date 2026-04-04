@@ -412,6 +412,7 @@ interface AccountingContextType {
   addOpeningBalanceTransaction: (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => Promise<void>;
   checkSystemAccounts: () => { missing: string[]; found: string[] };
   createMissingSystemAccounts: () => Promise<{ success: boolean; message: string; created: string[] }>;
+  checkEssentialAccounts: () => Promise<void>;
   addDemoInvoice: (invoice: any) => void;
   currentShift: any | null;
   startShift: (openingBalance: number) => Promise<boolean>;
@@ -1467,6 +1468,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const checkEssentialAccounts = useCallback(async () => {
+    // لا نقوم بالفحص في وضع الديمو أو إذا لم يتم تسجيل الدخول
+    if (isDemoState || !currentUser) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('repair_missing_accounts');
+      if (error) throw error;
+      
+      // إذا أضافت الدالة حسابات جديدة (تحتوي الرسالة على كلمة "إضافة")، نقوم بتحديث البيانات في الواجهة
+      if (data && (data.includes('إضافة') || data.includes('حساب'))) {
+        await fetchData();
+      }
+    } catch (err) {
+      if (process.env.NODE_ENV === 'development') console.error("Repair Accounts Error:", err);
+    }
+  }, [currentUser, isDemoState, fetchData]);
+
   const handleAuthChange = useCallback(async (user: any) => {
     if (user) {
         try {
@@ -1506,6 +1524,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 }
             }
             fetchData(); 
+            await fetchData(); 
+            await checkEssentialAccounts(); // 🛠️ تشغيل الفحص التلقائي للحسابات فور الدخول
         } catch (error) {
             if (process.env.NODE_ENV === 'development') console.error("Error handling auth change:", error);
             setCurrentUser(null);
@@ -1516,7 +1536,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setUserPermissions(new Set());
     }
     setAuthInitialized(true);
-  }, []);
+  }, [fetchData, checkEssentialAccounts]);
+
   
   useEffect(() => {
     if (currentUser) {
@@ -4195,6 +4216,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       openShifts,
       fetchOpenShifts,
       checkSystemAccounts, createMissingSystemAccounts,
+      checkEssentialAccounts,
   addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher,
       isDemo: isDemoState
     }}>

@@ -12,6 +12,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_invoice record; v_item record; v_org_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
     v_customer_acc_id uuid; v_cogs_acc_id uuid; v_inventory_acc_id uuid; v_journal_id uuid;
+    v_discount_acc_id uuid; v_treasury_acc_id uuid;
     v_total_cost numeric := 0; v_item_cost numeric; v_exchange_rate numeric; v_modifier_json jsonb; v_bom_item record;
 BEGIN
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
@@ -515,6 +516,7 @@ END; $$;
 
 -- ج. تقرير مبيعات المطعم التفصيلي (Restaurant Sales Report)
 DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(uuid, text, text);
+DROP FUNCTION IF EXISTS public.get_restaurant_sales_report(text, text); -- 👈 إضافة هذا السطر
 CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(p_start_date text, p_end_date text) 
 RETURNS TABLE(item_name text, category_name text, quantity numeric, total_sales numeric) LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_org_id uuid;
@@ -588,6 +590,7 @@ END; $$;
 
 -- ج. جلب العملاء المتجاوزين لحد الائتمان
 DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid);
+DROP FUNCTION IF EXISTS public.get_over_limit_customers(); -- 👈 إضافة هذا السطر لحل المشكلة
 CREATE OR REPLACE FUNCTION public.get_over_limit_customers()
 RETURNS TABLE (id UUID, name TEXT, total_debt NUMERIC, credit_limit NUMERIC) 
 LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -598,6 +601,7 @@ END; $$;
 
 -- د. جلب النسب المالية التاريخية
 DROP FUNCTION IF EXISTS public.get_historical_ratios(uuid);
+DROP FUNCTION IF EXISTS public.get_historical_ratios(); -- 👈 إضافة هذا السطر لضمان عدم التعارض
 CREATE OR REPLACE FUNCTION public.get_historical_ratios() RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_profit jsonb; v_org_id uuid;
 BEGIN
@@ -611,6 +615,7 @@ BEGIN
 END; $$;
 
 -- هـ. تسجيل أخطاء النظام
+DROP FUNCTION IF EXISTS public.log_system_error(text, text, jsonb, text);
 CREATE OR REPLACE FUNCTION public.log_system_error(p_message text, p_code text, p_context jsonb, p_func text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
@@ -621,6 +626,7 @@ END; $$;
 -- ================================================================
 -- 29. دالة جلب إحصائيات المنصة الشاملة (للسوبر أدمن فقط)
 -- ================================================================
+DROP FUNCTION IF EXISTS get_admin_platform_metrics();
 CREATE OR REPLACE FUNCTION get_admin_platform_metrics()
 RETURNS JSON
 LANGUAGE plpgsql
@@ -673,6 +679,7 @@ END; $$;
 -- ================================================================
 -- 30. دالة إصلاح وتنشيط هيكل بيانات الـ SaaS
 -- ================================================================
+DROP FUNCTION IF EXISTS public.refresh_saas_schema();
 CREATE OR REPLACE FUNCTION public.refresh_saas_schema()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
@@ -701,4 +708,139 @@ BEGIN
     EXECUTE 'NOTIFY pgrst, ''reload config''';
     
     RETURN 'تم تحديث هيكل البيانات وتنشيط الكاش بنجاح ✅';
+END; $$;
+
+-- ================================================================
+-- 31. دوال الصيانة الذاتية للعميل (Client Self-Maintenance)
+-- ================================================================
+
+-- أ. فحص وإنشاء الحسابات الأساسية المفقودة (Repair Missing Accounts)
+-- تضمن هذه الدالة وجود الحسابات "الحرجة" لعمل القيود الآلية (مثل الصندوق والمبيعات)
+DROP FUNCTION IF EXISTS public.repair_missing_accounts();
+CREATE OR REPLACE FUNCTION public.repair_missing_accounts()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid; v_count int := 0;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    -- التأكد من وجود الحسابات القياسية (أمثلة)
+    IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE code = '1231' AND organization_id = v_org_id) THEN
+        INSERT INTO public.accounts (code, name, type, organization_id) VALUES ('1231', 'الصندوق الرئيسي', 'ASSET', v_org_id);
+        v_count := v_count + 1;
+    END IF;
+    
+    IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE code = '411' AND organization_id = v_org_id) THEN
+        INSERT INTO public.accounts (code, name, type, organization_id) VALUES ('411', 'إيرادات المبيعات', 'REVENUE', v_org_id);
+        v_count := v_count + 1;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE code = '511' AND organization_id = v_org_id) THEN
+        INSERT INTO public.accounts (code, name, type, organization_id) VALUES ('511', 'تكلفة المبيعات', 'EXPENSE', v_org_id);
+        v_count := v_count + 1;
+    END IF;
+
+    RETURN 'تم فحص الدليل وإضافة (' || v_count || ') حساباً مفقوداً بنجاح ✅';
+END; $$;
+
+-- ب. تنظيف الأصناف والبيانات المحذوفة نهائياً (Purge Deleted Items)
+-- تقوم بمسح السجلات التي تحمل علامة deleted_at لتوفير المساحة وتسريع البرنامج
+DROP FUNCTION IF EXISTS public.purge_deleted_records();
+CREATE OR REPLACE FUNCTION public.purge_deleted_records()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    DELETE FROM public.products WHERE deleted_at IS NOT NULL AND organization_id = v_org_id;
+    DELETE FROM public.accounts WHERE deleted_at IS NOT NULL AND organization_id = v_org_id;
+    DELETE FROM public.customers WHERE deleted_at IS NOT NULL AND organization_id = v_org_id;
+    DELETE FROM public.suppliers WHERE deleted_at IS NOT NULL AND organization_id = v_org_id;
+    
+    RETURN 'تم تنظيف كافة البيانات المحذوفة نهائياً بنجاح ✅';
+END; $$;
+
+-- ج. إعادة مزامنة الأرصدة الشاملة (Recalculate All Balances)
+-- تقوم بتحديث أرصدة المخازن، العملاء، والموردين من واقع القيود الفعلية
+DROP FUNCTION IF EXISTS public.recalculate_all_system_balances();
+CREATE OR REPLACE FUNCTION public.recalculate_all_system_balances()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid; r record;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    -- 1. تحديث أرصدة المخازن
+    PERFORM public.recalculate_stock_rpc();
+    
+    -- 2. تحديث أرصدة العملاء
+    FOR r IN SELECT id FROM public.customers WHERE organization_id = v_org_id LOOP
+        PERFORM public.update_single_customer_balance(r.id);
+    END LOOP;
+    
+    -- 3. تحديث أرصدة الموردين
+    FOR r IN SELECT id FROM public.suppliers WHERE organization_id = v_org_id LOOP
+        PERFORM public.update_single_supplier_balance(r.id);
+    END LOOP;
+
+    -- 4. تحديث رصيد الحسابات (Ledger Balances)
+    UPDATE public.accounts a
+    SET balance = (SELECT COALESCE(SUM(debit - credit), 0) FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id WHERE jl.account_id = a.id AND je.status = 'posted')
+    WHERE a.organization_id = v_org_id;
+
+    RETURN 'تمت إعادة مطابقة الأرصدة المالية والمخزنية بنجاح ✅';
+END; $$;
+
+-- ================================================================
+-- 32. دالة إغلاق السنة المالية (Close Financial Year)
+-- ================================================================
+DROP FUNCTION IF EXISTS public.close_financial_year(integer, date);
+CREATE OR REPLACE FUNCTION public.close_financial_year(p_year integer, p_closing_date date)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid; v_je_id uuid; v_start_date date; v_end_date date;
+    v_retained_earnings_id uuid; v_net_result numeric := 0; v_row record; v_ref text;
+BEGIN
+    v_org_id := public.get_my_org();
+    v_ref := 'CLOSE-' || p_year;
+    v_start_date := (p_year || '-01-01')::date;
+    v_end_date := (p_year || '-12-31')::date;
+
+    -- 1. التحقق من عدم وجود إغلاق سابق
+    IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref AND organization_id = v_org_id) THEN
+        RAISE EXCEPTION 'السنة المالية % مغلقة بالفعل.', p_year;
+    END IF;
+
+    -- 2. جلب حساب الأرباح المبقاة (32 أو 3103 حسب النشاط)
+    SELECT id INTO v_retained_earnings_id FROM public.accounts 
+    WHERE (code = '32' OR code = '3103') AND organization_id = v_org_id LIMIT 1;
+    
+    IF v_retained_earnings_id IS NULL THEN RAISE EXCEPTION 'حساب الأرباح المبقاة (32) غير موجود في الدليل.'; END IF;
+
+    -- 3. إنشاء رأس القيد
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, is_posted, organization_id)
+    VALUES (p_closing_date, 'قيد إقفال السنة المالية ' || p_year, v_ref, 'posted', true, v_org_id)
+    RETURNING id INTO v_je_id;
+
+    -- 4. إقفال حسابات الإيرادات والمصروفات
+    FOR v_row IN 
+        SELECT jl.account_id, a.name, SUM(jl.debit - jl.credit) as balance
+        FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        JOIN public.accounts a ON jl.account_id = a.id
+        WHERE je.organization_id = v_org_id AND je.status = 'posted' 
+          AND je.transaction_date BETWEEN v_start_date AND v_end_date
+          AND (a.code LIKE '4%' OR a.code LIKE '5%')
+        GROUP BY jl.account_id, a.name
+        HAVING ABS(SUM(jl.debit - jl.credit)) > 0.001
+    LOOP
+        v_net_result := v_net_result + v_row.balance;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_row.account_id, CASE WHEN v_row.balance < 0 THEN ABS(v_row.balance) ELSE 0 END, CASE WHEN v_row.balance > 0 THEN v_row.balance ELSE 0 END, 'إقفال حساب ' || v_row.name, v_org_id);
+    END LOOP;
+
+    -- 5. ترحيل الصافي للأرباح المبقاة
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_retained_earnings_id, CASE WHEN v_net_result > 0 THEN v_net_result ELSE 0 END, CASE WHEN v_net_result < 0 THEN ABS(v_net_result) ELSE 0 END, 'ترحيل نتيجة العام ' || p_year, v_org_id);
+
+    UPDATE public.company_settings SET last_closed_date = p_closing_date WHERE organization_id = v_org_id;
+    RETURN v_je_id;
 END; $$;
