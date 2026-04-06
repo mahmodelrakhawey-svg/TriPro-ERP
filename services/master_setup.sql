@@ -42,20 +42,22 @@ RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _role text;
 BEGIN
     -- 1. Try JWT first (fastest, no DB hit)
+    SET search_path = public;
     _role := (auth.jwt() -> 'user_metadata' ->> 'role')::text;
     -- 2. Fallback to auth.users (avoids recursion on public.profiles)
     RETURN COALESCE(_role, (SELECT (raw_user_meta_data->>'role')::text FROM auth.users WHERE id = auth.uid()));
-END; $$ SET search_path = public;
+END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _org_id uuid;
 BEGIN
     -- 1. Try JWT first
+    SET search_path = public;
     _org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
-    -- 2. Fallback to auth.users
+    -- 2. Fallback to auth.users (avoids recursion on public.profiles)
     RETURN COALESCE(_org_id, (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid()));
-END; $$ SET search_path = public;
+END; $$;
 
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -211,14 +213,6 @@ CREATE TABLE public.company_settings (
 );
 
 -- جداول تقنية مفقودة (تم استنتاجها من الدوال)
-CREATE TABLE IF NOT EXISTS public.kitchen_orders (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    order_item_id uuid NOT NULL,
-    status text DEFAULT 'NEW', -- NEW, PREPARING, READY, SERVED
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
 CREATE TABLE IF NOT EXISTS public.system_error_logs (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     error_message text,
@@ -374,6 +368,7 @@ CREATE TABLE public.products (
     warehouse_stock jsonb DEFAULT '{}',
     category_id uuid REFERENCES public.item_categories(id),
     expiry_date date,
+    available_modifiers jsonb DEFAULT '[]'::jsonb, -- إضافات الأصناف المتاحة (مثل: إضافات البيتزا أو ملاحظات المطبخ)
     
     -- حقول العروض
     offer_price numeric,
@@ -526,14 +521,14 @@ CREATE TABLE public.purchase_returns (
     warehouse_id uuid REFERENCES public.warehouses(id),
     notes text,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- Changed to uuid for consistency
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
 );
 
 CREATE TABLE public.purchase_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    purchase_return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE,
+    return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE, -- توحيد المسمى
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
     price numeric,
@@ -562,14 +557,14 @@ CREATE TABLE public.quotation_items (
     quotation_id uuid REFERENCES public.quotations(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    unit_price numeric,
+    price numeric, -- توحيد المسمى مع باقي النظام
     total numeric,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.purchase_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    po_number text,
+    order_number text, -- تم توحيد المسمى ليتوافق مع نظام الطلبات
     supplier_id uuid REFERENCES public.suppliers(id),
     order_date date,
     delivery_date date,
@@ -583,10 +578,10 @@ CREATE TABLE public.purchase_orders (
 
 CREATE TABLE public.purchase_order_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    purchase_order_id uuid REFERENCES public.purchase_orders(id) ON DELETE CASCADE,
+    order_id uuid REFERENCES public.purchase_orders(id) ON DELETE CASCADE, -- توحيد المسمى ليتوافق مع نظام الطلبات
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    unit_price numeric,
+    price numeric, -- توحيد المسمى مع باقي النظام
     total numeric,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
@@ -853,7 +848,7 @@ CREATE TABLE IF NOT EXISTS public.restaurant_tables (
     reservation_info jsonb,
     qr_access_key uuid DEFAULT gen_random_uuid(),
     qr_code text, -- Changed to text for consistency
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
 );
@@ -876,6 +871,10 @@ CREATE TABLE IF NOT EXISTS public.shifts (
     end_time timestamptz,
     opening_balance numeric,
     closing_balance numeric,
+    expected_cash numeric DEFAULT 0, -- إضافة عمود النقدية المتوقعة
+    actual_cash numeric DEFAULT 0,   -- إضافة عمود النقدية الفعلية
+    difference numeric DEFAULT 0,    -- إضافة عمود الفرق
+    notes text,                      -- إضافة عمود الملاحظات
     organization_id uuid REFERENCES public.organizations(id),
     status text DEFAULT 'OPEN' -- OPEN, CLOSED
 );
@@ -893,7 +892,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     total_discount numeric DEFAULT 0,
     grand_total numeric DEFAULT 0,
     warehouse_id uuid REFERENCES public.warehouses(id),
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
@@ -904,13 +903,22 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric NOT NULL,
-    unit_price numeric NOT NULL,
+    price numeric NOT NULL, -- توحيد المسمى مع باقي النظام (كان unit_price)
     total_price numeric NOT NULL,
     unit_cost numeric DEFAULT 0,
     notes text,
     modifiers jsonb DEFAULT '[]'::jsonb, -- Changed to jsonb for consistency
     vat_rate numeric DEFAULT 0.14,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.kitchen_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_item_id uuid NOT NULL REFERENCES public.order_items(id) ON DELETE CASCADE, -- إضافة علاقة الربط هنا
+    status text DEFAULT 'NEW', -- NEW, PREPARING, READY, SERVED
+    status_updated_at timestamptz DEFAULT now(), -- تتبع وقت تغيير حالة الطلب
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 
@@ -1351,6 +1359,23 @@ BEGIN
     RETURN 'تم تحديث هيكل البيانات وتنشيط الكاش بنجاح ✅';
 END; $$;
 
+-- ================================================================
+-- مراقب تحديث حالة طلبات المطبخ
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.trg_fn_update_kitchen_status_time()
+RETURNS TRIGGER AS $t$
+BEGIN
+    IF (OLD.status IS DISTINCT FROM NEW.status) THEN
+        NEW.status_updated_at = now();
+    END IF;
+    RETURN NEW;
+END; $t$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_kitchen_status_time ON public.kitchen_orders;
+CREATE TRIGGER trg_kitchen_status_time
+BEFORE UPDATE ON public.kitchen_orders
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_update_kitchen_status_time();
+
 -- تنفيذ التحديث فوراً لضمان التعرف على عمود product_type الجديد
 SELECT public.refresh_saas_schema();
 
@@ -1648,12 +1673,9 @@ END; $$;
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, public.order_type, text, jsonb, uuid, jsonb);
-DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid);
-DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, jsonb);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
 
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
-    p_org_id uuid,
     p_session_id uuid,
     p_user_id uuid,
     p_order_type text,
@@ -1662,7 +1684,7 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_customer_id uuid DEFAULT NULL,
     p_warehouse_id uuid DEFAULT NULL,
     p_delivery_info jsonb DEFAULT NULL
-) RETURNS uuid LANGUAGE plpgsql AS $$
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE 
     v_order_id uuid; 
     v_item jsonb; 
@@ -1672,7 +1694,8 @@ DECLARE
     v_tax_rate numeric;
     v_subtotal numeric := 0;
 BEGIN
-    v_org_id := p_org_id;
+    SET search_path = public;
+    v_org_id := public.get_my_org();
     
     -- 1. جلب نسبة الضريبة من الإعدادات
     SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
@@ -1691,7 +1714,7 @@ BEGIN
         INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id)
         VALUES (
             v_order_id, 
-            (v_item->>'productId')::uuid, 
+            (v_item->>'productId')::uuid,
             (v_item->>'quantity')::numeric, 
             (v_item->>'unitPrice')::numeric, 
             ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), 
@@ -2028,6 +2051,151 @@ EXCEPTION WHEN OTHERS THEN
     RAISE EXCEPTION 'فشل تأسيس دليل الحسابات: % (كود: %)', SQLERRM, SQLSTATE;
 END; $$;
 
+-- ================================================================
+-- نظام حساب تكلفة الوجبات التلقائي بناءً على المكونات (BOM)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.trg_fn_sync_meal_cost() RETURNS TRIGGER AS $t$
+BEGIN
+    UPDATE public.products
+    SET cost = (
+        SELECT COALESCE(SUM(bom.quantity_required * COALESCE(ing.cost, ing.purchase_price, 0)), 0)
+        FROM public.bill_of_materials bom
+        JOIN public.products ing ON bom.raw_material_id = ing.id
+        WHERE bom.product_id = COALESCE(NEW.product_id, OLD.product_id)
+    )
+    WHERE id = COALESCE(NEW.product_id, OLD.product_id);
+    RETURN NULL;
+END; $t$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_meal_cost_sync ON public.bill_of_materials;
+CREATE TRIGGER trg_meal_cost_sync 
+AFTER INSERT OR UPDATE OR DELETE ON public.bill_of_materials
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_sync_meal_cost();
+
+-- ================================================================
+-- دوال إدارة الورديات (Shift Management)
+-- ================================================================
+
+-- دالة بدء الوردية
+CREATE OR REPLACE FUNCTION public.start_shift(p_user_id uuid, p_opening_balance numeric, p_resume_existing boolean DEFAULT false)
+RETURNS uuid LANGUAGE plpgsql AS $$
+DECLARE v_existing_shift_id UUID; v_new_shift_id UUID;
+BEGIN
+    SET search_path = public;
+    SELECT id INTO v_existing_shift_id FROM public.shifts WHERE user_id = p_user_id AND end_time IS NULL LIMIT 1;
+    IF v_existing_shift_id IS NOT NULL AND p_resume_existing THEN RETURN v_existing_shift_id; END IF;
+    IF v_existing_shift_id IS NOT NULL THEN RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم'; END IF;
+    INSERT INTO public.shifts (user_id, start_time, opening_balance, organization_id)
+    VALUES (p_user_id, now(), p_opening_balance, public.get_my_org()) RETURNING id INTO v_new_shift_id;
+    RETURN v_new_shift_id;
+END; $$;
+
+-- دالة ملخص الوردية
+CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
+RETURNS jsonb LANGUAGE plpgsql AS $$
+DECLARE v_shift record; v_summary jsonb;
+BEGIN
+    SET search_path = public;
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    SELECT jsonb_build_object(
+        'opening_balance', v_shift.opening_balance,
+        'total_sales', COALESCE(SUM(amount), 0),
+        'cash_sales', COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0),
+        'card_sales', COALESCE(SUM(CASE WHEN payment_method = 'CARD' THEN amount ELSE 0 END), 0),
+        'wallet_sales', COALESCE(SUM(CASE WHEN payment_method = 'WALLET' THEN amount ELSE 0 END), 0),
+        'expected_cash', v_shift.opening_balance + COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0)
+    ) INTO v_summary
+    FROM public.payments p JOIN public.orders o ON p.order_id = o.id
+    WHERE o.created_at >= v_shift.start_time
+      AND o.created_at <= COALESCE(v_shift.end_time, now())
+      AND p.status = 'COMPLETED'
+      AND o.organization_id = v_shift.organization_id;
+    RETURN v_summary;
+END; $$;
+
+-- دالة توليد قيد إقفال الوردية
+CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_shift RECORD; v_summary JSONB; v_journal_id uuid; v_org_id uuid;
+    v_cash_acc_id uuid; v_card_acc_id uuid; v_wallet_acc_id uuid;
+    v_sales_acc_id uuid; v_vat_acc_id uuid; v_diff_acc_id uuid;
+    v_cogs_acc_id uuid; v_inv_acc_id uuid;
+    v_cash_sales numeric; v_card_sales numeric; v_wallet_sales numeric;
+    v_total_sales numeric; v_tax_amount numeric; v_difference numeric;
+    v_total_cogs numeric := 0; v_opening_bal numeric;
+    v_ref text;
+BEGIN
+    SET search_path = public;
+    v_ref := 'SHIFT-' || substring(p_shift_id::text, 1, 8);
+    IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref) THEN
+        RETURN (SELECT id FROM public.journal_entries WHERE reference = v_ref LIMIT 1);
+    END IF;
+
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    IF NOT FOUND THEN RETURN NULL; END IF;
+    v_org_id := COALESCE(v_shift.organization_id, public.get_my_org());
+    v_summary := public.get_shift_summary(p_shift_id);
+
+    v_cash_sales := ROUND(COALESCE((v_summary->>'cash_sales')::numeric, 0), 2);
+    v_card_sales := ROUND(COALESCE((v_summary->>'card_sales')::numeric, 0), 2);
+    v_wallet_sales := ROUND(COALESCE((v_summary->>'wallet_sales')::numeric, 0), 2);
+    v_total_sales := ROUND(COALESCE((v_summary->>'total_sales')::numeric, 0), 2);
+    v_difference := ROUND(COALESCE(v_shift.difference, 0), 2);
+    v_opening_bal := ROUND(COALESCE(v_shift.opening_balance, 0), 2);
+
+    IF ABS(v_total_sales) < 0.01 AND ABS(v_difference) < 0.01 THEN RETURN NULL; END IF;
+
+    SELECT id INTO v_cash_acc_id FROM public.accounts WHERE code = '1231' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_card_acc_id FROM public.accounts WHERE code = '123201' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_wallet_acc_id FROM public.accounts WHERE code = '123301' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_diff_acc_id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_inv_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
+
+    v_tax_amount := ROUND(v_total_sales - (v_total_sales / 1.14), 2);
+
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, user_id, organization_id, is_posted) 
+    VALUES (now(), 'إقفال وردية مجمع - ' || to_char(v_shift.start_time, 'YYYY-MM-DD'), 'SHIFT-' || substring(p_shift_id::text, 1, 8), 'posted', v_shift.user_id, v_org_id, true) 
+    RETURNING id INTO v_journal_id;
+
+    IF v_shift.actual_cash > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cash_acc_id, v_shift.actual_cash, 0, 'نقدية الوردية (فعلي)', v_org_id); END IF;
+    IF v_card_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_card_acc_id, v_card_sales, 0, 'مبيعات شبكة/فيزا', v_org_id); END IF;
+    IF v_wallet_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_wallet_acc_id, v_wallet_sales, 0, 'مبيعات محافظ إلكترونية', v_org_id); END IF;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, (v_total_sales - v_tax_amount), 'إيراد المبيعات', v_org_id);
+    IF v_tax_amount > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, v_tax_amount, 'ضريبة القيمة المضافة', v_org_id); END IF;
+    IF v_opening_bal > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cash_acc_id, 0, v_opening_bal, 'تسوية رصيد الافتتاح', v_org_id); END IF;
+    IF v_difference < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_diff_acc_id, ABS(v_difference), 0, 'عجز عهدة وردية', v_org_id); ELSIF v_difference > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_diff_acc_id, 0, v_difference, 'زيادة عهدة وردية', v_org_id); END IF;
+    IF v_total_cogs > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cogs, 0, 'تكلفة المبيعات', v_org_id); INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inv_acc_id, 0, v_total_cogs, 'صرف المخزون', v_org_id); END IF;
+
+    RETURN v_journal_id;
+END; $$;
+
+-- دالة إغلاق الوردية
+CREATE OR REPLACE FUNCTION public.close_shift(p_shift_id UUID, p_actual_cash NUMERIC, p_notes TEXT DEFAULT NULL)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_summary JSONB;
+    v_expected_cash NUMERIC;
+BEGIN
+    SET search_path = public;
+    v_summary := public.get_shift_summary(p_shift_id);
+    v_expected_cash := COALESCE((v_summary->>'expected_cash')::NUMERIC, 0);
+
+    UPDATE public.shifts SET
+        end_time = now(),
+        actual_cash = p_actual_cash,
+        expected_cash = v_expected_cash,
+        difference = p_actual_cash - v_expected_cash,
+        notes = p_notes,
+        status = 'CLOSED'
+    WHERE id = p_shift_id;
+
+    PERFORM public.generate_shift_closing_entry(p_shift_id);
+END; $$;
+
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
 SELECT public.refresh_saas_schema();
 
@@ -2097,6 +2265,7 @@ DECLARE
     v_total_sales numeric; v_tax_amount numeric; v_ref text;
 BEGIN
      v_ref := 'SHIFT-' || substring(p_shift_id::text, 1, 8);
+     SET search_path = public;
      IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref) THEN
          RETURN (SELECT id FROM public.journal_entries WHERE reference = v_ref LIMIT 1);
      END IF;
@@ -2293,7 +2462,7 @@ CREATE POLICY "Admins update settings" ON company_settings FOR UPDATE USING (is_
 DO $$ 
 DECLARE 
     t text;
-    basic_tables text[] := ARRAY['products', 'customers', 'suppliers', 'warehouses', 'accounts', 'cost_centers', 'item_categories', 'bill_of_materials', 'assets'];
+    basic_tables text[] := ARRAY['products', 'customers', 'suppliers', 'warehouses', 'accounts', 'cost_centers', 'item_categories', 'bill_of_materials', 'assets', 'restaurant_tables']; -- إضافة الطاولات هنا
 BEGIN 
     FOREACH t IN ARRAY basic_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Select_%I" ON %I;', t, t);
@@ -2309,10 +2478,11 @@ DO $$
 DECLARE 
     t text;
     trans_tables text[] := ARRAY[
-        'invoices', 'invoice_items', 'purchase_invoices', 'purchase_invoice_items', 'journal_entries', 'journal_lines', 
-        'receipt_vouchers', 'payment_vouchers', 'orders', 'order_items', 'payments',
+        'invoices', 'invoice_items', 'purchase_invoices', 'purchase_invoice_items', 'journal_entries', 'journal_lines',
+        'receipt_vouchers', 'payment_vouchers', 'orders', 'order_items', 'payments', 'table_sessions', 'delivery_orders', -- إضافة الجلسات والتوصيل
+        'quotations', 'quotation_items', 'purchase_orders', 'purchase_order_items', -- إضافة جداول عروض الأسعار وأوامر الشراء هنا
         'sales_returns', 'sales_return_items', 'purchase_returns', 'purchase_return_items', 'stock_adjustments', 'stock_transfers',
-        'cheques', 'cash_closings', 'rejected_cash_closings', 'budgets', 'inventory_counts', 'inventory_count_items', 
+        'cheques', 'cash_closings', 'rejected_cash_closings', 'budgets', 'inventory_counts', 'inventory_count_items',
         'bank_reconciliations', 'credit_notes', 'debit_notes', 'kitchen_orders', 'work_orders', 'work_order_costs'
     ];
 BEGIN 

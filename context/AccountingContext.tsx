@@ -3852,7 +3852,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!session) return null;
         
         const { data: orders } = await supabase.from('orders')
-            .select('id, order_items(id, product_id, quantity, unit_price, notes, modifiers, products(name))')
+            .select('id, order_items(id, product_id, quantity, price, notes, modifiers, products(name))')
             .eq('session_id', session.id)
             .neq('status', 'COMPLETED')
             .neq('status', 'CANCELLED');
@@ -3869,7 +3869,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     productId: item.product_id, 
                     name: item.products?.name, 
                     quantity: item.quantity, 
-                    unitPrice: item.unit_price, 
+                    unitPrice: item.price, 
                     notes: item.notes, 
                     selectedModifiers: item.modifiers,
                     savedQuantity: item.quantity 
