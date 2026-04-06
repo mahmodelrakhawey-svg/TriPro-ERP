@@ -36,12 +36,11 @@ ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS max_users integer DEFA
 -- ============================================================
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS decimal_places integer DEFAULT 2;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS max_cash_deficit_limit numeric DEFAULT 500;
-ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS account_mappings jsonb DEFAULT '{}'::jsonb;
-ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS logo_url text;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS activity_type text;
 
--- ============================================================
--- 4. حماية الرؤية والإدارة للسوبر أدمن (Super Admin Access)
--- ============================================================
+-- ضمان القيد الفريد لجدول الإعدادات
+ALTER TABLE public.company_settings DROP CONSTRAINT IF EXISTS company_settings_organization_id_unique;
+ALTER TABLE public.company_settings ADD CONSTRAINT company_settings_organization_id_unique UNIQUE (organization_id);
 
 -- استثناء لجدول المنظمات
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
@@ -50,10 +49,17 @@ CREATE POLICY "Super admins view all organizations" ON public.organizations FOR 
 
 -- استثناء لجدول المستخدمين (رؤية وتحديث لإدارة المنصة)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Super admins view all profiles" ON public.profiles;
-CREATE POLICY "Super admins view all profiles" ON public.profiles FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
-DROP POLICY IF EXISTS "Super admins update own profiles" ON public.profiles;
-CREATE POLICY "Super admins update own profiles" ON public.profiles FOR UPDATE TO authenticated USING (public.get_my_role() = 'super_admin') WITH CHECK (public.get_my_role() = 'super_admin');
+-- حذف جميع السياسات القديمة لتجنب التعارض
+DO $$ 
+BEGIN
+    EXECUTE (SELECT string_agg('DROP POLICY IF EXISTS ' || quote_ident(policyname) || ' ON public.profiles;', ' ') FROM pg_policies WHERE tablename = 'profiles');
+END $$;
+
+-- السياسات الصحيحة والآمنة لجدول المستخدمين
+CREATE POLICY "profiles_select_v2" ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid() OR organization_id = public.get_my_org());
+CREATE POLICY "profiles_insert_v2" ON public.profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid());
+CREATE POLICY "profiles_update_v2" ON public.profiles FOR UPDATE TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
+CREATE POLICY "profiles_delete_v2" ON public.profiles FOR DELETE TO authenticated USING (public.get_my_role() IN ('admin', 'super_admin'));
 
 -- ============================================================
 -- 5. تحديثات الجداول المالية (Financial Linkage)
@@ -104,18 +110,19 @@ UPDATE public.company_settings SET currency = 'EGP', vat_rate = 0.14 WHERE curre
 DO $$ 
 DECLARE 
     t text;
-    tables text[] := ARRAY[
+    tables text[] := ARRAY[ -- تم استثناء 'profiles' من هنا
         'accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 
         'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 
-        'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'receipt_vouchers', 'payment_vouchers',
+        'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'receipt_vouchers', 'payment_vouchers', 'menu_categories',
         'cheques', 'credit_notes', 'debit_notes', 'stock_adjustments', 'stock_transfers', 'inventory_counts', 'work_orders',
         'assets', 'employees', 'payrolls', 'payroll_items', 'notifications'
     ];
     v_count_before int;
 BEGIN 
     FOREACH t IN ARRAY tables LOOP
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) AND t != 'accounts' THEN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) AND t NOT IN ('accounts', 'profiles') THEN
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
+            EXECUTE format('ALTER TABLE public.%I ALTER COLUMN organization_id SET DEFAULT public.get_my_org()', t);
             EXECUTE format('SELECT count(*) FROM public.%I WHERE organization_id IS NULL', t) INTO v_count_before;
             EXECUTE format('UPDATE public.%I SET organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1)) WHERE organization_id IS NULL', t);
             
@@ -144,6 +151,12 @@ BEGIN
                 ALTER TABLE public.accounts ADD COLUMN organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
                 UPDATE public.accounts SET organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1)) WHERE organization_id IS NULL;
             END IF;
+
+            -- التأكد من وجود القيد الفريد المركب المطلوب للدوال المحاسبية
+            ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_code_key;
+            ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_org_code_unique;
+            ALTER TABLE public.accounts ADD CONSTRAINT accounts_org_code_unique UNIQUE (organization_id, code);
+
             ALTER TABLE public.accounts ENABLE ROW LEVEL SECURITY;
             
             DROP POLICY IF EXISTS "Isolation_Policy_accounts" ON public.accounts;

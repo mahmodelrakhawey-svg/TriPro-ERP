@@ -39,15 +39,23 @@ CREATE TABLE public.organizations (
 
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE _role text;
 BEGIN
-    RETURN (SELECT role::text FROM public.profiles WHERE id = auth.uid());
-END; $$;
+    -- 1. Try JWT first (fastest, no DB hit)
+    _role := (auth.jwt() -> 'user_metadata' ->> 'role')::text;
+    -- 2. Fallback to auth.users (avoids recursion on public.profiles)
+    RETURN COALESCE(_role, (SELECT (raw_user_meta_data->>'role')::text FROM auth.users WHERE id = auth.uid()));
+END; $$ SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE _org_id uuid;
 BEGIN
-    RETURN (SELECT organization_id FROM public.profiles WHERE id = auth.uid());
-END; $$;
+    -- 1. Try JWT first
+    _org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
+    -- 2. Fallback to auth.users
+    RETURN COALESCE(_org_id, (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid()));
+END; $$ SET search_path = public;
 
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -110,8 +118,7 @@ DECLARE
     v_role text;
     v_invitation record;
 BEGIN
-    -- 1. محاولة جلب معرف الشركة والدور من بيانات المستخدم الإضافية (User Metadata)
-    -- هذه البيانات سنرسلها من خلال كود الـ Backend
+    -- 1. جلب البيانات من Metadata
     v_org_id := (new.raw_user_meta_data->>'org_id')::uuid;
     v_role := COALESCE(new.raw_user_meta_data->>'role', 'admin');
 
@@ -136,6 +143,13 @@ BEGIN
 
     INSERT INTO public.profiles (id, full_name, role, organization_id)
     VALUES (new.id, COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), v_role, v_org_id);
+
+    -- تأكيد تحديث Metadata في auth.users لضمان توفرها في الـ JWT فوراً
+    UPDATE auth.users 
+    SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || 
+        jsonb_build_object('org_id', v_org_id, 'role', v_role)
+    WHERE id = new.id;
+
     RETURN new;
 END;
 $$;
@@ -178,6 +192,7 @@ CREATE TABLE public.company_settings (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     company_name text,
     tax_number text,
+    activity_type text,
     phone text,
     address text,
     footer_text text,
@@ -191,7 +206,7 @@ CREATE TABLE public.company_settings (
     decimal_places integer DEFAULT 2,
     max_cash_deficit_limit numeric DEFAULT 500,
     account_mappings jsonb DEFAULT '{}'::jsonb,
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org() UNIQUE,
     updated_at timestamptz DEFAULT now()
 );
 
@@ -227,7 +242,7 @@ CREATE TABLE public.cost_centers (
 
 CREATE TABLE public.accounts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    code text NOT NULL UNIQUE,
+    code text NOT NULL,
     name text NOT NULL,
     type text NOT NULL,
     is_group boolean DEFAULT false NOT NULL,
@@ -238,7 +253,8 @@ CREATE TABLE public.accounts (
     deleted_at timestamptz,
     deletion_reason text,
     is_active boolean DEFAULT true,
-    created_at timestamptz DEFAULT now() NOT NULL
+    created_at timestamptz DEFAULT now() NOT NULL,
+    UNIQUE (organization_id, code)
 );
 
 CREATE TABLE public.journal_entries (
@@ -291,7 +307,7 @@ CREATE TABLE public.customers (
     customer_type text DEFAULT 'individual', -- individual, store, online
     balance numeric DEFAULT 0, -- حقل محسوب (اختياري للأداء)
     deleted_at timestamptz, -- Changed to timestamptz for consistency
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     deletion_reason text,
     created_at timestamptz DEFAULT now() NOT NULL,
     responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid()
@@ -306,7 +322,7 @@ CREATE TABLE public.suppliers (
     tax_id text,
     address text,
     contact_person text,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     balance numeric DEFAULT 0, -- Changed to numeric for consistency
     deleted_at timestamptz,
     deletion_reason text,
@@ -333,7 +349,7 @@ CREATE TABLE public.item_categories (
     default_inventory_account_id uuid REFERENCES public.accounts(id),
     default_cogs_account_id uuid REFERENCES public.accounts(id),
     default_sales_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
-    organization_id uuid REFERENCES public.organizations(id)
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
 CREATE TABLE public.products (
@@ -1845,8 +1861,8 @@ BEGIN
     ELSE v_vat_rate := 0.14;
     END IF;
 
-    -- إنشاء جدول مؤقت
-    CREATE TEMPORARY TABLE coa_template (
+    -- 1. استخدام جدول مؤقت لضمان حقن جميع الحسابات دفعة واحدة بترتيب هرمي وذكي
+    CREATE TEMPORARY TABLE coa_temp (
         code text PRIMARY KEY,
         name text NOT NULL,
         type text NOT NULL,
@@ -1854,71 +1870,162 @@ BEGIN
         parent_code text
     ) ON COMMIT DROP;
 
-    INSERT INTO coa_template (code, name, type, is_group, parent_code) VALUES
-    -- المستويات الرئيسية (بدون تكرار)
-    ('1', 'الأصول', 'ASSET', true, NULL),
-    ('2', 'الخصوم (الإلتزامات)', 'LIABILITY', true, NULL),
-    ('3', 'حقوق الملكية', 'EQUITY', true, NULL),
-    ('4', 'الإيرادات', 'REVENUE', true, NULL),
-    ('5', 'المصروفات', 'EXPENSE', true, NULL),
-    ('11', 'الأصول غير المتداولة', 'ASSET', true, '1'),
-    ('12', 'الأصول المتداولة', 'ASSET', true, '1'),
-    ('21', 'الخصوم غير المتداولة', 'LIABILITY', true, '2'),
-    ('22', 'الخصوم المتداولة', 'LIABILITY', true, '2'),
-    ('31', 'رأس المال والاحتياطيات', 'EQUITY', true, '3'),
-    ('311', 'رأس المال المدفوع', 'EQUITY', false, '31'),
-    ('32', 'الأرباح المبقاة / المرحلة', 'EQUITY', false, '3'),
-    ('33', 'جاري الشركاء', 'EQUITY', false, '3'),
-    ('41', 'إيرادات النشاط (المبيعات)', 'REVENUE', true, '4'),
-    ('42', 'إيرادات أخرى', 'REVENUE', true, '4'),
-    ('51', 'تكلفة المبيعات (COGS)', 'EXPENSE', true, '5'),
-    ('52', 'مصروفات البيع والتسويق', 'EXPENSE', true, '5'),
-    ('53', 'المصروفات الإدارية والعمومية', 'EXPENSE', true, '5'),
-    -- الحسابات الفرعية
-    ('111', 'الأصول الثابتة', 'ASSET', true, '11'),
-    ('1111', 'الأراضي', 'ASSET', false, '111'),
-    ('1112', 'المباني والإنشاءات', 'ASSET', false, '111'),
-    ('1119', 'مجمع إهلاك الأصول الثابتة', 'ASSET', false, '111'),
-    ('103', 'المخزون', 'ASSET', true, '12'),
-    ('10301', 'مخزون المواد الخام', 'ASSET', false, '103'),
-    ('10302', 'مخزون المنتج التام', 'ASSET', false, '103'),
-    ('122', 'العملاء والمدينون', 'ASSET', true, '12'),
-    ('1221', 'العملاء', 'ASSET', false, '122'),
-    ('1223', 'سلف الموظفين', 'ASSET', false, '122'),
-    ('123', 'النقدية وما في حكمها', 'ASSET', true, '12'),
-    ('1231', 'النقدية بالصندوق', 'ASSET', false, '123'),
-    ('123201', 'البنك الأهلي المصري', 'ASSET', false, '123'),
-    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'ASSET', false, '12'),
-    ('201', 'الموردين', 'LIABILITY', false, '22'),
-    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, '22'),
-    ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'EQUITY', false, '3'),
-    ('411', 'إيراد المبيعات', 'REVENUE', false, '41'),
-    ('422', 'إيراد خصومات وجزاءات الموظفين', 'REVENUE', false, '42'),
-    ('511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, '51'),
-    ('531', 'الرواتب والأجور', 'EXPENSE', false, '53'),
-    ('5312', 'مكافآت وحوافز', 'EXPENSE', false, '531');
+    INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+    -- المستوى 1: الحسابات الرئيسية
+    ('1', 'الأصول', 'asset', true, NULL),
+    ('2', 'الخصوم (الإلتزامات)', 'liability', true, NULL),
+    ('3', 'حقوق الملكية', 'equity', true, NULL),
+    ('4', 'الإيرادات', 'revenue', true, NULL),
+    ('5', 'المصروفات', 'expense', true, NULL),
+    -- المستوى 2: تصنيفات رئيسية
+    ('11', 'الأصول غير المتداولة', 'asset', true, '1'),
+    ('12', 'الأصول المتداولة', 'asset', true, '1'),
+    ('21', 'الخصوم غير المتداولة', 'liability', true, '2'),
+    ('22', 'الخصوم المتداولة', 'liability', true, '2'),
+    ('31', 'رأس المال والاحتياطيات', 'equity', true, '3'),
+    ('32', 'الأرباح المبقاة / المرحلة', 'equity', false, '3'),
+    ('33', 'جاري الشركاء', 'equity', false, '3'),
+    ('34', 'احتياطيات', 'equity', false, '3'),
+    ('41', 'إيرادات النشاط (المبيعات)', 'revenue', true, '4'),
+    ('42', 'إيرادات أخرى', 'revenue', true, '4'),
+    ('51', 'تكلفة المبيعات (COGS)', 'expense', true, '5'),
+    ('52', 'مصروفات البيع والتسويق', 'expense', true, '5'),
+    ('53', 'المصروفات الإدارية والعمومية', 'expense', true, '5'),
+    -- المستوى 3: حسابات تجميعية فرعية
+    ('111', 'الأصول الثابتة (بالصافي)', 'asset', true, '11'),
+    ('103', 'المخزون', 'asset', true, '12'),
+    ('122', 'العملاء والمدينون', 'asset', true, '12'),
+    ('123', 'النقدية وما في حكمها', 'asset', true, '12'),
+    ('1232', 'البنوك - حسابات جارية', 'asset', true, '123'),
+    ('1233', 'المحافظ الإلكترونية', 'asset', true, '123'),
+    ('124', 'أرصدة مدينة أخرى', 'asset', true, '12'),
+    ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '22'),
+    ('225', 'مصروفات مستحقة', 'liability', true, '22'),
+    ('525', 'عمولات تحصيل إلكتروني', 'expense', true, '52'),
+    -- المستوى 4 وما بعده: حسابات الحركة والتفاصيل
+    ('1111', 'الأراضي', 'asset', false, '111'),
+    ('1112', 'المباني والإنشاءات', 'asset', false, '111'),
+    ('1113', 'الآلات والمعدات', 'asset', false, '111'),
+    ('1114', 'وسائل النقل والانتقال', 'asset', false, '111'),
+    ('1115', 'الأثاث والتجهيزات المكتبية', 'asset', false, '111'),
+    ('1116', 'أجهزة حاسب آلي وبرمجيات', 'asset', false, '111'),
+    ('1119', 'مجمع إهلاك الأصول الثابتة', 'asset', false, '111'),
+    ('10301', 'مخزون المواد الخام', 'asset', false, '103'),
+    ('10302', 'مخزون المنتج التام', 'asset', false, '103'),
+    ('1221', 'العملاء', 'asset', false, '122'),
+    ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'asset', false, '122'),
+    ('1223', 'سلف الموظفين', 'asset', false, '122'),
+    ('1224', 'عهد موظفين', 'asset', false, '122'),
+    ('1231', 'النقدية بالصندوق (الرئيسية)', 'asset', false, '123'),
+    ('123201', 'البنك الأهلي المصري', 'asset', false, '1232'),
+    ('123202', 'بنك مصر', 'asset', false, '1232'),
+    ('123203', 'البنك التجاري الدولي (CIB)', 'asset', false, '1232'),
+    ('123204', 'بنك QNB الأهلي', 'asset', false, '1232'),
+    ('123205', 'بنك القاهرة', 'asset', false, '1232'),
+    ('123206', 'بنك فيصل الإسلامي', 'asset', false, '1232'),
+    ('123207', 'بنك الإسكندرية', 'asset', false, '1232'),
+    ('123301', 'فودافون كاش', 'asset', false, '1233'),
+    ('123302', 'اتصالات كاش (Etisalat Cash)', 'asset', false, '1233'),
+    ('123303', 'أورنج كاش (Orange Cash)', 'asset', false, '1233'),
+    ('123304', 'وي باي (WE Pay)', 'asset', false, '1233'),
+    ('123305', 'انستا باي (InstaPay)', 'asset', false, '1233'),
+    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'asset', false, '124'),
+    ('1242', 'ضريبة الخصم والتحصيل (لنا)', 'asset', false, '124'),
+    ('1243', 'مصروفات مدفوعة مقدماً', 'asset', true, '124'),
+    ('124301', 'إيجار مقدم', 'asset', false, '1243'),
+    ('124302', 'تأمين طبي مقدم', 'asset', false, '1243'),
+    ('124303', 'اشتراكات برامج وسيرفرات مقدمة', 'asset', false, '1243'),
+    ('124304', 'حملات إعلانية مقدمة', 'asset', false, '1243'),
+    ('124305', 'عقود صيانة مقدمة', 'asset', false, '1243'),
+    ('1244', 'إيرادات مستحقة', 'asset', true, '124'),
+    ('124401', 'إيرادات خدمات مستحقة (غير مفوترة)', 'asset', false, '1244'),
+    ('124402', 'فوائد بنكية مستحقة القبض', 'asset', false, '1244'),
+    ('124403', 'إيجارات دائنة مستحقة', 'asset', false, '1244'),
+    ('124404', 'إيرادات أوراق مالية مستحقة', 'asset', false, '1244'),
+    ('201', 'الموردين', 'liability', false, '22'),
+    ('222', 'أوراق الدفع (شيكات صادرة)', 'liability', false, '22'),
+    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'),
+    ('2232', 'ضريبة الخصم والتحصيل (علينا)', 'liability', false, '223'),
+    ('2233', 'ضريبة كسب العمل', 'liability', false, '223'),
+    ('224', 'هيئة التأمينات الاجتماعية', 'liability', false, '22'),
+    ('2251', 'رواتب وأجور مستحقة', 'liability', false, '225'),
+    ('2252', 'إيجارات مستحقة', 'liability', false, '225'),
+    ('2253', 'كهرباء ومياه وغاز مستحقة', 'liability', false, '225'),
+    ('2254', 'أتعاب مهنية ومراجعة مستحقة', 'liability', false, '225'),
+    ('2255', 'عمولات بيع مستحقة', 'liability', false, '225'),
+    ('2256', 'فوائد بنكية مستحقة', 'liability', false, '225'),
+    ('2257', 'اشتراكات وتراخيص مستحقة', 'liability', false, '225'),
+    ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', false, '22'),
+    ('311', 'رأس المال المدفوع', 'equity', false, '31'),
+    ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
+    ('411', 'إيراد مبيعات بضاعة', 'revenue', false, '41'),
+    ('412', 'مردودات ومسموحات مبيعات', 'revenue', false, '41'),
+    ('413', 'خصم مسموح به', 'revenue', false, '41'),
+    ('421', 'إيرادات متنوعة', 'revenue', false, '42'),
+    ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'),
+    ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
+    ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'),
+    ('512', 'تسويات الجرد (عجز المخزون)', 'expense', false, '51'),
+    ('521', 'دعاية وإعلان', 'expense', false, '52'),
+    ('522', 'عمولات بيع وتسويق', 'expense', false, '52'),
+    ('523', 'نقل ومشال للخارج', 'expense', false, '52'),
+    ('524', 'تعبئة وتغليف', 'expense', false, '52'),
+    ('5251', 'عمولة فودافون كاش', 'expense', false, '525'),
+    ('5252', 'عمولة فوري', 'expense', false, '525'),
+    ('5253', 'عمولة تحويلات بنكية', 'expense', false, '525'),
+    ('531', 'الرواتب والأجور', 'expense', false, '53'),
+    ('5312', 'مكافآت وحوافز', 'expense', false, '53'),
+    ('5311', 'بدلات وانتقالات', 'expense', false, '53'),
+    ('532', 'إيجار مقرات إدارية', 'expense', false, '53'),
+    ('533', 'مصروف إهلاك الأصول الثابتة', 'expense', false, '53'),
+    ('534', 'مصروفات بنكية', 'expense', false, '53'),
+    ('535', 'كهرباء ومياه وغاز', 'expense', false, '53'),
+    ('536', 'اتصالات وإنترنت', 'expense', false, '53'),
+    ('537', 'صيانة وإصلاح', 'expense', false, '53'),
+    ('538', 'أدوات مكتبية ومطبوعات', 'expense', false, '53'),
+    ('539', 'ضيافة واستقبال', 'expense', false, '53'),
+    ('541', 'تسوية عجز الصندوق', 'expense', false, '53'),
+    ('542', 'إكراميات', 'expense', false, '53'),
+    ('543', 'مصاريف نظافة', 'expense', false, '53');
 
-    -- ربط المستخدم الحالي بالمنظمة
-    v_admin_id := auth.uid();
-    IF v_admin_id IS NOT NULL THEN
-        UPDATE public.profiles SET role = 'super_admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
-        SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
-        INSERT INTO public.company_settings (organization_id, company_name, activity_type, vat_rate)
-        VALUES (p_org_id, v_org_name, p_activity_type, v_vat_rate)
-        ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate;
+    -- 2. تخصيص حسابات بناءً على النشاط
+    IF p_activity_type = 'restaurant' THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
+        ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41'),
+        ('512', 'تكلفة الهالك والضيافة', 'expense', false, '51');
     END IF;
 
-    -- إدراج الحسابات
-    FOR v_rec IN SELECT * FROM coa_template ORDER BY length(code), code ASC LOOP
-        v_parent_id := (SELECT id FROM public.accounts WHERE code = v_rec.parent_code AND organization_id = p_org_id LIMIT 1);
-        IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE code = v_rec.code AND organization_id = p_org_id) THEN
-            INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id, is_active)
-            VALUES (v_rec.code, v_rec.name, LOWER(v_rec.type), v_rec.is_group, v_parent_id, p_org_id, true);
-            v_count := v_count + 1;
-        END IF;
-    END LOOP;
+    -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
+    SELECT p_org_id, code, name, type, is_group, true
+    FROM coa_temp
+    ORDER BY length(code), code
+    ON CONFLICT (organization_id, code) DO NOTHING;
 
-    RETURN 'تم تأسيس الدليل بنجاح. الحسابات المضافة: ' || v_count;
+    -- 4. تحديث روابط Parent_ID بشكل جماعي وذكي
+    UPDATE public.accounts a
+    SET parent_id = p.id
+    FROM coa_temp t
+    JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
+    WHERE a.organization_id = p_org_id 
+      AND a.code = t.code 
+      AND a.parent_id IS NULL;
+
+    -- 6. تحديث إعدادات الشركة
+    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name)
+    VALUES (p_org_id, p_activity_type, v_vat_rate, (SELECT name FROM public.organizations WHERE id = p_org_id))
+    ON CONFLICT (organization_id) 
+    DO UPDATE SET 
+        activity_type = EXCLUDED.activity_type,
+        vat_rate = EXCLUDED.vat_rate;
+
+    RETURN '✅ تم تأسيس دليل الحسابات المصري الشامل بنجاح لـ (' || p_activity_type || ')، تم إضافة حسابات أوراق القبض والمحافظ والمصروفات.';
+
+EXCEPTION WHEN OTHERS THEN
+    INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id, user_id)
+    VALUES (SQLERRM, SQLSTATE, jsonb_build_object('org_id', p_org_id, 'activity_type', p_activity_type), 'initialize_egyptian_coa', p_org_id, auth.uid());
+    RAISE EXCEPTION 'فشل تأسيس دليل الحسابات: % (كود: %)', SQLERRM, SQLSTATE;
 END; $$;
 
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
@@ -2165,13 +2272,11 @@ END $$;
 
 -- سياسات الوصول (Policies)
 -- 1. Profiles
-DROP POLICY IF EXISTS "Profiles isolated by org" ON profiles;
-CREATE POLICY "Allow users to read own profile" ON profiles FOR SELECT TO authenticated USING (auth.uid() = id);
-CREATE POLICY "Allow admins to read org profiles" ON profiles FOR SELECT TO authenticated USING (organization_id = (SELECT p.organization_id FROM profiles p WHERE p.id = auth.uid()));
-CREATE POLICY "Super admins view all profiles" ON profiles FOR SELECT TO authenticated USING (role = 'super_admin');
-CREATE POLICY "Users update own profile" ON profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
-CREATE POLICY "Admins manage profiles" ON profiles FOR ALL TO authenticated USING (role IN ('admin', 'super_admin'));
-CREATE POLICY "Users insert own profile" ON profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "profiles_select_safe" ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid() OR organization_id = public.get_my_org());
+CREATE POLICY "profiles_insert_safe" ON public.profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid());
+CREATE POLICY "profiles_update_safe" ON public.profiles FOR UPDATE TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
+CREATE POLICY "profiles_delete_safe" ON public.profiles FOR DELETE TO authenticated USING (public.get_my_role() IN ('admin', 'super_admin'));
 
 -- 2. Organizations
 CREATE POLICY "Users view own org" ON organizations FOR SELECT USING (id = get_my_org());

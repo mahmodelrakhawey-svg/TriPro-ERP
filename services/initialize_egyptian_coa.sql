@@ -1,5 +1,7 @@
 -- دالة تأسيس دليل الحسابات المصري الشامل لشركة جديدة
--- الاستدعاء: SELECT public.initialize_egyptian_coa('uuid-here', 'restaurant');
+-- 🇪🇬 دالة تأسيس دليل الحسابات المصري الشامل (النسخة الذهبية المتكاملة)
+-- تاريخ التحديث: 2024-05-20
+-- تشمل: أوراق القبض، المحافظ الإلكترونية، تفاصيل البنوك المصرية، وكافة المصروفات.
 
 -- 1. حذف النسخ القديمة لضمان تحديث توقيع الدالة (Signature)
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(UUID);
@@ -10,9 +12,7 @@ RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER -- تشغيل الصلاحيات كأدمن لضمان نجاح التأسيس
 AS $$
-DECLARE
-    v_row_count int;
-    v_vat_rate numeric;
+DECLARE v_vat_rate numeric;
 BEGIN
     -- تحديد نسبة الضريبة الافتراضية بناءً على نوع النشاط (المعايير المصرية)
     IF p_activity_type = 'construction' THEN
@@ -23,98 +23,178 @@ BEGIN
         v_vat_rate := 0.14; -- النسبة العامة القياسية 14% (تجاري، مطاعم، إلخ)
     END IF;
 
-    -- 1. إدراج المستوى الأول (الحسابات الرئيسية)
+       -- 1. استخدام جدول مؤقت لضمان حقن جميع الحسابات دفعة واحدة بترتيب هرمي وذكي
+
+    CREATE TEMPORARY TABLE coa_temp (
+        code text PRIMARY KEY,
+        name text NOT NULL,
+        type text NOT NULL,
+        is_group boolean NOT NULL,
+        parent_code text
+    ) ON COMMIT DROP;
+
+    INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        -- ============================================================
+    -- المستوى 1: الحسابات الرئيسية (الأصول، الخصوم، إلخ)
+    -- ============================================================
+    ('1', 'الأصول', 'asset', true, NULL),
+    ('2', 'الخصوم (الإلتزامات)', 'liability', true, NULL),
+    ('3', 'حقوق الملكية', 'equity', true, NULL),
+    ('4', 'الإيرادات', 'revenue', true, NULL),
+    ('5', 'المصروفات', 'expense', true, NULL),
+        -- ============================================================
+    -- المستوى 2: تصنيفات رئيسية (متداولة، غير متداولة، إلخ)
+    -- ============================================================
+    ('11', 'الأصول غير المتداولة', 'asset', true, '1'),
+    ('12', 'الأصول المتداولة', 'asset', true, '1'),
+    ('21', 'الخصوم غير المتداولة', 'liability', true, '2'),
+    ('22', 'الخصوم المتداولة', 'liability', true, '2'),
+    ('31', 'رأس المال والاحتياطيات', 'equity', true, '3'),
+        ('32', 'الأرباح المبقاة / المرحلة', 'equity', false, '3'), -- تم نقلها هنا
+    ('33', 'جاري الشركاء', 'equity', false, '3'), -- تم نقلها هنا
+    ('34', 'احتياطيات', 'equity', false, '3'), -- تم نقلها هنا
+    ('41', 'إيرادات النشاط (المبيعات)', 'revenue', true, '4'),
+    ('42', 'إيرادات أخرى', 'revenue', true, '4'),
+    ('51', 'تكلفة المبيعات (COGS)', 'expense', true, '5'),
+    ('52', 'مصروفات البيع والتسويق', 'expense', true, '5'),
+    ('53', 'المصروفات الإدارية والعمومية', 'expense', true, '5'),
+       -- ============================================================
+    -- المستوى 3: حسابات تجميعية فرعية
+    -- ============================================================
+    ('111', 'الأصول الثابتة (بالصافي)', 'asset', true, '11'),
+    ('103', 'المخزون', 'asset', true, '12'), -- استخدام 103 للمخزون
+    ('122', 'العملاء والمدينون', 'asset', true, '12'),
+    ('123', 'النقدية وما في حكمها', 'asset', true, '12'),
+    ('1232', 'البنوك - حسابات جارية', 'asset', true, '123'),
+    ('1233', 'المحافظ الإلكترونية', 'asset', true, '123'),
+    ('124', 'أرصدة مدينة أخرى', 'asset', true, '12'),
+    ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '22'),
+    ('225', 'مصروفات مستحقة', 'liability', true, '22'),
+    ('525', 'عمولات تحصيل إلكتروني', 'expense', true, '52'),
+
+    -- ============================================================
+    -- المستوى 4 وما بعده: حسابات الحركة والتفاصيل
+    -- ============================================================
+    -- الأصول الثابتة
+    ('1111', 'الأراضي', 'asset', false, '111'),
+    ('1112', 'المباني والإنشاءات', 'asset', false, '111'),
+    ('1113', 'الآلات والمعدات', 'asset', false, '111'),
+        ('1114', 'وسائل النقل والانتقال', 'asset', false, '111'),
+    ('1115', 'الأثاث والتجهيزات المكتبية', 'asset', false, '111'),
+    ('1116', 'أجهزة حاسب آلي وبرمجيات', 'asset', false, '111'),
+    ('1119', 'مجمع إهلاك الأصول الثابتة', 'asset', false, '111'),
+        -- المخزون
+
+    ('10301', 'مخزون المواد الخام', 'asset', false, '103'),
+    ('10302', 'مخزون المنتج التام', 'asset', false, '103'),
+        -- العملاء والمدينون
+
+    ('1221', 'العملاء', 'asset', false, '122'),
+    ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'asset', false, '122'),
+    ('1223', 'سلف الموظفين', 'asset', false, '122'),
+        ('1224', 'عهد موظفين', 'asset', false, '122'),
+    -- النقدية والبنوك والمحافظ
+    ('1231', 'النقدية بالصندوق (الرئيسية)', 'asset', false, '123'),
+    ('123201', 'البنك الأهلي المصري', 'asset', false, '1232'),
+    ('123202', 'بنك مصر', 'asset', false, '1232'),
+    ('123203', 'البنك التجاري الدولي (CIB)', 'asset', false, '1232'),
+        ('123204', 'بنك QNB الأهلي', 'asset', false, '1232'),
+    ('123205', 'بنك القاهرة', 'asset', false, '1232'),
+    ('123206', 'بنك فيصل الإسلامي', 'asset', false, '1232'),
+    ('123207', 'بنك الإسكندرية', 'asset', false, '1232'),
+    ('123301', 'فودافون كاش', 'asset', false, '1233'),
+    ('123302', 'اتصالات كاش (Etisalat Cash)', 'asset', false, '1233'),
+    ('123303', 'أورنج كاش (Orange Cash)', 'asset', false, '1233'),
+    ('123304', 'وي باي (WE Pay)', 'asset', false, '1233'),
+    ('123305', 'انستا باي (InstaPay)', 'asset', false, '1233'),
+    -- أرصدة مدينة أخرى
+    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'asset', false, '124'),
+    ('1242', 'ضريبة الخصم والتحصيل (لنا)', 'asset', false, '124'),
+    ('1243', 'مصروفات مدفوعة مقدماً', 'asset', true, '124'),
+    ('124301', 'إيجار مقدم', 'asset', false, '1243'),
+    ('124302', 'تأمين طبي مقدم', 'asset', false, '1243'),
+    ('124303', 'اشتراكات برامج وسيرفرات مقدمة', 'asset', false, '1243'),
+    ('124304', 'حملات إعلانية مقدمة', 'asset', false, '1243'),
+    ('124305', 'عقود صيانة مقدمة', 'asset', false, '1243'),
+    ('1244', 'إيرادات مستحقة', 'asset', true, '124'),
+    ('124401', 'إيرادات خدمات مستحقة (غير مفوترة)', 'asset', false, '1244'),
+    ('124402', 'فوائد بنكية مستحقة القبض', 'asset', false, '1244'),
+    ('124403', 'إيجارات دائنة مستحقة', 'asset', false, '1244'),
+    ('124404', 'إيرادات أوراق مالية مستحقة', 'asset', false, '1244'),
+    -- الخصوم
+    ('201', 'الموردين', 'liability', false, '22'),
+    ('222', 'أوراق الدفع (شيكات صادرة)', 'liability', false, '22'),
+    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'),
+    ('2232', 'ضريبة الخصم والتحصيل (علينا)', 'liability', false, '223'),
+    ('2233', 'ضريبة كسب العمل', 'liability', false, '223'),
+    ('224', 'هيئة التأمينات الاجتماعية', 'liability', false, '22'),
+    ('2251', 'رواتب وأجور مستحقة', 'liability', false, '225'),
+    ('2252', 'إيجارات مستحقة', 'liability', false, '225'),
+    ('2253', 'كهرباء ومياه وغاز مستحقة', 'liability', false, '225'),
+    ('2254', 'أتعاب مهنية ومراجعة مستحقة', 'liability', false, '225'),
+    ('2255', 'عمولات بيع مستحقة', 'liability', false, '225'),
+    ('2256', 'فوائد بنكية مستحقة', 'liability', false, '225'),
+    ('2257', 'اشتراكات وتراخيص مستحقة', 'liability', false, '225'),
+    ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', false, '22'),
+    -- حقوق الملكية
+    ('311', 'رأس المال المدفوع', 'equity', false, '31'), -- تحت رأس المال والاحتياطيات
+    ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
+    -- الإيرادات
+
+    ('411', 'إيراد مبيعات بضاعة', 'revenue', false, '41'),
+    ('412', 'مردودات ومسموحات مبيعات', 'revenue', false, '41'),
+    ('413', 'خصم مسموح به', 'revenue', false, '41'),
+    ('421', 'إيرادات متنوعة', 'revenue', false, '42'),
+    ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'),
+    ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
+    -- المصروفات
+    ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'),
+    ('512', 'تسويات الجرد (عجز المخزون)', 'expense', false, '51'),
+    ('521', 'دعاية وإعلان', 'expense', false, '52'),
+    ('522', 'عمولات بيع وتسويق', 'expense', false, '52'),
+    ('523', 'نقل ومشال للخارج', 'expense', false, '52'),
+    ('524', 'تعبئة وتغليف', 'expense', false, '52'),
+    ('5251', 'عمولة فودافون كاش', 'expense', false, '525'),
+    ('5252', 'عمولة فوري', 'expense', false, '525'),
+    ('5253', 'عمولة تحويلات بنكية', 'expense', false, '525'),
+    ('531', 'الرواتب والأجور', 'expense', false, '53'),
+    ('5312', 'مكافآت وحوافز', 'expense', false, '53'),
+    ('5311', 'بدلات وانتقالات', 'expense', false, '53'),
+    ('532', 'إيجار مقرات إدارية', 'expense', false, '53'),
+    ('533', 'مصروف إهلاك الأصول الثابتة', 'expense', false, '53'),
+    ('534', 'مصروفات بنكية', 'expense', false, '53'),
+    ('535', 'كهرباء ومياه وغاز', 'expense', false, '53'),
+    ('536', 'اتصالات وإنترنت', 'expense', false, '53'),
+    ('537', 'صيانة وإصلاح', 'expense', false, '53'),
+    ('538', 'أدوات مكتبية ومطبوعات', 'expense', false, '53'),
+    ('539', 'ضيافة واستقبال', 'expense', false, '53'),
+    ('541', 'تسوية عجز الصندوق', 'expense', false, '53'),
+    ('542', 'إكراميات', 'expense', false, '53'),
+    ('543', 'مصاريف نظافة', 'expense', false, '53');
+    -- 2. تخصيص حسابات بناءً على النشاط
+    IF p_activity_type = 'restaurant' THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
+        ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41'),
+        ('512', 'تكلفة الهالك والضيافة', 'expense', false, '51');
+    END IF;
+
+    -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
+    -- يتم الإدراج بترتيب يضمن وجود الآباء قبل الأبناء (بناءً على طول الكود)
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
-    VALUES
-        (p_org_id, '1', 'الأصول', 'asset', true, true),
-        (p_org_id, '2', 'الخصوم', 'liability', true, true),
-        (p_org_id, '3', 'حقوق الملكية', 'equity', true, true),
-        (p_org_id, '4', 'الإيرادات', 'revenue', true, true),
-        (p_org_id, '5', 'المصروفات', 'expense', true, true)
+    SELECT p_org_id, code, name, type, is_group, true
+    FROM coa_temp
+    ORDER BY length(code), code -- هذا الترتيب يضمن إدراج الآباء قبل الأبناء
     ON CONFLICT (organization_id, code) DO NOTHING;
 
-    -- 2. إدراج المستوى الثاني (الأصول المتداولة، الخصوم المتداولة، إلخ)
-    -- نستخدم الاستعلام الفرعي لجلب id الأب الصحيح داخل نفس الشركة
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-    VALUES
-        (p_org_id, '11', 'الأصول غير المتداولة', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1'), true),
-        (p_org_id, '12', 'الأصول المتداولة', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1'), true),
-        (p_org_id, '21', 'الخصوم غير المتداولة', 'liability', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2'), true),
-        (p_org_id, '22', 'الخصوم المتداولة', 'liability', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2'), true),
-        (p_org_id, '31', 'رأس المال والاحتياطيات', 'equity', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '3'), true),
-        (p_org_id, '41', 'إيرادات النشاط', 'revenue', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '4'), true),
-        (p_org_id, '51', 'تكاليف النشاط', 'expense', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5'), true),
-        (p_org_id, '52', 'مصروفات إدارية وعمومية', 'expense', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5'), true)
-    ON CONFLICT (organization_id, code) DO NOTHING;
-
-    -- 3. إدراج المستوى الثالث (الحسابات الرئيسية الوسيطة)
-    -- حسابات مشتركة لجميع الأنشطة
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-    VALUES
-        (p_org_id, '31', 'رأس المال والاحتياطيات', 'equity', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '3'), true),
-        (p_org_id, '312', 'الأرباح المبقاة (المرحلة)', 'equity', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '31'), true),
-        (p_org_id, '313', 'جاري الشركاء', 'equity', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '31'), true),
-        (p_org_id, '3999', 'الأرصدة الافتتاحية', 'equity', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '3'), true),
-        (p_org_id, '122', 'العملاء والمدينون', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '12'), true),
-        (p_org_id, '123', 'النقدية وما في حكمها', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '12'), true),
-        (p_org_id, '201', 'الموردين', 'liability', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '22'), true)
-    ON CONFLICT (organization_id, code) DO NOTHING;
-
-    -- 4. إدراج حسابات متخصصة بناءً على نوع النشاط
-    IF p_activity_type = 'restaurant' THEN
-        -- قالب المطاعم
-        INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-        VALUES
-            (p_org_id, '121', 'مخزون الأغذية والمشروبات', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '12'), true),
-            (p_org_id, '411', 'إيرادات المبيعات (صالة/تيك أوي)', 'revenue', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '4'), true),
-            (p_org_id, '412', 'إيرادات التوصيل (Delivery)', 'revenue', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '4'), true),
-            (p_org_id, '511', 'تكلفة المواد الخام المستهلكة', 'expense', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5'), true),
-            (p_org_id, '512', 'تكلفة الهالك والضيافة', 'expense', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5'), true)
-        ON CONFLICT (organization_id, code) DO NOTHING;
-    -- يمكنك إضافة باقي القطاعات هنا بنفس الطريقة
-    ELSIF p_activity_type = 'construction' THEN
-        -- قالب المقاولات
-        INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-        VALUES
-            (p_org_id, '121', 'مخزون تشوينات المواقع', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '12'), true),
-            (p_org_id, '125', 'مشروعات تحت التنفيذ', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '12'), true),
-            (p_org_id, '411', 'إيرادات المستخلصات المعتمدة', 'revenue', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '4'), true),
-            (p_org_id, '511', 'تكلفة خامات ومواد مباشرة', 'expense', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5'), true),
-            (p_org_id, '512', 'مصروفات مقاولي الباطن', 'expense', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5'), true)
-        ON CONFLICT (organization_id, code) DO NOTHING;
-
-    ELSE
-        -- القالب التجاري العام (Default)
-        INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-        VALUES
-            (p_org_id, '121', 'المخزون السلعي', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '12'), true),
-            (p_org_id, '411', 'إيراد مبيعات بضاعة', 'revenue', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '4'), true),
-            (p_org_id, '511', 'تكلفة البضاعة المباعة', 'expense', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5'), true)
-        ON CONFLICT (organization_id, code) DO NOTHING;
-    END IF;
-
-    -- 5. إدراج حسابات الأنظمة الأساسية (المستويات الفرعية الأخيرة)
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-    VALUES
-        (p_org_id, '1231', 'النقدية بالصندوق', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123'), true),
-        (p_org_id, '123201', 'البنك الأهلي المصري', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123'), true),
-        (p_org_id, '2231', 'ضريبة القيمة المضافة - مخرجات', 'liability', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '22'), true)
-    ON CONFLICT (organization_id, code) DO NOTHING;
-
-    -- إدراج تفاصيل المخزون بناءً على النشاط
-    IF p_activity_type = 'restaurant' THEN
-        INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-        VALUES
-            (p_org_id, '10301', 'مخزون الخامات (خضروات/لحوم)', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '121'), true),
-            (p_org_id, '10302', 'مخزون المشروبات والسلع الجاهزة', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '121'), true)
-        ON CONFLICT (organization_id, code) DO NOTHING;
-    ELSE
-        INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
-        VALUES
-            (p_org_id, '10301', 'مخزون المواد الخام', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '121'), true),
-            (p_org_id, '10302', 'مخزون المنتج التام', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '121'), true)
-        ON CONFLICT (organization_id, code) DO NOTHING;
-    END IF;
+    -- 4. تحديث روابط Parent_ID بشكل جماعي وذكي (بعد إدراج جميع الحسابات)
+    UPDATE public.accounts a
+    SET parent_id = p.id
+    FROM coa_temp t
+    JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
+    WHERE a.organization_id = p_org_id 
+      AND a.code = t.code 
+      AND a.parent_id IS NULL;
 
     -- 6. تحديث إعدادات الشركة بنوع النشاط المختار لضمان حفظه تلقائياً واسترجاعه لاحقاً
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name)
@@ -124,8 +204,7 @@ BEGIN
         activity_type = EXCLUDED.activity_type,
         vat_rate = EXCLUDED.vat_rate;
 
-    GET DIAGNOSTICS v_row_count = ROW_COUNT;
-    RETURN 'تم تأسيس دليل الحسابات لقالب (' || p_activity_type || ') بنجاح وضبط الضريبة الافتراضية بنسبة ' || (v_vat_rate * 100) || '%. السجلات المتأثرة: ' || v_row_count;
+    RETURN '✅ تم تأسيس دليل الحسابات المصري الشامل بنجاح لـ (' || p_activity_type || ')، تم إضافة حسابات أوراق القبض والمحافظ والمصروفات.';
 
 EXCEPTION WHEN OTHERS THEN
     -- تسجيل الخطأ في جدول سجلات الأخطاء (System Error Logs)
