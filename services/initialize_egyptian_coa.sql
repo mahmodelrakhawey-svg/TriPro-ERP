@@ -51,7 +51,7 @@ BEGIN
     -- حسابات مشتركة لجميع الأنشطة
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
     VALUES
-        (p_org_id, '311', 'رأس المال المدفوع', 'equity', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '31'), true),
+        (p_org_id, '31', 'رأس المال والاحتياطيات', 'equity', true, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '3'), true),
         (p_org_id, '312', 'الأرباح المبقاة (المرحلة)', 'equity', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '31'), true),
         (p_org_id, '313', 'جاري الشركاء', 'equity', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '31'), true),
         (p_org_id, '3999', 'الأرصدة الافتتاحية', 'equity', false, (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '3'), true),

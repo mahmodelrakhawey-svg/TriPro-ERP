@@ -626,8 +626,8 @@ CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_product_id UUID; v_inv_id UUID; v_ob_acc UUID; v_je_id UUID;
 BEGIN
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
-    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_org_id, p_item_type, p_inv_acc, p_cogs_acc, p_sales_acc)
+    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, product_type, inventory_account_id, cogs_account_id, sales_account_id)
+    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, COALESCE(p_org_id, public.get_my_org()), p_item_type, p_item_type, p_inv_acc, p_cogs_acc, p_sales_acc)
     RETURNING id INTO v_product_id;
 
     IF p_stock > 0 AND p_purchase_price > 0 THEN
@@ -677,14 +677,14 @@ END; $$;
 DROP FUNCTION IF EXISTS public.get_over_limit_customers() CASCADE;
 DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid) CASCADE;
 
-CREATE OR REPLACE FUNCTION public.get_over_limit_customers(org_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.get_over_limit_customers(p_org_id uuid DEFAULT NULL)
 RETURNS TABLE (id UUID, name TEXT, phone TEXT, total_debt NUMERIC, credit_limit NUMERIC) 
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     RETURN QUERY 
     SELECT c.id, c.name, c.phone, COALESCE(c.balance, 0), COALESCE(c.credit_limit, 0)
     FROM public.customers c 
-    WHERE c.organization_id = COALESCE(org_id, public.get_my_org())
+    WHERE c.organization_id = COALESCE(p_org_id, public.get_my_org())
       AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0)
       AND COALESCE(c.credit_limit, 0) > 0;
 END; $$;
@@ -706,6 +706,25 @@ BEGIN
         GROUP BY 1 ORDER BY 1
     ) sub;
     RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
+END; $$;
+
+-- هـ. دالة التحقق من حالة الاشتراك (حل خطأ 404)
+DROP FUNCTION IF EXISTS public.check_subscription_status() CASCADE;
+CREATE OR REPLACE FUNCTION public.check_subscription_status()
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid;
+    v_org record;
+BEGIN
+    v_org_id := public.get_my_org();
+    SELECT is_active, subscription_expiry INTO v_org 
+    FROM public.organizations WHERE id = v_org_id;
+    
+    RETURN jsonb_build_object(
+        'is_active', COALESCE(v_org.is_active, false),
+        'subscription_expiry', v_org.subscription_expiry,
+        'is_expired', CASE WHEN v_org.subscription_expiry IS NOT NULL AND v_org.subscription_expiry < CURRENT_DATE THEN true ELSE false END
+    );
 END; $$;
 
 -- ================================================================
@@ -1177,15 +1196,24 @@ $$ LANGUAGE sql SECURITY DEFINER;
 
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid, text) CASCADE;
-CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid)
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_activity_type text DEFAULT 'commercial')
+RETURNS text 
+LANGUAGE plpgsql 
+SECURITY DEFINER AS $$
 DECLARE
     v_count int := 0;
+    v_vat_rate numeric;
     v_parent_id uuid;
     v_admin_id uuid;
     v_org_name text;
     v_rec record;
 BEGIN
+    -- تحديد نسبة الضريبة الافتراضية بناءً على نوع النشاط
+    IF p_activity_type = 'construction' THEN v_vat_rate := 0.05;
+    ELSIF p_activity_type = 'charity' THEN v_vat_rate := 0.00;
+    ELSE v_vat_rate := 0.14;
+    END IF;
+
     -- إنشاء جدول مؤقت لهيكل الدليل (4 مستويات)
     CREATE TEMPORARY TABLE coa_template (
         code text PRIMARY KEY,
@@ -1208,7 +1236,8 @@ BEGIN
     ('12', 'الأصول المتداولة', 'ASSET', true, '1'),
     ('21', 'الخصوم غير المتداولة', 'LIABILITY', true, '2'),
     ('22', 'الخصوم المتداولة', 'LIABILITY', true, '2'),
-    ('31', 'رأس المال', 'EQUITY', false, '3'), -- Changed to false as per egyptian_coa_full.sql
+    ('31', 'رأس المال', 'EQUITY', true, '3'),
+    ('311', 'رأس المال المدفوع', 'EQUITY', false, '31'),
     ('32', 'الأرباح المبقاة / المرحلة', 'EQUITY', false, '3'),
     ('33', 'جاري الشركاء', 'EQUITY', false, '3'),
     ('34', 'احتياطيات', 'EQUITY', false, '3'),
@@ -1218,7 +1247,7 @@ BEGIN
     ('52', 'مصروفات البيع والتسويق', 'EXPENSE', true, '5'),
     ('53', 'المصروفات الإدارية والعمومية', 'EXPENSE', true, '5'),
 
-    -- المستوى الثالث والرابع (حسابات النظام SYSTEM_ACCOUNTS)
+    -- المستوى الثالث والرابع
     -- الأصول
     ('111', 'الأصول الثابتة (بالصافي)', 'ASSET', true, '11'),
     ('1111', 'الأراضي', 'ASSET', false, '111'),
@@ -1293,7 +1322,6 @@ BEGIN
     ('411', 'إيراد المبيعات', 'REVENUE', false, '41'),
     ('412', 'مردودات المبيعات', 'REVENUE', false, '41'),
     ('413', 'خصم مسموح به', 'REVENUE', false, '41'),
-    ('42', 'إيرادات أخرى', 'REVENUE', true, '4'),
     ('421', 'إيرادات متنوعة', 'REVENUE', false, '42'),
     ('422', 'إيراد خصومات وجزاءات الموظفين', 'REVENUE', false, '42'),
     ('423', 'فوائد بنكية دائنة', 'REVENUE', false, '42'),
@@ -1310,8 +1338,8 @@ BEGIN
     ('5252', 'عمولة فوري', 'EXPENSE', false, '525'),
     ('5253', 'عمولة تحويلات بنكية', 'EXPENSE', false, '525'),
     ('531', 'الرواتب والأجور', 'EXPENSE', false, '53'),
-    ('5311', 'بدلات وانتقالات', 'EXPENSE', false, '53'),
-    ('5312', 'مكافآت وحوافز', 'EXPENSE', false, '53'),
+    ('5311', 'بدلات وانتقالات', 'EXPENSE', false, '531'),
+    ('5312', 'مكافآت وحوافز', 'EXPENSE', false, '531'),
     ('532', 'إيجار مقرات إدارية', 'EXPENSE', false, '53'),
     ('533', 'إهلاك الأصول الثابتة', 'EXPENSE', false, '53'),
     ('534', 'رسوم ومصروفات بنكية', 'EXPENSE', false, '53'),
@@ -1335,13 +1363,18 @@ BEGIN
         
         -- 🔒 صمام أمان: التأكد من وجود سجل إعدادات الشركة
         SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
-        INSERT INTO public.company_settings (organization_id, company_name)
-        VALUES (p_org_id, v_org_name)
-        ON CONFLICT (organization_id) DO UPDATE SET company_name = EXCLUDED.company_name;
+        INSERT INTO public.company_settings (organization_id, company_name, activity_type, vat_rate)
+        VALUES (p_org_id, v_org_name, p_activity_type, v_vat_rate)
+        ON CONFLICT (organization_id) 
+        DO UPDATE SET 
+            company_name = EXCLUDED.company_name,
+            activity_type = EXCLUDED.activity_type,
+            vat_rate = EXCLUDED.vat_rate;
     END IF;
 
     -- 🛠️ 2. تنفيذ الإدراج مع ربط الآباء بدقة
-    FOR v_rec IN SELECT * FROM coa_template ORDER BY code ASC LOOP
+    -- الترتيب حسب طول الكود يضمن إنشاء الأب (مثلاً 12) قبل الابن (مثلاً 103)
+    FOR v_rec IN SELECT * FROM coa_template ORDER BY length(code), code ASC LOOP
         v_parent_id := NULL;
         IF v_rec.parent_code IS NOT NULL THEN
             -- البحث عن الأب في قاعدة البيانات الحقيقية

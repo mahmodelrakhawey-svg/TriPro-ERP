@@ -70,6 +70,7 @@ ALTER TABLE public.purchase_returns ADD COLUMN IF NOT EXISTS original_invoice_id
 -- تحديثات العملاء والمخزون
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid();
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric DEFAULT 0;
 ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS vat_rate numeric DEFAULT 0.14;
 

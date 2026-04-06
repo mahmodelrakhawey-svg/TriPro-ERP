@@ -1175,8 +1175,8 @@ CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(p_name text, 
 RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE v_product_id UUID; v_inventory_acc UUID; v_opening_acc UUID; v_journal_id UUID;
 BEGIN
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
-    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_org_id, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id)
+    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, product_type, inventory_account_id, cogs_account_id, sales_account_id)
+    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, COALESCE(p_org_id, public.get_my_org()), p_item_type, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id)
     RETURNING id INTO v_product_id;
 
     IF p_stock > 0 AND p_purchase_price > 0 THEN

@@ -10,6 +10,7 @@ DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO public;
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
 
 -- ================================================================
 -- 1. الجداول الأساسية (Core Tables)
@@ -346,8 +347,10 @@ CREATE TABLE public.products (
     manufacturing_cost numeric DEFAULT 0, -- عمود جديد
     weighted_average_cost numeric DEFAULT 0,
     stock numeric DEFAULT 0,
+    unit text, -- وحدة القياس (قطعة، كيلو، إلخ)
     min_stock_level numeric DEFAULT 0,
-    item_type text DEFAULT 'STOCK', -- STOCK, SERVICE
+    item_type text DEFAULT 'STOCK',
+    product_type text DEFAULT 'STOCK', -- إضافة هذا العمود لتوافق الواجهة الأمامية
     inventory_account_id uuid REFERENCES public.accounts(id),
     cogs_account_id uuid REFERENCES public.accounts(id),
     sales_account_id uuid REFERENCES public.accounts(id),
@@ -362,7 +365,7 @@ CREATE TABLE public.products (
     offer_end_date date,
     offer_max_qty numeric,
     
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     deleted_at timestamptz,
     deletion_reason text,
     is_active boolean DEFAULT true,
@@ -1232,71 +1235,54 @@ END; $$;
 -- حذف الدالة القديمة أولاً لتمكين تغيير نوع المخرجات أو المعاملات
 DROP FUNCTION IF EXISTS public.run_payroll_rpc(integer, integer, date, uuid, jsonb);
 
--- دالة تشغيل الرواتب المطورة (تمنع خطأ الحسابات غير المعرفة)
--- دالة تشغيل الرواتب المتوازنة (Balanced Payroll)
 CREATE OR REPLACE FUNCTION public.run_payroll_rpc(
+    p_month integer,
+    p_year integer,
+    p_date date,
     p_treasury_account_id uuid,
     p_items jsonb
 )
-RETURNS uuid
 RETURNS void
 LANGUAGE plpgsql
+SECURITY DEFINER
 AS $$
 DECLARE
     v_org_id uuid;
     v_payroll_id uuid;
     v_journal_id uuid;
-    v_org_id uuid;
-    v_salaries_acc uuid;
-    v_bonuses_acc uuid; -- Changed to uuid for consistency
-    v_deductions_acc uuid;
-    v_advances_acc uuid;
     v_total_gross numeric := 0;
     v_total_additions numeric := 0;
-    v_total_deductions numeric := 0;
     v_total_advances numeric := 0;
     v_total_deductions numeric := 0;
     v_total_net numeric := 0;
     v_item jsonb;
-    v_je_id uuid;
     v_salaries_acc_id uuid;
     v_bonuses_acc_id uuid;
     v_deductions_acc_id uuid;
     v_advances_acc_id uuid;
 BEGIN
-    v_org_id := p_org_id;
-    SELECT id INTO v_salaries_acc FROM public.accounts WHERE code = '531' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_bonuses_acc FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_deductions_acc FROM public.accounts WHERE code = '422' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_advances_acc FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1; -- Changed to uuid for consistency
     v_org_id := public.get_my_org();
 
-    IF v_salaries_acc IS NULL THEN RAISE EXCEPTION 'حساب الرواتب (531) غير موجود.'; END IF;
-    -- جلب الحسابات بناءً على الأكواد القياسية
-    SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '5201' LIMIT 1;
+    -- جلب الحسابات بناءً على الأكواد القياسية المصرية
+    SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '531' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_bonuses_acc_id FROM public.accounts WHERE code = '5312' LIMIT 1;
-    SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '404' LIMIT 1;
-    SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '10203' LIMIT 1;
+    SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '422' LIMIT 1;
+    SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '1223' LIMIT 1;
+
+    IF v_salaries_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الرواتب (531) غير موجود.'; END IF;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric;
         v_total_additions := v_total_additions + (v_item->>'additions')::numeric;
-        v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
         v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
         v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
         v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
     END LOOP;
+
     INSERT INTO public.payrolls (payroll_month, payroll_year, payment_date, total_gross_salary, total_additions, total_deductions, total_net_salary, status, organization_id)
     VALUES (p_month, p_year, p_date, v_total_gross, v_total_additions, (v_total_advances + v_total_deductions), v_total_net, 'posted', v_org_id)
     RETURNING id INTO v_payroll_id;
-    INSERT INTO public.payrolls (
-        status, organization_id
-    ) VALUES (
-        p_month, p_year, p_date,
 
-    INSERT INTO public.payroll_items (payroll_id, employee_id, gross_salary, additions, advances_deducted, other_deductions, net_salary, organization_id)
-    SELECT v_payroll_id, (item->>'employee_id')::uuid, (item->>'gross_salary')::numeric, (item->>'additions')::numeric, (item->>'advances_deducted')::numeric, (item->>'other_deductions')::numeric, (item->>'net_salary')::numeric, v_org_id
-    FROM jsonb_array_elements(p_items) AS item;
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         INSERT INTO public.payroll_items (
             payroll_id, employee_id, 
@@ -1307,39 +1293,50 @@ BEGIN
             (v_item->>'gross_salary')::numeric,
             (v_item->>'additions')::numeric,
             (v_item->>'advances_deducted')::numeric,
+            (v_item->>'other_deductions')::numeric,
+            (v_item->>'net_salary')::numeric,
+            v_org_id
         );
     END LOOP;
 
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, is_posted, organization_id)
-    VALUES (p_date, 'مسير رواتب شهر ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year || '-' || floor(random()*1000), 'posted', true, v_org_id)
-    RETURNING id INTO v_journal_id;
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
-    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year || '-' || floor(random()*1000)::text, 'posted', v_org_id, true) RETURNING id INTO v_je_id;
+    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year || '-' || floor(random()*1000)::text, 'posted', v_org_id, true) 
+    RETURNING id INTO v_journal_id;
 
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES 
-    (v_journal_id, v_salaries_acc, v_total_gross, 0, 'مصاريف الرواتب', v_org_id);
-
-    IF v_total_additions > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_bonuses_acc, v_total_additions, 0, 'المكافآت والحوافز', v_org_id);
-    IF v_total_gross > 0 AND v_salaries_acc_id IS NOT NULL THEN 
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); 
+    IF v_total_gross > 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); 
     END IF;
-    IF v_total_advances > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_advances_acc, 0, v_total_advances, 'استرداد سلف', v_org_id);
+    
+    IF v_total_additions > 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); 
+    END IF;
+    
+    IF v_total_advances > 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_advances_acc_id, 0, v_total_advances, 'استرداد سلف', v_org_id); 
+    END IF;
+    
+    IF v_total_deductions > 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); 
+    END IF;
     
     IF v_total_net > 0 THEN 
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_account_id, 0, v_total_net, 'صرف الرواتب', v_org_id); 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_treasury_account_id, 0, v_total_net, 'صرف صافي الرواتب', v_org_id); 
     END IF;
-    IF v_total_deductions > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_deductions_acc, 0, v_total_deductions, 'جزاءات الموظفين', v_org_id);
-    END IF;
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES 
-    (v_journal_id, p_treasury_account_id, 0, v_total_net, 'صرف صافي الرواتب', v_org_id);
-
-    RETURN v_payroll_id;
 END;
 $$;
+
+-- دالة تحديث كاش النظام (Refresh Supabase Schema Cache)
+-- هذه الدالة ضرورية لحل مشكلة "Function not found" أو "Column not found" بعد تحديث الدوال أو الجداول
+CREATE OR REPLACE FUNCTION public.refresh_saas_schema()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- الأمر السحري لإعادة تحميل كاش الـ API (Schema Reload)
+    EXECUTE 'NOTIFY pgrst, ''reload config''';
+    RETURN 'تم تحديث هيكل البيانات وتنشيط الكاش بنجاح ✅';
+END; $$;
+
+-- تنفيذ التحديث فوراً لضمان التعرف على عمود product_type الجديد
+SELECT public.refresh_saas_schema();
 
 -- دالة اعتماد فاتورة المشتريات
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid)
@@ -1811,14 +1808,12 @@ BEGIN
 END; $$;
 
 -- ب. دالة تحليل النسب الربحية (Historical Ratios)
-CREATE OR REPLACE FUNCTION public.get_historical_ratios()
 -- تم التعديل لتستقبل p_org_id لضمان عزل البيانات في الرسوم البيانية
 CREATE OR REPLACE FUNCTION public.get_historical_ratios(p_org_id uuid)
  RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_profit jsonb; v_org_id uuid;
+DECLARE v_profit jsonb; v_org_id_internal uuid;
 BEGIN
-    v_org_id := public.get_my_org();
-    v_org_id := p_org_id;
+    v_org_id_internal := p_org_id;
     SELECT jsonb_agg(jsonb_build_object('name', month_key, 'ربحية', margin)) INTO v_profit FROM (
         SELECT to_char(je.transaction_date, 'YYYY-MM') as month_key,
             CASE WHEN SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) > 0 
@@ -1830,6 +1825,112 @@ BEGIN
     ) sub;
     RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
 END; $$;
+
+-- ================================================================
+-- 30. دالة تأسيس دليل الحسابات المصري (Initialization)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_activity_type text DEFAULT 'commercial')
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_count int := 0;
+    v_vat_rate numeric;
+    v_parent_id uuid;
+    v_admin_id uuid;
+    v_org_name text;
+    v_rec record;
+BEGIN
+    -- تحديد نسبة الضريبة
+    IF p_activity_type = 'construction' THEN v_vat_rate := 0.05;
+    ELSIF p_activity_type = 'charity' THEN v_vat_rate := 0.00;
+    ELSE v_vat_rate := 0.14;
+    END IF;
+
+    -- إنشاء جدول مؤقت
+    CREATE TEMPORARY TABLE coa_template (
+        code text PRIMARY KEY,
+        name text NOT NULL,
+        type text NOT NULL,
+        is_group boolean NOT NULL,
+        parent_code text
+    ) ON COMMIT DROP;
+
+    INSERT INTO coa_template (code, name, type, is_group, parent_code) VALUES
+    -- المستويات الرئيسية (بدون تكرار)
+    ('1', 'الأصول', 'ASSET', true, NULL),
+    ('2', 'الخصوم (الإلتزامات)', 'LIABILITY', true, NULL),
+    ('3', 'حقوق الملكية', 'EQUITY', true, NULL),
+    ('4', 'الإيرادات', 'REVENUE', true, NULL),
+    ('5', 'المصروفات', 'EXPENSE', true, NULL),
+    ('11', 'الأصول غير المتداولة', 'ASSET', true, '1'),
+    ('12', 'الأصول المتداولة', 'ASSET', true, '1'),
+    ('21', 'الخصوم غير المتداولة', 'LIABILITY', true, '2'),
+    ('22', 'الخصوم المتداولة', 'LIABILITY', true, '2'),
+    ('31', 'رأس المال والاحتياطيات', 'EQUITY', true, '3'),
+    ('311', 'رأس المال المدفوع', 'EQUITY', false, '31'),
+    ('32', 'الأرباح المبقاة / المرحلة', 'EQUITY', false, '3'),
+    ('33', 'جاري الشركاء', 'EQUITY', false, '3'),
+    ('41', 'إيرادات النشاط (المبيعات)', 'REVENUE', true, '4'),
+    ('42', 'إيرادات أخرى', 'REVENUE', true, '4'),
+    ('51', 'تكلفة المبيعات (COGS)', 'EXPENSE', true, '5'),
+    ('52', 'مصروفات البيع والتسويق', 'EXPENSE', true, '5'),
+    ('53', 'المصروفات الإدارية والعمومية', 'EXPENSE', true, '5'),
+    -- الحسابات الفرعية
+    ('111', 'الأصول الثابتة', 'ASSET', true, '11'),
+    ('1111', 'الأراضي', 'ASSET', false, '111'),
+    ('1112', 'المباني والإنشاءات', 'ASSET', false, '111'),
+    ('1119', 'مجمع إهلاك الأصول الثابتة', 'ASSET', false, '111'),
+    ('103', 'المخزون', 'ASSET', true, '12'),
+    ('10301', 'مخزون المواد الخام', 'ASSET', false, '103'),
+    ('10302', 'مخزون المنتج التام', 'ASSET', false, '103'),
+    ('122', 'العملاء والمدينون', 'ASSET', true, '12'),
+    ('1221', 'العملاء', 'ASSET', false, '122'),
+    ('1223', 'سلف الموظفين', 'ASSET', false, '122'),
+    ('123', 'النقدية وما في حكمها', 'ASSET', true, '12'),
+    ('1231', 'النقدية بالصندوق', 'ASSET', false, '123'),
+    ('123201', 'البنك الأهلي المصري', 'ASSET', false, '123'),
+    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'ASSET', false, '12'),
+    ('201', 'الموردين', 'LIABILITY', false, '22'),
+    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'LIABILITY', false, '22'),
+    ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'EQUITY', false, '3'),
+    ('411', 'إيراد المبيعات', 'REVENUE', false, '41'),
+    ('422', 'إيراد خصومات وجزاءات الموظفين', 'REVENUE', false, '42'),
+    ('511', 'تكلفة البضاعة المباعة', 'EXPENSE', false, '51'),
+    ('531', 'الرواتب والأجور', 'EXPENSE', false, '53'),
+    ('5312', 'مكافآت وحوافز', 'EXPENSE', false, '531');
+
+    -- ربط المستخدم الحالي بالمنظمة
+    v_admin_id := auth.uid();
+    IF v_admin_id IS NOT NULL THEN
+        UPDATE public.profiles SET role = 'super_admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
+        SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
+        INSERT INTO public.company_settings (organization_id, company_name, activity_type, vat_rate)
+        VALUES (p_org_id, v_org_name, p_activity_type, v_vat_rate)
+        ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate;
+    END IF;
+
+    -- إدراج الحسابات
+    FOR v_rec IN SELECT * FROM coa_template ORDER BY length(code), code ASC LOOP
+        v_parent_id := (SELECT id FROM public.accounts WHERE code = v_rec.parent_code AND organization_id = p_org_id LIMIT 1);
+        IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE code = v_rec.code AND organization_id = p_org_id) THEN
+            INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id, is_active)
+            VALUES (v_rec.code, v_rec.name, LOWER(v_rec.type), v_rec.is_group, v_parent_id, p_org_id, true);
+            v_count := v_count + 1;
+        END IF;
+    END LOOP;
+
+    RETURN 'تم تأسيس الدليل بنجاح. الحسابات المضافة: ' || v_count;
+END; $$;
+
+-- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
+SELECT public.refresh_saas_schema();
+
+-- ================================================================
+-- 31. منح الصلاحيات النهائية (Final Privileges)
+-- تكرار المنح هنا يضمن شموله لكافة الجداول المنشأة أعلاه
+-- ================================================================
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
+GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO authenticated, service_role;
 
 -- دالة جلب العملاء الذين تجاوزوا حد الائتمان (لحساب الإشعارات الذكية)
 CREATE OR REPLACE FUNCTION public.get_over_limit_customers(org_id UUID)
@@ -2064,11 +2165,14 @@ END $$;
 
 -- سياسات الوصول (Policies)
 -- 1. Profiles
-CREATE POLICY "Profiles isolated by org" ON profiles FOR SELECT USING (organization_id = get_my_org());
-CREATE POLICY "Super admins view all profiles" ON profiles FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
-CREATE POLICY "Users update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
-CREATE POLICY "Admins manage profiles" ON profiles FOR ALL USING (is_admin() AND organization_id = get_my_org());
-CREATE POLICY "Super admins manage all profiles" ON profiles FOR ALL TO authenticated USING (public.get_my_role() = 'super_admin');
+DROP POLICY IF EXISTS "Profiles isolated by org" ON profiles;
+CREATE POLICY "Allow users to read own profile" ON profiles FOR SELECT TO authenticated USING (auth.uid() = id);
+CREATE POLICY "Allow admins to read org profiles" ON profiles FOR SELECT TO authenticated USING (organization_id = (SELECT p.organization_id FROM profiles p WHERE p.id = auth.uid()));
+CREATE POLICY "Super admins view all profiles" ON profiles FOR SELECT TO authenticated USING (role = 'super_admin');
+CREATE POLICY "Users update own profile" ON profiles FOR UPDATE TO authenticated USING (auth.uid() = id);
+CREATE POLICY "Admins manage profiles" ON profiles FOR ALL TO authenticated USING (role IN ('admin', 'super_admin'));
+CREATE POLICY "Users insert own profile" ON profiles FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+
 -- 2. Organizations
 CREATE POLICY "Users view own org" ON organizations FOR SELECT USING (id = get_my_org());
 CREATE POLICY "Super admins view all organizations" ON organizations FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');

@@ -124,8 +124,8 @@ BEGIN
             END IF;
 
             -- إنشاء الحساب
-            INSERT INTO public.accounts (code, name, type, is_group, parent_id) 
-            VALUES (v_acc.code, v_acc.name, v_acc.type, v_acc.is_group, v_parent_id);
+            INSERT INTO public.accounts (code, name, type, is_group, parent_id, organization_id) 
+            VALUES (v_acc.code, v_acc.name, v_acc.type, v_acc.is_group, v_parent_id, v_org_id);
             
             v_created := v_created + 1;
             RAISE NOTICE '✅ تم إنشاء الحساب: % - %', v_acc.code, v_acc.name;

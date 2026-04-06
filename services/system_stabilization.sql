@@ -105,6 +105,12 @@ CREATE TABLE IF NOT EXISTS public.item_categories (
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_id uuid REFERENCES public.item_categories(id);
 
+-- إضافة عمود product_type ليتوافق مع الواجهة الأمامية ودوال النظام
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
+
+-- إضافة عمود unit ليتوافق مع واجهة إضافة الأصناف
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text;
+
 -- تحديث جدول الفواتير
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES auth.users(id);
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS reference text;
@@ -137,14 +143,14 @@ CREATE TABLE IF NOT EXISTS public.work_order_material_usage (
 
 -- 3. التأكد من وجود الحسابات المحاسبية الحرجة (لتجنب أخطاء القيود الآلية)
 -- أوراق القبض (1204)
-INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active)
-SELECT gen_random_uuid(), '1204', 'أوراق القبض (شيكات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '102' LIMIT 1), true
-WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE code = '1204') AND EXISTS (SELECT 1 FROM accounts WHERE code = '102');
+INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active, organization_id)
+SELECT gen_random_uuid(), '1204', 'أوراق القبض (شيكات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '102' LIMIT 1), true, COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))
+WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE code = '1204' AND organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))) AND EXISTS (SELECT 1 FROM accounts WHERE code = '102');
 
 -- أوراق الدفع (2202)
-INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active)
-SELECT gen_random_uuid(), '2202', 'أوراق الدفع', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '2' LIMIT 1), true
-WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE code = '2202') AND EXISTS (SELECT 1 FROM accounts WHERE code = '2');
+INSERT INTO public.accounts (id, code, name, type, is_group, parent_id, is_active, organization_id)
+SELECT gen_random_uuid(), '2202', 'أوراق الدفع', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '2' LIMIT 1), true, COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))
+WHERE NOT EXISTS (SELECT 1 FROM accounts WHERE code = '2202' AND organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))) AND EXISTS (SELECT 1 FROM accounts WHERE code = '2');
 
 -- 4. إصلاح صلاحيات الإشعارات (لحل مشكلة 403 Forbidden)
 -- السماح للمستخدمين بإنشاء إشعارات (ضروري للعمليات التلقائية التي تعمل من طرف العميل)
