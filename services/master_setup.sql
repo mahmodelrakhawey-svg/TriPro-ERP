@@ -1753,6 +1753,36 @@ BEGIN
     RETURN v_order_id;
 END; $$;
 
+-- ================================================================
+-- تحرير الطاولة تلقائياً عند إتمام الدفع
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.handle_restaurant_payment_completion()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_order_record RECORD;
+BEGIN
+    -- 1. جلب بيانات الطلب المرتبط بالدفع
+    SELECT * INTO v_order_record FROM public.orders WHERE id = NEW.order_id;
+
+    -- 2. إذا كان الطلب محلي (صالة) ومرتبط بجلسة طاولة
+    IF v_order_record.order_type IN ('DINEIN', 'DINE_IN') AND v_order_record.session_id IS NOT NULL THEN
+        -- 3. تحديث حالة الطلب إلى 'PAID'
+        UPDATE public.orders SET status = 'PAID', updated_at = now() WHERE id = NEW.order_id;
+        
+        -- 4. إغلاق جلسة الطاولة وتحريرها فوراً لتصبح 'AVAILABLE'
+        PERFORM public.close_table_session(v_order_record.session_id);
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_after_payment_completion ON public.payments;
+CREATE TRIGGER trg_after_payment_completion
+AFTER INSERT ON public.payments
+FOR EACH ROW WHEN (NEW.status = 'COMPLETED')
+EXECUTE FUNCTION public.handle_restaurant_payment_completion();
+
 -- دالة إعادة احتساب المخزون
 CREATE OR REPLACE FUNCTION recalculate_stock_rpc()
 RETURNS void LANGUAGE plpgsql AS $$
@@ -2174,6 +2204,7 @@ BEGIN
 END; $$;
 
 -- دالة إغلاق الوردية
+DROP FUNCTION IF EXISTS public.close_shift(uuid, numeric, text);
 CREATE OR REPLACE FUNCTION public.close_shift(p_shift_id UUID, p_actual_cash NUMERIC, p_notes TEXT DEFAULT NULL)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -2243,53 +2274,33 @@ END; $$;
 -- ================================================================
 -- 3.6 إدارة الورديات ونقاط البيع (Shift & POS Management)
 -- ================================================================
+-- جداول الإضافات (Modifiers)
+CREATE TABLE IF NOT EXISTS public.modifier_groups (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    selection_type TEXT NOT NULL DEFAULT 'MULTIPLE',
+    is_required BOOLEAN DEFAULT false,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
 
-CREATE OR REPLACE FUNCTION public.start_shift(p_user_id uuid, p_opening_balance numeric, p_resume_existing boolean DEFAULT false)
- RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE v_existing_shift_id UUID; v_new_shift_id UUID;
-BEGIN
-    SELECT id INTO v_existing_shift_id FROM public.shifts WHERE user_id = p_user_id AND end_time IS NULL LIMIT 1;
-    IF v_existing_shift_id IS NOT NULL AND p_resume_existing THEN RETURN v_existing_shift_id; END IF;
-    IF v_existing_shift_id IS NOT NULL THEN RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم'; END IF;
-    INSERT INTO public.shifts (user_id, start_time, opening_balance, organization_id)
-    VALUES (p_user_id, now(), p_opening_balance, public.get_my_org()) RETURNING id INTO v_new_shift_id;
-    RETURN v_new_shift_id;
-END; $$;
+CREATE TABLE IF NOT EXISTS public.modifiers (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    price NUMERIC NOT NULL DEFAULT 0,
+    modifier_group_id uuid NOT NULL REFERENCES public.modifier_groups(id) ON DELETE CASCADE,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
 
--- ج. دالة توليد قيد إقفال الوردية (Generate Shift Closing Entry)
-CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
- RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_shift RECORD; v_summary JSONB; v_journal_id uuid; v_org_id uuid;
-    v_cash_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
-    v_total_sales numeric; v_tax_amount numeric; v_ref text;
-BEGIN
-     v_ref := 'SHIFT-' || substring(p_shift_id::text, 1, 8);
-     SET search_path = public;
-     IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref) THEN
-         RETURN (SELECT id FROM public.journal_entries WHERE reference = v_ref LIMIT 1);
-     END IF;
-    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
-    v_org_id := COALESCE(v_shift.organization_id, public.get_my_org());
-    v_summary := public.get_shift_summary(p_shift_id);
-    v_total_sales := ROUND(COALESCE((v_summary->>'total_sales')::numeric, 0), 2);
-    IF ABS(v_total_sales) < 0.01 THEN RETURN NULL; END IF;
-
-    SELECT id INTO v_cash_acc_id FROM public.accounts WHERE code = '1231' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
-
-    v_tax_amount := ROUND(v_total_sales - (v_total_sales / 1.14), 2);
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, user_id, organization_id, is_posted) 
-    VALUES (now(), 'إقفال وردية - ' || to_char(v_shift.start_time, 'YYYY-MM-DD'), v_ref, 'posted', v_shift.user_id, v_org_id, true) 
-    RETURNING id INTO v_journal_id;
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, v_cash_acc_id, v_shift.actual_cash, 0, 'نقدية الوردية', v_org_id),
-           (v_journal_id, v_sales_acc_id, 0, (v_total_sales - v_tax_amount), 'إيراد مبيعات', v_org_id),
-           (v_journal_id, v_vat_acc_id, 0, v_tax_amount, 'ضريبة القيمة المضافة', v_org_id);
-    RETURN v_journal_id;
-END; $$;
+CREATE TABLE IF NOT EXISTS public.order_item_modifiers (
+    order_item_id uuid REFERENCES public.order_items(id) ON DELETE CASCADE,
+    modifier_id uuid REFERENCES public.modifiers(id) ON DELETE CASCADE,
+    price_at_order NUMERIC NOT NULL,
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    PRIMARY KEY (order_item_id, modifier_id)
+);
 
 -- د. دالة حماية الحسابات الرئيسية (Prevent Group Posting)
 CREATE OR REPLACE FUNCTION public.check_account_is_not_group()
