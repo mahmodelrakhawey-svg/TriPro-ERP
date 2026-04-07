@@ -41,10 +41,9 @@ CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _role text;
 BEGIN
-    SET search_path = public;
-    _role := (auth.jwt() -> 'user_metadata' ->> 'role')::text;
+    _role := (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text;
     -- 2. Fallback to auth.users (avoids recursion on public.profiles)
-    RETURN COALESCE(_role, (SELECT (raw_user_meta_data->>'role')::text FROM auth.users WHERE id = auth.uid()));
+    RETURN COALESCE(_role, (SELECT (raw_user_meta_data->>'role')::text FROM auth.users WHERE id = (nullif(current_setting('request.jwt.auth.uid', true), '')::uuid)));
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
@@ -1153,7 +1152,7 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard AS
  SELECT 
     i.id,
     i.invoice_date AS transaction_date,
-    i.total_amount AS amount,
+    i.subtotal AS amount, -- استخدام الصافي لضمان عدم احتساب الضرائب كمبيعات
     (SELECT COALESCE(SUM(ii.cost * ii.quantity), 0) FROM public.invoice_items ii WHERE ii.invoice_id = i.id) AS total_cost, -- Changed to numeric for consistency
     'Standard Invoice'::text AS type,
     i.organization_id
@@ -1165,7 +1164,7 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard AS
  SELECT 
     o.id,
     o.created_at::date AS transaction_date,
-    (SELECT COALESCE(SUM(oi.total_price), 0) FROM public.order_items oi WHERE oi.order_id = o.id) AS amount,
+    o.subtotal AS amount, -- استخدام الصافي من طلبات المطاعم
     (SELECT COALESCE(SUM(oi.unit_cost * oi.quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id) AS total_cost,
     'Restaurant Order'::text AS type,
     o.organization_id
@@ -1858,16 +1857,35 @@ DECLARE
     v_low_stock_count integer; v_chart_data json; v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
-    -- المبيعات
-    SELECT COALESCE(SUM(amount), 0) INTO v_month_sales FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE);
+    -- 1. المبيعات الشهرية
+    -- تم التعديل للسحب من واقع القيود (حسابات 4) لضمان المطابقة 100% مع الأرباح والخسائر
+    SELECT COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_month_sales
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id 
+      AND je.status = 'posted'
+      AND a.code LIKE '4%' -- حسابات الإيرادات
+      AND date_trunc('month', je.transaction_date) = date_trunc('month', CURRENT_DATE);
     -- الأرصدة (العملاء والموردين)
     SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '1221%';
     SELECT COALESCE(SUM(ABS(balance)), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '201%';
     -- المخزون
     SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE organization_id = v_org_id AND stock <= COALESCE(min_stock_level, 0) AND deleted_at IS NULL;
-    -- بيانات الرسم البياني
+    -- 4. بيانات الرسم البياني (آخر 6 أشهر)
+    -- تم تحديثها لتسحب من الأستاذ العام أيضاً    SELECT json_agg(t) INTO v_chart_data FROM (
     SELECT json_agg(t) INTO v_chart_data FROM (
-        SELECT to_char(month, 'YYYY-MM') as name, COALESCE((SELECT SUM(amount) FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = month), 0) as sales
+                SELECT to_char(month, 'YYYY-MM') as name, 
+                COALESCE((
+                   SELECT SUM(jl.credit - jl.debit) 
+                   FROM public.journal_lines jl
+                   JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+                   JOIN public.accounts a ON jl.account_id = a.id
+                   WHERE je.organization_id = v_org_id 
+                     AND je.status = 'posted'
+                     AND a.code LIKE '4%'
+                     AND date_trunc('month', je.transaction_date) = month
+               ), 0) as sales       
         FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month
     ) t;
 
@@ -2066,6 +2084,17 @@ BEGIN
         ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
         ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41'),
         ('512', 'تكلفة الهالك والضيافة', 'expense', false, '51');
+    END IF;
+
+    -- إضافات خاصة بنشاط التصنيع
+    IF p_activity_type = 'manufacturing' THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
+        ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
+        ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
+        ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
+        ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
+        ('5143', 'كهرباء وقوى محركة للمصنع', 'expense', false, '514');
     END IF;
 
     -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)

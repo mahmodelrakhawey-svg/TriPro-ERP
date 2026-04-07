@@ -179,6 +179,17 @@ BEGIN
         ('512', 'تكلفة الهالك والضيافة', 'expense', false, '51');
     END IF;
 
+    -- إضافات خاصة بنشاط التصنيع
+    IF p_activity_type = 'manufacturing' THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
+        ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
+        ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
+        ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
+        ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
+        ('5143', 'كهرباء وقوى محركة للمصنع', 'expense', false, '514');
+    END IF;
+
     -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
     -- يتم الإدراج بترتيب يضمن وجود الآباء قبل الأبناء (بناءً على طول الكود)
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
