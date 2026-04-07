@@ -270,7 +270,7 @@ class NotificationService {
 
       const { data: products, error } = await supabase
         .from('products')
-        .select('id, sku, name, stock, min_stock')
+        .select('id, sku, name, stock, min_stock_level')
         .eq('organization_id', orgId);
 
       if (error || !products) return;
@@ -285,7 +285,7 @@ class NotificationService {
       if (!admins) return;
 
       for (const item of products) {
-        const minLevel = item.min_stock || 5;
+        const minLevel = item.min_stock_level || 5;
         if ((item.stock || 0) <= minLevel) {
            for (const admin of admins) {
               await this.createNotification(
@@ -320,7 +320,7 @@ class NotificationService {
 
       // استخدام RPC لتجنب خطأ 400 في المقارنة بين الأعمدة
       // ملاحظة: يجب تعديل الـ RPC في قاعدة البيانات ليستقبل org_id
-      const { data: customers, error } = await supabase.rpc('get_over_limit_customers', { org_id: orgId });
+      const { data: customers, error } = await supabase.rpc('get_over_limit_customers', { p_org_id: orgId });
 
       if (error || !customers) {
           if (error) console.error('Error in checkHighDebt:', error);

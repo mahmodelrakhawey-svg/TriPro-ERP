@@ -58,7 +58,7 @@ const PurchaseReports = () => {
             .from('purchase_invoice_items')
             .select('*, products(name)')
             .eq('organization_id', userOrgId) // 🔒 فلترة بنود المشتريات مباشرة
-            .in('invoice_id', invIds);
+            .in('purchase_invoice_id', invIds);
             
           if (itemsError) throw itemsError;
           setInvoiceItems(itemsData || []);

@@ -41,7 +41,6 @@ CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _role text;
 BEGIN
-    -- 1. Try JWT first (fastest, no DB hit)
     SET search_path = public;
     _role := (auth.jwt() -> 'user_metadata' ->> 'role')::text;
     -- 2. Fallback to auth.users (avoids recursion on public.profiles)
@@ -52,7 +51,6 @@ CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _org_id uuid;
 BEGIN
-    -- 1. Try JWT first
     SET search_path = public;
     _org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
     -- 2. Fallback to auth.users (avoids recursion on public.profiles)
@@ -871,10 +869,10 @@ CREATE TABLE IF NOT EXISTS public.shifts (
     end_time timestamptz,
     opening_balance numeric,
     closing_balance numeric,
-    expected_cash numeric DEFAULT 0, -- إضافة عمود النقدية المتوقعة
-    actual_cash numeric DEFAULT 0,   -- إضافة عمود النقدية الفعلية
-    difference numeric DEFAULT 0,    -- إضافة عمود الفرق
-    notes text,                      -- إضافة عمود الملاحظات
+    expected_cash numeric DEFAULT 0,
+    actual_cash numeric DEFAULT 0,
+    difference numeric DEFAULT 0,
+    notes text,
     organization_id uuid REFERENCES public.organizations(id),
     status text DEFAULT 'OPEN' -- OPEN, CLOSED
 );
@@ -903,11 +901,11 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric NOT NULL,
-    price numeric NOT NULL, -- توحيد المسمى مع باقي النظام (كان unit_price)
+    price numeric NOT NULL,
     total_price numeric NOT NULL,
     unit_cost numeric DEFAULT 0,
     notes text,
-    modifiers jsonb DEFAULT '[]'::jsonb, -- Changed to jsonb for consistency
+    modifiers jsonb DEFAULT '[]'::jsonb,
     vat_rate numeric DEFAULT 0.14,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
@@ -915,9 +913,9 @@ CREATE TABLE IF NOT EXISTS public.order_items (
 
 CREATE TABLE IF NOT EXISTS public.kitchen_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    order_item_id uuid NOT NULL REFERENCES public.order_items(id) ON DELETE CASCADE, -- إضافة علاقة الربط هنا
+    order_item_id uuid NOT NULL REFERENCES public.order_items(id) ON DELETE CASCADE,
     status text DEFAULT 'NEW', -- NEW, PREPARING, READY, SERVED
-    status_updated_at timestamptz DEFAULT now(), -- تتبع وقت تغيير حالة الطلب
+    status_updated_at timestamptz DEFAULT now(),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
@@ -943,6 +941,42 @@ CREATE TABLE IF NOT EXISTS public.payments (
     transaction_ref text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
+);
+
+-- نظام الإضافات (Advanced Modifiers)
+CREATE TABLE IF NOT EXISTS public.modifier_groups (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    selection_type TEXT NOT NULL CHECK (selection_type IN ('SINGLE', 'MULTIPLE')) DEFAULT 'MULTIPLE',
+    is_required BOOLEAN NOT NULL DEFAULT false,
+    min_selection INT NOT NULL DEFAULT 0,
+    max_selection INT,
+    display_order INT DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.modifiers (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name TEXT NOT NULL,
+    price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    modifier_group_id uuid NOT NULL REFERENCES public.modifier_groups(id) ON DELETE CASCADE,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    display_order INT DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.order_item_modifiers (
+    order_item_id uuid NOT NULL REFERENCES public.order_items(id) ON DELETE CASCADE,
+    modifier_id uuid NOT NULL REFERENCES public.modifiers(id) ON DELETE CASCADE,
+    quantity INT NOT NULL DEFAULT 1,
+    price_at_order NUMERIC(10, 2) NOT NULL,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    PRIMARY KEY (order_item_id, modifier_id)
 );
 
 -- جدول صلاحيات المستخدمين المباشرة (موجود في الهيكل)
@@ -1662,6 +1696,7 @@ CREATE OR REPLACE FUNCTION public.open_table_session(p_table_id uuid, p_user_id 
 RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE v_session_id uuid; v_org_id uuid;
 BEGIN
+    SET search_path = public;
     v_org_id := public.get_my_org();
     IF EXISTS (SELECT 1 FROM public.restaurant_tables WHERE id = p_table_id AND status != 'AVAILABLE') THEN RAISE EXCEPTION 'الطاولة غير متاحة'; END IF;
     INSERT INTO public.table_sessions (table_id, opened_by, status, opened_at, organization_id) VALUES (p_table_id, p_user_id, 'OPEN', now(), v_org_id) RETURNING id INTO v_session_id;
@@ -1669,123 +1704,94 @@ BEGIN
     RETURN v_session_id;
 END; $$;
 
+-- دالة إغلاق جلسة الطاولة (المطورة لتحرير الطاولة فوراً)
+CREATE OR REPLACE FUNCTION public.close_table_session(p_session_id UUID)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_table_id UUID;
+    v_org_id uuid;
+BEGIN
+    SET search_path = public;
+    SELECT table_id, organization_id INTO v_table_id, v_org_id FROM public.table_sessions WHERE id = p_session_id;
+    
+    IF v_table_id IS NULL THEN
+        RAISE EXCEPTION 'Session not found';
+    END IF;
+
+    UPDATE public.table_sessions
+    SET status = 'CLOSED', closed_at = now()
+    WHERE id = p_session_id;
+
+    UPDATE public.restaurant_tables
+    SET status = 'AVAILABLE', updated_at = now()
+    WHERE id = v_table_id;
+END;
+$$;
+
+-- تحرير الطاولة تلقائياً عند الدفع
+CREATE OR REPLACE FUNCTION public.handle_restaurant_payment_completion()
+RETURNS TRIGGER AS $$
+DECLARE v_order_record RECORD;
+BEGIN
+    SELECT * INTO v_order_record FROM public.orders WHERE id = NEW.order_id;
+    IF v_order_record.order_type IN ('DINEIN', 'DINE_IN') AND v_order_record.session_id IS NOT NULL THEN
+        UPDATE public.orders SET status = 'PAID', updated_at = now() WHERE id = NEW.order_id;
+        PERFORM public.close_table_session(v_order_record.session_id);
+    END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_after_payment_completion ON public.payments;
+CREATE TRIGGER trg_after_payment_completion AFTER INSERT ON public.payments
+FOR EACH ROW WHEN (NEW.status = 'COMPLETED') EXECUTE FUNCTION public.handle_restaurant_payment_completion();
+
 -- حذف الدوال القديمة بجميع نسخها لمنع تعارض الأسماء (Ambiguity)
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, public.order_type, text, jsonb, uuid, jsonb);
 DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, text, text, jsonb, uuid, uuid, jsonb);
 
-CREATE OR REPLACE FUNCTION public.create_restaurant_order(
-    p_session_id uuid,
-    p_user_id uuid,
-    p_order_type text,
-    p_notes text,
-    p_items jsonb,
-    p_customer_id uuid DEFAULT NULL,
-    p_warehouse_id uuid DEFAULT NULL,
-    p_delivery_info jsonb DEFAULT NULL
-) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE 
-    v_order_id uuid; 
-    v_item jsonb; 
-    v_order_num text; 
-    v_org_id uuid; 
-    v_order_item_id uuid;
-    v_tax_rate numeric;
-    v_subtotal numeric := 0;
-BEGIN
-    SET search_path = public;
-    v_org_id := public.get_my_org();
-    
-    -- 1. جلب نسبة الضريبة من الإعدادات
-    SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
-    IF v_tax_rate IS NULL THEN v_tax_rate := 0.15; END IF;
-
-    -- 2. توليد رقم طلب فريد
-    v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
-
-    -- 3. إنشاء رأس الطلب
-    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
-    VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, v_org_id, p_warehouse_id) 
-    RETURNING id INTO v_order_id;
-
-    -- 4. إدراج الأصناف وحساب الإجماليات
-    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id)
-        VALUES (
-            v_order_id, 
-            (v_item->>'productId')::uuid,
-            (v_item->>'quantity')::numeric, 
-            (v_item->>'unitPrice')::numeric, 
-            ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), 
-            COALESCE((v_item->>'unitCost')::numeric, 0), 
-            v_item->>'notes', 
-            v_org_id
-        ) RETURNING id INTO v_order_item_id;
-
-        v_subtotal := v_subtotal + ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric);
-
-        -- إرسال للمطبخ آلياً
-        INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) 
-        VALUES (v_order_item_id, 'NEW', v_org_id);
-    END LOOP;
-
-    -- 5. تحديث الإجماليات النهائية والضريبة
-    UPDATE public.orders SET 
-        subtotal = v_subtotal,
-        total_tax = v_subtotal * v_tax_rate,
-        grand_total = v_subtotal + (v_subtotal * v_tax_rate)
-    WHERE id = v_order_id;
-
-    -- 6. معالجة بيانات التوصيل إذا وجدت
-    IF p_delivery_info IS NOT NULL THEN
-        INSERT INTO public.delivery_orders (order_id, customer_name, customer_phone, delivery_address, delivery_fee, organization_id)
-        VALUES (
-            v_order_id,
-            p_delivery_info->>'customer_name',
-            p_delivery_info->>'customer_phone',
-            p_delivery_info->>'delivery_address',
-            COALESCE((p_delivery_info->>'delivery_fee')::numeric, 0),
-            v_org_id
-        );
-    END IF;
-
-    RETURN v_order_id;
-END; $$;
+     p_session_id uuid,
+     p_user_id uuid,
+     p_order_type text,
+     p_notes text,
+     p_items jsonb,
+     p_customer_id uuid DEFAULT NULL,
+     p_warehouse_id uuid DEFAULT NULL,
+     p_delivery_info jsonb DEFAULT NULL
+ ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+ DECLARE
+     v_order_id uuid; v_item jsonb; v_order_num text; v_org_id uuid; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0;
+ BEGIN
+     SET search_path = public;
+     v_org_id := public.get_my_org();
+     SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
+     IF v_tax_rate IS NULL THEN v_tax_rate := 0.14; END IF;
+     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+     INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
+     VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, v_org_id, p_warehouse_id)
+     RETURNING id INTO v_order_id;
+     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+         INSERT INTO public.order_items (order_id, product_id, quantity, price, total_price, unit_cost, notes, modifiers, organization_id)
+         VALUES (v_order_id, (v_item->>'productId')::uuid, (v_item->>'quantity')::numeric, (v_item->>'unitPrice')::numeric, ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), COALESCE((v_item->>'unitCost')::numeric, 0), v_item->>'notes', COALESCE(v_item->'modifiers', '[]'::jsonb), v_org_id) RETURNING id INTO v_order_item_id;
+         v_subtotal := v_subtotal + ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric);
+         INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) VALUES (v_order_item_id, 'NEW', v_org_id);
+     END LOOP;
+     UPDATE public.orders SET subtotal = v_subtotal, total_tax = v_subtotal * v_tax_rate, grand_total = v_subtotal + (v_subtotal * v_tax_rate) WHERE id = v_order_id;
+     IF p_delivery_info IS NOT NULL THEN
+         INSERT INTO public.delivery_orders (order_id, customer_name, customer_phone, delivery_address, delivery_fee, organization_id)
+         VALUES (v_order_id, p_delivery_info->>'customer_name', p_delivery_info->>'customer_phone', p_delivery_info->>'delivery_address', COALESCE((p_delivery_info->>'delivery_fee')::numeric, 0), v_org_id);
+     END IF;
+     RETURN v_order_id;
+ END; $$;
 
 -- ================================================================
 -- تحرير الطاولة تلقائياً عند إتمام الدفع
 -- ================================================================
-CREATE OR REPLACE FUNCTION public.handle_restaurant_payment_completion()
-RETURNS TRIGGER AS $$
-DECLARE
-    v_order_record RECORD;
-BEGIN
-    -- 1. جلب بيانات الطلب المرتبط بالدفع
-    SELECT * INTO v_order_record FROM public.orders WHERE id = NEW.order_id;
-
-    -- 2. إذا كان الطلب محلي (صالة) ومرتبط بجلسة طاولة
-    IF v_order_record.order_type IN ('DINEIN', 'DINE_IN') AND v_order_record.session_id IS NOT NULL THEN
-        -- 3. تحديث حالة الطلب إلى 'PAID'
-        UPDATE public.orders SET status = 'PAID', updated_at = now() WHERE id = NEW.order_id;
-        
-        -- 4. إغلاق جلسة الطاولة وتحريرها فوراً لتصبح 'AVAILABLE'
-        PERFORM public.close_table_session(v_order_record.session_id);
-    END IF;
-
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS trg_after_payment_completion ON public.payments;
-CREATE TRIGGER trg_after_payment_completion
-AFTER INSERT ON public.payments
-FOR EACH ROW WHEN (NEW.status = 'COMPLETED')
-EXECUTE FUNCTION public.handle_restaurant_payment_completion();
 
 -- دالة إعادة احتساب المخزون
 CREATE OR REPLACE FUNCTION recalculate_stock_rpc()
-RETURNS void LANGUAGE plpgsql AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE prod_record RECORD; wh_record RECORD; total_qty NUMERIC; wh_json JSONB; wh_qty NUMERIC;
 BEGIN
     FOR prod_record IN SELECT id FROM products WHERE deleted_at IS NULL LOOP
@@ -1844,31 +1850,29 @@ $$;
 
 -- دالة إحصائيات لوحة البيانات الشاملة
 -- أ. دالة إحصائيات لوحة البيانات المتطورة (Advanced Dashboard Stats)
+DROP FUNCTION IF EXISTS public.get_dashboard_stats() CASCADE;
 CREATE OR REPLACE FUNCTION public.get_dashboard_stats()
 RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_month_sales numeric; v_prev_month_sales numeric; v_receivables numeric; v_payables numeric;
+    v_month_sales numeric; v_receivables numeric; v_payables numeric;
     v_low_stock_count integer; v_chart_data json; v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
-    IF v_org_id IS NULL THEN SELECT id INTO v_org_id FROM public.organizations LIMIT 1; END IF;
     -- المبيعات
-    SELECT COALESCE(SUM(subtotal), 0) INTO v_month_sales FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE);
-    SELECT COALESCE(SUM(subtotal), 0) INTO v_prev_month_sales FROM public.invoices WHERE organization_id = v_org_id AND status != 'draft' AND date_trunc('month', invoice_date) = date_trunc('month', CURRENT_DATE - INTERVAL '1 month');
-    -- الأرصدة
-    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code = '1221';
-    SELECT COALESCE(SUM(balance), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code = '201';
+    SELECT COALESCE(SUM(amount), 0) INTO v_month_sales FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE);
+    -- الأرصدة (العملاء والموردين)
+    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '1221%';
+    SELECT COALESCE(SUM(ABS(balance)), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '201%';
     -- المخزون
-    SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE organization_id = v_org_id AND stock <= min_stock_level AND deleted_at IS NULL;
+    SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE organization_id = v_org_id AND stock <= COALESCE(min_stock_level, 0) AND deleted_at IS NULL;
     -- بيانات الرسم البياني
     SELECT json_agg(t) INTO v_chart_data FROM (
-        SELECT to_char(month, 'Mon') as name, COALESCE((SELECT SUM(subtotal) FROM public.invoices WHERE organization_id = v_org_id AND date_trunc('month', invoice_date) = month AND status != 'draft'), 0) as sales
+        SELECT to_char(month, 'YYYY-MM') as name, COALESCE((SELECT SUM(amount) FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = month), 0) as sales
         FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month
     ) t;
 
     RETURN json_build_object(
         'monthSales', v_month_sales,
-        'prevMonthSales', v_prev_month_sales,
         'receivables', v_receivables,
         'payables', v_payables,
         'lowStockCount', v_low_stock_count,
@@ -1876,24 +1880,39 @@ BEGIN
     );
 END; $$;
 
--- ب. دالة تحليل النسب الربحية (Historical Ratios)
--- تم التعديل لتستقبل p_org_id لضمان عزل البيانات في الرسوم البيانية
-CREATE OR REPLACE FUNCTION public.get_historical_ratios(p_org_id uuid)
- RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_profit jsonb; v_org_id_internal uuid;
+-- ب. دالة تحليل النسب الربحية (Historical Ratios
+DROP FUNCTION IF EXISTS public.get_historical_ratios(uuid) CASCADE;
+DROP FUNCTION IF EXISTS public.get_historical_ratios() CASCADE;
+CREATE OR REPLACE FUNCTION public.get_historical_ratios(p_org_id uuid DEFAULT NULL) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_profit jsonb; v_liquidity jsonb; v_target_org uuid;
 BEGIN
-    v_org_id_internal := p_org_id;
+    v_target_org := COALESCE(p_org_id, public.get_my_org());
+    
+    -- حساب الربحية (إيرادات 4 - مصروفات 5)
     SELECT jsonb_agg(jsonb_build_object('name', month_key, 'ربحية', margin)) INTO v_profit FROM (
         SELECT to_char(je.transaction_date, 'YYYY-MM') as month_key,
             CASE WHEN SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) > 0 
-                 THEN ROUND(((SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) - SUM(CASE WHEN a.code LIKE '5%' THEN jl.debit - jl.credit ELSE 0 END)) / SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END)) * 100, 2)
+                 THEN ROUND(((SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END) - SUM(CASE WHEN a.code LIKE '5%' THEN jl.debit - jl.credit ELSE 0 END)) / NULLIF(SUM(CASE WHEN a.code LIKE '4%' THEN jl.credit - jl.debit ELSE 0 END), 0)) * 100, 2)
                  ELSE 0 END as margin
         FROM public.journal_entries je JOIN public.journal_lines jl ON je.id = jl.journal_entry_id JOIN public.accounts a ON jl.account_id = a.id
-        WHERE je.organization_id = v_org_id AND je.status = 'posted' AND je.transaction_date >= (date_trunc('month', now()) - interval '6 months')::date
+        WHERE je.organization_id = v_target_org AND je.status = 'posted' AND je.transaction_date >= (date_trunc('month', now()) - interval '6 months')::date
         GROUP BY 1 ORDER BY 1
     ) sub;
-    RETURN jsonb_build_object('profitabilityData', COALESCE(v_profit, '[]'::jsonb));
-END; $$;
+    -- حساب السيولة (أصول متداولة 12 / خصوم متداولة 22)
+    SELECT jsonb_agg(jsonb_build_object('name', month_key, 'سيولة', ratio)) INTO v_liquidity FROM (
+        SELECT to_char(je.transaction_date, 'YYYY-MM') as month_key,
+            CASE WHEN SUM(CASE WHEN a.code LIKE '22%' THEN jl.credit - jl.debit ELSE 0 END) != 0 
+                 THEN ROUND(SUM(CASE WHEN a.code LIKE '12%' THEN jl.debit - jl.credit ELSE 0 END) / NULLIF(ABS(SUM(CASE WHEN a.code LIKE '22%' THEN jl.credit - jl.debit ELSE 0 END)), 0), 2)
+                 ELSE 0 END as ratio
+        FROM public.journal_entries je JOIN public.journal_lines jl ON je.id = jl.journal_entry_id JOIN public.accounts a ON jl.account_id = a.id
+        WHERE je.organization_id = v_target_org AND je.status = 'posted' AND je.transaction_date >= (date_trunc('month', now()) - interval '6 months')::date
+        GROUP BY 1 ORDER BY 1
+    ) sub;
+
+    RETURN jsonb_build_object(
+        'profitabilityData', COALESCE(v_profit, '[]'::jsonb),
+        'liquidityData', COALESCE(v_liquidity, '[]'::jsonb)
+    );END; $$;
 
 -- ================================================================
 -- 30. دالة تأسيس دليل الحسابات المصري (Initialization)
@@ -2143,63 +2162,107 @@ BEGIN
     RETURN v_summary;
 END; $$;
 
--- دالة توليد قيد إقفال الوردية
+-- دالة توليد قيد إقفال الوردية (النسخة المتوازنة مع حساب التكاليف BOM)
 CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_shift RECORD; v_summary JSONB; v_journal_id uuid; v_org_id uuid;
+    v_shift RECORD;
+    v_sales_acc_id UUID;
+    v_vat_acc_id UUID;
     v_cash_acc_id uuid; v_card_acc_id uuid; v_wallet_acc_id uuid;
-    v_sales_acc_id uuid; v_vat_acc_id uuid; v_diff_acc_id uuid;
     v_cogs_acc_id uuid; v_inv_acc_id uuid;
-    v_cash_sales numeric; v_card_sales numeric; v_wallet_sales numeric;
-    v_total_sales numeric; v_tax_amount numeric; v_difference numeric;
-    v_total_cogs numeric := 0; v_opening_bal numeric;
-    v_ref text;
+    v_shortage_acc_id UUID; v_overage_acc_id UUID;
+    v_vat_rate NUMERIC := 0.14;
+    v_journal_id UUID;
+    v_total_grand_total NUMERIC := 0;
+    v_total_tax NUMERIC := 0;
+    v_net_sales NUMERIC := 0;
+    v_cash_sales NUMERIC := 0;
+    v_card_sales NUMERIC := 0;
+    v_wallet_sales NUMERIC := 0;
+    v_total_cogs NUMERIC := 0;
+    v_diff_actual NUMERIC := 0;
+    v_org_id UUID; v_ref text;
 BEGIN
     SET search_path = public;
     v_ref := 'SHIFT-' || substring(p_shift_id::text, 1, 8);
-    IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref) THEN
-        RETURN (SELECT id FROM public.journal_entries WHERE reference = v_ref LIMIT 1);
-    END IF;
+    IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref) THEN RETURN (SELECT id FROM public.journal_entries WHERE reference = v_ref LIMIT 1); END IF;
 
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN RETURN NULL; END IF;
     v_org_id := COALESCE(v_shift.organization_id, public.get_my_org());
-    v_summary := public.get_shift_summary(p_shift_id);
 
-    v_cash_sales := ROUND(COALESCE((v_summary->>'cash_sales')::numeric, 0), 2);
-    v_card_sales := ROUND(COALESCE((v_summary->>'card_sales')::numeric, 0), 2);
-    v_wallet_sales := ROUND(COALESCE((v_summary->>'wallet_sales')::numeric, 0), 2);
-    v_total_sales := ROUND(COALESCE((v_summary->>'total_sales')::numeric, 0), 2);
-    v_difference := ROUND(COALESCE(v_shift.difference, 0), 2);
-    v_opening_bal := ROUND(COALESCE(v_shift.opening_balance, 0), 2);
+    SELECT COALESCE(vat_rate, 0.14) INTO v_vat_rate FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
+        -- 1. إحصائيات التحصيل
 
-    IF ABS(v_total_sales) < 0.01 AND ABS(v_difference) < 0.01 THEN RETURN NULL; END IF;
+    SELECT 
+        COALESCE(SUM(amount), 0),
+        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN payment_method = 'CARD' THEN amount ELSE 0 END), 0),
+        COALESCE(SUM(CASE WHEN payment_method = 'WALLET' THEN amount ELSE 0 END), 0)
+    INTO v_total_grand_total, v_cash_sales, v_card_sales, v_wallet_sales
+    FROM public.payments p 
+    JOIN public.orders o ON p.order_id = o.id    WHERE o.created_at >= v_shift.start_time AND o.created_at <= COALESCE(v_shift.end_time, now()) 
+      AND p.status = 'COMPLETED' AND o.organization_id = v_org_id;
+    -- 2. حساب الضريبة والصافي
 
+    v_total_tax := v_total_grand_total * (v_vat_rate / (1 + v_vat_rate));
+    v_net_sales := v_total_grand_total - v_total_tax;
+
+        -- 3. حساب التكلفة الشاملة (BOM)
+
+    SELECT COALESCE(SUM(item_cost), 0) INTO v_total_cogs
+    FROM (
+        SELECT SUM(oi.quantity * r.quantity_required * COALESCE(ing.cost, ing.purchase_price, 0)) as item_cost
+        FROM public.order_items oi
+        JOIN public.orders o ON oi.order_id = o.id JOIN public.bill_of_materials r ON oi.product_id = r.product_id JOIN public.products ing ON r.raw_material_id = ing.id
+        WHERE o.created_at >= v_shift.start_time AND o.created_at <= COALESCE(v_shift.end_time, now()) AND o.status IN ('COMPLETED', 'PAID') AND o.organization_id = v_org_id GROUP BY oi.id
+        UNION ALL
+        SELECT SUM(oi.quantity * COALESCE(prod.cost, prod.purchase_price, 0)) as item_cost
+        FROM public.order_items oi
+        JOIN public.orders o ON oi.order_id = o.id JOIN public.products prod ON oi.product_id = prod.id
+        WHERE prod.item_type = 'STOCK' AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = prod.id) AND o.created_at >= v_shift.start_time AND o.created_at <= COALESCE(v_shift.end_time, now()) AND o.status IN ('COMPLETED', 'PAID') AND o.organization_id = v_org_id GROUP BY oi.id
+    ) sub;
+    -- 4. جلب معرفات الحسابات
+
+    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_cash_acc_id FROM public.accounts WHERE code = '1231' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_card_acc_id FROM public.accounts WHERE code = '123201' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_wallet_acc_id FROM public.accounts WHERE code = '123301' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_diff_acc_id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1;
     SELECT id INTO v_inv_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_shortage_acc_id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_overage_acc_id FROM public.accounts WHERE code = '421' AND organization_id = v_org_id LIMIT 1;
 
-    v_tax_amount := ROUND(v_total_sales - (v_total_sales / 1.14), 2);
-
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, user_id, organization_id, is_posted) 
-    VALUES (now(), 'إقفال وردية مجمع - ' || to_char(v_shift.start_time, 'YYYY-MM-DD'), 'SHIFT-' || substring(p_shift_id::text, 1, 8), 'posted', v_shift.user_id, v_org_id, true) 
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
+    VALUES (now(), 'إقفال وردية مجمع - ' || to_char(v_shift.start_time, 'YYYY-MM-DD'), v_ref, 'posted', v_org_id, true) 
     RETURNING id INTO v_journal_id;
 
     IF v_shift.actual_cash > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cash_acc_id, v_shift.actual_cash, 0, 'نقدية الوردية (فعلي)', v_org_id); END IF;
-    IF v_card_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_card_acc_id, v_card_sales, 0, 'مبيعات شبكة/فيزا', v_org_id); END IF;
-    IF v_wallet_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_wallet_acc_id, v_wallet_sales, 0, 'مبيعات محافظ إلكترونية', v_org_id); END IF;
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, (v_total_sales - v_tax_amount), 'إيراد المبيعات', v_org_id);
-    IF v_tax_amount > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, v_tax_amount, 'ضريبة القيمة المضافة', v_org_id); END IF;
-    IF v_opening_bal > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cash_acc_id, 0, v_opening_bal, 'تسوية رصيد الافتتاح', v_org_id); END IF;
-    IF v_difference < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_diff_acc_id, ABS(v_difference), 0, 'عجز عهدة وردية', v_org_id); ELSIF v_difference > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_diff_acc_id, 0, v_difference, 'زيادة عهدة وردية', v_org_id); END IF;
-    IF v_total_cogs > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cogs, 0, 'تكلفة المبيعات', v_org_id); INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inv_acc_id, 0, v_total_cogs, 'صرف المخزون', v_org_id); END IF;
+    IF v_card_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_card_acc_id, v_card_sales, 0, 'مبيعات شبكة', v_org_id); END IF;
+    IF v_wallet_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_wallet_acc_id, v_wallet_sales, 0, 'مبيعات محافظ', v_org_id); END IF;
 
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, v_net_sales, 'إيراد مبيعات', v_org_id);
+    IF v_total_tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, v_total_tax, 'ضريبة مبيعات وردية', v_org_id); END IF;
+    IF v_shift.opening_balance > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cash_acc_id, 0, v_shift.opening_balance, 'رصيد افتتاح الوردية', v_org_id); END IF;
+
+    -- معالجة العجز/الزيادة
+    v_diff_actual := v_shift.actual_cash - (v_shift.opening_balance + v_cash_sales);
+    IF v_diff_actual < 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_shortage_acc_id, ABS(v_diff_actual), 0, 'عجز عهدة وردية', v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cash_acc_id, 0, ABS(v_diff_actual), 'تسوية عجز نقدي', v_org_id);
+    ELSIF v_diff_actual > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cash_acc_id, v_diff_actual, 0, 'تسوية زيادة نقدية', v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_overage_acc_id, 0, v_diff_actual, 'زيادة عهدة وردية', v_org_id);
+    END IF;
+
+    IF v_total_cogs > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cogs, 0, 'تكلفة مبيعات (BOM)', v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inv_acc_id, 0, v_total_cogs, 'صرف مخزون آلي', v_org_id);
+    END IF;
+
+    UPDATE public.shifts SET related_journal_entry_id = v_journal_id WHERE id = p_shift_id;
     RETURN v_journal_id;
 END; $$;
 
@@ -2227,20 +2290,9 @@ BEGIN
     PERFORM public.generate_shift_closing_entry(p_shift_id);
 END; $$;
 
--- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
-SELECT public.refresh_saas_schema();
-
--- ================================================================
--- 31. منح الصلاحيات النهائية (Final Privileges)
--- تكرار المنح هنا يضمن شموله لكافة الجداول المنشأة أعلاه
--- ================================================================
-GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated, service_role;
-GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated, service_role;
-GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO authenticated, service_role;
-
 -- دالة جلب العملاء الذين تجاوزوا حد الائتمان (لحساب الإشعارات الذكية)
-CREATE OR REPLACE FUNCTION public.get_over_limit_customers(org_id UUID)
-RETURNS TABLE (
+DROP FUNCTION IF EXISTS public.get_over_limit_customers(UUID) CASCADE;
+CREATE OR REPLACE FUNCTION public.get_over_limit_customers(p_org_id UUID)RETURNS TABLE (
     id UUID,
     name TEXT,
     total_debt NUMERIC,
@@ -2257,7 +2309,7 @@ BEGIN
         COALESCE(c.balance, 0) as total_debt,
         COALESCE(c.credit_limit, 0) as credit_limit
     FROM public.customers c
-    WHERE c.organization_id = org_id
+    WHERE c.organization_id = p_org_id
       AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0)
       AND COALESCE(c.credit_limit, 0) > 0;
 END;
@@ -2271,37 +2323,6 @@ BEGIN
     VALUES (p_message, p_code, p_context, p_function_name, auth.uid(), public.get_my_org());
 END; $$;
 
--- ================================================================
--- 3.6 إدارة الورديات ونقاط البيع (Shift & POS Management)
--- ================================================================
--- جداول الإضافات (Modifiers)
-CREATE TABLE IF NOT EXISTS public.modifier_groups (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
-    selection_type TEXT NOT NULL DEFAULT 'MULTIPLE',
-    is_required BOOLEAN DEFAULT false,
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.modifiers (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL,
-    price NUMERIC NOT NULL DEFAULT 0,
-    modifier_group_id uuid NOT NULL REFERENCES public.modifier_groups(id) ON DELETE CASCADE,
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.order_item_modifiers (
-    order_item_id uuid REFERENCES public.order_items(id) ON DELETE CASCADE,
-    modifier_id uuid REFERENCES public.modifiers(id) ON DELETE CASCADE,
-    price_at_order NUMERIC NOT NULL,
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    PRIMARY KEY (order_item_id, modifier_id)
-);
-
 -- د. دالة حماية الحسابات الرئيسية (Prevent Group Posting)
 CREATE OR REPLACE FUNCTION public.check_account_is_not_group()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -2311,31 +2332,34 @@ BEGIN
     END IF;
     RETURN NEW;
 END; $$;
-
-DROP TRIGGER IF EXISTS trg_prevent_group_posting ON public.journal_lines;
-CREATE TRIGGER trg_prevent_group_posting BEFORE INSERT OR UPDATE ON public.journal_lines FOR EACH ROW EXECUTE FUNCTION public.check_account_is_not_group();
-
--- دالة ملخص الوردية (العمليات المالية داخل الوردية)
-CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
-RETURNS jsonb LANGUAGE plpgsql AS $$
-DECLARE v_shift record; v_summary jsonb;
+-- نظام حساب تكلفة الوجبات التلقائي المطور (BOM + Labor + Overhead)
+CREATE OR REPLACE FUNCTION public.fn_calculate_and_update_product_cost(p_product_id UUID)
+RETURNS VOID AS $$
+DECLARE
+    v_ings_cost NUMERIC := 0;
 BEGIN
-    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
-    SELECT jsonb_build_object(
-        'opening_balance', v_shift.opening_balance,
-        'total_sales', COALESCE(SUM(amount), 0),
-        'cash_sales', COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0),
-        'card_sales', COALESCE(SUM(CASE WHEN payment_method = 'CARD' THEN amount ELSE 0 END), 0),
-        'wallet_sales', COALESCE(SUM(CASE WHEN payment_method = 'WALLET' THEN amount ELSE 0 END), 0),
-        'expected_cash', v_shift.opening_balance + COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0)
-    ) INTO v_summary
-    FROM public.payments p JOIN public.orders o ON p.order_id = o.id
-    WHERE o.created_at >= v_shift.start_time 
-      AND o.created_at <= COALESCE(v_shift.end_time, now())
-      AND p.status = 'COMPLETED'
-      AND o.organization_id = v_shift.organization_id;
-    RETURN v_summary;
-END; $$;
+    -- 1. حساب تكلفة المكونات الخام من الوصفة
+    SELECT COALESCE(SUM(r.quantity_required * COALESCE(ing.cost, ing.purchase_price, 0)), 0)
+    INTO v_ings_cost
+    FROM public.bill_of_materials r
+    JOIN public.products ing ON r.raw_material_id = ing.id
+    WHERE r.product_id = p_product_id;
+
+    -- 2. تحديث المنتج بالمعادلة المحاسبية الشاملة
+    UPDATE public.products
+    SET cost = CASE 
+            WHEN is_overhead_percentage THEN (v_ings_cost + COALESCE(labor_cost, 0)) * (1 + COALESCE(overhead_cost, 0) / 100)
+            ELSE (v_ings_cost + COALESCE(labor_cost, 0) + COALESCE(overhead_cost, 0))
+        END
+    WHERE id = p_product_id;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION public.trg_fn_sync_meal_cost() RETURNS TRIGGER AS $t$
+BEGIN
+    PERFORM public.fn_calculate_and_update_product_cost(COALESCE(NEW.product_id, OLD.product_id));
+    RETURN NULL;
+END; $t$ LANGUAGE plpgsql;
 
 -- ================================================================
 -- 3.7 صيانة وتحديث الأرصدة (Balance Maintenance)
@@ -2415,12 +2439,11 @@ BEGIN
     INSERT INTO public.roles (name, description) VALUES ('super_admin', 'المدير العام');
     INSERT INTO public.item_categories (organization_id, name) VALUES (v_org_id, 'عام') RETURNING id INTO v_cat_id;
 
-    PERFORM public.add_product_with_opening_balance(
-        'منتج تجريبي 1', 'PROD-001', 100, 80, 50, v_org_id, 'STOCK', 
-        (SELECT id FROM accounts WHERE code = '1' AND organization_id = v_org_id),
-        (SELECT id FROM accounts WHERE code = '5' AND organization_id = v_org_id),
-        (SELECT id FROM accounts WHERE code = '4' AND organization_id = v_org_id)
-    );
+    -- تحديث تكلفة الأصناف بناءً على BOM
+    UPDATE public.products p SET cost = (
+        SELECT COALESCE(SUM(bom.quantity_required * COALESCE(ing.cost, ing.purchase_price, 0)), 0)
+        FROM public.bill_of_materials bom JOIN public.products ing ON bom.raw_material_id = ing.id WHERE bom.product_id = p.id
+    ) WHERE EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = p.id);
 END $$;
 
 -- ================================================================
@@ -2434,7 +2457,7 @@ DECLARE
     tables text[] := ARRAY[
         'profiles', 'organizations', 'company_settings', 'roles', 'permissions', 'role_permissions', 'user_permissions',
         'accounts', 'cost_centers', 'journal_entries', 'journal_lines', 'journal_attachments', 'system_error_logs', 'kitchen_orders',
-        'customers', 'suppliers', 'warehouses', 'item_categories', 'products', 'bill_of_materials', 'opening_inventories',
+        'customers', 'suppliers', 'warehouses', 'item_categories', 'products', 'bill_of_materials', 'opening_inventories', 'modifier_groups', 'modifiers', 'order_item_modifiers',
         'invoices', 'invoice_items', 'sales_returns', 'sales_return_items', 'quotations', 'quotation_items',
         'purchase_invoices', 'purchase_invoice_items', 'purchase_returns', 'purchase_return_items', 'purchase_orders', 'purchase_order_items',
         'invitations', 'receipt_vouchers', 'payment_vouchers', 'receipt_voucher_attachments', 'payment_voucher_attachments', 'budgets',
@@ -2473,7 +2496,7 @@ CREATE POLICY "Admins update settings" ON company_settings FOR UPDATE USING (is_
 DO $$ 
 DECLARE 
     t text;
-    basic_tables text[] := ARRAY['products', 'customers', 'suppliers', 'warehouses', 'accounts', 'cost_centers', 'item_categories', 'bill_of_materials', 'assets', 'restaurant_tables']; -- إضافة الطاولات هنا
+    basic_tables text[] := ARRAY['products', 'customers', 'suppliers', 'warehouses', 'accounts', 'cost_centers', 'item_categories', 'menu_categories', 'bill_of_materials', 'assets', 'restaurant_tables']; -- إضافة الطاولات هنا
 BEGIN 
     FOREACH t IN ARRAY basic_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Select_%I" ON %I;', t, t);

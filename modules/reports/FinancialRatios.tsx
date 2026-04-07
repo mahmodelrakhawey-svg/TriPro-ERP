@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -9,6 +9,8 @@ const FinancialRatios = () => {
   const { accounts, entries } = useAccounting();
 
   const ratios = useMemo(() => {
+    if (!accounts || accounts.length === 0) return null;
+
     // 1. تجميع الأرصدة حسب التصنيف
     let currentAssets = 0;
     let currentLiabilities = 0;
@@ -33,7 +35,12 @@ const FinancialRatios = () => {
             totalAssets += balance;
             
             // الأولوية لـ sub_type لضمان التوافق مع الدليل الشجري
-            if (subType === 'current' || code.startsWith('12') || code.startsWith('11')) {
+            if (
+                subType === 'current' || 
+                code.startsWith('12') || 
+                code.startsWith('103') || 
+                code.startsWith('123')
+            ) {
                 currentAssets += balance;
             }
         }
@@ -41,7 +48,7 @@ const FinancialRatios = () => {
         // 2. تصنيف الخصوم
         if (type === 'LIABILITY' || type === 'خصوم') {
             const absBalance = Math.abs(balance);
-            if (subType === 'current' || code.startsWith('22') || code.startsWith('21')) {
+            if (subType === 'current' || code.startsWith('2')) {
                 currentLiabilities += absBalance;
             }
         }
@@ -111,13 +118,15 @@ const FinancialRatios = () => {
         breakEvenPoint,
         sales
     };
-  }, [accounts]);
+  }, [accounts]); // يعتمد على الحسابات فقط لضمان الثبات
 
   // حساب مقارنة الأداء السنوي
   const currentYear = new Date().getFullYear();
   const prevYear = currentYear - 1;
 
   const comparisonData = useMemo(() => {
+    if (!entries || entries.length === 0) return [];
+
     const calcYearData = (year: number) => {
         let revenue = 0;
         let expenses = 0;
@@ -125,7 +134,9 @@ const FinancialRatios = () => {
         const end = `${year}-12-31`;
 
         entries.forEach(entry => {
-            if (entry.status === 'posted' && entry.date >= start && entry.date <= end) {
+            // دعم مسمى التاريخ البرمجي وتاريخ المعاملة المحاسبي
+            const entryDate = entry.transaction_date || entry.date;
+            if (entry.status === 'posted' && entryDate >= start && entryDate <= end) {
                 entry.lines.forEach(line => {
                     const acc = accounts.find(a => a.id === line.accountId);
                     if (!acc) return;
@@ -147,6 +158,11 @@ const FinancialRatios = () => {
     const curr = calcYearData(currentYear);
     const prev = calcYearData(prevYear);
 
+    // إذا كانت البيانات صفرية في السنتين، قد نحتاج للتأكد من وجود قيود مرحلة
+    if (curr.revenue === 0 && prev.revenue === 0 && entries.length > 0) {
+        console.warn("تحذير: لا توجد قيود 'مرحلة' Posted لقراءتها في مقارنة السنوات.");
+    }
+
     return [
         { name: 'الإيرادات', [currentYear]: curr.revenue, [prevYear]: prev.revenue },
         { name: 'المصروفات', [currentYear]: curr.expenses, [prevYear]: prev.expenses },
@@ -155,17 +171,28 @@ const FinancialRatios = () => {
   }, [entries, accounts, currentYear, prevYear]);
 
   const RatioCard = ({ title, value, suffix = '', ideal, description, color = 'blue' }: any) => (
-    <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all`}>
-        <div className={`absolute top-0 right-0 w-1 h-full bg-${color}-500`}></div>
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all">
+        {/* إصلاح الألوان الديناميكية لضمان الثبات */}
+        <div className="absolute top-0 right-0 w-1 h-full" style={{ backgroundColor: 
+            color === 'blue' ? '#3b82f6' : 
+            color === 'indigo' ? '#6366f1' : 
+            color === 'emerald' ? '#10b981' : 
+            color === 'teal' ? '#14b8a6' : 
+            color === 'cyan' ? '#06b6d4' : 
+            color === 'sky' ? '#0ea5e9' : 
+            color === 'purple' ? '#a855f7' : 
+            color === 'pink' ? '#ec4899' : 
+            color === 'fuchsia' ? '#d946ef' : '#3b82f6' 
+        }}></div>
         <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">{title}</h3>
         <div className="flex items-end gap-2 mb-2">
-            <span className={`text-3xl font-black text-${color}-600`}>{value.toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+            <span className="text-3xl font-black text-slate-800">{(value || 0).toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
             <span className="text-sm font-bold text-slate-400 mb-1">{suffix}</span>
         </div>
         <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-400">المثالي: {ideal}</span>
             {/* مؤشر بسيط للحالة */}
-            {value > 0 && (
+            {Number(value) > 0 && (
                 <span className={`px-2 py-0.5 rounded-full ${value >= parseFloat(ideal) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                     {value >= parseFloat(ideal) || (ideal === '-' && value > 0) ? 'جيد' : 'منخفض'}
                 </span>
@@ -180,6 +207,8 @@ const FinancialRatios = () => {
   const [loadingCharts, setLoadingCharts] = useState(true);
 
   useEffect(() => {
+    if (accounts.length === 0) return; // لا تسحب البيانات التاريخية حتى يجهز الدليل المحاسبي
+  
     const fetchHistoricalData = async () => {
       setLoadingCharts(true);
       try {
@@ -200,9 +229,10 @@ const FinancialRatios = () => {
     };
 
     fetchHistoricalData();
-  }, []); // يتم التشغيل مرة واحدة عند تحميل المكون
+  }, [accounts.length]); // إعادة المحاولة إذا تغير عدد الحسابات (حمّلت البيانات)
 
   const handleExportExcel = () => {
+    if (!ratios) return;
     const data = [
         ['التحليل المالي والنسب'],
         ['تاريخ التقرير:', new Date().toLocaleDateString('ar-EG')],
@@ -226,6 +256,16 @@ const FinancialRatios = () => {
     XLSX.utils.book_append_sheet(wb, ws, "Financial Ratios");
     XLSX.writeFile(wb, `Financial_Ratios_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
+
+  // منع اختفاء الأرقام: إذا كانت الحسابات لا تزال فارغة، نظهر مؤشر تحميل بدلاً من أصفار
+  if (accounts.length === 0 || !ratios) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen space-y-4">
+        <Loader2 className="animate-spin text-indigo-600" size={48} />
+        <p className="text-slate-500 font-bold italic">جاري موازنة النسب المالية والبيانات التاريخية...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in pb-12">
