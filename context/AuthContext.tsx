@@ -117,7 +117,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
           }
         }
-      } catch (error) {
+
+        // جلب قائمة المستخدمين بعد التأكد من وجود جلسة صالحة للمستخدم الحالي
+        await fetchUsers();
+      } catch (error: any) {
         console.error("Error handling auth change:", error);
         setCurrentUser(null);
       }
@@ -128,11 +131,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setAuthInitialized(true);
     setIsLoading(false);
-  }, []);
+  }, [fetchUsers]);
 
   // جلب المستخدمين عند بدء التشغيل
   useEffect(() => {
-    fetchUsers();
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       handleAuthChange(session?.user || null);
     });
