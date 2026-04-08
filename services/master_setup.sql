@@ -1926,6 +1926,7 @@ DECLARE
     v_admin_id uuid;
     v_org_name text;
     v_rec record;
+    v_retained_id uuid;
 BEGIN
     -- تحديد نسبة الضريبة
     IF p_activity_type = 'construction' THEN v_vat_rate := 0.05;
@@ -2083,6 +2084,13 @@ BEGIN
     WHERE a.organization_id = p_org_id 
       AND a.code = t.code 
       AND a.parent_id IS NULL;
+
+    -- ربط حساب الأرباح المبقاة (32) كحساب افتراضي في إعدادات المنظمة
+    SELECT id INTO v_retained_id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1;
+
+    UPDATE public.company_settings 
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object('RETAINED_EARNINGS', v_retained_id)
+    WHERE organization_id = p_org_id;
 
     -- 6. تحديث إعدادات الشركة
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name)
