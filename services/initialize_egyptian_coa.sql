@@ -215,7 +215,24 @@ BEGIN
         activity_type = EXCLUDED.activity_type,
         vat_rate = EXCLUDED.vat_rate;
 
-    RETURN '✅ تم تأسيس دليل الحسابات المصري الشامل بنجاح لـ (' || p_activity_type || ')، تم إضافة حسابات أوراق القبض والمحافظ والمصروفات.';
+    -- تحديث الروابط في الإعدادات لضمان عمل القيود الآلية
+    UPDATE public.company_settings 
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
+        'SALARIES_EXPENSE', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '531' LIMIT 1),
+        'EMPLOYEE_BONUSES', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1),
+        'EMPLOYEE_DEDUCTIONS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1),
+        'EMPLOYEE_ADVANCES', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1),
+        'PAYROLL_TAX', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2233' LIMIT 1),
+        'CASH', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1231' LIMIT 1),
+        'SALES_REVENUE', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '411' LIMIT 1),
+        'CUSTOMERS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1221' LIMIT 1),
+        'SUPPLIERS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '201' LIMIT 1),
+        'VAT', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2231' LIMIT 1),
+        'VAT_INPUT', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1241' LIMIT 1)
+    )
+    WHERE organization_id = p_org_id;
+
+    RETURN '✅ تم تأسيس الدليل المحاسبي وربط الحسابات السيادية بنجاح.';
 
 EXCEPTION WHEN OTHERS THEN
     -- تسجيل الخطأ في جدول سجلات الأخطاء (System Error Logs)

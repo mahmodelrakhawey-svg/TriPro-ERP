@@ -198,18 +198,19 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
     e.preventDefault();
     setLoading(true);
     try {
-      const response = await fetch('/api/create-client', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
+      // ✅ التصحيح: استدعاء دالة قاعدة البيانات مباشرة بدلاً من API غير موجود
+      const { data: newOrgId, error: rpcError } = await supabase.rpc('create_new_client_v2', {
+        p_name: formData.companyName,
+        p_email: formData.email,
+        p_activity_type: formData.coaTemplate,
+        p_vat_number: null // يمكن إضافة حقل له في النموذج لاحقاً
       });
 
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'فشل إنشاء العميل');
+      if (rpcError) throw rpcError;
 
       showToast('تم إنشاء الشركة وحساب المدير بنجاح ✅', 'success');
       onSuccess();
-      setCreatedData(result);
+      setCreatedData({ success: true, orgId: newOrgId });
     } catch (error: any) {
       showToast(error.message, 'error');
     } finally {

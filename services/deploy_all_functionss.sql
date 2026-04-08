@@ -532,11 +532,6 @@ BEGIN
         SELECT id INTO v_payroll_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1;
     END IF;
 
-    v_payroll_tax_acc_id := (v_mappings->>'PAYROLL_TAX')::uuid;
-    IF v_payroll_tax_acc_id IS NULL THEN
-        SELECT id INTO v_payroll_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1;
-    END IF;
-
     IF v_salaries_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الرواتب الرئيسي (531) غير موجود.'; END IF;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
@@ -923,16 +918,18 @@ END; $$;
 -- ================================================================
 -- 29.6 تهيئة الدليل المحاسبي المصري لشركة جديدة
 -- ================================================================ 
-DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid);
+DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid, text) CASCADE;
-CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_template text DEFAULT 'commercial')
+CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_activity_type text DEFAULT 'commercial')
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_vat_rate numeric; v_admin_id uuid; v_retained_id uuid;
+DECLARE v_vat_rate numeric; v_admin_id uuid; v_retained_id uuid; v_org_name text;
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid;
 BEGIN
     v_vat_rate := CASE WHEN p_template = 'construction' THEN 0.05 WHEN p_template = 'charity' THEN 0.00 ELSE 0.14 END;
+    v_vat_rate := CASE WHEN p_activity_type = 'construction' THEN 0.05 WHEN p_activity_type = 'charity' THEN 0.00 ELSE 0.14 END;
+    SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
 
     -- إنشاء جدول مؤقت لهيكل الدليل الأساسي
     CREATE TEMPORARY TABLE coa_temp (code text PRIMARY KEY, name text NOT NULL, type text NOT NULL, is_group boolean NOT NULL, parent_code text) ON COMMIT DROP;
@@ -986,9 +983,9 @@ BEGIN
     v_admin_id := auth.uid();
     IF v_admin_id IS NOT NULL THEN
         UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
-        INSERT INTO public.company_settings (organization_id, company_name, vat_rate)
-        VALUES (p_org_id, (SELECT name FROM public.organizations WHERE id = p_org_id), v_vat_rate)
-        ON CONFLICT (organization_id) DO NOTHING;
+        INSERT INTO public.company_settings (organization_id, company_name, vat_rate, activity_type)
+        VALUES (p_org_id, v_org_name, v_vat_rate, p_activity_type)
+        ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name;
     END IF;
 
     -- حقن الحسابات وربطها هرمياً
@@ -1040,6 +1037,28 @@ BEGIN
     WHERE a.organization_id = p_org_id AND a.code = t.code;
 
     RETURN '✅ تم التأسيس بنجاح.';
+END; $$;
+
+-- ================================================================
+-- 29.7 الدالة الشاملة لإنشاء عميل جديد (SaaS Global Creator)
+-- ================================================================ 
+CREATE OR REPLACE FUNCTION public.create_new_client_v2(
+    p_name text,
+    p_email text,
+    p_activity_type text DEFAULT 'commercial',
+    p_vat_number text DEFAULT NULL
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid;
+BEGIN
+    -- 1. إنشاء المنظمة
+    INSERT INTO public.organizations (name, email, vat_number, is_active)
+    VALUES (p_name, p_email, p_vat_number, true)
+    RETURNING id INTO v_org_id;
+
+    -- 2. تهيئة دليل الحسابات والإعدادات (تشمل حساب الضريبة 2233 والوصف)
+    PERFORM public.initialize_egyptian_coa(v_org_id, p_activity_type);
+
+    RETURN v_org_id;
 END; $$;
 
 -- ================================================================
@@ -1227,4 +1246,26 @@ BEGIN
       AND (je.status = 'posted' OR je.id IS NULL)
       AND a.deleted_at IS NULL
     GROUP BY a.id;
+END; $$;
+
+-- ================================================================
+-- 29.7 الدالة الشاملة لإنشاء عميل جديد (SaaS Global Creator)
+-- ================================================================ 
+CREATE OR REPLACE FUNCTION public.create_new_client_v2(
+    p_name text,
+    p_email text,
+    p_activity_type text DEFAULT 'commercial',
+    p_vat_number text DEFAULT NULL
+) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid;
+BEGIN
+    -- 1. إنشاء المنظمة
+    INSERT INTO public.organizations (name, email, vat_number, is_active)
+    VALUES (p_name, p_email, p_vat_number, true)
+    RETURNING id INTO v_org_id;
+
+    -- 2. تهيئة دليل الحسابات والإعدادات (تشمل حساب الضريبة 2233 والوصف)
+    PERFORM public.initialize_egyptian_coa(v_org_id, p_activity_type);
+
+    RETURN v_org_id;
 END; $$;
