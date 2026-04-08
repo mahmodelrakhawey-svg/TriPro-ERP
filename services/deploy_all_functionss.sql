@@ -979,14 +979,14 @@ BEGIN
     ('531', 'رواتب وأجور الموظفين', 'expense', false, '5'),
     ('533', 'مصروف إهلاك الأصول', 'expense', false, '5');
 
-    -- ربط المستخدم الحالي كمدير
-    v_admin_id := auth.uid();
-    IF v_admin_id IS NOT NULL THEN
-        UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
-        INSERT INTO public.company_settings (organization_id, company_name, vat_rate, activity_type)
-        VALUES (p_org_id, v_org_name, v_vat_rate, p_activity_type)
-        ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name;
-    END IF;
+    -- إعداد إعدادات الشركة (تم إزالة تعديل بروفايل المستخدم الحالي لمنع الخلل)
+    INSERT INTO public.company_settings (organization_id, company_name, vat_rate, activity_type)
+    VALUES (p_org_id, v_org_name, v_vat_rate, p_activity_type)
+    ON CONFLICT (organization_id) 
+    DO UPDATE SET 
+        activity_type = EXCLUDED.activity_type, 
+        vat_rate = EXCLUDED.vat_rate, 
+        company_name = EXCLUDED.company_name;
 
     -- حقن الحسابات وربطها هرمياً
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
@@ -1059,6 +1059,28 @@ BEGIN
     PERFORM public.initialize_egyptian_coa(v_org_id, p_activity_type);
 
     RETURN v_org_id;
+END; $$;
+
+-- ================================================================
+-- 29.8 دالة ربط مدير بشركة (Admin Linker)
+-- ================================================================ 
+CREATE OR REPLACE FUNCTION public.assign_admin_to_org(
+    p_email text,
+    p_org_id uuid
+) RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_user_id uuid;
+BEGIN
+    -- 1. البحث عن المعرف الخاص بالبريد في جدول الحماية
+    SELECT id INTO v_user_id FROM auth.users WHERE email = p_email;
+
+    IF v_user_id IS NULL THEN RAISE EXCEPTION 'البريد الإلكتروني غير مسجل في النظام.'; END IF;
+
+    -- 2. تحديث البروفايل وربطه بالشركة كمدير
+    UPDATE public.profiles 
+    SET organization_id = p_org_id, role = 'admin', is_active = true 
+    WHERE id = v_user_id;
+
+    RETURN '✅ تم ربط المستخدم بالشركة بنجاح.';
 END; $$;
 
 -- ================================================================
