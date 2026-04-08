@@ -42,9 +42,10 @@ const PayrollReport = () => {
             ...curr,
             total_gross_salary: acc.total_gross_salary + curr.total_gross_salary,
             total_additions: acc.total_additions + curr.total_additions,
+            total_payroll_tax: (acc.total_payroll_tax || 0) + (curr.total_payroll_tax || 0),
             total_deductions: acc.total_deductions + curr.total_deductions,
             total_net_salary: acc.total_net_salary + curr.total_net_salary,
-        }), { total_gross_salary: 0, total_additions: 0, total_deductions: 0, total_net_salary: 0 });
+        }), { total_gross_salary: 0, total_additions: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
 
         setPayrollSummary(summary);
         const payrollIds = payrollsList.map(p => p.id);
@@ -96,6 +97,7 @@ const PayrollReport = () => {
                 </div>
                 <div class="row"><span>الراتب الأساسي:</span><span>${item.gross_salary.toLocaleString()}</span></div>
                 <div class="row"><span>الإضافي والمكافآت:</span><span>${item.additions.toLocaleString()}</span></div>
+                <div class="row"><span>ضريبة كسب العمل:</span><span>${(item.payroll_tax || 0).toLocaleString()}</span></div>
                 <div class="row"><span>الخصومات والجزاءات:</span><span>${item.other_deductions.toLocaleString()}</span></div>
                 <div class="row"><span>خصم السلف:</span><span>${item.advances_deducted.toLocaleString()}</span></div>
                 <div class="row total"><span>صافي الراتب المستحق:</span><span>${item.net_salary.toLocaleString()}</span></div>
@@ -164,6 +166,7 @@ const PayrollReport = () => {
                             <th className="p-3 border-b">الموظف</th>
                             <th className="p-3 border-b">الراتب الأساسي</th>
                             <th className="p-3 border-b text-emerald-700">إضافي (+)</th>
+                            <th className="p-3 border-b text-red-700">ضريبة (-)</th>
                             <th className="p-3 border-b text-red-700">خصومات (-)</th>
                             <th className="p-3 border-b text-red-700">سلف (-)</th>
                             <th className="p-3 border-b">صافي الراتب</th>
@@ -176,6 +179,7 @@ const PayrollReport = () => {
                                 <td className="p-3 font-bold">{item.employees?.full_name} <span className="text-xs font-normal text-slate-500 block">{item.employees?.position}</span></td>
                                 <td className="p-3">{item.gross_salary.toLocaleString()}</td>
                                 <td className="p-3 text-emerald-600">{item.additions.toLocaleString()}</td>
+                                <td className="p-3 text-red-600">{(item.payroll_tax || 0).toLocaleString()}</td>
                                 <td className="p-3 text-red-600">{item.other_deductions.toLocaleString()}</td>
                                 <td className="p-3 text-red-600">{item.advances_deducted.toLocaleString()}</td>
                                 <td className="p-3 font-bold text-slate-900 bg-slate-50">{item.net_salary.toLocaleString()}</td>
@@ -192,6 +196,7 @@ const PayrollReport = () => {
                             <td className="p-3">الإجمالي</td>
                             <td className="p-3">{payrollSummary.total_gross_salary.toLocaleString()}</td>
                             <td className="p-3 text-emerald-700">{payrollSummary.total_additions.toLocaleString()}</td>
+                            <td className="p-3 text-red-700">{payrollSummary.total_payroll_tax.toLocaleString()}</td>
                             <td className="p-3 text-red-700" colSpan={2}>{payrollSummary.total_deductions.toLocaleString()}</td>
                             <td className="p-3 text-lg">{payrollSummary.total_net_salary.toLocaleString()}</td>
                         </tr>

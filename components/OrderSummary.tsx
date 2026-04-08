@@ -44,7 +44,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
 
   const finalTotals = useMemo(() => {
     if (!order) return { subtotal: 0, tax: 0, total: 0, discountAmount: 0 };
-    const subtotal = order.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+    const subtotal = order.items.reduce((sum, item) => sum + ((Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)), 0);
     const discountAmount = order.discount?.type === 'fixed' ? order.discount.value : subtotal * ((order.discount?.value || 0) / 100);
     const subtotalAfterDiscount = subtotal - discountAmount;
     const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
@@ -56,7 +56,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
 
   const newItemsTotal = useMemo(() => {
     if (!order || !order.items) return 0;
-    return order.items.reduce((sum, item) => sum + (item.unitPrice * (item.quantity - (item.savedQuantity || 0))), 0);
+    return order.items.reduce((sum, item) => sum + ((Number(item.unitPrice) || 0) * ((Number(item.quantity) || 0) - (Number(item.savedQuantity) || 0))), 0);
   }, [order]);
   const hasNewItems = newItemsTotal > 0;
 
@@ -112,7 +112,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
                 </div>
               )}
               {item.notes && <div className="text-[10px] text-red-500 italic">{item.notes}</div>}
-              <div className="text-xs text-slate-500">{(item.unitPrice).toFixed(2)}</div>
+              <div className="text-xs text-slate-500">{(Number(item.unitPrice) || 0).toFixed(2)}</div>
             </div>
             <div className="flex items-center gap-2">
               <button onClick={() => onUpdateItem((item as any).localId || (item as any).id, -1)} className={`p-1 rounded-full ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-100 text-red-600'}`} disabled={item.savedQuantity ? item.quantity <= item.savedQuantity : false}><Minus size={12} /></button>
@@ -120,7 +120,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
               {item.savedQuantity && item.savedQuantity > 0 && <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded" title="تم طلبه مسبقاً">+{item.savedQuantity}</span>}
               <button onClick={() => onUpdateItem((item as any).localId || (item as any).id, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full hover:bg-emerald-200"><Plus size={12} /></button>
             </div>
-            <div className="font-bold w-20 text-left">{(item.unitPrice * item.quantity).toFixed(2)}</div>
+            <div className="font-bold w-20 text-left">{((Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)).toFixed(2)}</div>
           </div>
         ))}
       </div>
@@ -136,7 +136,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
           <div className="flex justify-between text-sm"><span className="text-slate-500">رسوم التوصيل</span><span className="font-semibold">{order.deliveryFee.toFixed(2)}</span></div>
         )}
         <div className="flex justify-between text-sm"><span className="text-slate-500">الضريبة ({settings.vatRate || 15}%)</span><span className="font-semibold">{finalTotals.tax.toFixed(2)}</span></div>
-        <div className="flex justify-between text-lg font-bold text-slate-800"><span>الإجمالي</span><span>{finalTotals.total.toFixed(2)} SAR</span></div>
+        <div className="flex justify-between text-lg font-bold text-slate-800"><span>الإجمالي</span><span>{(Number(finalTotals.total) || 0).toFixed(2)} SAR</span></div>
       </div>
       <div className="p-2 border-t flex gap-2">
         <button onClick={onAddDiscount} className="flex-1 text-xs bg-slate-100 text-slate-600 font-bold py-2 rounded-lg hover:bg-slate-200 flex items-center justify-center gap-1"><Percent size={14}/> خصم</button>

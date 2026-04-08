@@ -11,10 +11,10 @@ interface PrintableInvoiceProps {
 export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoiceProps>(({ order, settings, isProforma }, ref) => {
   if (!order) return <div ref={ref} className="hidden" />;
 
-  const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0); // Use base price for subtotal
-  const modifiersTotal = order.items.reduce((sum, item) => sum + ((item.unitPrice - item.price) * item.quantity), 0);
+  const subtotal = order.items.reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.quantity) || 0)), 0);
+  const modifiersTotal = order.items.reduce((sum, item) => sum + (((Number(item.unitPrice) || 0) - (Number(item.price) || 0)) * (Number(item.quantity) || 0)), 0);
   const subtotalWithModifiers = subtotal + modifiersTotal;
-  const discountAmount = order.discount?.type === 'fixed' ? order.discount.value : subtotalWithModifiers * ((order.discount?.value || 0) / 100);
+  const discountAmount = order.discount?.type === 'fixed' ? (Number(order.discount.value) || 0) : subtotalWithModifiers * ((Number(order.discount?.value) || 0) / 100);
   const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
   const subtotalAfterDiscount = subtotalWithModifiers - discountAmount - loyaltyDiscountAmount;
   const taxRate = (settings as any).vatRate || 15;
@@ -64,9 +64,9 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
             <React.Fragment key={`${item.productId}-${index}`}>
               <tr>
                 <td className="py-1 font-bold">{item.name}</td>
-                <td className="text-center font-mono">{item.quantity}</td>
-                <td className="text-center font-mono">{item.unitPrice.toFixed(2)}</td>
-                <td className="text-left font-bold font-mono">{(item.unitPrice * item.quantity).toFixed(2)}</td>
+                <td className="text-center font-mono">{Number(item.quantity || 0)}</td>
+                <td className="text-center font-mono">{(Number(item.unitPrice) || 0).toFixed(2)}</td>
+                <td className="text-left font-bold font-mono">{((Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)).toFixed(2)}</td>
               </tr>
               {/* Modifiers & Notes */}
               {(item.selectedModifiers?.length || item.notes) && (

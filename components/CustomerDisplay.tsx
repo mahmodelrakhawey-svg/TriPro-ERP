@@ -37,7 +37,7 @@ const CustomerDisplay = () => {
 
   const totals = useMemo(() => {
     if (!order) return { subtotal: 0, tax: 0, total: 0 };
-    const subtotal = order.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
+    const subtotal = order.items.reduce((sum, item) => sum + ((Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)), 0);
     const discountAmount = order.discount?.type === 'fixed' ? order.discount.value : subtotal * ((order.discount?.value || 0) / 100);
     const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
     const subtotalAfterDiscount = subtotal - discountAmount - loyaltyDiscountAmount;
@@ -83,7 +83,7 @@ const CustomerDisplay = () => {
                   <tr key={(item as any).localId || (item as any).id || index} className="animate-in fade-in slide-in-from-bottom-4">
                     <td className="py-4 font-bold">{item.name}</td>
                     <td className="text-center font-mono font-bold">{item.quantity}</td>
-                    <td className="text-left font-mono font-bold">{(item.unitPrice * item.quantity).toFixed(2)}</td>
+                    <td className="text-left font-mono font-bold">{((Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>

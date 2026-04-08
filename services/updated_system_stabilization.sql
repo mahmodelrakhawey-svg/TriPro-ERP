@@ -1,6 +1,6 @@
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script)
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script) - النسخة الاحترافية الموحدة
--- تاريخ التحديث: 2026-04-03
+-- تاريخ التحديث: 2026-04-08 (SaaS Sync Version)
 -- الوصف: يضمن تحديث هيكل قاعدة البيانات، إضافة أعمدة الـ SaaS، وتفعيل درع حماية البيانات (RLS) لكافة الجداول.
 
 BEGIN;
@@ -21,6 +21,26 @@ BEGIN
             ALTER TABLE public.purchase_return_items RENAME COLUMN return_id TO purchase_return_id;
         END IF;
     END IF;
+END $$;
+
+-- ============================================================
+-- 1.5 توحيد أعمدة نقاط البيع والمطاعم (POS Schema Sync)
+-- ============================================================
+DO $$ BEGIN
+    -- تحديث جدول الطلبات (orders)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='created_by') THEN
+        ALTER TABLE public.orders RENAME COLUMN created_by TO user_id;
+    END IF;
+
+    -- تحديث جدول بنود الطلبات (order_items)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='unit_price') THEN
+        ALTER TABLE public.order_items RENAME COLUMN unit_price TO price;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='total') THEN
+        ALTER TABLE public.order_items RENAME COLUMN total TO total_price;
+    END IF;
+    
+    RAISE NOTICE '✅ تم توحيد مسميات أعمدة الـ POS بنجاح.';
 END $$;
 
 -- ============================================================
@@ -79,6 +99,13 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric 
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric DEFAULT 0;
 ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS vat_rate numeric DEFAULT 0.14;
+
+-- تحديثات مديول الرواتب (Payroll Sync)
+ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
+ALTER TABLE public.payrolls ADD COLUMN IF NOT EXISTS status text DEFAULT 'draft';
+ALTER TABLE public.payroll_items ADD COLUMN IF NOT EXISTS payroll_tax numeric DEFAULT 0;
+ALTER TABLE public.employee_advances ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
 
 -- ============================================================
 -- 6. إصلاح نظام الإشعارات (Notifications Fix)

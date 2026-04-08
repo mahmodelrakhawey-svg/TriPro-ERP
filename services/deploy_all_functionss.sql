@@ -9,7 +9,7 @@
 -- ================================================================
 
 -- أ. اعتماد فاتورة المبيعات (Sales Invoice)
-DROP FUNCTION IF EXISTS public.approve_invoice(UUID) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
+DROP FUNCTION IF EXISTS public.approve_invoice(uuid) CASCADE;
 CREATE OR REPLACE FUNCTION public.approve_invoice(p_invoice_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -20,6 +20,7 @@ DECLARE
     v_modifier_json jsonb; v_bom_item record;
     v_total_amount_base numeric; v_paid_amount_base numeric; v_subtotal_base numeric;
     v_tax_amount_base numeric; v_discount_amount_base numeric;
+    v_mappings jsonb;
 BEGIN
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
@@ -29,14 +30,40 @@ BEGIN
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
-    -- جلب الحسابات اللازمة
-    SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
-    v_treasury_acc_id := v_invoice.treasury_account_id;
+      -- 1. جلب روابط الحسابات المخصصة من إعدادات الشركة
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    -- 2. جلب الحسابات (الأولوية للربط المخصص Mapping ثم الكود الافتراضي)
+    v_sales_acc_id := (v_mappings->>'SALES_REVENUE')::uuid;
+    IF v_sales_acc_id IS NULL THEN
+        SELECT id INTO v_sales_acc_id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    END IF;
+
+    v_vat_acc_id := (v_mappings->>'VAT')::uuid;
+    IF v_vat_acc_id IS NULL THEN
+        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    END IF;
+
+    v_customer_acc_id := (v_mappings->>'CUSTOMERS')::uuid;
+    IF v_customer_acc_id IS NULL THEN
+        SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    END IF;
+
+    v_cogs_acc_id := (v_mappings->>'COGS')::uuid;
+    IF v_cogs_acc_id IS NULL THEN
+        SELECT id INTO v_cogs_acc_id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    END IF;
+
+    v_inventory_acc_id := (v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid;
+    IF v_inventory_acc_id IS NULL THEN
+        SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    END IF;
+
+    v_discount_acc_id := (v_mappings->>'SALES_DISCOUNT')::uuid;
+    IF v_discount_acc_id IS NULL THEN
+        SELECT id INTO v_discount_acc_id FROM public.accounts WHERE code = '4102' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    END IF;  
+   
 
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
         SELECT weighted_average_cost INTO v_item_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
@@ -115,14 +142,29 @@ DECLARE
     v_invoice record; v_item record; v_org_id uuid; v_inventory_acc_id uuid; v_vat_acc_id uuid; v_supplier_acc_id uuid; v_journal_id uuid;
     v_current_stock numeric; v_current_avg_cost numeric; v_new_avg_cost numeric; v_item_price_base numeric;
     v_total_amount_base numeric; v_tax_amount_base numeric; v_net_amount_base numeric; -- 👈 تم إضافة هذه المتغيرات
+    v_mappings jsonb;
 BEGIN
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
     v_org_id := v_invoice.organization_id; -- التأكد من أن المنظمة هي نفسها
 
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1;
+    -- جلب روابط الحسابات المخصصة
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    v_inventory_acc_id := (v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid;
+    IF v_inventory_acc_id IS NULL THEN
+        SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
+    v_vat_acc_id := (v_mappings->>'VAT_INPUT')::uuid;
+    IF v_vat_acc_id IS NULL THEN
+        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
+    v_supplier_acc_id := (v_mappings->>'SUPPLIERS')::uuid;
+    IF v_supplier_acc_id IS NULL THEN
+        SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1;
+    END IF;
 
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
         v_item_price_base := v_item.price * COALESCE(v_invoice.exchange_rate, 1);
@@ -368,25 +410,28 @@ BEGIN
 END; $$;
 
 -- ب. إنشاء طلب مطعم متكامل
-DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, uuid, text, text, jsonb, uuid, uuid, jsonb) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
+DROP FUNCTION IF EXISTS public.create_restaurant_order(uuid, uuid, uuid, text, text, jsonb, uuid, uuid, jsonb) CASCADE;
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
-    p_org_id uuid, p_session_id uuid, p_user_id uuid, p_order_type text, p_notes text, p_items jsonb,
+    p_org_id uuid, p_session_id uuid, p_user_id uuid, p_order_type text, p_notes text, p_items jsonb, 
     p_customer_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL, p_delivery_info jsonb DEFAULT NULL
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0;
+DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_vat_acc_id uuid;
 BEGIN
-    SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings WHERE organization_id = p_org_id LIMIT 1;
-    IF v_tax_rate IS NULL THEN v_tax_rate := 0.14; END IF; -- قيمة افتراضية للضريبة (14%)
+    SELECT COALESCE(vat_rate, 0.14) INTO v_tax_rate FROM public.company_settings WHERE organization_id = p_org_id LIMIT 1;
     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
-    INSERT INTO public.orders (session_id, created_by, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
+    INSERT INTO public.orders (session_id, user_id, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
     VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, p_org_id, p_warehouse_id) RETURNING id INTO v_order_id;
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id)
-        VALUES (v_order_id, (v_item->>'productId')::uuid, (v_item->>'quantity')::numeric, (v_item->>'unitPrice')::numeric, ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), COALESCE((v_item->>'unitCost')::numeric, 0), v_item->>'notes', p_org_id) RETURNING id INTO v_order_item_id;
-        v_subtotal := v_subtotal + ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric);
-        INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) VALUES (v_order_item_id, 'NEW', p_org_id); -- تم استخدام p_org_id بدلاً من get_my_org لضمان الاتساق
-    END LOOP; -- تم تصحيح حساب الضريبة والإجمالي
+        INSERT INTO public.order_items (order_id, product_id, quantity, price, total_price, unit_cost, notes, modifiers, organization_id)
+        VALUES (v_order_id, (v_item->>'productId')::uuid, (v_item->>'quantity')::numeric, (v_item->>'unitPrice')::numeric, ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), COALESCE((v_item->>'unitCost')::numeric, 0), v_item->>'notes', COALESCE(v_item->'modifiers', '[]'::jsonb), p_org_id) RETURNING id INTO v_order_item_id;
+                INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) VALUES (v_order_item_id, 'NEW', p_org_id);
+    END LOOP;
+
     UPDATE public.orders SET subtotal = v_subtotal, total_tax = v_subtotal * v_tax_rate, grand_total = v_subtotal + (v_subtotal * v_tax_rate) WHERE id = v_order_id;
+     IF p_delivery_info IS NOT NULL THEN
+        INSERT INTO public.delivery_orders (order_id, customer_name, customer_phone, delivery_address, delivery_fee, organization_id)
+        VALUES (v_order_id, p_delivery_info->>'customer_name', p_delivery_info->>'customer_phone', p_delivery_info->>'delivery_address', COALESCE((p_delivery_info->>'delivery_fee')::numeric, 0), p_org_id);
+    END IF;   
     RETURN v_order_id;
 END; $$;
 
@@ -450,15 +495,42 @@ CREATE OR REPLACE FUNCTION public.run_payroll_rpc(
     p_items jsonb
 ) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_org_id uuid; v_payroll_id uuid; v_total_gross numeric := 0; v_total_additions numeric := 0; v_total_deductions numeric := 0; v_total_advances numeric := 0; v_total_net numeric := 0; v_item jsonb; v_je_id uuid;
-    v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; v_advances_acc_id uuid;
+DECLARE v_org_id uuid; v_payroll_id uuid; v_total_gross numeric := 0; v_total_additions numeric := 0; 
+    v_total_deductions numeric := 0; v_total_advances numeric := 0; v_total_net numeric := 0; 
+    v_total_payroll_tax numeric := 0; v_item jsonb; v_je_id uuid; v_mappings jsonb;
+    v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
+    v_advances_acc_id uuid; v_payroll_tax_acc_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
-    -- تم توحيد الأكواد مع الدليل المصري
-    SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '531' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_bonuses_acc_id FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '422' AND organization_id = v_org_id LIMIT 1;
-    SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id LIMIT 1;
+
+    -- 1. جلب روابط الحسابات المخصصة
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    -- 2. جلب الحسابات (الأولوية للربط Mapping ثم الكود الافتراضي)
+    v_salaries_acc_id := (v_mappings->>'SALARIES_EXPENSE')::uuid;
+    IF v_salaries_acc_id IS NULL THEN
+        SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '531' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
+    v_bonuses_acc_id := (v_mappings->>'EMPLOYEE_BONUSES')::uuid;
+    IF v_bonuses_acc_id IS NULL THEN
+        SELECT id INTO v_bonuses_acc_id FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
+    v_deductions_acc_id := (v_mappings->>'EMPLOYEE_DEDUCTIONS')::uuid;
+    IF v_deductions_acc_id IS NULL THEN
+        SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '422' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
+    v_advances_acc_id := (v_mappings->>'EMPLOYEE_ADVANCES')::uuid;
+    IF v_advances_acc_id IS NULL THEN
+        SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
+    v_payroll_tax_acc_id := (v_mappings->>'PAYROLL_TAX')::uuid;
+    IF v_payroll_tax_acc_id IS NULL THEN
+        SELECT id INTO v_payroll_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1;
+    END IF;
 
     IF v_salaries_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الرواتب الرئيسي (531) غير موجود.'; END IF;
 
@@ -467,15 +539,16 @@ BEGIN
         v_total_additions := v_total_additions + (v_item->>'additions')::numeric;
         v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
         v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
+        v_total_payroll_tax := v_total_payroll_tax + COALESCE((v_item->>'payroll_tax')::numeric, 0);
         v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
     END LOOP;
 
     INSERT INTO public.payrolls (payroll_month, payroll_year, payment_date, total_gross_salary, total_additions, total_deductions, total_net_salary, status, organization_id)
-    VALUES (p_month, p_year, p_date, v_total_gross, v_total_additions, (v_total_deductions + v_total_advances), v_total_net, 'paid', v_org_id) RETURNING id INTO v_payroll_id;
+    VALUES (p_month, p_year, p_date, v_total_gross, v_total_additions, (v_total_deductions + v_total_advances + v_total_payroll_tax), v_total_net, 'paid', v_org_id) RETURNING id INTO v_payroll_id;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        INSERT INTO public.payroll_items (payroll_id, employee_id, gross_salary, additions, advances_deducted, other_deductions, net_salary, organization_id)
-        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'gross_salary')::numeric, (v_item->>'additions')::numeric, (v_item->>'advances_deducted')::numeric, (v_item->>'other_deductions')::numeric, (v_item->>'net_salary')::numeric, v_org_id);
+        INSERT INTO public.payroll_items (payroll_id, employee_id, gross_salary, additions, payroll_tax, advances_deducted, other_deductions, net_salary, organization_id)
+        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'gross_salary')::numeric, (v_item->>'additions')::numeric, COALESCE((v_item->>'payroll_tax')::numeric, 0), (v_item->>'advances_deducted')::numeric, (v_item->>'other_deductions')::numeric, (v_item->>'net_salary')::numeric, v_org_id);
     END LOOP;
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
@@ -485,6 +558,7 @@ BEGIN
     IF v_total_additions > 0 AND v_bonuses_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF;
     IF v_total_advances > 0 AND v_advances_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_advances_acc_id, 0, v_total_advances, 'استرداد سلف', v_org_id); END IF;
     IF v_total_deductions > 0 AND v_deductions_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
+    IF v_total_payroll_tax > 0 AND v_payroll_tax_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_payroll_tax_acc_id, 0, v_total_payroll_tax, 'ضريبة كسب العمل', v_org_id); END IF;
     IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_account_id, 0, v_total_net, 'صرف صافي الرواتب', v_org_id); END IF;
 END; $$;
 
@@ -572,7 +646,7 @@ BEGIN
     COUNT(o.id) AS total_orders,
     COALESCE(SUM(o.grand_total), 0)::numeric AS total_sales
   FROM public.orders o
-  JOIN auth.users au ON o.created_by = au.id -- الربط مع جدول المستخدمين الأساسي
+  JOIN auth.users au ON o.user_id = au.id -- الربط مع جدول المستخدمين الأساسي باستخدام العمود الجديد
   LEFT JOIN public.profiles p ON au.id = p.id AND p.organization_id = v_target_org -- الربط مع جدول البروفايلات
   WHERE o.organization_id = v_target_org
     AND o.status IN ('COMPLETED', 'PAID')
@@ -580,33 +654,6 @@ BEGIN
     AND o.created_at <= p_end_date::timestamptz
   GROUP BY au.id, p.full_name, au.email
   ORDER BY total_sales DESC;
-END; $$;
-
--- د. إضافة منتج مع رصيد افتتاحي (Add Product with OB)
-DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
-CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(
-    p_name text, p_sku text, p_sales_price numeric, p_purchase_price numeric, p_stock numeric, 
-    p_org_id uuid, p_item_type text DEFAULT 'STOCK', p_inv_acc uuid DEFAULT NULL, p_cogs_acc uuid DEFAULT NULL, p_sales_acc uuid DEFAULT NULL
-) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_product_id UUID; v_inv_id UUID; v_ob_acc UUID; v_je_id UUID;
-BEGIN
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
-    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_org_id, p_item_type, p_inv_acc, p_cogs_acc, p_sales_acc)
-    RETURNING id INTO v_product_id;
-
-    IF p_stock > 0 AND p_purchase_price > 0 THEN
-        v_inv_id := COALESCE(p_inv_acc, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = p_org_id LIMIT 1));
-        v_ob_acc := (SELECT id FROM public.accounts WHERE code = '3999' AND organization_id = p_org_id LIMIT 1);
-
-        IF v_inv_id IS NOT NULL AND v_ob_acc IS NOT NULL THEN
-            INSERT INTO public.journal_entries (transaction_date, reference, description, status, is_posted, organization_id)
-            VALUES (CURRENT_DATE, 'OP-' || p_sku, 'رصيد افتتاحي: ' || p_name, 'posted', true, p_org_id) RETURNING id INTO v_je_id;
-            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-            VALUES (v_je_id, v_inv_id, (p_stock * p_purchase_price), 0, 'مخزون افتتاحي', p_org_id),
-                   (v_je_id, v_ob_acc, 0, (p_stock * p_purchase_price), 'مقابل افتتاحي', p_org_id);
-        END IF;
-    END IF;
-    RETURN v_product_id;
 END; $$;
 
 -- ================================================================
@@ -733,19 +780,57 @@ END; $$;
 SELECT public.refresh_saas_schema();
 
 -- دالة تحليل تكاليف الإنتاج (حل مشكلة PGRST202)
-CREATE OR REPLACE FUNCTION public.get_manufacturing_analysis(p_end_date date, p_org_id uuid, p_start_date date)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_mat_cost numeric; v_lab_cost numeric; v_ovh_cost numeric; v_qty numeric;
+DROP FUNCTION IF EXISTS public.get_manufacturing_analysis(uuid, date, date) CASCADE;
+DROP FUNCTION IF EXISTS public.get_manufacturing_analysis(date, uuid, date) CASCADE;
+CREATE OR REPLACE FUNCTION public.get_manufacturing_analysis(
+    p_org_id uuid,
+    p_start_date date,
+    p_end_date date
+)
+RETURNS TABLE (
+    id uuid,
+    order_number text,
+    product_name text,
+    quantity numeric,
+    end_date date,
+    standard_cost numeric,
+    actual_cost numeric,
+    material_variance numeric,
+    wastage_qty numeric,
+    variance numeric,
+    variance_percent numeric
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
+    RETURN QUERY
+    WITH order_standard_costs AS (
+        SELECT 
+            wo_inner.id as wo_id,
+            COALESCE(SUM(bom.quantity_required * COALESCE(p_raw.cost, p_raw.purchase_price, 0)), 0) as unit_standard_cost
+        FROM public.work_orders wo_inner
+        LEFT JOIN public.bill_of_materials bom ON wo_inner.product_id = bom.product_id
+        LEFT JOIN public.products p_raw ON bom.raw_material_id = p_raw.id
+        GROUP BY wo_inner.id
+    )
     SELECT 
-        SUM(wo.quantity * (SELECT COALESCE(SUM(bom.quantity_required * p.cost), 0) FROM public.bill_of_materials bom JOIN public.products p ON bom.raw_material_id = p.id WHERE bom.product_id = wo.product_id)),
-        SUM(COALESCE((SELECT SUM(amount) FROM public.work_order_costs WHERE work_order_id = wo.id AND cost_type = 'labor'), 0)),
-        SUM(COALESCE((SELECT SUM(amount) FROM public.work_order_costs WHERE work_order_id = wo.id AND cost_type = 'overhead'), 0)),
-        SUM(wo.quantity)
-    INTO v_mat_cost, v_lab_cost, v_ovh_cost, v_qty
+        wo.id,
+        wo.order_number,
+        p.name as product_name,
+        wo.quantity,
+        wo.end_date,
+        (osc.unit_standard_cost * wo.quantity)::numeric as standard_cost,
+        COALESCE((SELECT SUM(amount) FROM public.work_order_costs WHERE work_order_id = wo.id), 0)::numeric as actual_cost,
+        0::numeric as material_variance,
+        0::numeric as wastage_qty,
+        (COALESCE((SELECT SUM(amount) FROM public.work_order_costs WHERE work_order_id = wo.id), 0) - (osc.unit_standard_cost * wo.quantity))::numeric as variance,
+        CASE WHEN (osc.unit_standard_cost * wo.quantity) > 0 
+             THEN (((COALESCE((SELECT SUM(amount) FROM public.work_order_costs WHERE work_order_id = wo.id), 0) / (osc.unit_standard_cost * wo.quantity)) - 1) * 100)::numeric
+             ELSE 0 END as variance_percent
     FROM public.work_orders wo
-    WHERE wo.organization_id = p_org_id AND wo.status = 'completed' AND wo.created_at::date BETWEEN p_start_date AND p_end_date;
-    RETURN jsonb_build_object('materialCost', COALESCE(v_mat_cost, 0), 'laborCost', COALESCE(v_lab_cost, 0), 'overheadCost', COALESCE(v_ovh_cost, 0), 'totalCost', (COALESCE(v_mat_cost, 0) + COALESCE(v_lab_cost, 0) + COALESCE(v_ovh_cost, 0)), 'completedQuantity', COALESCE(v_qty, 0));
+    JOIN public.products p ON wo.product_id = p.id
+    JOIN order_standard_costs osc ON wo.id = osc.wo_id
+    WHERE wo.organization_id = p_org_id 
+      AND wo.status = 'completed'
+      AND wo.end_date BETWEEN p_start_date AND p_end_date;
 END; $$;
 -- هـ. تسجيل أخطاء النظام (System Error Logger)
 DROP FUNCTION IF EXISTS public.log_system_error(text, text, jsonb, text) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
@@ -838,6 +923,9 @@ DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid, text) CASCADE;
 CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_template text DEFAULT 'commercial')
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_vat_rate numeric; v_admin_id uuid; v_retained_id uuid;
+    v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
+    v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid;
+    v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid;
 BEGIN
     v_vat_rate := CASE WHEN p_template = 'construction' THEN 0.05 WHEN p_template = 'charity' THEN 0.00 ELSE 0.14 END;
 
@@ -850,15 +938,37 @@ BEGIN
     ('3', 'حقوق الملكية', 'equity', true, NULL),
     ('4', 'الإيرادات', 'revenue', true, NULL),
     ('5', 'المصروفات', 'expense', true, NULL),
+    -- المستوى 2
     ('12', 'الأصول المتداولة', 'asset', true, '1'),
+    ('31', 'رأس المال والاحتياطيات', 'equity', true, '3'),
+    -- المستوى 3
+    ('123', 'النقدية وما في حكمها', 'asset', true, '12'),
+    ('1232', 'البنوك - حسابات جارية', 'asset', true, '123'),
+    ('1233', 'المحافظ الإلكترونية', 'asset', true, '123'),
+    ('124', 'أرصدة مدينة أخرى', 'asset', true, '12'),
+    ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '2'),
+    -- المستوى 4 (حسابات الحركة)
     ('1221', 'العملاء', 'asset', false, '12'),
-    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'asset', false, '12'),
-    ('1231', 'الخزينة الرئيسية', 'asset', false, '12'),
+    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'asset', false, '124'),
+    ('1242', 'ضريبة الخصم والتحصيل (لنا)', 'asset', false, '124'),
+    ('1231', 'الخزينة الرئيسية', 'asset', false, '123'),
+    ('123201', 'البنك الأهلي المصري', 'asset', false, '1232'),
+    ('123202', 'بنك مصر', 'asset', false, '1232'),
+    ('123203', 'البنك التجاري الدولي (CIB)', 'asset', false, '1232'),
+    ('123204', 'بنك QNB الأهلي', 'asset', false, '1232'),
+    ('123205', 'بنك القاهرة', 'asset', false, '1232'),
+    ('123301', 'فودافون كاش', 'asset', false, '1233'),
+    ('123302', 'اتصالات كاش', 'asset', false, '1233'),
+    ('123303', 'أورنج كاش', 'asset', false, '1233'),
+    ('123304', 'وي باي (WE Pay)', 'asset', false, '1233'),
+    ('123305', 'انستا باي (InstaPay)', 'asset', false, '1233'),
     ('10302', 'مخزون منتج تام', 'asset', false, '12'),
     ('1119', 'مجمع إهلاك الأصول', 'asset', false, '1'),
     ('201', 'الموردين', 'liability', false, '2'),
-    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '2'),
-    ('311', 'رأس المال', 'equity', false, '3'),
+    ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'),
+    ('2232', 'ضريبة الخصم والتحصيل (علينا)', 'liability', false, '223'),
+    ('2233', 'ضريبة كسب العمل', 'liability', false, '223'),
+    ('311', 'رأس المال المدفوع', 'equity', false, '31'),
     ('32', 'الأرباح المبقاة', 'equity', false, '3'),
     ('3999', 'الأرصدة الافتتاحية', 'equity', false, '3'),
     ('411', 'إيراد مبيعات', 'revenue', false, '4'),
@@ -880,11 +990,45 @@ BEGIN
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
     SELECT p_org_id, code, name, type, is_group, true FROM coa_temp ON CONFLICT DO NOTHING;
 
-    -- ربط حساب الأرباح المبقاة (32) كحساب افتراضي في إعدادات المنظمة (Mapping)
+    -- ربط المعرفات (UUIDs) بالحسابات السيادية لضمان عمل الدوال التلقائية
     SELECT id INTO v_retained_id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1;
+    SELECT id INTO v_cash_id FROM public.accounts WHERE organization_id = p_org_id AND code = '1231' LIMIT 1;
+    SELECT id INTO v_sales_id FROM public.accounts WHERE organization_id = p_org_id AND code = '411' LIMIT 1;
+    SELECT id INTO v_cust_id FROM public.accounts WHERE organization_id = p_org_id AND code = '1221' LIMIT 1;
+    SELECT id INTO v_cogs_id FROM public.accounts WHERE organization_id = p_org_id AND code = '511' LIMIT 1;
+    SELECT id INTO v_inv_id FROM public.accounts WHERE organization_id = p_org_id AND code = '10302' LIMIT 1;
+    SELECT id INTO v_vat_id FROM public.accounts WHERE organization_id = p_org_id AND code = '2231' LIMIT 1;
+    SELECT id INTO v_supp_id FROM public.accounts WHERE organization_id = p_org_id AND code = '201' LIMIT 1;
+    SELECT id INTO v_vat_in_id FROM public.accounts WHERE organization_id = p_org_id AND code = '1241' LIMIT 1;
+    SELECT id INTO v_disc_id FROM public.accounts WHERE organization_id = p_org_id AND code = '4102' LIMIT 1;
+    SELECT id INTO v_wht_pay_id FROM public.accounts WHERE organization_id = p_org_id AND code = '2232' LIMIT 1;
+    SELECT id INTO v_payroll_tax_id FROM public.accounts WHERE organization_id = p_org_id AND code = '2233' LIMIT 1;
+    SELECT id INTO v_wht_rec_id FROM public.accounts WHERE organization_id = p_org_id AND code = '1242' LIMIT 1;
+    SELECT id INTO v_sal_exp_id FROM public.accounts WHERE organization_id = p_org_id AND code = '531' LIMIT 1;
+    SELECT id INTO v_bonus_id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1;
+    SELECT id INTO v_ded_id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1;
+    SELECT id INTO v_adv_id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1;
     
     UPDATE public.company_settings 
-    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object('RETAINED_EARNINGS', v_retained_id)
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
+        'RETAINED_EARNINGS', COALESCE(v_retained_id, (account_mappings->>'RETAINED_EARNINGS')::uuid),
+        'CASH', COALESCE(v_cash_id, (account_mappings->>'CASH')::uuid),
+        'SALES_REVENUE', COALESCE(v_sales_id, (account_mappings->>'SALES_REVENUE')::uuid),
+        'CUSTOMERS', COALESCE(v_cust_id, (account_mappings->>'CUSTOMERS')::uuid),
+        'COGS', COALESCE(v_cogs_id, (account_mappings->>'COGS')::uuid),
+        'INVENTORY_FINISHED_GOODS', COALESCE(v_inv_id, (account_mappings->>'INVENTORY_FINISHED_GOODS')::uuid),
+        'VAT', COALESCE(v_vat_id, (account_mappings->>'VAT')::uuid),
+        'SUPPLIERS', COALESCE(v_supp_id, (account_mappings->>'SUPPLIERS')::uuid),
+        'VAT_INPUT', COALESCE(v_vat_in_id, (account_mappings->>'VAT_INPUT')::uuid),
+        'SALES_DISCOUNT', COALESCE(v_disc_id, (account_mappings->>'SALES_DISCOUNT')::uuid),
+        'WHT_PAYABLE', v_wht_pay_id,
+        'PAYROLL_TAX', v_payroll_tax_id,
+        'WHT_RECEIVABLE', v_wht_rec_id,
+        'SALARIES_EXPENSE', v_sal_exp_id,
+        'EMPLOYEE_BONUSES', v_bonus_id,
+        'EMPLOYEE_DEDUCTIONS', v_ded_id,
+        'EMPLOYEE_ADVANCES', v_adv_id
+    )
     WHERE organization_id = p_org_id;
 
     UPDATE public.accounts a SET parent_id = p.id FROM coa_temp t JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
@@ -1059,4 +1203,23 @@ BEGIN
 
     UPDATE public.company_settings SET last_closed_date = p_closing_date WHERE organization_id = v_org_id;
     RETURN v_je_id;
+END; $$;
+
+-- جلب أرصدة كافة الحسابات (إجمالي مدين - إجمالي دائن) لمنظمة معينة
+CREATE OR REPLACE FUNCTION public.get_all_account_balances(p_org_id uuid)
+RETURNS TABLE (account_id uuid, balance numeric) 
+LANGUAGE plpgsql 
+SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        a.id as account_id,
+        COALESCE(SUM(jl.debit - jl.credit), 0) as balance
+    FROM public.accounts a
+    LEFT JOIN public.journal_lines jl ON a.id = jl.account_id
+    LEFT JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    WHERE a.organization_id = p_org_id
+      AND (je.status = 'posted' OR je.id IS NULL)
+      AND a.deleted_at IS NULL
+    GROUP BY a.id;
 END; $$;

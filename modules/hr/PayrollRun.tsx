@@ -11,6 +11,7 @@ type PayrollItem = {
   gross_salary: number;
   additions: number;
   advances_deducted: number;
+  payroll_tax: number;
   other_deductions: number;
   net_salary: number;
   advances_ids: string[];
@@ -74,6 +75,7 @@ const PayrollRun = () => {
           full_name: emp.full_name,
           gross_salary: emp.salary || 0,
           additions: 0,
+          payroll_tax: 0,
           advances_deducted: totalAdvances,
           other_deductions: 0,
           net_salary: netSalary,
@@ -92,7 +94,7 @@ const PayrollRun = () => {
   const handleAdditionsChange = (employeeId: string, value: number) => {
     setPayrollData(prev => prev.map(emp => {
       if (emp.employee_id === employeeId) {
-        const newNet = emp.gross_salary + value - emp.advances_deducted - emp.other_deductions;
+        const newNet = emp.gross_salary + value - emp.advances_deducted - emp.other_deductions - emp.payroll_tax;
         return { ...emp, additions: value, net_salary: newNet };
       }
       return emp;
@@ -102,8 +104,18 @@ const PayrollRun = () => {
   const handleDeductionChange = (employeeId: string, value: number) => {
     setPayrollData(prev => prev.map(emp => {
       if (emp.employee_id === employeeId) {
-        const newNet = emp.gross_salary + emp.additions - emp.advances_deducted - value;
+        const newNet = emp.gross_salary + emp.additions - emp.advances_deducted - value - emp.payroll_tax;
         return { ...emp, other_deductions: value, net_salary: newNet };
+      }
+      return emp;
+    }));
+  };
+
+  const handleTaxChange = (employeeId: string, value: number) => {
+    setPayrollData(prev => prev.map(emp => {
+      if (emp.employee_id === employeeId) {
+        const newNet = emp.gross_salary + emp.additions - emp.advances_deducted - emp.other_deductions - value;
+        return { ...emp, payroll_tax: value, net_salary: newNet };
       }
       return emp;
     }));
@@ -229,6 +241,7 @@ const PayrollRun = () => {
                     <th className="p-4">الراتب الأساسي</th>
                     <th className="p-4 text-emerald-600">إضافي / مكافآت (+)</th>
                     <th className="p-4">السلف المستحقة</th>
+                    <th className="p-4 text-red-600">ضريبة كسب العمل (-)</th>
                     <th className="p-4 text-red-600">خصومات / جزاءات (-)</th>
                     <th className="p-4">صافي الراتب</th>
                 </tr>
@@ -249,6 +262,16 @@ const PayrollRun = () => {
                             />
                         </td>
                         <td className="p-4 text-red-500">{emp.advances_deducted.toLocaleString()}</td>
+                        <td className="p-4 w-32">
+                            <input 
+                                type="number" 
+                                min="0"
+                                value={emp.payroll_tax}
+                                onChange={e => handleTaxChange(emp.employee_id, parseFloat(e.target.value) || 0)}
+                                className="w-full border rounded p-1 text-center border-red-200 focus:ring-red-500 focus:border-red-500"
+                                placeholder="0"
+                            />
+                        </td>
                         <td className="p-4 w-32">
                             <input 
                                 type="number" 

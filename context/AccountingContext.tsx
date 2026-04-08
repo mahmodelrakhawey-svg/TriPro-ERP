@@ -3867,10 +3867,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 items.push({ 
                     id: item.id, // Order Item ID (Required for split payment)
                     productId: item.product_id, 
-                    name: item.products?.name, 
-                    quantity: item.quantity, 
-                    unitPrice: item.price, 
-                    notes: item.notes, 
+                    name: item.products?.name || 'صنف غير معروف', 
+                    quantity: Number(item.quantity || 0), 
+                    price: Number(item.price || 0), 
+                    unitPrice: Number(item.price || 0), 
+                    notes: item.notes || '', 
                     selectedModifiers: item.modifiers,
                     savedQuantity: item.quantity 
                 });

@@ -44,6 +44,7 @@ const EmployeeStatement = () => {
                 id, 
                 gross_salary, 
                 additions,
+                payroll_tax,
                 advances_deducted, 
                 other_deductions, 
                 net_salary,
@@ -90,15 +91,16 @@ const EmployeeStatement = () => {
                     credit: item.additions 
                 });
             }
+            
 
-            // الخصومات والجزاءات (مدين - عليه)
-            if (item.other_deductions > 0) {
+            // ضريبة كسب العمل (مدين - عليه)
+            if (item.payroll_tax > 0) {
                 allTrans.push({
                     date: date, 
                     type: 'deduction', 
-                    ref: `PAY-DED-${monthYear}`, 
-                    desc: `خصومات وجزاءات شهر ${monthYear}`, 
-                    debit: item.other_deductions, 
+                    ref: `PAY-TAX-${monthYear}`,
+                    desc: `ضريبة كسب عمل شهر ${monthYear}`,
+                    debit: item.payroll_tax,
                     credit: 0 
                 });
             }

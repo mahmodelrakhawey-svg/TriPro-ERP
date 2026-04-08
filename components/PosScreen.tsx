@@ -997,7 +997,7 @@ const PosScreen = () => {
             name: item.products?.name,
             quantity: item.quantity,
             price: item.products?.sales_price || 0, // Base price
-            unitPrice: item.unit_price, // Price with modifiers
+            unitPrice: item.price || item.unit_price || 0, // جلب السعر من الحقل الصحيح price
             notes: item.notes,
             selectedModifiers: item.modifiers,
             savedQuantity: item.quantity
