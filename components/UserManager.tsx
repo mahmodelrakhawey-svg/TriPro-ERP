@@ -197,6 +197,7 @@ const UserManager = () => {
             full_name: newUserData.fullName,
             role: newUserData.role,
             app_role: newUserData.role,
+            org_id: (currentUser as any)?.organization_id || currentUser?.id, // ضمان وجود معرف للمنظمة
           }
         }
       });

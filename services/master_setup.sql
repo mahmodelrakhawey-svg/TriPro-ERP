@@ -91,7 +91,7 @@ CREATE TABLE public.profiles (
     role_id uuid REFERENCES public.roles(id),
     avatar_url text,
     is_active boolean DEFAULT true NOT NULL,
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -136,8 +136,6 @@ BEGIN
         
         IF v_org_id IS NOT NULL THEN
             UPDATE public.invitations SET accepted_at = now() WHERE email = new.email;
-        ELSE
-            RAISE EXCEPTION 'التسجيل متاح فقط للمدراء أو عبر دعوة.';
         END IF;
     END IF;
 
@@ -206,7 +204,7 @@ CREATE TABLE public.company_settings (
     decimal_places integer DEFAULT 2,
     max_cash_deficit_limit numeric DEFAULT 500,
     account_mappings jsonb DEFAULT '{}'::jsonb,
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org() UNIQUE,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org() UNIQUE,
     updated_at timestamptz DEFAULT now()
 );
 

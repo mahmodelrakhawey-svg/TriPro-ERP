@@ -198,12 +198,12 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
     e.preventDefault();
     setLoading(true);
     try {
-      // ✅ التصحيح: استدعاء دالة قاعدة البيانات مباشرة بدلاً من API غير موجود
+      // استدعاء دالة قاعدة البيانات مباشرة لضمان تأسيس الشركة والدليل المحاسبي في خطوة واحدة
       const { data: newOrgId, error: rpcError } = await supabase.rpc('create_new_client_v2', {
         p_name: formData.companyName,
         p_email: formData.email,
-        p_activity_type: formData.coaTemplate,
-        p_vat_number: null // يمكن إضافة حقل له في النموذج لاحقاً
+        p_activity_type: formData.coaTemplate || 'commercial',
+        p_vat_number: null
       });
 
       if (rpcError) throw rpcError;

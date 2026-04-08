@@ -532,6 +532,11 @@ BEGIN
         SELECT id INTO v_payroll_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1;
     END IF;
 
+    v_payroll_tax_acc_id := (v_mappings->>'PAYROLL_TAX')::uuid;
+    IF v_payroll_tax_acc_id IS NULL THEN
+        SELECT id INTO v_payroll_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
     IF v_salaries_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الرواتب الرئيسي (531) غير موجود.'; END IF;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
@@ -927,7 +932,6 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_retained_id uuid; v_org_name text
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid;
 BEGIN
-    v_vat_rate := CASE WHEN p_template = 'construction' THEN 0.05 WHEN p_template = 'charity' THEN 0.00 ELSE 0.14 END;
     v_vat_rate := CASE WHEN p_activity_type = 'construction' THEN 0.05 WHEN p_activity_type = 'charity' THEN 0.00 ELSE 0.14 END;
     SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
 
@@ -979,14 +983,14 @@ BEGIN
     ('531', 'رواتب وأجور الموظفين', 'expense', false, '5'),
     ('533', 'مصروف إهلاك الأصول', 'expense', false, '5');
 
-    -- إعداد إعدادات الشركة (تم إزالة تعديل بروفايل المستخدم الحالي لمنع الخلل)
-    INSERT INTO public.company_settings (organization_id, company_name, vat_rate, activity_type)
-    VALUES (p_org_id, v_org_name, v_vat_rate, p_activity_type)
-    ON CONFLICT (organization_id) 
-    DO UPDATE SET 
-        activity_type = EXCLUDED.activity_type, 
-        vat_rate = EXCLUDED.vat_rate, 
-        company_name = EXCLUDED.company_name;
+    -- ربط المستخدم الحالي كمدير
+    v_admin_id := auth.uid();
+    IF v_admin_id IS NOT NULL THEN
+        UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
+        INSERT INTO public.company_settings (organization_id, company_name, vat_rate, activity_type)
+        VALUES (p_org_id, v_org_name, v_vat_rate, p_activity_type)
+        ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name;
+    END IF;
 
     -- حقن الحسابات وربطها هرمياً
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
@@ -1062,26 +1066,28 @@ BEGIN
 END; $$;
 
 -- ================================================================
--- 29.8 دالة ربط مدير بشركة (Admin Linker)
+-- 29.9 دالة حماية السوبر أدمن عند حذف الشركة
 -- ================================================================ 
-CREATE OR REPLACE FUNCTION public.assign_admin_to_org(
-    p_email text,
-    p_org_id uuid
-) RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_user_id uuid;
+CREATE OR REPLACE FUNCTION public.protect_super_admin_on_org_delete()
+RETURNS TRIGGER AS $$
 BEGIN
-    -- 1. البحث عن المعرف الخاص بالبريد في جدول الحماية
-    SELECT id INTO v_user_id FROM auth.users WHERE email = p_email;
+    -- إذا كان البروفايل المرتبط بالشركة المحذوفة هو 'super_admin'
+    -- نقوم بتعيين organization_id الخاص به إلى NULL بدلاً من حذفه
+    UPDATE public.profiles
+    SET organization_id = NULL
+    WHERE organization_id = OLD.id AND role = 'super_admin';
 
-    IF v_user_id IS NULL THEN RAISE EXCEPTION 'البريد الإلكتروني غير مسجل في النظام.'; END IF;
+    -- البروفايلات الأخرى (غير super_admin) المرتبطة بهذه الشركة
+    -- سيتم حذفها تلقائياً بواسطة ON DELETE CASCADE في تعريف جدول profiles
 
-    -- 2. تحديث البروفايل وربطه بالشركة كمدير
-    UPDATE public.profiles 
-    SET organization_id = p_org_id, role = 'admin', is_active = true 
-    WHERE id = v_user_id;
+    RETURN OLD; -- السماح لعملية حذف المنظمة بالاستمرار
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
-    RETURN '✅ تم ربط المستخدم بالشركة بنجاح.';
-END; $$;
+-- المشغل الذي يستدعي الدالة قبل حذف أي منظمة
+CREATE TRIGGER trg_protect_super_admin_on_org_delete
+BEFORE DELETE ON public.organizations
+FOR EACH ROW EXECUTE FUNCTION public.protect_super_admin_on_org_delete();
 
 -- ================================================================
 -- 30. دالة إصلاح وتنشيط هيكل بيانات الـ SaaS
@@ -1268,26 +1274,4 @@ BEGIN
       AND (je.status = 'posted' OR je.id IS NULL)
       AND a.deleted_at IS NULL
     GROUP BY a.id;
-END; $$;
-
--- ================================================================
--- 29.7 الدالة الشاملة لإنشاء عميل جديد (SaaS Global Creator)
--- ================================================================ 
-CREATE OR REPLACE FUNCTION public.create_new_client_v2(
-    p_name text,
-    p_email text,
-    p_activity_type text DEFAULT 'commercial',
-    p_vat_number text DEFAULT NULL
-) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_org_id uuid;
-BEGIN
-    -- 1. إنشاء المنظمة
-    INSERT INTO public.organizations (name, email, vat_number, is_active)
-    VALUES (p_name, p_email, p_vat_number, true)
-    RETURNING id INTO v_org_id;
-
-    -- 2. تهيئة دليل الحسابات والإعدادات (تشمل حساب الضريبة 2233 والوصف)
-    PERFORM public.initialize_egyptian_coa(v_org_id, p_activity_type);
-
-    RETURN v_org_id;
 END; $$;
