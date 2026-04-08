@@ -298,8 +298,6 @@ interface AccountingContextType {
   addProductsBulk: (products: Omit<Product, 'id'>[]) => void;
   produceItem: (productId: string, quantity: number, warehouseId: string, date: string, additionalCost?: number, reference?: string) => Promise<{ success: boolean, message: string }>;
   categories: Category[];
-  addCategory: (name: string) => void;
-  deleteCategory: (id: string) => void;
   addCategory: (name: string) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   warehouses: Warehouse[];
@@ -4196,7 +4194,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deleteProduct,
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
       produceItem,
-      categories, addCategory: (n) => setCategories(prev => [...prev, { id: generateUUID(), name: n }]), deleteCategory: (id) => setCategories(prev => prev.filter(c => c.id !== id)),
       categories, addCategory, deleteCategory,
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
