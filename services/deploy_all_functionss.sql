@@ -837,7 +837,7 @@ DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid);
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid, text) CASCADE;
 CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_template text DEFAULT 'commercial')
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_vat_rate numeric; v_admin_id uuid;
+DECLARE v_vat_rate numeric; v_admin_id uuid; v_retained_id uuid;
 BEGIN
     v_vat_rate := CASE WHEN p_template = 'construction' THEN 0.05 WHEN p_template = 'charity' THEN 0.00 ELSE 0.14 END;
 
@@ -852,14 +852,20 @@ BEGIN
     ('5', 'المصروفات', 'expense', true, NULL),
     ('12', 'الأصول المتداولة', 'asset', true, '1'),
     ('1221', 'العملاء', 'asset', false, '12'),
+    ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'asset', false, '12'),
     ('1231', 'الخزينة الرئيسية', 'asset', false, '12'),
     ('10302', 'مخزون منتج تام', 'asset', false, '12'),
+    ('1119', 'مجمع إهلاك الأصول', 'asset', false, '1'),
     ('201', 'الموردين', 'liability', false, '2'),
     ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '2'),
     ('311', 'رأس المال', 'equity', false, '3'),
+    ('32', 'الأرباح المبقاة', 'equity', false, '3'),
     ('3999', 'الأرصدة الافتتاحية', 'equity', false, '3'),
     ('411', 'إيراد مبيعات', 'revenue', false, '4'),
-    ('511', 'تكلفة مبيعات', 'expense', false, '5');
+    ('4102', 'خصم مسموح به', 'revenue', false, '4'),
+    ('511', 'تكلفة مبيعات', 'expense', false, '5'),
+    ('531', 'رواتب وأجور الموظفين', 'expense', false, '5'),
+    ('533', 'مصروف إهلاك الأصول', 'expense', false, '5');
 
     -- ربط المستخدم الحالي كمدير
     v_admin_id := auth.uid();
@@ -873,6 +879,13 @@ BEGIN
     -- حقن الحسابات وربطها هرمياً
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
     SELECT p_org_id, code, name, type, is_group, true FROM coa_temp ON CONFLICT DO NOTHING;
+
+    -- ربط حساب الأرباح المبقاة (32) كحساب افتراضي في إعدادات المنظمة (Mapping)
+    SELECT id INTO v_retained_id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1;
+    
+    UPDATE public.company_settings 
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object('RETAINED_EARNINGS', v_retained_id)
+    WHERE organization_id = p_org_id;
 
     UPDATE public.accounts a SET parent_id = p.id FROM coa_temp t JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
     WHERE a.organization_id = p_org_id AND a.code = t.code;
