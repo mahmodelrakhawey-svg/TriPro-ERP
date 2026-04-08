@@ -300,6 +300,8 @@ interface AccountingContextType {
   categories: Category[];
   addCategory: (name: string) => void;
   deleteCategory: (id: string) => void;
+  addCategory: (name: string) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
   warehouses: Warehouse[];
   addWarehouse: (warehouse: Omit<Warehouse, 'id'>) => Promise<any>;
   updateWarehouse: (id: string, warehouse: Partial<Warehouse>) => Promise<void>;
@@ -594,6 +596,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { demoAccounts, allDemoEntries };
   };
 
+  const addCategory = async (name: string) => {
+    try {
+      const { data, error } = await supabase.from('item_categories').insert({ name, organization_id: (currentUser as any)?.organization_id }).select().single();
+      if (error) throw error;
+      await fetchData();
+      showToast('تم إضافة التصنيف بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل إضافة التصنيف: ' + err.message, 'error');
+    }
+  };
+
+  const deleteCategory = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذا التصنيف؟')) return;
+    try {
+      const { error } = await supabase.from('item_categories').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      if (error) throw error;
+      await fetchData();
+      showToast('تم حذف التصنيف بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل حذف التصنيف: ' + err.message, 'error');
+    }
+  };
+
   const fetchData = async () => {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
@@ -639,6 +664,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCostCenters([{id: 'demo-cc-1', name: 'الفرع الرئيسي', code: 'CC-01'}, {id: 'demo-cc-2', name: 'فرع الرياض', code: 'CC-02'}]);
         setRestaurantTables(DUMMY_TABLES);
         setMenuCategories(DUMMY_MENU_CATEGORIES);
+        setCategories(DUMMY_MENU_CATEGORIES as any);
         
         // تعيين المستخدمين للديمو
         setUsers([
@@ -714,7 +740,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: depreciationData },
         { data: allBalances }, // جلب أرصدة جميع الحسابات من السيرفر
         { data: restaurantTablesData },
-        { data: menuCategoriesData }
+        { data: menuCategoriesData },
+        { data: itemCategoriesData }
       ] = await Promise.all([
         shouldFetchProtected ? supabase.from('warehouses').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('company_settings').select('*').eq('organization_id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
@@ -736,7 +763,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('organization_id', currentOrgId).eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.rpc('get_all_account_balances', { p_org_id: currentOrgId }) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null })
+        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('item_categories').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null })
       ]);
 
       // حفظ بيانات المنظمة الحالية (بما فيها الموديولات المسموحة)
@@ -1075,6 +1103,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Restaurant Data
       if (restaurantTablesData) setRestaurantTables(restaurantTablesData);
       if (menuCategoriesData) setMenuCategories(menuCategoriesData);
+      if (itemCategoriesData) setCategories(itemCategoriesData);
 
       setLastUpdated(new Date());
     } catch (error) {
@@ -4168,6 +4197,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
       produceItem,
       categories, addCategory: (n) => setCategories(prev => [...prev, { id: generateUUID(), name: n }]), deleteCategory: (id) => setCategories(prev => prev.filter(c => c.id !== id)),
+      categories, addCategory, deleteCategory,
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
       openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, menuCategories, updateKitchenOrderStatus, getOpenTableOrder,
