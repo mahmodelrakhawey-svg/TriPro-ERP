@@ -6,8 +6,9 @@
 -- ================================================================
 -- 0. تنظيف وإعداد المخطط (Reset Schema)
 -- ================================================================
-DROP SCHEMA public CASCADE;
-CREATE SCHEMA public;
+-- ⚠️ تم إيقاف المسح الكامل للمخطط لسلامة بيئة SaaS
+-- في حال الرغبة في مسح شامل، قم بتشغيل DROP SCHEMA public CASCADE يدوياً مرة واحدة فقط.
+CREATE SCHEMA IF NOT EXISTS public;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO public;
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
@@ -337,6 +338,9 @@ CREATE TABLE public.warehouses (
 CREATE TABLE public.item_categories (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name varchar NOT NULL,
+    description text,
+    image_url text,
+    display_order integer DEFAULT 0,
     default_inventory_account_id uuid REFERENCES public.accounts(id),
     default_cogs_account_id uuid REFERENCES public.accounts(id),
     default_sales_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
@@ -812,7 +816,7 @@ CREATE TABLE public.payroll_items (
     employee_id uuid REFERENCES public.employees(id),
     gross_salary numeric,
     additions numeric,
-    payroll_tax numeric DEFAULT 0,
+    payroll_tax numeric DEFAULT 0, -- عمود ضريبة كسب العمل
     advances_deducted numeric,
     other_deductions numeric,
     net_salary numeric, -- Changed to numeric for consistency
@@ -971,6 +975,7 @@ CREATE TABLE IF NOT EXISTS public.modifiers (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    cost NUMERIC(10, 2) NOT NULL DEFAULT 0,
     modifier_group_id uuid NOT NULL REFERENCES public.modifier_groups(id) ON DELETE CASCADE,
     is_default BOOLEAN NOT NULL DEFAULT false,
     display_order INT DEFAULT 0,

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -142,7 +142,8 @@ const PayrollRun = () => {
         { code: SYSTEM_ACCOUNTS.SALARIES_EXPENSE, name: 'الرواتب والأجور' },
         { code: SYSTEM_ACCOUNTS.EMPLOYEE_BONUSES, name: 'مكافآت وحوافز' },
         { code: SYSTEM_ACCOUNTS.EMPLOYEE_DEDUCTIONS, name: 'خصومات وجزاءات' },
-        { code: SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, name: 'سلف الموظفين' }
+        { code: SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, name: 'سلف الموظفين' },
+        { code: SYSTEM_ACCOUNTS.PAYROLL_TAX, name: 'ضريبة كسب العمل' }
     ];
 
     const missingAccounts = requiredAccounts.filter(req => !accounts.find(a => a.code === req.code));

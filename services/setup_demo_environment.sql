@@ -11,7 +11,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- 2️⃣ تفعيل RLS (Row Level Security) على الجداول الحساسة
 DO $$
 DECLARE
-    tables text[] := ARRAY['invoices', 'invoice_items', 'customers', 'suppliers', 'products', 'journal_entries', 'journal_lines', 'receipt_vouchers', 'payment_vouchers', 'notifications', 'accounts', 'company_settings'];
+    tables text[] := ARRAY['invoices', 'invoice_items', 'customers', 'suppliers', 'products', 'journal_entries', 'journal_lines', 'receipt_vouchers', 'payment_vouchers', 'notifications', 'accounts', 'company_settings', 'item_categories', 'menu_categories'];
     t text;
 BEGIN
     FOREACH t IN ARRAY tables LOOP

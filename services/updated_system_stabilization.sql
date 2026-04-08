@@ -58,6 +58,10 @@ ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS decimal_places inte
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS max_cash_deficit_limit numeric DEFAULT 500;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS activity_type text;
 
+-- تحديث جدول التصنيفات (fix_item_categories_description)
+ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS image_url text;
+
 -- ضمان القيد الفريد لجدول الإعدادات
 ALTER TABLE public.company_settings DROP CONSTRAINT IF EXISTS company_settings_organization_id_unique;
 ALTER TABLE public.company_settings ADD CONSTRAINT company_settings_organization_id_unique UNIQUE (organization_id);

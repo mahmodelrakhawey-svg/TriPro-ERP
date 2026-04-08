@@ -31,6 +31,7 @@ DECLARE
     v_total_gross numeric := 0;
     v_total_additions numeric := 0;
     v_total_deductions numeric := 0;
+    v_total_tax numeric := 0;
     v_total_advances numeric := 0;
     v_total_net numeric := 0;
     v_item jsonb;
@@ -41,20 +42,35 @@ DECLARE
     v_bonuses_acc_id uuid;
     v_deductions_acc_id uuid;
     v_advances_acc_id uuid;
+    v_tax_acc_id uuid;
 BEGIN
     -- Get Organization ID
     SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
 
-    -- Get Account IDs
-    SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '5201' LIMIT 1;
-    SELECT id INTO v_bonuses_acc_id FROM public.accounts WHERE code = '5312' LIMIT 1; -- تم التصحيح هنا
-    SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '404' LIMIT 1;
-    SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '10203' LIMIT 1;
+    -- Get mapped accounts from settings if available
+    SELECT 
+        (account_mappings->>'SALARIES_EXPENSE')::uuid,
+        (account_mappings->>'EMPLOYEE_BONUSES')::uuid,
+        (account_mappings->>'EMPLOYEE_DEDUCTIONS')::uuid,
+        (account_mappings->>'EMPLOYEE_ADVANCES')::uuid,
+        (account_mappings->>'PAYROLL_TAX')::uuid
+    INTO 
+        v_salaries_acc_id, v_bonuses_acc_id, v_deductions_acc_id, v_advances_acc_id, v_tax_acc_id
+    FROM public.company_settings 
+    WHERE organization_id = v_org_id;
+
+    -- Fallback to default codes if not mapped (Matching Egyptian COA)
+    IF v_salaries_acc_id IS NULL THEN SELECT id INTO v_salaries_acc_id FROM public.accounts WHERE code = '531' AND organization_id = v_org_id; END IF;
+    IF v_bonuses_acc_id IS NULL THEN SELECT id INTO v_bonuses_acc_id FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id; END IF;
+    IF v_deductions_acc_id IS NULL THEN SELECT id INTO v_deductions_acc_id FROM public.accounts WHERE code = '422' AND organization_id = v_org_id; END IF;
+    IF v_advances_acc_id IS NULL THEN SELECT id INTO v_advances_acc_id FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id; END IF;
+    IF v_tax_acc_id IS NULL THEN SELECT id INTO v_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id; END IF;
 
     -- Calculate Totals
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric;
         v_total_additions := v_total_additions + (v_item->>'additions')::numeric;
+        v_total_tax := v_total_tax + (v_item->>'payroll_tax')::numeric;
         v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
         v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
         v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
@@ -63,11 +79,11 @@ BEGIN
     -- Create Payroll Record
     INSERT INTO public.payrolls (
         payroll_month, payroll_year, payment_date, 
-        total_gross_salary, total_additions, total_deductions, total_net_salary, 
+        total_gross_salary, total_additions, total_payroll_tax, total_deductions, total_net_salary, 
         status, organization_id
     ) VALUES (
         p_month, p_year, p_date,
-        v_total_gross, v_total_additions, (v_total_deductions + v_total_advances), v_total_net,
+        v_total_gross, v_total_additions, v_total_tax, (v_total_deductions + v_total_advances), v_total_net,
         'paid', v_org_id
     ) RETURNING id INTO v_payroll_id;
 
@@ -75,12 +91,13 @@ BEGIN
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         INSERT INTO public.payroll_items (
             payroll_id, employee_id, 
-            gross_salary, additions, advances_deducted, other_deductions, net_salary,
+            gross_salary, additions, payroll_tax, advances_deducted, other_deductions, net_salary,
             organization_id
         ) VALUES (
             v_payroll_id, (v_item->>'employee_id')::uuid,
             (v_item->>'gross_salary')::numeric,
             (v_item->>'additions')::numeric,
+            (v_item->>'payroll_tax')::numeric,
             (v_item->>'advances_deducted')::numeric,
             (v_item->>'other_deductions')::numeric,
             (v_item->>'net_salary')::numeric,
@@ -104,6 +121,7 @@ BEGIN
     IF v_total_gross > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); END IF;
     IF v_total_additions > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وإضافي', v_org_id); END IF;
     IF v_total_deductions > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
+    IF v_total_tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_tax_acc_id, 0, v_total_tax, 'ضريبة كسب عمل', v_org_id); END IF;
     IF v_total_advances > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_advances_acc_id, 0, v_total_advances, 'خصم سلف', v_org_id); END IF;
     IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_account_id, 0, v_total_net, 'صرف الرواتب', v_org_id); END IF;
 END;

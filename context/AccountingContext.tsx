@@ -68,6 +68,7 @@ export const SYSTEM_ACCOUNTS = {
   SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
   WITHHOLDING_TAX: '2232', // ضريبة الخصم والتحصيل
   EMPLOYEE_ADVANCES: '1223', // سلف الموظفين
+  PAYROLL_TAX: '2233', // ضريبة كسب العمل
 };
 
 // ------------------------------------------------------------------
@@ -299,6 +300,7 @@ interface AccountingContextType {
   produceItem: (productId: string, quantity: number, warehouseId: string, date: string, additionalCost?: number, reference?: string) => Promise<{ success: boolean, message: string }>;
   categories: Category[];
   addCategory: (name: string) => Promise<void>;
+  updateCategory: (id: string, updates: Partial<Category>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   warehouses: Warehouse[];
   addWarehouse: (warehouse: Omit<Warehouse, 'id'>) => Promise<any>;
@@ -596,12 +598,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addCategory = async (name: string) => {
     try {
-      const { data, error } = await supabase.from('item_categories').insert({ name, organization_id: (currentUser as any)?.organization_id }).select().single();
+      // نرسل معرف الشركة فقط إذا كان موجوداً، وإلا نترك قاعدة البيانات تستخدم القيمة الافتراضية
+      const payload: any = { name };
+      if ((currentUser as any)?.organization_id) {
+        payload.organization_id = (currentUser as any).organization_id;
+      }
+      const { data, error } = await supabase.from('item_categories').insert(payload).select().single();
       if (error) throw error;
       await fetchData();
       showToast('تم إضافة التصنيف بنجاح ✅', 'success');
     } catch (err: any) {
       showToast('فشل إضافة التصنيف: ' + err.message, 'error');
+    }
+  };
+
+  const updateCategory = async (id: string, updates: Partial<Category>) => {
+    try {
+      const { error } = await supabase.from('item_categories').update(updates).eq('id', id);
+      if (error) throw error;
+      await fetchData();
+      showToast('تم تحديث التصنيف بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل تحديث التصنيف: ' + err.message, 'error');
     }
   };
 
@@ -762,7 +780,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.rpc('get_all_account_balances', { p_org_id: currentOrgId }) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('item_categories').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null })
+        shouldFetchProtected ? supabase.from('item_categories').select('*').eq('organization_id', currentOrgId).is('deleted_at', null).order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
 
       // حفظ بيانات المنظمة الحالية (بما فيها الموديولات المسموحة)
@@ -1627,13 +1645,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     try {
       const oldData = products.find(p => p.id === id);
+      if (!oldData) throw new Error("الصنف غير موجود");
       
       // ضمان التوافق: نسخ product_type إلى item_type إذا تم تحديثه
+      // ضمان التوافق: الحفاظ على نوع المنتج وعدم تغييره تلقائياً
       const dbUpdates: any = { ...updates };
       if (dbUpdates.product_type) {
           dbUpdates.item_type = dbUpdates.product_type;
       }
 
+      
+      // إذا لم يتم إرسال نوع جديد، نحافظ على النوع القديم (مهم جداً للـ POS)
+      dbUpdates.product_type = updates.product_type || (oldData as any).product_type || 'STOCK';
+      dbUpdates.item_type = dbUpdates.product_type;
+      
       const { error } = await supabase.from('products').update(dbUpdates).eq('id', id);
       if (error) throw error;
       
@@ -4194,7 +4219,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deleteProduct,
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
       produceItem,
-      categories, addCategory, deleteCategory,
+      categories, addCategory, updateCategory, deleteCategory,
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
       openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, menuCategories, updateKitchenOrderStatus, getOpenTableOrder,

@@ -532,12 +532,17 @@ BEGIN
         SELECT id INTO v_payroll_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1;
     END IF;
 
+    v_payroll_tax_acc_id := (v_mappings->>'PAYROLL_TAX')::uuid;
+    IF v_payroll_tax_acc_id IS NULL THEN
+        SELECT id INTO v_payroll_tax_acc_id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1;
+    END IF;
+
     IF v_salaries_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الرواتب الرئيسي (531) غير موجود.'; END IF;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric;
         v_total_additions := v_total_additions + (v_item->>'additions')::numeric;
-        v_total_deductions := v_total_deductions + (v_item->>'other_deductions')::numeric;
+        v_total_deductions := v_total_deductions + COALESCE((v_item->>'other_deductions')::numeric, 0);
         v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
         v_total_payroll_tax := v_total_payroll_tax + COALESCE((v_item->>'payroll_tax')::numeric, 0);
         v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
