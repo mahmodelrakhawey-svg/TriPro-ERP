@@ -265,14 +265,15 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+        <div className="p-3 border-b flex justify-between items-center bg-slate-50 shrink-0">
           <h3 className="font-black text-xl text-slate-800 flex items-center gap-2">
             <Building2 className="text-blue-600" /> تأسيس شركة جديدة
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24} /></button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-4 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
           {/* Logo Section */}
           <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
             <div className="relative group">
@@ -408,8 +409,9 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
               </div>
             </div>
           </div>
+          </div>
           
-          <div className="pt-4 border-t flex gap-3">
+          <div className="p-3 border-t flex gap-3 bg-slate-50 shrink-0">
             <button 
               type="submit" 
               disabled={loading}
@@ -541,15 +543,16 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
-        <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[85vh]">
+        <div className="p-3 border-b flex justify-between items-center bg-slate-50 shrink-0">
           <h3 className="font-black text-xl text-slate-800 flex items-center gap-2">
             <Settings className="text-blue-600" /> تعديل إعدادات: {organization.name}
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24} /></button>
         </div>
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          <div className="space-y-4">
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+          <div className="p-4 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+            <div className="space-y-4">
             {/* Quick Plan Upgrade Section */}
             <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100">
               <label className="block text-xs font-black text-blue-700 mb-3 uppercase tracking-tighter">ترقية باقة الاشتراك (تعديل تلقائي)</label>
@@ -704,8 +707,9 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
               </div>
             </div>
           </div>
+          </div>
           
-          <div className="pt-4 border-t flex gap-3">
+          <div className="p-3 border-t flex gap-3 bg-slate-50 shrink-0">
             <button type="submit" disabled={loading} className="flex-1 bg-blue-600 text-white font-black py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-lg shadow-blue-100 flex items-center justify-center gap-2">
               {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />} حفظ التغييرات
             </button>

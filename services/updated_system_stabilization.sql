@@ -29,15 +29,32 @@ END $$;
 DO $$ BEGIN
     -- تحديث جدول الطلبات (orders)
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='created_by') THEN
-        ALTER TABLE public.orders RENAME COLUMN created_by TO user_id;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='user_id') THEN
+            ALTER TABLE public.orders RENAME COLUMN created_by TO user_id;
+        ELSE
+            -- إذا كان كلاهما موجوداً، انقل البيانات للعمود الجديد واحذف القديم لتجنب التعارض
+            UPDATE public.orders SET user_id = created_by WHERE user_id IS NULL;
+            ALTER TABLE public.orders DROP COLUMN created_by;
+        END IF;
     END IF;
 
     -- تحديث جدول بنود الطلبات (order_items)
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='unit_price') THEN
-        ALTER TABLE public.order_items RENAME COLUMN unit_price TO price;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='price') THEN
+            ALTER TABLE public.order_items RENAME COLUMN unit_price TO price;
+        ELSE
+            UPDATE public.order_items SET price = unit_price WHERE price IS NULL;
+            ALTER TABLE public.order_items DROP COLUMN unit_price;
+        END IF;
     END IF;
+
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='total') THEN
-        ALTER TABLE public.order_items RENAME COLUMN total TO total_price;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='total_price') THEN
+            ALTER TABLE public.order_items RENAME COLUMN total TO total_price;
+        ELSE
+            UPDATE public.order_items SET total_price = total WHERE total_price IS NULL;
+            ALTER TABLE public.order_items DROP COLUMN total;
+        END IF;
     END IF;
     
     RAISE NOTICE '✅ تم توحيد مسميات أعمدة الـ POS بنجاح.';
@@ -70,6 +87,9 @@ ALTER TABLE public.company_settings ADD CONSTRAINT company_settings_organization
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Super admins view all organizations" ON public.organizations;
 CREATE POLICY "Super admins view all organizations" ON public.organizations FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
+-- سياسة جديدة: تسمح لـ Super Admins بتعديل بيانات المنظمات
+DROP POLICY IF EXISTS "Super admins can update organizations" ON public.organizations;
+CREATE POLICY "Super admins can update organizations" ON public.organizations FOR UPDATE TO authenticated USING (public.get_my_role() = 'super_admin');
 
 -- استثناء لجدول المستخدمين (رؤية وتحديث لإدارة المنصة)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
