@@ -10,9 +10,9 @@ DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(UUID, TEXT);
 CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id UUID, p_activity_type TEXT DEFAULT 'commercial')
 RETURNS text
 LANGUAGE plpgsql
-SECURITY DEFINER -- تشغيل الصلاحيات كأدمن لضمان نجاح التأسيس
+SECURITY DEFINER 
 AS $$
-DECLARE v_vat_rate numeric;
+DECLARE v_vat_rate numeric; v_admin_id uuid;
 BEGIN
     -- تحديد نسبة الضريبة الافتراضية بناءً على نوع النشاط (المعايير المصرية)
     IF p_activity_type = 'construction' THEN
@@ -206,6 +206,17 @@ BEGIN
     WHERE a.organization_id = p_org_id 
       AND a.code = t.code 
       AND a.parent_id IS NULL;
+
+    -- 5. ربط المستخدم الحالي كمدير وتحديث بيانات الهوية (Metadata)
+    v_admin_id := auth.uid();
+    IF v_admin_id IS NOT NULL THEN
+        UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
+        
+        -- تحديث Metadata الهوية لضمان ظهور الأزرار في الواجهة فوراً دون الحاجة لتدخل يدوي
+        UPDATE auth.users SET raw_user_meta_data = 
+            COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin')
+        WHERE id = v_admin_id;
+    END IF;
 
     -- 6. تحديث إعدادات الشركة بنوع النشاط المختار لضمان حفظه تلقائياً واسترجاعه لاحقاً
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name)

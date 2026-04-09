@@ -6,6 +6,29 @@
 BEGIN;
 
 -- ============================================================
+-- 0. إصلاح الدوال الأساسية للهوية (Core Identity Functions)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.get_my_org()
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  -- المحاولة الأولى: القراءة من الـ JWT لسرعة الأداء وتجنب الـ Recursion
+  -- المحاولة الثانية: القراءة من الجدول بصلاحيات مالك الدالة (Security Definier)
+  RETURN COALESCE(
+    (current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id')::uuid,
+    (SELECT organization_id FROM public.profiles WHERE id = auth.uid())
+  );
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  RETURN COALESCE(
+    current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role',
+    (SELECT role::text FROM public.profiles WHERE id = auth.uid())
+  );
+END; $$;
+
+-- ============================================================
 -- 1. توحيد أسماء أعمدة المرتجعات (Schema Standardization)
 -- ============================================================
 DO $$
@@ -85,11 +108,11 @@ ALTER TABLE public.company_settings ADD CONSTRAINT company_settings_organization
 
 -- استثناء لجدول المنظمات
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Super admins view all organizations" ON public.organizations;
-CREATE POLICY "Super admins view all organizations" ON public.organizations FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
--- سياسة جديدة: تسمح لـ Super Admins بتعديل بيانات المنظمات
-DROP POLICY IF EXISTS "Super admins can update organizations" ON public.organizations;
-CREATE POLICY "Super admins can update organizations" ON public.organizations FOR UPDATE TO authenticated USING (public.get_my_role() = 'super_admin');
+DROP POLICY IF EXISTS "org_select_policy" ON public.organizations;
+CREATE POLICY "org_select_policy" ON public.organizations FOR SELECT TO authenticated USING (id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+
+DROP POLICY IF EXISTS "org_update_policy" ON public.organizations;
+CREATE POLICY "org_update_policy" ON public.organizations FOR UPDATE TO authenticated USING ((id = public.get_my_org() AND public.get_my_role() IN ('admin', 'super_admin')) OR public.get_my_role() = 'super_admin');
 
 -- استثناء لجدول المستخدمين (رؤية وتحديث لإدارة المنصة)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
@@ -100,10 +123,12 @@ BEGIN
 END $$;
 
 -- السياسات الصحيحة والآمنة لجدول المستخدمين
-CREATE POLICY "profiles_select_v2" ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid() OR organization_id = public.get_my_org());
-CREATE POLICY "profiles_insert_v2" ON public.profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid());
-CREATE POLICY "profiles_update_v2" ON public.profiles FOR UPDATE TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
-CREATE POLICY "profiles_delete_v2" ON public.profiles FOR DELETE TO authenticated USING (public.get_my_role() IN ('admin', 'super_admin'));
+DROP POLICY IF EXISTS "profiles_select_v2" ON public.profiles;
+CREATE POLICY "profiles_select_v2" ON public.profiles FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+DROP POLICY IF EXISTS "profiles_update_v2" ON public.profiles;
+CREATE POLICY "profiles_update_v2" ON public.profiles FOR ALL TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin')) WITH CHECK (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
+DROP POLICY IF EXISTS "profiles_insert_v2" ON public.profiles;
+CREATE POLICY "profiles_insert_v2" ON public.profiles FOR INSERT TO authenticated WITH CHECK (public.get_my_role() IN ('admin', 'super_admin'));
 
 -- ============================================================
 -- 5. تحديثات الجداول المالية (Financial Linkage)
@@ -184,11 +209,11 @@ BEGIN
             EXECUTE format('DROP POLICY IF EXISTS "Select_Policy_%I" ON public.%I', t, t);
             EXECUTE format('DROP POLICY IF EXISTS "Modify_Policy_%I" ON public.%I', t, t);
             
-            -- سياسة القراءة للجميع بما فيهم الديمو
+            -- سياسة القراءة للجميع (عزل الشركات)
             EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org())', t, t);
             
-            -- سياسة التعديل والحذف محظورة على الديمو
-            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() != ''demo'') WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() != ''demo'')', t, t);
+            -- سياسة التعديل (فقط للأدوار المصرح لها، ومنع الديمو والمشاهد)
+            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''demo'', ''viewer'')) WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''demo'', ''viewer''))', t, t);
 
             BEGIN
                 EXECUTE format('ALTER TABLE public.%I ALTER COLUMN organization_id SET NOT NULL', t);
@@ -215,7 +240,7 @@ BEGIN
             DROP POLICY IF EXISTS "Modify_Policy_accounts" ON public.accounts;
             
             CREATE POLICY "Select_Policy_accounts" ON public.accounts FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
-            CREATE POLICY "Modify_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() != 'demo') WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() != 'demo');
+            CREATE POLICY "Modify_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('demo', 'viewer')) WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('demo', 'viewer'));
         END IF;
     END LOOP;
 END $$;
