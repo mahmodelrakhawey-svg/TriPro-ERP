@@ -94,11 +94,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             name: profile.full_name || user.email,
             username: user.email,
             role: roleName, // سيأخذ 'demo' إذا كان موجوداً في metadata
-            is_active: profile.is_active ?? true
-          });
+            is_active: profile.is_active ?? true,
+            organization_id: profile.organization_id
+          } as any);
           setUserRole(roleName);
+          
+          // تحسين أمان SaaS: منع الدخول إذا لم تكن المنظمة موجودة (إلا للديمو والمسؤول)
+          if (roleName !== 'super_admin' && roleName !== 'demo' && !profile.organization_id) {
+              console.error("Critical Security: User has no assigned organization_id");
+              setAuthInitialized(true);
+              setIsLoading(false);
+              return;
+          }
 
-          if (roleName === 'super_admin') {
+          // منح كامل الصلاحيات لـ super_admin والـ admin الخاص بالمنظمة
+          if (roleName === 'super_admin' || roleName === 'admin') {
             const { data: allPerms } = await supabase.from('permissions').select('module, action');
             setUserPermissions(new Set(allPerms?.map(p => `${p.module}.${p.action}`) || []));
           } else if (roleName === 'demo') {
@@ -214,8 +224,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const can = (module: string, action: string): boolean => {
-    if (userRole === 'super_admin') return true;
-    
+    // السماح للمدير العام ومدير المنظمة بالوصول الكامل
+    if (userRole === 'super_admin' || userRole === 'admin') return true;    
     // تحسين قيود الديمو: منع الحذف ومنع تعديل الإعدادات الحساسة
     if (userRole === 'demo') {
         if (action === 'delete') return false; // ممنوع الحذف نهائياً

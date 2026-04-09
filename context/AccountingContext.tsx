@@ -1755,8 +1755,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw new Error(`لا يمكن إضافة قيد بتاريخ ${entryData.date} لأن الفترة المالية مغلقة.`);
       }
 
-      const { data: org } = await supabase.from('organizations').select('id').limit(1).single();
-      const organization_id = org?.id;
+      // الحصول على معرف المنظمة من المستخدم الحالي لضمان عزل البيانات في SaaS
+      const organization_id = (currentUser as any)?.organization_id;
 
       // تنظيف البيانات من النصوص غير المرغوبة (null/undefined) قبل الحفظ
       const cleanStr = (s: any) => String(s || '').replace(/null|undefined/gi, '').trim();
@@ -1976,8 +1976,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     if (entryId) {
       // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
-      const orgId = (currentUser as any)?.organization_id || 
-                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+      const orgId = (currentUser as any)?.organization_id;
 
       // حفظ السند في قاعدة البيانات
       await supabase.from('receipt_vouchers').insert({
@@ -3639,13 +3638,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const createMissingSystemAccounts = async () => {
     try {
-      const orgId = (currentUser as any)?.organization_id;
+      // التأكد من جلب المعرف من currentUser أو الجلسة مباشرة لضمان الأمان في SaaS
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      
       if (!orgId) throw new Error("معرف المنظمة غير موجود.");
 
       const { data, error } = await supabase.rpc('repair_missing_accounts');
       if (error) throw error;
 
-      await fetchData(); // إعادة جلب البيانات لتحديث دليل الحسابات في الواجهة
+      await fetchData(); 
       return { success: true, message: data || 'تم فحص وإصلاح دليل الحسابات بنجاح.', created: [] };
     } catch (err: any) {
       console.error("Error repairing missing accounts:", err);
