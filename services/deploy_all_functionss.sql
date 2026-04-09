@@ -925,7 +925,8 @@ END; $$;
 -- ================================================================ 
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid, text) CASCADE;
-CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_activity_type text DEFAULT 'commercial')
+DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(uuid, text, uuid) CASCADE;
+CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_activity_type text DEFAULT 'commercial', p_admin_id uuid DEFAULT NULL)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_vat_rate numeric; v_admin_id uuid; v_retained_id uuid; v_org_name text;
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
@@ -984,9 +985,15 @@ BEGIN
     ('533', 'مصروف إهلاك الأصول', 'expense', false, '5');
 
     -- ربط المستخدم الحالي كمدير
-    v_admin_id := auth.uid();
+    v_admin_id := COALESCE(p_admin_id, auth.uid());
     IF v_admin_id IS NOT NULL THEN
-        UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
+        INSERT INTO public.profiles (id, organization_id, role, is_active)
+        VALUES (v_admin_id, p_org_id, 'admin', true)
+        ON CONFLICT (id) DO UPDATE SET 
+            organization_id = EXCLUDED.organization_id,
+            role = 'admin',
+            is_active = true;
+            
         INSERT INTO public.company_settings (organization_id, company_name, vat_rate, activity_type)
         VALUES (p_org_id, v_org_name, v_vat_rate, p_activity_type)
         ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name;
@@ -1050,7 +1057,8 @@ CREATE OR REPLACE FUNCTION public.create_new_client_v2(
     p_name text,
     p_email text,
     p_activity_type text DEFAULT 'commercial',
-    p_vat_number text DEFAULT NULL
+    p_vat_number text DEFAULT NULL,
+    p_admin_id uuid DEFAULT NULL
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_org_id uuid;
 BEGIN
@@ -1060,7 +1068,7 @@ BEGIN
     RETURNING id INTO v_org_id;
 
     -- 2. تهيئة دليل الحسابات والإعدادات (تشمل حساب الضريبة 2233 والوصف)
-    PERFORM public.initialize_egyptian_coa(v_org_id, p_activity_type);
+    PERFORM public.initialize_egyptian_coa(v_org_id, p_activity_type, p_admin_id);
 
     RETURN v_org_id;
 END; $$;

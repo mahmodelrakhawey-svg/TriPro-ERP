@@ -48,13 +48,18 @@ BEGIN
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _org_id uuid;
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
 BEGIN
-    SET search_path = public;
-    _org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
-    -- 2. Fallback to auth.users (avoids recursion on public.profiles)
-    RETURN COALESCE(_org_id, (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid()));
+    -- 1. المحاولة الأولى: القراءة من الـ JWT (الأسرع ولا تلمس الجداول)
+    -- 2. الهروب من الـ Recursion: القراءة من auth.users (جدول داخلي) بدلاً من public.profiles
+    RETURN COALESCE(
+        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
+        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid())
+    );
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -141,6 +146,7 @@ BEGIN
 
     INSERT INTO public.profiles (id, full_name, role, organization_id)
     VALUES (new.id, COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), v_role, v_org_id);
+    ON CONFLICT (id) DO NOTHING;
 
     -- تأكيد تحديث Metadata في auth.users لضمان توفرها في الـ JWT فوراً
     UPDATE auth.users 
@@ -165,6 +171,11 @@ DECLARE
     v_max_users integer;
     v_current_users integer;
 BEGIN
+    -- 0. استثناء السوبر أدمن من الفحص (سواء كان هو المضيف أو المستخدم المضاف)
+    IF public.get_my_role() = 'super_admin' OR NEW.role = 'super_admin' THEN
+        RETURN NEW;
+    END IF;
+
     -- 1. جلب الحد الأقصى المسموح به لهذه الشركة
     SELECT max_users INTO v_max_users FROM public.organizations WHERE id = NEW.organization_id;
     

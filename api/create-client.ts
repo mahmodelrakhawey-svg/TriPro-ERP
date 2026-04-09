@@ -36,8 +36,7 @@ export default async function handler(req: any, res: any) {
         name: companyName, 
         allowed_modules: modules || ['accounting'], 
         subscription_expiry: subscriptionExpiry || null, 
-        max_users: maxUsers || 5,
-        activity_type: coaTemplate // 👈 حفظ نوع النشاط المختار
+        max_users: maxUsers || 5
       })
       .select()
       .single()
@@ -45,7 +44,7 @@ export default async function handler(req: any, res: any) {
     if (orgError) throw orgError
 
     // 2. إنشاء المستخدم في نظام المصادقة (Auth) مع ربطه بالشركة عبر Metadata
-    const { data: user, error: authError } = await supabaseAdmin.auth.admin.createUser({
+    const { data: newUser, error: authError } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       email_confirm: true,
@@ -66,7 +65,8 @@ export default async function handler(req: any, res: any) {
     // بدلاً من إدخال حسابات محدودة، نستدعي الدالة التي تبني الدليل الشجري بالكامل
     const { error: coaError } = await supabaseAdmin.rpc('initialize_egyptian_coa', {
       p_org_id: org.id,
-      p_template: coaTemplate || 'commercial'
+      p_activity_type: coaTemplate || 'commercial',
+      p_admin_id: newUser.user.id
     });
 
     if (coaError) {

@@ -121,7 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // تعيين الصلاحيات بناءً على الدور
         if (roleName === 'super_admin' || roleName === 'admin') {
             const { data: allPerms } = await supabase.from('permissions').select('module, action');
-            // صمام أمان: إذا لم توجد صلاحيات في القاعدة، نمنح الأدمن وصولاً كاملاً
+            // صمام أمان SaaS: إذا لم توجد صلاحيات مسبقة، نمنح الأدمن وصولاً كاملاً لتجنب اختفاء الأزرار
             setUserPermissions(new Set(allPerms && allPerms.length > 0 ? allPerms.map(p => `${p.module}.${p.action}`) : ['*.*']));
         } else if (roleName === 'demo') {
             setUserPermissions(new Set(['*.view', '*.read', '*.create', '*.update', '*.list', '*.*']));

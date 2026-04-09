@@ -9,14 +9,17 @@ BEGIN;
 -- 0. إصلاح الدوال الأساسية للهوية (Core Identity Functions)
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.get_my_org()
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
 BEGIN
-  -- المحاولة الأولى: القراءة من الـ JWT لسرعة الأداء وتجنب الـ Recursion
-  -- المحاولة الثانية: القراءة من الجدول بصلاحيات مالك الدالة (Security Definier)
-  RETURN COALESCE(
-    (current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id')::uuid,
-    (SELECT organization_id FROM public.profiles WHERE id = auth.uid())
-  );
+    -- تم الإصلاح: تجنب الاستعلام من public.profiles لمنع حلقة التكرار (Infinite Recursion)
+    RETURN COALESCE(
+        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
+        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid())
+    );
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_role()

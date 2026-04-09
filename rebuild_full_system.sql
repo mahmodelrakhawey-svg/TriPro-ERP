@@ -164,6 +164,11 @@ DECLARE
     v_max_users integer;
     v_current_users integer;
 BEGIN
+    -- 0. استثناء السوبر أدمن من الفحص (للسماح له بإضافة مستخدمين عند الضرورة)
+    IF public.get_my_role() = 'super_admin' OR NEW.role = 'super_admin' THEN
+        RETURN NEW;
+    END IF;
+
     -- 1. جلب الحد الأقصى المسموح به لهذه الشركة
     SELECT max_users INTO v_max_users FROM public.organizations WHERE id = NEW.organization_id;
     
