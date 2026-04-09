@@ -184,6 +184,7 @@ export interface User {
   name: string;
   role: UserRole;
   is_active: boolean;
+  organization_id?: string;
 }
 
 export interface Salesperson {

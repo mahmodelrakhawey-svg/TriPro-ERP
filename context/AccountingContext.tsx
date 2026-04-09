@@ -635,7 +635,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
     const currentOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
@@ -849,7 +849,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               const parentId = accDef.parent_account ? accs.find(a => a.code === accDef.parent_account)?.id : null;
               const { data: newAcc } = await supabase.from('accounts').insert({
                   id: generateUUID(), code: accDef.code, name: accDef.name, type: accDef.type,
-                  is_group: accDef.is_group, parent_id: parentId
+                  is_group: accDef.is_group, parent_id: parentId, organization_id: currentOrgId
               }).select().single();
               if (newAcc) accs.push(newAcc);
           }
@@ -1127,7 +1127,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentUser]);
 
   // دالة لإضافة فاتورة وهمية للحالة المحلية (لتحسين تجربة الديمو)
   const addDemoInvoice = (invoice: any) => {
@@ -1571,8 +1571,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     setUserPermissions(new Set()); // مستخدم بدون دور محدد
                 }
             }
-            fetchData(); 
-            await fetchData(); 
+            await fetchData();
             await checkEssentialAccounts(); // 🛠️ تشغيل الفحص التلقائي للحسابات فور الدخول
         } catch (error) {
             if (process.env.NODE_ENV === 'development') console.error("Error handling auth change:", error);

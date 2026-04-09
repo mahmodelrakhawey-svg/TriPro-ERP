@@ -25,12 +25,7 @@ const InvoiceList = () => {
   
   // Print State
   const [invoiceToPrint, setInvoiceToPrint] = useState<PrintableInvoice | null>(null);
-  const [companySettings, setCompanySettings] = useState<any>(null); // You can create a type for this
   const { showToast } = useToast();
-
-  useEffect(() => {
-    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
-  }, []);
 
   useEffect(() => {
     if (invoiceToPrint) {
@@ -297,7 +292,7 @@ const InvoiceList = () => {
       </div>
       </div>
       
-      <SalesInvoicePrint invoice={invoiceToPrint} companySettings={companySettings} />
+      <SalesInvoicePrint invoice={invoiceToPrint} companySettings={settings} />
     </div>
   );
 };

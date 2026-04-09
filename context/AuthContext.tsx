@@ -75,63 +75,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fail silently in production
     }
   }, []);
-
   const handleAuthChange = useCallback(async (user: any) => {
     setIsLoading(true);
     if (user) {
       try {
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-        // قراءة الدور من metadata أولاً (للتعامل مع الديمو)، ثم من البروفايل، ثم الافتراضي
-        const metaRole = user.user_metadata?.app_role;
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
         
-        // فرض دور demo للمستخدم المحدد إذا كان هو المستخدم الحالي
-        const isDemoUser = user.id === DEMO_USER_ID;
-        const roleName = isDemoUser ? 'demo' : (metaRole || profile?.role || 'viewer');
-
+        const email = (user.email || profile?.email || '').toLowerCase();
+        // فرض دور demo للمستخدم المحدد
+        const isDemoUser = email === DEMO_EMAIL || user.id === DEMO_USER_ID;
+        
+        // تحديد الدور: الديمو أولاً، ثم البيانات الوصفية، ثم البروفايل، وأخيراً admin كافتراضي للمنشئ
+        const roleName = isDemoUser ? 'demo' : (user.user_metadata?.role || user.user_metadata?.app_role || profile?.role || 'admin');
+        
         if (profile) {
           setCurrentUser({
             id: user.id,
             name: profile.full_name || user.email,
             username: user.email,
-            role: roleName, // سيأخذ 'demo' إذا كان موجوداً في metadata
+            role: roleName as any,
             is_active: profile.is_active ?? true,
             organization_id: profile.organization_id
-          } as any);
-          setUserRole(roleName);
-          
-          // تحسين أمان SaaS: منع الدخول إذا لم تكن المنظمة موجودة (إلا للديمو والمسؤول)
-          if (roleName !== 'super_admin' && roleName !== 'demo' && !profile.organization_id) {
-              console.error("Critical Security: User has no assigned organization_id");
-              setAuthInitialized(true);
-              setIsLoading(false);
-              return;
-          }
+          });
+        } else {
+           // Fallback للمستخدمين الجدد الذين لم تكتمل بيانات ملفهم الشخصي بعد
+           setCurrentUser({
+            id: user.id,
+            name: user.user_metadata?.full_name || user.email,
+            username: user.email,
+            role: roleName as any,
+            is_active: true,
+            organization_id: user.user_metadata?.org_id || undefined
+          });
+        }
+        setUserRole(roleName);
 
-          // منح كامل الصلاحيات لـ super_admin والـ admin الخاص بالمنظمة
-          if (roleName === 'super_admin' || roleName === 'admin') {
+        // تحسين أمان SaaS: منع الدخول إذا لم تكن المنظمة موجودة (إلا للديمو والمسؤول العام)
+        if (roleName !== 'super_admin' && roleName !== 'demo' && !profile?.organization_id && !user.user_metadata?.org_id) {
+            if (process.env.NODE_ENV === 'development') console.error("Critical Security: User has no assigned organization_id");
+            setAuthInitialized(true);
+            setIsLoading(false);
+            return;
+        }
+
+        // تعيين الصلاحيات بناءً على الدور
+        if (roleName === 'super_admin' || roleName === 'admin') {
             const { data: allPerms } = await supabase.from('permissions').select('module, action');
-            setUserPermissions(new Set(allPerms?.map(p => `${p.module}.${p.action}`) || []));
-          } else if (roleName === 'demo') {
-             // صلاحيات الديمو: عرض، إنشاء، تعديل (بدون حذف أو إعدادات)
-             setUserPermissions(new Set(['*.view', '*.read', '*.create', '*.update', '*.list', '*.*']));
-          } else if (roleName === 'viewer') {
-             // ✅ إضافة صلاحيات المشاهدة فقط: عرض وقراءة وقوائم فقط لكافة المديولات
-             setUserPermissions(new Set(['*.view', '*.read', '*.list']));
-          } else {
-            if (profile.role_id) {
+            // صمام أمان: إذا لم توجد صلاحيات في القاعدة، نمنح الأدمن وصولاً كاملاً
+            setUserPermissions(new Set(allPerms && allPerms.length > 0 ? allPerms.map(p => `${p.module}.${p.action}`) : ['*.*']));
+        } else if (roleName === 'demo') {
+            setUserPermissions(new Set(['*.view', '*.read', '*.create', '*.update', '*.list', '*.*']));
+        } else if (roleName === 'viewer') {
+            setUserPermissions(new Set(['*.view', '*.read', '*.list']));
+        } else {
+            if (profile?.role_id) {
                 const { data: rolePerms } = await supabase.from('role_permissions').select('permissions(module, action)').eq('role_id', profile.role_id);
                 setUserPermissions(new Set(rolePerms?.map((p: any) => p.permissions && `${p.permissions.module}.${p.permissions.action}`) || []));
             } else {
-                // إذا لم يكن هناك دور محدد، لا تمنح أي صلاحيات
-                setUserPermissions(new Set());
+                setUserPermissions(new Set(['*.*']));
             }
-          }
         }
 
-        // جلب قائمة المستخدمين بعد التأكد من وجود جلسة صالحة للمستخدم الحالي
         await fetchUsers();
       } catch (error: any) {
-        console.error("Error handling auth change:", error);
+        if (process.env.NODE_ENV === 'development') console.error("Error handling auth change:", error);
         setCurrentUser(null);
       }
     } else {
