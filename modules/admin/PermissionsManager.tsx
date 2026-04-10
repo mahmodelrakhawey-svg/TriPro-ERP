@@ -12,7 +12,7 @@ type Role = {
 };
 
 type Permission = {
-  id: number;
+  id: string;
   module: string;
   action: string;
   description: string;
@@ -59,12 +59,16 @@ const PermissionsManager = () => {
 
   // Fetch initial data
   useEffect(() => {
+    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) return; // لا تبدأ الجلب إلا بعد توفر معرف المنظمة
+
     const fetchData = async () => {
       try {
         setLoading(true);
-        if (currentUser?.role === 'demo') {
+        setError('');
+        if (currentUser.role === 'demo') {
              setRoles([{id: 'demo-role', name: 'Demo Role', description: 'دور تجريبي'}]);
-             setPermissions([{id: 1, module: 'sales', action: 'create', description: 'إنشاء مبيعات'}]);
+             setPermissions([{id: '1', module: 'sales', action: 'create', description: 'إنشاء مبيعات'}]);
              setSelectedRoleId('demo-role');
              setLoading(false);
              return;
@@ -74,6 +78,7 @@ const PermissionsManager = () => {
         const { data: rolesData, error: rolesError } = await supabase
           .from('roles')
           .select('*')
+          .eq('organization_id', orgId)
           .neq('name', 'super_admin') // Super admin has all permissions implicitly
           .order('name');
         
@@ -89,8 +94,8 @@ const PermissionsManager = () => {
         if (permsError) throw permsError;
         setPermissions(permsData || []);
 
-        if (rolesData && rolesData.length > 0) {
-            setSelectedRoleId(rolesData[0].id);
+        if (rolesData && rolesData.length > 0 && !selectedRoleId) {
+            setSelectedRoleId(rolesData[0].id.toString());
         }
 
       } catch (err: any) {
@@ -100,18 +105,20 @@ const PermissionsManager = () => {
       }
     };
     fetchData();
-  }, []);
+  }, [currentUser]); // تحديث البيانات فور توفر المستخدم
 
   // Fetch role permissions when selected role changes
   useEffect(() => {
-    if (!selectedRoleId) return;
+    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!selectedRoleId || !orgId) return;
 
     const fetchRolePermissions = async () => {
       try {
         const { data, error } = await supabase
           .from('role_permissions')
           .select('permission_id')
-          .eq('role_id', selectedRoleId);
+          .eq('role_id', selectedRoleId)
+          .eq('organization_id', orgId);
 
         if (error) throw error;
 
@@ -125,8 +132,8 @@ const PermissionsManager = () => {
     fetchRolePermissions();
   }, [selectedRoleId]);
 
-  const handleTogglePermission = (permId: number) => {
-      const idStr = permId.toString();
+  const handleTogglePermission = (permId: string) => {
+      const idStr = permId;
       setRolePermissions(prev => {
           const next = new Set(prev);
           if (next.has(idStr)) {
@@ -178,8 +185,8 @@ const PermissionsManager = () => {
       try {
           // Ensure IDs are unique integers and sorted
           // This ensures we send a clean array of numbers to the RPC
-          const rawIds = Array.from(rolePermissions).map(pId => parseInt(pId, 10)).filter(id => !isNaN(id));
-          const permissionIds = [...new Set(rawIds)].sort((a, b) => a - b);
+          const rawIds = Array.from(rolePermissions).filter(id => id !== null && id !== undefined);
+          const permissionIds = [...new Set(rawIds)]; // التعامل مع UUID كنصوص مباشرة
 
           if (permissionIds.length === 0 && !window.confirm('هل أنت متأكد من رغبتك في سحب جميع الصلاحيات من هذا الدور؟')) {
               setSaving(false);

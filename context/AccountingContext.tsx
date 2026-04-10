@@ -3708,8 +3708,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
         const { data, error } = await supabase.rpc('create_restaurant_order', {
-            p_org_id: (currentUser as any)?.organization_id,
-            p_session_id: orderData.sessionId,
             p_user_id: currentUser.id,
             p_order_type: orderData.orderType.toUpperCase(),
             p_notes: '', // Can be added later

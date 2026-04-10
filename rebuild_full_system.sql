@@ -2785,6 +2785,9 @@ END; $$;
 -- ================================================================
 -- 29.7 الدالة الشاملة لإنشاء عميل جديد (SaaS Global Creator)
 -- ================================================================ 
+DROP FUNCTION IF EXISTS public.create_new_client_v2(text, text, text, text) CASCADE;
+DROP FUNCTION IF EXISTS public.create_new_client_v2(text, text, text, text, uuid) CASCADE;
+
 CREATE OR REPLACE FUNCTION public.create_new_client_v2(
     p_name text,
     p_email text,

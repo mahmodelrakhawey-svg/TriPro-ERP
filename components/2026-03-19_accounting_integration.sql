@@ -75,8 +75,8 @@ BEGIN
     INTO v_total_cogs
     FROM public.orders o
     JOIN public.order_items oi ON o.id = oi.order_id
-    JOIN public.recipes r ON oi.product_id = r.product_id
-    JOIN public.products ing ON r.ingredient_id = ing.id
+    JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id
+    JOIN public.products ing ON bom.raw_material_id = ing.id
     WHERE o.user_id = v_shift.user_id
       AND o.created_at >= v_shift.start_time
       AND o.created_at <= v_shift.end_time

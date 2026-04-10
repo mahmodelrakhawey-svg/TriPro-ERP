@@ -71,14 +71,17 @@ END; $$;
 -- الصلاحيات والمستخدمين
 CREATE TABLE public.roles (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    name text NOT NULL UNIQUE,
-    description text
+    name text NOT NULL,
+    description text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    UNIQUE(name, organization_id) -- السماح بنفس الاسم لشركات مختلفة
 );
 
 CREATE TABLE public.permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     module text NOT NULL,
     action text NOT NULL,
+    description text,
     UNIQUE(module, action)
 );
 
@@ -86,6 +89,7 @@ CREATE TABLE public.role_permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     role_id uuid REFERENCES public.roles(id) ON DELETE CASCADE,
     permission_id uuid REFERENCES public.permissions(id) ON DELETE CASCADE,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
     UNIQUE(role_id, permission_id)
 );
 
@@ -151,7 +155,7 @@ BEGIN
         v_role, 
         (SELECT id FROM public.roles WHERE name = v_role LIMIT 1), -- 👈 جلب معرف الدور آلياً
         v_org_id
-    );
+    )
     ON CONFLICT (id) DO NOTHING;
 
     -- تأكيد تحديث Metadata في auth.users لضمان توفرها في الـ JWT فوراً
@@ -169,6 +173,32 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ⚡ دالة التأسيس التلقائي للمنظمات الجديدة (Auto-Setup)
+CREATE OR REPLACE FUNCTION public.handle_new_organization_setup()
+RETURNS TRIGGER AS $$
+DECLARE v_role_id uuid;
+BEGIN
+    -- 1. إنشاء دور "مدير النظام" للشركة الجديدة تلقائياً
+    INSERT INTO public.roles (name, description, organization_id)
+    VALUES ('admin', 'مدير النظام - كامل الصلاحيات', NEW.id)
+    RETURNING id INTO v_role_id;
+
+    -- 2. ربط كافة الصلاحيات الموجودة في النظام بهذا الدور الجديد
+    INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
+    SELECT v_role_id, id, NEW.id
+    FROM public.permissions;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ربط الدالة بجدول المنظمات
+DROP TRIGGER IF EXISTS trg_setup_new_org ON public.organizations;
+CREATE TRIGGER trg_setup_new_org
+AFTER INSERT ON public.organizations
+FOR EACH ROW
+EXECUTE FUNCTION public.handle_new_organization_setup();
 
 -- دالة التحقق من عدد المستخدمين (منع تجاوز حدود الباقة)
 CREATE OR REPLACE FUNCTION public.check_user_limit()
@@ -1465,5 +1495,24 @@ CREATE POLICY "Admins view logs" ON security_logs FOR SELECT USING (is_admin() A
 -- 7. System Error Logs
 CREATE POLICY "System insert error logs" ON system_error_logs FOR INSERT TO authenticated WITH CHECK (organization_id = get_my_org());
 CREATE POLICY "Admins view error logs" ON system_error_logs FOR SELECT USING (is_admin() AND organization_id = get_my_org());
+
+-- 8. Roles & Permissions (Specific Policies)
+-- صلاحيات قراءة جدول الصلاحيات العام للجميع
+CREATE POLICY "Allow authenticated read permissions" ON public.permissions 
+FOR SELECT TO authenticated USING (true);
+
+-- حماية الأدوار: كل شركة ترى أدوارها فقط
+CREATE POLICY "Allow users to view roles in their org" ON public.roles 
+FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
+
+CREATE POLICY "Allow admins to manage roles in their org" ON public.roles 
+FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.is_admin());
+
+-- حماية ربط الصلاحيات بالأدوار
+CREATE POLICY "Allow users to view role permissions in their org" ON public.role_permissions 
+FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
+
+CREATE POLICY "Allow admins to manage role permissions in their org" ON public.role_permissions 
+FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.is_admin());
 
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
