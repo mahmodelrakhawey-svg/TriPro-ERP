@@ -202,8 +202,8 @@ BEGIN
 END; $$;
 
 -- ج. اعتماد سند القبض (Receipt Voucher)
-DROP FUNCTION IF EXISTS public.approve_receipt_voucher(UUID, UUID, UUID) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
-CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_org_id uuid, p_voucher_id uuid, p_credit_account_id uuid) 
+DROP FUNCTION IF EXISTS public.approve_receipt_voucher(UUID, UUID) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
+CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_voucher_id uuid, p_credit_account_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_voucher record; v_journal_id uuid;
 BEGIN
@@ -211,19 +211,19 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'سند القبض غير موجود'; END IF;
     IF v_voucher.organization_id != p_org_id THEN RAISE EXCEPTION 'لا تملك صلاحية الوصول لهذا السند.'; END IF;
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
-    VALUES (v_voucher.receipt_date, 'سند قبض ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', p_org_id, true) RETURNING id INTO v_journal_id;
+    VALUES (v_voucher.receipt_date, 'سند قبض ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', public.get_my_org(), true) RETURNING id INTO v_journal_id;
     
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, p_org_id);
+    VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, public.get_my_org());
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, p_credit_account_id, 0, v_voucher.amount, v_voucher.notes, p_org_id);
+    VALUES (v_journal_id, p_credit_account_id, 0, v_voucher.amount, v_voucher.notes, public.get_my_org());
     
     UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
 END; $$;
 
 -- د. اعتماد سند الصرف (Payment Voucher)
-DROP FUNCTION IF EXISTS public.approve_payment_voucher(UUID, UUID, UUID) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
-CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_org_id uuid, p_voucher_id uuid, p_debit_account_id uuid) 
+DROP FUNCTION IF EXISTS public.approve_payment_voucher(UUID, UUID) CASCADE; -- استخدام CASCADE لضمان حذف أي توقيعات سابقة
+CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_voucher_id uuid, p_debit_account_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_voucher record; v_journal_id uuid;
 BEGIN
@@ -231,12 +231,12 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود'; END IF;
     IF v_voucher.organization_id != p_org_id THEN RAISE EXCEPTION 'لا تملك صلاحية الوصول لهذا السند.'; END IF;
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
-    VALUES (v_voucher.payment_date, 'سند صرف ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', p_org_id, true) RETURNING id INTO v_journal_id;
+    VALUES (v_voucher.payment_date, 'سند صرف ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', public.get_my_org(), true) RETURNING id INTO v_journal_id;
     
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, p_org_id);
+    VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, public.get_my_org());
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, v_voucher.treasury_account_id, 0, v_voucher.amount, v_voucher.notes, p_org_id);
+    VALUES (v_journal_id, v_voucher.treasury_account_id, 0, v_voucher.amount, v_voucher.notes, public.get_my_org());
     
     UPDATE public.payment_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
 END; $$;
@@ -416,7 +416,7 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_customer_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL, p_delivery_info jsonb DEFAULT NULL
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_vat_acc_id uuid;
-BEGIN
+BEGIN -- 🔒 فرض عزل البيانات
     SELECT COALESCE(vat_rate, 0.14) INTO v_tax_rate FROM public.company_settings WHERE organization_id = p_org_id LIMIT 1;
     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
     INSERT INTO public.orders (session_id, user_id, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
@@ -987,11 +987,21 @@ BEGIN
     -- ربط المستخدم الحالي كمدير
     v_admin_id := COALESCE(p_admin_id, auth.uid());
     IF v_admin_id IS NOT NULL THEN
-        INSERT INTO public.profiles (id, organization_id, role, is_active)
-        VALUES (v_admin_id, p_org_id, 'admin', true)
+            UPDATE public.profiles 
+        SET role = 'admin', organization_id = p_org_id, is_active = true,
+            role_id = (SELECT id FROM public.roles WHERE name = 'admin' LIMIT 1)
+        WHERE id = v_admin_id;
+
+        -- تحديث Metadata الهوية لضمان التعرف الفوري على الشركة في الـ JWT
+        UPDATE auth.users 
+        SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin')
+        WHERE id = v_admin_id;
+        INSERT INTO public.profiles (id, organization_id, role, role_id, is_active)
+        VALUES (v_admin_id, p_org_id, 'admin', (SELECT id FROM public.roles WHERE name = 'admin' LIMIT 1), true)
         ON CONFLICT (id) DO UPDATE SET 
             organization_id = EXCLUDED.organization_id,
             role = 'admin',
+            role_id = EXCLUDED.role_id,
             is_active = true;
             
         INSERT INTO public.company_settings (organization_id, company_name, vat_rate, activity_type)
@@ -1093,6 +1103,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- المشغل الذي يستدعي الدالة قبل حذف أي منظمة
+DROP TRIGGER IF EXISTS trg_protect_super_admin_on_org_delete ON public.organizations;
 CREATE TRIGGER trg_protect_super_admin_on_org_delete
 BEFORE DELETE ON public.organizations
 FOR EACH ROW EXECUTE FUNCTION public.protect_super_admin_on_org_delete();

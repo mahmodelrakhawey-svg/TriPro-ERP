@@ -144,8 +144,14 @@ BEGIN
         END IF;
     END IF;
 
-    INSERT INTO public.profiles (id, full_name, role, organization_id)
-    VALUES (new.id, COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), v_role, v_org_id);
+    INSERT INTO public.profiles (id, full_name, role, role_id, organization_id)
+    VALUES (
+        new.id, 
+        COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), 
+        v_role, 
+        (SELECT id FROM public.roles WHERE name = v_role LIMIT 1), -- 👈 جلب معرف الدور آلياً
+        v_org_id
+    );
     ON CONFLICT (id) DO NOTHING;
 
     -- تأكيد تحديث Metadata في auth.users لضمان توفرها في الـ JWT فوراً

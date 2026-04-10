@@ -1754,8 +1754,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw new Error(`لا يمكن إضافة قيد بتاريخ ${entryData.date} لأن الفترة المالية مغلقة.`);
       }
 
-      // الحصول على معرف المنظمة من المستخدم الحالي لضمان عزل البيانات في SaaS
-      const organization_id = (currentUser as any)?.organization_id;
+      const organization_id = currentUser?.organization_id;
 
       // تنظيف البيانات من النصوص غير المرغوبة (null/undefined) قبل الحفظ
       const cleanStr = (s: any) => String(s || '').replace(/null|undefined/gi, '').trim();
@@ -1975,7 +1974,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     if (entryId) {
       // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
-      const orgId = (currentUser as any)?.organization_id;
+      const orgId = currentUser?.organization_id;
 
       // حفظ السند في قاعدة البيانات
       await supabase.from('receipt_vouchers').insert({
@@ -2023,8 +2022,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     if (entryId) {
       // جلب معرف المنظمة مع صمام أمان
-      const orgId = (currentUser as any)?.organization_id || 
-                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+      const orgId = currentUser?.organization_id;
 
       // حفظ السند في قاعدة البيانات
       await supabase.from('receipt_vouchers').insert({

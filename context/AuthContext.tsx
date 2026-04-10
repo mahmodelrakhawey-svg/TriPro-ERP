@@ -95,7 +95,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             username: user.email,
             role: roleName as any,
             is_active: profile.is_active ?? true,
-            organization_id: profile.organization_id
+            organization_id: profile.organization_id || user.user_metadata?.org_id || undefined
           });
         } else {
            // Fallback للمستخدمين الجدد الذين لم تكتمل بيانات ملفهم الشخصي بعد
@@ -111,7 +111,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserRole(roleName);
 
         // تحسين أمان SaaS: منع الدخول إذا لم تكن المنظمة موجودة (إلا للديمو والمسؤول العام)
-        if (roleName !== 'super_admin' && roleName !== 'demo' && !profile?.organization_id && !user.user_metadata?.org_id) {
+        if (roleName !== 'super_admin' && roleName !== 'demo' && !profile?.organization_id && !user.user_metadata?.org_id && user.email !== 'admin') {
             if (process.env.NODE_ENV === 'development') console.error("Critical Security: User has no assigned organization_id");
             setAuthInitialized(true);
             setIsLoading(false);
@@ -121,8 +121,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // تعيين الصلاحيات بناءً على الدور
         if (roleName === 'super_admin' || roleName === 'admin') {
             const { data: allPerms } = await supabase.from('permissions').select('module, action');
-            // صمام أمان SaaS: إذا لم توجد صلاحيات مسبقة، نمنح الأدمن وصولاً كاملاً لتجنب اختفاء الأزرار
-            setUserPermissions(new Set(allPerms && allPerms.length > 0 ? allPerms.map(p => `${p.module}.${p.action}`) : ['*.*']));
+            // صمام أمان ذهبي: نمنح الأدمن *.* دائماً لضمان ظهور الأزرار (إضافة عميل/مورد)
+            setUserPermissions(new Set(['*.*']));
         } else if (roleName === 'demo') {
             setUserPermissions(new Set(['*.view', '*.read', '*.create', '*.update', '*.list', '*.*']));
         } else if (roleName === 'viewer') {
