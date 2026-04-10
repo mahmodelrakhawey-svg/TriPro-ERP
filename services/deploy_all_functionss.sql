@@ -3,9 +3,13 @@
 
 -- 🛠️ دالة جلب معرف المنظمة للمستخدم الحالي (ضرورية جداً لعمل النظام)
 CREATE OR REPLACE FUNCTION public.get_my_org()
-RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  SELECT organization_id FROM public.profiles WHERE id = auth.uid();
-$$;
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN COALESCE(
+        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
+        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid())
+    );
+END; $$;
 
 -- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS)
 -- إضافة عمود المنظمة لجدول الأدوار إذا لم يكن موجوداً
@@ -83,7 +87,8 @@ BEGIN
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
             'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
             'create_restaurant_order', 'run_payroll_rpc', 'handle_new_user', 'check_user_limit',
-            'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'get_product_recipe_cost', 'recalculate_stock_rpc',
+            'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
+            'get_product_recipe_cost', 'recalculate_stock_rpc',
             'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema'
         )
         THEN

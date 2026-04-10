@@ -18,7 +18,7 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated;
 -- ================================================================
 
 -- المنظمات والإعدادات
-CREATE TABLE public.organizations (
+CREATE TABLE IF NOT EXISTS public.organizations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     vat_number text,
@@ -69,7 +69,7 @@ BEGIN
 END; $$;
 
 -- الصلاحيات والمستخدمين
-CREATE TABLE public.roles (
+CREATE TABLE IF NOT EXISTS public.roles (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     description text,
@@ -77,7 +77,7 @@ CREATE TABLE public.roles (
     UNIQUE(name, organization_id) -- السماح بنفس الاسم لشركات مختلفة
 );
 
-CREATE TABLE public.permissions (
+CREATE TABLE IF NOT EXISTS public.permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     module text NOT NULL,
     action text NOT NULL,
@@ -85,7 +85,7 @@ CREATE TABLE public.permissions (
     UNIQUE(module, action)
 );
 
-CREATE TABLE public.role_permissions (
+CREATE TABLE IF NOT EXISTS public.role_permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     role_id uuid REFERENCES public.roles(id) ON DELETE CASCADE,
     permission_id uuid REFERENCES public.permissions(id) ON DELETE CASCADE,
@@ -93,7 +93,7 @@ CREATE TABLE public.role_permissions (
     UNIQUE(role_id, permission_id)
 );
 
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
     id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
     full_name text,
     role text DEFAULT 'viewer',
@@ -105,7 +105,7 @@ CREATE TABLE public.profiles (
 );
 
 -- جدول الدعوات (Invitations) للتحكم في من يمكنه الانضمام للنظام
-CREATE TABLE public.invitations (
+CREATE TABLE IF NOT EXISTS public.invitations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     email text NOT NULL UNIQUE,
     role text DEFAULT 'viewer',
@@ -153,7 +153,7 @@ BEGIN
         new.id, 
         COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), 
         v_role, 
-        (SELECT id FROM public.roles WHERE name = v_role LIMIT 1), -- 👈 جلب معرف الدور آلياً
+        (SELECT id FROM public.roles WHERE organization_id = v_org_id AND name = v_role LIMIT 1), -- 👈 جلب معرف الدور الخاص بالشركة آلياً
         v_org_id
     )
     ON CONFLICT (id) DO NOTHING;
@@ -233,7 +233,7 @@ CREATE TRIGGER trg_limit_users
 BEFORE INSERT ON public.profiles
 FOR EACH ROW EXECUTE FUNCTION public.check_user_limit();
 
-CREATE TABLE public.company_settings (
+CREATE TABLE IF NOT EXISTS public.company_settings (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     company_name text,
     tax_number text,
@@ -268,7 +268,7 @@ CREATE TABLE IF NOT EXISTS public.system_error_logs (
 );
 
 -- المحاسبة
-CREATE TABLE public.cost_centers (
+CREATE TABLE IF NOT EXISTS public.cost_centers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     code text,
@@ -277,7 +277,7 @@ CREATE TABLE public.cost_centers (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.accounts (
+CREATE TABLE IF NOT EXISTS public.accounts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     code text NOT NULL,
     name text NOT NULL,
@@ -294,7 +294,7 @@ CREATE TABLE public.accounts (
     UNIQUE (organization_id, code)
 );
 
-CREATE TABLE public.journal_entries (
+CREATE TABLE IF NOT EXISTS public.journal_entries (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     description text,
     reference text,
@@ -309,7 +309,7 @@ CREATE TABLE public.journal_entries (
     updated_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.journal_lines (
+CREATE TABLE IF NOT EXISTS public.journal_lines (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
     account_id uuid REFERENCES public.accounts(id),
@@ -320,7 +320,7 @@ CREATE TABLE public.journal_lines (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.journal_attachments (
+CREATE TABLE IF NOT EXISTS public.journal_attachments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
     file_path text NOT NULL,
@@ -332,7 +332,7 @@ CREATE TABLE public.journal_attachments (
 );
 
 -- العملاء والموردين
-CREATE TABLE public.customers (
+CREATE TABLE IF NOT EXISTS public.customers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     phone text,
@@ -350,7 +350,7 @@ CREATE TABLE public.customers (
     responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid()
 );
 
-CREATE TABLE public.suppliers (
+CREATE TABLE IF NOT EXISTS public.suppliers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     phone text,
@@ -367,7 +367,7 @@ CREATE TABLE public.suppliers (
 );
 
 -- المخزون والمنتجات
-CREATE TABLE public.warehouses (
+CREATE TABLE IF NOT EXISTS public.warehouses (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     location text,
@@ -380,7 +380,7 @@ CREATE TABLE public.warehouses (
 );
 
 -- تصنيفات الأصناف (موجود في الهيكل الحالي)
-CREATE TABLE public.item_categories (
+CREATE TABLE IF NOT EXISTS public.item_categories (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name varchar NOT NULL,
     description text,
@@ -392,7 +392,7 @@ CREATE TABLE public.item_categories (
     organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.products (
+CREATE TABLE IF NOT EXISTS public.products (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     sku text,
@@ -432,7 +432,7 @@ CREATE TABLE public.products (
     is_overhead_percentage boolean DEFAULT false
 );
 
-CREATE TABLE public.bill_of_materials (
+CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     raw_material_id uuid REFERENCES public.products(id),
@@ -440,7 +440,7 @@ CREATE TABLE public.bill_of_materials (
     quantity_required numeric NOT NULL DEFAULT 1
 );
 
-CREATE TABLE public.opening_inventories (
+CREATE TABLE IF NOT EXISTS public.opening_inventories (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     warehouse_id uuid REFERENCES public.warehouses(id) ON DELETE CASCADE,
@@ -452,7 +452,7 @@ CREATE TABLE public.opening_inventories (
 );
 
 -- المبيعات والمشتريات
-CREATE TABLE public.invoices (
+CREATE TABLE IF NOT EXISTS public.invoices (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_number text,
     customer_id uuid REFERENCES public.customers(id),
@@ -480,7 +480,7 @@ CREATE TABLE public.invoices (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.invoice_items (
+CREATE TABLE IF NOT EXISTS public.invoice_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_id uuid REFERENCES public.invoices(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -494,7 +494,7 @@ CREATE TABLE public.invoice_items (
     organization_id uuid REFERENCES public.organizations(id)
 );
 
-CREATE TABLE public.sales_returns (
+CREATE TABLE IF NOT EXISTS public.sales_returns (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     return_number text,
     original_invoice_id uuid REFERENCES public.invoices(id),
@@ -511,7 +511,7 @@ CREATE TABLE public.sales_returns (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.sales_return_items (
+CREATE TABLE IF NOT EXISTS public.sales_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     sales_return_id uuid REFERENCES public.sales_returns(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -521,7 +521,7 @@ CREATE TABLE public.sales_return_items (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.purchase_invoices (
+CREATE TABLE IF NOT EXISTS public.purchase_invoices (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_number text,
     supplier_id uuid REFERENCES public.suppliers(id),
@@ -545,7 +545,7 @@ CREATE TABLE public.purchase_invoices (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.purchase_invoice_items (
+CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     purchase_invoice_id uuid REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -555,7 +555,7 @@ CREATE TABLE public.purchase_invoice_items (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.purchase_returns (
+CREATE TABLE IF NOT EXISTS public.purchase_returns (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     return_number text,
     original_invoice_id uuid REFERENCES public.purchase_invoices(id),
@@ -572,7 +572,7 @@ CREATE TABLE public.purchase_returns (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.purchase_return_items (
+CREATE TABLE IF NOT EXISTS public.purchase_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE, -- توحيد المسمى
     product_id uuid REFERENCES public.products(id),
@@ -582,7 +582,7 @@ CREATE TABLE public.purchase_return_items (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.quotations (
+CREATE TABLE IF NOT EXISTS public.quotations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     quotation_number text,
     customer_id uuid REFERENCES public.customers(id),
@@ -598,7 +598,7 @@ CREATE TABLE public.quotations (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.quotation_items (
+CREATE TABLE IF NOT EXISTS public.quotation_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     quotation_id uuid REFERENCES public.quotations(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -608,7 +608,7 @@ CREATE TABLE public.quotation_items (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.purchase_orders (
+CREATE TABLE IF NOT EXISTS public.purchase_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_number text, -- تم توحيد المسمى ليتوافق مع نظام الطلبات
     supplier_id uuid REFERENCES public.suppliers(id),
@@ -622,7 +622,7 @@ CREATE TABLE public.purchase_orders (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.purchase_order_items (
+CREATE TABLE IF NOT EXISTS public.purchase_order_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_id uuid REFERENCES public.purchase_orders(id) ON DELETE CASCADE, -- توحيد المسمى ليتوافق مع نظام الطلبات
     product_id uuid REFERENCES public.products(id),
@@ -633,7 +633,7 @@ CREATE TABLE public.purchase_order_items (
 );
 
 -- السندات والشيكات
-CREATE TABLE public.receipt_vouchers (
+CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_number text,
     customer_id uuid REFERENCES public.customers(id),
@@ -651,7 +651,7 @@ CREATE TABLE public.receipt_vouchers (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.payment_vouchers (
+CREATE TABLE IF NOT EXISTS public.payment_vouchers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_number text,
     supplier_id uuid REFERENCES public.suppliers(id),
@@ -669,7 +669,7 @@ CREATE TABLE public.payment_vouchers (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.cheques (
+CREATE TABLE IF NOT EXISTS public.cheques (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     cheque_number text,
     bank_name text,
@@ -691,7 +691,7 @@ CREATE TABLE public.cheques (
 );
 
 -- جداول إضافية (مرفقات، إقفال، إشعارات)
-CREATE TABLE public.receipt_voucher_attachments (
+CREATE TABLE IF NOT EXISTS public.receipt_voucher_attachments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_id uuid REFERENCES public.receipt_vouchers(id) ON DELETE CASCADE,
     file_path text NOT NULL,
@@ -701,8 +701,7 @@ CREATE TABLE public.receipt_voucher_attachments (
     organization_id uuid REFERENCES public.organizations(id),
     created_at timestamptz DEFAULT now()
 );
-
-CREATE TABLE public.payment_voucher_attachments (
+CREATE TABLE IF NOT EXISTS public.payment_voucher_attachments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_id uuid REFERENCES public.payment_vouchers(id) ON DELETE CASCADE,
     file_path text NOT NULL,
@@ -713,7 +712,7 @@ CREATE TABLE public.payment_voucher_attachments (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.cheque_attachments (
+CREATE TABLE IF NOT EXISTS public.cheque_attachments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     cheque_id uuid REFERENCES public.cheques(id) ON DELETE CASCADE,
     file_path text NOT NULL,
@@ -724,7 +723,7 @@ CREATE TABLE public.cheque_attachments (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.cash_closings (
+CREATE TABLE IF NOT EXISTS public.cash_closings (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     closing_date timestamptz DEFAULT now(),
     treasury_account_id uuid REFERENCES public.accounts(id),
@@ -738,7 +737,7 @@ CREATE TABLE public.cash_closings (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.rejected_cash_closings (
+CREATE TABLE IF NOT EXISTS public.rejected_cash_closings (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     rejection_date timestamptz DEFAULT now(),
     treasury_account_id uuid REFERENCES public.accounts(id),
@@ -751,7 +750,7 @@ CREATE TABLE public.rejected_cash_closings (
     max_allowed_deficit numeric
 );
 
-CREATE TABLE public.credit_notes (
+CREATE TABLE IF NOT EXISTS public.credit_notes (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     credit_note_number text,
     customer_id uuid REFERENCES public.customers(id),
@@ -767,7 +766,7 @@ CREATE TABLE public.credit_notes (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.debit_notes (
+CREATE TABLE IF NOT EXISTS public.debit_notes (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     debit_note_number text,
     supplier_id uuid REFERENCES public.suppliers(id),
@@ -783,7 +782,7 @@ CREATE TABLE public.debit_notes (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.security_logs (
+CREATE TABLE IF NOT EXISTS public.security_logs (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     event_type text NOT NULL,
     description text,
@@ -794,7 +793,7 @@ CREATE TABLE public.security_logs (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.budgets (
+CREATE TABLE IF NOT EXISTS public.budgets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     year integer,
     month integer,
@@ -806,7 +805,7 @@ CREATE TABLE public.budgets (
 );
 
 -- الأصول الثابتة
-CREATE TABLE public.assets (
+CREATE TABLE IF NOT EXISTS public.assets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     purchase_date date,
@@ -825,7 +824,7 @@ CREATE TABLE public.assets (
 );
 
 -- الموارد البشرية
-CREATE TABLE public.employees (
+CREATE TABLE IF NOT EXISTS public.employees (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     full_name text NOT NULL,
     position text,
@@ -841,7 +840,7 @@ CREATE TABLE public.employees (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.payrolls (
+CREATE TABLE IF NOT EXISTS public.payrolls (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     payroll_month integer,
     payroll_year integer,
@@ -855,7 +854,7 @@ CREATE TABLE public.payrolls (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.payroll_items (
+CREATE TABLE IF NOT EXISTS public.payroll_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     payroll_id uuid REFERENCES public.payrolls(id) ON DELETE CASCADE,
     employee_id uuid REFERENCES public.employees(id),
@@ -868,7 +867,7 @@ CREATE TABLE public.payroll_items (
     organization_id uuid REFERENCES public.organizations(id)
 );
 
-CREATE TABLE public.employee_advances (
+CREATE TABLE IF NOT EXISTS public.employee_advances (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     employee_id uuid REFERENCES public.employees(id),
     amount numeric,
@@ -1036,10 +1035,10 @@ CREATE TABLE IF NOT EXISTS public.order_item_modifiers (
     price_at_order NUMERIC(10, 2) NOT NULL,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     PRIMARY KEY (order_item_id, modifier_id)
-);
+);  
 
 -- جدول صلاحيات المستخدمين المباشرة (موجود في الهيكل)
-CREATE TABLE public.user_permissions (
+CREATE TABLE IF NOT EXISTS public.user_permissions (
     id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
     user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
     organization_id uuid REFERENCES public.organizations(id),
@@ -1049,7 +1048,7 @@ CREATE TABLE public.user_permissions (
 );
 
 -- عمليات المخزون المتقدمة
-CREATE TABLE public.stock_transfers (
+CREATE TABLE IF NOT EXISTS public.stock_transfers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     transfer_number text,
     from_warehouse_id uuid REFERENCES public.warehouses(id),
@@ -1062,7 +1061,7 @@ CREATE TABLE public.stock_transfers (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.stock_transfer_items (
+CREATE TABLE IF NOT EXISTS public.stock_transfer_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     stock_transfer_id uuid REFERENCES public.stock_transfers(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -1070,7 +1069,7 @@ CREATE TABLE public.stock_transfer_items (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.stock_adjustments (
+CREATE TABLE IF NOT EXISTS public.stock_adjustments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     adjustment_number text,
     warehouse_id uuid REFERENCES public.warehouses(id),
@@ -1082,7 +1081,7 @@ CREATE TABLE public.stock_adjustments (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.stock_adjustment_items (
+CREATE TABLE IF NOT EXISTS public.stock_adjustment_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     stock_adjustment_id uuid REFERENCES public.stock_adjustments(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -1091,7 +1090,7 @@ CREATE TABLE public.stock_adjustment_items (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
 
-CREATE TABLE public.inventory_counts (
+CREATE TABLE IF NOT EXISTS public.inventory_counts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     count_number text,
     warehouse_id uuid REFERENCES public.warehouses(id),
@@ -1102,7 +1101,7 @@ CREATE TABLE public.inventory_counts (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.inventory_count_items (
+CREATE TABLE IF NOT EXISTS public.inventory_count_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     inventory_count_id uuid REFERENCES public.inventory_counts(id) ON DELETE CASCADE,
     product_id uuid NOT NULL REFERENCES public.products(id),
@@ -1114,7 +1113,7 @@ CREATE TABLE public.inventory_count_items (
 );
 
 -- التصنيع (Manufacturing)
-CREATE TABLE public.work_orders (
+CREATE TABLE IF NOT EXISTS public.work_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_number text,
     product_id uuid REFERENCES public.products(id),
@@ -1127,8 +1126,7 @@ CREATE TABLE public.work_orders (
     notes text,
     created_at timestamptz DEFAULT now()
 );
-
-CREATE TABLE public.work_order_costs (
+CREATE TABLE IF NOT EXISTS public.work_order_costs (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     work_order_id uuid REFERENCES public.work_orders(id) ON DELETE CASCADE,
     cost_type text, -- labor, overhead, other
@@ -1138,7 +1136,7 @@ CREATE TABLE public.work_order_costs (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.bank_reconciliations (
+CREATE TABLE IF NOT EXISTS public.bank_reconciliations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     account_id uuid REFERENCES public.accounts(id),
     statement_date date,
@@ -1158,7 +1156,7 @@ CREATE TABLE public.bank_reconciliations (
 -- 2. نظام الإخطارات (Notifications)
 -- ================================================================
 
-CREATE TABLE public.notifications (
+CREATE TABLE IF NOT EXISTS public.notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   title VARCHAR(255) NOT NULL,
@@ -1174,10 +1172,10 @@ CREATE TABLE public.notifications (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_notifications_user_id ON notifications(user_id);
-CREATE INDEX idx_notifications_user_is_read ON notifications(user_id, is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_is_read ON public.notifications(user_id, is_read);
 
-CREATE TABLE public.notification_preferences (
+CREATE TABLE IF NOT EXISTS public.notification_preferences (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
   enable_overdue_payments BOOLEAN DEFAULT TRUE,
@@ -1196,7 +1194,7 @@ CREATE TABLE public.notification_preferences (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE public.notification_audit_log (
+CREATE TABLE IF NOT EXISTS public.notification_audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   notification_id UUID REFERENCES notifications(id) ON DELETE CASCADE,
   user_id UUID REFERENCES auth.users(id),
@@ -1350,6 +1348,7 @@ BEGIN
 END; $$;
 
 -- إضافة منتج مع رصيد افتتاحي وقيد محاسبي آلي
+DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid) CASCADE;
 CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(p_name text, p_sku text, p_sales_price numeric, p_purchase_price numeric, p_stock numeric, p_org_id uuid, p_item_type text, p_inventory_account_id uuid, p_cogs_account_id uuid, p_sales_account_id uuid)
 RETURNS uuid LANGUAGE plpgsql AS $$
 DECLARE v_product_id uuid; BEGIN
@@ -1415,21 +1414,29 @@ END $$;
 
 -- سياسات الوصول (Policies)
 -- 1. Profiles
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "profiles_select_safe" ON public.profiles;
 CREATE POLICY "profiles_select_safe" ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid() OR organization_id = public.get_my_org());
+DROP POLICY IF EXISTS "profiles_insert_safe" ON public.profiles;
 CREATE POLICY "profiles_insert_safe" ON public.profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid());
+DROP POLICY IF EXISTS "profiles_update_safe" ON public.profiles;
 CREATE POLICY "profiles_update_safe" ON public.profiles FOR UPDATE TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
+DROP POLICY IF EXISTS "profiles_delete_safe" ON public.profiles;
 CREATE POLICY "profiles_delete_safe" ON public.profiles FOR DELETE TO authenticated USING (public.get_my_role() IN ('admin', 'super_admin'));
 
 -- 2. Organizations
+DROP POLICY IF EXISTS "Users view own org" ON organizations;
 CREATE POLICY "Users view own org" ON organizations FOR SELECT USING (id = get_my_org());
+DROP POLICY IF EXISTS "Super admins view all organizations" ON organizations;
 CREATE POLICY "Super admins view all organizations" ON organizations FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
 
 -- سياسة الوصول لجدول الدعوات (فقط الأدمن يمكنه الإرسال)
+DROP POLICY IF EXISTS "Admins manage invitations" ON invitations;
 CREATE POLICY "Admins manage invitations" ON invitations FOR ALL USING (is_admin() AND organization_id = get_my_org());
 -- 2. Settings
-CREATE POLICY "Settings isolated by org" ON company_settings FOR SELECT TO authenticated USING (organization_id = get_my_org());
-CREATE POLICY "Admins update settings" ON company_settings FOR UPDATE USING (is_admin() AND organization_id = get_my_org());
+DROP POLICY IF EXISTS "Settings isolated by org" ON public.company_settings;
+CREATE POLICY "Settings isolated by org" ON public.company_settings FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
+DROP POLICY IF EXISTS "Admins update settings" ON public.company_settings;
+CREATE POLICY "Admins update settings" ON public.company_settings FOR UPDATE USING (public.is_admin() AND organization_id = public.get_my_org());
 
 -- 3. البيانات الأساسية (Basic Data)
 -- تكرار السياسة لجميع جداول التعريفات لضمان الحماية
@@ -1485,34 +1492,48 @@ BEGIN
 END $$;
 
 -- 5. Notifications (User specific)
+DROP POLICY IF EXISTS "Users view own notifications" ON notifications;
 CREATE POLICY "Users view own notifications" ON notifications FOR SELECT USING (auth.uid() = user_id AND organization_id = get_my_org());
+DROP POLICY IF EXISTS "Users update own notifications" ON notifications;
 CREATE POLICY "Users update own notifications" ON notifications FOR UPDATE USING (auth.uid() = user_id AND organization_id = get_my_org());
 
 -- 6. Security Logs (Insert for all, View for Admin)
+DROP POLICY IF EXISTS "Everyone insert logs" ON security_logs;
 CREATE POLICY "Everyone insert logs" ON security_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = performed_by AND organization_id = get_my_org());
+DROP POLICY IF EXISTS "Admins view logs" ON security_logs;
 CREATE POLICY "Admins view logs" ON security_logs FOR SELECT USING (is_admin() AND organization_id = get_my_org());
 
 -- 7. System Error Logs
+DROP POLICY IF EXISTS "System insert error logs" ON system_error_logs;
 CREATE POLICY "System insert error logs" ON system_error_logs FOR INSERT TO authenticated WITH CHECK (organization_id = get_my_org());
+DROP POLICY IF EXISTS "Admins view error logs" ON system_error_logs;
 CREATE POLICY "Admins view error logs" ON system_error_logs FOR SELECT USING (is_admin() AND organization_id = get_my_org());
 
 -- 8. Roles & Permissions (Specific Policies)
 -- صلاحيات قراءة جدول الصلاحيات العام للجميع
+DROP POLICY IF EXISTS "Allow authenticated read permissions" ON public.permissions;
 CREATE POLICY "Allow authenticated read permissions" ON public.permissions 
 FOR SELECT TO authenticated USING (true);
 
 -- حماية الأدوار: كل شركة ترى أدوارها فقط
+DROP POLICY IF EXISTS "Allow users to view roles in their org" ON public.roles;
 CREATE POLICY "Allow users to view roles in their org" ON public.roles 
 FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
 
+DROP POLICY IF EXISTS "Allow admins to manage roles in their org" ON public.roles;
 CREATE POLICY "Allow admins to manage roles in their org" ON public.roles 
 FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.is_admin());
 
 -- حماية ربط الصلاحيات بالأدوار
+DROP POLICY IF EXISTS "Allow users to view role permissions in their org" ON public.role_permissions;
 CREATE POLICY "Allow users to view role permissions in their org" ON public.role_permissions 
 FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
 
+DROP POLICY IF EXISTS "Allow admins to manage role permissions in their org" ON public.role_permissions;
 CREATE POLICY "Allow admins to manage role permissions in their org" ON public.role_permissions 
 FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.is_admin());
 
+-- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
+SELECT public.refresh_saas_schema();
+NOTIFY pgrst, 'reload config';
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
