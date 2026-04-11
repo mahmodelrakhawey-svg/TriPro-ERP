@@ -7,24 +7,23 @@
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(UUID);
 DROP FUNCTION IF EXISTS public.initialize_egyptian_coa(UUID, TEXT);
 
-CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id UUID, p_activity_type TEXT DEFAULT 'commercial')
+CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id UUID, p_activity_type TEXT DEFAULT 'commercial', p_admin_id uuid DEFAULT NULL)
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER 
+SET search_path = public, auth
 AS $$
-DECLARE v_vat_rate numeric; v_admin_id uuid;
+DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
+    v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
+    v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
+    v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
 BEGIN
-    -- تحديد نسبة الضريبة الافتراضية بناءً على نوع النشاط (المعايير المصرية)
-    IF p_activity_type = 'construction' THEN
-        v_vat_rate := 0.05; -- ضريبة الجدول للمقاولات والإنشاءات
-    ELSIF p_activity_type = 'charity' THEN
-        v_vat_rate := 0.00; -- إعفاء ضريبي للجمعيات الخيرية
-    ELSE
-        v_vat_rate := 0.14; -- النسبة العامة القياسية 14% (تجاري، مطاعم، إلخ)
-    END IF;
-
-       -- 1. استخدام جدول مؤقت لضمان حقن جميع الحسابات دفعة واحدة بترتيب هرمي وذكي
-
+    v_vat_rate := CASE 
+        WHEN p_activity_type = 'construction' THEN 0.05 
+        WHEN p_activity_type = 'charity' THEN 0.00 
+        ELSE 0.14 
+    END;
+    SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
     CREATE TEMPORARY TABLE coa_temp (
         code text PRIMARY KEY,
         name text NOT NULL,
@@ -176,7 +175,7 @@ BEGIN
         INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
         ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
         ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41'),
-        ('512', 'تكلفة الهالك والضيافة', 'expense', false, '51');
+        ('5121', 'تكلفة الهالك والضيافة', 'expense', false, '51');
     END IF;
 
     -- إضافات خاصة بنشاط التصنيع
@@ -207,10 +206,22 @@ BEGIN
       AND a.code = t.code 
       AND a.parent_id IS NULL;
 
-    -- 5. ربط المستخدم الحالي كمدير وتحديث بيانات الهوية (Metadata)
-    v_admin_id := auth.uid();
+    -- 🛡️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
+    -- نتجنب auth.uid() هنا لأن المستدعي غالباً هو السوبر أدمن ولا نريد تغيير بياناته.
+    v_admin_id := p_admin_id;
     IF v_admin_id IS NOT NULL THEN
-        UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
+        
+            -- التأكد من وجود دور admin لهذه الشركة
+        INSERT INTO public.roles (organization_id, name, description)
+        VALUES (p_org_id, 'admin', 'مدير النظام')
+        ON CONFLICT (name, organization_id) DO NOTHING;
+
+        UPDATE public.profiles 
+        SET role = 'admin', 
+            organization_id = p_org_id, 
+            is_active = true,
+            role_id = (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1)
+        WHERE id = v_admin_id;    
         
         -- تحديث Metadata الهوية لضمان ظهور الأزرار في الواجهة فوراً دون الحاجة لتدخل يدوي
         UPDATE auth.users SET raw_user_meta_data = 
@@ -218,30 +229,60 @@ BEGIN
         WHERE id = v_admin_id;
     END IF;
 
-    -- 6. تحديث إعدادات الشركة بنوع النشاط المختار لضمان حفظه تلقائياً واسترجاعه لاحقاً
-    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name)
-    VALUES (p_org_id, p_activity_type, v_vat_rate, (SELECT name FROM public.organizations WHERE id = p_org_id))
-    ON CONFLICT (organization_id) 
-    DO UPDATE SET 
-        activity_type = EXCLUDED.activity_type,
-        vat_rate = EXCLUDED.vat_rate;
+    v_cash_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1231' LIMIT 1);
+    v_sales_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '411' LIMIT 1);
+    v_cust_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1221' LIMIT 1);
+    v_cogs_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '511' LIMIT 1);
+    v_inv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10302' LIMIT 1);
+    v_vat_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2231' LIMIT 1);
+    v_supp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '201' LIMIT 1);
+    v_sal_ret_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '412' LIMIT 1);
+    v_vat_in_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1241' LIMIT 1);
+    v_disc_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '413' LIMIT 1);
+    v_wht_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2232' LIMIT 1);
+    v_payroll_tax_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2233' LIMIT 1);
+    v_wht_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1242' LIMIT 1);
+    v_sal_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '531' LIMIT 1);
+    v_bonus_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1);
+    v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
+    v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
+    v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
 
-    -- تحديث الروابط في الإعدادات لضمان عمل القيود الآلية
-    UPDATE public.company_settings 
-    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
-        'SALARIES_EXPENSE', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '531' LIMIT 1),
-        'EMPLOYEE_BONUSES', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1),
-        'EMPLOYEE_DEDUCTIONS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1),
-        'EMPLOYEE_ADVANCES', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1),
-        'PAYROLL_TAX', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2233' LIMIT 1),
-        'CASH', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1231' LIMIT 1),
-        'SALES_REVENUE', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '411' LIMIT 1),
-        'CUSTOMERS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1221' LIMIT 1),
-        'SUPPLIERS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '201' LIMIT 1),
-        'VAT', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2231' LIMIT 1),
-        'VAT_INPUT', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1241' LIMIT 1)
-    )
-    WHERE organization_id = p_org_id;
+    -- 🚀 ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
+    INSERT INTO public.roles (organization_id, name, description)
+    VALUES (p_org_id, 'admin', 'مدير النظام')
+    ON CONFLICT (name, organization_id) DO NOTHING;
+
+    INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
+    SELECT (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1), id, p_org_id
+    FROM public.permissions ON CONFLICT DO NOTHING;
+
+    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings)
+    VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
+        jsonb_build_object(
+            'CASH', v_cash_id, 'SALES_REVENUE', v_sales_id, 'CUSTOMERS', v_cust_id, 'COGS', v_cogs_id, 'INVENTORY_FINISHED_GOODS', v_inv_id,
+            'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
+            'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
+            'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
+            'RETAINED_EARNINGS', v_retained_id
+        )
+    ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
+
+    -- تأسيس الأدوار الافتراضية للمنظمة لضمان ظهورها في شاشة الصلاحيات
+    INSERT INTO public.roles (organization_id, name, description) VALUES
+    (p_org_id, 'admin', 'مدير النظام'),
+    (p_org_id, 'accountant', 'محاسب'),
+    (p_org_id, 'cashier', 'كاشير / بائع'),
+    (p_org_id, 'chef', 'شيف / مطبخ')
+    ON CONFLICT (name, organization_id) DO NOTHING;
+
+    -- 🚀 ضمان منح كافة الصلاحيات لدور الـ admin الخاص بهذه المنظمة
+    INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
+    SELECT (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1),
+           id,
+           p_org_id
+    FROM public.permissions
+    ON CONFLICT DO NOTHING;
 
     RETURN '✅ تم تأسيس الدليل المحاسبي وربط الحسابات السيادية بنجاح.';
 

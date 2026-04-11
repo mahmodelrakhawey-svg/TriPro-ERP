@@ -51,11 +51,11 @@ CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
 LANGUAGE plpgsql 
 SECURITY DEFINER
-SET search_path = public, auth
+SET search_path = public, auth, pg_temp
 AS $$
 BEGIN
-    -- 1. المحاولة الأولى: القراءة من الـ JWT (الأسرع ولا تلمس الجداول)
-    -- 2. الهروب من الـ Recursion: القراءة من auth.users (جدول داخلي) بدلاً من public.profiles
+    -- الوصول السريع لمعرف المنظمة من الـ JWT أو من جدول auth.users الداخلي
+    -- تجنب الاستعلام من profiles لمنع تكرار فحص السياسات (Infinite Recursion)
     RETURN COALESCE(
         (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
         (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid())
@@ -131,20 +131,26 @@ BEGIN
     v_org_id := (new.raw_user_meta_data->>'org_id')::uuid;
     v_role := COALESCE(new.raw_user_meta_data->>'role', 'admin');
 
-    -- 2. حالة خاصة: إذا كان هذا أول مستخدم في النظام بالكامل
+    -- 2. تأمين حالة المنظمة للمستخدم الأول في النظام
     IF v_org_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.profiles) THEN
-        -- إنشاء منظمة افتراضية للمدير الأول
         INSERT INTO public.organizations (name) VALUES ('الشركة الرئيسية') RETURNING id INTO v_org_id;
         v_role := 'super_admin';
     END IF;
 
-    -- 3. إذا لم يتم توفير معرف شركة (تسجيل عادي)، نتحقق من وجود دعوة (المنطق القديم)
+    -- 3. التحقق من الدعوات إذا لم يوجد معرف شركة في الـ Metadata
     IF v_org_id IS NULL THEN
         SELECT organization_id, role INTO v_org_id, v_role FROM public.invitations 
         WHERE email = new.email AND accepted_at IS NULL LIMIT 1;
-        
+
         IF v_org_id IS NOT NULL THEN
             UPDATE public.invitations SET accepted_at = now() WHERE email = new.email;
+        END IF;
+    END IF;
+
+    -- 4. ضمان تعيين دور admin إذا كان المستخدم هو أول من ينضم لمنظمة موجودة
+    IF v_org_id IS NOT NULL AND v_role IS NULL THEN
+        IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE organization_id = v_org_id) THEN
+            v_role := 'admin';
         END IF;
     END IF;
 
@@ -153,7 +159,7 @@ BEGIN
         new.id, 
         COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), 
         v_role, 
-        (SELECT id FROM public.roles WHERE organization_id = v_org_id AND name = v_role LIMIT 1), -- 👈 جلب معرف الدور الخاص بالشركة آلياً
+        (SELECT id FROM public.roles WHERE organization_id = v_org_id AND name = COALESCE(v_role, 'admin') LIMIT 1),
         v_org_id
     )
     ON CONFLICT (id) DO NOTHING;
@@ -274,7 +280,7 @@ CREATE TABLE IF NOT EXISTS public.cost_centers (
     code text,
     description text,
     created_at timestamptz DEFAULT now(),
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
 CREATE TABLE IF NOT EXISTS public.accounts (
@@ -284,7 +290,7 @@ CREATE TABLE IF NOT EXISTS public.accounts (
     type text NOT NULL,
     is_group boolean DEFAULT false NOT NULL,
     parent_id uuid REFERENCES public.accounts(id),
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     balance numeric DEFAULT 0,
     sub_type text,
     deleted_at timestamptz,
@@ -301,7 +307,7 @@ CREATE TABLE IF NOT EXISTS public.journal_entries (
     status text DEFAULT 'draft',
     is_posted boolean DEFAULT false,
     user_id uuid REFERENCES public.profiles(id),
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     related_document_id uuid,
     related_document_type text,
     created_at timestamptz DEFAULT now() NOT NULL,
@@ -317,7 +323,7 @@ CREATE TABLE IF NOT EXISTS public.journal_lines (
     credit numeric(19,4) DEFAULT 0,
     description text,
     cost_center_id uuid REFERENCES public.cost_centers(id),
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
 CREATE TABLE IF NOT EXISTS public.journal_attachments (
@@ -344,7 +350,7 @@ CREATE TABLE IF NOT EXISTS public.customers (
     customer_type text DEFAULT 'individual', -- individual, store, online
     balance numeric DEFAULT 0, -- حقل محسوب (اختياري للأداء)
     deleted_at timestamptz, -- Changed to timestamptz for consistency
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deletion_reason text,
     created_at timestamptz DEFAULT now() NOT NULL,
     responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid()
@@ -359,7 +365,7 @@ CREATE TABLE IF NOT EXISTS public.suppliers (
     tax_id text,
     address text,
     contact_person text,
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     balance numeric DEFAULT 0, -- Changed to numeric for consistency
     deleted_at timestamptz,
     deletion_reason text,
@@ -374,7 +380,7 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
     manager text,
     phone text,
     type text DEFAULT 'warehouse',
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deleted_at timestamptz,
     deletion_reason text
 );
@@ -389,7 +395,7 @@ CREATE TABLE IF NOT EXISTS public.item_categories (
     default_inventory_account_id uuid REFERENCES public.accounts(id),
     default_cogs_account_id uuid REFERENCES public.accounts(id),
     default_sales_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
 CREATE TABLE IF NOT EXISTS public.products (
@@ -894,7 +900,7 @@ CREATE TABLE IF NOT EXISTS public.restaurant_tables (
     reservation_info jsonb,
     qr_access_key uuid DEFAULT gen_random_uuid(),
     qr_code text, -- Changed to text for consistency
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
 );
@@ -915,7 +921,7 @@ CREATE TABLE IF NOT EXISTS public.table_sessions (
     customer_name text,
     opened_at timestamptz DEFAULT now(),
     closed_at timestamptz, -- Changed to timestamptz for consistency
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     status text DEFAULT 'OPEN' -- OPEN, CLOSED
 );
 
@@ -930,7 +936,7 @@ CREATE TABLE IF NOT EXISTS public.shifts (
     actual_cash numeric DEFAULT 0,
     difference numeric DEFAULT 0,
     notes text,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
     status text DEFAULT 'OPEN' -- OPEN, CLOSED
 );
 
@@ -1375,7 +1381,7 @@ BEGIN
     (v_org_id, '4', 'الإيرادات', 'REVENUE', true),
     (v_org_id, '5', 'المصروفات', 'EXPENSE', true);
 
-    INSERT INTO public.roles (name, description) VALUES ('super_admin', 'المدير العام');
+    INSERT INTO public.roles (name, description) VALUES ('super_admin', 'المدير العام') ON CONFLICT DO NOTHING;
     INSERT INTO public.item_categories (organization_id, name) VALUES (v_org_id, 'عام') RETURNING id INTO v_cat_id;
 
     -- تحديث تكلفة الأصناف بناءً على BOM

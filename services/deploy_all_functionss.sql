@@ -3,7 +3,11 @@
 
 -- 🛠️ دالة جلب معرف المنظمة للمستخدم الحالي (ضرورية جداً لعمل النظام)
 CREATE OR REPLACE FUNCTION public.get_my_org()
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
 BEGIN
     RETURN COALESCE(
         (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
@@ -13,14 +17,24 @@ END; $$;
 
 -- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS)
 -- إضافة عمود المنظمة لجدول الأدوار إذا لم يكن موجوداً
-ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
 
 -- إضافة عمود المنظمة لجدول ربط الصلاحيات بالأدوار
-ALTER TABLE public.role_permissions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+ALTER TABLE public.role_permissions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
 
 -- تعبئة البيانات القديمة (إن وجدت) بمنظمة افتراضية لضمان ظهورها في الشاشة
-UPDATE public.roles SET organization_id = (SELECT id FROM public.organizations LIMIT 1) WHERE organization_id IS NULL;
-UPDATE public.role_permissions SET organization_id = (SELECT id FROM public.organizations LIMIT 1) WHERE organization_id IS NULL;
+-- تم تحسين المنطق لمنع أخطاء Duplicate Key
+DO $$ 
+DECLARE v_first_org uuid;
+BEGIN
+    SELECT id INTO v_first_org FROM public.organizations LIMIT 1;
+    IF v_first_org IS NOT NULL THEN
+        -- حذف الأدوار التي ستسبب تصادماً قبل التحديث
+        DELETE FROM public.roles r1 WHERE organization_id IS NULL AND EXISTS (SELECT 1 FROM public.roles r2 WHERE r2.organization_id = v_first_org AND r2.name = r1.name);
+        UPDATE public.roles SET organization_id = v_first_org WHERE organization_id IS NULL;
+        UPDATE public.role_permissions SET organization_id = v_first_org WHERE organization_id IS NULL;
+    END IF;
+END $$;
 
 -- 🛠️ إنشاء وتعبئة جدول الصلاحيات الأساسية (هذا ما يجعل المصفوفة تظهر في الشاشة)
 CREATE TABLE IF NOT EXISTS public.permissions (
@@ -60,7 +74,7 @@ CROSS JOIN (
     ('cashier', 'كاشير / بائع'),
     ('chef', 'شيف / مطبخ')
 ) AS r(name, role_desc)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (name, organization_id) DO NOTHING;
 
 -- ℹ️ الوصف: المحرك الكامل لمديولات (المبيعات، المشتريات، المرتجعات، المطاعم، الرواتب، المخازن، والتقارير)
 -- تم دمج كافة الدوال لضمان عمل النظام ككتلة واحدة مع عزل SaaS كامل.
@@ -495,11 +509,13 @@ BEGIN
     v_org_id := (new.raw_user_meta_data->>'org_id')::uuid;
     v_role := COALESCE(new.raw_user_meta_data->>'role', 'admin');
 
+    -- 1. حالة خاصة: إذا كان هذا أول مستخدم في النظام بالكامل (السوبر أدمن الأول)
     IF v_org_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.profiles) THEN
         INSERT INTO public.organizations (name) VALUES ('الشركة الرئيسية') RETURNING id INTO v_org_id;
         v_role := 'super_admin';
     END IF;
 
+    -- 2. التحقق من الدعوات إذا لم يوجد معرف شركة في الـ Metadata
     IF v_org_id IS NULL THEN
         SELECT organization_id, role INTO v_org_id, v_role FROM public.invitations 
         WHERE email = new.email AND accepted_at IS NULL LIMIT 1;
@@ -509,8 +525,21 @@ BEGIN
         END IF;
     END IF;
 
-    INSERT INTO public.profiles (id, full_name, role, organization_id)
-    VALUES (new.id, COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), v_role, v_org_id)
+    -- 3. ضمان تعيين دور admin إذا كان المستخدم هو أول من ينضم لمنظمة موجودة
+    IF v_org_id IS NOT NULL AND v_role IS NULL THEN
+        IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE organization_id = v_org_id) THEN
+            v_role := 'admin';
+        END IF;
+    END IF;
+
+    INSERT INTO public.profiles (id, full_name, role, role_id, organization_id)
+    VALUES (
+        new.id, 
+        COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد'), 
+        v_role, 
+        (SELECT id FROM public.roles WHERE organization_id = v_org_id AND name = COALESCE(v_role, 'admin') LIMIT 1),
+        v_org_id
+    )
     ON CONFLICT (id) DO NOTHING;
 
     UPDATE auth.users 
@@ -554,7 +583,7 @@ SET search_path = public, auth
 AS $$
 DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_parent_id uuid;
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
-    v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid;
+    v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
 BEGIN
     v_vat_rate := CASE WHEN p_activity_type = 'construction' THEN 0.05 WHEN p_activity_type = 'charity' THEN 0.00 ELSE 0.14 END;
@@ -581,12 +610,29 @@ BEGIN
     ('225', 'مصروفات مستحقة', 'liability', true, '22'), ('2251', 'رواتب وأجور مستحقة', 'liability', false, '225'), ('2252', 'إيجارات مستحقة', 'liability', false, '225'), ('2253', 'كهرباء ومياه وغاز مستحقة', 'liability', false, '225'), ('2254', 'أتعاب مهنية ومراجعة مستحقة', 'liability', false, '225'), ('2255', 'عمولات بيع مستحقة', 'liability', false, '225'), ('2256', 'فوائد بنكية مستحقة', 'liability', false, '225'), ('2257', 'اشتراكات وتراخيص مستحقة', 'liability', false, '225'), ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', false, '22'),
     ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
     ('411', 'إيراد المبيعات', 'revenue', false, '41'), ('412', 'مردودات المبيعات', 'revenue', false, '41'), ('413', 'خصم مسموح به', 'revenue', false, '41'),
-    ('42', 'إيرادات أخرى', 'revenue', true, '4'), ('421', 'إيرادات متنوعة', 'revenue', false, '42'), ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'), ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
+    ('421', 'إيرادات متنوعة', 'revenue', false, '42'), ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'), ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
     ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'), ('512', 'تسويات الجرد (عجز المخزون)', 'expense', false, '51'),
-    ('52', 'مصروفات البيع والتسويق', 'expense', true, '5'), ('521', 'دعاية وإعلان', 'expense', false, '52'), ('522', 'عمولات بيع وتسويق', 'expense', false, '52'), ('523', 'نقل ومشال للخارج', 'expense', false, '52'), ('524', 'تعبئة وتغليف', 'expense', false, '52'),
-    ('525', 'عمولات تحصيل إلكتروني', 'expense', true, '52'), ('5251', 'عمولة فودافون كاش', 'expense', false, '525'), ('5252', 'عمولة فوري', 'expense', false, '525'), ('5253', 'عمولة تحويلات بنكية', 'expense', false, '525'),
-    ('53', 'المصروفات الإدارية والعمومية', 'expense', true, '5'), ('531', 'الرواتب والأجور', 'expense', false, '53'), ('5311', 'بدلات وانتقالات', 'expense', false, '53'), ('5312', 'مكافآت وحوافز', 'expense', false, '53'), ('532', 'إيجار مقرات إدارية', 'expense', false, '53'), ('533', 'إهلاك الأصول الثابتة', 'expense', false, '53'), ('534', 'رسوم ومصروفات بنكية', 'expense', false, '53'), ('535', 'كهرباء ومياه وغاز', 'expense', false, '53'), ('536', 'اتصالات وإنترنت', 'expense', false, '53'), ('537', 'صيانة وإصلاح', 'expense', false, '53'), ('538', 'أدوات مكتبية ومطبوعات', 'expense', false, '53'), ('539', 'ضيافة واستقبال', 'expense', false, '53'), ('541', 'تسوية عجز الصندوق', 'expense', false, '53'), ('542', 'إكراميات', 'expense', false, '53'), ('543', 'مصاريف نظافة', 'expense', false, '53');
+    ('521', 'دعاية وإعلان', 'expense', false, '52'), ('522', 'عمولات بيع وتسويق', 'expense', false, '52'), ('523', 'نقل ومشال للخارج', 'expense', false, '52'), ('524', 'تعبئة وتغليف', 'expense', false, '52'),
+    ('5251', 'عمولة فودافون كاش', 'expense', false, '525'), ('5252', 'عمولة فوري', 'expense', false, '525'), ('5253', 'عمولة تحويلات بنكية', 'expense', false, '525'),
+    ('531', 'الرواتب والأجور', 'expense', false, '53'), ('5311', 'بدلات وانتقالات', 'expense', false, '53'), ('5312', 'مكافآت وحوافز', 'expense', false, '53'), ('532', 'إيجار مقرات إدارية', 'expense', false, '53'), ('533', 'إهلاك الأصول الثابتة', 'expense', false, '53'), ('534', 'رسوم ومصروفات بنكية', 'expense', false, '53'), ('535', 'كهرباء ومياه وغاز', 'expense', false, '53'), ('536', 'اتصالات وإنترنت', 'expense', false, '53'), ('537', 'صيانة وإصلاح', 'expense', false, '53'), ('538', 'أدوات مكتبية ومطبوعات', 'expense', false, '53'), ('539', 'ضيافة واستقبال', 'expense', false, '53'), ('541', 'تسوية عجز الصندوق', 'expense', false, '53'), ('542', 'إكراميات', 'expense', false, '53'), ('543', 'مصاريف نظافة', 'expense', false, '53');
+    -- إضافات خاصة بنشاط المطاعم
+    IF p_activity_type = 'restaurant' THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
+        ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41'),
+        ('5121', 'تكلفة الهالك والضيافة', 'expense', false, '51');
+    END IF;
 
+    -- إضافات خاصة بنشاط التصنيع
+    IF p_activity_type = 'manufacturing' THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
+        ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
+        ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
+        ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
+        ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
+        ('5143', 'كهرباء وقوى محركة للمصنع', 'expense', false, '514');
+    END IF;
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
     SELECT p_org_id, code, name, type, is_group, true FROM coa_temp ORDER BY length(code), code
     ON CONFLICT (organization_id, code) DO NOTHING;
@@ -594,10 +640,23 @@ BEGIN
     UPDATE public.accounts a SET parent_id = p.id FROM coa_temp t JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
     WHERE a.organization_id = p_org_id AND a.code = t.code AND a.parent_id IS NULL;
 
-    v_admin_id := COALESCE(p_admin_id, auth.uid());
+    -- 🛡️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
+    -- نتجنب auth.uid() هنا لأن المستدعي غالباً هو السوبر أدمن ولا نريد تغيير بياناته.
+    v_admin_id := p_admin_id;
     IF v_admin_id IS NOT NULL THEN
-        UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = v_admin_id;
-        -- تحديث Metadata الهوية لضمان ظهور الصلاحيات في الواجهة فوراً دون الحاجة لتدخل يدوي
+        
+            -- التأكد من وجود دور admin لهذه الشركة
+        INSERT INTO public.roles (organization_id, name, description)
+        VALUES (p_org_id, 'admin', 'مدير النظام')
+        ON CONFLICT (name, organization_id) DO NOTHING;
+
+        UPDATE public.profiles 
+        SET role = 'admin', 
+            organization_id = p_org_id, 
+            is_active = true,
+            role_id = (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1)
+        WHERE id = v_admin_id;    
+        
         UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin') WHERE id = v_admin_id;
     END IF;
 
@@ -608,6 +667,7 @@ BEGIN
     v_inv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10302' LIMIT 1);
     v_vat_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2231' LIMIT 1);
     v_supp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '201' LIMIT 1);
+    v_sal_ret_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '412' LIMIT 1);
     v_vat_in_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1241' LIMIT 1);
     v_disc_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '413' LIMIT 1);
     v_wht_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2232' LIMIT 1);
@@ -619,11 +679,20 @@ BEGIN
     v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
     v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
 
+    -- 🚀 ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
+    INSERT INTO public.roles (organization_id, name, description)
+    VALUES (p_org_id, 'admin', 'مدير النظام')
+    ON CONFLICT (name, organization_id) DO NOTHING;
+
+    INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
+    SELECT (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1), id, p_org_id
+    FROM public.permissions ON CONFLICT DO NOTHING;
+
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
         jsonb_build_object(
             'CASH', v_cash_id, 'SALES_REVENUE', v_sales_id, 'CUSTOMERS', v_cust_id, 'COGS', v_cogs_id, 'INVENTORY_FINISHED_GOODS', v_inv_id,
-            'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
+            'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
             'RETAINED_EARNINGS', v_retained_id
@@ -636,7 +705,7 @@ BEGIN
     (p_org_id, 'accountant', 'محاسب'),
     (p_org_id, 'cashier', 'كاشير / بائع'),
     (p_org_id, 'chef', 'شيف / مطبخ')
-    ON CONFLICT DO NOTHING;
+    ON CONFLICT (name, organization_id) DO NOTHING;
 
     -- 🚀 ضمان منح كافة الصلاحيات لدور الـ admin الخاص بهذه المنظمة
     INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
@@ -720,7 +789,30 @@ DECLARE v_target_org uuid;
 BEGIN
     v_target_org := COALESCE(p_org_id, public.get_my_org());
     PERFORM public.recalculate_stock_rpc(v_target_org);
-    UPDATE public.accounts a SET balance = (SELECT COALESCE(SUM(jl.debit - jl.credit), 0) FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id WHERE jl.account_id = a.id AND je.status = 'posted' AND je.organization_id = v_target_org) WHERE a.organization_id = v_target_org;
+    
+    -- 2. تصفير كافة الأرصدة للمنظمة المستهدفة للبدء من جديد
+    UPDATE public.accounts SET balance = 0 WHERE organization_id = v_target_org;
+
+    -- 3. المرحلة الأولى: تحديث أرصدة الحسابات الفرعية (Leaf Accounts) من واقع قيود اليومية المرحلة
+    -- ملاحظة: الأرصدة الافتتاحية يجب أن تكون مدخلة كقيد يومية مرحل لتظهر هنا
+    UPDATE public.accounts a 
+    SET balance = (
+        SELECT COALESCE(SUM(jl.debit - jl.credit), 0) 
+        FROM public.journal_lines jl 
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id 
+        WHERE jl.account_id = a.id 
+        AND je.status = 'posted' 
+        AND je.organization_id = v_target_org
+    ) 
+    WHERE a.organization_id = v_target_org AND a.is_group = false;
+
+    -- 4. المرحلة الثانية: تجميع أرصدة الحسابات الرئيسية (Roll-up aggregation)
+    -- نستخدم حلقة تكرارية لضمان تصاعد الأرصدة من الحسابات الفرعية إلى الحسابات الأب فأب الأب
+    FOR i IN REVERSE 5..1 LOOP
+        UPDATE public.accounts p
+        SET balance = (SELECT COALESCE(SUM(c.balance), 0) FROM public.accounts c WHERE c.parent_id = p.id)
+        WHERE p.organization_id = v_target_org AND p.is_group = true AND LENGTH(p.code) = i;
+    END LOOP;    
     RETURN 'تمت إعادة مطابقة الأرصدة المالية والمخزنية بنجاح ✅';
 END; $$;
 

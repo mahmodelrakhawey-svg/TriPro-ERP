@@ -198,15 +198,49 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
     e.preventDefault();
     setLoading(true);
     try {
-      // استدعاء دالة قاعدة البيانات مباشرة لضمان تأسيس الشركة والدليل المحاسبي في خطوة واحدة
+      // 1. استدعاء دالة قاعدة البيانات لإنشاء الشركة وتأسيس الدليل المحاسبي
+      // نمرر p_admin_id كـ null مؤقتاً لحين إنشاء المستخدم في الخطوة التالية
       const { data: newOrgId, error: rpcError } = await supabase.rpc('create_new_client_v2', {
         p_name: formData.companyName,
         p_email: formData.email,
         p_activity_type: formData.coaTemplate || 'commercial',
-        p_vat_number: null
+        p_vat_number: null,
+        p_admin_id: null 
       });
 
       if (rpcError) throw rpcError;
+
+      // 🛡️ صمام أمان: التحقق من صحة معرف المنظمة قبل المتابعة
+      if (!newOrgId) {
+          throw new Error('فشل استلام معرف المنظمة من الخادم');
+      }
+
+      // 2. تحديث بيانات الباقة والاشتراك (لأن الدالة الأساسية تستخدم القيم الافتراضية)
+      await supabase.from('organizations').update({
+          max_users: formData.maxUsers,
+          allowed_modules: formData.modules,
+          subscription_expiry: formData.subscriptionExpiry
+      }).eq('id', newOrgId);
+
+      // 3. إنشاء حساب المستخدم في نظام Auth وربطه بالمنظمة الجديدة عبر الـ Metadata
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: {
+            full_name: formData.adminName,
+            role: 'admin',
+            org_id: newOrgId, // 👈 التريجر في SQL سيلتقط هذا المعرف وينشئ البروفايل فوراً
+          }
+        }
+      });
+
+      if (authError) {
+          // إذا فشل إنشاء المستخدم، يفضل إبلاغ السوبر أدمن أن الشركة أُنشئت ولكن الحساب يحتاج تفعيل يدوي
+          console.warn('Organization created but Admin Auth failed:', authError.message);
+          showToast('تم إنشاء الشركة، ولكن فشل إنشاء حساب المدير. يرجى إنشاؤه يدوياً.', 'warning');
+          return;
+      }
 
       showToast('تم إنشاء الشركة وحساب المدير بنجاح ✅', 'success');
       onSuccess();
