@@ -10,6 +10,10 @@ SET search_path = public, auth, pg_temp
 AS $$
 DECLARE v_org_id uuid;
 BEGIN
+    -- 🛡️ إذا كان المستخدم سوبر أدمن، نسمح له بالتبديل عبر الـ JWT دون تغيير البروفايل
+    v_org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
+    IF v_org_id IS NOT NULL AND (auth.jwt() -> 'user_metadata' ->> 'role') = 'super_admin' THEN RETURN v_org_id; END IF;
+
     -- 🛡️ محاولة الجلب من جدول البروفايل أولاً (المصدر الأكثر ثقة لضمان عزل الشركات)
     v_org_id := (SELECT organization_id FROM public.profiles WHERE id = auth.uid() LIMIT 1);
     IF v_org_id IS NOT NULL THEN RETURN v_org_id; END IF;
@@ -18,11 +22,28 @@ BEGIN
     RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
--- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS)
--- إضافة عمود المنظمة لجدول الأدوار إذا لم يكن موجوداً
-ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
+-- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS) مع الحذف المتتالي (CASCADE)
+-- نضمن أن حذف المنظمة يؤدي لمسح كافة بياناتها تلقائياً (حل ERROR 23503 للأبد)
+DO $$ 
+DECLARE 
+    r record;
+BEGIN
+    -- هذه الحلقة تبحث عن كافة قيود الربط بجدول المنظمات وتقوم بتحديثها لتدعم الحذف التلقائي
+    FOR r IN 
+        SELECT tc.table_name, tc.constraint_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+        WHERE kcu.column_name = 'organization_id' 
+        AND tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
+        EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE CASCADE', r.table_name, r.constraint_name);
+    END LOOP;
+END $$;
 
--- إضافة عمود المنظمة لجدول ربط الصلاحيات بالأدوار
+-- ضمان وجود عمود organization_id في الجداول الأساسية
+ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
 ALTER TABLE public.role_permissions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
 
 -- 🛠️ ضبط القيم الافتراضية التلقائية للمنظمة (SaaS Auto-Pilot)
@@ -206,7 +227,8 @@ BEGIN
 
     -- 4. تحديث المخزون وحساب تكلفة البضاعة المباعة (COGS)
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
-        SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
+        -- محاولة جلب التكلفة من البند أولاً، ثم من جدول المنتجات كاحتياط
+        SELECT COALESCE(v_item.cost, weighted_average_cost, cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
         v_total_cost := v_total_cost + (v_item_cost * v_item.quantity);
         
         -- تحديث المخزون مع معالجة حالة المستودع الفارغ

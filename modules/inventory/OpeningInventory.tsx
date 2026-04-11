@@ -76,9 +76,7 @@ export default function OpeningInventory() {
         throw new Error('لا يوجد مستودعات معرفة في النظام. يرجى إضافة مستودع أولاً.');
       }
 
-      // جلب المؤسسة
-      const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
-      const orgId = orgData?.id;
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
       let totalValue = 0;
       const productsToInsert = items.map(item => {

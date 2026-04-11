@@ -517,7 +517,21 @@ const SalesInvoiceForm = () => {
 
     setSaving(true);
 
-    // جلب معرف المنظمة بشكل آمن من بيانات المستخدم
+    // 🔍 فحص وجود تكلفة للأصناف لضمان توليد قيد الصرف (إصلاح خطأ TS2339)
+    const itemsWithNoCost = items.filter(item => {
+        const p = products.find(prod => prod.id === item.productId) as any;
+        return (p?.weighted_average_cost || p?.cost || p?.purchase_price || 0) <= 0;
+    });
+
+    if (itemsWithNoCost.length > 0) {
+        const itemNames = itemsWithNoCost.map(i => i.productName).join('، ');
+        if (!window.confirm(`تنبيه: الأصناف التالية ليس لها تكلفة مسجلة: (${itemNames}). لن يتم إنشاء قيد صرف مخزون لها. هل تريد المتابعة على أي حال؟`)) {
+            setSaving(false);
+            return;
+        }
+    }
+
+    // جلب معرف المنظمة بشكل آمن مع صمام أمان (SaaS Security)
     const userOrgId = (currentUser as any)?.organization_id || 
                      (currentUser as any)?.user_metadata?.org_id ||
                      (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
@@ -526,6 +540,18 @@ const SalesInvoiceForm = () => {
         showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
         setSaving(false);
         return;
+    }
+
+    if (!settings.allowNegativeStock) {
+        for (const item of items) {
+            const product = products.find(p => p.id === item.productId);
+            const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
+            if (item.quantity > stockInWarehouse) {
+                showToast(`رصيد غير كافٍ للصنف "${item.productName}"`, 'error');
+                setSaving(false);
+                return;
+            }
+        }
     }
 
     if (currentUser?.role === 'demo') {

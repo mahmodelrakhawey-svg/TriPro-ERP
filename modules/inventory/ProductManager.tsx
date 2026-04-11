@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -382,8 +382,7 @@ const ProductManager = () => {
             const data = XLSX.utils.sheet_to_json(ws);
 
             // إعداد البيانات اللازمة لإنشاء أصناف جديدة (تلقائياً)
-            const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
-            const orgId = orgData?.id;
+            const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
             const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || null;
             const defaultCogs = getSystemAccount('COGS')?.id || null;
             const defaultSales = getSystemAccount('SALES_REVENUE')?.id || null;
@@ -643,8 +642,7 @@ const ProductManager = () => {
         let successCount = 0;
         let failCount = 0;
 
-        const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
-        const orgId = orgData?.id;
+        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
         const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || null;
         const defaultCogs = getSystemAccount('COGS')?.id || null;
@@ -798,7 +796,7 @@ const ProductManager = () => {
     }
 
     try {
-        const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
+        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
         
         if (categoryFormData.id) {
             const { error } = await supabase.from('item_categories')
@@ -807,8 +805,7 @@ const ProductManager = () => {
             if (error) throw error;
         } else {
             const { error } = await supabase.from('item_categories')
-                // .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, organization_id: orgData?.id });
-                .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, description: categoryFormData.description });
+                .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, description: categoryFormData.description, organization_id: orgId });
             if (error) throw error;
         }
         
@@ -884,9 +881,7 @@ const ProductManager = () => {
     }
 
     try {
-      // جلب معرف المؤسسة
-      const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
-      const orgId = orgData?.id;
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
       if (editingId) {
         // تحديث صنف موجود (تحديث عادي)
