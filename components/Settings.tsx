@@ -78,23 +78,24 @@ const Settings = () => {
             .rpc('get_current_company_settings')
             .maybeSingle();
         
-        if (data) {
-            setSettingsId(data.id);
+        const sData = data as any;
+        if (sData) {
+            setSettingsId(sData.id);
             setFormData({
-                companyName: data.company_name || '',
-                taxNumber: data.tax_number || '',
-                phone: data.phone || '',
-                address: data.address || '',
-                footerText: data.footer_text || '',
-                vatRate: data.vat_rate !== undefined ? data.vat_rate : 0.14,
-                currency: data.currency || '',
-                logoUrl: data.logo_url || '',
-                enableTax: data.enable_tax !== undefined ? data.enable_tax : true,
-                allowNegativeStock: data.allow_negative_stock !== undefined ? data.allow_negative_stock : false,
-                preventPriceModification: data.prevent_price_modification !== undefined ? data.prevent_price_modification : false,
-                maxCashDeficitLimit: data.max_cash_deficit_limit !== undefined ? data.max_cash_deficit_limit : 500,
-                decimalPlaces: data.decimal_places !== undefined ? data.decimal_places : 2,
-                accountMappings: data.account_mappings || {}
+                companyName: sData.company_name || '',
+                taxNumber: sData.tax_number || '',
+                phone: sData.phone || '',
+                address: sData.address || '',
+                footerText: sData.footer_text || '',
+                vatRate: sData.vat_rate !== undefined ? sData.vat_rate : 0.14,
+                currency: sData.currency || '',
+                logoUrl: sData.logo_url || '',
+                enableTax: sData.enable_tax !== undefined ? sData.enable_tax : true,
+                allowNegativeStock: sData.allow_negative_stock !== undefined ? sData.allow_negative_stock : false,
+                preventPriceModification: sData.prevent_price_modification !== undefined ? sData.prevent_price_modification : false,
+                maxCashDeficitLimit: sData.max_cash_deficit_limit !== undefined ? sData.max_cash_deficit_limit : 500,
+                decimalPlaces: sData.decimal_places !== undefined ? sData.decimal_places : 2,
+                accountMappings: sData.account_mappings || {}
             });
         }
         setLoading(false);
