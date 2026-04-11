@@ -8,11 +8,14 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
+DECLARE v_org_id uuid;
 BEGIN
-    RETURN COALESCE(
-        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
-        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid())
-    );
+    -- 🛡️ محاولة الجلب من جدول البروفايل أولاً (المصدر الأكثر ثقة لضمان عزل الشركات)
+    v_org_id := (SELECT organization_id FROM public.profiles WHERE id = auth.uid() LIMIT 1);
+    IF v_org_id IS NOT NULL THEN RETURN v_org_id; END IF;
+
+    -- 🛡️ محاولة جلب المعرف من التوكن (JWT) كخيار بديل
+    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
 -- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS)
@@ -21,6 +24,32 @@ ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCE
 
 -- إضافة عمود المنظمة لجدول ربط الصلاحيات بالأدوار
 ALTER TABLE public.role_permissions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
+
+-- 🛠️ ضبط القيم الافتراضية التلقائية للمنظمة (SaaS Auto-Pilot)
+ALTER TABLE public.invoices ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.purchase_invoices ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.invoice_items ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.purchase_invoice_items ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.products ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.journal_entries ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.journal_lines ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.warehouses ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.receipt_vouchers ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+ALTER TABLE public.payment_vouchers ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+
+-- 🛠️ تفعيل الحماية لجدول الإعدادات وتصحيح السياسة (حل مشكلة 406)
+ALTER TABLE public.company_settings ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Settings view policy" ON public.company_settings;
+-- سياسة مرنة تسمح للمستخدم الموثق برؤية إعدادات شركته فقط
+CREATE POLICY "Settings view policy" ON public.company_settings
+FOR SELECT TO authenticated USING (
+    organization_id = COALESCE(public.get_my_org(), (SELECT organization_id FROM public.profiles WHERE id = auth.uid()))
+);
+
+
+-- 🛠️ إضافة عمود الحالة للمستودعات إذا كان مفقوداً (حل مشكلة ERROR 42703)
+ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
 
 -- تعبئة البيانات القديمة (إن وجدت) بمنظمة افتراضية لضمان ظهورها في الشاشة
 -- تم تحسين المنطق لمنع أخطاء Duplicate Key
@@ -48,16 +77,27 @@ CREATE TABLE IF NOT EXISTS public.permissions (
 INSERT INTO public.permissions (module, action, description) VALUES
 ('sales', 'view', 'عرض المبيعات'),
 ('sales', 'create', 'إنشاء فاتورة مبيعات'),
-('sales', 'edit', 'تعديل فاتورة مبيعات'),
+('sales', 'update', 'تعديل فاتورة مبيعات'),
 ('sales', 'delete', 'حذف فاتورة مبيعات'),
 ('sales', 'approve', 'اعتماد الفواتير'),
 ('purchases', 'view', 'عرض المشتريات'),
 ('purchases', 'create', 'إنشاء فاتورة مشتريات'),
-('inventory', 'view', 'عرض المخزون'),
-('inventory', 'manage', 'إدارة المخازن'),
+('products', 'view', 'عرض المنتجات'),
+('products', 'create', 'إضافة منتجات'),
+('products', 'update', 'تعديل منتجات'),
+('products', 'delete', 'حذف منتجات'),
+('inventory', 'view', 'عرض المخزون والتقارير'),
+('inventory', 'manage', 'إدارة تسويات المخازن'),
 ('hr', 'view', 'عرض الموظفين'),
 ('hr', 'manage', 'إدارة الرواتب'),
-('accounting', 'view', 'التقارير المالية'),
+('accounting', 'view', 'عرض القيود والتقارير'),
+('accounting', 'create', 'إنشاء قيود محاسبية'),
+('accounting', 'update', 'تعديل القيود المحاسبية'),
+('accounting', 'delete', 'حذف القيود المحاسبية'),
+('accounting', 'post', 'ترحيل القيود المحاسبية'),
+('treasury', 'view', 'عرض الخزينة'),
+('treasury', 'create', 'إنشاء سندات'),
+('treasury', 'update', 'تعديل سندات'),
 ('treasury', 'manage', 'إدارة الخزينة'),
 ('restaurant', 'manage', 'إدارة المطعم'),
 ('admin', 'manage', 'إدارة الصلاحيات')
@@ -168,7 +208,10 @@ BEGIN
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
         SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
         v_total_cost := v_total_cost + (v_item_cost * v_item.quantity);
-        UPDATE public.products SET stock = stock - v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
+        
+        -- تحديث المخزون مع معالجة حالة المستودع الفارغ
+        UPDATE public.products SET stock = stock - v_item.quantity, 
+        warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[COALESCE(v_invoice.warehouse_id::text, (SELECT id::text FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1))], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
     END LOOP;
 
     -- 5. إنشاء قيد اليومية
@@ -581,7 +624,7 @@ CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_activ
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER 
 SET search_path = public, auth
 AS $$
-DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_parent_id uuid;
+DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_parent_id uuid; v_role_id uuid;
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
@@ -640,16 +683,16 @@ BEGIN
     UPDATE public.accounts a SET parent_id = p.id FROM coa_temp t JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
     WHERE a.organization_id = p_org_id AND a.code = t.code AND a.parent_id IS NULL;
 
-    -- 🛡️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
-    -- نتجنب auth.uid() هنا لأن المستدعي غالباً هو السوبر أدمن ولا نريد تغيير بياناته.
+    -- 🚀 إنشاء دور المدير وحفظ معرفه في متغير لضمان السرعة والدقة
+    INSERT INTO public.roles (organization_id, name, description)
+    VALUES (p_org_id, 'admin', 'مدير النظام')
+    ON CONFLICT (name, organization_id) 
+    DO UPDATE SET description = EXCLUDED.description
+    RETURNING id INTO v_role_id;
+
+    -- ️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
     v_admin_id := p_admin_id;
     IF v_admin_id IS NOT NULL THEN
-        
-            -- التأكد من وجود دور admin لهذه الشركة
-        INSERT INTO public.roles (organization_id, name, description)
-        VALUES (p_org_id, 'admin', 'مدير النظام')
-        ON CONFLICT (name, organization_id) DO NOTHING;
-
         -- التأكد من إنشاء أو تحديث ملف المستخدم وربطه بالشركة الجديدة
         INSERT INTO public.profiles (id, organization_id, role, is_active, role_id, full_name)
         VALUES (
@@ -657,17 +700,25 @@ BEGIN
             p_org_id,
             'admin',
             true,
-            (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1),
+            v_role_id,
             COALESCE((SELECT raw_user_meta_data->>'full_name' FROM auth.users WHERE id = v_admin_id), 'مدير النظام')
         )
-        ON CONFLICT (id) DO UPDATE SET
-            role = EXCLUDED.role,
-            organization_id = EXCLUDED.organization_id,
-            is_active = EXCLUDED.is_active,
-            role_id = EXCLUDED.role_id;
+        ON CONFLICT (id) DO UPDATE SET 
+            role = 'admin', organization_id = p_org_id, is_active = true, role_id = v_role_id;
         
+        -- 🏗️ إنشاء مستودع افتراضي للشركة لضمان عمل موديول المخازن والمشتريات فوراً
+        INSERT INTO public.warehouses (organization_id, name, location, is_active)
+        VALUES (p_org_id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
+        ON CONFLICT DO NOTHING;
+
         UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin') WHERE id = v_admin_id;
     END IF;
+
+    -- 🛡️ منح كافة الصلاحيات المتاحة في السيستم لهذا الدور الجديد
+    INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
+    SELECT v_role_id, id, p_org_id
+    FROM public.permissions 
+    ON CONFLICT DO NOTHING;
 
     v_cash_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1231' LIMIT 1);
     v_sales_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '411' LIMIT 1);
@@ -685,18 +736,7 @@ BEGIN
     v_sal_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '531' LIMIT 1);
     v_bonus_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1);
     v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
-    v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
-    v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
-
-    -- 🚀 ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
-    INSERT INTO public.roles (organization_id, name, description)
-    VALUES (p_org_id, 'admin', 'مدير النظام')
-    ON CONFLICT (name, organization_id) DO NOTHING;
-
-    INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
-    SELECT (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1), id, p_org_id
-    FROM public.permissions ON CONFLICT DO NOTHING;
-
+    -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
         jsonb_build_object(
@@ -704,7 +744,7 @@ BEGIN
             'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
-            'RETAINED_EARNINGS', v_retained_id
+            'RETAINED_EARNINGS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1)
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
 
@@ -715,14 +755,6 @@ BEGIN
     (p_org_id, 'cashier', 'كاشير / بائع'),
     (p_org_id, 'chef', 'شيف / مطبخ')
     ON CONFLICT (name, organization_id) DO NOTHING;
-
-    -- 🚀 ضمان منح كافة الصلاحيات لدور الـ admin الخاص بهذه المنظمة
-    INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
-    SELECT (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1),
-           id,
-           p_org_id
-    FROM public.permissions
-    ON CONFLICT DO NOTHING;
 
     RETURN '✅ تم تأسيس الدليل المحاسبي وربط الحسابات السيادية بنجاح.';
 END; $$;
@@ -844,6 +876,23 @@ BEGIN
     UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin') WHERE id = p_user_id;
     RETURN 'تم منح صلاحيات المدير بنجاح ✅';
 END; $$;
+
+-- 🛡️ دالة جلب الإعدادات الآمنة (تتخطى مشاكل التوكن العالق)
+CREATE OR REPLACE FUNCTION public.get_current_company_settings()
+RETURNS SETOF public.company_settings
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_org_id uuid;
+BEGIN
+    -- جلب معرف المنظمة من البروفايل مباشرة (المصدر الأكثر ثقة)
+    SELECT organization_id INTO v_org_id FROM public.profiles WHERE id = auth.uid();
+    
+    RETURN QUERY SELECT * FROM public.company_settings WHERE organization_id = v_org_id;
+END;
+$$;
 
 -- تنشيط الكاش فوراً
 SELECT public.refresh_saas_schema();

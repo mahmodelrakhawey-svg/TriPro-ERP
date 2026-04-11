@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -38,7 +38,13 @@ const ReceiptVoucherForm = () => {
   const [companySettings, setCompanySettings] = useState<any>(null);
 
   useEffect(() => {
-    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+    supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
+      if (error) {
+        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+      } else {
+        setCompanySettings(data);
+      }
+    });
   }, []);
 
   useEffect(() => {

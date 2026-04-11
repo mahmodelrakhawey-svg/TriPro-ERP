@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
 import { JournalEntryLine, Account } from '../../types';
 import { useAccounting } from '../../context/AccountingContext';
@@ -105,13 +105,13 @@ const JournalEntryForm = () => {
     setErrors({});
 
     if (editingId) {
-        if (!can('journal_entries', 'update')) {
+        if (!can('accounting', 'update')) {
             toast.error('ليس لديك صلاحية تعديل القيود');
             setIsSubmitting(false);
             return;
         }
     } else {
-        if (!can('journal_entries', 'create')) {
+        if (!can('accounting', 'create')) {
             toast.error('ليس لديك صلاحية إنشاء قيود');
             setIsSubmitting(false);
             return;

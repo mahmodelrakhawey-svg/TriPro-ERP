@@ -73,10 +73,9 @@ const Settings = () => {
   useEffect(() => {
     // جلب إعدادات الشركة
     const fetchSettings = async () => {
+        // 🛡️ استخدام RPC لضمان جلب إعدادات الشركة الصحيحة وتجنب مشاكل التوكن القديم
         const { data, error } = await supabase
-            .from('company_settings')
-            .select('*')
-            .limit(1)
+            .rpc('get_current_company_settings')
             .maybeSingle();
         
         if (data) {

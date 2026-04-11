@@ -34,7 +34,14 @@ export const ChequesPage = () => {
   const [companySettings, setCompanySettings] = useState<any>(null);
 
   useEffect(() => {
-    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+    // 🛡️ استخدام RPC لتجنب خطأ 406 الناتج عن سياسات الحماية
+    supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
+      if (error) {
+        console.error("فشل جلب إعدادات الشركة في صفحة الشيكات عبر RPC:", error);
+      } else {
+        setCompanySettings(data);
+      }
+    });
   }, []);
 
   useEffect(() => {

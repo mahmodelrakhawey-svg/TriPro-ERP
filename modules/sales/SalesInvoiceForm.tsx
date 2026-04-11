@@ -67,7 +67,14 @@ const SalesInvoiceForm = () => {
   const [companySettings, setCompanySettings] = useState<any>(null);
 
   useEffect(() => {
-    supabase.from('company_settings').select('*').single().then(({ data }) => setCompanySettings(data));
+    // 🛡️ استخدام RPC هو الحل الوحيد لتجنب خطأ 406 في جميع الشاشات المالية
+    supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
+      if (error) {
+        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+      } else {
+        setCompanySettings(data);
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -510,6 +517,17 @@ const SalesInvoiceForm = () => {
 
     setSaving(true);
 
+    // جلب معرف المنظمة بشكل آمن من بيانات المستخدم
+    const userOrgId = (currentUser as any)?.organization_id || 
+                     (currentUser as any)?.user_metadata?.org_id ||
+                     (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
+
+    if (!userOrgId) {
+        showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
+        setSaving(false);
+        return;
+    }
+
     if (currentUser?.role === 'demo') {
         await new Promise(resolve => setTimeout(resolve, 600));
         
@@ -548,6 +566,7 @@ const SalesInvoiceForm = () => {
     try {       
         // Prepare invoice data
         const invoiceData = {
+            organization_id: userOrgId,
             invoice_number: invoiceNumber,
             customer_id: formData.customerId,
             warehouse_id: formData.warehouseId,
@@ -592,6 +611,7 @@ const SalesInvoiceForm = () => {
                 const itemCost = product?.cost || product?.purchase_price || 0;
 
                 await supabase.from('invoice_items').insert({
+                    organization_id: userOrgId,
                     invoice_id: invoiceId,
                     product_id: item.productId,
                     quantity: Number(item.quantity),
@@ -668,6 +688,16 @@ const SalesInvoiceForm = () => {
 
     setSaving(true);
 
+    const userOrgId = (currentUser as any)?.organization_id || 
+                     (currentUser as any)?.user_metadata?.org_id ||
+                     (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
+
+    if (!userOrgId) {
+        showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
+        setSaving(false);
+        return;
+    }
+
     if (currentUser?.role === 'demo') {
         await new Promise(resolve => setTimeout(resolve, 600));
         
@@ -699,6 +729,7 @@ const SalesInvoiceForm = () => {
         // --- 1. Save Invoice Data (similar to handleSubmit) ---
         const invoiceNumber = formData.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`;
         const invoiceData = {
+            organization_id: userOrgId,
             invoice_number: invoiceNumber,
             customer_id: formData.customerId,
             warehouse_id: formData.warehouseId,
@@ -726,6 +757,7 @@ const SalesInvoiceForm = () => {
             const product = products.find(p => p.id === item.productId);
             const itemCost = product?.cost || product?.purchase_price || 0;
             await supabase.from('invoice_items').insert({
+                organization_id: userOrgId,
                 invoice_id: invoiceId,
                 product_id: item.productId,
                 quantity: Number(item.quantity),
