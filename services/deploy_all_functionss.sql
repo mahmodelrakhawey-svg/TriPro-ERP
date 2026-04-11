@@ -650,12 +650,21 @@ BEGIN
         VALUES (p_org_id, 'admin', 'مدير النظام')
         ON CONFLICT (name, organization_id) DO NOTHING;
 
-        UPDATE public.profiles 
-        SET role = 'admin', 
-            organization_id = p_org_id, 
-            is_active = true,
-            role_id = (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1)
-        WHERE id = v_admin_id;    
+        -- التأكد من إنشاء أو تحديث ملف المستخدم وربطه بالشركة الجديدة
+        INSERT INTO public.profiles (id, organization_id, role, is_active, role_id, full_name)
+        VALUES (
+            v_admin_id,
+            p_org_id,
+            'admin',
+            true,
+            (SELECT id FROM public.roles WHERE organization_id = p_org_id AND name = 'admin' LIMIT 1),
+            COALESCE((SELECT raw_user_meta_data->>'full_name' FROM auth.users WHERE id = v_admin_id), 'مدير النظام')
+        )
+        ON CONFLICT (id) DO UPDATE SET
+            role = EXCLUDED.role,
+            organization_id = EXCLUDED.organization_id,
+            is_active = EXCLUDED.is_active,
+            role_id = EXCLUDED.role_id;
         
         UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin') WHERE id = v_admin_id;
     END IF;
