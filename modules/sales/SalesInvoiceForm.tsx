@@ -110,17 +110,36 @@ const SalesInvoiceForm = () => {
       const cashCustomer = customers.find(c => c.name === 'عميل نقدي');
       if (cashCustomer) setFormData(prev => ({ ...prev, customerId: cashCustomer.id }));
     }
-    if (!formData.warehouseId && warehouses.length > 0) setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+
+    // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات)
+    if (!formData.warehouseId) {
+      if (warehouses.length === 1) {
+        setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+      } else if (settings.defaultWarehouseId) {
+        const preferred = warehouses.find(w => w.id === settings.defaultWarehouseId);
+        if (preferred) setFormData(prev => ({ ...prev, warehouseId: preferred.id }));
+      }
+    }
+
     const firstSalesperson = salespeople.find(s => s.id !== '00000000-0000-0000-0000-000000000000');
     if (!formData.salespersonId && firstSalesperson) setFormData(prev => ({ ...prev, salespersonId: firstSalesperson.id }));
-    if (!formData.treasuryId && treasuryAccounts.length > 0) setFormData(prev => ({ ...prev, treasuryId: treasuryAccounts[0].id }));
+
+    // اختيار الخزينة تلقائياً (الوحيدة أو المفضلة من الإعدادات)
+    if (!formData.treasuryId) {
+      if (treasuryAccounts.length === 1) {
+        setFormData(prev => ({ ...prev, treasuryId: treasuryAccounts[0].id }));
+      } else if (settings.defaultTreasuryId) {
+        const preferred = treasuryAccounts.find(a => a.id === settings.defaultTreasuryId);
+        if (preferred) setFormData(prev => ({ ...prev, treasuryId: preferred.id }));
+      }
+    }
     
     if (!formData.currency && settings.currency) {
         setFormData(prev => ({ ...prev, currency: settings.currency }));
     }
 
     if(barcodeInputRef.current) barcodeInputRef.current.focus();
-  }, [customers, warehouses, salespeople, treasuryAccounts]);
+  }, [customers, warehouses, salespeople, treasuryAccounts, formData.warehouseId, formData.treasuryId]);
 
   // تحديث نص البحث عند تغير العميل المختار (مثلاً عند التعديل أو التحميل)
   useEffect(() => {
@@ -859,6 +878,49 @@ const SalesInvoiceForm = () => {
   return (
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
       <div className={invoiceToPrint ? 'print:hidden' : ''}>
+      
+      {/* تنبيه للعملاء الجدد في حال عدم وجود مستودعات */}
+      {warehouses.length === 0 && (
+        <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-[2rem] mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
+          <div className="flex items-center gap-4">
+          <div className="bg-amber-100 p-3 rounded-2xl">
+            <AlertCircle className="text-amber-600" size={28} />
+          </div>
+          <div>
+            <h4 className="font-black text-amber-900 text-lg">تنبيه: لم يتم إعداد المخازن بعد</h4>
+            <p className="text-amber-700 font-medium">يرجى إضافة مستودع واحد على الأقل لتتمكن من إصدار الفواتير بنجاح.</p>
+          </div>
+        </div>
+          <button 
+            onClick={() => navigate('/inventory')} 
+            className="bg-amber-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-amber-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
+          >
+            <Plus size={20} /> إضافة مستودع الآن
+          </button>
+        </div>
+      )}
+
+      {/* تنبيه للعملاء الجدد في حال عدم وجود خزينة */}
+      {treasuryAccounts.length === 0 && (
+        <div className="bg-blue-50 border-2 border-blue-200 p-5 rounded-[2rem] mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="bg-blue-100 p-3 rounded-2xl">
+              <Wallet className="text-blue-600" size={28} />
+            </div>
+            <div>
+              <h4 className="font-black text-blue-900 text-lg">تنبيه: لم يتم إعداد الخزينة</h4>
+              <p className="text-blue-700 font-medium">يرجى إضافة "خزينة" أو "بنك" واحد على الأقل لتتمكن من تحصيل المبالغ النقدية بنجاح.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => navigate('/accounts')} 
+            className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-blue-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
+          >
+            <Plus size={20} /> تهيئة الحسابات
+          </button>
+        </div>
+      )}
+
       {/* Top Banner & Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
         <div className="flex items-center gap-6">
@@ -1469,7 +1531,11 @@ const SalesInvoiceForm = () => {
                                         className="w-full bg-slate-700 text-white border-2 border-white/10 rounded-2xl px-3 py-3 text-xs font-bold focus:outline-none focus:border-blue-500 appearance-none disabled:opacity-20 transition-all shadow-inner"
                                     >
                                         <option value="">اختر...</option>
-                                        {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id} className="text-black">{acc.name}</option>)}
+                                        {treasuryAccounts.map(acc => (
+                                            <option key={acc.id} value={acc.id} className="text-black">
+                                                {acc.name} {acc.id === settings.defaultTreasuryId ? '⭐' : ''}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                             </div>

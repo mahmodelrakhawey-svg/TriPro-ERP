@@ -215,7 +215,10 @@ CREATE TRIGGER on_auth_user_created
 -- ⚡ دالة التأسيس التلقائي للمنظمات الجديدة (Auto-Setup)
 CREATE OR REPLACE FUNCTION public.handle_new_organization_setup()
 RETURNS TRIGGER AS $$
-DECLARE v_role_id uuid;
+DECLARE 
+    v_role_id uuid;
+    v_warehouse_id uuid;
+    v_treasury_id uuid;
 BEGIN
     -- 1. إنشاء دور "مدير النظام" للشركة الجديدة تلقائياً
     INSERT INTO public.roles (name, description, organization_id)
@@ -227,10 +230,34 @@ BEGIN
     SELECT v_role_id, id, NEW.id
     FROM public.permissions;
 
-    -- 🏗️ إنشاء مستودع افتراضي للشركة لضمان عمل موديول المخازن والمشتريات فوراً
+    -- 🏗️ إنشاء "المخزن الرئيسي" تلقائياً للشركة الجديدة
     INSERT INTO public.warehouses (organization_id, name, location, is_active)
     VALUES (NEW.id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
-    ON CONFLICT DO NOTHING;
+    RETURNING id INTO v_warehouse_id;
+
+    -- 💰 إنشاء "الخزينة الرئيسية" وتأسيس هيكل الحسابات الأساسي لها (وفقاً للدليل المحاسبي)
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group)
+    VALUES (NEW.id, '1', 'الأصول', 'asset', true) ON CONFLICT (organization_id, code) DO NOTHING;
+    
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id)
+    VALUES (NEW.id, '12', 'الأصول المتداولة', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = NEW.id AND code = '1'))
+    ON CONFLICT (organization_id, code) DO NOTHING;
+
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id)
+    VALUES (NEW.id, '123', 'النقدية وما في حكمها', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = NEW.id AND code = '12'))
+    ON CONFLICT (organization_id, code) DO NOTHING;
+
+    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id)
+    VALUES (NEW.id, '1231', 'الخزينة الرئيسية', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = NEW.id AND code = '123'))
+    ON CONFLICT (organization_id, code) DO UPDATE SET name = EXCLUDED.name
+    RETURNING id INTO v_treasury_id;
+
+    -- ⚙️ إنشاء سجل الإعدادات وتعيين المستودع والخزينة كخيارات افتراضية (Default)
+    INSERT INTO public.company_settings (organization_id, company_name, default_warehouse_id, default_treasury_id, currency, vat_rate)
+    VALUES (NEW.id, NEW.name, v_warehouse_id, v_treasury_id, 'EGP', 0.14)
+    ON CONFLICT (organization_id) DO UPDATE 
+    SET default_warehouse_id = EXCLUDED.default_warehouse_id,
+        default_treasury_id = EXCLUDED.default_treasury_id;
 
     RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
@@ -299,6 +326,8 @@ CREATE TABLE IF NOT EXISTS public.company_settings (
     decimal_places integer DEFAULT 2,
     max_cash_deficit_limit numeric DEFAULT 500,
     account_mappings jsonb DEFAULT '{}'::jsonb,
+    default_warehouse_id uuid, -- عمود لربط المستودع الافتراضي
+    default_treasury_id uuid,  -- عمود لربط الخزينة الافتراضية
     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org() UNIQUE,
     updated_at timestamptz DEFAULT now()
 );

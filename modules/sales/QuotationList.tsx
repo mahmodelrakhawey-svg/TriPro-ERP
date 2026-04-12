@@ -86,8 +86,16 @@ const QuotationList = () => {
   const handleConvertClick = (id: string) => {
       setSelectedQuoteId(id);
       setConvertModalOpen(true);
-      // Default warehouse
-      if(warehouses.length > 0) setConvertData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+
+      // تطبيق منطق الاختيار التلقائي إذا كان هناك خيار واحد فقط متاح
+      if(warehouses.length === 1) setConvertData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+      
+      if (treasuryAccounts.length === 1) {
+          setConvertData(prev => ({ ...prev, treasuryId: treasuryAccounts[0].id }));
+      } else if (settings.defaultTreasuryId) {
+          const preferred = treasuryAccounts.find(a => a.id === settings.defaultTreasuryId);
+          if (preferred) setConvertData(prev => ({ ...prev, treasuryId: preferred.id }));
+      }
   };
 
   const confirmConvert = async () => {
@@ -468,7 +476,9 @@ const QuotationList = () => {
                                   onChange={e => setConvertData({...convertData, treasuryId: e.target.value})}
                               >
                                   <option value="">اختر الحساب...</option>
-                                  {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                                  {treasuryAccounts.map(acc => (
+                                      <option key={acc.id} value={acc.id}>{acc.name} {acc.id === settings.defaultTreasuryId ? '⭐' : ''}</option>
+                                  ))}
                               </select>
                           </div>
                       )}

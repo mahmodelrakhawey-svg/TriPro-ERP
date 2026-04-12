@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { 
-    Plus, Trash2, Save, ShoppingCart, Search,
+    Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
     CircleDollarSign, Loader2, CheckCircle
 } from 'lucide-react';
 import { Product } from '../../types';
@@ -35,13 +35,19 @@ const PurchaseInvoiceForm = () => {
   const [showProductResults, setShowProductResults] = useState(false);
 
   useEffect(() => {
-    if (warehouses.length > 0 && !formData.warehouseId) {
-      setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+    // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات)
+    if (!formData.warehouseId) {
+      if (warehouses.length === 1) {
+        setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+      } else if (settings.defaultWarehouseId) {
+        const preferred = warehouses.find(w => w.id === settings.defaultWarehouseId);
+        if (preferred) setFormData(prev => ({ ...prev, warehouseId: preferred.id }));
+      }
     }
     if (!formData.currency && settings.currency) {
         setFormData(prev => ({ ...prev, currency: settings.currency }));
     }
-  }, [warehouses, settings]);
+  }, [warehouses, settings, formData.warehouseId]);
 
   // تحميل بيانات الفاتورة عند التعديل
   useEffect(() => {
@@ -278,6 +284,28 @@ const PurchaseInvoiceForm = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in">
+      
+      {/* تنبيه للعملاء الجدد في حال عدم وجود مستودعات */}
+      {warehouses.length === 0 && (
+        <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-[2rem] mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="bg-amber-100 p-3 rounded-2xl">
+              <AlertCircle className="text-amber-600" size={28} />
+            </div>
+            <div>
+              <h4 className="font-black text-amber-900 text-lg">تنبيه: لم يتم إعداد المخازن بعد</h4>
+              <p className="text-amber-700 font-medium">يرجى إضافة مستودع واحد على الأقل لاستلام المشتريات عليه.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => navigate('/inventory')} 
+            className="bg-amber-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-amber-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
+          >
+            <Plus size={20} /> إضافة مستودع الآن
+          </button>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <ShoppingCart className="text-emerald-600" /> {editingId ? 'تعديل فاتورة مشتريات' : 'فاتورة مشتريات جديدة'}

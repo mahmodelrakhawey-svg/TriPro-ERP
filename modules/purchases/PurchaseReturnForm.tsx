@@ -2,11 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { RotateCcw, Save, Loader2, Plus, Trash2 } from 'lucide-react';
+import { RotateCcw, Save, Loader2, Plus, Trash2, AlertCircle } from 'lucide-react';
 import { z } from 'zod';
+import { useNavigate } from 'react-router-dom';
 
 const PurchaseReturnForm = () => {
   const { suppliers, products, warehouses, settings, purchaseInvoices, addEntry, getSystemAccount, currentUser } = useAccounting();
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     supplierId: '',
@@ -26,10 +28,11 @@ const PurchaseReturnForm = () => {
   }, [formData.supplierId, purchaseInvoices]);
 
   useEffect(() => {
-    if (warehouses.length > 0 && !formData.warehouseId) {
+    // اختيار المستودع تلقائياً إذا كان الوحيد المتاح
+    if (warehouses.length === 1 && !formData.warehouseId) {
       setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
     }
-  }, [warehouses]);
+  }, [warehouses, formData.warehouseId]);
 
   const handleItemChange = (index: number, field: string, value: any) => {
     const newItems = [...items];
@@ -175,6 +178,28 @@ const PurchaseReturnForm = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in">
+      
+      {/* تنبيه للعملاء الجدد في حال عدم وجود مستودعات */}
+      {warehouses.length === 0 && (
+        <div className="bg-red-50 border-2 border-red-100 p-5 rounded-2xl mb-4 flex flex-col md:flex-row items-center justify-between gap-4 animate-in zoom-in shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="bg-red-100 p-2 rounded-xl">
+              <AlertCircle className="text-red-600" size={24} />
+            </div>
+            <div>
+              <h4 className="font-bold text-red-900">نظام المخازن غير مهيأ</h4>
+              <p className="text-sm text-red-700">لا يمكنك رد بضاعة للمورد بدون وجود مستودع مسجل للخروج منه.</p>
+            </div>
+          </div>
+          <button 
+            onClick={() => navigate('/inventory')} 
+            className="bg-red-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-red-700 transition-all shadow-sm flex items-center gap-2 whitespace-nowrap"
+          >
+            <Plus size={18} /> تهيئة المخازن
+          </button>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <RotateCcw className="text-red-600" /> مرتجع مشتريات

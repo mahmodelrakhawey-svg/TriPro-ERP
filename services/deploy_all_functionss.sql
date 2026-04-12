@@ -762,7 +762,7 @@ CREATE OR REPLACE FUNCTION public.initialize_egyptian_coa(p_org_id uuid, p_activ
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER 
 SET search_path = public, auth
 AS $$
-DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_parent_id uuid; v_role_id uuid;
+DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_parent_id uuid; v_role_id uuid; v_warehouse_id uuid;
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
@@ -831,7 +831,7 @@ BEGIN
     -- 🏗️ إنشاء مستودع افتراضي للشركة (يجب أن يكون خارج شرط الأدمن لضمان عمل النظام فوراً)
     INSERT INTO public.warehouses (organization_id, name, location, is_active)
     VALUES (p_org_id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
-    ON CONFLICT DO NOTHING;
+    RETURNING id INTO v_warehouse_id;
 
     -- ️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
     v_admin_id := p_admin_id;
@@ -875,7 +875,7 @@ BEGIN
     v_bonus_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1);
     v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
     -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
-    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings)
+    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
         jsonb_build_object(
             'CASH', v_cash_id, 'SALES_REVENUE', v_sales_id, 'CUSTOMERS', v_cust_id, 'COGS', v_cogs_id, 'INVENTORY_FINISHED_GOODS', v_inv_id,
@@ -883,8 +883,10 @@ BEGIN
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
             'RETAINED_EARNINGS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1)
-        )
-    ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
+        ),
+        v_warehouse_id,
+        v_cash_id
+    ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings, default_warehouse_id = EXCLUDED.default_warehouse_id, default_treasury_id = EXCLUDED.default_treasury_id;
 
     -- تأسيس الأدوار الافتراضية للمنظمة لضمان ظهورها في شاشة الصلاحيات
     INSERT INTO public.roles (organization_id, name, description) VALUES

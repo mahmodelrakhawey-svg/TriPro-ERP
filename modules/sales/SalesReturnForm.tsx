@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { RotateCcw, Save, Trash2, Loader2, Search } from 'lucide-react';
+import { RotateCcw, Save, Trash2, Loader2, Search, AlertCircle, Plus } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { InvoiceItem } from '../../types';
 import { z } from 'zod';
+import { useNavigate } from 'react-router-dom';
 
 const SalesReturnForm = () => {
   const { accounts, addEntry, getSystemAccount, customers, products, currentUser, warehouses, settings } = useAccounting();
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [formData, setFormData] = useState({ customerId: '', warehouseId: '', date: new Date().toISOString().split('T')[0], returnNumber: '', notes: '' });
@@ -20,10 +22,16 @@ const SalesReturnForm = () => {
 
   // تعيين المستودع الافتراضي عند التحميل
   useEffect(() => {
-    if (warehouses.length > 0 && !formData.warehouseId) {
-      setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+    // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات)
+    if (!formData.warehouseId) {
+      if (warehouses.length === 1) {
+        setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
+      } else if (settings.defaultWarehouseId) {
+        const preferred = warehouses.find(w => w.id === settings.defaultWarehouseId);
+        if (preferred) setFormData(prev => ({ ...prev, warehouseId: preferred.id }));
+      }
     }
-  }, [warehouses]);
+  }, [warehouses, formData.warehouseId]);
 
   const handleFetchInvoice = async () => {
     if (!searchInvoiceNumber.trim()) return;
@@ -257,6 +265,28 @@ const SalesReturnForm = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      
+      {/* تنبيه للعملاء الجدد في حال عدم وجود مستودعات */}
+      {warehouses.length === 0 && (
+        <div className="bg-red-50 border-2 border-red-100 p-5 rounded-2xl mb-2 flex flex-col md:flex-row items-center justify-between gap-4 animate-in zoom-in shadow-sm">
+          <div className="flex items-center gap-4">
+          <div className="bg-red-100 p-2 rounded-xl">
+            <AlertCircle className="text-red-600" size={24} />
+          </div>
+          <div>
+            <h4 className="font-bold text-red-900">نظام المخازن غير مهيأ</h4>
+            <p className="text-sm text-red-700">لا يمكنك معالجة المرتجعات بدون وجود مستودع مسجل لاستلام البضاعة.</p>
+          </div>
+        </div>
+          <button 
+            onClick={() => navigate('/inventory')} 
+            className="bg-red-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-red-700 transition-all shadow-sm flex items-center gap-2 whitespace-nowrap"
+          >
+            <Plus size={18} /> تهيئة المخازن
+          </button>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><RotateCcw className="text-red-600" /> مرتجع مبيعات</h2>
         <button onClick={handleSave} disabled={saving} className="bg-red-600 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 disabled:opacity-50 hover:bg-red-700">

@@ -102,7 +102,7 @@ const PurchaseInvoiceList = () => {
     setPaymentFormData({
         amount: invoice.total_amount, // افتراضياً سداد كامل المبلغ
         date: new Date().toISOString().split('T')[0],
-        treasuryAccountId: treasuryAccounts[0]?.id || '',
+        treasuryAccountId: treasuryAccounts.length === 1 ? treasuryAccounts[0].id : (settings.defaultTreasuryId || ''),
         notes: `سداد فاتورة مشتريات رقم ${invoice.invoice_number}`
     });
     setIsPaymentModalOpen(true);
@@ -398,7 +398,9 @@ const PurchaseInvoiceList = () => {
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1">حساب الدفع (الخزينة/البنك)</label>
                         <select required className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500" value={paymentFormData.treasuryAccountId} onChange={e => setPaymentFormData({...paymentFormData, treasuryAccountId: e.target.value})}>
-                            {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name}</option>)}
+                            {treasuryAccounts.map(acc => (
+                                <option key={acc.id} value={acc.id}>{acc.name} {acc.id === settings.defaultTreasuryId ? '⭐' : ''}</option>
+                            ))}
                         </select>
                     </div>
                     <div>

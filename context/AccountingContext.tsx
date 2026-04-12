@@ -388,8 +388,17 @@ interface AccountingContextType {
   addUser: (user: any) => void;
   updateUser: (id: string, user: Partial<User>) => void;
   deleteUser: (id: string) => void;
-  settings: SystemSettings;
-  updateSettings: (newSettings: SystemSettings) => void;
+  settings: SystemSettings & { 
+    defaultWarehouseId?: string; 
+    defaultTreasuryId?: string; 
+    account_mappings?: any;
+    lastClosedDate?: string;
+    preventPriceModification?: boolean;
+    maxCashDeficitLimit?: number;
+    decimalPlaces?: number;
+    logoUrl?: string;
+  };
+  updateSettings: (newSettings: any) => void;
   exportData: () => void;
   importData: (jsonData: string) => boolean;
   factoryReset: () => void;
@@ -820,7 +829,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               maxCashDeficitLimit: sysSettings.max_cash_deficit_limit ?? 500,
               // @ts-ignore
               decimalPlaces: sysSettings.decimal_places !== undefined ? sysSettings.decimal_places : 2,
-              account_mappings: sysSettings.account_mappings || {}
+              account_mappings: sysSettings.account_mappings || {},
+              defaultWarehouseId: sysSettings.default_warehouse_id,
+              defaultTreasuryId: sysSettings.default_treasury_id
           });
       }
 
@@ -4269,7 +4280,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               max_cash_deficit_limit: newSettings.maxCashDeficitLimit,
               // @ts-ignore
               decimal_places: newSettings.decimalPlaces,
-              account_mappings: newSettings.account_mappings
+              account_mappings: newSettings.account_mappings,
+              default_warehouse_id: newSettings.defaultWarehouseId,
+              default_treasury_id: newSettings.defaultTreasuryId
           }, { onConflict: 'organization_id' }).then(({ error }) => {
               if (error) console.error("Failed to save settings:", error);
           });
