@@ -109,7 +109,7 @@ const PurchaseReturnForm = () => {
             purchase_return_id: returnHeader.id, // تم التحديث ليتوافق مع قاعدة البيانات
             product_id: item.productId,
             quantity: item.quantity,
-            price: item.price,
+            unit_price: item.price,
             total: item.total
         });
 

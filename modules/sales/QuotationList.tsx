@@ -100,7 +100,7 @@ const QuotationList = () => {
           try {
               // 1. جلب تفاصيل العرض
               const quote = quotations.find(q => q.id === selectedQuoteId);
-              const { data: quoteItems } = await supabase.from('quotation_items').select('*').eq('quotation_id', selectedQuoteId);
+              const { data: quoteItems } = await supabase.from('quotation_items').select('*, products(cost, purchase_price)').eq('quotation_id', selectedQuoteId);
               
               if (!quote || !quoteItems) throw new Error('بيانات العرض غير مكتملة');
 
@@ -125,74 +125,23 @@ const QuotationList = () => {
 
               if (invError) throw invError;
 
-              // 3. إضافة البنود وتحديث المخزون
+              // 3. إضافة البنود (مع حفظ التكلفة لضمان دقة القيد)
               for (const item of quoteItems) {
+                  const productCost = item.products?.cost || item.products?.purchase_price || 0;
                   await supabase.from('invoice_items').insert({
                       invoice_id: invoice.id,
                       product_id: item.product_id,
                       quantity: item.quantity,
-                      price: item.unit_price,
-                      total: item.total
+                      unit_price: item.unit_price, // تم التعديل للقراءة من المسمى الجديد في عروض الأسعار
+                      total: item.total,
+                      cost: productCost,
+                      organization_id: invoice.organization_id
                   });
-
-                  // خصم المخزون
-                  const product = products.find(p => p.id === item.product_id);
-                  if (product) {
-                      const newStock = (product.stock || 0) - Number(item.quantity);
-                      await supabase.from('products').update({ stock: newStock }).eq('id', item.product_id);
-                  }
               }
 
-              // 4. إنشاء القيد المحاسبي
-              const normalizeCode = (code: string | number) => String(code).trim();
-              const salesAcc = getSystemAccount('SALES_REVENUE') || accounts.find(a => normalizeCode(a.code) === '411' || normalizeCode(a.code) === '401');
-              const taxAcc = getSystemAccount('VAT') || accounts.find(a => normalizeCode(a.code) === '2231' || normalizeCode(a.code) === '202');
-              const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => normalizeCode(a.code) === '1221' || normalizeCode(a.code) === '10201');
-              const cogsAcc = getSystemAccount('COGS') || accounts.find(a => normalizeCode(a.code) === '511' || normalizeCode(a.code) === '501');
-              // التعديل: استخدام حساب مخزون المنتج التام (1213) بدلاً من الرئيسي
-              const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => normalizeCode(a.code) === '1213' || normalizeCode(a.code) === '10302') || accounts.find(a => normalizeCode(a.code) === '103');
-
-              if (salesAcc && customerAcc) {
-                  // حساب التكلفة
-                  let totalCost = 0;
-                  for (const item of quoteItems) {
-                      const product = products.find(p => p.id === item.product_id);
-                      const itemCost = product?.purchase_price || product?.cost || 0;
-                      totalCost += (item.quantity * itemCost);
-                  }
-
-                  const journalLines: any[] = [];
-
-                  // الجانب المدين (من مذكورين)
-                  if (paidAmount > 0 && convertData.treasuryId) {
-                      journalLines.push({ account_id: convertData.treasuryId, debit: paidAmount, credit: 0, description: `تحصيل دفعة فاتورة ${invoiceNumber}` });
-                  }
-                  if (remainingAmount > 0) {
-                      journalLines.push({ account_id: customerAcc.id, debit: remainingAmount, credit: 0, description: `رصيد آجل فاتورة ${invoiceNumber}` });
-                  }
-
-                  // الجانب الدائن (إلى مذكورين)
-                  journalLines.push({ account_id: salesAcc.id, debit: 0, credit: quote.subtotal, description: `إيراد مبيعات` });
-                  
-                  if (quote.tax_amount > 0 && taxAcc) {
-                      journalLines.push({ account_id: taxAcc.id, debit: 0, credit: quote.tax_amount, description: `ضريبة القيمة المضافة` });
-                  }
-                  
-                  if (totalCost > 0 && cogsAcc && inventoryAcc) {
-                      journalLines.push({ account_id: cogsAcc.id, debit: totalCost, credit: 0, description: 'تكلفة البضاعة المباعة' });
-                      journalLines.push({ account_id: inventoryAcc.id, debit: 0, credit: totalCost, description: 'صرف من المخزون' });
-                  }
-
-                  await addEntry({
-                      date: new Date().toISOString().split('T')[0],
-                      description: `فاتورة مبيعات للعميل ${quote.customers?.name} (تحويل عرض سعر ${quote.quotation_number})`,
-                      reference: invoiceNumber,
-                      status: 'posted',
-                      lines: journalLines as any[]
-                  });
-              } else {
-                  showToast('تنبيه: تم إنشاء الفاتورة ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات (1102, 4101).', 'warning');
-              }
+              // 4. استدعاء الترحيل المحاسبي من قاعدة البيانات (لضمان تطابق شكل القيد)
+              const { error: approveError } = await supabase.rpc('approve_invoice', { p_invoice_id: invoice.id });
+              if (approveError) throw approveError;
 
               // 5. تحديث حالة العرض
               await supabase.from('quotations').update({ status: 'converted' }).eq('id', selectedQuoteId);

@@ -108,10 +108,10 @@ const InvoiceList = () => {
         
         const fullInvoice = {
             ...invoice,
-            items: data.invoice_items.map((item: { products?: { name: string }; quantity: number; price: number; total: number }) => ({
+            items: data.invoice_items.map((item: { products?: { name: string }; quantity: number; unit_price: number; total: number }) => ({
                 productName: item.products?.name,
                 quantity: item.quantity,
-                unitPrice: item.price,
+                unitPrice: item.unit_price || 0,
                 total: item.total
             }))
         };

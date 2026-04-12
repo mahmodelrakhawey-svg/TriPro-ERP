@@ -179,7 +179,7 @@ const SalesReturnForm = () => {
           sales_return_id: returnDoc.id,
           product_id: item.productId,
           quantity: item.quantity,
-          price: item.price,
+          unit_price: item.price, // تم التغيير ليطابق 'unit_price' الموحد في قاعدة البيانات
           total: item.quantity * item.price
         });
 

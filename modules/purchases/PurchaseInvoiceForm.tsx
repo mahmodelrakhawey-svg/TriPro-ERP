@@ -78,7 +78,7 @@ const PurchaseInvoiceForm = () => {
                    productName: i.products?.name,
                    productSku: i.products?.sku,
                    quantity: i.quantity,
-                   price: i.price,
+                   price: i.unit_price,
                    total: i.total
                  })));
               }
@@ -249,7 +249,7 @@ const PurchaseInvoiceForm = () => {
         purchase_invoice_id: invoiceId, // استخدام المعرف الصحيح (سواء جديد أو موجود)
         product_id: item.productId,
         quantity: item.quantity,
-        price: item.price,
+        unit_price: item.price,
         total: item.total
       }));
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);

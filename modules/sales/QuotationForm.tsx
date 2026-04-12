@@ -134,7 +134,7 @@ const QuotationForm = () => {
             quotation_id: quote.id,
             product_id: item.productId,
             quantity: item.quantity,
-            unit_price: item.unitPrice,
+            unit_price: item.unitPrice, // تم التوحيد مع نظام الفواتير والمرتجعات
             total: item.total
         }));
 

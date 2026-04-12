@@ -87,7 +87,7 @@ const PurchaseOrderForm = () => {
           order_id: order.id,
           product_id: item.productId,
           quantity: item.quantity,
-          price: item.price,
+          unit_price: item.price,
           total: item.quantity * item.price
       }));
 

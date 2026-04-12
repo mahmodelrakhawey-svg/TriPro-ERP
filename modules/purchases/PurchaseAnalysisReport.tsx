@@ -60,7 +60,7 @@ export default function PurchaseAnalysisReport() {
         .from('purchase_invoice_items')
         .select(`
           quantity,
-          price,
+          unit_price,
           purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner (
             id,
             invoice_date,
@@ -90,7 +90,7 @@ export default function PurchaseAnalysisReport() {
         const productId = item.products.id;
         const productName = item.products.name;
         const productSku = item.products.sku || '-';
-        const amount = item.quantity * item.price;
+        const amount = item.quantity * item.unit_price;
 
         // Supplier Analysis
         if (!supplierMap[supplierId]) {

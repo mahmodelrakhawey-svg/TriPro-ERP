@@ -349,7 +349,7 @@ const PurchaseInvoiceList = () => {
                         <div className="text-xs text-slate-500">{item.products?.sku}</div>
                     </td>
                     <td className="p-2 border text-center">{item.quantity}</td>
-                    <td className="p-2 border text-center">{item.price?.toLocaleString()}</td>
+                    <td className="p-2 border text-center">{item.unit_price?.toLocaleString()}</td>
                     <td className="p-2 border text-center font-bold">{item.total?.toLocaleString()}</td>
                   </tr>
                 ))}

@@ -239,8 +239,8 @@ const SalesInvoiceForm = () => {
                    productSku: i.products?.sku,
                    product_sku: i.products?.sku,
                    quantity: i.quantity,
-                   unitPrice: i.price,
-                   unit_price: i.price,
+                   unitPrice: i.unit_price,
+                   unit_price: i.unit_price,
                    total: i.total
                  })));
               }
@@ -641,7 +641,7 @@ const SalesInvoiceForm = () => {
                     invoice_id: invoiceId,
                     product_id: item.productId,
                     quantity: Number(item.quantity),
-                    price: Number(item.unitPrice),
+                    unit_price: Number(item.unitPrice),
                     total: Number(item.total),
                     cost: itemCost // حفظ التكلفة
                 });
@@ -787,7 +787,7 @@ const SalesInvoiceForm = () => {
                 invoice_id: invoiceId,
                 product_id: item.productId,
                 quantity: Number(item.quantity),
-                price: Number(item.unitPrice),
+                unit_price: Number(item.unitPrice),
                 total: Number(item.total),
                 cost: itemCost
             });
