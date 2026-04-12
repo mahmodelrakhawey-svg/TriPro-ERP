@@ -227,6 +227,11 @@ BEGIN
     SELECT v_role_id, id, NEW.id
     FROM public.permissions;
 
+    -- 🏗️ إنشاء مستودع افتراضي للشركة لضمان عمل موديول المخازن والمشتريات فوراً
+    INSERT INTO public.warehouses (organization_id, name, location, is_active)
+    VALUES (NEW.id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
+    ON CONFLICT DO NOTHING;
+
     RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
     -- تسجيل الخطأ في حال فشل تأسيس الصلاحيات للشركة الجديدة

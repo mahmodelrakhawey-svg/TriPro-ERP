@@ -167,7 +167,7 @@ BEGIN
             'create_restaurant_order', 'run_payroll_rpc', 'handle_new_user', 'check_user_limit',
             'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
             'get_product_recipe_cost', 'recalculate_stock_rpc',
-            'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema',
+            'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema', 'create_public_order',
             'get_or_create_qr_for_table'
         )
         THEN
@@ -482,21 +482,46 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_customer_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL
     , p_delivery_info jsonb DEFAULT NULL -- إضافة معلومات التوصيل
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0;
+DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_unit_price numeric; v_qty numeric;
 DECLARE v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
     SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
     IF v_tax_rate IS NULL THEN v_tax_rate := 0.14; END IF;
+
     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+
     INSERT INTO public.orders (session_id, user_id, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
     VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, v_org_id, p_warehouse_id) RETURNING id INTO v_order_id;
+
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id)
-        VALUES (v_order_id, (v_item->>'productId')::uuid, (v_item->>'quantity')::numeric, (v_item->>'unitPrice')::numeric, ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), COALESCE((v_item->>'unitCost')::numeric, 0), v_item->>'notes', v_org_id) RETURNING id INTO v_order_item_id;
-        v_subtotal := v_subtotal + ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric);
+        -- 🛡️ استخراج القيم وضمان عدم وجود NULL
+        v_qty := COALESCE((v_item->>'quantity')::numeric, (v_item->>'qty')::numeric, 1);
+        v_unit_price := COALESCE(
+            (v_item->>'unit_price')::numeric, 
+            (v_item->>'unitPrice')::numeric, 
+            (v_item->>'price')::numeric, 
+            0
+        );
+
+        INSERT INTO public.order_items (order_id, product_id, quantity, price, unit_price, total_price, unit_cost, notes, organization_id, modifiers)
+        VALUES (
+            v_order_id, 
+            COALESCE((v_item->>'product_id')::uuid, (v_item->>'productId')::uuid), 
+            v_qty, 
+            v_unit_price,
+            v_unit_price, 
+            (v_qty * v_unit_price), 
+            COALESCE((v_item->>'unit_cost')::numeric, (v_item->>'unitCost')::numeric, 0), 
+            v_item->>'notes', 
+            v_org_id,
+            COALESCE(v_item->'modifiers', '[]'::jsonb)
+        ) RETURNING id INTO v_order_item_id;
+
+        v_subtotal := v_subtotal + (v_qty * v_unit_price);
         INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) VALUES (v_order_item_id, 'NEW', v_org_id);
     END LOOP;
+
     UPDATE public.orders SET subtotal = v_subtotal, total_tax = v_subtotal * v_tax_rate, grand_total = v_subtotal + (v_subtotal * v_tax_rate) WHERE id = v_order_id;
      IF p_delivery_info IS NOT NULL THEN
         INSERT INTO public.delivery_orders (order_id, customer_name, customer_phone, delivery_address, delivery_fee, organization_id)
@@ -504,6 +529,93 @@ BEGIN
     END IF;   
     RETURN v_order_id;
 END; $$;
+
+-- 📱 دالة استقبال طلبات الزبائن عبر رمز QR (Public Menu Orders)
+CREATE OR REPLACE FUNCTION public.create_public_order(p_qr_key uuid, p_items jsonb)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_table record;
+    v_session_id uuid;
+    v_order_id uuid;
+    v_item jsonb;
+    v_order_num text;
+    v_tax_rate numeric; v_qty numeric; v_unit_price numeric;
+    v_subtotal numeric := 0;
+    v_order_item_id uuid;
+BEGIN
+    -- 1. التحقق من صحة رمز الطاولة (الوصول عبر SECURITY DEFINER لتخطي RLS)
+    SELECT * INTO v_table FROM public.restaurant_tables WHERE qr_access_key = p_qr_key;
+    IF NOT FOUND THEN RAISE EXCEPTION 'رمز الطاولة غير صالح أو منتهي الصلاحية'; END IF;
+
+    -- 2. إيجاد أو إنشاء جلسة (Session) للطاولة لربط الطلبات بها
+    SELECT id INTO v_session_id FROM public.table_sessions 
+    WHERE table_id = v_table.id AND status = 'OPEN' LIMIT 1;
+
+    IF v_session_id IS NULL THEN
+        INSERT INTO public.table_sessions (table_id, organization_id, status)
+        VALUES (v_table.id, v_table.organization_id, 'OPEN')
+        RETURNING id INTO v_session_id;
+        
+        -- تحديث حالة الطاولة لتظهر "مشغولة" في شاشة الكاشير فوراً
+        UPDATE public.restaurant_tables SET status = 'OCCUPIED' WHERE id = v_table.id;
+    END IF;
+
+    -- 3. جلب نسبة الضريبة من إعدادات المطعم
+    SELECT vat_rate INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_table.organization_id;
+    v_tax_rate := COALESCE(v_tax_rate, 0.14);
+
+    -- 4. توليد رقم طلب مميز
+    v_order_num := 'QR-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+
+    -- 5. إنشاء الطلب الرئيسي
+    INSERT INTO public.orders (
+        session_id, organization_id, order_number, order_type, status, subtotal, total_tax, grand_total
+    ) VALUES (
+        v_session_id, v_table.organization_id, v_order_num, 'DINEIN', 'CONFIRMED', 0, 0, 0
+    ) RETURNING id INTO v_order_id;
+
+    -- 6. إضافة الأصناف وتوليد طلبات المطبخ تلقائياً
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        -- 🛡️ استخراج القيم بشكل آمن لمنع خطأ الـ Not Null
+        v_qty := COALESCE((v_item->>'quantity')::numeric, (v_item->>'qty')::numeric, 1);
+        v_unit_price := COALESCE(
+            (v_item->>'unit_price')::numeric, 
+            (v_item->>'unitPrice')::numeric, 
+            (v_item->>'price')::numeric, 
+            0
+        );
+
+        INSERT INTO public.order_items (
+            order_id, product_id, quantity, price, unit_price, total_price, unit_cost, notes, organization_id, modifiers
+        ) VALUES (
+            v_order_id, (v_item->>'product_id')::uuid, 
+            v_qty, 
+            v_unit_price,
+            v_unit_price, 
+            (v_qty * v_unit_price),
+            COALESCE((v_item->>'unit_cost')::numeric, 0), v_item->>'notes', v_table.organization_id,
+            COALESCE(v_item->'modifiers', '[]'::jsonb)
+        ) RETURNING id INTO v_order_item_id;
+
+        v_subtotal := v_subtotal + (v_qty * v_unit_price);
+
+        -- إرسال تنبيه للمطبخ (KDS) فوراً
+        INSERT INTO public.kitchen_orders (order_item_id, status, organization_id)
+        VALUES (v_order_item_id, 'NEW', v_table.organization_id);
+    END LOOP;
+
+    -- 7. تحديث إجماليات الطلب النهائية
+    UPDATE public.orders SET
+        subtotal = v_subtotal,
+        total_tax = v_subtotal * v_tax_rate,
+        grand_total = v_subtotal + (v_subtotal * v_tax_rate)
+    WHERE id = v_order_id;
+
+    RETURN v_order_id;
+END; $$;
+
+-- منح صلاحية تنفيذ الدالة للزوار (الموبايل) والموظفين
+GRANT EXECUTE ON FUNCTION public.create_public_order(uuid, jsonb) TO anon, authenticated;
 
 -- ================================================================
 -- 4. مديول الموارد البشرية (HR & Payroll)
@@ -716,6 +828,11 @@ BEGIN
     DO UPDATE SET description = EXCLUDED.description
     RETURNING id INTO v_role_id;
 
+    -- 🏗️ إنشاء مستودع افتراضي للشركة (يجب أن يكون خارج شرط الأدمن لضمان عمل النظام فوراً)
+    INSERT INTO public.warehouses (organization_id, name, location, is_active)
+    VALUES (p_org_id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
+    ON CONFLICT DO NOTHING;
+
     -- ️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
     v_admin_id := p_admin_id;
     IF v_admin_id IS NOT NULL THEN
@@ -732,11 +849,6 @@ BEGIN
         ON CONFLICT (id) DO UPDATE SET 
             role = 'admin', organization_id = p_org_id, is_active = true, role_id = v_role_id;
         
-        -- 🏗️ إنشاء مستودع افتراضي للشركة لضمان عمل موديول المخازن والمشتريات فوراً
-        INSERT INTO public.warehouses (organization_id, name, location, is_active)
-        VALUES (p_org_id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
-        ON CONFLICT DO NOTHING;
-
         UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin') WHERE id = v_admin_id;
     END IF;
 

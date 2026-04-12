@@ -2,6 +2,15 @@
 -- حل شامل نهائي لمشكلة 42501 (Permission Denied)
 -- ============================================
 
+-- الخطوة 0: منح صلاحيات الوصول للمخطط العام للمستخدم المجهول (anon)
+GRANT USAGE ON SCHEMA public TO anon;
+GRANT SELECT ON public.restaurant_tables TO anon;
+GRANT SELECT ON public.products TO anon;
+GRANT SELECT ON public.menu_categories TO anon;
+GRANT SELECT ON public.modifier_groups TO anon;
+GRANT SELECT ON public.modifiers TO anon;
+GRANT SELECT ON public.organizations TO anon;
+
 -- الخطوة 1: التأكد من أن كل ملف شخصي له organization_id
 UPDATE public.profiles
 SET organization_id = (SELECT id FROM public.organizations LIMIT 1)
@@ -77,13 +86,14 @@ CREATE POLICY "journal_delete" ON public.journal_entries
 -- على جدول restaurant_tables
 DROP POLICY IF EXISTS "restaurant_tables viewable" ON public.restaurant_tables CASCADE;
 DROP POLICY IF EXISTS "restaurant_tables management" ON public.restaurant_tables CASCADE;
+DROP POLICY IF EXISTS "restaurant_tables_read" ON public.restaurant_tables CASCADE;
 
 ALTER TABLE public.restaurant_tables DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.restaurant_tables ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "restaurant_tables_read" ON public.restaurant_tables
-  FOR SELECT
-  TO authenticated
+  FOR SELECT 
+  TO authenticated, anon
   USING (true);
 
 CREATE POLICY "restaurant_tables_write" ON public.restaurant_tables

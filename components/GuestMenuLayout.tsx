@@ -64,7 +64,12 @@ const GuestMenuLayout = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        if (!qrKey) throw new Error('رمز QR غير صالح أو مفقود.');
+        
+        // 🛡️ فحص صحة الرمز ومنع الرموز التالفة (مثل [object Object])
+        const cleanKey = qrKey?.trim();
+        if (!cleanKey || cleanKey.includes('[object') || cleanKey.length < 10) {
+          throw new Error('رمز QR غير صالح أو مفقود. يرجى إعادة مسح الرمز الموجود على الطاولة.');
+        }
 
         // 1. تحديد المنظمة (المطعم) من خلال رمز الطاولة الممسوح
         const { data: tableData, error: tableError } = await supabase
@@ -99,8 +104,8 @@ const GuestMenuLayout = () => {
           setSelectedCategory(categoriesRes.data[0].id);
         }
       } catch (err: any) {
-        setError('فشل تحميل قائمة الطعام. يرجى استدعاء النادل.');
-        console.error(err);
+        console.error("Menu Loading Error:", err);
+        setError(err.message || 'فشل تحميل قائمة الطعام. يرجى استدعاء النادل.');
       } finally {
         setLoading(false);
       }
@@ -183,11 +188,11 @@ const updateItemNotes = (localId: string, newNotes: string) => {
     setIsSending(true);
     try {
       // تجهيز البيانات (snake_case فقط لتوافق قاعدة البيانات وتجنب التعارض)
-      const payloadItems = cart.map(item => ({
+      const payloadItems = cart.filter(item => item.id).map(item => ({
         product_id: item.id,
-        quantity: Number(item.quantity),
-        unit_price: Number(item.unitPrice),
-        unit_cost: Number(item.cost || 0),
+        quantity: Math.max(1, Number(item.quantity) || 1),
+        unit_price: Math.max(0, Number(item.unitPrice) || 0),
+        unit_cost: Math.max(0, Number(item.cost) || 0),
         notes: item.notes || '',
         modifiers: (item.selectedModifiers || []).map(m => ({
           modifier_id: m.modifierId,

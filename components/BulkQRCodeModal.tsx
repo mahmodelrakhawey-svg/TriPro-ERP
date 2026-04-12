@@ -31,7 +31,8 @@ export const BulkQRCodeModal: React.FC<BulkQRCodeModalProps> = ({ isOpen, onClos
         try {
           const results = await Promise.all(tables.map(async (table) => {
             const { data } = await supabase.rpc('get_or_create_qr_for_table', { p_table_id: table.id });
-            return { table, qrKey: data };
+            // 🛡️ إصلاح: استخراج المفتاح النصي
+            return { table, qrKey: data?.qr_access_key || '' };
           }));
           setQrData(results);
         } catch (error) {

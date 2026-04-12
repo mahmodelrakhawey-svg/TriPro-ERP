@@ -971,7 +971,12 @@ const PosScreen = () => {
 
       if (error) throw error;
 
-      setQrCodeTarget({ table, key: data });
+      // 🛡️ إصلاح: استخراج المفتاح النصي فقط من الكائن المرجع
+      if (data && data.qr_access_key) {
+        setQrCodeTarget({ table, key: data.qr_access_key });
+      } else {
+        throw new Error('فشل استلام رمز الوصول من الخادم');
+      }
     } catch (err: any) {
       showToast('فشل إنشاء رمز QR: ' + err.message, 'error');
     }
