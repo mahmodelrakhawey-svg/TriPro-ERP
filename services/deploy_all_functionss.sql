@@ -10,6 +10,9 @@ SET search_path = public, auth, pg_temp
 AS $$
 DECLARE v_org_id uuid;
 BEGIN
+    -- إذا كان المستخدم غير مسجل دخول، نرجع null ولا نعطل الاستعلام
+    IF auth.uid() IS NULL THEN RETURN NULL; END IF;
+
     -- 🛡️ إذا كان المستخدم سوبر أدمن، نسمح له بالتبديل عبر الـ JWT دون تغيير البروفايل
     v_org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
     IF v_org_id IS NOT NULL AND (auth.jwt() -> 'user_metadata' ->> 'role') = 'super_admin' THEN RETURN v_org_id; END IF;

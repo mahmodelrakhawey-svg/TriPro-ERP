@@ -106,7 +106,7 @@ CREATE POLICY "Only Admins can update settings" ON company_settings FOR UPDATE U
 -- 3. البيانات الأساسية (Products, Customers, Suppliers, Accounts)
 -- السوبر أدمن يرى الجميع، والمستخدم يرى بيانات منظمته فقط
 DROP POLICY IF EXISTS "Basic data viewable by authenticated" ON products;
-CREATE POLICY "Basic data viewable by authenticated" ON products FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
+CREATE POLICY "Basic data viewable by authenticated" ON products FOR SELECT TO authenticated, anon USING (get_my_role() = 'super_admin' OR organization_id = get_my_org() OR auth.role() = 'anon');
 DROP POLICY IF EXISTS "Basic data viewable by authenticated_cust" ON customers;
 CREATE POLICY "Basic data viewable by authenticated_cust" ON customers FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
 DROP POLICY IF EXISTS "Basic data viewable by authenticated_supp" ON suppliers;

@@ -444,6 +444,16 @@ const MainLayout = () => {
     );
 };
 
+// 🛡️ مكون حماية المسارات (ProtectedRoute)
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { currentUser } = useAuth();
+  if (!currentUser) {
+    // إذا لم يكن مسجلاً، يظهر صفحة الهبوط (LandingPage) التي تحتوي على خيار الدخول
+    return <LandingPage />;
+  }
+  return <>{children}</>;
+};
+
 const AppContent = () => {
   const [session, setSession] = useState<any>(null);
   const { isLoading: authLoading, currentUser, authInitialized } = useAuth();
@@ -477,9 +487,13 @@ const AppContent = () => {
     <HashRouter>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
       <Routes>
+        {/* 1. المسارات العامة (متاحة للجميع دون تسجيل دخول) */}
         <Route path="/customer-display" element={<CustomerDisplay />} />
         <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
-        <Route path="/*" element={currentUser ? <MainLayout /> : <LandingPage />} />
+        <Route path="/menu" element={<GuestMenuLayout />} />
+
+        {/* 2. المسارات المحمية (تتطلب حساب موظف) */}
+        <Route path="/*" element={<ProtectedRoute><MainLayout /></ProtectedRoute>} />
       </Routes>
     </HashRouter>
   );

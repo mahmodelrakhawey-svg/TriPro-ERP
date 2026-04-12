@@ -64,16 +64,37 @@ const GuestMenuLayout = () => {
     const fetchData = async () => {
       try {
         setLoading(true);
+        if (!qrKey) throw new Error('رمز QR غير صالح أو مفقود.');
+
+        // 1. تحديد المنظمة (المطعم) من خلال رمز الطاولة الممسوح
+        const { data: tableData, error: tableError } = await supabase
+          .from('restaurant_tables')
+          .select('organization_id')
+          .eq('qr_access_key', qrKey)
+          .maybeSingle();
+
+        if (tableError) throw tableError;
+        if (!tableData) throw new Error('لم يتم العثور على بيانات الطاولة. يرجى إعادة مسح الرمز.');
+
+        const orgId = tableData.organization_id;
+
+        // 2. جلب التصنيفات والمنتجات الخاصة بهذا المطعم فقط
         const [categoriesRes, productsRes] = await Promise.all([
-          supabase.from('menu_categories').select('id, name').order('display_order'),
-          supabase.from('products_with_modifiers_flag').select('id, name, sales_price, image_url, category_id, offer_price, offer_start_date, offer_end_date, has_modifiers, cost').eq('product_type', 'MANUFACTURED').eq('is_active', true)
+          supabase.from('menu_categories').select('id, name').eq('organization_id', orgId).order('display_order'),
+          supabase.from('products').select('id, name, sales_price, image_url, category_id, offer_price, offer_start_date, offer_end_date, available_modifiers, cost').eq('organization_id', orgId).eq('product_type', 'MANUFACTURED').eq('is_active', true)
         ]);
 
         if (categoriesRes.error) throw categoriesRes.error;
         if (productsRes.error) throw productsRes.error;
 
+        // تحويل البيانات لإضافة علم "has_modifiers" يدوياً (لتجنب الاعتماد على View مفقودة)
+        const processedProducts = (productsRes.data || []).map(p => ({
+          ...p,
+          has_modifiers: Array.isArray(p.available_modifiers) && p.available_modifiers.length > 0
+        }));
+
         setCategories(categoriesRes.data || []);
-        setProducts(productsRes.data || []);
+        setProducts(processedProducts);
         if (categoriesRes.data && categoriesRes.data.length > 0) {
           setSelectedCategory(categoriesRes.data[0].id);
         }

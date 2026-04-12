@@ -1492,7 +1492,7 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Select_%I" ON %I;', t, t);
         -- السماح للمشاهدين (QR) برؤية المنيو فقط
         IF t IN ('products', 'item_categories', 'menu_categories', 'bill_of_materials', 'restaurant_tables') THEN
-            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org());', t, t);
+            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = ''anon'');', t, t);
         ELSE
             -- حجب الحسابات والعملاء والموردين عن المشاهدين
             EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
