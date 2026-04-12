@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -249,8 +249,10 @@ const ReceiptVoucherForm = () => {
         const treasury = treasuryAccounts.find(t => t.id === formData.treasuryId);
         const voucherNumber = formData.voucherNumber || `RV-${Date.now().toString().slice(-6)}`;
 
+        const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
+
         if (isEditing && currentVoucherId) {
-          if (!can('treasury', 'update')) {
+          if (!isAdmin && !can('treasury', 'update')) {
               showToast('ليس لديك صلاحية تعديل سندات القبض', 'error');
               setLoading(false);
               return;
@@ -259,7 +261,7 @@ const ReceiptVoucherForm = () => {
           return;
         }
 
-        if (!can('treasury', 'create')) {
+        if (!isAdmin && !can('treasury', 'create')) {
             showToast('ليس لديك صلاحية إنشاء سندات قبض', 'error');
             setLoading(false);
             return;

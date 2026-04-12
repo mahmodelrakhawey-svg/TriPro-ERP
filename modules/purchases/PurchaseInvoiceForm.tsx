@@ -52,7 +52,7 @@ const PurchaseInvoiceForm = () => {
           const { data: fullInv } = await supabase.from('purchase_invoices').select('*').eq('id', invId).single();
           
           if (fullInv) {
-              if (fullInv.status !== 'draft' && !can('purchases', 'update')) {
+              if (fullInv.status !== 'draft' && currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin' && !can('purchases', 'update')) {
                   showToast('تنبيه: هذه الفاتورة مرحلة ولا يمكن تعديلها.', 'warning');
               }
 

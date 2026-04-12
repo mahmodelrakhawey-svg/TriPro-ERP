@@ -470,7 +470,7 @@ const SalesInvoiceForm = () => {
 
     const isPosted = formData.status === 'posted' || formData.status === 'paid';
 
-    if (editingId && isPosted && !can('sales', 'update')) {
+    if (editingId && isPosted && currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin' && !can('sales', 'update')) {
         showToast('لا تملك صلاحية تعديل الفواتير المرحلة. يرجى إنشاء إشعار دائن', 'warning');
         return;
     }

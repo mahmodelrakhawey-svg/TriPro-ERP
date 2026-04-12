@@ -331,7 +331,7 @@ const SupplierManager = () => {
                     {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} استيراد
                 </button>
             </div>
-            {can('suppliers', 'create') && (
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('suppliers', 'create')) && (
             <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
                 <Plus size={18} /> إضافة مورد
             </button>
@@ -385,8 +385,8 @@ const SupplierManager = () => {
                         <td className="p-4 font-mono text-emerald-600">{supplier.credit_limit?.toLocaleString() || 0}</td>
                         <td className="p-4 text-center print:hidden">
                             <div className="flex justify-center gap-2">
-                                {can('suppliers', 'update') && (<button onClick={() => { setFormData(supplier); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full"><Edit2 size={16} /></button>)}
-                                {can('suppliers', 'delete') && (<button onClick={() => handleDelete(supplier.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-full"><Trash2 size={16} /></button>)}
+                                {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('suppliers', 'update')) && (<button onClick={() => { setFormData(supplier); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full"><Edit2 size={16} /></button>)}
+                                {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('suppliers', 'delete')) && (<button onClick={() => handleDelete(supplier.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-full"><Trash2 size={16} /></button>)}
                             </div>
                         </td>
                     </tr>

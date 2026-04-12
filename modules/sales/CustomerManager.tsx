@@ -422,7 +422,7 @@ const CustomerManager = () => {
                     استيراد Excel
                 </button>
             </div>
-            {can('customers', 'create') && (
+        {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('customers', 'create')) && (
             <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
                 <Plus size={18} /> إضافة عميل
             </button>
@@ -484,10 +484,10 @@ const CustomerManager = () => {
                         <td className="p-4 font-mono text-emerald-600">{customer.credit_limit?.toLocaleString() || 0}</td>
                         <td className="p-4 text-center print:hidden">
                         <div className="flex justify-center gap-2">
-                            {can('customers', 'update') && (
+                            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('customers', 'update')) && (
                             <button onClick={() => { setFormData(customer); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full"><Edit2 size={16} /></button>
                             )}
-                            {can('customers', 'delete') && (
+                            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('customers', 'delete')) && (
                             <button onClick={() => handleDelete(customer.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-full"><Trash2 size={16} /></button>
                             )}
                         </div>

@@ -207,7 +207,7 @@ const PurchaseOrderList = () => {
           </h2>
           <p className="text-slate-500">عرض وإدارة جميع أوامر الشراء الصادرة للموردين</p>
         </div>
-        {can('purchases', 'create') && (
+        {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('purchases', 'create')) && (
             <button 
                 onClick={() => navigate('/purchase-order-new')}
                 className="bg-emerald-600 text-white px-6 py-2.5 rounded-xl font-bold hover:bg-emerald-700 shadow-lg shadow-emerald-200 flex items-center gap-2 transition-all"
