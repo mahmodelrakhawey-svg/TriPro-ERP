@@ -85,6 +85,38 @@ CREATE TABLE IF NOT EXISTS public.permissions (
     UNIQUE(module, action)
 );
 
+-- تعبئة الصلاحيات الأساسية للنظام لضمان منحها للأدمن تلقائياً عند إنشاء شركة جديدة
+INSERT INTO public.permissions (module, action, description) VALUES
+('sales', 'view', 'عرض المبيعات'),
+('sales', 'create', 'إنشاء فاتورة مبيعات'),
+('sales', 'update', 'تعديل فاتورة مبيعات'),
+('sales', 'delete', 'حذف فاتورة مبيعات'),
+('sales', 'approve', 'اعتماد الفواتير'),
+('purchases', 'view', 'عرض المشتريات'),
+('purchases', 'create', 'إنشاء فاتورة مشتريات'),
+('purchases', 'update', 'تعديل فاتورة مشتريات'),
+('purchases', 'delete', 'حذف فاتورة مشتريات'),
+('products', 'view', 'عرض المنتجات'),
+('products', 'create', 'إضافة منتجات'),
+('products', 'update', 'تعديل منتجات'),
+('products', 'delete', 'حذف منتجات'),
+('inventory', 'view', 'عرض المخزون والتقارير'),
+('inventory', 'manage', 'إدارة تسويات المخازن'),
+('hr', 'view', 'عرض الموظفين'),
+('hr', 'manage', 'إدارة الرواتب'),
+('accounting', 'view', 'عرض القيود والتقارير'),
+('accounting', 'create', 'إنشاء قيود محاسبية'),
+('accounting', 'update', 'تعديل القيود المحاسبية'),
+('accounting', 'delete', 'حذف القيود المحاسبية'),
+('accounting', 'post', 'ترحيل القيود المحاسبية'),
+('treasury', 'view', 'عرض الخزينة'),
+('treasury', 'create', 'إنشاء سندات'),
+('treasury', 'update', 'تعديل سندات'),
+('treasury', 'manage', 'إدارة الخزينة'),
+('restaurant', 'manage', 'إدارة المطعم'),
+('admin', 'manage', 'إدارة الصلاحيات')
+ON CONFLICT (module, action) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS public.role_permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     role_id uuid REFERENCES public.roles(id) ON DELETE CASCADE,
@@ -196,6 +228,11 @@ BEGIN
     FROM public.permissions;
 
     RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    -- تسجيل الخطأ في حال فشل تأسيس الصلاحيات للشركة الجديدة
+    INSERT INTO public.system_error_logs (error_message, error_code, function_name, organization_id, context)
+    VALUES (SQLERRM, SQLSTATE, 'handle_new_organization_setup', NEW.id, jsonb_build_object('org_name', NEW.name));
+    RAISE; -- إعادة إلقاء الخطأ ليتوقف النظام ويظهر التنبيه للمستخدم
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -522,7 +559,7 @@ CREATE TABLE IF NOT EXISTS public.sales_return_items (
     sales_return_id uuid REFERENCES public.sales_returns(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    price numeric,
+    unit_price numeric,
     total numeric,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
@@ -556,7 +593,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
     purchase_invoice_id uuid REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    price numeric,
+    unit_price numeric,
     total numeric,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
@@ -583,7 +620,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_return_items (
     return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE, -- توحيد المسمى
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    price numeric,
+    unit_price numeric,
     total numeric,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
@@ -609,7 +646,7 @@ CREATE TABLE IF NOT EXISTS public.quotation_items (
     quotation_id uuid REFERENCES public.quotations(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    price numeric, -- توحيد المسمى مع باقي النظام
+    unit_price numeric, -- توحيد المسمى مع باقي النظام
     total numeric,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
@@ -633,7 +670,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_order_items (
     order_id uuid REFERENCES public.purchase_orders(id) ON DELETE CASCADE, -- توحيد المسمى ليتوافق مع نظام الطلبات
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
-    price numeric, -- توحيد المسمى مع باقي النظام
+    unit_price numeric, -- توحيد المسمى مع باقي النظام
     total numeric,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
@@ -964,7 +1001,7 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric NOT NULL,
-    price numeric NOT NULL,
+    unit_price numeric NOT NULL,
     total_price numeric NOT NULL,
     unit_cost numeric DEFAULT 0,
     notes text,
@@ -1212,28 +1249,28 @@ CREATE TABLE IF NOT EXISTS public.notification_audit_log (
 -- ================================================================
 -- 2.5 التقارير واللوحات البرمجية (Views)
 -- ================================================================
-CREATE OR REPLACE VIEW public.monthly_sales_dashboard AS
+CREATE OR REPLACE VIEW public.monthly_sales_dashboard WITH (security_invoker = true) AS
  SELECT 
     i.id,
     i.invoice_date AS transaction_date,
-    i.subtotal AS amount, -- استخدام الصافي لضمان عدم احتساب الضرائب كمبيعات
-    (SELECT COALESCE(SUM(ii.cost * ii.quantity), 0) FROM public.invoice_items ii WHERE ii.invoice_id = i.id) AS total_cost, -- Changed to numeric for consistency
+    i.subtotal AS amount,
+    (SELECT COALESCE(SUM(ii.cost * ii.quantity), 0) FROM public.invoice_items ii WHERE ii.invoice_id = i.id) AS total_cost,
     'Standard Invoice'::text AS type,
     i.organization_id
  FROM public.invoices i
  WHERE i.status != 'draft' AND i.deleted_at IS NULL
  UNION ALL
- -- Changed to public.orders for consistency
- -- Changed to public.order_items for consistency
  SELECT 
     o.id,
     o.created_at::date AS transaction_date,
-    o.subtotal AS amount, -- استخدام الصافي من طلبات المطاعم
+    o.subtotal AS amount,
     (SELECT COALESCE(SUM(oi.unit_cost * oi.quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id) AS total_cost,
     'Restaurant Order'::text AS type,
     o.organization_id
  FROM public.orders o
  WHERE o.status IN ('COMPLETED', 'PAID', 'posted', 'PENDING');
+
+-- ملاحظة: استخدام security_invoker يضمن أن الـ View يحترم سياسات RLS الخاصة بالجداول الأصلية
 
 -- ================================================================
 -- دالة تحديث كاش النظام (Refresh Supabase Schema Cache)
@@ -1453,7 +1490,13 @@ DECLARE
 BEGIN 
     FOREACH t IN ARRAY basic_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Select_%I" ON %I;', t, t);
-        EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org());', t, t);
+        -- السماح للمشاهدين (QR) برؤية المنيو فقط
+        IF t IN ('products', 'item_categories', 'menu_categories', 'bill_of_materials', 'restaurant_tables') THEN
+            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org());', t, t);
+        ELSE
+            -- حجب الحسابات والعملاء والموردين عن المشاهدين
+            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
+        END IF;
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Staff_%I" ON %I;', t, t);
         EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON %I FOR ALL USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''));', t, t);
     END LOOP;
@@ -1475,7 +1518,8 @@ DECLARE
 BEGIN 
     FOREACH t IN ARRAY trans_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Trans_Select_%I" ON %I;', t, t);
-        EXECUTE format('CREATE POLICY "Trans_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org());', t, t);
+        -- حجب كافة المعاملات المالية (فواتير، قيود، رواتب) عن المشاهدين عبر الـ QR
+        EXECUTE format('CREATE POLICY "Trans_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
         EXECUTE format('DROP POLICY IF EXISTS "Trans_Staff_%I" ON %I;', t, t);
         EXECUTE format('CREATE POLICY "Trans_Staff_%I" ON %I FOR ALL USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''));', t, t);
     END LOOP;

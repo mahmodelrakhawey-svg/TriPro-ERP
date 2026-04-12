@@ -34,14 +34,30 @@ END; $$;
 -- ============================================================
 -- 1. توحيد أسماء أعمدة المرتجعات (Schema Standardization)
 -- ============================================================
-DO $$
-BEGIN
+DO $$ BEGIN
+    -- توحيد مسمى سعر الوحدة في جميع جداول النظام (Standardizing unit_price)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotation_items' AND column_name = 'price') THEN
+        ALTER TABLE public.quotation_items RENAME COLUMN price TO unit_price;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'price') THEN
+        ALTER TABLE public.sales_return_items RENAME COLUMN price TO unit_price;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_invoice_items' AND column_name = 'price') THEN
+        ALTER TABLE public.purchase_invoice_items RENAME COLUMN price TO unit_price;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_order_items' AND column_name = 'price') THEN
+        ALTER TABLE public.purchase_order_items RENAME COLUMN price TO unit_price;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_return_items' AND column_name = 'price') THEN
+        ALTER TABLE public.purchase_return_items RENAME COLUMN price TO unit_price;
+    END IF;
+
+    -- توحيد مسميات معرفات المرتجعات
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'return_id') THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'sales_return_id') THEN
             ALTER TABLE public.sales_return_items RENAME COLUMN return_id TO sales_return_id;
         END IF;
     END IF;
-
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_return_items' AND column_name = 'return_id') THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_return_items' AND column_name = 'purchase_return_id') THEN
             ALTER TABLE public.purchase_return_items RENAME COLUMN return_id TO purchase_return_id;
@@ -65,12 +81,12 @@ DO $$ BEGIN
     END IF;
 
     -- تحديث جدول بنود الطلبات (order_items)
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='unit_price') THEN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='price') THEN
-            ALTER TABLE public.order_items RENAME COLUMN unit_price TO price;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='price') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='unit_price') THEN
+            ALTER TABLE public.order_items RENAME COLUMN price TO unit_price;
         ELSE
-            UPDATE public.order_items SET price = unit_price WHERE price IS NULL;
-            ALTER TABLE public.order_items DROP COLUMN unit_price;
+            UPDATE public.order_items SET unit_price = price WHERE unit_price IS NULL;
+            ALTER TABLE public.order_items DROP COLUMN price;
         END IF;
     END IF;
 
@@ -194,9 +210,14 @@ DECLARE
         'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 
         'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'receipt_vouchers', 'payment_vouchers', 'menu_categories',
         'cheques', 'credit_notes', 'debit_notes', 'stock_adjustments', 'stock_transfers', 'inventory_counts', 'work_orders',
-        'assets', 'employees', 'payrolls', 'payroll_items', 'notifications'
+        'assets', 'employees', 'payrolls', 'payroll_items', 'notifications',
+        'modifier_groups', 'modifiers', 'order_item_modifiers',
+        'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items',
+        'quotations', 'quotation_items', 'purchase_orders', 'purchase_order_items',
+        'bill_of_materials', 'opening_inventories', 'restaurant_tables', 'table_sessions'
     ];
     v_count_before int;
+    v_is_menu_table boolean;
 BEGIN 
     FOREACH t IN ARRAY tables LOOP
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) AND t NOT IN ('accounts', 'profiles') THEN
@@ -212,8 +233,16 @@ BEGIN
             EXECUTE format('DROP POLICY IF EXISTS "Select_Policy_%I" ON public.%I', t, t);
             EXECUTE format('DROP POLICY IF EXISTS "Modify_Policy_%I" ON public.%I', t, t);
             
-            -- سياسة القراءة للجميع (عزل الشركات)
-            EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org())', t, t);
+            -- تحديد جداول المنيو المسموح للمشاهدين (Viewer) برؤيتها
+            v_is_menu_table := t IN ('products', 'item_categories', 'menu_categories', 'modifiers', 'modifier_groups', 'restaurant_tables', 'bill_of_materials');
+
+            -- سياسة القراءة (عزل الشركات + حماية البيانات الحساسة من المشاهدين)
+            IF v_is_menu_table THEN
+                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org())', t, t);
+            ELSE
+                -- الجداول الحساسة (الفواتير، الموظفين، الحسابات) لا يراها إلا الموظفون (استثناء Viewer و Demo)
+                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''viewer'', ''demo''))', t, t);
+            END IF;
             
             -- سياسة التعديل (فقط للأدوار المصرح لها، ومنع الديمو والمشاهد)
             EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''demo'', ''viewer'')) WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''demo'', ''viewer''))', t, t);
@@ -242,7 +271,7 @@ BEGIN
             DROP POLICY IF EXISTS "Select_Policy_accounts" ON public.accounts;
             DROP POLICY IF EXISTS "Modify_Policy_accounts" ON public.accounts;
             
-            CREATE POLICY "Select_Policy_accounts" ON public.accounts FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
+            CREATE POLICY "Select_Policy_accounts" ON public.accounts FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('viewer', 'demo'));
             CREATE POLICY "Modify_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('demo', 'viewer')) WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('demo', 'viewer'));
         END IF;
     END LOOP;

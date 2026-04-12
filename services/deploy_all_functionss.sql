@@ -164,7 +164,8 @@ BEGIN
             'create_restaurant_order', 'run_payroll_rpc', 'handle_new_user', 'check_user_limit',
             'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
             'get_product_recipe_cost', 'recalculate_stock_rpc',
-            'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema'
+            'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema',
+            'get_or_create_qr_for_table'
         )
         THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature); -- Drop by full signature
@@ -284,7 +285,7 @@ BEGIN
 
     -- 4. تحديث المخزون وحساب المتوسط المرجح
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
-        v_item_price_base := v_item.price * v_exchange_rate;
+        v_item_price_base := v_item.unit_price * v_exchange_rate;
         SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
         v_current_stock := COALESCE(v_current_stock, 0); v_current_avg_cost := COALESCE(v_current_avg_cost, 0); -- حساب التكلفة المرجحة
         IF (v_current_stock + v_item.quantity) > 0 THEN v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity); ELSE v_new_avg_cost := v_item_price_base; END IF;
@@ -488,7 +489,7 @@ BEGIN
     INSERT INTO public.orders (session_id, user_id, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
     VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, v_org_id, p_warehouse_id) RETURNING id INTO v_order_id;
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        INSERT INTO public.order_items (order_id, product_id, quantity, price, total_price, unit_cost, notes, organization_id)
+        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id)
         VALUES (v_order_id, (v_item->>'productId')::uuid, (v_item->>'quantity')::numeric, (v_item->>'unitPrice')::numeric, ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric), COALESCE((v_item->>'unitCost')::numeric, 0), v_item->>'notes', v_org_id) RETURNING id INTO v_order_item_id;
         v_subtotal := v_subtotal + ((v_item->>'quantity')::numeric * (v_item->>'unitPrice')::numeric);
         INSERT INTO public.kitchen_orders (order_item_id, status, organization_id) VALUES (v_order_item_id, 'NEW', v_org_id);
@@ -779,6 +780,13 @@ BEGIN
     ON CONFLICT (name, organization_id) DO NOTHING;
 
     RETURN '✅ تم تأسيس الدليل المحاسبي وربط الحسابات السيادية بنجاح.';
+
+EXCEPTION WHEN OTHERS THEN
+    -- تسجيل الخطأ بالتفصيل في حال فشل بناء الدليل المحاسبي
+    INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id, user_id)
+    VALUES (SQLERRM, SQLSTATE, jsonb_build_object('org_id', p_org_id, 'activity', p_activity_type), 'initialize_egyptian_coa', p_org_id, auth.uid());
+    
+    RAISE EXCEPTION 'فشل تأسيس دليل الحسابات: % (كود: %)', SQLERRM, SQLSTATE;
 END; $$;
 
 -- د. الدالة الشاملة لإنشاء شركة جديدة (Global SaaS Creator)
@@ -897,6 +905,39 @@ BEGIN
     UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = p_user_id;
     UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin') WHERE id = p_user_id;
     RETURN 'تم منح صلاحيات المدير بنجاح ✅';
+END; $$;
+
+-- 🛠️ دالة توليد أو جلب مفتاح QR للطاولة (Restaurant QR Menu)
+CREATE OR REPLACE FUNCTION public.get_or_create_qr_for_table(p_table_id uuid)
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_table record;
+    v_qr_key uuid;
+    v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    SELECT * INTO v_table 
+    FROM public.restaurant_tables 
+    WHERE id = p_table_id AND organization_id = v_org_id;
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'الطاولة غير موجودة أو لا تملك صلاحية الوصول إليها';
+    END IF;
+    
+    v_qr_key := v_table.qr_access_key;
+    
+    IF v_qr_key IS NULL THEN
+        v_qr_key := gen_random_uuid();
+        UPDATE public.restaurant_tables SET qr_access_key = v_qr_key WHERE id = p_table_id;
+    END IF;
+    
+    RETURN json_build_object(
+        'qr_access_key', v_qr_key,
+        'table_name', v_table.name
+    );
 END; $$;
 
 -- 🛡️ دالة جلب الإعدادات الآمنة (تتخطى مشاكل التوكن العالق)

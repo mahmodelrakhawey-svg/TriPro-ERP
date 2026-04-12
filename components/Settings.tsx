@@ -8,6 +8,7 @@ import * as XLSX from 'xlsx';
 import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap } from 'lucide-react';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../utils/runRestaurantFlowTest';
+import ArchiveManager from '../services/ArchiveManager'; // استيراد مدير الأرشفة
 
 const ACCOUNT_LABELS: Record<string, string> = {
   CASH: 'النقدية (الصندوق الرئيسي)',
@@ -87,7 +88,8 @@ const Settings = () => {
                 phone: sData.phone || '',
                 address: sData.address || '',
                 footerText: sData.footer_text || '',
-                vatRate: sData.vat_rate !== undefined ? sData.vat_rate : 0.14,
+                // تحويل الضريبة من كسر عشري (0.14) إلى نسبة مئوية (14) للعرض
+                vatRate: sData.vat_rate ? (sData.vat_rate <= 1 ? sData.vat_rate * 100 : sData.vat_rate) : 14,
                 currency: sData.currency || '',
                 logoUrl: sData.logo_url || '',
                 enableTax: sData.enable_tax !== undefined ? sData.enable_tax : true,
@@ -148,7 +150,7 @@ const Settings = () => {
             phone: formData.phone,
             address: formData.address,
             footer_text: formData.footerText,
-            vat_rate: formData.vatRate,
+            vat_rate: formData.vatRate / 100, // تخزين الضريبة ككسر عشري في قاعدة البيانات
             currency: formData.currency,
             logo_url: formData.logoUrl,
             allow_negative_stock: formData.allowNegativeStock,
@@ -168,6 +170,14 @@ const Settings = () => {
         }
 
         if (error) throw error;
+
+        // تسجيل العملية في سجلات الأمان
+        await supabase.from('security_logs').insert({
+            event_type: 'settings_update',
+            description: `تم تحديث إعدادات المنشأة بواسطة ${(currentUser as any)?.full_name}`,
+            organization_id: (currentUser as any)?.organization_id
+        });
+
         showToast("تم حفظ الإعدادات بنجاح ✅", 'success');
       } catch (err: any) {
         showToast("فشل الحفظ: " + err.message, 'error');
@@ -768,6 +778,11 @@ const Settings = () => {
                           >
                               <Archive size={18} /> إقفال السنة وفتح سنة جديدة
                           </button>
+                      </div>
+
+                      {/* قسم أرشفة البيانات القانونية */}
+                      <div className="mt-8">
+                          <ArchiveManager />
                       </div>
 
                       {/* أدوات الصيانة والربط (SaaS Maintenance) - تم نقله هنا لسهولة الوصول */}

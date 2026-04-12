@@ -19,6 +19,7 @@ import { createInvoiceSchema, createCustomerSchema } from '../../utils/validatio
 
 const SalesInvoiceForm = () => {
   const { products, warehouses, salespeople, accounts, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
+  const currentUserRole = (currentUser as any)?.role || '';
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
@@ -138,7 +139,7 @@ const SalesInvoiceForm = () => {
           return;
       }
 
-      if (currentUser?.role === 'demo') {
+      if (currentUserRole === 'demo') {
           const bal = contextInvoices
               .filter(inv => inv.customerId === formData.customerId && inv.status !== 'draft' && inv.status !== 'paid')
               .reduce((acc, inv) => acc + (inv.totalAmount - (inv.paid_amount || 0)), 0);
@@ -470,7 +471,7 @@ const SalesInvoiceForm = () => {
 
     const isPosted = formData.status === 'posted' || formData.status === 'paid';
 
-    if (editingId && isPosted && currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin' && !can('sales', 'update')) {
+    if (editingId && isPosted && currentUserRole !== 'admin' && currentUserRole !== 'super_admin' && !can('sales', 'update')) {
         showToast('لا تملك صلاحية تعديل الفواتير المرحلة. يرجى إنشاء إشعار دائن', 'warning');
         return;
     }
@@ -554,7 +555,7 @@ const SalesInvoiceForm = () => {
         }
     }
 
-    if (currentUser?.role === 'demo') {
+    if (currentUserRole === 'demo') {
         await new Promise(resolve => setTimeout(resolve, 600));
         
         const demoInvoiceNumber = formData.invoiceNumber || `INV-DEMO-${Math.floor(Math.random() * 10000)}`;
@@ -724,7 +725,7 @@ const SalesInvoiceForm = () => {
         return;
     }
 
-    if (currentUser?.role === 'demo') {
+    if (currentUserRole === 'demo') {
         await new Promise(resolve => setTimeout(resolve, 600));
         
         const demoInvoiceNumber = formData.invoiceNumber || `INV-DEMO-${Math.floor(Math.random() * 10000)}`;
@@ -910,9 +911,36 @@ const SalesInvoiceForm = () => {
                     {/* Customer Selection */}
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <label className="text-sm font-black text-slate-700 flex items-center gap-2">
-                                <User className="text-blue-500" size={18} /> اختيار العميل
-                            </label>
+                            <div className="flex items-center gap-4">
+                                <label className="text-sm font-black text-slate-700 flex items-center gap-2">
+                                    <User className="text-blue-500" size={18} /> اختيار العميل
+                                </label>
+                                {formData.customerId && (
+                                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500 animate-in fade-in bg-slate-50 px-3 py-1 rounded-xl border border-slate-100 shadow-sm">
+                                        <span>الرصيد:</span>
+                                        <span className={`font-black ${customerBalance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                                            {customerBalance.toLocaleString()}
+                                        </span>
+                                        <button 
+                                            type="button" 
+                                            onClick={handleRefreshBalance}
+                                            disabled={isRefreshingBalance}
+                                            className="p-1 hover:bg-slate-200 rounded-full text-blue-600 transition-colors disabled:opacity-50"
+                                            title="تحديث الرصيد"
+                                        >
+                                            <RefreshCw size={12} className={isRefreshingBalance ? 'animate-spin' : ''} />
+                                        </button>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => setIsStatementModalOpen(true)}
+                                            className="p-1 hover:bg-slate-200 rounded-full text-purple-600 transition-colors"
+                                            title="عرض كشف حساب تفصيلي"
+                                        >
+                                            <FileText size={12} />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                             <div className="flex gap-2">
                                 {formData.customerId && (
                                     <button 
@@ -1142,20 +1170,6 @@ const SalesInvoiceForm = () => {
             </div>
 
             {/* Invoice Items Management */}
-            {editingId ? (
-                // Use new InvoiceItemsList component for editing existing invoices
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
-                    <InvoiceItemsList 
-                        invoiceId={editingId}
-                        readOnly={formData.status !== 'draft'}
-                        onItemsChange={(dbItems) => {
-                            // Sync with form items if needed
-                            console.log('Invoice items updated from DB:', dbItems.length);
-                        }}
-                    />
-                </div>
-            ) : (
-                // Use traditional inline items management for new invoices
                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 space-y-6">
                     <div className="space-y-2">
                         <label className="text-sm font-black text-slate-700 flex items-center gap-2">
@@ -1262,10 +1276,10 @@ const SalesInvoiceForm = () => {
                                                             <button 
                                                                 type="button"
                                                                 onClick={() => setActiveStockViewer(activeStockViewer === item.id ? null : item.id)}
-                                                                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${isLowStock ? 'bg-red-50 text-red-500 hover:bg-red-100' : 'bg-blue-50 text-blue-500 hover:bg-blue-100'}`}
+                                                                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isLowStock ? 'bg-red-50 text-red-500 border border-red-200' : 'bg-blue-50 text-blue-500 border border-blue-100 shadow-sm'} hover:scale-110 active:scale-95`}
                                                                 title="عرض تفاصيل المخزون"
                                                             >
-                                                                {isLowStock ? <AlertCircle size={16} /> : <Box size={16} />}
+                                                                <Box size={16} />
                                                             </button>
                                                             <div className="relative">
                                                                 <p className="font-bold text-slate-800 text-sm">{item.productName}</p>
@@ -1316,7 +1330,7 @@ const SalesInvoiceForm = () => {
                                                             <input 
                                                                 type="number"
                                                                 value={item.unitPrice}
-                                                                disabled={settings.preventPriceModification && currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin'}
+                                                                disabled={settings.preventPriceModification && currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
                                                                 onChange={(e) => handleItemChange(index, 'unitPrice', e.target.value)}
                                                                 className="w-24 text-center font-bold text-slate-700 bg-slate-50 rounded-lg py-1.5 focus:bg-white border border-transparent focus:border-blue-200 transition-all outline-none disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                                             />
@@ -1343,7 +1357,6 @@ const SalesInvoiceForm = () => {
                         )}
                     </div>
                 </div>
-            )}
 
             {/* Notes Section */}
             <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
