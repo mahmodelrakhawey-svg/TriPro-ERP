@@ -27,6 +27,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
+import { secureStorage } from '../utils/securityMiddleware';
 
 const AVAILABLE_MODULES = [
   { id: 'accounting', label: 'المحاسبة العامة' },
@@ -820,12 +821,26 @@ const SaasAdmin: React.FC = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('لم يتم العثور على المستخدم');
 
-      const { error } = await supabase
+      // حفظ معرف المنظمة الأصلي (بيئة المدير) قبل التبديل للتمكن من العودة لاحقاً
+      const currentOrgId = user.user_metadata?.org_id;
+      if (currentOrgId && !secureStorage.getItem('admin_original_org_id')) {
+        secureStorage.setItem('admin_original_org_id', currentOrgId);
+      }
+
+      // 1. تحديث البروفايل في قاعدة البيانات
+      const { error: profileError } = await supabase
         .from('profiles')
         .update({ organization_id: orgId })
         .eq('id', user.id);
 
-      if (error) throw error;
+      if (profileError) throw profileError;
+
+      // 2. تحديث بيانات الـ Metadata في نظام Auth لضمان تحديث الـ Token (JWT)
+      const { error: authError } = await supabase.auth.updateUser({
+        data: { ...user.user_metadata, org_id: orgId }
+      });
+
+      if (authError) throw authError;
 
       showToast(`تم الانتقال لبيئة عمل: ${orgName} بنجاح. جاري تحديث النظام...`, 'success');
       setTimeout(() => window.location.reload(), 1500);

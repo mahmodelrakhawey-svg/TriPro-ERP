@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
     full_name text,
     role text DEFAULT 'viewer',
-    role_id uuid REFERENCES public.roles(id),
+    role_id uuid REFERENCES public.roles(id) ON DELETE SET NULL,
     avatar_url text,
     is_active boolean DEFAULT true NOT NULL,
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),

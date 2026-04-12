@@ -192,7 +192,7 @@ const PurchaseReturnForm = () => {
             </div>
           </div>
           <button 
-            onClick={() => navigate('/inventory')} 
+            onClick={() => navigate('/warehouses')} 
             className="bg-red-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-red-700 transition-all shadow-sm flex items-center gap-2 whitespace-nowrap"
           >
             <Plus size={18} /> تهيئة المخازن

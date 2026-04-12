@@ -48,7 +48,8 @@ const Settings = () => {
       companyName: '', taxNumber: '', phone: '', address: '', footerText: '', vatRate: 0.14, currency: '', logoUrl: '', 
       enableTax: true, allowNegativeStock: false, preventPriceModification: false, maxCashDeficitLimit: 500, decimalPlaces: 2,
       accountMappings: {} as Record<string, string>,
-      defaultWarehouseId: ''
+      defaultWarehouseId: '',
+      defaultTreasuryId: ''
   });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -99,7 +100,8 @@ const Settings = () => {
                 maxCashDeficitLimit: sData.max_cash_deficit_limit !== undefined ? sData.max_cash_deficit_limit : 500,
                 decimalPlaces: sData.decimal_places !== undefined ? sData.decimal_places : 2,
                 accountMappings: sData.account_mappings || {},
-                defaultWarehouseId: sData.default_warehouse_id || ''
+                defaultWarehouseId: sData.default_warehouse_id || '',
+                defaultTreasuryId: sData.default_treasury_id || ''
             });
         }
         setLoading(false);
@@ -162,7 +164,8 @@ const Settings = () => {
             decimal_places: formData.decimalPlaces,
             updated_at: new Date().toISOString(),
             account_mappings: formData.accountMappings,
-            default_warehouse_id: formData.defaultWarehouseId || null
+            default_warehouse_id: formData.defaultWarehouseId || null,
+            default_treasury_id: formData.defaultTreasuryId || null
         };
 
         let error;
@@ -178,7 +181,8 @@ const Settings = () => {
         await supabase.from('security_logs').insert({
             event_type: 'settings_update',
             description: `تم تحديث إعدادات المنشأة بواسطة ${(currentUser as any)?.full_name}`,
-            organization_id: (currentUser as any)?.organization_id
+                organization_id: (currentUser as any)?.organization_id,
+                performed_by: currentUser?.id
         });
 
         showToast("تم حفظ الإعدادات بنجاح ✅", 'success');
@@ -773,6 +777,28 @@ const Settings = () => {
                                 </div>
                               </div>
                               <p className="text-xs text-slate-500 mt-1">المستودع الذي سيتم اختياره تلقائياً في فواتير البيع والشراء.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">الخزينة الافتراضية للنظام</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.defaultTreasuryId}
+                                    onChange={(e) => setFormData({...formData, defaultTreasuryId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر الخزينة الافتراضية --</option>
+                                    {accounts
+                                      .filter(a => !a.isGroup && (a.code.startsWith('123') || a.name.includes('خزينة') || a.name.includes('صندوق') || a.name.includes('بنك')))
+                                      .map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>
+                                      ))
+                                    }
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">الحساب المالي الذي سيتم اختياره تلقائياً للتحصيل والدفع النقدي.</p>
                           </div>
                       </div>
                       <div className="pt-4 text-left">

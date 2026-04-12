@@ -782,6 +782,10 @@ const Sidebar = () => {
                         <span>إدارة المنصة (SaaS)</span>
                     </Link>
                 )}
+                <Link to="/security-logs" className={getNavClass('/security-logs')}>
+                    <ShieldAlert size={18} />
+                    <span>سجلات الأمان والنشاط</span>
+                </Link>
                 <Link to="/deficit-report" className={getNavClass('/deficit-report')}>
                     <AlertTriangle size={18} />
                     <span>تقارير العجز</span>

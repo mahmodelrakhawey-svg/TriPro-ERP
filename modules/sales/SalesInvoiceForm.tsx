@@ -892,7 +892,7 @@ const SalesInvoiceForm = () => {
           </div>
         </div>
           <button 
-            onClick={() => navigate('/inventory')} 
+            onClick={() => navigate('/warehouses')} 
             className="bg-amber-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-amber-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
           >
             <Plus size={20} /> إضافة مستودع الآن

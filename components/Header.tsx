@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { secureStorage } from '../utils/securityMiddleware';
-import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2 } from 'lucide-react';
+import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
@@ -28,6 +28,7 @@ const Header = () => {
     const { lastUpdated, refreshData, clearCache, settings, isLoading } = useAccounting();
     const navigate = useNavigate();
     const [currentUser, setCurrentUser] = useState<any>(null);
+    const [isReturning, setIsReturning] = useState(false);
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const userMenuRef = useRef<HTMLDivElement>(null);
     const [timeLeft, setTimeLeft] = useState('');
@@ -55,6 +56,37 @@ const Header = () => {
         };
         fetchUserData();
     }, []);
+
+    const handleReturnToAdmin = async () => {
+        const originalOrgId = secureStorage.getItem('admin_original_org_id');
+        if (!originalOrgId) return;
+
+        try {
+            setIsReturning(true);
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) return;
+
+            // 1. العودة للمنظمة الأصلية في قاعدة البيانات
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .update({ organization_id: originalOrgId })
+                .eq('id', user.id);
+
+            if (profileError) throw profileError;
+
+            // 2. تحديث الـ Metadata لضمان تحديث الـ Token (JWT)
+            await supabase.auth.updateUser({
+                data: { ...user.user_metadata, org_id: originalOrgId }
+            });
+
+            secureStorage.removeItem('admin_original_org_id');
+            window.location.reload(); // إعادة تحميل النظام بالهوية الأصلية
+        } catch (error) {
+            console.error("Error returning to admin:", error);
+        } finally {
+            setIsReturning(false);
+        }
+    };
 
     // --- تحسين الديمو: تفعيل الجولة التعريفية ---
     useEffect(() => {
@@ -121,6 +153,17 @@ const Header = () => {
 
             {/* Actions */}
             <div className="flex items-center gap-4">
+                {secureStorage.getItem('admin_original_org_id') && (
+                    <button 
+                        onClick={handleReturnToAdmin}
+                        disabled={isReturning}
+                        className="flex items-center gap-2 bg-rose-600 text-white px-4 py-2 rounded-xl font-black text-sm hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 animate-pulse"
+                    >
+                        {isReturning ? <Loader2 size={18} className="animate-spin" /> : <ArrowLeftCircle size={18} />}
+                        <span>العودة للنظام الرئيسي</span>
+                    </button>
+                )}
+
                 {currentUser?.role === 'demo' && (
                     <>
                         <div className="hidden lg:flex items-center gap-2 bg-amber-100 text-amber-800 px-3 py-2 rounded-lg text-xs font-bold border border-amber-200 shadow-sm" title="سيتم مسح البيانات تلقائياً عند انتهاء العداد">

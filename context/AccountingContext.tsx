@@ -644,10 +644,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (orgId?: string) => {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
-    const currentOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+    const currentOrgId = orgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
 
     if (!currentOrgId && !isDemo) {
         if (process.env.NODE_ENV === 'development') console.warn("No Org ID found, skipping fetch to prevent leakage");
@@ -798,11 +798,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       // 1. معالجة المستودعات
-      if (whs && whs.length > 0) {
-        setWarehouses(whs);
-      } else if (warehouses.length === 0) {
-        if (warehouses.length === 0) setWarehouses([{id: generateUUID(), name: 'المستودع الرئيسي', type: 'warehouse'}]);
-      }
+      setWarehouses(whs || []);
 
       // 2. معالجة الإعدادات
       if (sysSettings) {
@@ -1582,7 +1578,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     setUserPermissions(new Set()); // مستخدم بدون دور محدد
                 }
             }
-            await fetchData();
+            await fetchData(profile?.organization_id);
             await checkEssentialAccounts(); // 🛠️ تشغيل الفحص التلقائي للحسابات فور الدخول
         } catch (error) {
             if (process.env.NODE_ENV === 'development') console.error("Error handling auth change:", error);
@@ -4281,8 +4277,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               // @ts-ignore
               decimal_places: newSettings.decimalPlaces,
               account_mappings: newSettings.account_mappings,
-              default_warehouse_id: newSettings.defaultWarehouseId,
-              default_treasury_id: newSettings.defaultTreasuryId
+              default_warehouse_id: newSettings.defaultWarehouseId || null,
+              default_treasury_id: newSettings.defaultTreasuryId || null
           }, { onConflict: 'organization_id' }).then(({ error }) => {
               if (error) console.error("Failed to save settings:", error);
           });
