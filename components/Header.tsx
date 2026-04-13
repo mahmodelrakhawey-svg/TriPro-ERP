@@ -59,30 +59,53 @@ const Header = () => {
 
     const handleReturnToAdmin = async () => {
         const originalOrgId = secureStorage.getItem('admin_original_org_id');
-        if (!originalOrgId) return;
+        // إذا لم توجد قيمة، نمسح المفتاح ونغلق المهمة
+        if (!originalOrgId) {
+            secureStorage.removeItem('admin_original_org_id');
+            return;
+        }
 
         try {
             setIsReturning(true);
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
+            // إذا كانت القيمة 'main' تعني العودة للوضع بدون شركة (Super Admin)
+            let targetOrgId = originalOrgId === 'main' ? null : originalOrgId;
+
             // 1. العودة للمنظمة الأصلية في قاعدة البيانات
-            const { error: profileError } = await supabase
+            const { error: updateError } = await supabase
                 .from('profiles')
-                .update({ organization_id: originalOrgId })
+                .update({ organization_id: targetOrgId })
                 .eq('id', user.id);
 
-            if (profileError) throw profileError;
+            // 🛡️ إذا فشل التحديث بسبب حذف الشركة (خطأ المفتاح الأجنبي 23503)
+            if (updateError) {
+                if (updateError.code === '23503') {
+                    targetOrgId = null; // العودة للوضع الحر
+                    await supabase
+                        .from('profiles')
+                        .update({ organization_id: null })
+                        .eq('id', user.id);
+                } else {
+                    throw updateError;
+                }
+            }
 
             // 2. تحديث الـ Metadata لضمان تحديث الـ Token (JWT)
             await supabase.auth.updateUser({
-                data: { ...user.user_metadata, org_id: originalOrgId }
+                data: { ...user.user_metadata, org_id: targetOrgId }
             });
 
             secureStorage.removeItem('admin_original_org_id');
             window.location.reload(); // إعادة تحميل النظام بالهوية الأصلية
         } catch (error) {
             console.error("Error returning to admin:", error);
+            // 🛡️ صمام أمان: إذا فشلت العودة لأي سبب (مثل حذف الشركة)، نمسح المفتاح لفك تعليق المستخدم
+            if (secureStorage.getItem('admin_original_org_id')) {
+                secureStorage.removeItem('admin_original_org_id');
+                window.location.reload();
+            }
         } finally {
             setIsReturning(false);
         }

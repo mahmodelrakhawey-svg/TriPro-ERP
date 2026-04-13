@@ -51,17 +51,21 @@ export function usePagination<T>(
       }
 
       const userOrgId = session.user.user_metadata?.org_id;
+      const userRole = session.user.user_metadata?.role;
 
       let query = supabase
         .from(tableName)
         .select(select, { count: 'exact' });
 
-      if (!userOrgId) {
+      // إذا لم يكن سوبر أدمن، يجب التأكد من وجود معرف شركة
+      if (!userOrgId && userRole !== 'super_admin') {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
 
-      // فرض التصفية دائماً لضمان عدم تداخل بيانات الشركات
-      query = query.eq('organization_id', userOrgId);
+      // تطبيق التصفية فقط إذا كان المعرف موجوداً وصحيحاً (وليس نصاً فارغاً)
+      if (userOrgId && userOrgId !== "") {
+        query = query.eq('organization_id', userOrgId);
+      }
 
       if (queryModifier) {
         query = queryModifier(query);

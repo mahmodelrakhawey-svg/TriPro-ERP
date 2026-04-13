@@ -231,10 +231,16 @@ BEGIN
 
     -- 4. تحديث المخزون وحساب تكلفة البضاعة المباعة (COGS)
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
-        -- محاولة جلب التكلفة من البند أولاً، ثم من جدول المنتجات كاحتياط
-        SELECT COALESCE(v_item.cost, weighted_average_cost, cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
+        SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) 
+        INTO v_item_cost 
+        FROM public.products 
+        WHERE id = v_item.product_id AND organization_id = v_org_id;
+        
         v_total_cost := v_total_cost + (v_item_cost * v_item.quantity);
         
+        -- تحديث تكلفة البند في الفاتورة لضمان دقة التقارير لاحقاً
+        UPDATE public.invoice_items SET cost = v_item_cost WHERE id = v_item.id;
+
         -- تحديث المخزون مع معالجة حالة المستودع الفارغ
         UPDATE public.products SET stock = stock - v_item.quantity, 
         warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[COALESCE(v_invoice.warehouse_id::text, (SELECT id::text FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1))], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
@@ -972,12 +978,54 @@ BEGIN
     END LOOP;
 END; $$;
 
-CREATE OR REPLACE FUNCTION public.recalculate_all_system_balances(p_org_id uuid DEFAULT NULL) RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_target_org uuid;
+CREATE OR REPLACE FUNCTION public.recalculate_all_system_balances(p_org_id uuid DEFAULT NULL) 
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE 
+    v_target_org uuid;
+    v_inv record;
+    v_total_cost numeric;
+    v_cogs_acc_id uuid;
+    v_inventory_acc_id uuid;
+    v_mappings jsonb;
+    v_item_cost numeric;
+    v_item record;
 BEGIN
     v_target_org := COALESCE(p_org_id, public.get_my_org());
-    PERFORM public.recalculate_stock_rpc(v_target_org);
     
+    -- 1. تحديث المخزون أولاً لضمان دقة المتوسطات المرجحة
+    PERFORM public.recalculate_stock_rpc(v_target_org);
+
+    -- 🛡️ جديد: إصلاح قيود التكلفة المفقودة (Repairing missing COGS entries)
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_target_org;
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_target_org AND deleted_at IS NULL LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_target_org AND deleted_at IS NULL LIMIT 1));
+
+    IF v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN
+        FOR v_inv IN SELECT id, related_journal_entry_id FROM public.invoices WHERE organization_id = v_target_org AND status IN ('posted', 'paid') AND related_journal_entry_id IS NOT NULL LOOP
+            -- إذا كان القيد يفتقر لأسطر التكلفة (نبحث عن حساب التكلفة أو المخزون في أسطر القيد)
+            IF NOT EXISTS (SELECT 1 FROM public.journal_lines WHERE journal_entry_id = v_inv.related_journal_entry_id AND (account_id = v_cogs_acc_id OR account_id = v_inventory_acc_id)) THEN
+                v_total_cost := 0;
+                FOR v_item IN SELECT product_id, quantity, id FROM public.invoice_items WHERE invoice_id = v_inv.id LOOP
+                    SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) 
+                    INTO v_item_cost 
+                    FROM public.products 
+                    WHERE id = v_item.product_id AND organization_id = v_target_org;
+                    
+                    v_total_cost := v_total_cost + (v_item_cost * v_item.quantity);
+                    UPDATE public.invoice_items SET cost = v_item_cost WHERE id = v_item.id;
+                END LOOP;
+
+                -- إضافة أسطر القيد إذا كانت التكلفة أكبر من صفر
+                IF v_total_cost > 0 THEN
+                    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+                    VALUES 
+                        (v_inv.related_journal_entry_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة مبيعات (إعادة إنشاء)', v_target_org),
+                        (v_inv.related_journal_entry_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون (إعادة إنشاء)', v_target_org);
+                END IF;
+            END IF;
+        END LOOP;
+    END IF;
+
     -- 2. تصفير كافة الأرصدة للمنظمة المستهدفة للبدء من جديد
     UPDATE public.accounts SET balance = 0 WHERE organization_id = v_target_org;
 
@@ -1000,8 +1048,8 @@ BEGIN
         UPDATE public.accounts p
         SET balance = (SELECT COALESCE(SUM(c.balance), 0) FROM public.accounts c WHERE c.parent_id = p.id)
         WHERE p.organization_id = v_target_org AND p.is_group = true AND LENGTH(p.code) = i;
-    END LOOP;    
-    RETURN 'تمت إعادة مطابقة الأرصدة المالية والمخزنية بنجاح ✅';
+    END LOOP;
+    RETURN 'تمت إعادة مطابقة الأرصدة المالية والمخزنية وإصلاح قيود التكلفة بنجاح ✅';
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_dashboard_stats() RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$

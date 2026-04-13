@@ -11,32 +11,27 @@ DECLARE
     v_org_id uuid;
     v_role text;
     v_invitation record;
+    v_full_name text;
 BEGIN
     -- 1. محاولة جلب معرف الشركة والدور من بيانات المستخدم الإضافية (User Metadata)
     -- هذه البيانات سنرسلها من خلال كود الـ Backend
-    v_org_id := COALESCE((new.raw_user_meta_data->>'org_id')::uuid, (new.user_metadata->>'org_id')::uuid);
-    v_role := COALESCE(new.raw_user_meta_data->>'role', new.user_metadata->>'role', 'admin');
+    v_org_id := (new.raw_user_meta_data->>'org_id')::uuid;
+    v_role := COALESCE(new.raw_user_meta_data->>'role', 'admin');
+    v_full_name := COALESCE(new.raw_user_meta_data->>'full_name', 'مستخدم جديد');
 
     -- التحقق من صحة البيانات
-    IF v_org_id IS NULL THEN
-        RAISE EXCEPTION 'معرف الشركة مطلوب لإنشاء المستخدم. تأكد من تمرير org_id في user_metadata.';
-    END IF;
-
     -- 2. حالة خاصة: إذا كان هذا أول مستخدم في النظام بالكامل
     IF NOT EXISTS (SELECT 1 FROM public.profiles) THEN
         v_role := 'super_admin';
+        -- إذا لم تكن هناك شركات، قد نحتاج لإنشاء واحدة افتراضية أو السماح بـ NULL مؤقتاً
     END IF;
 
-    -- 3. إذا لم يتم توفير معرف شركة (تسجيل عادي)، نتحقق من وجود دعوة (المنطق القديم)
-    -- (هذا الجزء لم يعد مستخدماً في API الجديد، لكن نحتفظ به للتوافق)
     IF v_org_id IS NULL THEN
         SELECT organization_id, role INTO v_org_id, v_role FROM public.invitations
         WHERE email = new.email AND accepted_at IS NULL LIMIT 1;
 
         IF v_org_id IS NOT NULL THEN
             UPDATE public.invitations SET accepted_at = now() WHERE email = new.email;
-        ELSE
-            RAISE EXCEPTION 'التسجيل متاح فقط للمدراء أو عبر دعوة.';
         END IF;
     END IF;
 
@@ -44,10 +39,15 @@ BEGIN
     INSERT INTO public.profiles (id, full_name, role, organization_id)
     VALUES (
         new.id,
-        COALESCE(new.raw_user_meta_data->>'full_name', new.user_metadata->>'full_name', 'مستخدم جديد'),
+        v_full_name,
         v_role,
         v_org_id
-    );
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        organization_id = EXCLUDED.organization_id,
+        role = EXCLUDED.role,
+        full_name = EXCLUDED.full_name;
+
     RETURN new;
 END;
 $$;

@@ -237,9 +237,22 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
       });
 
       if (authError) {
-          // إذا فشل إنشاء المستخدم، يفضل إبلاغ السوبر أدمن أن الشركة أُنشئت ولكن الحساب يحتاج تفعيل يدوي
-          console.warn('Organization created but Admin Auth failed:', authError.message);
-          showToast('تم إنشاء الشركة، ولكن فشل إنشاء حساب المدير. يرجى إنشاؤه يدوياً.', 'warning');
+          // 🛡️ صمام أمان: إذا كان المستخدم مسجلاً مسبقاً، نقوم بربطه بالشركة الجديدة تلقائياً
+          if (authError.message.includes('already registered') || authError.status === 422) {
+              const { error: provisionError } = await supabase.rpc('force_provision_admin', {
+                  p_email: formData.email,
+                  p_org_id: newOrgId,
+                  p_full_name: formData.adminName
+              });
+              
+              if (!provisionError) {
+                  showToast('تم ربط الحساب الموجود مسبقاً بالشركة الجديدة بنجاح ✅', 'success');
+                  onSuccess();
+                  setCreatedData({ success: true, orgId: newOrgId });
+                  return;
+              }
+          }
+          showToast('تم إنشاء الشركة، ولكن فشل ربط حساب المدير: ' + authError.message, 'warning');
           return;
       }
 
@@ -822,8 +835,8 @@ const SaasAdmin: React.FC = () => {
       if (!user) throw new Error('لم يتم العثور على المستخدم');
 
       // حفظ معرف المنظمة الأصلي (بيئة المدير) قبل التبديل للتمكن من العودة لاحقاً
-      const currentOrgId = user.user_metadata?.org_id;
-      if (currentOrgId && !secureStorage.getItem('admin_original_org_id')) {
+      const currentOrgId = user.user_metadata?.org_id || 'main';
+      if (!secureStorage.getItem('admin_original_org_id')) {
         secureStorage.setItem('admin_original_org_id', currentOrgId);
       }
 

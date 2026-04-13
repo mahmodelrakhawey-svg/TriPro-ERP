@@ -21,6 +21,7 @@ const Login = () => {
       if (!result.success) {
         // تحسين رسالة الخطأ لتكون مفهومة
         let msg = result.message || 'فشل تسجيل الدخول';
+        console.log('Login Error Detail:', result.message); // سطر لمساعدتك في معرفة السبب الحقيقي
         if (msg.includes('Invalid login credentials')) msg = 'بيانات الدخول غير صحيحة (اسم المستخدم أو كلمة المرور خطأ)';
         if (msg.includes('Email not confirmed')) msg = 'البريد الإلكتروني غير مفعل';
         setError(msg);
