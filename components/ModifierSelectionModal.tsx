@@ -28,7 +28,7 @@ export const ModifierSelectionModal: React.FC<ModifierSelectionModalProps> = ({
           setGroups(data);
           const defaults: Record<string, SelectedModifier[]> = {};
           data.forEach(g => {
-            const defs = g.modifiers.filter(m => m.is_default).map(m => ({ modifierId: m.id, name: m.name, price: m.price, cost: m.cost, groupId: g.id, groupName: g.name }));
+            const defs = g.modifiers.filter(m => m.is_default).map(m => ({ modifierId: m.id, name: m.name, unit_price: m.unit_price, cost: m.cost, groupId: g.id, groupName: g.name }));
             if (defs.length) defaults[g.id] = defs;
           });
           setSelections(defaults);
@@ -51,7 +51,7 @@ export const ModifierSelectionModal: React.FC<ModifierSelectionModalProps> = ({
         return { ...prev, [group.id]: current.filter(s => s.modifierId !== mod.id) };
       }
       
-      const newItem: SelectedModifier = { modifierId: mod.id, name: mod.name, price: mod.price, cost: mod.cost, groupId: group.id, groupName: group.name };
+      const newItem: SelectedModifier = { modifierId: mod.id, name: mod.name, unit_price: mod.unit_price, cost: mod.cost, groupId: group.id, groupName: group.name };
       
       if (group.selection_type === 'SINGLE') {
         return { ...prev, [group.id]: [newItem] };
@@ -64,7 +64,7 @@ export const ModifierSelectionModal: React.FC<ModifierSelectionModalProps> = ({
   };
 
   const totalModsPrice = useMemo(() => 
-    Object.values(selections).flat().reduce((sum, item) => sum + item.price, 0), 
+    Object.values(selections).flat().reduce((sum, item) => sum + item.unit_price, 0), 
   [selections]);
 
   const totalModsCost = useMemo(() => 
@@ -109,7 +109,7 @@ export const ModifierSelectionModal: React.FC<ModifierSelectionModalProps> = ({
                       className={`p-3 border rounded cursor-pointer flex justify-between ${isSelected ? 'border-blue-500 bg-blue-50' : 'hover:bg-gray-50'}`}
                     >
                       <span>{mod.name}</span>
-                      {mod.price > 0 && <span className="text-gray-500">+{mod.price}</span>}
+                      {mod.unit_price > 0 && <span className="text-gray-500">+{mod.unit_price}</span>}
                     </div>
                   );
                 })}

@@ -24,12 +24,12 @@ const SortableRow = ({ mod, children }: { mod: Modifier, children: React.ReactNo
 
 interface SortableGroupProps {
   group: ModifierGroup;
-  newModifiers: Record<string, { name: string; price: string; cost: string }>;
-  setNewModifiers: React.Dispatch<React.SetStateAction<Record<string, { name: string; price: string; cost: string }>>>;
+  newModifiers: Record<string, { name: string; unit_price: string; cost: string }>;
+  setNewModifiers: React.Dispatch<React.SetStateAction<Record<string, { name: string; unit_price: string; cost: string }>>>;
   onUpdateGroup: (id: string, updates: Partial<ModifierGroup>) => void;
   onDeleteGroup: (id: string) => void;
   onAddModifier: (groupId: string) => void;
-  onUpdateModifier: (mod: Modifier, field: 'price' | 'cost', value: string) => void;
+  onUpdateModifier: (mod: Modifier, field: 'unit_price' | 'cost', value: string) => void;
   onDeleteModifier: (id: string) => void;
 }
 
@@ -122,7 +122,7 @@ const SortableGroup: React.FC<SortableGroupProps> = ({
                   <td className="py-2"><button className="cursor-grab p-2 text-slate-400"><GripVertical size={16} /></button></td>
                   <td className="py-2 font-bold text-slate-700">{mod.name}</td>
                   <td className="py-2 text-center">
-                    <input type="number" className="w-20 text-center border rounded p-1 focus:ring-1 focus:ring-blue-500" defaultValue={mod.price} onBlur={(e) => onUpdateModifier(mod, 'price', e.target.value)} />
+                    <input type="number" className="w-20 text-center border rounded p-1 focus:ring-1 focus:ring-blue-500" defaultValue={mod.unit_price} onBlur={(e) => onUpdateModifier(mod, 'unit_price', e.target.value)} />
                   </td>
                   <td className="py-2 text-center">
                     <input type="number" className="w-20 text-center border border-red-200 bg-red-50 rounded p-1 focus:ring-1 focus:ring-red-500 text-red-700 font-bold" defaultValue={mod.cost} onBlur={(e) => onUpdateModifier(mod, 'cost', e.target.value)} />
@@ -142,7 +142,7 @@ const SortableGroup: React.FC<SortableGroupProps> = ({
                 <input type="text" placeholder="خيار جديد..." className="w-full border rounded p-1 text-sm" value={newModifiers[group.id]?.name || ''} onChange={e => setNewModifiers(prev => ({ ...prev, [group.id]: { ...prev[group.id], name: e.target.value } }))} />
               </td>
               <td className="py-2 text-center px-1">
-                <input type="number" placeholder="0" className="w-20 text-center border rounded p-1 text-sm" value={newModifiers[group.id]?.price || ''} onChange={e => setNewModifiers(prev => ({ ...prev, [group.id]: { ...prev[group.id], price: e.target.value } }))} />
+                <input type="number" placeholder="0" className="w-20 text-center border rounded p-1 text-sm" value={newModifiers[group.id]?.unit_price || ''} onChange={e => setNewModifiers(prev => ({ ...prev, [group.id]: { ...prev[group.id], unit_price: e.target.value } }))} />
               </td>
               <td className="py-2 text-center px-1">
                 <input type="number" placeholder="0" className="w-20 text-center border border-red-200 rounded p-1 text-sm" value={newModifiers[group.id]?.cost || ''} onChange={e => setNewModifiers(prev => ({ ...prev, [group.id]: { ...prev[group.id], cost: e.target.value } }))} />
@@ -165,7 +165,7 @@ export const ModifierManagement: React.FC<ModifierManagementProps> = ({ productI
   const [newGroupName, setNewGroupName] = useState('');
   
   // حالة لتخزين البيانات الجديدة للإضافات (Key: group_id)
-  const [newModifiers, setNewModifiers] = useState<Record<string, { name: string; price: string; cost: string }>>({});
+  const [newModifiers, setNewModifiers] = useState<Record<string, { name: string; unit_price: string; cost: string }>>({});
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
   const [isAddingGroup, setIsAddingGroup] = useState(false);
 
@@ -236,12 +236,12 @@ export const ModifierManagement: React.FC<ModifierManagementProps> = ({ productI
       await modifierService.createModifier({
         modifier_group_id: groupId,
         name: modifierData.name,
-        price: parseFloat(modifierData.price) || 0,
+        unit_price: parseFloat(modifierData.unit_price) || 0,
         cost: parseFloat(modifierData.cost) || 0, // هنا يتم حفظ التكلفة
         is_default: false
       });
       
-      setNewModifiers(prev => ({ ...prev, [groupId]: { name: '', price: '', cost: '' } }));
+      setNewModifiers(prev => ({ ...prev, [groupId]: { name: '', unit_price: '', cost: '' } }));
       loadData();
       showToast('تم إضافة الخيار بنجاح', 'success');
     } catch (error) {
@@ -249,7 +249,7 @@ export const ModifierManagement: React.FC<ModifierManagementProps> = ({ productI
     }
   };
 
-  const handleUpdateModifier = async (mod: Modifier, field: 'price' | 'cost', value: string) => {
+  const handleUpdateModifier = async (mod: Modifier, field: 'unit_price' | 'cost', value: string) => {
     const numValue = parseFloat(value) || 0;
     try {
       await modifierService.updateModifier(mod.id, { [field]: numValue });

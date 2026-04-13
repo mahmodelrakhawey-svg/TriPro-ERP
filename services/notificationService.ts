@@ -114,11 +114,16 @@ class NotificationService {
     offset: number = 0
   ): Promise<Notification[]> {
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('notifications')
         .select('*')
-        .eq('user_id', userId)
-        .eq('organization_id', orgId)
+        .eq('user_id', userId);
+
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+
+      const { data, error } = await query
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -161,11 +166,16 @@ class NotificationService {
    */
   static async markAllAsRead(userId: string, orgId: string): Promise<boolean> {
     try {
-      const { error } = await supabase
+      let query = supabase
         .from('notifications')
         .update({ is_read: true })
-        .eq('user_id', userId)
-        .eq('organization_id', orgId)
+        .eq('user_id', userId);
+
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+
+      const { error } = await query
         .eq('is_read', false);
 
       if (error) {
@@ -497,11 +507,16 @@ class NotificationService {
    */
   static async getUnreadCount(userId: string, orgId: string): Promise<number> {
     try {
-      const { count, error } = await supabase
+      let query = supabase
         .from('notifications')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .eq('organization_id', orgId)
+        .eq('user_id', userId);
+
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+
+      const { count, error } = await query
         .eq('is_read', false);
 
       if (error) {

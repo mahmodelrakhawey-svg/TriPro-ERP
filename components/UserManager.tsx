@@ -13,6 +13,7 @@ type UserProfile = {
   role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef';
   is_active: boolean;
   created_at: string;
+  organizations?: { name: string }; // إضافة اسم المنظمة للنوع
   last_activity?: string;
 };
 
@@ -51,11 +52,18 @@ const UserManager = () => {
       }
 
       setLoading(true);
-      const { data: profiles, error: profilesError } = await supabase
+      let query = supabase
         .from('profiles')
-        .select('*')
-        .eq('organization_id', (currentUser as any)?.organization_id)
-        .order('created_at', { ascending: false });
+        .select('*, organizations(name)');
+
+      const orgId = (currentUser as any)?.organization_id;
+
+      // 🛡️ إذا كان المستخدم ليس سوبر أدمن، نفلتر بالمنظمة الخاصة به
+      if (currentUserRole !== 'super_admin' && orgId && orgId !== 'null' && orgId !== '') {
+        query = query.eq('organization_id', orgId);
+      }
+
+      const { data: profiles, error: profilesError } = await query.order('created_at', { ascending: false });
 
       if (profilesError) throw profilesError;
 
@@ -197,7 +205,7 @@ const UserManager = () => {
             full_name: newUserData.fullName,
             role: newUserData.role,
             app_role: newUserData.role,
-            org_id: (currentUser as any)?.organization_id || currentUser?.id, // ضمان وجود معرف للمنظمة
+            org_id: (currentUser as any)?.organization_id || null, // 🛡️ منع استخدام معرف المستخدم كمعرف للمنظمة
           }
         }
       });
@@ -299,7 +307,8 @@ const UserManager = () => {
             title: 'تغيير كلمة مرور',
             message: `تم تغيير كلمة مرور المستخدم ${resetPasswordData.userId} بواسطة المدير.`,
             type: 'warning',
-            // user_id: target_user_id // يمكن تحديد المستخدم المستهدف هنا
+            user_id: resetPasswordData.userId,
+            organization_id: (currentUser as any)?.organization_id
         });
 
         showToast('تم إعادة تعيين كلمة المرور بنجاح ✅', 'success');
@@ -359,6 +368,7 @@ const UserManager = () => {
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-black">
             <tr>
               <th className="px-6 py-4">المستخدم</th>
+              {currentUserRole === 'super_admin' && <th className="px-6 py-4">المنظمة / الشركة</th>}
               <th className="px-6 py-4">الدور الحالي</th>
               <th className="px-6 py-4 text-center">الحالة</th>
               <th className="px-6 py-4 text-center">آخر نشاط</th>
@@ -397,6 +407,13 @@ const UserManager = () => {
                   )}
                   <div className="font-mono text-xs text-slate-400 mt-1">{user.id.slice(0, 8)}...</div>
                 </td>
+                {currentUserRole === 'super_admin' && (
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-bold text-slate-600">
+                      {user.organizations?.name || <span className="text-indigo-600">نظام عالمي 🌐</span>}
+                    </div>
+                  </td>
+                )}
                 <td className="px-6 py-4">
                   <select 
                     value={user.role}
@@ -462,6 +479,9 @@ const UserManager = () => {
                           <Trash2 size={14} />
                       </button>
                     </div>
+                  )}
+                  {user.id === currentUser?.id && (
+                    <span className="text-xs text-slate-400 italic font-medium">حسابك الحالي (نشط)</span>
                   )}
                 </td>
               </tr>

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -1865,7 +1865,7 @@ const ProductManager = () => {
                         </div>
                         <div className="col-span-3">
                           <label className="text-xs font-bold text-slate-600">السعر</label>
-                          <input type="number" value={mod.price} onChange={e => { const newMods = [...formData.available_modifiers]; newMods[index].price = parseFloat(e.target.value); setFormData({...formData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                                <input type="number" value={mod.unit_price} onChange={e => { const newMods = [...formData.available_modifiers]; newMods[index].unit_price = parseFloat(e.target.value); setFormData({...formData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
                         </div>
                         <div className="col-span-3">
                           <label className="text-xs font-bold text-slate-600">التكلفة</label>
@@ -1879,7 +1879,7 @@ const ProductManager = () => {
                       </div>
                     ))}
                   </div>
-                  <button type="button" onClick={() => setFormData({...formData, available_modifiers: [...formData.available_modifiers, { name: '', price: 0, cost: 0 }]})} className="mt-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                        <button type="button" onClick={() => setFormData({...formData, available_modifiers: [...formData.available_modifiers, { name: '', unit_price: 0, cost: 0 }]})} className="mt-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
                     <PlusCircle size={16} /> إضافة خيار جديد
                   </button>
                 </div>

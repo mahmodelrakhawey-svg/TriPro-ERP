@@ -25,9 +25,10 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
+  -- محاولة الجلب من الـ JWT أولاً للسرعة، ثم من جدول auth.users لتجنب التكرار مع البروفايل
   RETURN COALESCE(
-    current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role',
-    (SELECT role::text FROM public.profiles WHERE id = auth.uid())
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
+    (SELECT (raw_user_meta_data->>'role')::text FROM auth.users WHERE id = auth.uid())
   );
 END; $$;
 
@@ -36,21 +37,22 @@ END; $$;
 -- ============================================================
 DO $$ BEGIN
     -- توحيد مسمى سعر الوحدة في جميع جداول النظام (Standardizing unit_price)
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'quotation_items' AND column_name = 'price') THEN
-        ALTER TABLE public.quotation_items RENAME COLUMN price TO unit_price;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'price') THEN
-        ALTER TABLE public.sales_return_items RENAME COLUMN price TO unit_price;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_invoice_items' AND column_name = 'price') THEN
-        ALTER TABLE public.purchase_invoice_items RENAME COLUMN price TO unit_price;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_order_items' AND column_name = 'price') THEN
-        ALTER TABLE public.purchase_order_items RENAME COLUMN price TO unit_price;
-    END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_return_items' AND column_name = 'price') THEN
-        ALTER TABLE public.purchase_return_items RENAME COLUMN price TO unit_price;
-    END IF;
+    DECLARE
+        t text;
+        tables_to_fix text[] := ARRAY['quotation_items', 'sales_return_items', 'purchase_invoice_items', 'purchase_order_items', 'purchase_return_items', 'invoice_items', 'order_items', 'modifiers'];
+    BEGIN
+        FOREACH t IN ARRAY tables_to_fix LOOP
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'price') THEN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'unit_price') THEN
+                    EXECUTE format('ALTER TABLE public.%I RENAME COLUMN price TO unit_price', t);
+                ELSE
+                    -- إذا كان الكولمان موجودين في السكيم العامة، انقل البيانات واحذف القديم
+                    EXECUTE format('UPDATE public.%I SET unit_price = COALESCE(price, 0) WHERE unit_price IS NULL OR unit_price = 0', t);
+                    EXECUTE format('ALTER TABLE public.%I DROP COLUMN price', t);
+                END IF;
+            END IF;
+        END LOOP;
+    END;
 
     -- توحيد مسميات معرفات المرتجعات
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'return_id') THEN
@@ -109,6 +111,10 @@ ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS allowed_modules text[]
 ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
 ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS subscription_expiry date;
 ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS max_users integer DEFAULT 5;
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS suspension_reason text;
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS total_collected numeric DEFAULT 0;
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS next_payment_date date;
+ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS activity_type text;
 
 -- ============================================================
 -- 3. تحديث إعدادات الشركة (Company Settings)
@@ -143,7 +149,7 @@ END $$;
 
 -- السياسات الصحيحة والآمنة لجدول المستخدمين
 DROP POLICY IF EXISTS "profiles_select_v2" ON public.profiles;
-CREATE POLICY "profiles_select_v2" ON public.profiles FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+CREATE POLICY "profiles_select_v2" ON public.profiles FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR id = auth.uid() OR public.get_my_role() = 'super_admin');
 DROP POLICY IF EXISTS "profiles_update_v2" ON public.profiles;
 CREATE POLICY "profiles_update_v2" ON public.profiles FOR ALL TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin')) WITH CHECK (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
 DROP POLICY IF EXISTS "profiles_insert_v2" ON public.profiles;
@@ -238,14 +244,14 @@ BEGIN
 
             -- سياسة القراءة (عزل الشركات + حماية البيانات الحساسة من المشاهدين)
             IF v_is_menu_table THEN
-                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org())', t, t);
+                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t, t);
             ELSE
                 -- الجداول الحساسة (الفواتير، الموظفين، الحسابات) لا يراها إلا الموظفون (استثناء Viewer و Demo)
-                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''viewer'', ''demo''))', t, t);
+                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
             END IF;
             
             -- سياسة التعديل (فقط للأدوار المصرح لها، ومنع الديمو والمشاهد)
-            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''demo'', ''viewer'')) WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''demo'', ''viewer''))', t, t);
+            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''demo'', ''viewer'')) WITH CHECK ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''demo'', ''viewer''));', t, t);
 
             BEGIN
                 EXECUTE format('ALTER TABLE public.%I ALTER COLUMN organization_id SET NOT NULL', t);
@@ -271,8 +277,8 @@ BEGIN
             DROP POLICY IF EXISTS "Select_Policy_accounts" ON public.accounts;
             DROP POLICY IF EXISTS "Modify_Policy_accounts" ON public.accounts;
             
-            CREATE POLICY "Select_Policy_accounts" ON public.accounts FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('viewer', 'demo'));
-            CREATE POLICY "Modify_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('demo', 'viewer')) WITH CHECK (organization_id = public.get_my_org() AND public.get_my_role() NOT IN ('demo', 'viewer'));
+            CREATE POLICY "Select_Policy_accounts" ON public.accounts FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('viewer', 'demo'));
+            CREATE POLICY "Modify_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer')) WITH CHECK ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer'));
         END IF;
     END LOOP;
 END $$;

@@ -31,6 +31,10 @@ CREATE TABLE IF NOT EXISTS public.organizations (
     is_active boolean DEFAULT true,
     subscription_expiry date,
     max_users integer DEFAULT 5,
+    suspension_reason text,
+    total_collected numeric DEFAULT 0,
+    next_payment_date date,
+    activity_type text,
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -132,7 +136,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     role_id uuid REFERENCES public.roles(id) ON DELETE SET NULL,
     avatar_url text,
     is_active boolean DEFAULT true NOT NULL,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
@@ -186,6 +190,11 @@ BEGIN
         END IF;
     END IF;
 
+    -- 5. إذا كان المستخدم سوبر أدمن، نضمن عدم ربطه بمنظمة محددة ليبقى عالمياً
+    IF v_role = 'super_admin' THEN
+        v_org_id := NULL;
+    END IF;
+
     INSERT INTO public.profiles (id, full_name, role, role_id, organization_id)
     VALUES (
         new.id, 
@@ -199,7 +208,11 @@ BEGIN
     -- تأكيد تحديث Metadata في auth.users لضمان توفرها في الـ JWT فوراً
     UPDATE auth.users 
     SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || 
-        jsonb_build_object('org_id', v_org_id, 'role', v_role)
+        jsonb_build_object('role', v_role) || 
+        CASE 
+            WHEN v_org_id IS NOT NULL THEN jsonb_build_object('org_id', v_org_id)
+            ELSE '{}'::jsonb
+        END
     WHERE id = new.id;
 
     RETURN new;
@@ -220,44 +233,19 @@ DECLARE
     v_warehouse_id uuid;
     v_treasury_id uuid;
 BEGIN
-    -- 1. إنشاء دور "مدير النظام" للشركة الجديدة تلقائياً
+    -- 1. إنشاء دور "مدير النظام" للشركة الجديدة
     INSERT INTO public.roles (name, description, organization_id)
     VALUES ('admin', 'مدير النظام - كامل الصلاحيات', NEW.id)
     RETURNING id INTO v_role_id;
 
-    -- 2. ربط كافة الصلاحيات الموجودة في النظام بهذا الدور الجديد
+    -- 2. ربط كافة الصلاحيات بهذا الدور
     INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
     SELECT v_role_id, id, NEW.id
     FROM public.permissions;
 
-    -- 🏗️ إنشاء "المخزن الرئيسي" تلقائياً للشركة الجديدة
-    INSERT INTO public.warehouses (organization_id, name, location, is_active)
-    VALUES (NEW.id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
-    RETURNING id INTO v_warehouse_id;
-
-    -- 💰 إنشاء "الخزينة الرئيسية" وتأسيس هيكل الحسابات الأساسي لها (وفقاً للدليل المحاسبي)
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group)
-    VALUES (NEW.id, '1', 'الأصول', 'asset', true) ON CONFLICT (organization_id, code) DO NOTHING;
-    
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id)
-    VALUES (NEW.id, '12', 'الأصول المتداولة', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = NEW.id AND code = '1'))
-    ON CONFLICT (organization_id, code) DO NOTHING;
-
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id)
-    VALUES (NEW.id, '123', 'النقدية وما في حكمها', 'asset', true, (SELECT id FROM public.accounts WHERE organization_id = NEW.id AND code = '12'))
-    ON CONFLICT (organization_id, code) DO NOTHING;
-
-    INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id)
-    VALUES (NEW.id, '1231', 'الخزينة الرئيسية', 'asset', false, (SELECT id FROM public.accounts WHERE organization_id = NEW.id AND code = '123'))
-    ON CONFLICT (organization_id, code) DO UPDATE SET name = EXCLUDED.name
-    RETURNING id INTO v_treasury_id;
-
-    -- ⚙️ إنشاء سجل الإعدادات وتعيين المستودع والخزينة كخيارات افتراضية (Default)
-    INSERT INTO public.company_settings (organization_id, company_name, default_warehouse_id, default_treasury_id, currency, vat_rate)
-    VALUES (NEW.id, NEW.name, v_warehouse_id, v_treasury_id, 'EGP', 0.14)
-    ON CONFLICT (organization_id) DO UPDATE 
-    SET default_warehouse_id = EXCLUDED.default_warehouse_id,
-        default_treasury_id = EXCLUDED.default_treasury_id;
+    -- 3. 🚀 الاستدعاء السحري: تنفيذ التأسيس المحاسبي الكامل أوتوماتيكياً
+    -- سيقوم هذا السطر بإنشاء المخزن والخزينة وشجرة الحسابات والربط بالنشاط
+    PERFORM public.initialize_egyptian_coa(NEW.id, COALESCE(NEW.activity_type, 'commercial'), NULL);
 
     RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
@@ -1095,7 +1083,7 @@ CREATE TABLE IF NOT EXISTS public.modifier_groups (
 CREATE TABLE IF NOT EXISTS public.modifiers (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
-    price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+    unit_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
     cost NUMERIC(10, 2) NOT NULL DEFAULT 0,
     modifier_group_id uuid NOT NULL REFERENCES public.modifier_groups(id) ON DELETE CASCADE,
     is_default BOOLEAN NOT NULL DEFAULT false,
@@ -1526,10 +1514,10 @@ BEGIN
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Select_%I" ON %I;', t, t);
         -- السماح للمشاهدين (QR) برؤية المنيو فقط
         IF t IN ('products', 'item_categories', 'menu_categories', 'bill_of_materials', 'restaurant_tables') THEN
-            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = ''anon'');', t, t);
+            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = ''anon'' OR public.get_my_role() = ''super_admin'');', t, t);
         ELSE
             -- حجب الحسابات والعملاء والموردين عن المشاهدين
-            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
+            EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
         END IF;
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Staff_%I" ON %I;', t, t);
         EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON %I FOR ALL USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''));', t, t);
@@ -1553,7 +1541,7 @@ BEGIN
     FOREACH t IN ARRAY trans_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Trans_Select_%I" ON %I;', t, t);
         -- حجب كافة المعاملات المالية (فواتير، قيود، رواتب) عن المشاهدين عبر الـ QR
-        EXECUTE format('CREATE POLICY "Trans_Select_%I" ON %I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
+        EXECUTE format('CREATE POLICY "Trans_Select_%I" ON %I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
         EXECUTE format('DROP POLICY IF EXISTS "Trans_Staff_%I" ON %I;', t, t);
         EXECUTE format('CREATE POLICY "Trans_Staff_%I" ON %I FOR ALL USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''));', t, t);
     END LOOP;

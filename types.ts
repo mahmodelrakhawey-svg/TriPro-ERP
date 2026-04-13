@@ -543,7 +543,7 @@ export interface MenuCategory {
 export interface Modifier {
   id: string;
   name: string;
-  price: number;
+  unit_price: number;
   cost: number;
   modifier_group_id: string;
   is_default: boolean;
@@ -566,7 +566,7 @@ export interface SelectedModifier {
   modifierId?: string; // Optional because legacy code might not use it immediately
   id?: string;        // Legacy support
   name: string;
-  price: number;
+  unit_price: number;
   cost?: number;      // Legacy support for PosScreen logic
   groupId?: string;
   groupName?: string;

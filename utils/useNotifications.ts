@@ -31,7 +31,7 @@ export const useNotifications = (): UseNotificationsReturn => {
 
     setLoading(true);
     setError(null);
-    const orgId = (currentUser as any).organization_id || '';
+    const orgId = (currentUser as any).organization_id; // سيعطي undefined لو كان سوبر أدمن
 
     try {
       const [allNotifications, count] = await Promise.all([
@@ -74,7 +74,7 @@ export const useNotifications = (): UseNotificationsReturn => {
   // تعليم جميع الإخطارات كمقروءة
   const markAllAsRead = useCallback(async () => {
     if (!currentUser?.id) return;
-    const orgId = (currentUser as any).organization_id || '';
+    const orgId = (currentUser as any).organization_id;
 
     try {
       const success = await NotificationService.markAllAsRead(currentUser.id, orgId);

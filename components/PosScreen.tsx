@@ -1115,8 +1115,8 @@ const PosScreen = () => {
         modifiers: (item.selectedModifiers || []).map(m => ({
           modifier_id: m.modifierId,
           name: m.name,
-          price: Number(m.price) || 0,
-          price_at_order: Number(m.price) || 0, // إضافة هذا الحقل قد يكون مطلوباً
+          price: Number(m.unit_price) || 0,
+          price_at_order: Number(m.unit_price) || 0,
           cost: Number(m.cost) || 0
         })),
       }));

@@ -197,7 +197,7 @@ const updateItemNotes = (localId: string, newNotes: string) => {
         modifiers: (item.selectedModifiers || []).map(m => ({
           modifier_id: m.modifierId,
           name: m.name,
-          price: Number(m.price || 0),
+          unit_price: Number(m.unit_price || 0),
           cost: Number(m.cost || 0),
           quantity: 1
         }))

@@ -510,12 +510,11 @@ BEGIN
             0
         );
 
-        INSERT INTO public.order_items (order_id, product_id, quantity, price, unit_price, total_price, unit_cost, notes, organization_id, modifiers)
+        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id, modifiers)
         VALUES (
             v_order_id, 
             COALESCE((v_item->>'product_id')::uuid, (v_item->>'productId')::uuid), 
             v_qty, 
-            v_unit_price,
             v_unit_price, 
             (v_qty * v_unit_price), 
             COALESCE((v_item->>'unit_cost')::numeric, (v_item->>'unitCost')::numeric, 0), 
@@ -592,11 +591,10 @@ BEGIN
         );
 
         INSERT INTO public.order_items (
-            order_id, product_id, quantity, price, unit_price, total_price, unit_cost, notes, organization_id, modifiers
+            order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id, modifiers
         ) VALUES (
             v_order_id, (v_item->>'product_id')::uuid, 
             v_qty, 
-            v_unit_price,
             v_unit_price, 
             (v_qty * v_unit_price),
             COALESCE((v_item->>'unit_cost')::numeric, 0), v_item->>'notes', v_table.organization_id,
@@ -835,9 +833,12 @@ BEGIN
     RETURNING id INTO v_role_id;
 
     -- 🏗️ إنشاء مستودع افتراضي للشركة (يجب أن يكون خارج شرط الأدمن لضمان عمل النظام فوراً)
-    INSERT INTO public.warehouses (organization_id, name, location, is_active)
-    VALUES (p_org_id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
-    RETURNING id INTO v_warehouse_id;
+    v_warehouse_id := (SELECT id FROM public.warehouses WHERE organization_id = p_org_id AND name = 'المخزن الرئيسي' LIMIT 1);
+    IF v_warehouse_id IS NULL THEN
+        INSERT INTO public.warehouses (organization_id, name, location, is_active)
+        VALUES (p_org_id, 'المخزن الرئيسي', 'الفرع الرئيسي', true)
+        RETURNING id INTO v_warehouse_id;
+    END IF;
 
     -- ️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
     v_admin_id := p_admin_id;
