@@ -69,7 +69,7 @@ const ItemMovementReport = () => {
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       let purchaseQuery = supabase
         .from('purchase_invoice_items')
-        .select('quantity, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status, warehouse_id, created_by)')
+        .select('quantity, purchase_invoice_id, purchase_invoices!inner(invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
         .neq('purchase_invoices.status', 'draft');
 
@@ -315,7 +315,12 @@ const ItemMovementReport = () => {
           const dateA = new Date(a.date).getTime();
           const dateB = new Date(b.date).getTime();
           if (dateA !== dateB) return dateA - dateB;
-          return a.documentType === 'رصيد افتتاحي' ? -1 : 1; // الأولوية للرصيد الافتتاحي
+          
+          if (a.documentType === 'رصيد افتتاحي') return -1;
+          if (b.documentType === 'رصيد افتتاحي') return 1;
+          
+          const typeOrder: any = { 'رصيد افتتاحي': 0, 'فاتورة مشتريات': 1, 'مرتجع مبيعات': 2, 'تصنيع (منتج تام)': 3, 'تسوية مخزنية': 4, 'فاتورة مبيعات': 5, 'مرتجع مشتريات': 6 };
+          return (typeOrder[a.documentType] ?? 99) - (typeOrder[b.documentType] ?? 99);
       });
 
       // حساب الرصيد الافتراضي (ما قبل الفترة)

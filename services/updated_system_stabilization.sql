@@ -163,17 +163,22 @@ ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS related_journal_en
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); -- 🛡️ إصلاح خطأ دالة إعادة المطابقة
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS current_account_id uuid REFERENCES public.accounts(id);
+ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS notes text; -- ملاحظات بنود الجرد
 
 -- ربط المرتجعات بالفواتير
 ALTER TABLE public.sales_returns ADD COLUMN IF NOT EXISTS original_invoice_id uuid REFERENCES public.invoices(id);
 ALTER TABLE public.purchase_returns ADD COLUMN IF NOT EXISTS original_invoice_id uuid REFERENCES public.purchase_invoices(id);
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS reference text; -- مطلوب لنظام الإشعارات
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES auth.users(id); -- مطلوب لنظام الإشعارات
 
 -- تحديثات العملاء والمخزون
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid();
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5; -- الحد الأدنى للتنبيه
 ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS vat_rate numeric DEFAULT 0.14;
+ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS unit_cost numeric DEFAULT 0; -- تكلفة الوجبات
 
 -- تحديثات مديول الرواتب (Payroll Sync)
 ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
@@ -205,6 +210,11 @@ END $$;
 -- ============================================================
 CREATE SEQUENCE IF NOT EXISTS public.order_number_seq;
 UPDATE public.company_settings SET currency = 'EGP', vat_rate = 0.14 WHERE currency IS NULL OR currency = 'SAR';
+
+-- تهيئة المتوسط المرجح للأصناف الحالية لضمان عدم ظهور أصفار في تقرير الأرباح
+UPDATE public.products 
+SET weighted_average_cost = COALESCE(NULLIF(weighted_average_cost, 0), cost, purchase_price, 0)
+WHERE weighted_average_cost IS NULL OR weighted_average_cost = 0;
 
 -- ============================================================
 -- 8. درع الحماية الشامل (The Shield - Multi-tenancy Isolation)

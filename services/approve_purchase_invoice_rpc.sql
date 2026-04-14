@@ -36,7 +36,8 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة'; END IF;
     IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    -- تحديد المنظمة من الفاتورة مباشرة لضمان عزل البيانات في نظام SaaS
+    v_org_id := v_invoice.organization_id;
 
     -- تحديد سعر الصرف (الافتراضي 1)
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);

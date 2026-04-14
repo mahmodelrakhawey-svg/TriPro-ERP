@@ -74,8 +74,8 @@ const DetailedStockMovementReport = () => {
       // 2. المشتريات (Purchases) - إدخال (IN)
       let purchaseQuery = supabase
         .from('purchase_invoice_items')
-        .select('quantity, product_id, products(name), purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
-        .eq('purchase_invoices.organization_id', userOrgId)
+        .select('quantity, product_id, products(name), purchase_invoices!inner(invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
+        .eq('organization_id', userOrgId)
         .neq('purchase_invoices.status', 'draft')
         .gte('purchase_invoices.invoice_date', startDate)
         .lte('purchase_invoices.invoice_date', endDate);
@@ -102,7 +102,7 @@ const DetailedStockMovementReport = () => {
       let salesRetQuery = supabase
         .from('sales_return_items')
         .select('quantity, product_id, products(name), sales_returns!inner(return_number, return_date, warehouse_id, warehouses(name), notes)')
-        .eq('sales_returns.organization_id', userOrgId)
+        .eq('organization_id', userOrgId)
         .gte('sales_returns.return_date', startDate)
         .lte('sales_returns.return_date', endDate);
 
@@ -128,7 +128,7 @@ const DetailedStockMovementReport = () => {
       let purRetQuery = supabase
         .from('purchase_return_items')
         .select('quantity, product_id, products(name), purchase_returns!inner(return_number, return_date, warehouse_id, warehouses(name), notes)')
-        .eq('purchase_returns.organization_id', userOrgId)
+        .eq('organization_id', userOrgId)
         .gte('purchase_returns.return_date', startDate)
         .lte('purchase_returns.return_date', endDate);
 

@@ -56,7 +56,7 @@ const StockMovementCostReport = () => {
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       const { data: purchaseItems } = await supabase
         .from('purchase_invoice_items')
-        .select('quantity, price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status)')
+        .select('quantity, price, purchase_invoice_id, purchase_invoices!inner(invoice_date, invoice_number, status)')
         .eq('product_id', selectedProductId)
         .neq('purchase_invoices.status', 'draft');
 
@@ -304,7 +304,12 @@ const StockMovementCostReport = () => {
           // إعطاء الأولوية للرصيد الافتتاحي ليظهر أولاً في نفس اليوم
           if (a.documentType === 'رصيد افتتاحي') return -1;
           if (b.documentType === 'رصيد افتتاحي') return 1;
-          return 0;
+          
+          // ترتيب الوارد قبل الصادر في نفس اليوم لتجنب الرصيد السالب الوهمي
+          const typeOrder: any = { 'رصيد افتتاحي': 0, 'فاتورة مشتريات': 1, 'مرتجع مبيعات': 2, 'تصنيع (منتج تام)': 3, 'تسوية مخزنية': 4, 'فاتورة مبيعات': 5, 'مرتجع مشتريات': 6 };
+          const orderA = typeOrder[a.documentType] ?? 99;
+          const orderB = typeOrder[b.documentType] ?? 99;
+          return orderA - orderB;
       });
 
       // حساب الرصيد الافتراضي (ما قبل الفترة)

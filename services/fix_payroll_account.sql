@@ -19,7 +19,7 @@ CREATE OR REPLACE FUNCTION public.run_payroll_rpc(
     p_month integer,
     p_year integer,
     p_date date,
-    p_treasury_account_id uuid,
+    p_treasury_acc uuid,
     p_items jsonb
 )
 RETURNS void
@@ -123,6 +123,6 @@ BEGIN
     IF v_total_deductions > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
     IF v_total_tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_tax_acc_id, 0, v_total_tax, 'ضريبة كسب عمل', v_org_id); END IF;
     IF v_total_advances > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_advances_acc_id, 0, v_total_advances, 'خصم سلف', v_org_id); END IF;
-    IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_account_id, 0, v_total_net, 'صرف الرواتب', v_org_id); END IF;
+    IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_acc, 0, v_total_net, 'صرف الرواتب', v_org_id); END IF;
 END;
 $$;

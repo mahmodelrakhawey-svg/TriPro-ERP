@@ -52,7 +52,7 @@ const ItemProfitReport = () => {
       // 1. جلب بنود فواتير المبيعات خلال الفترة مع بيانات المنتج (بما في ذلك التكلفة)
       const { data: items, error } = await supabase
         .from('invoice_items')
-        .select('quantity, total, cost, product_id, products(name, sku, purchase_price), invoices!inner(invoice_date)')
+        .select('quantity, total, cost, product_id, products(name, sku, weighted_average_cost, purchase_price), invoices!inner(invoice_date)')
         .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate);
@@ -62,7 +62,7 @@ const ItemProfitReport = () => {
       // 1.5 مبيعات المطاعم
       const { data: restItems } = await supabase
         .from('order_items')
-        .select('quantity, total_price, unit_cost, product_id, products(name, sku, purchase_price), orders!inner(created_at, status)')
+        .select('quantity, total_price, unit_cost, product_id, products(name, sku, weighted_average_cost, purchase_price), orders!inner(created_at, status)')
         .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة
         .eq('orders.status', 'COMPLETED')
         .gte('orders.created_at', `${startDate}T00:00:00`)
@@ -81,7 +81,7 @@ const ItemProfitReport = () => {
             sku: item.products.sku || '-',
             quantitySold: 0,
             avgSellingPrice: 0,
-            currentCost: Number(item.cost || item.products.purchase_price || 0), // نستخدم التكلفة التاريخية أو الحالية كبديل
+            currentCost: Number(item.cost || item.products.weighted_average_cost || item.products.purchase_price || 0), // نستخدم التكلفة التاريخية أو المتوسط المرجح كبديل
             totalRevenue: 0,
             totalCost: 0,
             grossProfit: 0,
@@ -107,7 +107,7 @@ const ItemProfitReport = () => {
             sku: item.products.sku || '-',
             quantitySold: 0,
             avgSellingPrice: 0,
-            currentCost: Number(item.unit_cost || item.products.purchase_price || 0),
+            currentCost: Number(item.unit_cost || item.products.weighted_average_cost || item.products.purchase_price || 0),
             totalRevenue: 0,
             totalCost: 0,
             grossProfit: 0,

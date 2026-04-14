@@ -2860,7 +2860,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             p_month: payrollMonth,
             p_year: payrollYear,
             p_date: date,
-            p_treasury_account_id: treasuryAccountId,
+            p_treasury_acc: treasuryAccountId,
             p_items: items
         });
 
@@ -3991,7 +3991,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               p_items: items,
               p_payment_method: method,
               p_amount: amount,
-              p_treasury_account_id: treasuryId
+              p_treasury_acc: treasuryId
           });
           if (error) throw error;
           return true;
@@ -4138,6 +4138,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const { data, error } = await supabase.rpc('start_shift', {
               p_user_id: currentUser?.id,
               p_opening_balance: openingBalance,
+              p_treasury_acc: settings.defaultTreasuryId,
               p_resume_existing: true // تفعيل خيار الاستئناف لتجنب الخطأ 400
           });
 
@@ -4151,11 +4152,65 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   };
 
+  // 🖨️ دالة توليد وطباعة تقرير الوردية (Z-Report)
+  const printShiftReport = (summary: any, actualCash: number, notes: string = '') => {
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    if (!printWindow) {
+        showToast('يرجى السماح بالنوافذ المنبثقة (Pop-ups) لتتمكن من الطباعة التلقائية', 'warning');
+        return;
+    }
+
+    const diff = actualCash - summary.expected_cash;
+    const status = diff === 0 ? 'مطابق' : diff > 0 ? 'زيادة' : 'عجز';
+
+    printWindow.document.write(`
+      <html dir="rtl">
+      <head>
+        <title>تقرير إغلاق وردية - TriPro ERP</title>
+        <style>
+          body { font-family: 'Arial', sans-serif; padding: 10px; font-size: 14px; line-height: 1.4; color: #000; }
+          .header { text-align: center; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+          .info-box { border: 1px solid #eee; padding: 8px; border-radius: 8px; margin-bottom: 15px; background: #fdffdf; }
+          .row { display: flex; justify-content: space-between; margin: 8px 0; border-bottom: 1px dashed #eee; }
+          .bold { font-weight: bold; font-size: 1.1em; }
+          .footer { text-align: center; margin-top: 20px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
+          .status-label { font-weight: 900; color: ${diff < 0 ? '#ef4444' : '#10b981'}; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2 style="margin:0">${settings.companyName || 'TriPro ERP'}</h2>
+          <p style="margin:5px 0; font-weight:bold;">تقرير إغلاق وردية (Z-Report)</p>
+        </div>
+        <div class="info-box">
+          <div class="row"><span>الكاشير:</span> <span>${currentUser?.name}</span></div>
+          <div class="row"><span>وقت البدء:</span> <span>${new Date(currentShift?.start_time).toLocaleString('ar-EG')}</span></div>
+          <div class="row"><span>وقت الإغلاق:</span> <span>${new Date().toLocaleString('ar-EG')}</span></div>
+        </div>
+        <div class="row"><span>الرصيد الافتتاحي:</span> <span>${Number(summary.opening_balance).toLocaleString()}</span></div>
+        <div class="row"><span>إجمالي المبيعات:</span> <span>${Number(summary.total_sales).toLocaleString()}</span></div>
+        <div class="row"><span>مبيعات نقدي:</span> <span>${Number(summary.cash_sales).toLocaleString()}</span></div>
+        <div class="row"><span>مبيعات شبكة:</span> <span>${Number(summary.card_sales).toLocaleString()}</span></div>
+        <hr/>
+        <div class="row bold"><span>النقد المتوقع:</span> <span>${Number(summary.expected_cash).toLocaleString()}</span></div>
+        <div class="row bold"><span>النقد الفعلي:</span> <span>${Number(actualCash).toLocaleString()}</span></div>
+        <div class="row bold"><span>الفارق:</span> <span class="status-label">${Number(diff).toLocaleString()} (${status})</span></div>
+        ${notes ? `<div style="margin-top:10px; font-size:12px;"><strong>ملاحظات:</strong><p style="margin:5px 0;">${notes}</p></div>` : ''}
+        <div class="footer">
+          <p>TriPro ERP - حلول محاسبية ذكية</p>
+        </div>
+        <script>window.onload = function() { window.print(); setTimeout(() => window.close(), 1000); }</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const getCurrentShiftSummary = async () => {
       if (isDemoState) {
           return { opening_balance: 1000, total_sales: 1500, cash_sales: 1000, card_sales: 500, wallet_sales: 0, expected_cash: 2000 };
       }
-      if (!currentShift) return null;
+      if (!currentShift || !currentShift.id) return null;
       try {
           const { data, error } = await supabase.rpc('get_shift_summary', { p_shift_id: currentShift.id });
           if (error) throw error;
@@ -4169,12 +4224,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const closeCurrentShift = async (actualCash: number, notes?: string) => {
       if (isDemoState) { setCurrentShift(null); showToast('تم إغلاق الوردية (ديمو)', 'success'); return true; }
       if (!currentShift) return false;
+
       try {
+          // 1. جلب بيانات الملخص قبل تصفير الوردية للطباعة
+          const summary = await getCurrentShiftSummary();
+
           const { error } = await supabase.rpc('close_shift', {
               p_shift_id: currentShift.id,
               p_actual_cash: actualCash,
               p_notes: notes
           });
+
+          // 2. طباعة التقرير فور نجاح العملية
+          if (!error && summary) {
+              printShiftReport(summary, actualCash, notes || '');
+          }
+
           if (error) throw error;
 
           setCurrentShift(null);
