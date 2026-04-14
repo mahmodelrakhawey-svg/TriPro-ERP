@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -12,7 +12,7 @@ const getEntrySource = (reference: string) => {
     if (!reference) return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
     const ref = reference.toUpperCase();
     if (ref.startsWith('INV-')) return { label: 'فاتورة مبيعات', color: 'bg-blue-100 text-blue-700' };
-    if (ref.startsWith('PUR-')) return { label: 'فاتورة مشتريات', color: 'bg-purple-100 text-purple-700' };
+    if (ref.startsWith('PUR-') || ref.startsWith('PINV-')) return { label: 'فاتورة مشتريات', color: 'bg-purple-100 text-purple-700' };
     if (ref.startsWith('RCT-')) return { label: 'سند قبض', color: 'bg-emerald-100 text-emerald-700' };
     if (ref.startsWith('PAY-')) return { label: 'سند صرف', color: 'bg-orange-100 text-orange-700' };
     if (ref.startsWith('DEP-')) return { label: 'إهلاك/تأمين', color: 'bg-amber-100 text-amber-700' };
@@ -20,10 +20,11 @@ const getEntrySource = (reference: string) => {
     if (ref.startsWith('ADJ-')) return { label: 'تسوية مخزنية', color: 'bg-red-100 text-red-700' };
     if (ref.startsWith('PAYROLL-')) return { label: 'رواتب', color: 'bg-pink-100 text-pink-700' };
     if (ref.startsWith('CLOSE-')) return { label: 'إقفال سنة', color: 'bg-gray-800 text-white' };
-    if (ref.startsWith('SR-')) return { label: 'مرتجع مبيعات', color: 'bg-blue-50 text-blue-600' };
-    if (ref.startsWith('PR-')) return { label: 'مرتجع مشتريات', color: 'bg-purple-50 text-purple-600' };
+    if (ref.startsWith('SR-') || ref.startsWith('SRET-')) return { label: 'مرتجع مبيعات', color: 'bg-blue-50 text-blue-600' };
+    if (ref.startsWith('PR-') || ref.startsWith('PRET-')) return { label: 'مرتجع مشتريات', color: 'bg-purple-50 text-purple-600' };
     if (ref.startsWith('ASSET-')) return { label: 'أصل ثابت', color: 'bg-cyan-100 text-cyan-700' };
     if (ref.startsWith('SHIFT-')) return { label: 'إغلاق وردية', color: 'bg-indigo-100 text-indigo-700' };
+    if (ref.startsWith('MAN-')) return { label: 'رصيد افتتاحي', color: 'bg-slate-100 text-slate-500' };
     return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
 };
 

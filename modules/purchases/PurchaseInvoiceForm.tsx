@@ -256,7 +256,8 @@ const PurchaseInvoiceForm = () => {
         product_id: item.productId,
         quantity: item.quantity,
         unit_price: item.unitPrice,
-        total: item.total
+        total: item.total,
+        organization_id: (currentUser as any)?.organization_id
       }));
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
       if (itemsError) throw itemsError;

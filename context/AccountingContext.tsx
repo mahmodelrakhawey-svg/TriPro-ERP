@@ -2239,6 +2239,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (qError) throw qError;
       if (quote.status === 'converted') throw new Error('تم تحويل عرض السعر هذا مسبقاً');
 
+      const userOrgId = (currentUser as any)?.organization_id;
+
       // محاولة تحديد خزينة افتراضية إذا لم يتم تحديدها وكان هناك مبلغ مدفوع
       // هذا يحل مشكلة عدم وجود قائمة اختيار في الواجهة حالياً
       let finalTreasuryId = treasuryId;
@@ -2260,7 +2262,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         status: 'draft',
         warehouse_id: warehouseId,
         paid_amount: paidAmount || 0,
-        treasury_account_id: finalTreasuryId || null
+        treasury_account_id: finalTreasuryId || null,
+        organization_id: userOrgId
       };
 
       // 3. إنشاء الفاتورة
@@ -2275,7 +2278,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           quantity: item.quantity,
           unit_price: item.unit_price,
           total: item.total,
-          cost: 0 // سيتم تحديثه عند الاعتماد
+          cost: 0, // سيتم تحديثه عند الاعتماد
+          organization_id: userOrgId
         }));
         
         const { error: itemsError } = await supabase.from('invoice_items').insert(items);
@@ -2310,6 +2314,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (poError) throw poError;
       if (po.status === 'converted') throw new Error('تم تحويل أمر الشراء هذا مسبقاً');
 
+      const userOrgId = (currentUser as any)?.organization_id;
+
       // 2. تجهيز بيانات فاتورة المشتريات
       const invoiceData = {
         invoice_number: `PINV-${Date.now().toString().slice(-6)}`,
@@ -2320,7 +2326,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         tax_amount: po.tax_amount,
         subtotal: po.total_amount - (po.tax_amount || 0),
         notes: `تحويل من أمر شراء #${po.po_number}`,
-        status: 'draft'
+        status: 'draft',
+        organization_id: userOrgId
       };
 
       // 3. إنشاء الفاتورة
@@ -2334,7 +2341,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           product_id: item.product_id,
           quantity: item.quantity,
           unit_price: item.unit_price || item.price || 0,
-          total: item.total
+          total: item.total,
+          organization_id: userOrgId
         }));
         
         const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(items);

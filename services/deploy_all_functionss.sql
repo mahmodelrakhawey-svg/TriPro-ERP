@@ -209,20 +209,21 @@ BEGIN
     -- 1. التحقق من الفاتورة
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
-    IF v_invoice.status IN ('posted', 'paid') THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
+    -- 🛡️ تعديل ذكي: إذا كانت مرحلة ولكن القيد مفقود، استمر في المعالجة لإنشاء القيد
+    IF v_invoice.status IN ('posted', 'paid') AND v_invoice.related_journal_entry_id IS NOT NULL THEN RETURN; END IF;
 
-    v_org_id := public.get_my_org();
+    v_org_id := v_invoice.organization_id; -- استخدام معرف المنظمة من الفاتورة مباشرة لضمان الدقة
     IF v_invoice.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني: لا يمكنك اعتماد فاتورة لا تنتمي لمؤسستك'; END IF;
 
     -- 2. جلب روابط الحسابات المخصصة من إعدادات الشركة
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
     -- 3. جلب الحسابات (الأولوية للربط المخصص Mapping ثم الكود الافتراضي)
-    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
-    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
-    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
-    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
-    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
+    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1));
+    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
     v_discount_acc_id := COALESCE((v_mappings->>'SALES_DISCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '413' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
@@ -275,7 +276,8 @@ BEGIN
     -- 1. التحقق من الفاتورة
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
-    IF v_invoice.status IN ('posted', 'paid') THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
+    -- 🛡️ تعديل ذكي: إذا كانت مرحلة ولكن القيد مفقود، استمر في المعالجة لإنشاء القيد
+    IF v_invoice.status IN ('posted', 'paid') AND v_invoice.related_journal_entry_id IS NOT NULL THEN RETURN; END IF;
 
     v_org_id := public.get_my_org();
     IF v_invoice.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني: لا يمكنك اعتماد فاتورة شراء لا تنتمي لمؤسستك'; END IF;
