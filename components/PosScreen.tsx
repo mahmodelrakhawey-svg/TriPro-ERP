@@ -1001,8 +1001,8 @@ const PosScreen = () => {
             productId: item.product_id,
             name: item.products?.name,
             quantity: item.quantity,
-            price: item.products?.sales_price || 0, // Base price
-            unitPrice: item.price || item.unit_price || 0, // جلب السعر من الحقل الصحيح price
+            price: item.products?.sales_price || 0,
+            unitPrice: item.unit_price || item.price || 0, // ✅ الاعتماد على unit_price أولاً
             notes: item.notes,
             selectedModifiers: item.modifiers,
             savedQuantity: item.quantity
@@ -1115,8 +1115,8 @@ const PosScreen = () => {
         modifiers: (item.selectedModifiers || []).map(m => ({
           modifier_id: m.modifierId,
           name: m.name,
-          price: Number(m.unit_price) || 0,
-          price_at_order: Number(m.unit_price) || 0,
+          unit_price: Number(m.unit_price) || 0,
+          price_at_order: Number(m.unit_price) || 0, // إضافة هذا الحقل قد يكون مطلوباً
           cost: Number(m.cost) || 0
         })),
       }));

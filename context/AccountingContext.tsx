@@ -2273,7 +2273,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           invoice_id: invoice.id,
           product_id: item.product_id,
           quantity: item.quantity,
-          price: item.unit_price,
+          unit_price: item.unit_price,
           total: item.total,
           cost: 0 // سيتم تحديثه عند الاعتماد
         }));
@@ -2333,7 +2333,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           purchase_invoice_id: invoice.id,
           product_id: item.product_id,
           quantity: item.quantity,
-          price: item.unit_price || item.price || 0,
+          unit_price: item.unit_price || item.price || 0,
           total: item.total
         }));
         
@@ -3908,7 +3908,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (!session) return null;
         
         const { data: orders } = await supabase.from('orders')
-            .select('id, order_items(id, product_id, quantity, price, notes, modifiers, products(name))')
+            .select('id, order_items(id, product_id, quantity, unit_price, notes, modifiers, products(name))')
             .eq('session_id', session.id)
             .neq('status', 'COMPLETED')
             .neq('status', 'CANCELLED');
@@ -3925,8 +3925,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     productId: item.product_id, 
                     name: item.products?.name || 'صنف غير معروف', 
                     quantity: Number(item.quantity || 0), 
-                    price: Number(item.price || 0), 
-                    unitPrice: Number(item.price || 0), 
+                    price: Number(item.unit_price || 0), 
+                    unitPrice: Number(item.unit_price || 0), 
                     notes: item.notes || '', 
                     selectedModifiers: item.modifiers,
                     savedQuantity: item.quantity 

@@ -84,7 +84,7 @@ const PurchaseInvoiceForm = () => {
                    productName: i.products?.name,
                    productSku: i.products?.sku,
                    quantity: i.quantity,
-                   price: i.unit_price,
+                   unitPrice: i.unit_price,
                    total: i.total
                  })));
               }
@@ -130,7 +130,7 @@ const PurchaseInvoiceForm = () => {
       if (existingItemIndex > -1) {
           const newItems = [...items];
           newItems[existingItemIndex].quantity += 1;
-          newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * newItems[existingItemIndex].price;
+          newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * (newItems[existingItemIndex].unitPrice || 0);
           setItems(newItems);
       } else {
           setItems([...items, {
@@ -139,7 +139,7 @@ const PurchaseInvoiceForm = () => {
               productName: product.name,
               productSku: product.sku,
               quantity: 1,
-              price: price,
+              unitPrice: price,
               total: price
           }]);
       }
@@ -154,11 +154,11 @@ const PurchaseInvoiceForm = () => {
     if (field === 'productId') {
       const product = products.find(p => p.id === value);
       if (product) {
-        newItems[index].price = product.purchase_price || product.cost || 0;
+        newItems[index].unitPrice = product.purchase_price || product.cost || 0;
       }
     }
 
-    newItems[index].total = (newItems[index].quantity || 0) * (newItems[index].price || 0);
+    newItems[index].total = (newItems[index].quantity || 0) * (newItems[index].unitPrice || 0);
     setItems(newItems);
   };
 
@@ -176,7 +176,7 @@ const PurchaseInvoiceForm = () => {
         items: z.array(z.object({
             productId: z.string().min(1, 'الرجاء اختيار المنتج'),
             quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
-            price: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
+            unitPrice: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
         })).min(1, 'يجب إضافة بند واحد على الأقل')
     });
 
@@ -255,7 +255,7 @@ const PurchaseInvoiceForm = () => {
         purchase_invoice_id: invoiceId, // استخدام المعرف الصحيح (سواء جديد أو موجود)
         product_id: item.productId,
         quantity: item.quantity,
-        unit_price: item.price,
+        unit_price: item.unitPrice,
         total: item.total
       }));
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
@@ -404,7 +404,7 @@ const PurchaseInvoiceForm = () => {
                 <input type="number" min="1" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="الكمية" />
               </div>
               <div className="col-span-2">
-                <input type="number" min="0" value={item.price} onChange={e => handleItemChange(index, 'price', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="السعر" />
+                <input type="number" min="0" value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="السعر" />
               </div>
               <div className="col-span-2">
                 <input type="text" readOnly value={(item.total || 0).toLocaleString()} className="w-full bg-slate-100 border rounded p-2 text-center font-bold" />
@@ -416,7 +416,7 @@ const PurchaseInvoiceForm = () => {
               </div>
             </div>
           ))}
-          <button type="button" onClick={() => setItems([...items, { productId: '', quantity: 1, price: 0, total: 0 }])} className="flex items-center gap-2 text-blue-600 font-bold text-sm mt-2">
+          <button type="button" onClick={() => setItems([...items, { productId: '', quantity: 1, unitPrice: 0, total: 0 }])} className="flex items-center gap-2 text-blue-600 font-bold text-sm mt-2">
             <Plus size={16} /> إضافة صنف
           </button>
         </div>

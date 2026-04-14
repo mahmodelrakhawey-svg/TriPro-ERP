@@ -167,7 +167,8 @@ BEGIN
             'create_restaurant_order', 'run_payroll_rpc', 'handle_new_user', 'check_user_limit',
             'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
             'get_product_recipe_cost', 'recalculate_stock_rpc',
-            'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema', 'create_public_order',
+            'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema', 
+            'create_public_order', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift',
             'get_or_create_qr_for_table'
         )
         THEN
@@ -620,7 +621,114 @@ END; $$;
 
 -- منح صلاحية تنفيذ الدالة للزوار (الموبايل) والموظفين
 GRANT EXECUTE ON FUNCTION public.create_public_order(uuid, jsonb) TO anon, authenticated;
+-- 🛠️ دالة جلب ملخص الوردية (التي تظهر للمحاسب قبل الإغلاق)
+CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_shift record;
+    v_summary record;
+BEGIN
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    
+    SELECT 
+        COALESCE(SUM(subtotal), 0) as total_subtotal,
+        COALESCE(SUM(total_tax), 0) as total_tax,
+        COALESCE(SUM(grand_total), 0) as total_sales,
+        COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CASH') THEN grand_total ELSE 0 END), 0) as cash_sales,
+        COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CARD') THEN grand_total ELSE 0 END), 0) as card_sales
+    INTO v_summary
+    FROM public.orders o
+    WHERE o.user_id = v_shift.user_id 
+    AND o.created_at BETWEEN v_shift.start_time AND now()
+    AND o.status IN ('COMPLETED', 'PAID', 'posted')
+    AND o.organization_id = v_shift.organization_id;
 
+    RETURN json_build_object(
+        'opening_balance', v_shift.opening_balance,
+        'total_sales', v_summary.total_sales,
+        'total_tax', v_summary.total_tax,
+        'cash_sales', v_summary.cash_sales,
+        'card_sales', v_summary.card_sales,
+        'expected_cash', v_shift.opening_balance + v_summary.cash_sales
+    );
+END; $$;
+
+-- 🛠️ دالة إنشاء قيد الإغلاق المجمع (القلب المحاسبي للوردية)
+CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb;
+    v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
+BEGIN
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
+
+    -- 1. تجميع المبيعات والضرائب وطرق الدفع من الطلبات المكتملة ✅
+    SELECT 
+        COALESCE(SUM(o.subtotal), 0) as subtotal,
+        COALESCE(SUM(o.total_tax), 0) as tax,
+        COALESCE(SUM(o.grand_total), 0) as total,
+        COALESCE(SUM(CASE WHEN pay.payment_method = 'CASH' THEN pay.amount ELSE 0 END), 0) as cash_total,
+        COALESCE(SUM(CASE WHEN pay.payment_method = 'CARD' THEN pay.amount ELSE 0 END), 0) as card_total
+    INTO v_summary
+    FROM public.orders o
+    LEFT JOIN public.payments pay ON pay.order_id = o.id
+    WHERE o.user_id = v_shift.user_id 
+    AND o.created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
+    AND o.status IN ('COMPLETED', 'PAID', 'posted')
+    AND o.organization_id = v_shift.organization_id;
+
+    IF v_summary.total = 0 THEN RETURN NULL; END IF;
+
+    -- 2. جلب الحسابات السيادية
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
+    v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
+
+    -- 3. إنشاء رأس القيد (قيد يومية مرحل تلقائياً)
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+    VALUES (now()::date, 'ترحيل مبيعات وردية مجمع - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-POST-' || to_char(now(), 'YYMMDD-HH24MI'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift')
+    RETURNING id INTO v_je_id;
+
+    -- 4. أسطر القيد (الطرف المدين: نقدية وشبكة)
+    IF v_summary.cash_total > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_cash_acc_id, v_summary.cash_total, 0, 'إجمالي متحصلات كاش الوردية', v_shift.organization_id);
+    END IF;
+    IF v_summary.card_total > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'إجمالي متحصلات شبكة الوردية', v_shift.organization_id);
+    END IF;
+
+    -- 5. أسطر القيد (الطرف الدائن: مبيعات وضريبة) ✅
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'صافي مبيعات الوردية (قبل الضريبة)', v_shift.organization_id);
+
+    IF v_summary.tax > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة للوردية (14%)', v_shift.organization_id);
+    END IF;
+
+    RETURN v_je_id;
+END; $$;
+
+-- 🛠️ دالة إغلاق الوردية
+CREATE OR REPLACE FUNCTION public.close_shift(p_shift_id uuid, p_actual_cash numeric, p_notes text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 1. ترحيل القيد المحاسبي المجمع
+    PERFORM public.generate_shift_closing_entry(p_shift_id);
+
+    -- 2. تحديث حالة الوردية وإنهائها
+    UPDATE public.shifts SET 
+        end_time = now(),
+        actual_cash = p_actual_cash,
+        status = 'CLOSED',
+        notes = p_notes
+    WHERE id = p_shift_id;
+END; $$;
 -- ================================================================
 -- 4. مديول الموارد البشرية (HR & Payroll)
 -- ================================================================
@@ -970,6 +1078,8 @@ BEGIN
             SELECT COALESCE(SUM(oi.quantity), 0) INTO wh_qty FROM public.opening_inventories oi WHERE oi.product_id = prod_record.id AND oi.warehouse_id = wh_record.id AND oi.organization_id = v_target_org;
             SELECT wh_qty + COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status NOT IN ('draft', 'cancelled') AND pi.organization_id = v_target_org), 0) INTO wh_qty;
             SELECT wh_qty - COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = v_target_org), 0) INTO wh_qty;
+            -- 🛡️ إضافة: خصم مبيعات المطعم من المخزون
+            SELECT wh_qty - COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) INTO wh_qty;
             SELECT wh_qty + COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sri.sales_return_id = sr.id WHERE sri.product_id = prod_record.id AND sr.warehouse_id = wh_record.id AND sr.status = 'posted' AND sr.organization_id = v_target_org), 0) INTO wh_qty;
             SELECT wh_qty - COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id WHERE pri.product_id = prod_record.id AND pr.warehouse_id = wh_record.id AND pr.status = 'posted' AND pr.organization_id = v_target_org), 0) INTO wh_qty;
             total_qty := total_qty + wh_qty;
@@ -1027,10 +1137,37 @@ BEGIN
         END LOOP;
     END IF;
 
+    -- 🛡️ جديد: إصلاح قيود التكلفة المفقودة لطلبات المطعم (Orders COGS Repair)
+    FOR v_inv IN SELECT id, related_journal_entry_id FROM public.orders WHERE organization_id = v_target_org AND status IN ('COMPLETED', 'PAID', 'posted') AND related_journal_entry_id IS NOT NULL LOOP
+        IF NOT EXISTS (SELECT 1 FROM public.journal_lines WHERE journal_entry_id = v_inv.related_journal_entry_id AND (account_id = v_cogs_acc_id OR account_id = v_inventory_acc_id)) THEN
+            v_total_cost := 0;
+            FOR v_item IN SELECT product_id, quantity, unit_cost, id FROM public.order_items WHERE order_id = v_inv.id LOOP
+                -- محاولة جلب التكلفة المسجلة، وإلا جلبها من بطاقة الصنف
+                v_item_cost := COALESCE(NULLIF(v_item.unit_cost, 0), 0);
+                IF v_item_cost = 0 THEN
+                   SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) 
+                   INTO v_item_cost 
+                   FROM public.products 
+                   WHERE id = v_item.product_id AND organization_id = v_target_org;
+                END IF;
+                
+                v_total_cost := v_total_cost + (v_item_cost * v_item.quantity);
+                UPDATE public.order_items SET unit_cost = v_item_cost WHERE id = v_item.id;
+            END LOOP;
+
+            IF v_total_cost > 0 THEN
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+                VALUES 
+                    (v_inv.related_journal_entry_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة مبيعات مطعم (إعادة مطابقة)', v_target_org),
+                    (v_inv.related_journal_entry_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون مطعم (إعادة مطابقة)', v_target_org);
+            END IF;
+        END IF;
+    END LOOP;
+
     -- 2. تصفير كافة الأرصدة للمنظمة المستهدفة للبدء من جديد
     UPDATE public.accounts SET balance = 0 WHERE organization_id = v_target_org;
 
-    -- 3. المرحلة الأولى: تحديث أرصدة الحسابات الفرعية (Leaf Accounts) من واقع قيود اليومية المرحلة
+    -- 3. المرحلة الأولى: تحديث أرصدة كافة الحسابات من واقع قيود اليومية المرحلة
     -- ملاحظة: الأرصدة الافتتاحية يجب أن تكون مدخلة كقيد يومية مرحل لتظهر هنا
     UPDATE public.accounts a 
     SET balance = (
@@ -1041,27 +1178,42 @@ BEGIN
         AND je.status = 'posted' 
         AND je.organization_id = v_target_org
     ) 
-    WHERE a.organization_id = v_target_org AND a.is_group = false;
+    WHERE a.organization_id = v_target_org;
 
     -- 4. المرحلة الثانية: تجميع أرصدة الحسابات الرئيسية (Roll-up aggregation)
-    -- نستخدم حلقة تكرارية لضمان تصاعد الأرصدة من الحسابات الفرعية إلى الحسابات الأب فأب الأب
-    FOR i IN REVERSE 5..1 LOOP
+    -- نستخدم حلقة تكرارية عكسية لضمان تصاعد الأرصدة من أعمق مستوى إلى الحسابات الرئيسية
+    FOR i IN REVERSE 10..1 LOOP
         UPDATE public.accounts p
         SET balance = (SELECT COALESCE(SUM(c.balance), 0) FROM public.accounts c WHERE c.parent_id = p.id)
-        WHERE p.organization_id = v_target_org AND p.is_group = true AND LENGTH(p.code) = i;
+        WHERE p.organization_id = v_target_org AND p.is_group = true;
     END LOOP;
     RETURN 'تمت إعادة مطابقة الأرصدة المالية والمخزنية وإصلاح قيود التكلفة بنجاح ✅';
 END; $$;
 
-CREATE OR REPLACE FUNCTION public.get_dashboard_stats() RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
+CREATE OR REPLACE FUNCTION public.get_dashboard_stats() 
+RETURNS json 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+SET search_path = public, auth -- 🛡️ تأمين مسار البحث لزيادة الأمان
+AS $$
 DECLARE v_month_sales numeric; v_receivables numeric; v_payables numeric; v_low_stock_count integer; v_chart_data json; v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
+    
     SELECT COALESCE(SUM(amount), 0) INTO v_month_sales FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE);
-    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '1221%';
-    SELECT COALESCE(SUM(ABS(balance)), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '201%';
+    -- 🛡️ حساب الذمم المدينة (العملاء 1221) والدائنة (الموردين 201) من واقع أرصدة الحسابات الفرعية النشطة فقط
+    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '1221%' AND is_group = false AND deleted_at IS NULL;
+    SELECT COALESCE(SUM(ABS(balance)), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '201%' AND is_group = false AND deleted_at IS NULL;
+    
     SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE organization_id = v_org_id AND stock <= COALESCE(min_stock_level, 0) AND deleted_at IS NULL;
-    SELECT json_agg(t) INTO v_chart_data FROM (SELECT to_char(month, 'YYYY-MM') as name, COALESCE((SELECT SUM(amount) FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = month), 0) as sales FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month) t;
+
+    -- جلب بيانات الرسم البياني لآخر 6 أشهر
+    SELECT json_agg(t) INTO v_chart_data FROM (
+        SELECT to_char(month, 'YYYY-MM') as name, 
+        COALESCE((SELECT SUM(amount) FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = month), 0) as sales 
+        FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month
+    ) t;
+
     RETURN json_build_object('monthSales', v_month_sales, 'receivables', v_receivables, 'payables', v_payables, 'lowStockCount', v_low_stock_count, 'chartData', v_chart_data);
 END; $$;
 
@@ -1123,5 +1275,6 @@ BEGIN
 END;
 $$;
 
--- تنشيط الكاش فوراً
+-- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
 SELECT public.refresh_saas_schema();
+NOTIFY pgrst, 'reload config';

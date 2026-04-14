@@ -283,5 +283,9 @@ BEGIN
     END LOOP;
 END $$;
 
+-- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
+SELECT public.refresh_saas_schema();
+NOTIFY pgrst, 'reload config';
+
 COMMIT;
 SELECT '✅ تم فحص وتثبيت هيكل قاعدة البيانات بنجاح. النظام جاهز للعمل.' as status;

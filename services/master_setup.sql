@@ -639,7 +639,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_returns (
 
 CREATE TABLE IF NOT EXISTS public.purchase_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE, -- توحيد المسمى
+    purchase_return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric,
     unit_price numeric,

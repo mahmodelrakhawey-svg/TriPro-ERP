@@ -64,7 +64,7 @@ export const ModifierSelectionModal: React.FC<ModifierSelectionModalProps> = ({
   };
 
   const totalModsPrice = useMemo(() => 
-    Object.values(selections).flat().reduce((sum, item) => sum + item.unit_price, 0), 
+    Object.values(selections).flat().reduce((sum, item) => sum + (item.unit_price || 0), 0), 
   [selections]);
 
   const totalModsCost = useMemo(() => 
