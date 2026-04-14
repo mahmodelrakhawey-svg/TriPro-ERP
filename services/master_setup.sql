@@ -1013,6 +1013,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     grand_total numeric DEFAULT 0,
     warehouse_id uuid REFERENCES public.warehouses(id),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- 🛡️ العمود المفقود لربط القيود
     user_id uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()

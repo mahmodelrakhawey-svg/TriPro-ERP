@@ -209,11 +209,22 @@ BEGIN
     -- 1. التحقق من الفاتورة
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
-    -- 🛡️ تعديل ذكي: إذا كانت مرحلة ولكن القيد مفقود، استمر في المعالجة لإنشاء القيد
-    IF v_invoice.status IN ('posted', 'paid') AND v_invoice.related_journal_entry_id IS NOT NULL THEN RETURN; END IF;
 
-    v_org_id := v_invoice.organization_id; -- استخدام معرف المنظمة من الفاتورة مباشرة لضمان الدقة
-    IF v_invoice.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني: لا يمكنك اعتماد فاتورة لا تنتمي لمؤسستك'; END IF;
+    -- 🛡️ منع التكرار الحقيقي: نتحقق من وجود المعرف المرتبط فقط
+    -- إذا كانت الحالة 'posted' ولكن لا يوجد قيد (وهو حال عروض الأسعار المحولة)، يجب أن تستمر الدالة
+    IF v_invoice.related_journal_entry_id IS NOT NULL THEN RETURN; END IF;
+
+    -- 🛡️ حماية من "سباق الزمن": لا تنشئ قيداً إذا لم تكن بنود الفاتورة قد وصلت بعد لقاعدة البيانات
+    -- هذا يضمن عدم إنشاء قيد الإيراد بدون قيد التكلفة عند التحويل الآلي
+    IF NOT EXISTS (SELECT 1 FROM public.invoice_items WHERE invoice_id = p_invoice_id) THEN RETURN; END IF;
+
+    -- 🛡️ تأمين معرف المنظمة (SaaS Protection) - حل مشكلة عروض الأسعار
+    -- نعتمد على المنظمة المسجلة في الفاتورة، أو منظمة المستخدم، أو منظمة العميل كخيار أخير
+    v_org_id := COALESCE(v_invoice.organization_id, public.get_my_org(), (SELECT organization_id FROM public.customers WHERE id = v_invoice.customer_id));
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة التابعة لها الفاتورة. يرجى التأكد من تسجيل الدخول بشكل صحيح.'; END IF;
+
+    -- ترميم المنظمة في الفاتورة إذا كانت مفقودة لضمان تماسك البيانات
+    IF v_invoice.organization_id IS NULL THEN UPDATE public.invoices SET organization_id = v_org_id WHERE id = p_invoice_id; END IF;
 
     -- 2. جلب روابط الحسابات المخصصة من إعدادات الشركة
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
@@ -233,8 +244,14 @@ BEGIN
 
     -- 4. تحديث المخزون وحساب تكلفة البضاعة المباعة (COGS)
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
-        SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) 
-        INTO v_item_cost 
+        -- 🚀 محرك التكلفة الذكي: يحاول جلب المتوسط المرجح -> التكلفة اليدوية -> تكلفة الوصفة (للمطاعم) -> سعر الشراء
+        SELECT COALESCE(
+            NULLIF(weighted_average_cost, 0), 
+            NULLIF(cost, 0), 
+            public.get_product_recipe_cost(v_item.product_id), 
+            NULLIF(purchase_price, 0), 
+            0
+        ) INTO v_item_cost 
         FROM public.products 
         WHERE id = v_item.product_id AND organization_id = v_org_id;
         
@@ -276,8 +293,7 @@ BEGIN
     -- 1. التحقق من الفاتورة
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
-    -- 🛡️ تعديل ذكي: إذا كانت مرحلة ولكن القيد مفقود، استمر في المعالجة لإنشاء القيد
-    IF v_invoice.status IN ('posted', 'paid') AND v_invoice.related_journal_entry_id IS NOT NULL THEN RETURN; END IF;
+    IF v_invoice.status IN ('posted', 'paid') THEN RETURN; END IF; -- 🛡️ جعل الدالة تتحمل التكرار (Idempotent)
 
     v_org_id := public.get_my_org();
     IF v_invoice.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني: لا يمكنك اعتماد فاتورة شراء لا تنتمي لمؤسستك'; END IF;
@@ -659,17 +675,23 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb;
+    v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb; v_total_cost numeric := 0;
     v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
+    v_cogs_acc_id uuid; v_inventory_acc_id uuid;
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
 
-    -- 1. تجميع المبيعات والضرائب وطرق الدفع من الطلبات المكتملة ✅
+    -- 1. تجميع المبيعات والضرائب وطرق الدفع والتكلفة من الطلبات المكتملة ✅
     SELECT 
         COALESCE(SUM(o.subtotal), 0) as subtotal,
         COALESCE(SUM(o.total_tax), 0) as tax,
         COALESCE(SUM(o.grand_total), 0) as total,
+        -- 🚀 محرك حساب التكلفة المطور: يحسب من التكلفة المسجلة أو الوصفة (BOM) أو بطاقة الصنف
+        COALESCE(SUM((
+            SELECT SUM(COALESCE(NULLIF(itms.unit_cost, 0), public.get_product_recipe_cost(itms.product_id), (SELECT cost FROM public.products WHERE id = itms.product_id), 0) * itms.quantity)
+            FROM public.order_items itms WHERE itms.order_id = o.id
+        )), 0) as cost_total,
         COALESCE(SUM(CASE WHEN pay.payment_method = 'CASH' THEN pay.amount ELSE 0 END), 0) as cash_total,
         COALESCE(SUM(CASE WHEN pay.payment_method = 'CARD' THEN pay.amount ELSE 0 END), 0) as card_total
     INTO v_summary
@@ -688,6 +710,8 @@ BEGIN
     v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
     v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_shift.organization_id LIMIT 1));
     v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
 
     -- 3. إنشاء رأس القيد (قيد يومية مرحل تلقائياً)
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
@@ -711,6 +735,14 @@ BEGIN
     IF v_summary.tax > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة للوردية (14%)', v_shift.organization_id);
+    END IF;
+
+    -- 6. أسطر القيد (التكلفة: من ح/ التكلفة إلى ح/ المخزون) ✅ جديد
+    IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES 
+            (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية المجمعة', v_shift.organization_id),
+            (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية المجمع', v_shift.organization_id);
     END IF;
 
     RETURN v_je_id;
@@ -741,11 +773,12 @@ DECLARE
     v_org_id uuid; v_payroll_id uuid; v_total_gross numeric := 0; 
     v_total_additions numeric := 0; v_total_deductions numeric := 0; 
     v_total_advances numeric := 0; v_total_net numeric := 0; 
-    v_item jsonb; v_je_id uuid; v_mappings jsonb;
+    v_item jsonb; v_je_id uuid; v_mappings jsonb; v_user_id uuid;
     v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
     v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
 BEGIN
-    v_org_id := public.get_my_org();
+    v_user_id := auth.uid();
+    v_org_id := COALESCE((SELECT organization_id FROM public.profiles WHERE id = v_user_id LIMIT 1), public.get_my_org());
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
@@ -755,7 +788,11 @@ BEGIN
     v_advances_acc_id := COALESCE((v_mappings->>'EMPLOYEE_ADVANCES')::uuid, (SELECT id FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id LIMIT 1));
     v_payroll_tax_id := COALESCE((v_mappings->>'PAYROLL_TAX')::uuid, (SELECT id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1));
 
-    IF v_salaries_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الرواتب الرئيسي (531) غير موجود.'; END IF;
+    IF v_salaries_acc_id IS NULL OR v_advances_acc_id IS NULL THEN 
+        RAISE EXCEPTION 'فشل جلب إعدادات الحسابات المالية للرواتب، يرجى مراجعة Account Mappings في إعدادات الشركة.'; 
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p_items)) THEN RAISE EXCEPTION 'لا توجد بيانات موظفين صالحة في المسير.'; END IF;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric;
@@ -774,8 +811,8 @@ BEGIN
         VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'gross_salary')::numeric, (v_item->>'additions')::numeric, COALESCE((v_item->>'payroll_tax')::numeric, 0), (v_item->>'advances_deducted')::numeric, (v_item->>'other_deductions')::numeric, (v_item->>'net_salary')::numeric, v_org_id);
     END LOOP;
 
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted) 
-    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year || '-' || floor(random()*1000)::text, 'posted', v_org_id, true) RETURNING id INTO v_je_id;
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type) 
+    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year, 'posted', v_org_id, true, v_payroll_id, 'payroll') RETURNING id INTO v_je_id;
 
     IF v_total_gross > 0 AND v_salaries_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); END IF;
     IF v_total_additions > 0 AND v_bonuses_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF;
@@ -783,7 +820,12 @@ BEGIN
     IF v_total_deductions > 0 AND v_deductions_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
     IF v_total_payroll_tax > 0 AND v_payroll_tax_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_payroll_tax_id, 0, v_total_payroll_tax, 'ضريبة كسب العمل', v_org_id); END IF;
     IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_acc, 0, v_total_net, 'صرف صافي الرواتب', v_org_id); END IF;
+
+    -- 🛡️ التحقق النهائي من توازن القيد لضمان الترحيل الفعلي للدفتر العام
+        -- 🛡️ التحقق النهائي من توازن القيد لضمان الترحيل الفعلي للدفتر العام
+    IF NOT EXISTS (SELECT 1 FROM public.journal_lines WHERE journal_entry_id = v_je_id) THEN RAISE EXCEPTION 'فشل إنشاء أسطر القيد المحاسبي للرواتب، القيد غير متوازن أو الحسابات مفقودة.'; END IF;
 END; $$;
+
 
 -- ================================================================
 -- 5. تأسيس الشركات (Onboarding & SaaS Core)
@@ -1276,6 +1318,47 @@ BEGIN
     RETURN QUERY SELECT * FROM public.company_settings WHERE organization_id = v_org_id;
 END;
 $$;
+-- ================================================================
+-- 🚀 الحل السحري لمشكلة تحويل عروض الأسعار: المشغل التلقائي
+-- ================================================================
+
+CREATE OR REPLACE FUNCTION public.fn_auto_approve_invoice_on_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- إذا تم إدراج فاتورة حالتها 'posted' (كما يحدث عند تحويل عروض الأسعار) وليس لها قيد
+    IF NEW.status = 'posted' AND NEW.related_journal_entry_id IS NULL THEN
+        PERFORM public.approve_invoice(NEW.id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_auto_approve_invoice ON public.invoices;
+CREATE TRIGGER trg_auto_approve_invoice
+    AFTER INSERT OR UPDATE OF status ON public.invoices
+    FOR EACH ROW
+    EXECUTE FUNCTION public.fn_auto_approve_invoice_on_insert();
+
+-- 🛠️ مشغل إضافي لمراقبة بنود الفاتورة (لضمان معالجة الفواتير التي تصل بنودها متأخرة)
+CREATE OR REPLACE FUNCTION public.fn_auto_approve_invoice_on_items_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- إذا كانت الفاتورة الأم 'posted' وبدون قيد، نحاول اعتمادها الآن بعد توفر البنود
+    IF EXISTS (
+        SELECT 1 FROM public.invoices 
+        WHERE id = NEW.invoice_id AND status = 'posted' AND related_journal_entry_id IS NULL
+    ) THEN
+        PERFORM public.approve_invoice(NEW.invoice_id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_auto_approve_invoice_items ON public.invoice_items;
+CREATE TRIGGER trg_auto_approve_invoice_items
+    AFTER INSERT ON public.invoice_items
+    FOR EACH ROW
+    EXECUTE FUNCTION public.fn_auto_approve_invoice_on_items_insert();
 
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
 SELECT public.refresh_saas_schema();

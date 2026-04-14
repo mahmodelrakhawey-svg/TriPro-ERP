@@ -2267,7 +2267,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
 
       // 3. إنشاء الفاتورة
-      const { data: invoice, error: iError } = await supabase.from('invoices').insert(invoiceData).select().single();
+      const { data: invoice, error: iError } = await supabase.from('invoices').insert({ ...invoiceData, organization_id: userOrgId }).select().single();
       if (iError) throw iError;
 
       // 4. نقل البنود
@@ -2279,7 +2279,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           unit_price: item.unit_price,
           total: item.total,
           cost: 0, // سيتم تحديثه عند الاعتماد
-          organization_id: userOrgId
+          organization_id: userOrgId || (currentUser as any)?.organization_id
         }));
         
         const { error: itemsError } = await supabase.from('invoice_items').insert(items);
