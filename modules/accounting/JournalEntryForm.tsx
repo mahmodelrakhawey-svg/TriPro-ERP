@@ -3,6 +3,7 @@ import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X
 import { JournalEntryLine, Account } from '../../types';
 import { useAccounting } from '../../context/AccountingContext';
 import { analyzeTransactionText } from '../../services/geminiService';
+import SearchableSelect from '../../components/SearchableSelect';
 import AddAccountModal from './AddAccountModal';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
@@ -371,20 +372,15 @@ const JournalEntryForm = () => {
           {lines.map((line, index) => (
             <div key={index} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2 rounded-lg border border-slate-100">
               <div className="col-span-4">
-                <select
-                  required
-                  value={line.account_id}
-                  onChange={(e) => handleLineChange(index, 'account_id' as any, e.target.value)}
-                  className={`w-full bg-white border rounded px-2 py-1.5 focus:outline-none text-sm ${!line.account_id ? 'border-red-300' : 'border-slate-200 focus:border-blue-500'}`}
-                >
-                  <option value="">اختر الحساب...</option>
-                  {sortedAccounts.length === 0 && <option disabled>لا توجد حسابات متاحة</option>}
-                  {sortedAccounts.map(acc => (
-                    <option key={acc.id} value={acc.id} disabled={acc.is_group}>
-                      {acc.is_group ? `--- ${acc.name} ---` : `${acc.code} - ${acc.name} (${acc.balance?.toLocaleString() || 0})`}
-                    </option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  options={sortedAccounts
+                    .filter(acc => !acc.is_group)
+                    .map(acc => ({ id: acc.id, name: acc.name, code: acc.code }))}
+                  value={line.account_id || ''}
+                  onChange={(val) => handleLineChange(index, 'account_id' as any, val)}
+                  placeholder="اختر الحساب..."
+                  className="w-full"
+                />
                 {errors[`lines.${index}.account_id`] && <p className="text-red-500 text-xs mt-1">{errors[`lines.${index}.account_id`]}</p>}
               </div>
               <div className="col-span-2">

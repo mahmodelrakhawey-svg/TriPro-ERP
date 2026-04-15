@@ -172,6 +172,9 @@ ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS reference text; --
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES auth.users(id); -- مطلوب لنظام الإشعارات
 
 -- تحديثات العملاء والمخزون
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
+ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
 ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid();
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text;

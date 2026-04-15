@@ -115,6 +115,9 @@ export const SupplierSchema = z.object({
   tax_id: z.string()
     .max(50)
     .optional(),
+  credit_limit: z.number()
+    .min(0, 'حد الائتمان لا يمكن أن يكون سالباً')
+    .optional(),
 });
 
 // Product
@@ -134,6 +137,9 @@ export const ProductSchema = z.object({
   stock: z.number()
     .min(0, 'المخزون لا يمكن أن يكون سالباً')
     .int('المخزون يجب أن يكون رقماً صحيحاً'),
+  opening_balance: z.number()
+    .min(0, 'الرصيد الافتتاحي لا يمكن أن يكون سالباً')
+    .optional(),
 });
 
 // Invoice

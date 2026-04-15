@@ -16,12 +16,14 @@ type Supplier = {
   tax_number: string;
   address: string;
   credit_limit?: number;
+  opening_balance?: number;
+  balance?: number; // Added for sorting and display
 };
 
 const SupplierManager = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { addSupplier, updateSupplier, deleteSupplier, can, currentUser, suppliers: contextSuppliers, addEntry, accounts, getSystemAccount } = useAccounting();
+  const { addSupplier, updateSupplier, deleteSupplier, can, currentUser, suppliers: contextSuppliers, addEntry, accounts, getSystemAccount, addOpeningBalanceTransaction } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -173,10 +175,22 @@ const SupplierManager = () => {
         return;
     }
     try {
+        let result;
         if (formData.id) {
-            await updateSupplier(formData.id, formData);
+            result = await updateSupplier(formData.id, formData);
         } else {
-            await addSupplier(formData as any);
+            result = await addSupplier(formData as any);
+
+            // إنشاء حركة الرصيد الافتتاحي إذا كان موجوداً
+            if (result && formData.opening_balance && Number(formData.opening_balance) !== 0) {
+              await addOpeningBalanceTransaction(
+                result.id,
+                'supplier',
+                Number(formData.opening_balance),
+                new Date().toISOString().split('T')[0],
+                formData.name!
+              );
+            }
         }
         queryClient.invalidateQueries({ queryKey: ['suppliers'] });
         setIsModalOpen(false);
@@ -270,7 +284,7 @@ const SupplierManager = () => {
               const date = new Date().toISOString().split('T')[0];
               const ref = `OB-SUP-${newSupplier.id.slice(0, 6)}`;
               if (isCredit) {
-                await supabase.from('purchase_invoices').insert({ organization_id: userOrgId, invoice_number: ref, supplier_id: newSupplier.id, invoice_date: date, total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي' });
+                await supabase.from('purchase_invoices').insert({ organization_id: userOrgId, invoice_number: ref, supplier_id: newSupplier.id, invoice_date: date, total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي', created_by: session.user.id });
               } else {
                 await supabase.from('debit_notes').insert({ organization_id: userOrgId, debit_note_number: ref, supplier_id: newSupplier.id, note_date: date, total_amount: amount, amount_before_tax: amount, status: 'posted', notes: 'رصيد افتتاحي' });
               }
@@ -379,7 +393,7 @@ const SupplierManager = () => {
                         <td className={`p-4 font-mono font-bold ${stats[supplier.id]?.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
                             {statsLoading ? '...' : (stats[supplier.id]?.balance?.toLocaleString() || '0')}
                         </td>
-                        <td className="p-4 font-mono font-bold text-slate-700">
+                        <td className="p-4 font-mono font-bold text-slate-700 print:hidden">
                             {statsLoading ? '...' : (stats[supplier.id]?.totalPurchases?.toLocaleString() || '0')}
                         </td>
                         <td className="p-4 font-mono text-emerald-600">{supplier.credit_limit?.toLocaleString() || 0}</td>
@@ -398,7 +412,7 @@ const SupplierManager = () => {
                 <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
                     <tr>
                         <td colSpan={3} className="p-4 text-left">الإجمالي:</td>
-                        <td className="p-4 text-red-700 font-mono">{Object.values(stats).reduce((acc, s) => acc + (s.balance || 0), 0).toLocaleString()}</td>
+                        <td className="p-4 text-red-700 font-mono print:hidden">{Object.values(stats).reduce((acc, s) => acc + (s.balance || 0), 0).toLocaleString()}</td>
                         <td className="p-4 text-slate-800 font-mono">{Object.values(stats).reduce((acc, s) => acc + (s.totalPurchases || 0), 0).toLocaleString()}</td>
                         <td colSpan={2}></td>
                     </tr>
@@ -421,6 +435,7 @@ const SupplierManager = () => {
               <div><label className="block text-sm font-bold mb-1">الرقم الضريبي</label><input type="text" value={formData.tax_number || ''} onChange={e => setFormData({...formData, tax_number: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">العنوان</label><input type="text" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">حد الائتمان</label><input type="number" value={formData.credit_limit || ''} onChange={e => setFormData({...formData, credit_limit: Number(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0" /></div>
+              {!formData.id && <div><label className="block text-sm font-bold mb-1">الرصيد الافتتاحي (دائن)</label><input type="number" value={formData.opening_balance || ''} onChange={e => setFormData({...formData, opening_balance: Number(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0.00" /></div>}
               <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mt-4">حفظ البيانات</button>
             </form>
           </div>

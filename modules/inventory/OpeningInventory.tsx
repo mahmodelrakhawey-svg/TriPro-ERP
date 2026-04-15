@@ -11,19 +11,20 @@ type NewProduct = {
   sku: string;
   quantity: number;
   cost: number;
-  price: number;
+  price: number; // Sales price
+  unit: string; // Unit of measurement
 };
 
 export default function OpeningInventory() {
   const { currentUser, warehouses, getSystemAccount } = useAccounting();
   const { showToast } = useToast();
   const [items, setItems] = useState<NewProduct[]>([
-    { id: '1', name: '', sku: '', quantity: 1, cost: 0, price: 0 }
+    { id: '1', name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة' }
   ]);
   const [loading, setLoading] = useState(false);
 
   const handleAddItem = () => {
-    setItems([...items, { id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0 }]);
+    setItems([...items, { id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة' }]);
   };
 
   const handleRemoveItem = (id: string) => {
@@ -78,80 +79,37 @@ export default function OpeningInventory() {
 
       const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
-      let totalValue = 0;
-      const productsToInsert = items.map(item => {
-        totalValue += (item.quantity * item.cost);
-        return {
-          name: item.name,
-          sku: item.sku || undefined,
-          item_type: 'STOCK',
-          is_active: true,
-          stock: item.quantity, // استخدام العمود الصحيح stock
-          purchase_price: item.cost,
-          sales_price: item.price,
-          organization_id: orgId,
-          // الربط المحاسبي
-          inventory_account_id: inventoryAcc.id,
-          cogs_account_id: cogsAcc.id,
-          sales_account_id: salesAcc.id
-        };
-      });
+            for (const item of items) {
+        // 1. استدعاء دالة RPC لإضافة المنتج وإنشاء القيد المحاسبي تلقائياً
+        const { data: newProductId, error: rpcError } = await supabase.rpc('add_product_with_opening_balance', {
+          p_name: item.name,
+          p_sku: item.sku || null,
+          p_sales_price: item.price,
+          p_purchase_price: item.cost,
+          p_stock: item.quantity,
+          p_unit: item.unit, // Pass the unit
+          p_org_id: orgId,
+          p_item_type: 'STOCK',
+          p_inventory_account_id: inventoryAcc.id,
+          p_cogs_account_id: cogsAcc.id,
+          p_sales_account_id: salesAcc.id
+        });
+        if (rpcError) throw rpcError;
 
-      // 2. إدراج المنتجات في قاعدة البيانات
-      const { data: newProducts, error: prodError } = await supabase.from('products').insert(productsToInsert).select();
-      if (prodError) throw prodError;
-
-      // 2.5 إدراج سجلات في جدول opening_inventories (لضمان بقاء الرصيد عند إعادة الاحتساب)
-      if (newProducts && newProducts.length > 0) {
-        const openingEntries = newProducts.map(p => ({
-            product_id: p.id,
+        // 2. إدراج سجل في جدول opening_inventories لتتبع الرصيد الافتتاحي على مستوى المستودع
+        if (newProductId) {
+          const { error: openingError } = await supabase.from('opening_inventories').insert({
+            product_id: newProductId,
             warehouse_id: defaultWarehouseId,
-            quantity: p.stock,
-            cost: p.purchase_price,
+            quantity: item.quantity,
+            cost: item.cost,
             created_by: currentUser?.id
-        }));
-        const { error: openingError } = await supabase.from('opening_inventories').insert(openingEntries);
-        if (openingError) console.error("Failed to save opening inventory records:", openingError);
-      }
-
-      // 3. إنشاء القيد الافتتاحي
-      if (totalValue > 0) {
-        const { data: journal, error: journalError } = await supabase.from('journal_entries').insert({
-          transaction_date: new Date().toISOString(),
-          reference: 'OPENING-STOCK',
-          description: 'قيد افتتاحي - بضاعة أول المدة',
-          status: 'posted',
-          related_document_type: 'manual'
-        }).select().single();
-
-        if (journalError) throw journalError;
-
-        // أطراف القيد
-        const journalLines = [
-          // من ح/ المخزون (مدين)
-          {
-            journal_entry_id: journal.id,
-            account_id: inventoryAcc.id,
-            debit: totalValue,
-            credit: 0,
-            description: 'رصيد افتتاحي للمخزون'
-          },
-          // إلى ح/ الأرصدة الافتتاحية (دائن)
-          {
-            journal_entry_id: journal.id,
-            account_id: openingAcc.id,
-            debit: 0,
-            credit: totalValue,
-            description: 'إثبات بضاعة أول المدة'
-          }
-        ];
-
-        const { error: linesError } = await supabase.from('journal_lines').insert(journalLines);
-        if (linesError) throw linesError;
-      }
-
-      showToast('تم حفظ الأصناف والقيد الافتتاحي بنجاح! ✅', 'success');
-      setItems([{ id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0 }]); // تصفير النموذج
+          });
+          if (openingError) console.error("Failed to save opening inventory record:", openingError);
+        }
+      } // This closing brace correctly ends the 'for...of' loop
+      showToast('تم حفظ الأصناف والقيد الافتتاحي بنجاح! ✅', 'success'); // Refresh data after successful save
+      setItems([{ id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة' }]); // تصفير النموذج
 
     } catch (error: any) {
       console.error('Error saving opening stock:', error);
@@ -198,6 +156,7 @@ export default function OpeningInventory() {
               <th className="p-4 w-40">الكود (SKU)</th>
               <th className="p-4 w-32">الكمية <span className="text-red-500">*</span></th>
               <th className="p-4 w-32">التكلفة <span className="text-red-500">*</span></th>
+              <th className="p-4 w-32">الوحدة</th>
               <th className="p-4 w-32">سعر البيع</th>
               <th className="p-4 w-32">الإجمالي</th>
               <th className="p-4 w-16"></th>
@@ -211,6 +170,21 @@ export default function OpeningInventory() {
                 <td className="p-2"><input type="text" className="w-full border rounded px-2 py-1" placeholder="اختياري" value={item.sku} onChange={e => handleChange(item.id, 'sku', e.target.value)} /></td>
                 <td className="p-2"><input type="number" min="1" className="w-full border rounded px-2 py-1 text-center font-bold text-blue-600" value={item.quantity} onChange={e => handleChange(item.id, 'quantity', parseFloat(e.target.value))} /></td>
                 <td className="p-2"><input type="number" min="0" step="0.01" className="w-full border rounded px-2 py-1 text-center" value={item.cost} onChange={e => handleChange(item.id, 'cost', parseFloat(e.target.value))} /></td>
+                <td className="p-2">
+                  <select 
+                    className="w-full border rounded px-2 py-1" 
+                    value={item.unit} 
+                    onChange={e => handleChange(item.id, 'unit', e.target.value)}
+                  >
+                    <option value="قطعة">قطعة</option>
+                    <option value="كجم">كجم</option>
+                    <option value="لتر">لتر</option>
+                    <option value="متر">متر</option>
+                    <option value="علبة">علبة</option>
+                    <option value="كرتون">كرتون</option>
+                    <option value="وحدة">وحدة</option>
+                  </select>
+                </td>
                 <td className="p-2"><input type="number" min="0" step="0.01" className="w-full border rounded px-2 py-1 text-center" value={item.price} onChange={e => handleChange(item.id, 'price', parseFloat(e.target.value))} /></td>
                 <td className="p-4 font-bold text-slate-700">{(item.quantity * item.cost).toLocaleString()}</td>
                 <td className="p-2 text-center">

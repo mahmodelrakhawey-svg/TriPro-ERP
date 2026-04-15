@@ -406,6 +406,7 @@ CREATE TABLE IF NOT EXISTS public.customers (
     tax_id text,
     address text,
     credit_limit numeric DEFAULT 0,
+    opening_balance numeric DEFAULT 0,
     customer_type text DEFAULT 'individual', -- individual, store, online
     balance numeric DEFAULT 0, -- حقل محسوب (اختياري للأداء)
     deleted_at timestamptz, -- Changed to timestamptz for consistency
@@ -424,11 +425,13 @@ CREATE TABLE IF NOT EXISTS public.suppliers (
     tax_id text,
     address text,
     contact_person text,
+    opening_balance numeric DEFAULT 0,
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     balance numeric DEFAULT 0, -- Changed to numeric for consistency
     deleted_at timestamptz,
     deletion_reason text,
-    created_at timestamptz DEFAULT now() NOT NULL
+    created_at timestamptz DEFAULT now() NOT NULL,
+    credit_limit numeric DEFAULT 0
 );
 
 -- المخزون والمنتجات
@@ -466,6 +469,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     purchase_price numeric DEFAULT 0,
     cost numeric DEFAULT 0,
     manufacturing_cost numeric DEFAULT 0, -- عمود جديد
+    opening_balance numeric DEFAULT 0, -- الرصيد الافتتاحي (كمية)
     weighted_average_cost numeric DEFAULT 0,
     stock numeric DEFAULT 0,
     unit text, -- وحدة القياس (قطعة، كيلو، إلخ)
@@ -1400,8 +1404,9 @@ CREATE OR REPLACE FUNCTION public.update_product_stock(p_product_id uuid)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_stock numeric := 0;
 BEGIN
-    -- (وارد مشتريات + رصيد أول + مرتجع مبيعات) - (صادر مبيعات + مرتجع مشتريات) +/- تسويات
-    SELECT COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = p_product_id), 0) INTO v_stock;
+    -- (الرصيد الافتتاحي في جدول المنتجات + كميات جدول أرصدة أول المدة + وارد مشتريات + مرتجع مبيعات) - (صادر مبيعات + مرتجع مشتريات) +/- تسويات
+    SELECT COALESCE((SELECT opening_balance FROM public.products WHERE id = p_product_id), 0) +
+           COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = p_product_id), 0) INTO v_stock;
     SELECT v_stock + COALESCE((SELECT SUM(quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id WHERE pii.product_id = p_product_id AND pi.status != 'draft'), 0) INTO v_stock;
     SELECT v_stock - COALESCE((SELECT SUM(quantity) FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = p_product_id AND i.status != 'draft'), 0) INTO v_stock;
     SELECT v_stock + COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sri.sales_return_id = sr.id WHERE sri.product_id = p_product_id AND sr.status != 'draft'), 0) INTO v_stock;
@@ -1413,11 +1418,54 @@ END; $$;
 
 -- إضافة منتج مع رصيد افتتاحي وقيد محاسبي آلي
 DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid) CASCADE;
-CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(p_name text, p_sku text, p_sales_price numeric, p_purchase_price numeric, p_stock numeric, p_org_id uuid, p_item_type text, p_inventory_account_id uuid, p_cogs_account_id uuid, p_sales_account_id uuid)
-RETURNS uuid LANGUAGE plpgsql AS $$
-DECLARE v_product_id uuid; BEGIN
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
-    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_org_id, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id) RETURNING id INTO v_product_id;
+CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance( -- تم تحديث المعلمات
+    p_name text,
+    p_sku text,
+    p_sales_price numeric,
+    p_purchase_price numeric,
+    p_stock numeric,
+    p_unit text, -- المعلمة الجديدة
+    p_org_id uuid,
+    p_item_type text,
+    p_inventory_account_id uuid,
+    p_cogs_account_id uuid,
+    p_sales_account_id uuid
+)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE 
+    v_product_id uuid;
+    v_entry_id uuid;
+    v_opening_account_id uuid;
+    v_total_value numeric;
+BEGIN
+    -- 1. حساب القيمة الإجمالية للمخزون الافتتاحي
+    v_total_value := p_stock * p_purchase_price;
+
+    -- 2. إدراج المنتج
+    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, opening_balance, unit, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
+    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_stock, p_unit, p_org_id, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id)
+    RETURNING id INTO v_product_id;
+
+    -- 3. إنشاء القيد المحاسبي إذا كانت القيمة أكبر من صفر
+    IF v_total_value > 0 THEN
+        -- جلب حساب الأرصدة الافتتاحية (كود 3999)
+        SELECT id INTO v_opening_account_id FROM public.accounts WHERE code = '3999' AND organization_id = p_org_id LIMIT 1;
+        
+        IF v_opening_account_id IS NOT NULL AND p_inventory_account_id IS NOT NULL THEN
+            INSERT INTO public.journal_entries (transaction_date, reference, description, status, organization_id, related_document_id, related_document_type)
+            VALUES (now(), 'OB-' || p_sku, 'إثبات رصيد افتتاحي للمنتج: ' || p_name, 'posted', p_org_id, v_product_id, 'product')
+            RETURNING id INTO v_entry_id;
+
+            -- سطر المدين: حساب المخزون
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES (v_entry_id, p_inventory_account_id, v_total_value, 0, 'رصيد افتتاحي مخزني', p_org_id);
+
+            -- سطر الدائن: حساب الأرصدة الافتتاحية
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES (v_entry_id, v_opening_account_id, 0, v_total_value, 'مقابل رصيد افتتاحي مخزني', p_org_id);
+        END IF;
+    END IF;
+
     RETURN v_product_id;
 END; $$;
 

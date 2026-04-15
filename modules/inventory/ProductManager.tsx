@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
 import RecipeManagement from '../../components/RecipeManagement';
+import SearchableSelect from '../../components/SearchableSelect'; // Import the new component
 import { ModifierManagement } from '../../components/ModifierManagement';
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
@@ -1961,44 +1962,41 @@ const ProductManager = () => {
                   {(formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL') && (
                     <>
                       <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">حساب المخزون (أصول)</label>
-                        <select 
+                        <SearchableSelect
+                          label="حساب المخزون (أصول)"
+                          options={accounts.assets.map(a => ({ id: a.id, name: a.name, code: a.code }))}
                           required 
                           value={formData.inventory_account_id} 
-                          onChange={e => setFormData({...formData, inventory_account_id: e.target.value})}
-                          className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white"
-                        >
-                          <option value="">-- اختر حساب المخزون --</option>
-                          {accounts.assets.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
-                        </select>
+                          onChange={value => setFormData({...formData, inventory_account_id: value})}
+                          placeholder="-- اختر حساب المخزون --"
+                          className="w-full"
+                        />
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold text-slate-600 mb-1">حساب تكلفة البضاعة (مصروفات)</label>
-                        <select 
+                        <SearchableSelect
+                          label="حساب تكلفة البضاعة (مصروفات)"
+                          options={accounts.expenses.map(a => ({ id: a.id, name: a.name, code: a.code }))}
                           required 
                           value={formData.cogs_account_id} 
-                          onChange={e => setFormData({...formData, cogs_account_id: e.target.value})}
-                          className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white"
-                        >
-                          <option value="">-- اختر حساب التكلفة --</option>
-                          {accounts.expenses.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
-                        </select>
+                          onChange={value => setFormData({...formData, cogs_account_id: value})}
+                          placeholder="-- اختر حساب التكلفة --"
+                          className="w-full"
+                        />
                       </div>
                     </>
                   )}
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">حساب المبيعات (إيرادات)</label>
-                    <select 
+                    <SearchableSelect
+                      label="حساب المبيعات (إيرادات)"
+                      options={accounts.revenue.map(a => ({ id: a.id, name: a.name, code: a.code }))}
                       required 
                       value={formData.sales_account_id} 
-                      onChange={e => setFormData({...formData, sales_account_id: e.target.value})}
-                      className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white"
-                    >
-                      <option value="">-- اختر حساب الإيراد --</option>
-                      {accounts.revenue.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
-                    </select>
+                      onChange={value => setFormData({...formData, sales_account_id: value})}
+                      placeholder="-- اختر حساب الإيراد --"
+                      className="w-full"
+                    />
                   </div>
                 </div>
               </div>

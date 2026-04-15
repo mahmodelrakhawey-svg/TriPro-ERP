@@ -1,9 +1,10 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2, Tag, Percent, ImageIcon, UtensilsCrossed } from 'lucide-react';
+import SearchableSelect from '../../components/SearchableSelect';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { z } from 'zod';
@@ -1064,27 +1065,36 @@ const StockCard = () => {
                             {(editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED') && (
                                 <>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-600 mb-1">حساب المخزون (أصول)</label>
-                                        <select required value={editFormData.inventory_account_id} onChange={e => setEditFormData({...editFormData, inventory_account_id: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
-                                            <option value="">-- اختر حساب المخزون --</option>
-                                            {accounts.assets.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
-                                        </select>
+                                        <SearchableSelect
+                                            label="حساب المخزون (أصول)"
+                                            options={accounts.assets.map(a => ({ id: a.id, name: a.name, code: a.code }))}
+                                            required
+                                            value={editFormData.inventory_account_id}
+                                            onChange={value => setEditFormData({...editFormData, inventory_account_id: value})}
+                                            placeholder="-- اختر حساب المخزون --"
+                                        />
                                     </div>
                                     <div>
-                                        <label className="block text-xs font-bold text-slate-600 mb-1">حساب تكلفة البضاعة (مصروفات)</label>
-                                        <select required value={editFormData.cogs_account_id} onChange={e => setEditFormData({...editFormData, cogs_account_id: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
-                                            <option value="">-- اختر حساب التكلفة --</option>
-                                            {accounts.expenses.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
-                                        </select>
+                                        <SearchableSelect
+                                            label="حساب تكلفة البضاعة (مصروفات)"
+                                            options={accounts.expenses.map(a => ({ id: a.id, name: a.name, code: a.code }))}
+                                            required
+                                            value={editFormData.cogs_account_id}
+                                            onChange={value => setEditFormData({...editFormData, cogs_account_id: value})}
+                                            placeholder="-- اختر حساب التكلفة --"
+                                        />
                                     </div>
                                 </>
                             )}
                             <div>
-                                <label className="block text-xs font-bold text-slate-600 mb-1">حساب المبيعات (إيرادات)</label>
-                                <select required value={editFormData.sales_account_id} onChange={e => setEditFormData({...editFormData, sales_account_id: e.target.value})} className="w-full border border-blue-200 rounded-lg p-2 text-sm bg-white">
-                                    <option value="">-- اختر حساب الإيراد --</option>
-                                    {accounts.revenue.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
-                                </select>
+                                <SearchableSelect
+                                    label="حساب المبيعات (إيرادات)"
+                                    options={accounts.revenue.map(a => ({ id: a.id, name: a.name, code: a.code }))}
+                                    required
+                                    value={editFormData.sales_account_id}
+                                    onChange={value => setEditFormData({...editFormData, sales_account_id: value})}
+                                    placeholder="-- اختر حساب الإيراد --"
+                                />
                             </div>
                         </div>
                     </div>

@@ -6,6 +6,7 @@ import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import * as XLSX from 'xlsx';
 import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap } from 'lucide-react';
+import SearchableSelect from './SearchableSelect';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../utils/runRestaurantFlowTest';
 import ArchiveManager from '../services/ArchiveManager'; // استيراد مدير الأرشفة
@@ -1008,26 +1009,17 @@ const Settings = () => {
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                           {Object.entries({ ...SYSTEM_ACCOUNTS, CASH_SHORTAGE: '541' }).map(([key, defaultCode]) => (
                               <div key={key}>
-                                  <label className="block text-sm font-bold text-slate-700 mb-1">
-                                      {ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} <span className="text-xs font-normal text-slate-400" dir="ltr">({defaultCode})</span>
-                                  </label>
-                                  <select 
+                                  <SearchableSelect
+                                      label={`${ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} (${defaultCode})`}
+                                      options={accounts
+                                          .filter(acc => !acc.isGroup)
+                                          .sort((a, b) => a.code.localeCompare(b.code))
+                                          .map(acc => ({ id: acc.id, name: acc.name, code: acc.code }))}
                                       value={formData.accountMappings[key] || ''}
-                                      onChange={(e) => handleMappingChange(key, e.target.value)}
-                                      className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-500 outline-none bg-white"
-                                  >
-                                      <option value="">-- الافتراضي ({defaultCode}) --</option>
-                                      {accounts.sort((a, b) => a.code.localeCompare(b.code)).map(acc => (
-                                          <option 
-                                              key={acc.id} 
-                                              value={acc.id} 
-                                              disabled={acc.isGroup} 
-                                              className={acc.isGroup ? 'font-bold bg-slate-100 text-slate-400' : ''}
-                                          >
-                                              {acc.code} - {acc.name} {acc.isGroup ? ' (حساب رئيسي - لا يمكن الاختيار)' : ''}
-                                          </option>
-                                      ))}
-                                  </select>
+                                      onChange={value => handleMappingChange(key, value)}
+                                      placeholder={`-- الافتراضي (${defaultCode}) --`}
+                                      className="w-full"
+                                  />
                               </div>
                           ))}
                       </div>

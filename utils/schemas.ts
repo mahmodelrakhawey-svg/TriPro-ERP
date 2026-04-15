@@ -14,6 +14,7 @@ export const CustomerSchema = z.object({
     .number({ message: 'حد الائتمان يجب أن يكون رقماً.' })
     .nonnegative({ message: 'حد الائتمان لا يمكن أن يكون سالباً.' })
     .optional(),
+  opening_balance: z.number().optional(),
 });
 
 /**
@@ -26,6 +27,11 @@ export const SupplierSchema = z.object({
   address: z.string().optional(),
   tax_number: z.string().optional(),
   contact_person: z.string().optional(),
+  credit_limit: z
+    .number({ message: 'حد الائتمان يجب أن يكون رقماً.' })
+    .nonnegative({ message: 'حد الائتمان لا يمكن أن يكون سالباً.' })
+    .optional(),
+  opening_balance: z.number().optional(),
 });
 
 /**
