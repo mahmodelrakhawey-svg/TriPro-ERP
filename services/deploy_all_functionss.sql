@@ -678,6 +678,7 @@ DECLARE
     v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb; v_total_cost numeric := 0;
     v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
     v_cogs_acc_id uuid; v_inventory_acc_id uuid;
+    v_sales_dinein_acc_id uuid; v_sales_delivery_acc_id uuid;
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
@@ -687,6 +688,8 @@ BEGIN
         COALESCE(SUM(o.subtotal), 0) as subtotal,
         COALESCE(SUM(o.total_tax), 0) as tax,
         COALESCE(SUM(o.grand_total), 0) as total,
+        COALESCE(SUM(CASE WHEN o.order_type = 'DINEIN' THEN o.subtotal ELSE 0 END), 0) as dinein_subtotal,
+        COALESCE(SUM(CASE WHEN o.order_type != 'DINEIN' THEN o.subtotal ELSE 0 END), 0) as delivery_subtotal,
         -- 🚀 محرك حساب التكلفة المطور: يحسب من التكلفة المسجلة أو الوصفة (BOM) أو بطاقة الصنف
         COALESCE(SUM((
             SELECT SUM(COALESCE(NULLIF(itms.unit_cost, 0), public.get_product_recipe_cost(itms.product_id), (SELECT cost FROM public.products WHERE id = itms.product_id), 0) * itms.quantity)
@@ -712,6 +715,9 @@ BEGIN
     v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
     v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
+    -- جلب حسابات المطاعم التفصيلية من الدليل المحاسبي
+    v_sales_dinein_acc_id := (SELECT id FROM public.accounts WHERE organization_id = v_shift.organization_id AND code = '4111' LIMIT 1);
+    v_sales_delivery_acc_id := (SELECT id FROM public.accounts WHERE organization_id = v_shift.organization_id AND code = '4112' LIMIT 1);
 
     -- 3. إنشاء رأس القيد (قيد يومية مرحل تلقائياً)
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
@@ -729,8 +735,20 @@ BEGIN
     END IF;
 
     -- 5. أسطر القيد (الطرف الدائن: مبيعات وضريبة) ✅
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'صافي مبيعات الوردية (قبل الضريبة)', v_shift.organization_id);
+    -- توزيع المبيعات محاسبياً حسب النوع (صالة vs توصيل)
+    IF v_sales_dinein_acc_id IS NOT NULL AND v_sales_delivery_acc_id IS NOT NULL THEN
+        IF v_summary.dinein_subtotal > 0 THEN
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES (v_je_id, v_sales_dinein_acc_id, 0, v_summary.dinein_subtotal, 'إجمالي مبيعات الصالة بالوردية', v_shift.organization_id);
+        END IF;
+        IF v_summary.delivery_subtotal > 0 THEN
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES (v_je_id, v_sales_delivery_acc_id, 0, v_summary.delivery_subtotal, 'إجمالي مبيعات التوصيل/السفري بالوردية', v_shift.organization_id);
+        END IF;
+    ELSE
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إجمالي مبيعات الوردية (حساب عام)', v_shift.organization_id);
+    END IF;
 
     IF v_summary.tax > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
@@ -1263,9 +1281,28 @@ END; $$;
 
 CREATE OR REPLACE FUNCTION public.force_grant_admin_access(p_user_id uuid, p_org_id uuid)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_role_id uuid;
 BEGIN
-    UPDATE public.profiles SET role = 'admin', organization_id = p_org_id, is_active = true WHERE id = p_user_id;
-    UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', p_org_id, 'role', 'admin') WHERE id = p_user_id;
+    -- جلب معرف الدور (Admin) الخاص بهذه المنظمة تحديداً
+    SELECT id INTO v_role_id FROM public.roles 
+    WHERE organization_id = p_org_id AND name = 'admin' 
+    LIMIT 1;
+
+    -- تحديث البروفايل بالاسم والرقم التعريفي للدور
+    UPDATE public.profiles 
+    SET role = 'admin', 
+        role_id = v_role_id, 
+        organization_id = p_org_id, 
+        is_active = true 
+    WHERE id = p_user_id;
+
+    -- تحديث بيانات الدخول لضمان التعرف على الشركة في الجلسة
+    UPDATE auth.users 
+    SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || 
+                             jsonb_build_object('org_id', p_org_id, 'role', 'admin') 
+    WHERE id = p_user_id;
+
     RETURN 'تم منح صلاحيات المدير بنجاح ✅';
 END; $$;
 

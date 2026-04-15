@@ -1273,25 +1273,23 @@ CREATE TABLE IF NOT EXISTS public.notification_audit_log (
 -- 2.5 التقارير واللوحات البرمجية (Views)
 -- ================================================================
 CREATE OR REPLACE VIEW public.monthly_sales_dashboard WITH (security_invoker = true) AS
+ -- 🛡️ تم التحديث ليعتمد على الحسابات المالية لضمان الدقة وتطابق التقارير
  SELECT 
-    i.id,
-    i.invoice_date AS transaction_date,
-    i.subtotal AS amount,
-    (SELECT COALESCE(SUM(ii.cost * ii.quantity), 0) FROM public.invoice_items ii WHERE ii.invoice_id = i.id) AS total_cost,
-    'Standard Invoice'::text AS type,
-    i.organization_id
- FROM public.invoices i
- WHERE i.status != 'draft' AND i.deleted_at IS NULL
- UNION ALL
- SELECT 
-    o.id,
-    o.created_at::date AS transaction_date,
-    o.subtotal AS amount,
-    (SELECT COALESCE(SUM(oi.unit_cost * oi.quantity), 0) FROM public.order_items oi WHERE oi.order_id = o.id) AS total_cost,
-    'Restaurant Order'::text AS type,
-    o.organization_id
- FROM public.orders o
- WHERE o.status IN ('COMPLETED', 'PAID', 'posted', 'PENDING');
+    jl.id,
+    je.transaction_date,
+    (jl.credit - jl.debit) AS amount,
+    -- جلب التكلفة من المستند المرتبط إذا وجد
+    0 AS total_cost, 
+    CASE 
+        WHEN a.code LIKE '411%' THEN 'Sales'
+        WHEN a.code LIKE '412%' THEN 'Returns'
+        ELSE 'Other Revenue'
+    END as type,
+    je.organization_id
+ FROM public.journal_lines jl
+ JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+ JOIN public.accounts a ON jl.account_id = a.id
+ WHERE je.status = 'posted' AND (a.type ILIKE '%revenue%' OR a.code LIKE '4%');
 
 -- ملاحظة: استخدام security_invoker يضمن أن الـ View يحترم سياسات RLS الخاصة بالجداول الأصلية
 

@@ -118,7 +118,7 @@ export default function AccountingDashboard() {
     load();
   }, []);
 
-  const { metrics, monthlyData, expenseData, weeklyCashData, recentEntries } = useMemo(() => {
+  const { metrics, monthlyData, expenseData, revenueData, weeklyCashData, recentEntries } = useMemo(() => {
       const currentYear = new Date().getFullYear();
       const startDate = `${currentYear}-01-01`;
       const endDate = `${currentYear}-12-31`;
@@ -127,6 +127,7 @@ export default function AccountingDashboard() {
       let expenses = 0;
       let totalTax = 0;
       const monthlyStats: Record<string, { revenue: number, expense: number }> = {};
+      const revenueMap: Record<string, number> = {};
       const expenseMap: Record<string, number> = {};
       
       const monthsOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -154,6 +155,10 @@ export default function AccountingDashboard() {
                   const amount = credit - debit; 
                   revenue += amount;
                   if (monthlyStats[monthKey]) monthlyStats[monthKey].revenue += amount;
+                  
+                  if (amount !== 0) {
+                      revenueMap[account.name] = (revenueMap[account.name] || 0) + amount;
+                  }
               } 
               else if (type.includes('expense') || type.includes('مصروف') || type.includes('cost') || account.code.startsWith('5')) {
                   const amount = debit - credit;
@@ -198,6 +203,10 @@ export default function AccountingDashboard() {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value)
         .slice(0, 5);
+
+      const revenueChartData = Object.entries(revenueMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
 
       // --- حساب تطور السيولة الأسبوعي ---
       const cashAccountIds = accounts
@@ -267,6 +276,7 @@ export default function AccountingDashboard() {
           },
           monthlyData: chartData,
           expenseData: expenseChartData,
+          revenueData: revenueChartData,
           weeklyCashData: weeklyData,
           recentEntries: recent
       };
@@ -525,6 +535,16 @@ export default function AccountingDashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Revenue Breakdown Pie Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <TrendingUp size={18} className="text-slate-400" /> تحليل مصادر الإيرادات
+          </h3>
+          <div className="h-80 w-full" style={{ minHeight: '320px' }}>
+            <ExpensesBreakdownChart data={revenueData} />
+          </div>
+        </div>
+
         {/* Expense Breakdown Pie Chart */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
