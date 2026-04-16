@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -17,6 +17,7 @@ interface Product {
   purchase_price: number;
   weighted_average_cost?: number;
   stock: number;
+  description?: string | null;
   image_url?: string | null;
   unit?: string;
 }
@@ -53,6 +54,7 @@ const StockCard = () => {
     sku: '',
     barcode: '',
     sales_price: 0,
+    description: '',
     purchase_price: 0,
     unit: 'قطعة',
     product_type: 'STOCK' as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
@@ -463,6 +465,7 @@ const StockCard = () => {
               name: item.name || '',
               sku: item.sku || '',
               barcode: item.barcode || '',
+              description: item.description || '',
               sales_price: item.sales_price || 0,
               purchase_price: item.purchase_price || 0,
               unit: item.unit || 'قطعة',
@@ -515,6 +518,7 @@ const StockCard = () => {
               name: editFormData.name,
               sku: editFormData.sku || null,
               barcode: editFormData.barcode || null,
+              description: editFormData.description || null,
               sales_price: editFormData.sales_price,
               purchase_price: editFormData.purchase_price,
               product_type: editFormData.product_type,
@@ -1010,6 +1014,10 @@ const StockCard = () => {
                                 </div>
                             </div>
                         </div>
+                    </div>
+                    <div className="col-span-2">
+                        <label className="block text-sm font-bold mb-1 text-slate-700">الوصف (Description)</label>
+                        <textarea value={editFormData.description} onChange={e => setEditFormData({...editFormData, description: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" rows={2} placeholder="أدخل تفاصيل إضافية عن الصنف..." />
                     </div>
                     <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
                         <h4 className="font-bold text-yellow-800 mb-3 flex items-center gap-2"><Percent size={16}/> العروض والخصومات</h4>

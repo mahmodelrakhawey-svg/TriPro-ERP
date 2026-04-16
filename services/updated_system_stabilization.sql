@@ -182,6 +182,11 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numer
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5; -- الحد الأدنى للتنبيه
 ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS vat_rate numeric DEFAULT 0.14;
 ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS unit_cost numeric DEFAULT 0; -- تكلفة الوجبات
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS barcode text;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_id uuid REFERENCES public.item_categories(id) ON DELETE SET NULL;
 
 -- تحديثات مديول الرواتب (Payroll Sync)
 ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();

@@ -37,6 +37,7 @@ type Item = {
   sku: string | null;
   barcode?: string | null;
   sales_price: number;
+  description?: string | null;
   purchase_price: number; // هذا هو حقل التكلفة
   weighted_average_cost?: number; // متوسط التكلفة
   stock: number; // هذا هو حقل المخزون
@@ -78,7 +79,7 @@ const ProductManager = () => {
   // إعداد استعلام البيانات
   const queryModifier = useCallback((query: any) => {
     if (debouncedSearch) {
-      query = query.or(`name.ilike.%${debouncedSearch}%,sku.ilike.%${debouncedSearch}%`);
+      query = query.or(`name.ilike.%${debouncedSearch}%,sku.ilike.%${debouncedSearch}%,description.ilike.%${debouncedSearch}%`);
     }
     if (showOffersOnly) {
        const today = new Date().toISOString().split('T')[0];
@@ -95,7 +96,11 @@ const ProductManager = () => {
 
   // في وضع الديمو، نستخدم المنتجات من السياق (الوهمية)
   const items = currentUser?.role === 'demo' 
-    ? contextProducts.filter(i => i.name.includes(searchTerm)) 
+    ? contextProducts.filter(i => 
+        i.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+        (i.sku && i.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        ((i as any).description && (i as any).description.toLowerCase().includes(searchTerm.toLowerCase()))
+      ) 
     : serverItems;
     
   const loading = currentUser?.role === 'demo' ? false : serverLoading;
@@ -195,6 +200,7 @@ const ProductManager = () => {
     sku: '',
     barcode: '',
     sales_price: 0,
+    description: '',
     purchase_price: 0,
     unit: 'قطعة',
     product_type: 'STOCK',
@@ -260,6 +266,7 @@ const ProductManager = () => {
         sku: item.sku || '',
         barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
+        description: item.description || '',
         purchase_price: item.purchase_price || 0,
         unit: (item as any).unit || 'قطعة',
         product_type: (item as any).product_type || (item as any).item_type || 'STOCK', // Handle both for compatibility
@@ -292,6 +299,7 @@ const ProductManager = () => {
         name: '', 
         sku: '', 
         barcode: '',
+        description: '',
         sales_price: 0, 
         purchase_price: 0, 
         unit: 'قطعة',
@@ -319,7 +327,7 @@ const ProductManager = () => {
 
   const handleDownloadTemplate = () => {
     const headers = [
-      { 'اسم المنتج': '', 'الكود (SKU)': '', 'سعر الشراء': '', 'سعر البيع': '', 'الوصف': '', 'الكمية الافتتاحية': '' }
+      { 'اسم المنتج': '', 'الكود (SKU)': '', 'الباركود': '', 'سعر الشراء': '', 'سعر البيع': '', 'نوع المنتج': '', 'الوحدة': '', 'التصنيف': '', 'الوصف': '', 'الكمية الافتتاحية': '' }
     ];
     const ws = XLSX.utils.json_to_sheet(headers);
     const wb = XLSX.utils.book_new();
@@ -651,15 +659,59 @@ const ProductManager = () => {
         const equityAcc = contextAccounts.find(a => a.code === '3999')?.id; // حساب الأرصدة الافتتاحية
         const targetWarehouseId = importWarehouseId || (warehouses.length > 0 ? warehouses[0].id : null);
 
+        // 1. التأكد من وجود كافة التصنيفات وإنشاء المفقود منها تلقائياً
+        const categoryNamesInFile = [...new Set(data
+          .filter(row => row['التصنيف'] || row['Category'] || row['category'])
+          .map(row => String(row['التصنيف'] || row['Category'] || row['category']).trim())
+        )];
+
+        for (const catName of categoryNamesInFile) {
+          const exists = categories.find(c => c.name.trim().toLowerCase() === catName.toLowerCase());
+          if (!exists) {
+            await supabase.from('item_categories').insert({ name: catName, organization_id: orgId });
+          }
+        }
+
+        // جلب القائمة النهائية للتصنيفات لضمان الحصول على المعرفات (IDs) الجديدة
+        const { data: allCats } = await supabase.from('item_categories').select('id, name');
+        const catMap = new Map(allCats?.map(c => [c.name.trim().toLowerCase(), c.id]));
+
+        // دالة تطبيع الوحدات لضمان توافقها مع خيارات النظام
+        const normalizeUnit = (u: string): string => {
+          if (!u) return 'piece';
+          const val = u.trim().toLowerCase();
+          const unitMap: Record<string, string> = {
+            'كجم': 'kg', 'كيلو': 'kg', 'كيلوجرام': 'kg', 'kg': 'kg',
+            'جرام': 'g', 'جم': 'g', 'g': 'g',
+            'لتر': 'l', 'l': 'l',
+            'مل': 'ml', 'مللي': 'ml', 'ملل': 'ml', 'ml': 'ml',
+            'قطعة': 'piece', 'حبة': 'piece', 'حبه': 'piece', 'عدد': 'piece', 'piece': 'piece',
+            'كرتون': 'box', 'علبة': 'box', 'صندوق': 'box', 'box': 'box',
+            'متر': 'm', 'm': 'm',
+            'بالتة': 'pallet', 'بالته': 'pallet', 'pallet': 'pallet',
+            'درزن': 'dozen', 'دسته': 'dozen', 'dozen': 'dozen'
+          };
+          return unitMap[val] || val; // إذا لم يجد تطابقاً، يحفظ النص كما جاء من المستخدم
+        };
+
         // جلب معرف المستخدم مرة واحدة فقط خارج الحلقة
         const { data: { user } } = await supabase.auth.getUser();
 
         for (const row of data as any[]) {
           const name = row['اسم المنتج'] || row['Name'] || row['name'];
           const sku = row['الكود (SKU)'] || row['SKU'] || row['sku'];
+          const barcode = row['الباركود'] || row['Barcode'] || row['barcode'];
           const purchase_price = row['سعر الشراء'] || row['Purchase Price'] || row['Cost'] || row['cost'];
           const sales_price = row['سعر البيع'] || row['Sales Price'] || row['Price'] || row['price'];
           const stock = row['الكمية الافتتاحية'] || row['Stock'] || row['stock'] || 0;
+          const rawType = row['نوع المنتج'] || row['Type'] || row['type'];
+          const unit = row['الوحدة'] || row['Unit'] || row['unit'];
+          const categoryName = row['التصنيف'] || row['Category'] || row['category'];
+          const description = row['الوصف'] || row['Description'] || row['description'];
+
+          const categoryId = categoryName ? catMap.get(String(categoryName).trim().toLowerCase()) : null;
+          
+          const productType = (String(rawType || '').includes('خدم') || String(rawType || '').toLowerCase().includes('serv')) ? 'SERVICE' : 'STOCK';
 
           if (name) {
             try {
@@ -667,11 +719,17 @@ const ProductManager = () => {
               const { data: newProduct, error: prodError } = await supabase.from('products').insert({
                 name: String(name).trim(),
                 sku: sku ? String(sku).trim() : null,
+                barcode: barcode ? String(barcode).trim() : null,
                 sales_price: sales_price ? Number(sales_price) : 0,
                 purchase_price: purchase_price ? Number(purchase_price) : 0,
                 stock: stock ? Number(stock) : 0,
+                opening_balance: stock ? Number(stock) : 0,
+                description: description ? String(description).trim() : null,
+                category_id: categoryId,
+                unit: normalizeUnit(String(unit || '')),
                 organization_id: orgId,
-                item_type: 'STOCK',
+                item_type: productType,
+                product_type: productType,
                 inventory_account_id: defaultInventory,
                 cogs_account_id: defaultCogs,
                 sales_account_id: defaultSales,
@@ -894,6 +952,7 @@ const ProductManager = () => {
             name: formData.name,
             sku: formData.sku || null,
             barcode: formData.barcode || null,
+            description: formData.description || null,
             unit: formData.unit,
             sales_price: formData.sales_price,
             purchase_price: formData.purchase_price,
@@ -927,6 +986,7 @@ const ProductManager = () => {
           name: formData.name,
           sku: formData.sku || null,
           barcode: formData.barcode || null,
+          description: formData.description || null,
           unit: formData.unit,
           sales_price: formData.sales_price,
           purchase_price: formData.purchase_price,
@@ -1097,6 +1157,7 @@ const ProductManager = () => {
         sku: item.sku || '',
         barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
+        description: (item as any).description || '',
         purchase_price: item.purchase_price || 0,
         unit: (item as any).unit || 'قطعة',
         product_type: item.product_type || 'STOCK',
@@ -1822,6 +1883,10 @@ const ProductManager = () => {
                         )}
                     </div>
                   </div>
+                      <div className="col-span-2">
+                        <label className="block text-sm font-bold mb-1 text-slate-700">الوصف (Description)</label>
+                        <textarea value={formData.description} onChange={e => setFormData({...formData, description: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none" rows={2} placeholder="أدخل تفاصيل إضافية عن الصنف..." />
+                      </div>
                   </div>
                 </div>
               </div>

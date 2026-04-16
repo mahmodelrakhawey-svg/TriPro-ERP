@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -58,6 +58,7 @@ const InventoryCountForm = () => {
                 return {
                     productId: p.id,
                     productName: p.name,
+                    productDescription: p.description,
                     systemQty: currentQty,
                     actualQty: currentQty,
                     difference: 0,
@@ -139,7 +140,10 @@ const InventoryCountForm = () => {
   };
 
   const filteredItems = useMemo(() => {
-      return items.filter(i => i.productName.toLowerCase().includes(searchTerm.toLowerCase()));
+      return items.filter(i => 
+        i.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (i.productDescription && i.productDescription.toLowerCase().includes(searchTerm.toLowerCase()))
+      );
   }, [items, searchTerm]);
 
   const totalValueDiff = useMemo(() => {

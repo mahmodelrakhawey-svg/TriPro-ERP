@@ -29,7 +29,7 @@ const ImportCard = ({ title, icon, onDownload, onImport, loading }: { title: str
 );
 
 const DataMigration = () => {
-  const { addOpeningBalanceTransaction, accounts, getSystemAccount, warehouses, refreshData } = useAccounting();
+  const { addOpeningBalanceTransaction, accounts, getSystemAccount, warehouses, refreshData, categories } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState<ImportType | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,7 +49,7 @@ const DataMigration = () => {
         fileName = 'Suppliers_Template.xlsx';
         break;
       case 'products':
-        headers = [{ 'اسم المنتج': '', 'الكود (SKU)': '', 'سعر الشراء': '', 'سعر البيع': '', 'الكمية الافتتاحية': '' }];
+        headers = [{ 'اسم المنتج': '', 'الكود (SKU)': '', 'الباركود': '', 'سعر الشراء': '', 'سعر البيع': '', 'نوع المنتج': '', 'الوحدة': '', 'التصنيف': '', 'الوصف': '', 'الكمية الافتتاحية': '' }];
         fileName = 'Products_Template.xlsx';
         break;
       case 'assets':
@@ -164,12 +164,54 @@ const DataMigration = () => {
       showToast('الحسابات الأساسية أو المستودعات غير معرفة.', 'error'); return;
     }
 
+    // 1. التأكد من وجود كافة التصنيفات وإنشاء المفقود منها تلقائياً
+    const categoryNamesInFile = [...new Set(data
+      .filter(row => row['التصنيف'] || row['Category'])
+      .map(row => String(row['التصنيف'] || row['Category']).trim())
+    )];
+
+    for (const catName of categoryNamesInFile) {
+      const exists = categories.find(c => c.name.trim().toLowerCase() === catName.toLowerCase());
+      if (!exists) {
+        await supabase.from('item_categories').insert({ name: catName, organization_id: orgData?.id });
+      }
+    }
+
+    // جلب القائمة النهائية للتصنيفات لضمان الحصول على المعرفات (IDs) الجديدة
+    const { data: allCats } = await supabase.from('item_categories').select('id, name');
+    const catMap = new Map(allCats?.map(c => [c.name.trim().toLowerCase(), c.id]));
+
+    // دالة تطبيع الوحدات لضمان توافقها مع خيارات النظام
+    const normalizeUnit = (u: string): string => {
+      if (!u) return 'piece';
+      const val = u.trim().toLowerCase();
+      const unitMap: Record<string, string> = {
+        'كجم': 'kg', 'كيلو': 'kg', 'كيلوجرام': 'kg', 'kg': 'kg',
+        'جرام': 'g', 'جم': 'g', 'g': 'g',
+        'لتر': 'l', 'l': 'l',
+        'مل': 'ml', 'مللي': 'ml', 'ملل': 'ml', 'ml': 'ml',
+        'قطعة': 'piece', 'حبة': 'piece', 'حبه': 'piece', 'عدد': 'piece', 'piece': 'piece',
+        'كرتون': 'box', 'علبة': 'box', 'صندوق': 'box', 'box': 'box',
+        'متر': 'm', 'm': 'm',
+        'بالتة': 'pallet', 'بالته': 'pallet', 'pallet': 'pallet'
+      };
+      return unitMap[val] || val;
+    };
+
     let totalOpeningValue = 0;
     const productsToInsert = data.filter(row => row['اسم المنتج']).map(row => {
       const purchase_price = Number(row['سعر الشراء'] || 0);
       const stock = Number(row['الكمية الافتتاحية'] || 0);
+      const barcode = row['الباركود'] || row['Barcode'];
+      const rawType = row['نوع المنتج'] || row['Type'] || row['type'];
+      const categoryName = row['التصنيف'] || row['Category'];
+      const unit = row['الوحدة'] || row['Unit'] || row['unit'];
+      const description = row['الوصف'] || row['Description'] || row['description'];
+
+      const productType = (String(rawType || '').includes('خدم') || String(rawType || '').toLowerCase().includes('serv')) ? 'SERVICE' : 'STOCK';
+      
       if (stock > 0) totalOpeningValue += stock * purchase_price;
-      return { name: String(row['اسم المنتج']).trim(), sku: row['الكود (SKU)'] ? String(row['الكود (SKU)']).trim() : null, sales_price: Number(row['سعر البيع'] || 0), purchase_price, stock, organization_id: orgData?.id, item_type: 'STOCK', inventory_account_id: inventoryAcc.id, cogs_account_id: cogsAcc.id, sales_account_id: salesAcc.id, is_active: true };
+      return { name: String(row['اسم المنتج']).trim(), sku: row['الكود (SKU)'] ? String(row['الكود (SKU)']).trim() : null, barcode: barcode ? String(barcode).trim() : null, sales_price: Number(row['سعر البيع'] || 0), purchase_price, stock, opening_balance: stock, description: description ? String(description).trim() : null, organization_id: orgData?.id, item_type: productType, product_type: productType, inventory_account_id: inventoryAcc.id, cogs_account_id: cogsAcc.id, sales_account_id: salesAcc.id, category_id: catMap.get(String(categoryName || '').trim().toLowerCase()) || null, unit: normalizeUnit(String(unit || '')), is_active: true };
     });
 
     if (productsToInsert.length === 0) { showToast('لا توجد منتجات صالحة للاستيراد.', 'warning'); return; }

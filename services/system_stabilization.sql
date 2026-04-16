@@ -104,6 +104,12 @@ CREATE TABLE IF NOT EXISTS public.item_categories (
 -- تحديث جدول المنتجات
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_id uuid REFERENCES public.item_categories(id);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS barcode text;
+
+-- إضافة أعمدة الوصف والارصدة والحد الأدنى
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description text;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5;
 
 -- إضافة عمود product_type ليتوافق مع الواجهة الأمامية ودوال النظام
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';

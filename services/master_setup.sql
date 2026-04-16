@@ -467,12 +467,14 @@ CREATE TABLE IF NOT EXISTS public.products (
     barcode text,
     sales_price numeric DEFAULT 0,
     purchase_price numeric DEFAULT 0,
+    description text,
     cost numeric DEFAULT 0,
     manufacturing_cost numeric DEFAULT 0, -- عمود جديد
     opening_balance numeric DEFAULT 0, -- الرصيد الافتتاحي (كمية)
     weighted_average_cost numeric DEFAULT 0,
     stock numeric DEFAULT 0,
     unit text, -- وحدة القياس (قطعة، كيلو، إلخ)
+    min_stock numeric DEFAULT 5,
     min_stock_level numeric DEFAULT 0,
     item_type text DEFAULT 'STOCK',
     product_type text DEFAULT 'STOCK', -- إضافة هذا العمود لتوافق الواجهة الأمامية
@@ -1417,14 +1419,17 @@ BEGIN
 END; $$;
 
 -- إضافة منتج مع رصيد افتتاحي وقيد محاسبي آلي
-DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, numeric, numeric, numeric, uuid, text, uuid, uuid, uuid) CASCADE;
-CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance( -- تم تحديث المعلمات
+DROP FUNCTION IF EXISTS public.add_product_with_opening_balance(text, text, text, text, numeric, numeric, numeric, text, uuid, uuid, text, uuid, uuid, uuid) CASCADE;
+CREATE OR REPLACE FUNCTION public.add_product_with_opening_balance(
     p_name text,
     p_sku text,
+    p_barcode text,
+    p_description text,
     p_sales_price numeric,
     p_purchase_price numeric,
     p_stock numeric,
-    p_unit text, -- المعلمة الجديدة
+    p_unit text,
+    p_category_id uuid, -- معلمة جديدة للتصنيف
     p_org_id uuid,
     p_item_type text,
     p_inventory_account_id uuid,
@@ -1442,8 +1447,8 @@ BEGIN
     v_total_value := p_stock * p_purchase_price;
 
     -- 2. إدراج المنتج
-    INSERT INTO public.products (name, sku, sales_price, purchase_price, stock, opening_balance, unit, organization_id, item_type, inventory_account_id, cogs_account_id, sales_account_id)
-    VALUES (p_name, p_sku, p_sales_price, p_purchase_price, p_stock, p_stock, p_unit, p_org_id, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id)
+    INSERT INTO public.products (name, sku, barcode, description, sales_price, purchase_price, stock, opening_balance, unit, category_id, organization_id, item_type, product_type, inventory_account_id, cogs_account_id, sales_account_id)
+    VALUES (p_name, p_sku, p_barcode, p_description, p_sales_price, p_purchase_price, p_stock, p_stock, p_unit, p_category_id, p_org_id, p_item_type, p_item_type, p_inventory_account_id, p_cogs_account_id, p_sales_account_id)
     RETURNING id INTO v_product_id;
 
     -- 3. إنشاء القيد المحاسبي إذا كانت القيمة أكبر من صفر

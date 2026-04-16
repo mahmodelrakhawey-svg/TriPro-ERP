@@ -1137,7 +1137,7 @@ BEGIN
         total_qty := 0; wh_json := '{}'::jsonb;
         FOR wh_record IN SELECT id FROM warehouses WHERE deleted_at IS NULL AND organization_id = v_target_org LOOP
             wh_qty := 0;
-            SELECT COALESCE(SUM(oi.quantity), 0) INTO wh_qty FROM public.opening_inventories oi WHERE oi.product_id = prod_record.id AND oi.warehouse_id = wh_record.id AND oi.organization_id = v_target_org;
+            SELECT wh_qty + COALESCE(SUM(oi.quantity), 0) INTO wh_qty FROM public.opening_inventories oi WHERE oi.product_id = prod_record.id AND oi.warehouse_id = wh_record.id AND oi.organization_id = v_target_org;
             SELECT wh_qty + COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status NOT IN ('draft', 'cancelled') AND pi.organization_id = v_target_org), 0) INTO wh_qty;
             SELECT wh_qty - COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = v_target_org), 0) INTO wh_qty;
             -- 🛡️ إضافة: خصم مبيعات المطعم من المخزون
