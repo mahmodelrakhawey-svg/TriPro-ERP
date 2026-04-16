@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
@@ -30,9 +30,10 @@ type LedgerEntry = {
 
 const GeneralLedger = () => {
   const location = useLocation();
-  const { accounts, currentUser } = useAccounting(); // استخدام السياق بدلاً من الجلب المحلي
+  const { accounts, currentUser, customers } = useAccounting(); // إضافة العملاء من السياق
   const { showToast } = useToast();
   const [selectedAccount, setSelectedAccount] = useState<string>('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [accountSearch, setAccountSearch] = useState('');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -44,7 +45,7 @@ const GeneralLedger = () => {
   const PAGE_SIZE = 50;
   
   // لتخزين معايير البحث الحالية لضمان استمرار التحميل بنفس الشروط
-  const [searchParamsState, setSearchParamsState] = useState<{ids: string[], start: string, end: string} | null>(null);
+  const [searchParamsState, setSearchParamsState] = useState<{ids: string[], start: string, end: string, customerEntryIds: string[] | null} | null>(null);
   
   const observer = useRef<IntersectionObserver | null>(null);
   const lastEntryRef = useCallback((node: HTMLTableRowElement) => {
@@ -121,18 +122,50 @@ const GeneralLedger = () => {
         throw new Error('تعذر تحديد المنظمة التابع لها.');
       }
 
+      // --- منطق فلترة العميل ---
+      let customerEntryIds: string[] | null = null;
+      if (selectedCustomerId) {
+        // جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل
+        const [inv, rec, ret, cn] = await Promise.all([
+          supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+          supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+          supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+          supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null)
+        ]);
+
+        customerEntryIds = Array.from(new Set([
+          ...(inv.data?.map(i => i.related_journal_entry_id) || []),
+          ...(rec.data?.map(r => r.related_journal_entry_id) || []),
+          ...(ret.data?.map(r => r.related_journal_entry_id) || []),
+          ...(cn.data?.map(c => c.related_journal_entry_id) || [])
+        ]));
+
+        if (customerEntryIds.length === 0) {
+          showToast('لا توجد حركات محاسبية مسجلة لهذا العميل', 'info');
+          setEntries([]);
+          setOpeningBalance(0);
+          setLoading(false);
+          return;
+        }
+      }
+
       // حفظ المعايير لاستخدامها في التصفح اللانهائي
-      setSearchParamsState({ ids: targetAccountIds, start: startDate, end: endDate });
+      setSearchParamsState({ ids: targetAccountIds, start: startDate, end: endDate, customerEntryIds });
 
       // 1. حساب رصيد ما قبل الفترة (Opening Balance)
-      // نجمع كل الحركات المرحلة لهذا الحساب التي تاريخها قبل "تاريخ البداية"
-      const { data: openingData, error: openingError } = await supabase
+      let openingQuery = supabase
         .from('journal_lines')
         .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
         .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
         .eq('journal_entries.status', 'posted') // الاعتماد على status='posted' أدق
         .eq('journal_entries.organization_id', userOrgId)
         .lt('journal_entries.transaction_date', startDate || '1970-01-01');
+
+      if (customerEntryIds) {
+        openingQuery = openingQuery.in('journal_entry_id', customerEntryIds);
+      }
+
+      const { data: openingData, error: openingError } = await openingQuery;
 
       if (openingError) throw openingError;
 
@@ -141,7 +174,7 @@ const GeneralLedger = () => {
       setOpeningBalance(openBal);
 
       // 2. جلب الصفحة الأولى من البيانات
-      await fetchPageData(0, targetAccountIds, startDate, endDate, openBal, true);
+      await fetchPageData(0, targetAccountIds, startDate, endDate, openBal, true, customerEntryIds);
 
     } catch (error: any) {
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
@@ -150,7 +183,7 @@ const GeneralLedger = () => {
   };
 
   // دالة جلب البيانات (تستخدم للبحث الأولي ولتحميل المزيد)
-  const fetchPageData = async (pageIndex: number, ids: string[], start: string, end: string, baseBalance: number, isReset: boolean) => {
+  const fetchPageData = async (pageIndex: number, ids: string[], start: string, end: string, baseBalance: number, isReset: boolean, customerEntryIds: string[] | null) => {
     setLoading(true);
     try {
       const from = pageIndex * PAGE_SIZE;
@@ -163,7 +196,7 @@ const GeneralLedger = () => {
         throw new Error('تعذر تحديد المنظمة.');
       }
 
-      const { data: periodData, error: periodError } = await supabase
+      let query = supabase
         .from('journal_lines')
         .select(`
           id, debit, credit,
@@ -176,8 +209,13 @@ const GeneralLedger = () => {
         .eq('journal_entries.organization_id', userOrgId)
         .gte('journal_entries.transaction_date', start || '1970-01-01')
         .lte('journal_entries.transaction_date', end)
-        .order('transaction_date', { foreignTable: 'journal_entries', ascending: true }) // ترتيب من السيرفر
-        .range(from, to);
+        .order('transaction_date', { foreignTable: 'journal_entries', ascending: true });
+
+      if (customerEntryIds) {
+        query = query.in('journal_entry_id', customerEntryIds);
+      }
+
+      const { data: periodData, error: periodError } = await query.range(from, to);
 
       if (periodError) throw periodError;
 
@@ -211,7 +249,7 @@ const GeneralLedger = () => {
     if (page > 0 && searchParamsState) {
       // حساب الرصيد الأخير من القائمة الحالية لنبدأ منه
       const lastBalance = entries.length > 0 ? entries[entries.length - 1].balance : openingBalance;
-      fetchPageData(page, searchParamsState.ids, searchParamsState.start, searchParamsState.end, lastBalance, false);
+      fetchPageData(page, searchParamsState.ids, searchParamsState.start, searchParamsState.end, lastBalance, false, searchParamsState.customerEntryIds);
     }
   }, [page]);
 
@@ -259,6 +297,17 @@ const GeneralLedger = () => {
                     ))}
                 </select>
             </div>
+        </div>
+        <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">تصفية حسب العميل (اختياري)</label>
+            <select 
+                value={selectedCustomerId}
+                onChange={(e) => setSelectedCustomerId(e.target.value)}
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 bg-white text-sm"
+            >
+                <option value="">-- كل العملاء --</option>
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
         </div>
         <div>
             <label className="block text-sm font-bold text-slate-700 mb-1">من تاريخ</label>

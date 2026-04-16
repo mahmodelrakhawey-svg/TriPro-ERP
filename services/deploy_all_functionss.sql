@@ -168,8 +168,8 @@ BEGIN
             'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
             'get_product_recipe_cost', 'recalculate_stock_rpc',
             'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema', 
-            'create_public_order', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift',
-            'get_or_create_qr_for_table'
+            'create_public_order', 'request_bill_via_qr', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift',
+            'get_or_create_qr_for_table', 'get_restaurant_sales_report'
         )
         THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature); -- Drop by full signature
@@ -188,10 +188,9 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
-    -- Placeholder for refreshing SaaS schema/cache.
-    -- In a real Supabase/PostgREST setup, this would typically trigger a PostgREST schema reload
-    -- (e.g., by sending a NOTIFY 'pgrst', 'reload schema';) or refresh materialized views.
-    RETURN 'SaaS schema refresh triggered (placeholder).';
+    -- الأمر السحري لإعادة تحميل كاش الـ API (Schema Reload)
+    EXECUTE 'NOTIFY pgrst, ''reload config''';
+    RETURN 'تم تحديث هيكل البيانات وتنشيط الكاش بنجاح ✅';
 END;
 $$;
 
@@ -579,10 +578,10 @@ BEGIN
         INSERT INTO public.table_sessions (table_id, organization_id, status)
         VALUES (v_table.id, v_table.organization_id, 'OPEN')
         RETURNING id INTO v_session_id;
-        
-        -- تحديث حالة الطاولة لتظهر "مشغولة" في شاشة الكاشير فوراً
-        UPDATE public.restaurant_tables SET status = 'OCCUPIED' WHERE id = v_table.id;
     END IF;
+
+    -- 🚀 تحديث حالة الطاولة لتظهر "مشغولة" في شاشة الكاشير فوراً (خارج الشرط لضمان التزامن)
+    UPDATE public.restaurant_tables SET status = 'OCCUPIED' WHERE id = v_table.id;
 
     -- 3. جلب نسبة الضريبة من إعدادات المطعم
     SELECT vat_rate INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_table.organization_id;
@@ -1306,6 +1305,40 @@ BEGIN
     RETURN 'تم منح صلاحيات المدير بنجاح ✅';
 END; $$;
 
+-- 📊 دالة تقرير مبيعات المطعم (The Missing Report Function)
+CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(
+    p_org_id uuid,
+    p_start_date date,
+    p_end_date date
+)
+RETURNS TABLE (
+    item_name text,
+    category_name text,
+    quantity numeric,
+    total_sales numeric
+) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.name as item_name,
+        COALESCE(cat.name, 'غير مصنف') as category_name,
+        SUM(oi.quantity)::numeric as quantity,
+        SUM(oi.total_price)::numeric as total_sales
+    FROM public.order_items oi
+    JOIN public.orders o ON oi.order_id = o.id
+    JOIN public.products p ON oi.product_id = p.id
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    WHERE o.organization_id = p_org_id
+      AND o.status IN ('COMPLETED', 'PAID', 'posted')
+      AND o.created_at::date BETWEEN p_start_date AND p_end_date
+    GROUP BY p.name, cat.name
+    ORDER BY total_sales DESC;
+END;
+$$;
+
 -- 🛠️ دالة توليد أو جلب مفتاح QR للطاولة (Restaurant QR Menu)
 CREATE OR REPLACE FUNCTION public.get_or_create_qr_for_table(p_table_id uuid)
 RETURNS json LANGUAGE plpgsql SECURITY DEFINER 
@@ -1365,6 +1398,41 @@ BEGIN
     -- إذا تم إدراج فاتورة حالتها 'posted' (كما يحدث عند تحويل عروض الأسعار) وليس لها قيد
     IF NEW.status = 'posted' AND NEW.related_journal_entry_id IS NULL THEN
         PERFORM public.approve_invoice(NEW.id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_auto_approve_invoice ON public.invoices;
+CREATE TRIGGER trg_auto_approve_invoice
+    AFTER INSERT OR UPDATE OF status ON public.invoices
+    FOR EACH ROW
+    EXECUTE FUNCTION public.fn_auto_approve_invoice_on_insert();
+
+-- 🛠️ مشغل إضافي لمراقبة بنود الفاتورة (لضمان معالجة الفواتير التي تصل بنودها متأخرة)
+CREATE OR REPLACE FUNCTION public.fn_auto_approve_invoice_on_items_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- إذا كانت الفاتورة الأم 'posted' وبدون قيد، نحاول اعتمادها الآن بعد توفر البنود
+    IF EXISTS (
+        SELECT 1 FROM public.invoices 
+        WHERE id = NEW.invoice_id AND status = 'posted' AND related_journal_entry_id IS NULL
+    ) THEN
+        PERFORM public.approve_invoice(NEW.invoice_id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_auto_approve_invoice_items ON public.invoice_items;
+CREATE TRIGGER trg_auto_approve_invoice_items
+    AFTER INSERT ON public.invoice_items
+    FOR EACH ROW
+    EXECUTE FUNCTION public.fn_auto_approve_invoice_on_items_insert();
+
+-- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
+SELECT public.refresh_saas_schema();
+NOTIFY pgrst, 'reload config';
     END IF;
     RETURN NEW;
 END;

@@ -6,7 +6,7 @@ import { InvoiceItem } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { z } from 'zod';
 
-const QuotationForm = () => {
+const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, onSaveSuccess?: () => void }) => {
   const { products, customers, currentUser, settings } = useAccounting();
   const { showToast } = useToast();
   
@@ -25,6 +25,46 @@ const QuotationForm = () => {
   ]);
 
   const [savedQuote, setSavedQuote] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // تحميل بيانات عرض السعر إذا كان في وضع التعديل
+  React.useEffect(() => {
+    if (quotationId) {
+      const loadQuotation = async () => {
+        setIsLoading(true);
+        try {
+          const { data: quote, error } = await supabase
+            .from('quotations')
+            .select('*, items:quotation_items(*)')
+            .eq('id', quotationId)
+            .single();
+
+          if (error) throw error;
+          if (quote) {
+            setFormData({
+              customerId: quote.customer_id,
+              date: quote.quotation_date,
+              expiryDate: quote.expiry_date,
+              notes: quote.notes || '',
+            });
+            setItems(quote.items.map((item: any) => ({
+              id: item.id,
+              productId: item.product_id,
+              productName: products.find(p => p.id === item.product_id)?.name || '',
+              quantity: item.quantity,
+              unitPrice: item.unit_price,
+              total: item.total
+            })));
+          }
+        } catch (err: any) {
+          showToast('خطأ في تحميل العرض: ' + err.message, 'error');
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      loadQuotation();
+    }
+  }, [quotationId, products]);
 
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
   const taxRate = settings.enableTax ? (settings.vatRate ? settings.vatRate / 100 : 0.15) : 0;
@@ -112,22 +152,42 @@ const QuotationForm = () => {
     }
 
     try {
-        const quotationNumber = `QT-${Date.now().toString().slice(-6)}`;
-        
-        // 1. حفظ العرض
-        const { data: quote, error: quoteError } = await supabase.from('quotations').insert({
-            quotation_number: quotationNumber,
-            customer_id: formData.customerId,
-            quotation_date: formData.date,
-            expiry_date: formData.expiryDate,
-            subtotal: subtotal,
-            tax_amount: taxAmount,
-            total_amount: totalAmount,
-            status: 'draft',
-            notes: formData.notes
-        }).select().single();
-
-        if (quoteError) throw quoteError;
+        let quote;
+        if (quotationId) {
+            // تحديث عرض سعر موجود
+            const { data, error } = await supabase.from('quotations').update({
+                customer_id: formData.customerId,
+                quotation_date: formData.date,
+                expiry_date: formData.expiryDate,
+                subtotal,
+                tax_amount: taxAmount,
+                total_amount: totalAmount,
+                notes: formData.notes
+            }).eq('id', quotationId).select().single();
+            
+            if (error) throw error;
+            quote = data;
+            
+            // حذف البنود القديمة لإعادة إضافتها (طريقة بسيطة للتحديث)
+            await supabase.from('quotation_items').delete().eq('quotation_id', quotationId);
+        } else {
+            // إنشاء عرض سعر جديد
+            const quotationNumber = `QT-${Date.now().toString().slice(-6)}`;
+            const { data, error } = await supabase.from('quotations').insert({
+                quotation_number: quotationNumber,
+                customer_id: formData.customerId,
+                quotation_date: formData.date,
+                expiry_date: formData.expiryDate,
+                subtotal: subtotal,
+                tax_amount: taxAmount,
+                total_amount: totalAmount,
+                status: 'draft',
+                notes: formData.notes
+            }).select().single();
+            
+            if (error) throw error;
+            quote = data;
+        }
 
         // 2. حفظ البنود
         const quoteItems = items.map(item => ({
@@ -141,9 +201,14 @@ const QuotationForm = () => {
         const { error: itemsError } = await supabase.from('quotation_items').insert(quoteItems);
         if (itemsError) throw itemsError;
 
-        setSavedQuote("تم الحفظ");
-        setItems([{ id: Date.now().toString(), productName: '', product_name: '', quantity: 1, unitPrice: 0, unit_price: 0, total: 0 }]);
-        setFormData(prev => ({ ...prev, customerId: '', notes: '' }));
+        setSavedQuote(quotationId ? "تم التحديث" : "تم الحفظ");
+        if (!quotationId) {
+            setItems([{ id: Date.now().toString(), productName: '', product_name: '', quantity: 1, unitPrice: 0, unit_price: 0, total: 0 }]);
+            setFormData(prev => ({ ...prev, customerId: '', notes: '' }));
+        }
+        
+        if (onSaveSuccess) onSaveSuccess();
+        
         setTimeout(() => setSavedQuote(null), 3000);
 
     } catch (error: any) {

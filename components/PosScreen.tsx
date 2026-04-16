@@ -4,7 +4,7 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import type { RestaurantTable, Product, OrderItem, SelectedModifier } from '../types';
-import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode, Clock, Users } from 'lucide-react';
+import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode, Clock, Users, DollarSign } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from './PrintableInvoice';
 import { KitchenTicket } from './KitchenTicket';
@@ -66,7 +66,12 @@ const TableCard = ({ table, onClick, isActive, onDelete, onEdit, onReserve, onQr
   const startTime = (table as any).session_start || (table as any).active_session?.start_time;
 
   return (
-    <div className={`rounded-xl border-2 cursor-pointer transition-all flex flex-col shadow-sm ${statusStyles[table.status]} ${isActive ? 'ring-4 ring-blue-400 scale-[1.02]' : ''}`}>
+    <div className={`rounded-xl border-2 cursor-pointer transition-all flex flex-col shadow-sm relative ${statusStyles[table.status]} ${isActive ? 'ring-4 ring-blue-400 scale-[1.02]' : ''}`}>
+      {table.status === 'OCCUPIED' && (table as any).bill_requested && (
+          <div className="absolute -top-2 -right-2 bg-red-600 text-white p-1.5 rounded-full animate-bounce shadow-lg z-10 border-2 border-white" title="طلب الحساب!">
+              <DollarSign size={16} strokeWidth={3} />
+          </div>
+      )}
       <div onClick={onClick} className="p-3 flex-1 flex flex-col justify-between min-h-[100px]">
         <div className="flex justify-between items-start">
             <div className="font-black text-xl truncate w-2/3" title={table.name}>{table.name}</div>
@@ -1147,8 +1152,8 @@ const PosScreen = () => {
          p_notes: null,
        };
  
-       // BYPASS OFFLINE QUEUE: Send directly to Supabase
-       const { error } = await supabase.rpc('create_restaurant_order', payload);
+       // تنفيذ أمر الطباعة وتوليد الطلب في قاعدة البيانات والتقاط المعرف الجديد
+       const { data: newOrderId, error } = await supabase.rpc('create_restaurant_order', payload);
        if (error) throw error;
        showToast('تم إرسال الطلب للمطبخ بنجاح ✅', 'success');
  
@@ -1166,9 +1171,8 @@ const PosScreen = () => {
  
        setActiveOrder(prev => {
          if (!prev) return null;
-         // If it's a new order, we don't have an orderId yet, but that's okay.
-         // The UI will just show the items as saved.
-         return { ...prev, items: newItems };
+         // تحديث الطلب بالمعرف الحقيقي فوراً لتمكين زر الدفع دون ريفريش
+         return { ...prev, items: newItems, orderId: newOrderId };
        });
  
      } catch (error: any) {
@@ -1239,6 +1243,8 @@ const PosScreen = () => {
       setOrderToPrint(orderToFinalize);
       setLastOrder(orderToFinalize);
 
+      setIsSubmitting(true); // تعطيل الأزرار لمنع النقرات المزدوجة
+      try {
       // تحديد حساب الخزينة
       const cashAccount = accounts.find(a => a.code === SYSTEM_ACCOUNTS.CASH);
       if (!cashAccount) {
@@ -1262,7 +1268,21 @@ const PosScreen = () => {
           }
       } else {
           await completeRestaurantOrder(activeOrder.orderId, method, total, cashAccount.id);
+          
+          // تصفير حالة طلب الحساب عند إتمام الدفع
+          if (activeOrder.type === 'dine-in' && activeOrder.tableId) {
+              await supabase.from('restaurant_tables').update({ bill_requested: false }).eq('id', activeOrder.tableId);
+          }
+
           setActiveOrder(null); // مسح الطلب النشط بعد الدفع الكامل
+          
+          // تحديث قائمة الطلبات الخارجية يدوياً لضمان الاختفاء الفوري من الجانب الأيسر
+          setOpenExternalOrders(prev => prev.filter(o => o.id !== activeOrder.orderId));
+      }
+      } catch (e: any) {
+          showToast('فشل إتمام الدفع: ' + e.message, 'error');
+      } finally {
+          setIsSubmitting(false);
       }
 
       setIsPaymentModalOpen(false);
@@ -1399,6 +1419,9 @@ const PosScreen = () => {
 
       showToast('تم تسجيل الفاتورة كذمة على العميل بنجاح ✅', 'success');
       setActiveOrder(null);
+      
+      // إخفاء من قائمة الطلبات الخارجية فوراً في حالة الدفع الآجل أيضاً
+      setOpenExternalOrders(prev => prev.filter(o => o.id !== activeOrder.orderId));
     } catch (error: any) {
       console.error(error);
       showToast('حدث خطأ أثناء تسجيل الدفع الآجل: ' + error.message, 'error');

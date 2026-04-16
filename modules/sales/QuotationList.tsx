@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { ArrowRight, Printer, Filter, FileDown, Copy, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { ArrowRight, Printer, Filter, FileDown, Copy, ChevronLeft, ChevronRight, Loader2, FilePlus, Edit, X, Trash2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
 import { usePagination } from '../../components/usePagination';
+import QuotationForm from './QuotationForm';
 
 // Define the interface for Quotation
 interface Quotation {
@@ -23,10 +24,12 @@ interface Quotation {
 }
 
 const QuotationList = () => {
-  const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser, settings } = useAccounting();
+  const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser, settings, approveInvoice } = useAccounting();
   const { showToast } = useToast();
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [convertData, setConvertData] = useState({ warehouseId: '', treasuryId: '', paidAmount: 0 });
 
   // Filter State
@@ -114,17 +117,15 @@ const QuotationList = () => {
 
               const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
               const paidAmount = Number(convertData.paidAmount) || 0;
-              const remainingAmount = quote.total_amount - paidAmount;
-              const status = remainingAmount <= 0 ? 'paid' : 'posted';
 
-              // 2. إنشاء الفاتورة
+              // 2. إنشاء الفاتورة كمسودة أولاً (Draft) لضمان صحة دورة الترحيل المحاسبي
               const { data: invoice, error: invError } = await supabase.from('invoices').insert({
                   invoice_number: invoiceNumber,
                   customer_id: quote.customer_id,
                   invoice_date: new Date().toISOString().split('T')[0],
                   total_amount: quote.total_amount,
                   tax_amount: quote.tax_amount,
-                  status: status,
+                  status: 'draft',
                   paid_amount: paidAmount,
                   treasury_account_id: paidAmount > 0 ? convertData.treasuryId : null,
                   subtotal: quote.subtotal,
@@ -133,23 +134,23 @@ const QuotationList = () => {
 
               if (invError) throw invError;
 
-              // 3. إضافة البنود (مع حفظ التكلفة لضمان دقة القيد)
-              for (const item of quoteItems) {
-                  const productCost = item.products?.cost || item.products?.purchase_price || 0;
-                  await supabase.from('invoice_items').insert({
-                      invoice_id: invoice.id,
-                      product_id: item.product_id,
-                      quantity: item.quantity,
-                      unit_price: item.unit_price, // تم التعديل للقراءة من المسمى الجديد في عروض الأسعار
-                      total: item.total,
-                      cost: productCost,
-                      organization_id: invoice.organization_id
-                  });
-              }
+              // 3. إضافة البنود دفعة واحدة (Bulk Insert) للأداء العالي ودقة البيانات
+              const itemsToInsert = quoteItems.map(item => ({
+                  invoice_id: invoice.id,
+                  product_id: item.product_id,
+                  quantity: item.quantity,
+                  unit_price: item.unit_price,
+                  total: item.total,
+                  cost: item.products?.cost || item.products?.purchase_price || 0,
+                  organization_id: invoice.organization_id
+              }));
 
-              // 4. استدعاء الترحيل المحاسبي من قاعدة البيانات (لضمان تطابق شكل القيد)
-              const { error: approveError } = await supabase.rpc('approve_invoice', { p_invoice_id: invoice.id });
-              if (approveError) throw approveError;
+              const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
+              if (itemsError) throw itemsError;
+
+              // 4. استدعاء وظيفة الاعتماد من السياق لإنشاء قيد اليومية وخصم المخزون
+              const success = await approveInvoice(invoice.id);
+              if (!success) throw new Error('فشل ترحيل الفاتورة محاسبياً');
 
               // 5. تحديث حالة العرض
               await supabase.from('quotations').update({ status: 'converted' }).eq('id', selectedQuoteId);
@@ -168,6 +169,24 @@ const QuotationList = () => {
   const handleUpdateStatus = async (id: string, status: string) => {
       await supabase.from('quotations').update({ status }).eq('id', id);
       refresh();
+  };
+
+  const handleDeleteQuotation = async (id: string, number: string) => {
+    if (window.confirm(`هل أنت متأكد من حذف عرض السعر رقم ${number}؟ لا يمكن التراجع عن هذا الإجراء.`)) {
+      try {
+        const { error } = await supabase
+          .from('quotations')
+          .delete()
+          .eq('id', id);
+
+        if (error) throw error;
+
+        showToast('تم حذف عرض السعر بنجاح', 'success');
+        refresh();
+      } catch (error: any) {
+        showToast('خطأ في الحذف: ' + error.message, 'error');
+      }
+    }
   };
 
   const getStatusBadge = (status: string) => {
@@ -279,21 +298,98 @@ const QuotationList = () => {
     }
 
     try {
+      // 1. جلب الأصناف الأصلية المرتبطة بعرض السعر هذا
+      const { data: originalItems, error: itemsFetchError } = await supabase
+        .from('quotation_items')
+        .select('*')
+        .eq('quotation_id', quote.id);
+
+      if (itemsFetchError) throw itemsFetchError;
+
       const newQuotationNumber = `QT-${Date.now().toString().slice(-6)}`;
-      const { data, error } = await supabase.from('quotations').insert({
-        ...quote,
-        id: uuidv4(), 
+      
+      // استخراج البيانات الصافية واستبعاد الكائنات المرتبطة التي تسبب الخطأ
+      // مثل 'customers' و المعرفات التلقائية
+      const { 
+        id: oldId, 
+        created_at, 
+        customers, 
+        ...cleanData 
+      } = quote;
+
+      // 2. إدراج رأس عرض السعر الجديد
+      const { data: newQuote, error: quoteError } = await supabase.from('quotations').insert({
+        ...cleanData,
         quotation_number: newQuotationNumber,
         status: 'draft',
       }).select().single();
 
-      if(error) throw error;
+      if(quoteError) throw quoteError;
+
+      // 3. تكرار الأصناف إذا وجدت وربطها بالعرض الجديد
+      if (originalItems && originalItems.length > 0) {
+        const duplicatedItems = originalItems.map(item => {
+          const { id, ...itemData } = item; // استبعاد المعرف القديم للأصناف
+          return {
+            ...itemData,
+            quotation_id: newQuote.id, // ربطه بمعرف عرض السعر الجديد
+          };
+        });
+
+        const { error: itemsInsertError } = await supabase.from('quotation_items').insert(duplicatedItems);
+        if (itemsInsertError) throw itemsInsertError;
+      }
 
       showToast(`تم إنشاء نسخة من عرض السعر برقم ${newQuotationNumber}`, 'success');
       refresh();
     } catch (error: any) {
       console.error(error);
       showToast('فشل نسخ عرض السعر: ' + error.message, 'error');
+    }
+  };
+
+  const handleDuplicateAndConvert = async (quote: any) => {
+    if (currentUser?.role === 'demo') {
+      showToast('تكرار عروض الأسعار غير متاح في النسخة التجريبية', 'warning');
+      return;
+    }
+
+    try {
+      // 1. جلب الأصناف الأصلية
+      const { data: originalItems, error: itemsFetchError } = await supabase
+        .from('quotation_items')
+        .select('*')
+        .eq('quotation_id', quote.id);
+
+      if (itemsFetchError) throw itemsFetchError;
+
+      const newQuotationNumber = `QT-${Date.now().toString().slice(-6)}`;
+      const { id: oldId, created_at, customers, ...cleanData } = quote;
+
+      // 2. إنشاء نسخة العرض (بوضع Draft مؤقتاً)
+      const { data: newQuote, error: quoteError } = await supabase.from('quotations').insert({
+        ...cleanData,
+        quotation_number: newQuotationNumber,
+        status: 'draft',
+      }).select().single();
+
+      if(quoteError) throw quoteError;
+
+      // 3. تكرار الأصناف
+      if (originalItems && originalItems.length > 0) {
+        const duplicatedItems = originalItems.map(item => {
+          const { id, ...itemData } = item;
+          return { ...itemData, quotation_id: newQuote.id };
+        });
+        await supabase.from('quotation_items').insert(duplicatedItems);
+      }
+
+      // 4. تحديث القائمة وفتح نافذة التحويل للعرض الجديد فوراً
+      await refresh();
+      handleConvertClick(newQuote.id);
+      showToast(`تم إنشاء النسخة ${newQuotationNumber}، اختر المستودع لإصدار الفاتورة`, 'success');
+    } catch (error: any) {
+      showToast('فشل التكرار والتحويل: ' + error.message, 'error');
     }
   };
 
@@ -408,6 +504,33 @@ const QuotationList = () => {
                               <button onClick={() => handleExportPDF(q)} className="text-red-500 bg-red-50 px-2 py-1 rounded text-xs hover:bg-red-100 flex items-center gap-1" title="PDF">
                                   <FileDown size={14} />
                               </button>
+                              {q.status !== 'converted' && q.status !== 'rejected' && (
+                                  <button 
+                                      onClick={() => { setEditingId(q.id); setEditModalOpen(true); }}
+                                      className="text-blue-600 bg-blue-50 px-2 py-1 rounded text-xs hover:bg-blue-100 flex items-center gap-1 font-medium"
+                                      title="تعديل العرض"
+                                  >
+                                      <Edit size={14} /> تعديل
+                                  </button>
+                              )}
+                              {q.status !== 'converted' && q.status !== 'rejected' && (
+                                  <button 
+                                      onClick={() => handleDeleteQuotation(q.id, q.quotation_number)}
+                                      className="text-red-500 bg-red-50 px-2 py-1 rounded text-xs hover:bg-red-100 flex items-center gap-1 font-medium"
+                                      title="حذف العرض"
+                                  >
+                                      <Trash2 size={14} /> حذف
+                                  </button>
+                              )}
+                              {q.status !== 'converted' && q.status !== 'rejected' && (
+                                  <button 
+                                      onClick={() => handleDuplicateAndConvert(q)}
+                                      className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs hover:bg-indigo-100 flex items-center gap-1 font-medium"
+                                      title="تكرار العرض وتحويله لفاتورة مباشرة"
+                                  >
+                                      <FilePlus size={14} /> تكرار وفواترة
+                                  </button>
+                              )}
                               {q.status !== 'converted' && q.status !== 'rejected' && (<>
                                     <button 
                                         onClick={() => handleDuplicateQuotation(q)}
@@ -487,6 +610,26 @@ const QuotationList = () => {
                         <button onClick={() => setConvertModalOpen(false)} className="w-full bg-slate-100 text-slate-600 py-2.5 rounded-lg mt-2 font-medium hover:bg-slate-200 transition-colors">إلغاء</button>
                       </div>
                   </div>
+              </div>
+          </div>
+      )}
+
+      {editModalOpen && editingId && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 no-print">
+              <div className="bg-white rounded-xl p-6 w-full max-w-5xl max-h-[90vh] overflow-y-auto shadow-2xl animate-in zoom-in duration-200">
+                  <div className="flex justify-between items-center mb-4 border-b pb-4">
+                      <h3 className="text-lg font-bold text-slate-800">تعديل عرض السعر</h3>
+                      <button onClick={() => setEditModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors">
+                          <X size={24} />
+                      </button>
+                  </div>
+                  <QuotationForm 
+                      quotationId={editingId} 
+                      onSaveSuccess={() => {
+                          setEditModalOpen(false);
+                          refresh();
+                      }} 
+                  />
               </div>
           </div>
       )}

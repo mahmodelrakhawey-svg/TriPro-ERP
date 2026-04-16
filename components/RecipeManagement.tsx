@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
-import { Search, Plus, Trash2, Save, Loader2, UtensilsCrossed, Info, X, DollarSign } from 'lucide-react';
+import { Search, Plus, Trash2, Save, Loader2, UtensilsCrossed, Info, X, DollarSign, Zap, Users } from 'lucide-react';
 
 interface Ingredient {
   raw_material_id: string;
@@ -13,7 +13,7 @@ interface Ingredient {
 }
 
 const RecipeManagement = ({ productId, productName, onClose }: { productId: string, productName: string, onClose: () => void }) => {
-  const { products, settings } = useAccounting();
+  const { products, settings, updateProduct } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -94,6 +94,15 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
   const handleSave = async () => {
     setSaving(true);
     try {
+      // 0. تحديث تكاليف العمالة والمصاريف في بطاقة الصنف أولاً
+      const { error: prodError } = await supabase.from('products').update({
+          labor_cost: additionalCosts.labor,
+          overhead_cost: additionalCosts.overhead,
+          is_overhead_percentage: additionalCosts.isOverheadPercentage
+      }).eq('id', productId);
+
+      if (prodError) throw prodError;
+
       // 1. مسح المكونات القديمة لضمان نظافة البيانات
       const { error: deleteError } = await supabase
         .from('bill_of_materials')
@@ -240,6 +249,46 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
                 </table>
               )}
             </div>
+          </div>
+
+          {/* تكاليف إضافية (العمالة والكهرباء) */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div>
+                  <label className="block text-xs font-bold text-slate-500 mb-1 flex items-center gap-1">
+                      <Users size={14} /> تكلفة العمالة (ثابتة)
+                  </label>
+                  <input 
+                      type="number" 
+                      value={additionalCosts.labor} 
+                      onChange={e => setAdditionalCosts({...additionalCosts, labor: parseFloat(e.target.value) || 0})}
+                      className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                      placeholder="0.00"
+                  />
+              </div>
+              <div>
+                  <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-bold text-slate-500 flex items-center gap-1">
+                          <Zap size={14} /> كهرباء ومصاريف أخرى
+                      </label>
+                      <button 
+                          type="button" 
+                          onClick={() => setAdditionalCosts({...additionalCosts, isOverheadPercentage: !additionalCosts.isOverheadPercentage})}
+                          className={`text-[10px] px-1.5 py-0.5 rounded border ${additionalCosts.isOverheadPercentage ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-400 border-slate-200'}`}
+                      >
+                          {additionalCosts.isOverheadPercentage ? '%' : 'قيمة'}
+                      </button>
+                  </div>
+                  <div className="relative">
+                    <input 
+                        type="number" 
+                        value={additionalCosts.overhead} 
+                        onChange={e => setAdditionalCosts({...additionalCosts, overhead: parseFloat(e.target.value) || 0})}
+                        className="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+                        placeholder="0.00"
+                    />
+                    {additionalCosts.isOverheadPercentage && <span className="absolute left-3 top-2 text-slate-400">%</span>}
+                  </div>
+              </div>
           </div>
 
           <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 space-y-2">

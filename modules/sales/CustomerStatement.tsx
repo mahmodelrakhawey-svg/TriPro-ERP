@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
-import { Printer, FileText, Loader2, Search, Download, MessageCircle } from 'lucide-react';
+import { Printer, FileText, Loader2, Search, Download, MessageCircle, AlertTriangle, ShieldAlert, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useToast } from '../../context/ToastContext';
 
@@ -15,6 +15,7 @@ type Transaction = {
   debit: number;  // مدين (فاتورة)
   credit: number; // دائن (سداد/مرتجع)
   balance: number;
+  isPosted: boolean; // هل تم ترحيلها للقيد؟
 };
 
 interface CustomerStatementProps {
@@ -22,7 +23,7 @@ interface CustomerStatementProps {
 }
 
 const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId }) => {
-  const { customers, settings, currentUser } = useAccounting();
+  const { customers, settings, currentUser, approveInvoice } = useAccounting();
   const [searchParams] = useSearchParams();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
@@ -31,6 +32,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   const [openingBalance, setOpeningBalance] = useState(0);
   const [closingBalance, setClosingBalance] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [showUnpostedOnly, setShowUnpostedOnly] = useState(false);
+  const [unpostedCount, setUnpostedCount] = useState(0);
   const { showToast } = useToast();
   
   const selectedCustomer = customers.find(c => c.id.toString() === selectedCustomerId.toString());
@@ -51,9 +54,9 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
     if (currentUser?.role === 'demo') {
         setTransactions([
-            { id: 'd1', date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-101', description: 'فاتورة مبيعات آجلة', debit: 5000, credit: 0, balance: 5000 },
-            { id: 'd2', date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0], type: 'receipt', reference: 'RV-DEMO-55', description: 'دفعة نقدية من الحساب', debit: 0, credit: 2000, balance: 3000 },
-            { id: 'd3', date: new Date().toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-102', description: 'فاتورة مبيعات جديدة', debit: 1500, credit: 0, balance: 4500 }
+            { id: 'd1', date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-101', description: 'فاتورة مبيعات آجلة', debit: 5000, credit: 0, balance: 5000, isPosted: true },
+            { id: 'd2', date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0], type: 'receipt', reference: 'RV-DEMO-55', description: 'دفعة نقدية من الحساب', debit: 0, credit: 2000, balance: 3000, isPosted: true },
+            { id: 'd3', date: new Date().toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-102', description: 'فاتورة مبيعات جديدة', debit: 1500, credit: 0, balance: 4500, isPosted: true }
         ]);
         setOpeningBalance(0);
         setClosingBalance(4500);
@@ -74,38 +77,38 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         const filter = { customer_id: selectedCustomerId, organization_id: userOrgId };       
         // 1. Fetch Invoices (Debit)
         const { data: invoices } = await supabase.from('invoices')
-            .select('id, invoice_number, invoice_date, total_amount, paid_amount')
+            .select('id, invoice_number, invoice_date, total_amount, paid_amount, related_journal_entry_id')
             .match(filter) // Apply filter here
             .neq('status', 'draft');
 
         // 2. Fetch Returns (Credit)
         const { data: returns } = await supabase.from('sales_returns')
-            .select('id, return_number, return_date, total_amount')
+            .select('id, return_number, return_date, total_amount, related_journal_entry_id')
             .match(filter) // Apply filter here
             .eq('status', 'posted');
 
         // 3. Fetch Receipts (Credit)
         const { data: receipts } = await supabase.from('receipt_vouchers')
-            .select('id, voucher_number, receipt_date, amount, notes')
+            .select('id, voucher_number, receipt_date, amount, notes, related_journal_entry_id')
             .match(filter) // Apply filter here
             // استبعاد سندات التأمين (التي تبدأ بـ DEP-)
             .not('voucher_number', 'like', 'DEP-%');
 
         // 4. Fetch Credit Notes (Credit)
         const { data: creditNotes } = await supabase.from('credit_notes')
-            .select('id, credit_note_number, note_date, total_amount')
+            .select('id, credit_note_number, note_date, total_amount, related_journal_entry_id')
             .match(filter) // Apply filter here
             .eq('status', 'posted'); // Assuming credit notes have a status
         // 5. Fetch Cheques (Credit)
         const { data: cheques } = await supabase.from('cheques')
-            .select('id, cheque_number, due_date, amount, created_at')
+            .select('id, cheque_number, due_date, amount, created_at, related_journal_entry_id')
             .eq('party_id', selectedCustomerId)
             .eq('type', 'incoming')
             .neq('status', 'rejected');
 
         // 6. Fetch Restaurant Orders (Debit) - جلب طلبات المطعم (توصيل/سفري/محلي)
         const { data: restOrders } = await supabase.from('orders')
-            .select('id, order_number, created_at, subtotal, total_tax, order_type')
+            .select('id, order_number, created_at, subtotal, total_tax, order_type, related_journal_entry_id')
             .match(filter) // Apply filter here
             .neq('status', 'CANCELLED');
 
@@ -124,40 +127,53 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
         invoices?.forEach(inv => {
             allTrans.push({
-                date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مبيعات', 
-                debit: inv.total_amount, credit: 0 
+                id: inv.id,
+                type: 'invoice',
+                date: inv.invoice_date, ref: inv.invoice_number, desc: 'فاتورة مبيعات', 
+                debit: inv.total_amount, credit: 0, 
+                isPosted: !!inv.related_journal_entry_id // فحص وجود القيد
             });
             // إضافة سطر سداد إذا كان هناك مبلغ مدفوع مقدماً في الفاتورة
             if (inv.paid_amount && inv.paid_amount > 0) {
                 allTrans.push({
+                    id: inv.id, // ربط سطر السداد بنفس معرف الفاتورة للإصلاح
                     date: inv.invoice_date, type: 'receipt', ref: inv.invoice_number, desc: 'دفعة مقدمة مع الفاتورة', 
-                    debit: 0, credit: inv.paid_amount 
+                    debit: 0, credit: inv.paid_amount,
+                    isPosted: !!inv.related_journal_entry_id
                 });
             }
         });
 
         returns?.forEach(ret => allTrans.push({
+            id: ret.id,
             date: ret.return_date, type: 'return', ref: ret.return_number, desc: 'مرتجع مبيعات', 
-            debit: 0, credit: ret.total_amount 
+            debit: 0, credit: ret.total_amount,
+            isPosted: !!ret.related_journal_entry_id
         }));
 
         receipts?.forEach(rec => allTrans.push({
+            id: rec.id,
             date: rec.receipt_date, type: 'receipt', ref: rec.voucher_number, desc: rec.notes || 'سند قبض', 
-            debit: 0, credit: rec.amount 
+            debit: 0, credit: rec.amount,
+            isPosted: !!rec.related_journal_entry_id
         }));
 
         creditNotes?.forEach(cn => allTrans.push({
+            id: cn.id,
             date: cn.note_date, type: 'credit_note', ref: cn.credit_note_number, desc: 'إشعار دائن', 
-            debit: 0, credit: cn.total_amount 
+            debit: 0, credit: cn.total_amount,
+            isPosted: !!cn.related_journal_entry_id
         }));
 
         cheques?.forEach(chq => allTrans.push({
+            id: chq.id,
             date: chq.created_at ? chq.created_at.split('T')[0] : chq.due_date, 
             type: 'receipt', 
             ref: chq.cheque_number, 
             desc: `شيك رقم ${chq.cheque_number}`, 
             debit: 0, 
-            credit: chq.amount 
+            credit: chq.amount,
+            isPosted: !!chq.related_journal_entry_id
         }));
 
         // إضافة حركات المطعم (مدين)
@@ -170,11 +186,13 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                 else if (ord.order_type === 'DINE_IN') typeLabel = 'طلب محلي 🍽️';
 
                 allTrans.push({
+                    id: ord.id,
                     date: ord.created_at,
                     type: 'invoice', // نعامله كفاتورة (استحقاق)
                     ref: ord.order_number,
                     desc: typeLabel,
-                    debit: total,
+                    debit: total, 
+                    isPosted: !!ord.related_journal_entry_id,
                     credit: 0
                 });
             }
@@ -183,11 +201,13 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         // إضافة مدفوعات المطعم (دائن)
         restPayments?.forEach(pay => {
             allTrans.push({
+                id: pay.id,
                 date: pay.created_at,
                 type: 'receipt',
                 ref: 'POS-PAY',
                 desc: `سداد طلب مطعم (${pay.payment_method === 'CASH' ? 'نقدي' : 'شبكة'})`,
-                debit: 0,
+                debit: 0, 
+                isPosted: true, // مدفوعات المطعم ترحل ضمن قيد الوردية
                 credit: pay.amount
             });
         });
@@ -204,14 +224,15 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                 openBal += (t.debit - t.credit);
             } else if (t.date <= endDate) {
                 periodTrans.push({
-                    id: Math.random().toString(),
+                    id: t.id, // استخدام المعرف الحقيقي فقط
                     date: t.date,
                     type: t.type,
                     reference: t.ref,
                     description: t.desc,
                     debit: t.debit,
                     credit: t.credit,
-                    balance: 0
+                    balance: 0,
+                    isPosted: t.isPosted
                 });
             }
         });
@@ -223,6 +244,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             return { ...t, balance: runningBal };
         });
 
+        setUnpostedCount(finalTrans.filter(t => !t.isPosted).length);
         setOpeningBalance(openBal);
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
@@ -233,6 +255,100 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     } finally {
         setLoading(false);
     }
+  };
+
+  const handleFixEntry = async (id: string, ref: string, type: string) => {
+        const typeLabel = type === 'invoice' ? 'فاتورة' : type === 'return' ? 'مرتجع' : 'مستند';
+          if (window.confirm(`جاري فحص وتصحيح الربط المحاسبي لـ ${typeLabel} رقم ${ref}. هل تريد المتابعة؟`)) {
+          try {
+                 setLoading(true);
+              
+              // 1. الوقاية من التكرار: ابحث أولاً في دفتر اليومية عن قيد موجود مسبقاً لهذا المستند
+              const { data: existingEntry } = await supabase
+                  .from('journal_entries')
+                  .select('id')
+                  .eq('related_document_id', id)
+                  .maybeSingle();
+
+              if (existingEntry) {
+                  // إذا وجدنا القيد، نقوم فقط بتحديث الرابط في جدول المستند (دون إنشاء قيد جديد)
+                  const table = type === 'invoice' ? 'invoices' : type === 'return' ? 'sales_returns' : 'credit_notes';
+                  await supabase.from(table).update({ related_journal_entry_id: existingEntry.id, status: 'posted' }).eq('id', id);
+                  showToast(`تم العثور على القيد رقم ${ref} وإعادة ربطه بنجاح ✅`, 'success');
+              } else {
+                  // 2. إذا لم نجد القيد، نقوم بإنشائه بالطريقة الرسمية
+                  let success = false;
+                  if (type === 'invoice') {
+                      success = await approveInvoice(id);
+                  } else if (type === 'return') {
+                      const { error } = await supabase.rpc('approve_sales_return', { p_return_id: id });
+                      if (error) throw error;
+                      success = true;
+                  } else if (type === 'credit_note') {
+                      const { error } = await supabase.rpc('approve_credit_note', { p_note_id: id });
+                      if (error) throw error;
+                      success = true;
+                  }
+
+                  if (success) {
+                      showToast(`تم إنشاء قيد يومية جديد لـ ${typeLabel} رقم ${ref} بنجاح ✅`, 'success');
+                  } else {
+                      throw new Error('فشلت عملية الاعتماد المحاسبي');
+                  }         
+              }
+              await fetchStatement(); 
+
+          } catch (error: any) {
+              showToast('فشل إصلاح القيد: ' + error.message, 'error');
+              } finally {
+              setLoading(false);          
+          }
+      }
+  };
+
+  const handleFixAll = async () => {
+      const fixableTypes = ['invoice', 'return', 'credit_note'];
+      const unposted = transactions.filter(t => !t.isPosted && fixableTypes.includes(t.type));
+      
+      if (unposted.length === 0) return;
+
+      if (window.confirm(`هل تريد محاولة إصلاح جميع المستندات الـ (${unposted.length}) دفعة واحدة؟ سيقوم النظام بإنشاء كافة القيود المفقودة آلياً.`)) {
+          setLoading(true);
+          let successes = 0;
+          for (const t of unposted) {
+              try {
+                  // 1. الوقاية: ابحث أولاً في دفتر اليومية عن قيد موجود مسبقاً لهذا المستند
+                  const { data: existingEntry } = await supabase
+                      .from('journal_entries')
+                      .select('id')
+                      .eq('related_document_id', t.id)
+                      .maybeSingle();
+
+                  if (existingEntry) {
+                      // إذا وجدنا القيد، نقوم فقط بتحديث الرابط في جدول المستند
+                      const table = t.type === 'invoice' ? 'invoices' : t.type === 'return' ? 'sales_returns' : 'credit_notes';
+                      await supabase.from(table).update({ related_journal_entry_id: existingEntry.id, status: 'posted' }).eq('id', t.id);
+                      successes++;
+                  } else {
+                      // 2. إذا لم نجد القيد، نقوم بإنشائه بالطريقة الرسمية المنضبطة
+                      let success = false;
+                      if (t.type === 'invoice') {
+                          success = await approveInvoice(t.id);
+                      } else if (t.type === 'return') {
+                          const { error: rpcError } = await supabase.rpc('approve_sales_return', { p_return_id: t.id });
+                          if (!rpcError) success = true;
+                      } else if (t.type === 'credit_note') {
+                          const { error: rpcError } = await supabase.rpc('approve_credit_note', { p_note_id: t.id });
+                          if (!rpcError) success = true;
+                      }
+                      if (success) successes++;
+                  }
+              } catch (e) { console.error(e); }
+          }
+          showToast(`اكتملت العملية: تم إصلاح ${successes} مستند بنجاح ✅`, 'success');
+          fetchStatement();
+          setLoading(false);
+      }
   };
 
   // Fetch data when filters change
@@ -318,7 +434,41 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">إلى تاريخ</label>
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border rounded-lg p-2 bg-slate-50" />
           </div>
+          <div className="md:col-span-3 flex items-center gap-2 mt-2 pt-4 border-t border-slate-100">
+            <input 
+              type="checkbox" 
+              id="unpostedFilter" 
+              checked={showUnpostedOnly} 
+              onChange={e => setShowUnpostedOnly(e.target.checked)} 
+              className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
+            />
+            <label htmlFor="unpostedFilter" className="text-sm font-bold text-slate-700 cursor-pointer select-none">
+              إظهار فقط الحركات التي ليس لها قيد يومية (وضع المراجعة والتدقيق)
+            </label>
+          </div>
       </div>
+
+      {unpostedCount > 0 && (
+          <div className="bg-red-50 border-2 border-red-200 p-4 rounded-xl flex items-center justify-between animate-bounce print:hidden">
+              <div className="flex items-center gap-4">
+                  <div className="bg-red-100 p-2 rounded-lg">
+                      <ShieldAlert className="text-red-600" size={24} />
+                  </div>
+                  <div>
+                      <h4 className="font-black text-red-900 text-sm">تنبيه عدم تطابق محاسبي!</h4>
+                      <p className="text-red-700 text-xs font-bold">يوجد عدد ({unpostedCount}) مستندات في كشف الحساب لم يتم إنشاء قيود يومية لها. هذا سيجعل رصيد دفتر الأستاذ غير مطابق لرصيد العميل.</p>
+                  </div>
+              </div>
+              <button 
+                onClick={handleFixAll}
+                disabled={loading}
+                className="bg-red-600 text-white px-6 py-2 rounded-lg font-black text-sm hover:bg-red-700 transition-all shadow-md flex items-center gap-2 shrink-0"
+              >
+                {loading ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                إصلاح الكل الآن
+              </button>
+          </div>
+      )}
 
       {selectedCustomerId && (
           <div id="printable-statement" className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-8 animate-in fade-in">
@@ -355,10 +505,25 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                               <td colSpan={5} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
                               <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
                           </tr>
-                          {transactions.map((t, idx) => (
+                          {transactions.filter(t => !showUnpostedOnly || !t.isPosted).map((t, idx) => (
                               <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                   <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
-                                  <td className="p-4 font-mono font-bold text-blue-600">{t.reference}</td>
+                                  <td className="p-4 font-mono font-bold text-blue-600 flex items-center gap-2">
+                                      {t.reference}
+                                      {!t.isPosted && (
+                                          <div className="flex items-center gap-1">
+                                              <span title="هذا المستند ليس له قيد يومية!">
+                                                  <AlertTriangle size={14} className="text-red-500" />
+                                              </span>
+                                              <button 
+                                                onClick={() => handleFixEntry(t.id, t.reference, t.type)}
+                                                className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] hover:bg-indigo-100 transition-colors flex items-center gap-1 border border-indigo-200"
+                                              >
+                                                  <RefreshCw size={10} /> إصلاح القيد
+                                              </button>
+                                          </div>
+                                      )}
+                                  </td>
                                   <td className="p-4 text-slate-700">{t.description}</td>
                                   <td className="p-4 text-center font-bold text-emerald-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
                                   <td className="p-4 text-center font-bold text-red-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
