@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { 
     PieChart, TrendingUp, Landmark, Scale, Banknote, 
-    FileText, BarChartBig, ArrowRight 
+    FileText, BarChartBig, ArrowRight, AlertTriangle 
 } from 'lucide-react';
 
 const Reports = () => {
@@ -55,6 +55,13 @@ const Reports = () => {
       icon: <FileText size={32} className="text-slate-600" />,
       path: '/customer-statement', // يمكن توجيهه لصفحة اختيار نوع الكشف لاحقاً
       color: 'bg-slate-50 border-slate-100'
+    },
+    {
+      title: 'انحراف تكلفة الهالك',
+      description: 'تحليل أثر الهالك على متوسط تكلفة المخزون والربحية',
+      icon: <AlertTriangle size={32} className="text-amber-600" />,
+      path: '/wastage-report',
+      color: 'bg-amber-50 border-amber-100'
     }
   ];
 

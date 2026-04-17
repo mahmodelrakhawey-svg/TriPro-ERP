@@ -111,6 +111,18 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             .select('id, order_number, created_at, subtotal, total_tax, order_type, related_journal_entry_id')
             .match(filter) // Apply filter here
             .neq('status', 'CANCELLED');
+            
+        // 8. Fetch Manual Journal Entries / Opening Balances (OB- / ADJ-)
+        // جلب قيود اليومية التي تحتوي على اسم العميل في الشرح أو تبدأ بمرجع رصيد افتتاحي
+        const { data: manualEntries } = await supabase.from('journal_entries')
+            .select(`
+                id, reference, transaction_date, description, status,
+                journal_lines!inner(debit, credit, account_id, accounts!inner(code))
+            `)
+            .eq('organization_id', userOrgId)
+            .eq('status', 'posted')
+            .or(`description.ilike.%${selectedCustomer?.name}%,reference.ilike.OB-%`)
+            .filter('journal_lines.accounts.code', 'ilike', '122%'); // تصفية الحسابات المديرة للعملاء
 
         // 7. Fetch Restaurant Payments (Credit) - جلب مدفوعات المطعم المرتبطة
         let restPayments: any[] = [];
@@ -212,6 +224,29 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             });
         });
 
+        // إضافة القيود اليدوية والأرصدة الافتتاحية
+        manualEntries?.forEach(je => {
+            // تحسين فحص التكرار ليشمل المراجع التي تبدأ ببادئة مثل CHQ- أو RV-
+            const isDuplicate = allTrans.some(t => 
+                t.ref === je.reference || 
+                je.reference === `CHQ-${t.ref}` || 
+                je.reference === `RV-${t.ref}` ||
+                je.reference === `INV-${t.ref}`
+            );
+
+            if (!isDuplicate) {
+                // هام: نأخذ فقط المبالغ التي أثرت على حسابات العملاء (122...) وليس إجمالي القيد
+                const customerLines = je.journal_lines?.filter((l: any) => l.accounts.code.startsWith('122')) || [];
+                const debit = customerLines.reduce((sum: number, l: any) => sum + Number(l.debit), 0);
+                const credit = customerLines.reduce((sum: number, l: any) => sum + Number(l.credit), 0);
+
+                allTrans.push({
+                    id: je.id, date: je.transaction_date, type: 'invoice', ref: je.reference, 
+                    desc: je.description, debit, credit, isPosted: true
+                });
+            }
+        });
+
         // Sort chronologically
         allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
@@ -266,11 +301,16 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
               // 1. الوقاية من التكرار: ابحث أولاً في دفتر اليومية عن قيد موجود مسبقاً لهذا المستند
               const { data: existingEntry } = await supabase
                   .from('journal_entries')
-                  .select('id')
-                  .eq('related_document_id', id)
+                  .select('id, related_document_id')
+                  .or(`related_document_id.eq.${id},reference.eq.${ref}`)
                   .maybeSingle();
 
               if (existingEntry) {
+                  // إذا وجدنا القيد عن طريق المرجع ولكن الرابط التقني مفقود، نقوم بإصلاحه في جدول القيود أيضاً
+                  if (!existingEntry.related_document_id) {
+                      await supabase.from('journal_entries').update({ related_document_id: id }).eq('id', existingEntry.id);
+                  }
+
                   // إذا وجدنا القيد، نقوم فقط بتحديث الرابط في جدول المستند (دون إنشاء قيد جديد)
                   const table = type === 'invoice' ? 'invoices' : type === 'return' ? 'sales_returns' : 'credit_notes';
                   await supabase.from(table).update({ related_journal_entry_id: existingEntry.id, status: 'posted' }).eq('id', id);
@@ -320,11 +360,16 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                   // 1. الوقاية: ابحث أولاً في دفتر اليومية عن قيد موجود مسبقاً لهذا المستند
                   const { data: existingEntry } = await supabase
                       .from('journal_entries')
-                      .select('id')
-                      .eq('related_document_id', t.id)
+                      .select('id, related_document_id')
+                      .or(`related_document_id.eq.${t.id},reference.eq.${t.reference}`)
                       .maybeSingle();
 
                   if (existingEntry) {
+                      // إصلاح الرابط المفقود في جدول القيود
+                      if (!existingEntry.related_document_id) {
+                          await supabase.from('journal_entries').update({ related_document_id: t.id }).eq('id', existingEntry.id);
+                      }
+
                       // إذا وجدنا القيد، نقوم فقط بتحديث الرابط في جدول المستند
                       const table = t.type === 'invoice' ? 'invoices' : t.type === 'return' ? 'sales_returns' : 'credit_notes';
                       await supabase.from(table).update({ related_journal_entry_id: existingEntry.id, status: 'posted' }).eq('id', t.id);
@@ -509,7 +554,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                               <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                   <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
                                   <td className="p-4 font-mono font-bold text-blue-600 flex items-center gap-2">
-                                      {t.reference}
+                                      {/* إخفاء البادئات عند العرض فقط ليكون المظهر أنيقاً وموحداً */}
+                                      {t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-)/, '')}
                                       {!t.isPosted && (
                                           <div className="flex items-center gap-1">
                                               <span title="هذا المستند ليس له قيد يومية!">

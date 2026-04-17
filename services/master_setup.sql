@@ -58,11 +58,10 @@ SECURITY DEFINER
 SET search_path = public, auth, pg_temp
 AS $$
 BEGIN
-    -- الوصول السريع لمعرف المنظمة من الـ JWT أو من جدول auth.users الداخلي
-    -- تجنب الاستعلام من profiles لمنع تكرار فحص السياسات (Infinite Recursion)
+    -- توحيد منطق الهوية لمنع تضارب الأرصدة في بيئة SaaS
     RETURN COALESCE(
         (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
-        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid())
+        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
     );
 END; $$;
 
@@ -305,8 +304,8 @@ CREATE TABLE IF NOT EXISTS public.company_settings (
     address text,
     footer_text text,
     logo_url text,
-    vat_rate numeric DEFAULT 0.15,
-    currency text DEFAULT 'SAR',
+    vat_rate numeric DEFAULT 0.14,
+    currency text DEFAULT 'EGP',
     enable_tax boolean DEFAULT true,
     allow_negative_stock boolean DEFAULT false,
     prevent_price_modification boolean DEFAULT false,
@@ -540,7 +539,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
     treasury_account_id uuid REFERENCES public.accounts(id),
     cost_center_id uuid REFERENCES public.cost_centers(id),
-    currency text DEFAULT 'SAR',
+    currency text DEFAULT 'EGP',
     exchange_rate numeric DEFAULT 1,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     approver_id uuid REFERENCES auth.users(id), -- عمود جديد
@@ -1373,19 +1372,120 @@ END; $$;
 -- 3.7 صيانة وتحديث الأرصدة (Balance Maintenance)
 -- ================================================================
 
--- تحديث رصيد العميل الواحد (مدين - دائن)
-CREATE OR REPLACE FUNCTION public.update_single_customer_balance(p_customer_id uuid)
-RETURNS void LANGUAGE plpgsql AS $$
-DECLARE v_balance numeric := 0;
+-- 🛡️ دالة احتساب متوسط التكلفة المرجح (WAC) السيادية
+CREATE OR REPLACE FUNCTION public.calculate_product_wac(p_product_id UUID, p_org_id UUID)
+RETURNS NUMERIC AS $$
+DECLARE
+    v_qty NUMERIC := 0; v_val NUMERIC := 0;
+    v_ret_qty NUMERIC := 0; v_ret_val NUMERIC := 0;
+    v_wastage_qty NUMERIC := 0;
 BEGIN
-    -- فواتير (مدين) - سندات (دائن) - مرتجعات (دائن) - إشعارات دائنة (دائن)
-    SELECT COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) INTO v_balance FROM public.invoices WHERE customer_id = p_customer_id AND status != 'draft';
-    SELECT v_balance - COALESCE((SELECT SUM(amount) FROM public.receipt_vouchers WHERE customer_id = p_customer_id), 0) INTO v_balance;
-    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.sales_returns WHERE customer_id = p_customer_id AND status = 'posted'), 0) INTO v_balance;
-    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.credit_notes WHERE customer_id = p_customer_id AND status = 'posted'), 0) INTO v_balance;
+    -- 1. وعاء المشتريات (الافتتاحي + الفواتير)
+    SELECT 
+        (COALESCE(p.opening_balance, 0) + COALESCE(SUM(pii.quantity), 0)),
+        (COALESCE(p.opening_balance * p.purchase_price, 0) + COALESCE(SUM(pii.quantity * pii.unit_price * COALESCE(pi.exchange_rate, 1)), 0))
+    INTO v_qty, v_val
+    FROM public.products p
+    LEFT JOIN public.purchase_invoice_items pii ON pii.product_id = p.id
+    LEFT JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id AND pi.status IN ('posted', 'paid')
+    WHERE p.id = p_product_id AND p.organization_id = p_org_id
+    GROUP BY p.id, p.opening_balance, p.purchase_price;
 
-    UPDATE public.customers SET balance = v_balance WHERE id = p_customer_id;
-END; $$;
+    -- 2. خصم المرتجعات (تخصم الكمية والقيمة لتقليل وعاء التكلفة)
+    SELECT COALESCE(SUM(pri.quantity), 0), COALESCE(SUM(pri.total), 0)
+    INTO v_ret_qty, v_ret_val
+    FROM public.purchase_return_items pri
+    JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id
+    WHERE pri.product_id = p_product_id AND pr.organization_id = p_org_id AND pr.status = 'posted';
+    -- 3. إضافة مرتجعات المبيعات (تزيد الكمية والقيمة في الوعاء)
+    SELECT COALESCE(SUM(sri.quantity), 0), COALESCE(SUM(sri.quantity * COALESCE(ii.cost, p.weighted_average_cost, 0)), 0)
+    INTO v_sales_ret_qty, v_sales_ret_val
+    FROM public.sales_return_items sri
+    JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
+    JOIN public.products p ON sri.product_id = p.id
+    LEFT JOIN public.invoice_items ii ON sr.original_invoice_id = ii.invoice_id AND sri.product_id = ii.product_id
+    WHERE sri.product_id = p_product_id AND sr.organization_id = p_org_id AND sr.status = 'posted';
+
+        -- 4. خصم كميات الهالك (تخصم الكمية فقط لتوزيع التكلفة على المتبقي)
+
+    SELECT COALESCE(SUM(sai.quantity), 0)
+    INTO v_wastage_qty
+    FROM public.stock_adjustment_items sai
+    JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id
+    WHERE sai.product_id = p_product_id AND sa.organization_id = p_org_id AND sa.status = 'posted' AND (sa.reason ILIKE '%wastage%' OR sa.reason ILIKE '%هالك%');
+
+    -- الحساب النهائي المطور: (المشتريات - مرتجع مشتريات + مرتجع مبيعات) / (كمية المشتريات - مرتجع مشتريات + مرتجع مبيعات - الهالك)
+    IF (v_qty - v_ret_qty + v_sales_ret_qty - v_wastage_qty) > 0 THEN 
+        RETURN ROUND((v_val - v_ret_val + v_sales_ret_val) / (v_qty - v_ret_qty + v_sales_ret_qty - v_wastage_qty), 4);
+    ELSE 
+        RETURN (SELECT COALESCE(purchase_price, 0) FROM public.products WHERE id = p_product_id);
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- تحديث رصيد العميل الواحد (مدين - دائن)
+-- 🛡️ تحديث: دالة جلب الرصيد الموحدة (المتوافقة مع نظام الاستقرار)
+CREATE OR REPLACE FUNCTION public.get_customer_balance(p_customer_id UUID, p_org_id UUID)
+RETURNS NUMERIC AS $$
+DECLARE
+    v_total NUMERIC := 0;
+BEGIN
+    -- 1. الرصيد الافتتاحي من العمود (بداية الحساب)
+    SELECT COALESCE(opening_balance, 0) INTO v_total
+    FROM public.customers WHERE id = p_customer_id;
+
+    -- 2. المدين: الفواتير (نستبعد فواتير الرصيد الافتتاحي OB لمنع التكرار مع العمود)
+    SELECT v_total + COALESCE(SUM(total_amount), 0) INTO v_total
+    FROM public.invoices 
+    WHERE customer_id = p_customer_id AND organization_id = p_org_id 
+    AND status != 'draft' AND invoice_number NOT LIKE 'OB-%';
+
+    -- 3. المدين: طلبات المطاعم
+    SELECT v_total + COALESCE(SUM(subtotal + total_tax), 0) INTO v_total
+    FROM public.orders WHERE customer_id = p_customer_id AND organization_id = p_org_id AND status != 'CANCELLED';
+    
+    -- 4. الدائن: سندات القبض
+    SELECT v_total - COALESCE(SUM(amount), 0) INTO v_total
+    FROM public.receipt_vouchers WHERE customer_id = p_customer_id AND organization_id = p_org_id AND voucher_number NOT LIKE 'DEP-%';
+
+    -- 5. الدائن: مرتجعات المبيعات والإشعارات
+    SELECT v_total - COALESCE(SUM(total_amount), 0) INTO v_total
+    FROM public.sales_returns WHERE customer_id = p_customer_id AND organization_id = p_org_id AND status = 'posted';
+    SELECT v_total - COALESCE(SUM(total_amount), 0) INTO v_total
+    FROM public.credit_notes WHERE customer_id = p_customer_id AND organization_id = p_org_id AND status = 'posted';
+
+    -- 6. الدائن: الشيكات الواردة (مطابقة لكشف الحساب: كل شيء ما عدا المرفوض)
+    SELECT v_total - COALESCE(SUM(amount), 0) INTO v_total
+    FROM public.cheques WHERE party_id = p_customer_id AND organization_id = p_org_id AND type = 'incoming' AND status != 'rejected';
+
+    -- 7. القيود اليدوية: نأخذ فقط القيود التي ليس لها مستند مرتبط وغير تابعة للرصيد الافتتاحي
+    SELECT v_total + COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_total
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = p_org_id 
+    AND je.status = 'posted'
+    AND je.related_document_id IS NULL 
+    AND je.reference NOT LIKE 'OB-%'
+    AND a.code LIKE '1221%';
+
+    RETURN v_total;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 🛡️ مشغل التزامن التلقائي (لضمان عمل الرصيد في الماستر سيت أب)
+CREATE OR REPLACE FUNCTION public.sync_customer_balance_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        UPDATE public.customers SET balance = get_customer_balance(OLD.customer_id, OLD.organization_id) WHERE id = OLD.customer_id;
+        RETURN OLD;
+    ELSE
+        UPDATE public.customers SET balance = get_customer_balance(NEW.customer_id, NEW.organization_id) WHERE id = NEW.customer_id;
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- تحديث رصيد المورد الواحد
 CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id uuid)
@@ -1660,4 +1760,19 @@ FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
 SELECT public.refresh_saas_schema();
 NOTIFY pgrst, 'reload config';
+-- 📊 تقرير تحليل انحراف التكلفة بسبب الهالك
+CREATE OR REPLACE VIEW public.vw_inventory_wastage_analysis AS
+SELECT 
+    p.id as product_id,
+    p.name as product_name,
+    p.purchase_price as avg_purchase_price, -- متوسط سعر الشراء المسجل
+    p.weighted_average_cost as actual_wac, -- التكلفة الفعلية (بعد تأثير الهالك)
+    (p.weighted_average_cost - p.purchase_price) as cost_increase_per_unit, -- مقدار الزيادة في تكلفة الوحدة
+    p.stock as current_stock,
+    (p.stock * (p.weighted_average_cost - p.purchase_price)) as total_wastage_impact_value, -- إجمالي الأثر المالي للهالك على المخزون الحالي
+    p.organization_id
+FROM public.products p
+WHERE p.weighted_average_cost > p.purchase_price;
+
+COMMENT ON VIEW public.vw_inventory_wastage_analysis IS 'يوضح هذا التقرير مدى ارتفاع تكلفة الصنف عن سعر شرائه الأصلي نتيجة استبعاد الكميات الهالكة من وعاء التكلفة';
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅

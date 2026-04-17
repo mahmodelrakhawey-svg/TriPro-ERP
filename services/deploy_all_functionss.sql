@@ -13,16 +13,11 @@ BEGIN
     -- إذا كان المستخدم غير مسجل دخول، نرجع null ولا نعطل الاستعلام
     IF auth.uid() IS NULL THEN RETURN NULL; END IF;
 
-    -- 🛡️ إذا كان المستخدم سوبر أدمن، نسمح له بالتبديل عبر الـ JWT دون تغيير البروفايل
-    v_org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
-    IF v_org_id IS NOT NULL AND (auth.jwt() -> 'user_metadata' ->> 'role') = 'super_admin' THEN RETURN v_org_id; END IF;
-
-    -- 🛡️ محاولة الجلب من جدول البروفايل أولاً (المصدر الأكثر ثقة لضمان عزل الشركات)
-    v_org_id := (SELECT organization_id FROM public.profiles WHERE id = auth.uid() LIMIT 1);
-    IF v_org_id IS NOT NULL THEN RETURN v_org_id; END IF;
-
-    -- 🛡️ محاولة جلب المعرف من التوكن (JWT) كخيار بديل
-    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
+    -- ضمان جلب معرف المنظمة الصحيح دائماً لدعم SaaS ومنع تضارب العملات
+    RETURN COALESCE(
+        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
+        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
+    );
 END; $$;
 
 -- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS) مع الحذف المتتالي (CASCADE)
@@ -312,11 +307,14 @@ BEGIN
 
     -- 4. تحديث المخزون وحساب المتوسط المرجح
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
-        v_item_price_base := v_item.unit_price * v_exchange_rate;
-        SELECT stock, weighted_average_cost INTO v_current_stock, v_current_avg_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
-        v_current_stock := COALESCE(v_current_stock, 0); v_current_avg_cost := COALESCE(v_current_avg_cost, 0); -- حساب التكلفة المرجحة
-        IF (v_current_stock + v_item.quantity) > 0 THEN v_new_avg_cost := ((v_current_stock * v_current_avg_cost) + (v_item.quantity * v_item_price_base)) / (v_current_stock + v_item.quantity); ELSE v_new_avg_cost := v_item_price_base; END IF;
-        UPDATE public.products SET stock = stock + v_item.quantity, weighted_average_cost = v_new_avg_cost, cost = v_new_avg_cost, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
+        -- تحديث الكمية أولاً
+        UPDATE public.products SET stock = stock + v_item.quantity, 
+        warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)) 
+        WHERE id = v_item.product_id AND organization_id = v_org_id;
+        
+        -- إعادة احتساب التكلفة المرجحة فوراً
+        UPDATE public.products SET weighted_average_cost = public.calculate_product_wac(id, organization_id), cost = public.calculate_product_wac(id, organization_id)
+        WHERE id = v_item.product_id AND organization_id = v_org_id;
     END LOOP;
 
     -- 5. حساب إجماليات الفاتورة بالعملة المحلية للقيد
@@ -405,6 +403,10 @@ BEGIN
 
     FOR v_item IN SELECT * FROM public.purchase_return_items WHERE purchase_return_id = p_return_id LOOP
         UPDATE public.products SET stock = stock - v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_return.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_return.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
+
+        -- 🚀 إعادة احتساب التكلفة المرجحة فوراً لتشمل الكميات العائدة
+        UPDATE public.products SET weighted_average_cost = public.calculate_product_wac(id, organization_id), cost = public.calculate_product_wac(id, organization_id)
+        WHERE id = v_item.product_id AND organization_id = v_org_id;
     END LOOP;
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
@@ -1398,41 +1400,6 @@ BEGIN
     -- إذا تم إدراج فاتورة حالتها 'posted' (كما يحدث عند تحويل عروض الأسعار) وليس لها قيد
     IF NEW.status = 'posted' AND NEW.related_journal_entry_id IS NULL THEN
         PERFORM public.approve_invoice(NEW.id);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS trg_auto_approve_invoice ON public.invoices;
-CREATE TRIGGER trg_auto_approve_invoice
-    AFTER INSERT OR UPDATE OF status ON public.invoices
-    FOR EACH ROW
-    EXECUTE FUNCTION public.fn_auto_approve_invoice_on_insert();
-
--- 🛠️ مشغل إضافي لمراقبة بنود الفاتورة (لضمان معالجة الفواتير التي تصل بنودها متأخرة)
-CREATE OR REPLACE FUNCTION public.fn_auto_approve_invoice_on_items_insert()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- إذا كانت الفاتورة الأم 'posted' وبدون قيد، نحاول اعتمادها الآن بعد توفر البنود
-    IF EXISTS (
-        SELECT 1 FROM public.invoices 
-        WHERE id = NEW.invoice_id AND status = 'posted' AND related_journal_entry_id IS NULL
-    ) THEN
-        PERFORM public.approve_invoice(NEW.invoice_id);
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS trg_auto_approve_invoice_items ON public.invoice_items;
-CREATE TRIGGER trg_auto_approve_invoice_items
-    AFTER INSERT ON public.invoice_items
-    FOR EACH ROW
-    EXECUTE FUNCTION public.fn_auto_approve_invoice_on_items_insert();
-
--- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
-SELECT public.refresh_saas_schema();
-NOTIFY pgrst, 'reload config';
     END IF;
     RETURN NEW;
 END;

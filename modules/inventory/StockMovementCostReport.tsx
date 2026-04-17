@@ -56,9 +56,9 @@ const StockMovementCostReport = () => {
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       const { data: purchaseItems } = await supabase
         .from('purchase_invoice_items')
-        .select('quantity, price, purchase_invoice_id, purchase_invoices!inner(invoice_date, invoice_number, status)')
+        .select('quantity, unit_price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status)')
         .eq('product_id', selectedProductId)
-        .neq('purchase_invoices.status', 'draft');
+        .in('purchase_invoices.status', ['posted', 'paid']);
 
       // 3. جلب التسويات المخزنية (Stock Adjustments)
       const { data: adjustments } = await supabase
@@ -77,9 +77,9 @@ const StockMovementCostReport = () => {
       // 5. مرتجعات مشتريات (Purchase Returns) - صادر
       const { data: purchaseReturns } = await supabase
         .from('purchase_return_items')
-        .select('quantity, price, purchase_returns!inner(return_date, return_number, status)')
+        .select('quantity, unit_price, purchase_return_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(return_date, return_number, status)')
         .eq('product_id', selectedProductId)
-        .neq('purchase_returns.status', 'draft');
+        .eq('purchase_returns.status', 'posted');
 
       // 6. التصنيع (Manufacturing)
       const { data: productionIn } = await supabase
@@ -176,7 +176,7 @@ const StockMovementCostReport = () => {
               date: item.purchase_invoices.invoice_date,
               type: 'in',
               quantity: Number(item.quantity),
-              unitCost: Number(item.price || 0),
+              unitCost: Number(item.unit_price || 0),
               documentType: 'فاتورة مشتريات',
               documentNumber: item.purchase_invoices.invoice_number
           });
@@ -199,7 +199,7 @@ const StockMovementCostReport = () => {
               date: item.purchase_returns.return_date,
               type: 'out',
               quantity: Number(item.quantity),
-              unitCost: Number(item.price || 0),
+              unitCost: Number(item.unit_price || 0),
               documentType: 'مرتجع مشتريات',
               documentNumber: item.purchase_returns.return_number
           });

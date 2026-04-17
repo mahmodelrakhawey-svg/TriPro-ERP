@@ -15,12 +15,18 @@ SECURITY DEFINER
 SET search_path = public, auth
 AS $$
 BEGIN
-    -- تم الإصلاح: تجنب الاستعلام من public.profiles لمنع حلقة التكرار (Infinite Recursion)
+    -- توحيد جلب الهوية وإعادة مزامنة أرصدة العملاء والموردين
     RETURN COALESCE(
         (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
-        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid())
+        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
     );
 END; $$;
+
+-- إعادة حساب كافة أرصدة العملاء لضمان المطابقة مع كشف الحساب
+UPDATE public.customers SET balance = public.get_customer_balance(id, organization_id);
+
+-- مزامنة المتوسط المرجح للأصناف لضمان دقة التكلفة في الفواتير
+UPDATE public.products SET weighted_average_cost = COALESCE(NULLIF(weighted_average_cost, 0), cost, purchase_price, 0);
 
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -220,7 +226,15 @@ END $$;
 -- 7. تهيئة التسلسلات والعملات (Localization)
 -- ============================================================
 CREATE SEQUENCE IF NOT EXISTS public.order_number_seq;
+-- إجبار النظام على استخدام العملة والضريبة المصرية
 UPDATE public.company_settings SET currency = 'EGP', vat_rate = 0.14 WHERE currency IS NULL OR currency = 'SAR';
+ALTER TABLE public.invoices ALTER COLUMN currency SET DEFAULT 'EGP';
+ALTER TABLE public.purchase_invoices ALTER COLUMN currency SET DEFAULT 'EGP';
+ALTER TABLE public.company_settings ALTER COLUMN currency SET DEFAULT 'EGP';
+ALTER TABLE public.invoices ALTER COLUMN currency SET DEFAULT 'EGP';
+ALTER TABLE public.purchase_invoices ALTER COLUMN currency SET DEFAULT 'EGP';
+ALTER TABLE public.receipt_vouchers ALTER COLUMN currency SET DEFAULT 'EGP';
+ALTER TABLE public.payment_vouchers ALTER COLUMN currency SET DEFAULT 'EGP';
 
 -- تهيئة المتوسط المرجح للأصناف الحالية لضمان عدم ظهور أصفار في تقرير الأرباح
 UPDATE public.products 

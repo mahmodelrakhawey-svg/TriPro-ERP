@@ -30,14 +30,11 @@ SET search_path = public, auth, pg_temp
 AS $$
 DECLARE v_org_id uuid;
 BEGIN
-    -- 🛡️ إذا كان المستخدم سوبر أدمن، نسمح له بالتبديل عبر الـ JWT
-    v_org_id := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
-    IF v_org_id IS NOT NULL AND (auth.jwt() -> 'user_metadata' ->> 'role') = 'super_admin' THEN 
-        RETURN v_org_id; 
-    END IF;
-
-    -- 🛡️ الجلب من جدول البروفايل (المصدر الأكثر ثقة لعزل الشركات)
-    RETURN COALESCE(v_org_id, (SELECT organization_id FROM public.profiles WHERE id = auth.uid() LIMIT 1));
+    -- توحيد جلب الهوية لضمان قراءة إعدادات العملة الصحيحة لكل شركة
+    RETURN COALESCE(
+        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
+        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
+    );
 END; $$;
 
 -- 2. دالة للتحقق مما إذا كان المستخدم مسؤولاً (Admin/Super Admin)
@@ -115,7 +112,7 @@ USING (
 -- 2. إعدادات الشركة (Company Settings)
 -- قراءة للجميع (المصادق عليهم)
 DROP POLICY IF EXISTS "Settings viewable by authenticated" ON company_settings;
-CREATE POLICY "Settings viewable by authenticated" ON company_settings FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Settings viewable by authenticated" ON company_settings FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
 -- تعديل للمدراء فقط
 DROP POLICY IF EXISTS "Only Admins can update settings" ON company_settings;
 CREATE POLICY "Only Admins can update settings" ON company_settings FOR UPDATE USING (is_admin());

@@ -38,7 +38,7 @@ const SalesInvoiceForm = () => {
     treasuryId: '',
     discountType: 'fixed' as 'percentage' | 'fixed',
     discountValue: 0,
-    currency: 'SAR',
+    currency: '', // نتركها فارغة ليتم جلبها من الإعدادات آلياً
     exchangeRate: 1
   });
 
@@ -134,7 +134,7 @@ const SalesInvoiceForm = () => {
       }
     }
     
-    if (!formData.currency && settings.currency) {
+    if (formData.currency !== settings.currency && settings.currency) {
         setFormData(prev => ({ ...prev, currency: settings.currency }));
     }
 
@@ -170,41 +170,42 @@ const SalesInvoiceForm = () => {
           const { data: { user } } = await supabase.auth.getUser();
           const userOrgId = user?.user_metadata?.org_id;
 
-          // الاعتماد على الرصيد المحسوب تلقائياً في قاعدة البيانات (Smart Engine)
-          const { data, error } = await supabase
-              .from('customers')
-              .select('balance')
-              .eq('id', formData.customerId)
-              .eq('organization_id', userOrgId)
-              .single();
-          
-          if (data) {
-              setCustomerBalance(data.balance || 0);
+          if (!userOrgId) {
+              showToast('فشل تحديد المنظمة لحساب رصيد العميل.', 'error');
+              setCustomerBalance(0);
+              return;
           }
 
-          // التحقق من الفواتير المتأخرة (للتنبيه فقط)
-          const { data: invoices } = await supabase
-              .from('invoices')
-              .select('total_amount, paid_amount, due_date, status')
-              .eq('customer_id', formData.customerId)
-              .eq('organization_id', userOrgId)
-              .neq('status', 'draft');
+          // استدعاء دالة RPC المحاسبية لضمان دقة الرصيد
+          const { data: calculatedBalance, error: rpcError } = await supabase
+              .rpc('get_customer_balance', { 
+                  p_customer_id: formData.customerId, 
+                  p_org_id: userOrgId 
+              });
 
-          const today = new Date().toISOString().split('T')[0];
-          const overdueInvoices = invoices?.filter((inv: any) => inv.status !== 'paid' && inv.due_date && inv.due_date < today && (inv.total_amount - (inv.paid_amount || 0)) > 0) || [];
-          
-          if (overdueInvoices.length > 0) {
-              const overdueTotal = overdueInvoices.reduce((acc, inv) => acc + (inv.total_amount - (inv.paid_amount || 0)), 0);
-              // تأخير التنبيه قليلاً لضمان تحميل الواجهة
-              setTimeout(() => {
-                  showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
-              }, 500);
-          }
-      } catch (error) {
+          if (rpcError) throw rpcError;
+          setCustomerBalance(calculatedBalance || 0);
+
+            // 🔍 التحقق من الفواتير المتأخرة
+            const { data: overdueData } = await supabase
+                .from('invoices')
+                .select('total_amount, paid_amount, due_date, status')
+                .eq('customer_id', formData.customerId)
+                .eq('organization_id', userOrgId)
+                .neq('status', 'draft');
+
+            const today = new Date().toISOString().split('T')[0];
+            const overdueInvoices = overdueData?.filter((inv: any) => inv.status !== 'paid' && inv.due_date && inv.due_date < today && (inv.total_amount - (inv.paid_amount || 0)) > 0) || [];
+            
+            if (overdueInvoices.length > 0) {
+                setTimeout(() => {
+                    showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
+                }, 500);
+            }
+      } catch (error: any) {
           console.error("Error calculating customer balance:", error);
       }
   };
-
   useEffect(() => {
     fetchCustomerBalance();
   }, [formData.customerId, currentUser, contextInvoices]);
