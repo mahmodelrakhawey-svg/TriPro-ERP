@@ -1,6 +1,6 @@
 -- 🌟 ملف التأسيس الشامل (Master Setup) - TriPro ERP
--- 📅 تاريخ التحديث: 2026-04-08 (نسخة الإنتاج المطورة - SaaS Optimized)
--- ℹ️ الوصف: يقوم هذا الملف بإنشاء قاعدة البيانات بالكامل (الجداول، الدوال، الإخطارات، الحسابات، الحماية) دفعة واحدة.
+-- 📅 تاريخ التحديث: 2026-06-04 (Unified Stability Version v15)
+-- ℹ️ الوصف: النسخة المرجعية الموحدة مع فرض أمان المستودعات في المشتريات والمبيعات.
 -- ⚠️ تحذير: تشغيل هذا الملف سيقوم بمسح جميع البيانات الموجودة في قاعدة البيانات!
 
 -- ================================================================
@@ -138,6 +138,8 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
     created_at timestamptz DEFAULT now() NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_profiles_org_id ON public.profiles(organization_id);
 
 -- جدول الدعوات (Invitations) للتحكم في من يمكنه الانضمام للنظام
 CREATE TABLE IF NOT EXISTS public.invitations (
@@ -449,7 +451,7 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
 -- تصنيفات الأصناف (موجود في الهيكل الحالي)
 CREATE TABLE IF NOT EXISTS public.item_categories (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    name varchar NOT NULL,
+    name text NOT NULL,
     description text,
     image_url text,
     display_order integer DEFAULT 0,
@@ -1194,6 +1196,7 @@ CREATE TABLE IF NOT EXISTS public.work_orders (
     end_date date,
     status text DEFAULT 'draft', -- draft, in_progress, completed, cancelled -- Changed to text for consistency
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    user_id uuid REFERENCES auth.users(id),
     notes text,
     created_at timestamptz DEFAULT now()
 );
@@ -1505,15 +1508,26 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.update_product_stock(p_product_id uuid)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_stock numeric := 0;
+DECLARE v_org_id uuid;
 BEGIN
-    -- (الرصيد الافتتاحي في جدول المنتجات + كميات جدول أرصدة أول المدة + وارد مشتريات + مرتجع مبيعات) - (صادر مبيعات + مرتجع مشتريات) +/- تسويات
-    SELECT COALESCE((SELECT opening_balance FROM public.products WHERE id = p_product_id), 0) +
-           COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = p_product_id), 0) INTO v_stock;
-    SELECT v_stock + COALESCE((SELECT SUM(quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id WHERE pii.product_id = p_product_id AND pi.status != 'draft'), 0) INTO v_stock;
-    SELECT v_stock - COALESCE((SELECT SUM(quantity) FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = p_product_id AND i.status != 'draft'), 0) INTO v_stock;
-    SELECT v_stock + COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sri.sales_return_id = sr.id WHERE sri.product_id = p_product_id AND sr.status != 'draft'), 0) INTO v_stock;
-    SELECT v_stock - COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id WHERE pri.product_id = p_product_id AND pr.status != 'draft'), 0) INTO v_stock;
-    SELECT v_stock + COALESCE((SELECT SUM(CASE WHEN type = 'in' THEN quantity WHEN type = 'out' THEN -quantity ELSE 0 END) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = p_product_id AND sa.status != 'draft'), 0) INTO v_stock;
+    SELECT organization_id INTO v_org_id FROM public.products WHERE id = p_product_id;
+
+    -- تجميع كافة حركات الوارد والصادر (نفس منطق RPC المحدث لضمان التجانس)
+    SELECT 
+        COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = p_product_id), 0) +
+        -- الوارد
+        COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = p_product_id AND pi.status IN ('posted', 'paid')), 0) +
+        COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sr.id = sri.sales_return_id WHERE sri.product_id = p_product_id AND sr.status = 'posted'), 0) +
+        COALESCE((SELECT SUM(quantity) FROM public.work_orders WHERE product_id = p_product_id AND status = 'completed'), 0) -
+        -- الصادر
+        COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = p_product_id AND i.status IN ('posted', 'paid')), 0) -
+        COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pr.id = pri.purchase_return_id WHERE pri.product_id = p_product_id AND pr.status = 'posted'), 0) -
+        COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = p_product_id AND o.status IN ('COMPLETED', 'PAID', 'posted')), 0) -
+        COALESCE((SELECT SUM(oi.quantity * bom.quantity_required) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id WHERE bom.raw_material_id = p_product_id AND o.status IN ('COMPLETED', 'PAID', 'posted')), 0) -
+        COALESCE((SELECT SUM(wo.quantity * bom.quantity_required) FROM public.work_orders wo JOIN public.bill_of_materials bom ON wo.product_id = bom.product_id WHERE bom.raw_material_id = p_product_id AND wo.status = 'completed'), 0) +
+        -- تسويات
+        COALESCE((SELECT SUM(CASE WHEN type = 'in' THEN quantity WHEN type = 'out' THEN -quantity ELSE quantity END) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sa.id = sai.stock_adjustment_id WHERE sai.product_id = p_product_id AND sa.status = 'posted'), 0)
+    INTO v_stock;
 
     UPDATE public.products SET stock = v_stock WHERE id = p_product_id;
 END; $$;
@@ -1590,7 +1604,11 @@ BEGIN
     (v_org_id, '2', 'الخصوم', 'LIABILITY', true),
     (v_org_id, '3', 'حقوق الملكية', 'EQUITY', true),
     (v_org_id, '4', 'الإيرادات', 'REVENUE', true),
-    (v_org_id, '5', 'المصروفات', 'EXPENSE', true);
+    (v_org_id, '5', 'المصروفات', 'EXPENSE', true),
+    (v_org_id, '42', 'إيرادات أخرى', 'REVENUE', true),
+    (v_org_id, '421', 'إيرادات متنوعة (فروقات تسوية)', 'REVENUE', false),
+    (v_org_id, '53', 'المصروفات الإدارية والعمومية', 'EXPENSE', true),
+    (v_org_id, '541', 'تسوية عجز الصندوق (مصاريف تسوية)', 'EXPENSE', false);
 
     INSERT INTO public.roles (name, description) VALUES ('super_admin', 'المدير العام') ON CONFLICT DO NOTHING;
     INSERT INTO public.item_categories (organization_id, name) VALUES (v_org_id, 'عام') RETURNING id INTO v_cat_id;
@@ -1759,8 +1777,61 @@ FOR ALL TO authenticated USING (organization_id = public.get_my_org() AND public
 
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
 SELECT public.refresh_saas_schema();
-NOTIFY pgrst, 'reload config';
--- 📊 تقرير تحليل انحراف التكلفة بسبب الهالك
+
+-- 🛠️ مشغل فرض اختيار المستودع تلقائياً للطلبات
+CREATE OR REPLACE FUNCTION public.fn_ensure_order_warehouse()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.warehouse_id IS NULL THEN
+        NEW.warehouse_id := COALESCE(
+            (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = NEW.organization_id),
+            (SELECT id FROM public.warehouses WHERE organization_id = NEW.organization_id AND deleted_at IS NULL LIMIT 1)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ensure_order_warehouse ON public.orders;
+CREATE TRIGGER trg_ensure_order_warehouse
+BEFORE INSERT ON public.orders
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_ensure_order_warehouse();
+
+-- 📊 دالة تقرير مبيعات المطعم (مضافة للمنتج الخام لضمان التوافق)
+CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(
+    p_org_id uuid,
+    p_start_date date,
+    p_end_date date
+)
+RETURNS TABLE (
+    item_name text,
+    category_name text,
+    quantity numeric,
+    total_sales numeric
+) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.name::text as item_name,
+        COALESCE(cat.name::text, 'غير مصنف'::text) as category_name,
+        SUM(oi.quantity)::numeric as quantity,
+        SUM(oi.total_price)::numeric as total_sales
+    FROM public.order_items oi
+    JOIN public.orders o ON oi.order_id = o.id
+    JOIN public.products p ON oi.product_id = p.id
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    WHERE o.organization_id = p_org_id
+      AND o.status IN ('COMPLETED', 'PAID', 'posted')
+      AND o.created_at::date BETWEEN p_start_date AND p_end_date
+    GROUP BY p.name, cat.name
+    ORDER BY total_sales DESC;
+END;
+$$;
+
 CREATE OR REPLACE VIEW public.vw_inventory_wastage_analysis AS
 SELECT 
     p.id as product_id,

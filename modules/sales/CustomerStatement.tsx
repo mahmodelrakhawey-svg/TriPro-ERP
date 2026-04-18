@@ -415,7 +415,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         [],
         ['التاريخ', 'المستند', 'البيان', 'مدين (فاتورة)', 'دائن (سداد)', 'الرصيد'],
         ['-', '-', 'رصيد افتتاحي', '-', '-', openingBalance],
-        ...transactions.map(t => [t.date, t.reference, t.description, t.debit, t.credit, t.balance])
+        ...transactions.map(t => [t.date, t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-)/, ''), t.description, t.debit, t.credit, t.balance])
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     const wb = XLSX.utils.book_new();

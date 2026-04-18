@@ -1,5 +1,5 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
--- 🌟 النسخة الشاملة الموحدة (Version 10.0 - SaaS Full Integration)
+-- 🌟 النسخة الشاملة الموحدة (Version 21.0 - Document Warehouse Safety)
 
 -- 🛠️ دالة جلب معرف المنظمة للمستخدم الحالي (ضرورية جداً لعمل النظام)
 CREATE OR REPLACE FUNCTION public.get_my_org()
@@ -18,6 +18,13 @@ BEGIN
         (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
         (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
     );
+END; $$;
+
+-- دالة للتأكد من حالة الاتصال (Health Check)
+CREATE OR REPLACE FUNCTION public.check_db_sync()
+RETURNS text LANGUAGE plpgsql AS $$
+BEGIN
+    RETURN 'Database is synchronized and healthy ✅';
 END; $$;
 
 -- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS) مع الحذف المتتالي (CASCADE)
@@ -508,17 +515,25 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_customer_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL
     , p_delivery_info jsonb DEFAULT NULL -- إضافة معلومات التوصيل
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_unit_price numeric; v_qty numeric;
+DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_unit_price numeric; v_qty numeric; v_final_wh_id uuid;
 DECLARE v_org_id uuid;
 BEGIN
     v_org_id := public.get_my_org();
+    
+    -- 🏗️ تحديد المستودع: الأولوية للممرر، ثم الافتراضي في الإعدادات، ثم أول مستودع متاح
+    v_final_wh_id := COALESCE(
+        p_warehouse_id, 
+        (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = v_org_id),
+        (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1)
+    );
+
     SELECT (vat_rate) INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
     IF v_tax_rate IS NULL THEN v_tax_rate := 0.14; END IF;
 
     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
 
     INSERT INTO public.orders (session_id, user_id, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)
-    VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, v_org_id, p_warehouse_id) RETURNING id INTO v_order_id;
+    VALUES (p_session_id, p_user_id, p_order_type, p_notes, 'CONFIRMED', p_customer_id, v_order_num, v_org_id, v_final_wh_id) RETURNING id INTO v_order_id;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         -- 🛡️ استخراج القيم وضمان عدم وجود NULL
@@ -567,6 +582,7 @@ DECLARE
     v_tax_rate numeric; v_qty numeric; v_unit_price numeric;
     v_subtotal numeric := 0;
     v_order_item_id uuid;
+    v_warehouse_id uuid;
 BEGIN
     -- 1. التحقق من صحة رمز الطاولة (الوصول عبر SECURITY DEFINER لتخطي RLS)
     SELECT * INTO v_table FROM public.restaurant_tables WHERE qr_access_key = p_qr_key;
@@ -585,6 +601,12 @@ BEGIN
     -- 🚀 تحديث حالة الطاولة لتظهر "مشغولة" في شاشة الكاشير فوراً (خارج الشرط لضمان التزامن)
     UPDATE public.restaurant_tables SET status = 'OCCUPIED' WHERE id = v_table.id;
 
+    -- 🏗️ جلب المستودع الافتراضي للمنظمة لضمان خصم المخزون بشكل صحيح
+    v_warehouse_id := COALESCE(
+        (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = v_table.organization_id),
+        (SELECT id FROM public.warehouses WHERE organization_id = v_table.organization_id AND deleted_at IS NULL LIMIT 1)
+    );
+
     -- 3. جلب نسبة الضريبة من إعدادات المطعم
     SELECT vat_rate INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_table.organization_id;
     v_tax_rate := COALESCE(v_tax_rate, 0.14);
@@ -594,9 +616,9 @@ BEGIN
 
     -- 5. إنشاء الطلب الرئيسي
     INSERT INTO public.orders (
-        session_id, organization_id, order_number, order_type, status, subtotal, total_tax, grand_total
+        session_id, organization_id, order_number, order_type, status, subtotal, total_tax, grand_total, warehouse_id
     ) VALUES (
-        v_session_id, v_table.organization_id, v_order_num, 'DINEIN', 'CONFIRMED', 0, 0, 0
+        v_session_id, v_table.organization_id, v_order_num, 'DINEIN', 'CONFIRMED', 0, 0, 0, v_warehouse_id
     ) RETURNING id INTO v_order_id;
 
     -- 6. إضافة الأصناف وتوليد طلبات المطبخ تلقائياً
@@ -653,11 +675,13 @@ BEGIN
         COALESCE(SUM(subtotal), 0) as total_subtotal,
         COALESCE(SUM(total_tax), 0) as total_tax,
         COALESCE(SUM(grand_total), 0) as total_sales,
-        COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CASH') THEN grand_total ELSE 0 END), 0) as cash_sales,
-        COALESCE(SUM(CASE WHEN EXISTS (SELECT 1 FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CARD') THEN grand_total ELSE 0 END), 0) as card_sales
+        -- حساب المبالغ من واقع المدفوعات الفعلية لضمان الدقة (يشمل طلبات الكاشير والـ QR)
+        COALESCE((SELECT SUM(amount) FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CASH'), 0) as cash_sales,
+        COALESCE((SELECT SUM(amount) FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CARD'), 0) as card_sales
     INTO v_summary
     FROM public.orders o
-    WHERE o.user_id = v_shift.user_id 
+    WHERE (o.user_id = v_shift.user_id OR o.user_id IS NULL) -- تشمل طلبات الـ QR التي تمت معالجتها
+    AND o.organization_id = v_shift.organization_id
     AND o.created_at BETWEEN v_shift.start_time AND now()
     AND o.status IN ('COMPLETED', 'PAID', 'posted')
     AND o.organization_id = v_shift.organization_id;
@@ -676,39 +700,33 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb; v_total_cost numeric := 0;
+    v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb;
     v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
     v_cogs_acc_id uuid; v_inventory_acc_id uuid;
-    v_sales_dinein_acc_id uuid; v_sales_delivery_acc_id uuid;
+    v_diff numeric := 0; v_actual_cash_collected numeric := 0;
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
-
-    -- 1. تجميع المبيعات والضرائب وطرق الدفع والتكلفة من الطلبات المكتملة ✅
+    WITH shift_orders AS (
+        SELECT id, subtotal, total_tax FROM public.orders
+        WHERE (user_id = v_shift.user_id OR user_id IS NULL) -- إصلاح: دمج طلبات الـ QR في قيد الإغلاق
+        AND status IN ('COMPLETED', 'PAID', 'posted') AND organization_id = v_shift.organization_id
+    )
     SELECT 
-        COALESCE(SUM(o.subtotal), 0) as subtotal,
-        COALESCE(SUM(o.total_tax), 0) as tax,
-        COALESCE(SUM(o.grand_total), 0) as total,
-        COALESCE(SUM(CASE WHEN o.order_type = 'DINEIN' THEN o.subtotal ELSE 0 END), 0) as dinein_subtotal,
-        COALESCE(SUM(CASE WHEN o.order_type != 'DINEIN' THEN o.subtotal ELSE 0 END), 0) as delivery_subtotal,
-        -- 🚀 محرك حساب التكلفة المطور: يحسب من التكلفة المسجلة أو الوصفة (BOM) أو بطاقة الصنف
-        COALESCE(SUM((
-            SELECT SUM(COALESCE(NULLIF(itms.unit_cost, 0), public.get_product_recipe_cost(itms.product_id), (SELECT cost FROM public.products WHERE id = itms.product_id), 0) * itms.quantity)
-            FROM public.order_items itms WHERE itms.order_id = o.id
-        )), 0) as cost_total,
-        COALESCE(SUM(CASE WHEN pay.payment_method = 'CASH' THEN pay.amount ELSE 0 END), 0) as cash_total,
-        COALESCE(SUM(CASE WHEN pay.payment_method = 'CARD' THEN pay.amount ELSE 0 END), 0) as card_total
+        COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
+        -- 🚀 محرك التكلفة المطور: (تكلفة البند -> متوسط مرجح -> تكلفة يدوية -> سعر شراء)
+        COALESCE((
+            SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id)))
+            FROM public.order_items itms 
+            WHERE itms.order_id IN (SELECT id FROM shift_orders)
+        ), 0) as cost_total,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
     INTO v_summary
-    FROM public.orders o
-    LEFT JOIN public.payments pay ON pay.order_id = o.id
-    WHERE o.user_id = v_shift.user_id 
-    AND o.created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
-    AND o.status IN ('COMPLETED', 'PAID', 'posted')
-    AND o.organization_id = v_shift.organization_id;
-
-    IF v_summary.total = 0 THEN RETURN NULL; END IF;
-
-    -- 2. جلب الحسابات السيادية
+    FROM shift_orders;
+    -- ملاحظة: v_shift.actual_cash يجب أن يكون محدثاً قبل هذه الخطوة
+    v_diff := COALESCE((SELECT actual_cash FROM public.shifts WHERE id = p_shift_id), 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
+    v_actual_cash_collected := v_summary.cash_total + v_diff;
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
     v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
     v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
@@ -716,54 +734,15 @@ BEGIN
     v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
     v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
-    -- جلب حسابات المطاعم التفصيلية من الدليل المحاسبي
-    v_sales_dinein_acc_id := (SELECT id FROM public.accounts WHERE organization_id = v_shift.organization_id AND code = '4111' LIMIT 1);
-    v_sales_delivery_acc_id := (SELECT id FROM public.accounts WHERE organization_id = v_shift.organization_id AND code = '4112' LIMIT 1);
-
-    -- 3. إنشاء رأس القيد (قيد يومية مرحل تلقائياً)
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'ترحيل مبيعات وردية مجمع - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-POST-' || to_char(now(), 'YYMMDD-HH24MI'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift')
-    RETURNING id INTO v_je_id;
-
-    -- 4. أسطر القيد (الطرف المدين: نقدية وشبكة)
-    IF v_summary.cash_total > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_cash_acc_id, v_summary.cash_total, 0, 'إجمالي متحصلات كاش الوردية', v_shift.organization_id);
-    END IF;
-    IF v_summary.card_total > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'إجمالي متحصلات شبكة الوردية', v_shift.organization_id);
-    END IF;
-
-    -- 5. أسطر القيد (الطرف الدائن: مبيعات وضريبة) ✅
-    -- توزيع المبيعات محاسبياً حسب النوع (صالة vs توصيل)
-    IF v_sales_dinein_acc_id IS NOT NULL AND v_sales_delivery_acc_id IS NOT NULL THEN
-        IF v_summary.dinein_subtotal > 0 THEN
-            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-            VALUES (v_je_id, v_sales_dinein_acc_id, 0, v_summary.dinein_subtotal, 'إجمالي مبيعات الصالة بالوردية', v_shift.organization_id);
-        END IF;
-        IF v_summary.delivery_subtotal > 0 THEN
-            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-            VALUES (v_je_id, v_sales_delivery_acc_id, 0, v_summary.delivery_subtotal, 'إجمالي مبيعات التوصيل/السفري بالوردية', v_shift.organization_id);
-        END IF;
-    ELSE
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إجمالي مبيعات الوردية (حساب عام)', v_shift.organization_id);
-    END IF;
-
-    IF v_summary.tax > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة للوردية (14%)', v_shift.organization_id);
-    END IF;
-
-    -- 6. أسطر القيد (التكلفة: من ح/ التكلفة إلى ح/ المخزون) ✅ جديد
-    IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES 
-            (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية المجمعة', v_shift.organization_id),
-            (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية المجمع', v_shift.organization_id);
-    END IF;
-
+    VALUES (now()::date, 'إغلاق وردية شامل - جرد مستمر - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-FINAL-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
+    IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
+    IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
+    IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
+    IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية الوردية', v_shift.organization_id);
+    ELSIF v_diff > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية الوردية', v_shift.organization_id); END IF;
+    IF v_summary.cost_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات (جرد مستمر)', v_shift.organization_id), (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون (جرد مستمر)', v_shift.organization_id); END IF;
     RETURN v_je_id;
 END; $$;
 
@@ -771,16 +750,16 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.close_shift(p_shift_id uuid, p_actual_cash numeric, p_notes text DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    -- 1. ترحيل القيد المحاسبي المجمع
-    PERFORM public.generate_shift_closing_entry(p_shift_id);
-
-    -- 2. تحديث حالة الوردية وإنهائها
+    -- 1. تحديث بيانات الوردية والمبلغ الفعلي أولاً (ضروري لصحة القيد)
     UPDATE public.shifts SET 
         end_time = now(),
         actual_cash = p_actual_cash,
         status = 'CLOSED',
         notes = p_notes
     WHERE id = p_shift_id;
+
+    -- 2. الآن نولد القيد المحاسبي بناءً على البيانات الفعلية
+    PERFORM public.generate_shift_closing_entry(p_shift_id);
 END; $$;
 -- ================================================================
 -- 4. مديول الموارد البشرية (HR & Payroll)
@@ -792,12 +771,17 @@ DECLARE
     v_org_id uuid; v_payroll_id uuid; v_total_gross numeric := 0; 
     v_total_additions numeric := 0; v_total_deductions numeric := 0; 
     v_total_advances numeric := 0; v_total_net numeric := 0; 
-    v_item jsonb; v_je_id uuid; v_mappings jsonb; v_user_id uuid;
+    v_item jsonb; v_je_id uuid; v_mappings jsonb; v_user_id uuid; v_payroll_item_id uuid;
     v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
     v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
 BEGIN
     v_user_id := auth.uid();
     v_org_id := COALESCE((SELECT organization_id FROM public.profiles WHERE id = v_user_id LIMIT 1), public.get_my_org());
+
+    -- 🛡️ منع تكرار صرف الرواتب لنفس الشهر والسنة لهذه المنظمة لضمان استقرار الدفاتر
+    IF EXISTS (SELECT 1 FROM public.payrolls WHERE payroll_month = p_month AND payroll_year = p_year AND organization_id = v_org_id AND status = 'paid') THEN
+        RAISE EXCEPTION 'تم اعتماد وصرف مسير الرواتب لشهر (%) سنة (%) مسبقاً لهذه المنظمة.', p_month, p_year;
+    END IF;
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
@@ -807,8 +791,12 @@ BEGIN
     v_advances_acc_id := COALESCE((v_mappings->>'EMPLOYEE_ADVANCES')::uuid, (SELECT id FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id LIMIT 1));
     v_payroll_tax_id := COALESCE((v_mappings->>'PAYROLL_TAX')::uuid, (SELECT id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1));
 
-    IF v_salaries_acc_id IS NULL OR v_advances_acc_id IS NULL THEN 
+    IF v_salaries_acc_id IS NULL OR v_advances_acc_id IS NULL OR p_treasury_acc IS NULL THEN 
         RAISE EXCEPTION 'فشل جلب إعدادات الحسابات المالية للرواتب، يرجى مراجعة Account Mappings في إعدادات الشركة.'; 
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE id = p_treasury_acc AND organization_id = v_org_id) THEN
+        RAISE EXCEPTION 'حساب الخزينة/البنك المختار غير صحيح أو لا ينتمي لهذه المنظمة.';
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p_items)) THEN RAISE EXCEPTION 'لا توجد بيانات موظفين صالحة في المسير.'; END IF;
@@ -827,7 +815,17 @@ BEGIN
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         INSERT INTO public.payroll_items (payroll_id, employee_id, gross_salary, additions, payroll_tax, advances_deducted, other_deductions, net_salary, organization_id)
-        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'gross_salary')::numeric, (v_item->>'additions')::numeric, COALESCE((v_item->>'payroll_tax')::numeric, 0), (v_item->>'advances_deducted')::numeric, (v_item->>'other_deductions')::numeric, (v_item->>'net_salary')::numeric, v_org_id);
+        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'gross_salary')::numeric, (v_item->>'additions')::numeric, COALESCE((v_item->>'payroll_tax')::numeric, 0), (v_item->>'advances_deducted')::numeric, (v_item->>'other_deductions')::numeric, (v_item->>'net_salary')::numeric, v_org_id)
+        RETURNING id INTO v_payroll_item_id;
+
+        -- 🔗 تحديث حالة السلف المستردة وربطها ببنود المسير لضمان عدم تكرار الخصم
+        IF (v_item->>'advances_deducted')::numeric > 0 THEN
+            UPDATE public.employee_advances 
+            SET status = 'deducted', payroll_item_id = v_payroll_item_id
+            WHERE employee_id = (v_item->>'employee_id')::uuid 
+            AND status = 'paid'
+            AND organization_id = v_org_id;
+        END IF;
     END LOOP;
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type) 
@@ -1135,17 +1133,39 @@ DECLARE prod_record RECORD; wh_record RECORD; total_qty NUMERIC; wh_json JSONB; 
 BEGIN
     v_target_org := COALESCE(p_org_id, public.get_my_org());
     FOR prod_record IN SELECT id FROM products WHERE deleted_at IS NULL AND organization_id = v_target_org LOOP
-        total_qty := 0; wh_json := '{}'::jsonb;
-        FOR wh_record IN SELECT id FROM warehouses WHERE deleted_at IS NULL AND organization_id = v_target_org LOOP
+        -- 1. حساب الرصيد الإجمالي للشركة (Global Total) - يتجاهل فلتر المستودع لضمان الدقة المطلقة
+        SELECT 
+            COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = prod_record.id AND organization_id = v_target_org), 0) +
+            COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.status IN ('posted', 'paid') AND pi.organization_id = v_target_org), 0) +
+            COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sr.id = sri.sales_return_id WHERE sri.product_id = prod_record.id AND sr.status = 'posted' AND sr.organization_id = v_target_org), 0) +
+            COALESCE((SELECT SUM(quantity) FROM public.work_orders WHERE product_id = prod_record.id AND status = 'completed' AND organization_id = v_target_org), 0) -
+            COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.status IN ('posted', 'paid') AND i.organization_id = v_target_org), 0) -
+            COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pr.id = pri.purchase_return_id WHERE pri.product_id = prod_record.id AND pr.status = 'posted' AND pr.organization_id = v_target_org), 0) -
+            COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = prod_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
+            COALESCE((SELECT SUM(oi.quantity * bom.quantity_required) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
+            COALESCE((SELECT SUM(wo.quantity * bom.quantity_required) FROM public.work_orders wo JOIN public.bill_of_materials bom ON wo.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND wo.status = 'completed' AND wo.organization_id = v_target_org), 0) +
+            COALESCE((SELECT SUM(CASE WHEN type = 'in' THEN quantity WHEN type = 'out' THEN -quantity ELSE quantity END) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = prod_record.id AND sa.status = 'posted' AND sa.organization_id = v_target_org), 0)
+        INTO total_qty;
+
+        -- 2. حساب توزيع المخزون على المستودعات (Breakdown) لغرض العرض فقط
+        wh_json := '{}'::jsonb;        FOR wh_record IN SELECT id FROM warehouses WHERE deleted_at IS NULL AND organization_id = v_target_org LOOP
             wh_qty := 0;
-            SELECT wh_qty + COALESCE(SUM(oi.quantity), 0) INTO wh_qty FROM public.opening_inventories oi WHERE oi.product_id = prod_record.id AND oi.warehouse_id = wh_record.id AND oi.organization_id = v_target_org;
-            SELECT wh_qty + COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status NOT IN ('draft', 'cancelled') AND pi.organization_id = v_target_org), 0) INTO wh_qty;
-            SELECT wh_qty - COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = v_target_org), 0) INTO wh_qty;
-            -- 🛡️ إضافة: خصم مبيعات المطعم من المخزون
-            SELECT wh_qty - COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) INTO wh_qty;
-            SELECT wh_qty + COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sri.sales_return_id = sr.id WHERE sri.product_id = prod_record.id AND sr.warehouse_id = wh_record.id AND sr.status = 'posted' AND sr.organization_id = v_target_org), 0) INTO wh_qty;
-            SELECT wh_qty - COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id WHERE pri.product_id = prod_record.id AND pr.warehouse_id = wh_record.id AND pr.status = 'posted' AND pr.organization_id = v_target_org), 0) INTO wh_qty;
-            total_qty := total_qty + wh_qty;
+            -- تجميع كافة حركات الوارد والصادر في استعلام واحد متكامل لضمان الدقة والأداء
+            SELECT 
+                COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = prod_record.id AND warehouse_id = wh_record.id AND organization_id = v_target_org), 0) +
+                -- الوارد: مشتريات + مرتجع مبيعات + إنتاج تام
+                COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status IN ('posted', 'paid') AND pi.organization_id = v_target_org), 0) +
+                COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sri.sales_return_id = sr.id WHERE sri.product_id = prod_record.id AND sr.warehouse_id = wh_record.id AND sr.status = 'posted' AND sr.organization_id = v_target_org), 0) +
+                COALESCE((SELECT SUM(quantity) FROM public.work_orders WHERE product_id = prod_record.id AND warehouse_id = wh_record.id AND status = 'completed' AND organization_id = v_target_org), 0) -
+                -- الصادر: مبيعات + مرتجع مشتريات + مبيعات مطعم + استهلاك مطعم (BOM) + استهلاك تصنيع (BOM)
+                COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status IN ('posted', 'paid') AND i.organization_id = v_target_org), 0) -
+                COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id WHERE pri.product_id = prod_record.id AND pr.warehouse_id = wh_record.id AND pr.status = 'posted' AND pr.organization_id = v_target_org), 0) -
+                COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
+                COALESCE((SELECT SUM(oi.quantity * bom.quantity_required) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
+                COALESCE((SELECT SUM(wo.quantity * bom.quantity_required) FROM public.work_orders wo JOIN public.bill_of_materials bom ON wo.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND wo.warehouse_id = wh_record.id AND wo.status = 'completed' AND wo.organization_id = v_target_org), 0) +
+                -- التسويات: موجب أو سالب حسب نوع الحركة
+                COALESCE((SELECT SUM(CASE WHEN type = 'in' THEN quantity WHEN type = 'out' THEN -quantity ELSE quantity END) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = prod_record.id AND sa.warehouse_id = wh_record.id AND sa.status = 'posted' AND sa.organization_id = v_target_org), 0)
+            INTO wh_qty;
             IF wh_qty <> 0 THEN wh_json := wh_json || jsonb_build_object(wh_record.id::text, wh_qty); END IF;
         END LOOP;
         UPDATE products SET stock = total_qty, warehouse_stock = wh_json WHERE id = prod_record.id AND organization_id = v_target_org;
@@ -1325,8 +1345,8 @@ AS $$
 BEGIN
     RETURN QUERY
     SELECT 
-        p.name as item_name,
-        COALESCE(cat.name, 'غير مصنف') as category_name,
+        p.name::text as item_name,
+        COALESCE(cat.name::text, 'غير مصنف'::text) as category_name,
         SUM(oi.quantity)::numeric as quantity,
         SUM(oi.total_price)::numeric as total_sales
     FROM public.order_items oi

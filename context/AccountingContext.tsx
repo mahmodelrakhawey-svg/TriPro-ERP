@@ -2691,19 +2691,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addAsset = async (data: any) => {
     try {
+      // 🛡️ صمام أمان: التأكد من وجود هوية الشركة قبل الإرسال لمنع فشل الاتصال
+      const orgId = (currentUser as any)?.organization_id;
+      if (!orgId) {
+        showToast('خطأ أمني: لم يتم تحديد هوية الشركة. يرجى إعادة تسجيل الدخول.', 'error');
+        return;
+      }
+
       // 1. حفظ الأصل في جدول 'assets'
       const { data: newAsset, error: assetError } = await supabase
         .from('assets')
         .insert({
           name: data.name,
           purchase_date: data.purchaseDate,
-          purchase_cost: data.purchaseCost,
-          salvage_value: data.salvageValue,
-          useful_life: data.usefulLife,
+          purchase_cost: Number(data.purchaseCost) || 0,
+          salvage_value: Number(data.salvageValue) || 0,
+          useful_life: Number(data.usefulLife) || 0,
           asset_account_id: data.assetAccountId,
           accumulated_depreciation_account_id: data.accumulatedDepreciationAccountId || null,
           depreciation_expense_account_id: data.depreciationExpenseAccountId || null,
-          organization_id: (currentUser as any)?.organization_id // استخدام معرف المنظمة من المستخدم الحالي مباشرة
+          organization_id: orgId
         })
         .select()
         .single();
@@ -2741,9 +2748,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // 3. تحديث قائمة الأصول في الواجهة
       await fetchData();
-    } catch (error: any) {
-      console.error('Error adding asset:', error);
-      showToast('فشل إضافة الأصل: ' + error.message, 'error');
+    } catch (err: any) {
+      console.error('Critical Asset Error:', err);
+      // 🚨 رسالة ذكية في حال كان مانع الإعلانات هو السبب
+      if (err.message?.includes('fetch') || !err.status) {
+        showToast('فشل الاتصال بالسيرفر. يرجى التأكد من إيقاف مانع الإعلانات (AdBlock) وتحديث الصفحة.', 'error');
+      } else {
+        showToast('فشل إضافة الأصل: ' + err.message, 'error');
+      }
     }
   };
   
@@ -3780,11 +3792,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (payErr) throw payErr;
 
         // 3. تم إلغاء الترحيل المحاسبي الفوري.
-        // سيتم إنشاء قيد مجمع عند إغلاق الوردية عبر دالة `generate_shift_closing_entry`.
-        // سيقوم الـ Trigger الموجود على جدول `orders` بمعالجة استهلاك المخزون تلقائياً.
-
-        // 4. تحديث حالة الطلب
-        await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
+                // 4. تحديث حالة الطلب وربطه بالكاشير الحالي (ضروري لطلبات الـ QR)
+        await supabase.from('orders')
+            .update({ 
+                status: 'COMPLETED', 
+                user_id: currentUser?.id, // 👈 ضمان ربط الطلب بالكاشير الذي استلم المال
+                updated_at: new Date().toISOString() 
+            })
+            .eq('id', orderId);
 
         // 4. إغلاق جلسة الطاولة (باستخدام الدالة الموجودة في قاعدة البيانات)
         if (order?.session_id) {

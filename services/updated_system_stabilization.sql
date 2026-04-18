@@ -1,7 +1,7 @@
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script)
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script) - النسخة الاحترافية الموحدة
--- تاريخ التحديث: 2026-04-08 (SaaS Sync Version)
--- الوصف: يضمن تحديث هيكل قاعدة البيانات، إضافة أعمدة الـ SaaS، وتفعيل درع حماية البيانات (RLS) لكافة الجداول.
+-- تاريخ التحديث: 2026-06-04 (Full Maintenance Version v15)
+-- الوصف: فرض اختيار المستودع في كافة الفواتير لمنع خطأ 400 Bad Request.
 
 BEGIN;
 
@@ -22,8 +22,16 @@ BEGIN
     );
 END; $$;
 
+-- ترميم: إسناد الطلبات التي ليس لها مستودع إلى المستودع الرئيسي للشركة
+UPDATE public.orders o
+SET warehouse_id = (SELECT id FROM public.warehouses w WHERE w.organization_id = o.organization_id AND deleted_at IS NULL LIMIT 1)
+WHERE warehouse_id IS NULL;
+
 -- إعادة حساب كافة أرصدة العملاء لضمان المطابقة مع كشف الحساب
 UPDATE public.customers SET balance = public.get_customer_balance(id, organization_id);
+
+-- إعادة احتساب أرصدة المخزون بالمنطق المطور (شامل استهلاك المطعم والتصنيع)
+SELECT public.recalculate_stock_rpc(id) FROM public.organizations;
 
 -- مزامنة المتوسط المرجح للأصناف لضمان دقة التكلفة في الفواتير
 UPDATE public.products SET weighted_average_cost = COALESCE(NULLIF(weighted_average_cost, 0), cost, purchase_price, 0);
@@ -85,6 +93,16 @@ DO $$ BEGIN
             -- إذا كان كلاهما موجوداً، انقل البيانات للعمود الجديد واحذف القديم لتجنب التعارض
             UPDATE public.orders SET user_id = created_by WHERE user_id IS NULL;
             ALTER TABLE public.orders DROP COLUMN created_by;
+        END IF;
+    END IF;
+
+    -- تحديث جدول أوامر التصنيع (work_orders) - إصلاح تقرير حركة الصنف
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='work_orders' AND column_name='created_by') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='work_orders' AND column_name='user_id') THEN
+            ALTER TABLE public.work_orders RENAME COLUMN created_by TO user_id;
+        ELSE
+            UPDATE public.work_orders SET user_id = created_by WHERE user_id IS NULL;
+            ALTER TABLE public.work_orders DROP COLUMN created_by;
         END IF;
     END IF;
 
@@ -168,6 +186,10 @@ ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uu
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); -- 🛡️ إصلاح خطأ دالة إعادة المطابقة
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_tax numeric DEFAULT 0;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_discount numeric DEFAULT 0;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS grand_total numeric DEFAULT 0;
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS current_account_id uuid REFERENCES public.accounts(id);
 ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS notes text; -- ملاحظات بنود الجرد
 
@@ -230,6 +252,10 @@ CREATE SEQUENCE IF NOT EXISTS public.order_number_seq;
 UPDATE public.company_settings SET currency = 'EGP', vat_rate = 0.14 WHERE currency IS NULL OR currency = 'SAR';
 ALTER TABLE public.invoices ALTER COLUMN currency SET DEFAULT 'EGP';
 ALTER TABLE public.purchase_invoices ALTER COLUMN currency SET DEFAULT 'EGP';
+
+-- تنظيف أي جلسات معلقة أو بيانات غير مرتبطة بمنظمة
+DELETE FROM public.profiles WHERE organization_id IS NULL AND role != 'super_admin';
+
 ALTER TABLE public.company_settings ALTER COLUMN currency SET DEFAULT 'EGP';
 ALTER TABLE public.invoices ALTER COLUMN currency SET DEFAULT 'EGP';
 ALTER TABLE public.purchase_invoices ALTER COLUMN currency SET DEFAULT 'EGP';
@@ -240,6 +266,152 @@ ALTER TABLE public.payment_vouchers ALTER COLUMN currency SET DEFAULT 'EGP';
 UPDATE public.products 
 SET weighted_average_cost = COALESCE(NULLIF(weighted_average_cost, 0), cost, purchase_price, 0)
 WHERE weighted_average_cost IS NULL OR weighted_average_cost = 0;
+
+-- ============================================================
+-- 12. صمام أمان المستودعات للفواتير (Warehouse Safety Triggers)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.fn_ensure_document_warehouse()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.warehouse_id IS NULL THEN
+        NEW.warehouse_id := COALESCE(
+            (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = NEW.organization_id),
+            (SELECT id FROM public.warehouses WHERE organization_id = NEW.organization_id AND deleted_at IS NULL LIMIT 1)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ensure_invoice_warehouse ON public.invoices;
+CREATE TRIGGER trg_ensure_invoice_warehouse BEFORE INSERT ON public.invoices FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_document_warehouse();
+
+DROP TRIGGER IF EXISTS trg_ensure_purchase_warehouse ON public.purchase_invoices;
+CREATE TRIGGER trg_ensure_purchase_warehouse BEFORE INSERT ON public.purchase_invoices FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_document_warehouse();
+
+-- ============================================================
+-- 11. ربط تلقائي لطلبات الـ QR بالكاشير عند الدفع
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.fn_assign_cashier_to_qr_order()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- إذا تغيرت الحالة إلى مدفوع والطلب ليس له صاحب، نربطه بالمستخدم الحالي الذي أجرى التعديل
+    IF NEW.status IN ('PAID', 'COMPLETED') AND NEW.user_id IS NULL THEN
+        NEW.user_id := auth.uid();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_assign_cashier ON public.orders;
+CREATE TRIGGER trg_assign_cashier
+BEFORE UPDATE OF status ON public.orders
+FOR EACH ROW EXECUTE FUNCTION public.fn_assign_cashier_to_qr_order();
+
+-- ============================================================
+-- 10. فرض اختيار المستودع تلقائياً للطلبات (Auto-Warehouse Enforcement)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.fn_ensure_order_warehouse()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.warehouse_id IS NULL THEN
+        NEW.warehouse_id := COALESCE(
+            (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = NEW.organization_id),
+            (SELECT id FROM public.warehouses WHERE organization_id = NEW.organization_id AND deleted_at IS NULL LIMIT 1)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ensure_order_warehouse ON public.orders;
+CREATE TRIGGER trg_ensure_order_warehouse
+BEFORE INSERT ON public.orders
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_ensure_order_warehouse();
+
+-- ============================================================
+-- 9. تحديث دالة إغلاق الوردية الشاملة (Unified Shift Closing)
+-- ============================================================
+-- تضمن هذه الدالة إثبات العجز/الزيادة + خصم المخزون بالتكلفة في قيد واحد
+CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb;
+    v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
+    v_cogs_acc_id uuid; v_inventory_acc_id uuid;
+    v_diff numeric := 0; v_actual_cash_collected numeric := 0;
+BEGIN
+    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
+    WITH shift_orders AS (
+        SELECT id, subtotal, total_tax FROM public.orders
+        WHERE user_id = v_shift.user_id AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
+        AND status IN ('COMPLETED', 'PAID', 'posted') AND organization_id = v_shift.organization_id
+    )
+    SELECT 
+        COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
+        COALESCE((SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id))) FROM public.order_items itms WHERE itms.order_id IN (SELECT id FROM shift_orders)), 0) as cost_total,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
+    INTO v_summary
+    FROM shift_orders;
+    v_diff := COALESCE((SELECT actual_cash FROM public.shifts WHERE id = p_shift_id), 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
+    v_actual_cash_collected := v_summary.cash_total + v_diff;
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
+    v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+    VALUES (now()::date, 'إغلاق وردية - تسوية شاملة - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-FINAL-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات', v_shift.organization_id);
+    IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
+    IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
+    IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
+    IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية', v_shift.organization_id);
+    ELSIF v_diff > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية', v_shift.organization_id); END IF;
+    IF v_summary.cost_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات (جرد مستمر)', v_shift.organization_id), (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون (جرد مستمر)', v_shift.organization_id); END IF;
+    RETURN v_je_id;
+END; $$;
+
+-- ============================================================
+-- 9. إصلاح تقرير مبيعات المطعم (Restaurant Report Type Fix)
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.get_restaurant_sales_report(
+    p_org_id uuid,
+    p_start_date date,
+    p_end_date date
+)
+RETURNS TABLE (
+    item_name text,
+    category_name text,
+    quantity numeric,
+    total_sales numeric
+) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.name::text as item_name,
+        COALESCE(cat.name::text, 'غير مصنف'::text) as category_name,
+        SUM(oi.quantity)::numeric as quantity,
+        SUM(oi.total_price)::numeric as total_sales
+    FROM public.order_items oi
+    JOIN public.orders o ON oi.order_id = o.id
+    JOIN public.products p ON oi.product_id = p.id
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    WHERE o.organization_id = p_org_id
+      AND o.status IN ('COMPLETED', 'PAID', 'posted')
+      AND o.created_at::date BETWEEN p_start_date AND p_end_date
+    GROUP BY p.name, cat.name
+    ORDER BY total_sales DESC;
+END;
+$$;
 
 -- ============================================================
 -- 8. درع الحماية الشامل (The Shield - Multi-tenancy Isolation)
@@ -320,8 +492,11 @@ BEGIN
 END $$;
 
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
+-- تأكيد تنشيط الكاش وتحديث البنية البرمجية
 SELECT public.refresh_saas_schema();
 NOTIFY pgrst, 'reload config';
+ANALYZE public.order_items;
+ANALYZE public.products;
 
 COMMIT;
 SELECT '✅ تم فحص وتثبيت هيكل قاعدة البيانات بنجاح. النظام جاهز للعمل.' as status;

@@ -75,6 +75,38 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Fail silently in production
     }
   }, []);
+
+  // دالة معالجة أخطاء التوكن والجلسة التالفة
+  const handleAuthError = useCallback(async (error: any) => {
+    if (!error) return;
+
+    // التحقق من أن الخطأ متعلق بتوكن التحديث (Refresh Token) أو خطأ 400 الشهير
+    const isTokenError = 
+      error.message?.includes('Refresh Token Not Found') || 
+      error.message?.includes('Invalid Refresh Token') ||
+      error.status === 400 || 
+      error.code === 'refresh_token_not_found';
+
+    if (isTokenError) {
+      if (process.env.NODE_ENV === 'development') {
+        console.warn("TriPro-ERP Safety: اكتشاف جلسة تالفة، يتم تنظيف البيانات وإعادة التوجيه...");
+      }
+
+      // 1. مسح كل ما يتعلق بسوبابيز من الذاكرة المحلية للمتصفح
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes('supabase.auth.token')) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      // 2. محاولة تسجيل الخروج برمجياً لتصفية حالة المكتبة
+      try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
+
+      // 3. إعادة التوجيه لصفحة تسجيل الدخول
+      window.location.href = '/login';
+    }
+  }, []);
+
   const handleAuthChange = useCallback(async (user: any) => {
     setIsLoading(true);
     if (user) {
@@ -157,7 +189,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Initial check
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) {
+            handleAuthError(error);
+            return;
+        }
+
         if (!session) {
             setAuthInitialized(true);
             setIsLoading(false);
@@ -167,7 +204,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       authListener.subscription.unsubscribe();
     };
-  }, [handleAuthChange, fetchUsers]);
+  }, [handleAuthChange, fetchUsers, handleAuthError]);
 
   const login = async (email: string, password: string) => {
     // special case: demo account may use a weak password that does not pass normal validation

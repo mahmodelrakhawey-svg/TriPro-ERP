@@ -1274,10 +1274,14 @@ const PosScreen = () => {
               await supabase.from('restaurant_tables').update({ bill_requested: false }).eq('id', activeOrder.tableId);
           }
 
-          setActiveOrder(null); // مسح الطلب النشط بعد الدفع الكامل
-          
-          // تحديث قائمة الطلبات الخارجية يدوياً لضمان الاختفاء الفوري من الجانب الأيسر
+          // 🧹 تنظيف الحالة فوراً لضمان تجربة مستخدم سريعة
+          setActiveOrder(null);
           setOpenExternalOrders(prev => prev.filter(o => o.id !== activeOrder.orderId));
+
+          // 🔄 تحديث البيانات المركزية لمزامنة حالة الطاولات والمخزون
+          await refreshData();
+          
+          showToast('تم إتمام الدفع وتحديث حالة الطاولة بنجاح ✅', 'success');
       }
       } catch (e: any) {
           showToast('فشل إتمام الدفع: ' + e.message, 'error');
