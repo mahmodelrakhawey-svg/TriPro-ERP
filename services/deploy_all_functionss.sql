@@ -1,25 +1,15 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
--- 🌟 النسخة الشاملة الموحدة (Version 21.0 - Document Warehouse Safety)
+-- 🌟 النسخة الشاملة الموحدة (Version 22.0 - Supplier UUID Enforcement)
 
 -- 🛠️ دالة جلب معرف المنظمة للمستخدم الحالي (ضرورية جداً لعمل النظام)
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
-LANGUAGE plpgsql 
-SECURITY DEFINER
-SET search_path = public, auth, pg_temp
-AS $$
-DECLARE v_org_id uuid;
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    -- إذا كان المستخدم غير مسجل دخول، نرجع null ولا نعطل الاستعلام
-    IF auth.uid() IS NULL THEN RETURN NULL; END IF;
-
-    -- ضمان جلب معرف المنظمة الصحيح دائماً لدعم SaaS ومنع تضارب العملات
-    RETURN COALESCE(
-        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
-        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
-    );
+    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
+-- دالة للتأكد من حالة الاتصال (Health Check)
 -- دالة للتأكد من حالة الاتصال (Health Check)
 CREATE OR REPLACE FUNCTION public.check_db_sync()
 RETURNS text LANGUAGE plpgsql AS $$
@@ -1454,4 +1444,22 @@ CREATE TRIGGER trg_auto_approve_invoice_items
 
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
 SELECT public.refresh_saas_schema();
+NOTIFY pgrst, 'reload config';
+SELECT public.refresh_saas_schema();
+-- تحديث دالة رصيد العميل لضمان عدم التكرار
+CREATE OR REPLACE FUNCTION public.get_customer_balance(p_customer_id UUID, p_org_id UUID)
+RETURNS NUMERIC AS $$
+DECLARE v_total NUMERIC := 0;
+BEGIN
+    SELECT COALESCE(opening_balance, 0) INTO v_total FROM public.customers WHERE id = p_customer_id;
+    SELECT v_total + COALESCE(SUM(total_amount), 0) INTO v_total FROM public.invoices WHERE customer_id = p_customer_id AND organization_id = p_org_id AND status != 'draft' AND invoice_number NOT LIKE 'OB-%';
+    SELECT v_total + COALESCE(SUM(subtotal + total_tax), 0) INTO v_total FROM public.orders WHERE customer_id = p_customer_id AND organization_id = p_org_id AND status != 'CANCELLED';
+    SELECT v_total - COALESCE(SUM(amount), 0) INTO v_total FROM public.receipt_vouchers WHERE customer_id = p_customer_id AND organization_id = p_org_id AND voucher_number NOT LIKE 'DEP-%';
+    SELECT v_total - COALESCE(SUM(amount), 0) INTO v_total FROM public.cheques WHERE party_id = p_customer_id AND organization_id = p_org_id AND type = 'incoming' AND status != 'rejected';
+    SELECT v_total - COALESCE(SUM(total_amount), 0) INTO v_total FROM public.sales_returns WHERE customer_id = p_customer_id AND organization_id = p_org_id AND status = 'posted';
+    SELECT v_total - COALESCE(SUM(total_amount), 0) INTO v_total FROM public.credit_notes WHERE customer_id = p_customer_id AND organization_id = p_org_id AND status = 'posted';
+    SELECT v_total + COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_total FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = p_org_id AND je.status = 'posted' AND je.related_document_id IS NULL AND (trim(je.reference) NOT ILIKE 'OB-%' AND trim(je.reference) NOT ILIKE 'COLL-%' AND trim(je.reference) NOT ILIKE 'TRF-%' AND trim(je.reference) NOT ILIKE 'CHQ-%') AND a.code LIKE '1221%';
+    RETURN v_total;
+END; $$ LANGUAGE plpgsql SECURITY DEFINER;
 NOTIFY pgrst, 'reload config';

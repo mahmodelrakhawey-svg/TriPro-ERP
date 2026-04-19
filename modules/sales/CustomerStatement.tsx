@@ -112,8 +112,6 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             .match(filter) // Apply filter here
             .neq('status', 'CANCELLED');
             
-        // 8. Fetch Manual Journal Entries / Opening Balances (OB- / ADJ-)
-        // جلب قيود اليومية التي تحتوي على اسم العميل في الشرح أو تبدأ بمرجع رصيد افتتاحي
         const { data: manualEntries } = await supabase.from('journal_entries')
             .select(`
                 id, reference, transaction_date, description, status,
@@ -121,8 +119,17 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             `)
             .eq('organization_id', userOrgId)
             .eq('status', 'posted')
-            .or(`description.ilike.%${selectedCustomer?.name}%,reference.ilike.OB-%`)
-            .filter('journal_lines.accounts.code', 'ilike', '122%'); // تصفية الحسابات المديرة للعملاء
+            .filter('journal_lines.accounts.code', 'ilike', '1221%'); // تحديد حساب العملاء بدقة
+
+        // فلترة القيود يدوياً لضمان استبعاد COLL و TRF ومنع التداخل
+        const filteredManual = manualEntries?.filter(je => {
+            const ref = (je.reference || '').toString().trim().toUpperCase();
+            const desc = (je.description || '').toLowerCase();
+            const custName = (selectedCustomer?.name || '').toLowerCase();
+            const isTarget = desc.includes(custName) || ref.includes('OB-');
+            const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-');
+            return isTarget && !isForbidden;
+        }) || [];
 
         // 7. Fetch Restaurant Payments (Credit) - جلب مدفوعات المطعم المرتبطة
         let restPayments: any[] = [];
@@ -224,18 +231,15 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             });
         });
 
-        // إضافة القيود اليدوية والأرصدة الافتتاحية
-        manualEntries?.forEach(je => {
-            // تحسين فحص التكرار ليشمل المراجع التي تبدأ ببادئة مثل CHQ- أو RV-
-            const isDuplicate = allTrans.some(t => 
-                t.ref === je.reference || 
-                je.reference === `CHQ-${t.ref}` || 
-                je.reference === `RV-${t.ref}` ||
-                je.reference === `INV-${t.ref}`
-            );
+        filteredManual.forEach(je => {
+            const isDuplicate = allTrans.some(t => {
+                const clean = (r: any) => r?.toString().trim().toUpperCase().replace(/^(CHQ-|RV-|INV-|COLL-|TRF-|OB-)/i, '') || '';
+                const r1 = clean(t.ref);
+                const r2 = clean(je.reference);
+                return r1 === r2 && r1 !== '' && r1 !== 'NULL';
+            });
 
             if (!isDuplicate) {
-                // هام: نأخذ فقط المبالغ التي أثرت على حسابات العملاء (122...) وليس إجمالي القيد
                 const customerLines = je.journal_lines?.filter((l: any) => l.accounts.code.startsWith('122')) || [];
                 const debit = customerLines.reduce((sum: number, l: any) => sum + Number(l.debit), 0);
                 const credit = customerLines.reduce((sum: number, l: any) => sum + Number(l.credit), 0);

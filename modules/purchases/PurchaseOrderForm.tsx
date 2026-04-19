@@ -169,8 +169,8 @@ const PurchaseOrderForm = () => {
             {items.map((item, idx) => (
               <tr key={idx} className="border-b">
                 <td className="p-3">{item.name}</td>
-                <td className="p-3"><input type="number" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td>
-                <td className="p-3"><input type="number" className="w-full border rounded p-1 text-center" value={item.price} onChange={e => updateItem(idx, 'price', Number(e.target.value))} /></td>
+                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td>
+                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.price} onChange={e => updateItem(idx, 'price', Number(e.target.value))} /></td>
                 <td className="p-3 font-bold">{(item.quantity * item.price).toLocaleString()}</td>
                 <td className="p-3"><button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={18} /></button></td>
               </tr>

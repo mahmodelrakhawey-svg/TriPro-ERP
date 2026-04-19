@@ -2933,8 +2933,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pnlAccounts.forEach(acc => {
         const balance = accountBalances[acc.id] || 0;
 
-        // تخطي الحسابات الصفرية
-        if (Math.abs(balance) < 0.01) return;
+        // تخطي الحسابات الصفرية (نستخدم عتبة دقيقة جداً لضمان تصفير كافة الخانات العشرية الأربع)
+        if (Math.abs(balance) < 0.0001) return;
 
         // للإقفال: نعكس طبيعة الرصيد
         if (balance > 0) {
@@ -2959,7 +2959,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       if (!retainedEarningsId) throw new Error("حساب الأرباح المبقاة (3103) غير موجود.");
 
-      if (Math.abs(netResult) > 0.01) {
+      if (Math.abs(netResult) > 0.0001) {
           if (netResult > 0) {
               // الفرق موجب (مدين > دائن) يعني الإيرادات (التي أصبحت مدينة) أكبر -> ربح -> دائن في حقوق الملكية
               closingLines.push({ accountId: retainedEarningsId, debit: 0, credit: netResult, description: `ترحيل صافي ربح عام ${year}` });
@@ -3584,6 +3584,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addOpeningBalanceTransaction = async (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => {
       if (amount <= 0) return;
       
+      // 🛡️ صمام أمان: التحقق من صحة الـ UUID قبل الإرسال لمنع خطأ 400 (Bad Request)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+      if (!uuidRegex.test(entityId)) {
+        showToast(`خطأ في البيانات: معرف ${entityType === 'customer' ? 'العميل' : 'المورد'} غير صحيح.`, 'error');
+        return;
+      }
+
       const ref = `OB-${entityId.slice(0, 6)}`;
       // 3999: أرصدة افتتاحية (وسيط) Or 301: رأس المال/حقوق الملكية
       const openingEquityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية')) || accounts.find(a => a.code === '301');

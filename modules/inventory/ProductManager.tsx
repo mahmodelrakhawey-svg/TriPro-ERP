@@ -1859,14 +1859,19 @@ const ProductManager = () => {
                         <input type="date" value={formData.expiry_date} onChange={e => setFormData({...formData, expiry_date: e.target.value})} className="w-full border rounded-lg p-2" />
                     </div>
                   <div>
-                    <label className="block text-sm font-bold mb-1 text-slate-700">التصنيف</label>
-                    <div className="flex gap-2">
-                        <select value={formData.category_id || ''} onChange={e => setFormData({...formData, category_id: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
-                            <option value="">-- بدون تصنيف --</option>
-                            {categories.map(cat => (
-                                <option key={cat.id} value={cat.id}>{cat.name} {(cat as any).description ? ` (${(cat as any).description})` : ''}</option>
-                            ))}
-                        </select>
+                    <div className="flex items-end gap-2">
+                        <div className="flex-1">
+                            <SearchableSelect
+                                label="التصنيف"
+                                options={categories.map(cat => ({ 
+                                    id: cat.id, 
+                                    name: cat.name + ((cat as any).description ? ` (${(cat as any).description})` : '')
+                                }))}
+                                value={formData.category_id || ''}
+                                onChange={value => setFormData({...formData, category_id: value})}
+                                placeholder="ابحث عن تصنيف..."
+                            />
+                        </div>
                         {formData.category_id && categories.find(c => c.id === formData.category_id) && (categories.find(c => c.id === formData.category_id) as any).image_url && (
                             <img 
                                 src={(categories.find(c => c.id === formData.category_id) as any).image_url} 

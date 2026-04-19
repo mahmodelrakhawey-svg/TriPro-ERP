@@ -26,16 +26,10 @@ $$;
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
 LANGUAGE plpgsql 
-SECURITY DEFINER
-SET search_path = public, auth, pg_temp
-AS $$
-DECLARE v_org_id uuid;
+SECURITY DEFINER AS $$
 BEGIN
-    -- توحيد جلب الهوية لضمان قراءة إعدادات العملة الصحيحة لكل شركة
-    RETURN COALESCE(
-        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
-        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
-    );
+    -- دعم اليوزر العالمي: إذا لم يوجد org_id في الـ JWT يعني أنه سوبر أدمن
+    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
 -- 2. دالة للتحقق مما إذا كان المستخدم مسؤولاً (Admin/Super Admin)
@@ -113,7 +107,11 @@ USING (
 -- 2. إعدادات الشركة (Company Settings)
 -- قراءة للجميع (المصادق عليهم)
 DROP POLICY IF EXISTS "Settings viewable by authenticated" ON company_settings;
-CREATE POLICY "Settings viewable by authenticated" ON company_settings FOR SELECT TO authenticated USING (organization_id = public.get_my_org());
+CREATE POLICY "Settings viewable by authenticated" ON company_settings 
+FOR SELECT TO authenticated 
+USING (
+    organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin'
+);
 -- تعديل للمدراء فقط
 DROP POLICY IF EXISTS "Only Admins can update settings" ON company_settings;
 CREATE POLICY "Only Admins can update settings" ON company_settings FOR UPDATE USING (is_admin());
@@ -122,7 +120,7 @@ CREATE POLICY "Only Admins can update settings" ON company_settings FOR UPDATE U
 -- السوبر أدمن يرى الجميع، والمستخدم يرى بيانات منظمته فقط
 DROP POLICY IF EXISTS "Basic data viewable by authenticated" ON products;
 CREATE POLICY "Basic data viewable by authenticated" ON products FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = 'anon' OR public.get_my_role() = 'super_admin');
-DROP POLICY IF EXISTS "restaurant_tables_viewable_anon" ON restaurant_tables;
+-- سياسة قراءة التصنيفات مع دعم البحث
 CREATE POLICY "restaurant_tables_viewable_anon" ON restaurant_tables FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = 'anon' OR public.get_my_role() = 'super_admin');
 DROP POLICY IF EXISTS "menu_categories_viewable_anon" ON menu_categories;
 CREATE POLICY "menu_categories_viewable_anon" ON menu_categories FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = 'anon' OR public.get_my_role() = 'super_admin');

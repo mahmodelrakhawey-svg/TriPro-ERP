@@ -451,7 +451,7 @@ const ReceiptVoucherForm = () => {
                     <input 
                         type="number" 
                         min="0"
-                        step="0.01"
+                        step="any"
                         value={formData.amount}
                         onChange={(e) => setFormData({...formData, amount: parseFloat(e.target.value)})}
                         className={`w-full border rounded-lg px-4 py-3 focus:outline-none font-mono text-lg font-bold ${errors.amount ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}

@@ -99,7 +99,7 @@ const IncomeStatement = () => {
 
     pnlAccounts.forEach(acc => {
       const balance = accountBalances[acc.id] || 0;
-      if (Math.abs(balance) < 0.01) return;
+      if (Math.abs(balance) < 0.0001) return;
 
       const type = (acc.type || '').toLowerCase();
       const isRevenue = type.includes('revenue') || type.includes('إيراد') || acc.code.startsWith('4');
@@ -231,12 +231,12 @@ const IncomeStatement = () => {
                   <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
                     <td className="py-2 text-slate-600 font-mono w-24">{r.code}</td>
                     <td className="py-2 text-slate-800">{r.name}</td>
-                    <td className="py-2 text-right font-medium text-slate-700">{r.value.toLocaleString()}</td>
+                    <td className="py-2 text-right font-medium text-slate-700">{r.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 ))}
                 <tr className="bg-emerald-50 font-bold text-emerald-800">
                   <td colSpan={2} className="py-3 px-2">إجمالي الإيرادات</td>
-                  <td className="py-3 px-2 text-right">{reportData.totalRevenue.toLocaleString()}</td>
+                  <td className="py-3 px-2 text-right">{reportData.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               </tbody>
             </table>
@@ -253,12 +253,12 @@ const IncomeStatement = () => {
                   <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50">
                     <td className="py-2 text-slate-600 font-mono w-24">{c.code}</td>
                     <td className="py-2 text-slate-800">{c.name}</td>
-                    <td className="py-2 text-right font-medium text-slate-700">{c.value.toLocaleString()}</td>
+                    <td className="py-2 text-right font-medium text-slate-700">{c.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 ))}
                 <tr className="bg-amber-50 font-bold text-amber-800">
                   <td colSpan={2} className="py-3 px-2">إجمالي تكلفة البضاعة</td>
-                  <td className="py-3 px-2 text-right">{reportData.totalCogs.toLocaleString()}</td>
+                  <td className="py-3 px-2 text-right">{reportData.totalCogs.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               </tbody>
             </table>
@@ -267,7 +267,7 @@ const IncomeStatement = () => {
           {/* Gross Profit */}
           <div className="mb-8 bg-blue-50 p-3 rounded-lg border border-blue-100 flex justify-between items-center font-bold text-blue-800">
               <span>مجمل الربح (Gross Profit)</span>
-              <span className="text-xl">{reportData.grossProfit.toLocaleString()}</span>
+              <span className="text-xl">{reportData.grossProfit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </div>
 
           {/* Operating Expenses */}
@@ -281,12 +281,12 @@ const IncomeStatement = () => {
                   <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50">
                     <td className="py-2 text-slate-600 font-mono w-24">{e.code}</td>
                     <td className="py-2 text-slate-800">{e.name}</td>
-                    <td className="py-2 text-right font-medium text-slate-700">{e.value.toLocaleString()}</td>
+                    <td className="py-2 text-right font-medium text-slate-700">{e.value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 ))}
                 <tr className="bg-red-50 font-bold text-red-800">
                   <td colSpan={2} className="py-3 px-2">إجمالي المصروفات</td>
-                  <td className="py-3 px-2 text-right">{reportData.totalExpense.toLocaleString()}</td>
+                  <td className="py-3 px-2 text-right">{reportData.totalExpense.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               </tbody>
             </table>
@@ -295,7 +295,7 @@ const IncomeStatement = () => {
           {/* Net Income */}
           <div className={`mt-8 p-4 rounded-xl border-2 text-center ${reportData.netIncome >= 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
             <h3 className="text-lg font-bold mb-1">صافي {reportData.netIncome >= 0 ? 'الربح' : 'الخسارة'}</h3>
-            <p className="text-3xl font-black dir-ltr">{reportData.netIncome.toLocaleString()}</p>
+            <p className="text-3xl font-black dir-ltr">{reportData.netIncome.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
           </div>
         </div>
         )}

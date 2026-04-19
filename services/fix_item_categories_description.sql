@@ -15,6 +15,7 @@ ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS description text;
 ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS image_url text;
 ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS display_order integer DEFAULT 0;
 ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
 ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
 
 -- التأكد من وجود أعمدة المنظمة في جداول الإضافات
@@ -48,6 +49,10 @@ CREATE POLICY "item_categories_isolation_policy" ON public.item_categories
 FOR ALL TO authenticated 
 USING (organization_id = public.get_my_org()) 
 WITH CHECK (organization_id = public.get_my_org());
+
+-- إضافة قيد منع تكرار الاسم داخل نفس الشركة
+ALTER TABLE public.item_categories DROP CONSTRAINT IF EXISTS item_categories_name_org_unique;
+ALTER TABLE public.item_categories ADD CONSTRAINT item_categories_name_org_unique UNIQUE (organization_id, name);
 
 -- 3. إصلاح صلاحيات جداول الإضافات (Modifiers)
 -- يحل مشكلة: permission denied for table modifier_groups

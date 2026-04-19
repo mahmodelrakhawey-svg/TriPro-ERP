@@ -304,8 +304,8 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
                                   </select>
                                   <input type="text" className="w-full border rounded p-1 text-xs" placeholder="وصف" value={item.productName} onChange={e => handleItemChange(idx, 'productName', e.target.value)} />
                               </td>
-                              <td className="py-2"><input type="number" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', e.target.value)} /></td>
-                              <td className="py-2"><input type="number" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', e.target.value)} /></td>
+                              <td className="py-2"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', e.target.value)} /></td>
+                              <td className="py-2"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', e.target.value)} /></td>
                               <td className="py-2 text-center font-bold">{item.total.toLocaleString()}</td>
                               <td className="py-2 text-center"><button type="button" onClick={() => removeItem(idx)} className="text-red-500"><Trash2 size={16} /></button></td>
                           </tr>

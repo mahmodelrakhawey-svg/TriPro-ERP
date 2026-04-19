@@ -1,7 +1,7 @@
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script)
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script) - النسخة الاحترافية الموحدة
--- تاريخ التحديث: 2026-06-04 (Full Maintenance Version v15)
--- الوصف: فرض اختيار المستودع في كافة الفواتير لمنع خطأ 400 Bad Request.
+-- تاريخ التحديث: 2026-06-05 (Full Maintenance Version v16)
+-- الوصف: فرض صحة معرفات UUID في الفواتير وتأمين حقل المورد لضمان السلامة المحاسبية.
 
 BEGIN;
 
@@ -10,16 +10,10 @@ BEGIN;
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
-LANGUAGE plpgsql 
-SECURITY DEFINER
-SET search_path = public, auth
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    -- توحيد جلب الهوية وإعادة مزامنة أرصدة العملاء والموردين
-    RETURN COALESCE(
-        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
-        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
-    );
+    -- دعم اليوزر العالمي: إذا لم يوجد org_id في الـ JWT يعني أنه سوبر أدمن
+    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
 -- ترميم: إسناد الطلبات التي ليس لها مستودع إلى المستودع الرئيسي للشركة
@@ -29,6 +23,13 @@ WHERE warehouse_id IS NULL;
 
 -- إعادة حساب كافة أرصدة العملاء لضمان المطابقة مع كشف الحساب
 UPDATE public.customers SET balance = public.get_customer_balance(id, organization_id);
+
+-- تنظيف مراجع القيود لضمان الربط الصحيح
+UPDATE public.journal_entries SET related_document_type = 'cheque_collection' 
+WHERE (trim(reference) ILIKE 'COLL-%' OR trim(reference) ILIKE 'TRF-%' OR trim(reference) ILIKE 'CHQ-%') AND related_document_type IS NULL;
+
+-- صيانة فهارس البحث
+CREATE INDEX IF NOT EXISTS idx_item_categories_name_search ON public.item_categories (organization_id, name);
 
 -- إعادة احتساب أرصدة المخزون بالمنطق المطور (شامل استهلاك المطعم والتصنيع)
 SELECT public.recalculate_stock_rpc(id) FROM public.organizations;
@@ -67,6 +68,12 @@ DO $$ BEGIN
             END IF;
         END LOOP;
     END;
+
+    -- ضمان عدم تكرار التصنيفات
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'item_categories_name_org_unique') THEN
+        ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+        ALTER TABLE public.item_categories ADD CONSTRAINT item_categories_name_org_unique UNIQUE (organization_id, name);
+    END IF;
 
     -- توحيد مسميات معرفات المرتجعات
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'return_id') THEN
@@ -266,6 +273,12 @@ ALTER TABLE public.payment_vouchers ALTER COLUMN currency SET DEFAULT 'EGP';
 UPDATE public.products 
 SET weighted_average_cost = COALESCE(NULLIF(weighted_average_cost, 0), cost, purchase_price, 0)
 WHERE weighted_average_cost IS NULL OR weighted_average_cost = 0;
+
+-- ============================================================
+-- 13. تأمين إلزامية المورد في المشتريات (Supplier Enforcement)
+-- ============================================================
+UPDATE public.purchase_invoices SET supplier_id = (SELECT id FROM public.suppliers LIMIT 1) WHERE supplier_id IS NULL;
+ALTER TABLE public.purchase_invoices ALTER COLUMN supplier_id SET NOT NULL;
 
 -- ============================================================
 -- 12. صمام أمان المستودعات للفواتير (Warehouse Safety Triggers)

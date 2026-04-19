@@ -389,7 +389,7 @@ const PurchaseInvoiceList = () => {
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ المدفوع</label>
-                        <input type="number" required min="0" step="0.01" className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500" value={paymentFormData.amount} onChange={e => setPaymentFormData({...paymentFormData, amount: parseFloat(e.target.value)})} />
+                        <input type="number" required min="0" step="any" className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500" value={paymentFormData.amount} onChange={e => setPaymentFormData({...paymentFormData, amount: parseFloat(e.target.value)})} />
                     </div>
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ السداد</label>

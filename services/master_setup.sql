@@ -1,6 +1,6 @@
 -- 🌟 ملف التأسيس الشامل (Master Setup) - TriPro ERP
--- 📅 تاريخ التحديث: 2026-06-04 (Unified Stability Version v15)
--- ℹ️ الوصف: النسخة المرجعية الموحدة مع فرض أمان المستودعات في المشتريات والمبيعات.
+-- 📅 تاريخ التحديث: 2026-06-05 (Unified Stability Version v16)
+-- ℹ️ الوصف: النسخة المرجعية الموحدة مع فرض صحة معرفات الموردين في المشتريات.
 -- ⚠️ تحذير: تشغيل هذا الملف سيقوم بمسح جميع البيانات الموجودة في قاعدة البيانات!
 
 -- ================================================================
@@ -53,16 +53,9 @@ END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
-LANGUAGE plpgsql 
-SECURITY DEFINER
-SET search_path = public, auth, pg_temp
-AS $$
+LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    -- توحيد منطق الهوية لمنع تضارب الأرصدة في بيئة SaaS
-    RETURN COALESCE(
-        (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid,
-        (SELECT (raw_user_meta_data->>'org_id')::uuid FROM auth.users WHERE id = auth.uid() LIMIT 1)
-    );
+    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -458,8 +451,13 @@ CREATE TABLE IF NOT EXISTS public.item_categories (
     default_inventory_account_id uuid REFERENCES public.accounts(id),
     default_cogs_account_id uuid REFERENCES public.accounts(id),
     default_sales_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    UNIQUE (organization_id, name)
 );
+
+-- فهرس البحث السريع للتصنيفات
+CREATE INDEX IF NOT EXISTS idx_item_categories_name_search ON public.item_categories (organization_id, name);
 
 CREATE TABLE IF NOT EXISTS public.products (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -541,6 +539,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
     treasury_account_id uuid REFERENCES public.accounts(id),
     cost_center_id uuid REFERENCES public.cost_centers(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     currency text DEFAULT 'EGP',
     exchange_rate numeric DEFAULT 1,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
@@ -596,7 +595,7 @@ CREATE TABLE IF NOT EXISTS public.sales_return_items (
 CREATE TABLE IF NOT EXISTS public.purchase_invoices (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_number text,
-    supplier_id uuid REFERENCES public.suppliers(id),
+    supplier_id uuid NOT NULL REFERENCES public.suppliers(id),
     invoice_date date,
     due_date date,
     total_amount numeric,
@@ -1441,7 +1440,7 @@ BEGIN
     SELECT v_total + COALESCE(SUM(total_amount), 0) INTO v_total
     FROM public.invoices 
     WHERE customer_id = p_customer_id AND organization_id = p_org_id 
-    AND status != 'draft' AND invoice_number NOT LIKE 'OB-%';
+    AND status != 'draft' AND trim(invoice_number) NOT ILIKE 'OB-%';
 
     -- 3. المدين: طلبات المطاعم
     SELECT v_total + COALESCE(SUM(subtotal + total_tax), 0) INTO v_total
@@ -1449,7 +1448,7 @@ BEGIN
     
     -- 4. الدائن: سندات القبض
     SELECT v_total - COALESCE(SUM(amount), 0) INTO v_total
-    FROM public.receipt_vouchers WHERE customer_id = p_customer_id AND organization_id = p_org_id AND voucher_number NOT LIKE 'DEP-%';
+    FROM public.receipt_vouchers WHERE customer_id = p_customer_id AND organization_id = p_org_id AND trim(voucher_number) NOT ILIKE 'DEP-%';
 
     -- 5. الدائن: مرتجعات المبيعات والإشعارات
     SELECT v_total - COALESCE(SUM(total_amount), 0) INTO v_total
@@ -1469,7 +1468,7 @@ BEGIN
     WHERE je.organization_id = p_org_id 
     AND je.status = 'posted'
     AND je.related_document_id IS NULL 
-    AND je.reference NOT LIKE 'OB-%'
+    AND (trim(je.reference) NOT ILIKE 'OB-%' AND trim(je.reference) NOT ILIKE 'COLL-%' AND trim(je.reference) NOT ILIKE 'TRF-%' AND trim(je.reference) NOT ILIKE 'CHQ-%')
     AND a.code LIKE '1221%';
 
     RETURN v_total;
@@ -1494,12 +1493,35 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id uuid)
 RETURNS void LANGUAGE plpgsql AS $$
 DECLARE v_balance numeric := 0;
+DECLARE v_org_id uuid;
 BEGIN
-    -- فواتير (دائن) - سندات (مدين) - مرتجعات (مدين) - إشعارات مدينة (مدين)
-    SELECT COALESCE(SUM(total_amount), 0) INTO v_balance FROM public.purchase_invoices WHERE supplier_id = p_supplier_id AND status != 'draft';
-    SELECT v_balance - COALESCE((SELECT SUM(amount) FROM public.payment_vouchers WHERE supplier_id = p_supplier_id), 0) INTO v_balance;
-    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.purchase_returns WHERE supplier_id = p_supplier_id AND status = 'posted'), 0) INTO v_balance;
-    SELECT v_balance - COALESCE((SELECT SUM(total_amount) FROM public.debit_notes WHERE supplier_id = p_supplier_id AND status = 'posted'), 0) INTO v_balance;
+    SELECT organization_id INTO v_org_id FROM public.suppliers WHERE id = p_supplier_id;
+
+    -- 1. الرصيد الافتتاحي
+    SELECT COALESCE(opening_balance, 0) INTO v_balance FROM public.suppliers WHERE id = p_supplier_id;
+
+    -- 2. الدائن: فواتير المشتريات
+    SELECT v_balance + COALESCE(SUM(total_amount), 0) INTO v_balance 
+    FROM public.purchase_invoices WHERE supplier_id = p_supplier_id AND status != 'draft';
+
+    -- 3. المدين: سندات الصرف
+    SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance 
+    FROM public.payment_vouchers WHERE supplier_id = p_supplier_id;
+
+    -- 4. المدين: المرتجعات والإشعارات
+    SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance 
+    FROM public.purchase_returns WHERE supplier_id = p_supplier_id AND status = 'posted';
+    SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance 
+    FROM public.debit_notes WHERE supplier_id = p_supplier_id AND status = 'posted';
+
+    -- 5. القيود اليدوية والموردين (استبعاد تحصيل الشيكات الصادرة لمنع التكرار)
+    SELECT v_balance - COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_balance
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id AND je.status = 'posted' AND je.related_document_id IS NULL
+    AND (trim(je.reference) NOT ILIKE 'COLL-%' AND trim(je.reference) NOT ILIKE 'TRF-%')
+    AND a.code LIKE '201%';
 
     UPDATE public.suppliers SET balance = v_balance WHERE id = p_supplier_id;
 END; $$;

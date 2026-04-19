@@ -138,7 +138,7 @@ const DebitNoteForm = () => {
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ (قبل الضريبة)</label>
                 <div className="relative">
-                    <input type="number" required name="amount" min="0.01" step="0.01" value={formData.amount} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5 font-bold" />
+                    <input type="number" required name="amount" min="0.01" step="any" value={formData.amount} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5 font-bold" />
                     <Calculator className="absolute left-3 top-3 text-slate-400" size={18} />
                 </div>
             </div>

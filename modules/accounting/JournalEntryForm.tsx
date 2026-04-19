@@ -399,7 +399,7 @@ const JournalEntryForm = () => {
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="any"
                   value={line.debit}
                   onChange={(e) => handleLineChange(index, 'debit' as any, e.target.value)}
                   onFocus={(e) => e.target.select()}
@@ -410,7 +410,7 @@ const JournalEntryForm = () => {
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="any"
                   value={line.credit}
                   onChange={(e) => handleLineChange(index, 'credit' as any, e.target.value)}
                   onFocus={(e) => e.target.select()}

@@ -1374,6 +1374,7 @@ const SalesInvoiceForm = () => {
                                                                 </button>
                                                                 <input 
                                                                     type="number"
+                                                                    step="any"
                                                                     value={item.quantity}
                                                                     onChange={(e) => handleItemChange(index, 'quantity', e.target.value)}
                                                                     className="w-12 text-center font-black text-slate-800 outline-none bg-transparent"
@@ -1392,6 +1393,7 @@ const SalesInvoiceForm = () => {
                                                         <div className="flex items-center justify-center">
                                                             <input 
                                                                 type="number"
+                                                                step="any"
                                                                 value={item.unitPrice}
                                                                 disabled={settings.preventPriceModification && currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
                                                                 onChange={(e) => handleItemChange(index, 'unitPrice', e.target.value)}
@@ -1476,6 +1478,7 @@ const SalesInvoiceForm = () => {
                             <input 
                                 type="number" 
                                 min="0" 
+                                step="any"
                                 value={formData.discountValue}
                                 onChange={(e) => setFormData({...formData, discountValue: Math.max(0, parseFloat(e.target.value) || 0)})}
                                 className="w-20 bg-slate-800 border-2 border-white/5 rounded-xl text-center text-sm font-black py-2 focus:outline-none focus:border-blue-500 transition-all"
@@ -1518,6 +1521,7 @@ const SalesInvoiceForm = () => {
                                     <input 
                                         type="number"
                                         min="0"
+                                        step="any"
                                         value={formData.paidAmount}
                                         onChange={(e) => setFormData({...formData, paidAmount: Math.max(0, parseFloat(e.target.value) || 0)})}
                                         className="w-full bg-slate-800 border-2 border-white/5 rounded-2xl px-3 py-3 text-center font-black text-emerald-400 text-lg focus:outline-none focus:border-emerald-500 transition-all shadow-inner"

@@ -402,10 +402,10 @@ const PurchaseInvoiceForm = () => {
                 </select>
               </div>
               <div className="col-span-2">
-                <input type="number" min="1" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="الكمية" />
+                <input type="number" step="any" min="0.01" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="الكمية" />
               </div>
               <div className="col-span-2">
-                <input type="number" min="0" value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="السعر" />
+                <input type="number" step="any" min="0" value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="السعر" />
               </div>
               <div className="col-span-2">
                 <input type="text" readOnly value={(item.total || 0).toLocaleString()} className="w-full bg-slate-100 border rounded p-2 text-center font-bold" />
