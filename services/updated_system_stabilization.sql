@@ -40,10 +40,9 @@ UPDATE public.products SET weighted_average_cost = COALESCE(NULLIF(weighted_aver
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-  -- محاولة الجلب من الـ JWT أولاً للسرعة، ثم من جدول auth.users لتجنب التكرار مع البروفايل
   RETURN COALESCE(
     (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
-    (SELECT (raw_user_meta_data->>'role')::text FROM auth.users WHERE id = auth.uid())
+    (SELECT role FROM public.profiles WHERE id = auth.uid())
   );
 END; $$;
 
@@ -170,6 +169,9 @@ CREATE POLICY "org_select_policy" ON public.organizations FOR SELECT TO authenti
 DROP POLICY IF EXISTS "org_update_policy" ON public.organizations;
 CREATE POLICY "org_update_policy" ON public.organizations FOR UPDATE TO authenticated USING ((id = public.get_my_org() AND public.get_my_role() IN ('admin', 'super_admin')) OR public.get_my_role() = 'super_admin');
 
+DROP POLICY IF EXISTS "org_delete_policy" ON public.organizations;
+CREATE POLICY "org_delete_policy" ON public.organizations FOR DELETE TO authenticated USING (public.get_my_role() = 'super_admin');
+
 -- استثناء لجدول المستخدمين (رؤية وتحديث لإدارة المنصة)
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 -- حذف جميع السياسات القديمة لتجنب التعارض
@@ -182,9 +184,9 @@ END $$;
 DROP POLICY IF EXISTS "profiles_select_v2" ON public.profiles;
 CREATE POLICY "profiles_select_v2" ON public.profiles FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR id = auth.uid() OR public.get_my_role() = 'super_admin');
 DROP POLICY IF EXISTS "profiles_update_v2" ON public.profiles;
-CREATE POLICY "profiles_update_v2" ON public.profiles FOR ALL TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin')) WITH CHECK (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
+CREATE POLICY "profiles_update_v2" ON public.profiles FOR ALL TO authenticated USING (public.get_my_role() = 'super_admin' OR (public.get_my_role() = 'admin' AND organization_id = public.get_my_org()) OR id = auth.uid()) WITH CHECK (public.get_my_role() = 'super_admin' OR (public.get_my_role() = 'admin' AND organization_id = public.get_my_org()) OR id = auth.uid());
 DROP POLICY IF EXISTS "profiles_insert_v2" ON public.profiles;
-CREATE POLICY "profiles_insert_v2" ON public.profiles FOR INSERT TO authenticated WITH CHECK (public.get_my_role() IN ('admin', 'super_admin'));
+CREATE POLICY "profiles_insert_v2" ON public.profiles FOR INSERT TO authenticated WITH CHECK (public.get_my_role() = 'super_admin' OR public.get_my_role() = 'admin');
 
 -- ============================================================
 -- 5. تحديثات الجداول المالية (Financial Linkage)
@@ -359,18 +361,17 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
     WITH shift_orders AS (
         SELECT id, subtotal, total_tax FROM public.orders
-        WHERE user_id = v_shift.user_id AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
+        WHERE (user_id = v_shift.user_id OR user_id IS NULL) 
         AND status IN ('COMPLETED', 'PAID', 'posted') AND organization_id = v_shift.organization_id
+        AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
     )
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
-        COALESCE((SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id))) FROM public.order_items itms WHERE itms.order_id IN (SELECT id FROM shift_orders)), 0) as cost_total,
+        COALESCE((SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id AND organization_id = v_shift.organization_id LIMIT 1))) FROM public.order_items itms WHERE itms.order_id IN (SELECT id FROM shift_orders)), 0) as cost_total,
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
     INTO v_summary
     FROM shift_orders;
-    v_diff := COALESCE((SELECT actual_cash FROM public.shifts WHERE id = p_shift_id), 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
-    v_actual_cash_collected := v_summary.cash_total + v_diff;
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
     v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
     v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
@@ -379,14 +380,20 @@ BEGIN
     v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'إغلاق وردية - تسوية شاملة - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-FINAL-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات', v_shift.organization_id);
+    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
     IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
+    v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
+    v_actual_cash_collected := v_summary.cash_total + v_diff;
     IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
     IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
     IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية', v_shift.organization_id);
     ELSIF v_diff > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية', v_shift.organization_id); END IF;
-    IF v_summary.cost_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات (جرد مستمر)', v_shift.organization_id), (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون (جرد مستمر)', v_shift.organization_id); END IF;
+    IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية', v_shift.organization_id), 
+               (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية', v_shift.organization_id); 
+    END IF;
     RETURN v_je_id;
 END; $$;
 
@@ -425,6 +432,29 @@ BEGIN
     ORDER BY total_sales DESC;
 END;
 $$;
+
+-- 📊 تقرير الوجبات التي لم يتم ربطها بمكونات (BOM) لضبط التكاليف
+CREATE OR REPLACE FUNCTION public.get_products_without_bom(p_org_id uuid)
+RETURNS TABLE (
+    product_id uuid,
+    product_name text,
+    sku text,
+    category_name text
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.id,
+        p.name,
+        p.sku,
+        COALESCE(cat.name, 'غير مصنف')
+    FROM public.products p
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    WHERE p.organization_id = p_org_id
+      AND p.deleted_at IS NULL
+      AND p.product_type = 'STOCK'
+      AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = p.id);
+END; $$;
 
 -- ============================================================
 -- 8. درع الحماية الشامل (The Shield - Multi-tenancy Isolation)

@@ -44,11 +44,11 @@ CREATE TABLE IF NOT EXISTS public.organizations (
 
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _role text;
 BEGIN
-    _role := (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text;
-    -- 2. Fallback to auth.users (avoids recursion on public.profiles)
-    RETURN COALESCE(_role, (SELECT (raw_user_meta_data->>'role')::text FROM auth.users WHERE id = (nullif(current_setting('request.jwt.auth.uid', true), '')::uuid)));
+  RETURN COALESCE(
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
+    (SELECT role FROM public.profiles WHERE id = auth.uid())
+  );
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
@@ -1019,7 +1019,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     grand_total numeric DEFAULT 0,
     warehouse_id uuid REFERENCES public.warehouses(id),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- 🛡️ العمود المفقود لربط القيود
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     user_id uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()
@@ -1672,19 +1672,22 @@ END $$;
 -- سياسات الوصول (Policies)
 -- 1. Profiles
 DROP POLICY IF EXISTS "profiles_select_safe" ON public.profiles;
-CREATE POLICY "profiles_select_safe" ON public.profiles FOR SELECT TO authenticated USING (id = auth.uid() OR organization_id = public.get_my_org());
+CREATE POLICY "profiles_select_safe" ON public.profiles FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin' OR organization_id = public.get_my_org() OR id = auth.uid());
 DROP POLICY IF EXISTS "profiles_insert_safe" ON public.profiles;
 CREATE POLICY "profiles_insert_safe" ON public.profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid());
 DROP POLICY IF EXISTS "profiles_update_safe" ON public.profiles;
-CREATE POLICY "profiles_update_safe" ON public.profiles FOR UPDATE TO authenticated USING (id = auth.uid() OR public.get_my_role() IN ('admin', 'super_admin'));
+CREATE POLICY "profiles_update_safe" ON public.profiles FOR UPDATE TO authenticated USING (public.get_my_role() = 'super_admin' OR (public.get_my_role() = 'admin' AND organization_id = public.get_my_org()) OR id = auth.uid());
 DROP POLICY IF EXISTS "profiles_delete_safe" ON public.profiles;
-CREATE POLICY "profiles_delete_safe" ON public.profiles FOR DELETE TO authenticated USING (public.get_my_role() IN ('admin', 'super_admin'));
+CREATE POLICY "profiles_delete_safe" ON public.profiles FOR DELETE TO authenticated USING (public.get_my_role() = 'super_admin' OR (public.get_my_role() = 'admin' AND organization_id = public.get_my_org()));
 
 -- 2. Organizations
 DROP POLICY IF EXISTS "Users view own org" ON organizations;
 CREATE POLICY "Users view own org" ON organizations FOR SELECT USING (id = get_my_org());
 DROP POLICY IF EXISTS "Super admins view all organizations" ON organizations;
 CREATE POLICY "Super admins view all organizations" ON organizations FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin');
+
+DROP POLICY IF EXISTS "Super admins delete organizations" ON organizations;
+CREATE POLICY "Super admins delete organizations" ON organizations FOR DELETE TO authenticated USING (public.get_my_role() = 'super_admin');
 
 -- سياسة الوصول لجدول الدعوات (فقط الأدمن يمكنه الإرسال)
 DROP POLICY IF EXISTS "Admins manage invitations" ON invitations;
@@ -1853,6 +1856,29 @@ BEGIN
     ORDER BY total_sales DESC;
 END;
 $$;
+
+-- 📊 تقرير الوجبات التي لم يتم ربطها بمكونات (BOM) لضبط التكاليف
+CREATE OR REPLACE FUNCTION public.get_products_without_bom(p_org_id uuid)
+RETURNS TABLE (
+    product_id uuid,
+    product_name text,
+    sku text,
+    category_name text
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.id,
+        p.name,
+        p.sku,
+        COALESCE(cat.name, 'غير مصنف')
+    FROM public.products p
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    WHERE p.organization_id = p_org_id
+      AND p.deleted_at IS NULL
+      AND p.product_type = 'STOCK'
+      AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = p.id);
+END; $$;
 
 CREATE OR REPLACE VIEW public.vw_inventory_wastage_analysis AS
 SELECT 

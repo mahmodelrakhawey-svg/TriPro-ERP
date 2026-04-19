@@ -2,6 +2,16 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 22.0 - Supplier UUID Enforcement)
 
 -- 🛠️ دالة جلب معرف المنظمة للمستخدم الحالي (ضرورية جداً لعمل النظام)
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS text 
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  RETURN COALESCE(
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
+    (SELECT role FROM public.profiles WHERE id = auth.uid())
+  );
+END; $$;
+
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
 LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -9,7 +19,6 @@ BEGIN
     RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
--- دالة للتأكد من حالة الاتصال (Health Check)
 -- دالة للتأكد من حالة الاتصال (Health Check)
 CREATE OR REPLACE FUNCTION public.check_db_sync()
 RETURNS text LANGUAGE plpgsql AS $$
@@ -699,14 +708,16 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
     WITH shift_orders AS (
         SELECT id, subtotal, total_tax FROM public.orders
-        WHERE (user_id = v_shift.user_id OR user_id IS NULL) -- إصلاح: دمج طلبات الـ QR في قيد الإغلاق
-        AND status IN ('COMPLETED', 'PAID', 'posted') AND organization_id = v_shift.organization_id
+        WHERE (user_id = v_shift.user_id OR user_id IS NULL)
+        AND status IN ('COMPLETED', 'PAID', 'posted') 
+        AND organization_id = v_shift.organization_id
+        AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
     )
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
-        -- 🚀 محرك التكلفة المطور: (تكلفة البند -> متوسط مرجح -> تكلفة يدوية -> سعر شراء)
+        -- محرك التكلفة المطور: يبحث في تكلفة البند (التي أصبحت مرتبطة بـ BOM الآن) ثم باقي المصادر
         COALESCE((
-            SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id)))
+            SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id AND organization_id = v_shift.organization_id LIMIT 1)))
             FROM public.order_items itms 
             WHERE itms.order_id IN (SELECT id FROM shift_orders)
         ), 0) as cost_total,
@@ -714,8 +725,8 @@ BEGIN
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
     INTO v_summary
     FROM shift_orders;
-    -- ملاحظة: v_shift.actual_cash يجب أن يكون محدثاً قبل هذه الخطوة
-    v_diff := COALESCE((SELECT actual_cash FROM public.shifts WHERE id = p_shift_id), 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
+
+    v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
     v_actual_cash_collected := v_summary.cash_total + v_diff;
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
     v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
@@ -725,15 +736,63 @@ BEGIN
     v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'إغلاق وردية شامل - جرد مستمر - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-FINAL-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
+    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
     IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
     IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
     IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
     IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية الوردية', v_shift.organization_id);
     ELSIF v_diff > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية الوردية', v_shift.organization_id); END IF;
-    IF v_summary.cost_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات (جرد مستمر)', v_shift.organization_id), (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون (جرد مستمر)', v_shift.organization_id); END IF;
+    IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية', v_shift.organization_id), 
+               (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية', v_shift.organization_id); 
+    END IF;
     RETURN v_je_id;
+END; $$;
+
+-- 🛠️ دالة ربط مستخدم موجود مسبقاً بمنظمة جديدة كمدير (تستخدمها منصة ساس)
+CREATE OR REPLACE FUNCTION public.force_provision_admin(p_email text, p_org_id uuid, p_full_name text)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_user_id uuid;
+BEGIN
+    SELECT id INTO v_user_id FROM auth.users WHERE email = LOWER(p_email);
+    IF v_user_id IS NULL THEN RAISE EXCEPTION 'المستخدم غير موجود بالنظام'; END IF;
+
+    INSERT INTO public.profiles (id, organization_id, role, full_name, is_active)
+    VALUES (v_user_id, p_org_id, 'admin', p_full_name, true)
+    ON CONFLICT (id) DO UPDATE SET 
+        organization_id = p_org_id, 
+        role = 'admin', 
+        full_name = p_full_name, 
+        is_active = true;
+
+    UPDATE auth.users SET raw_user_meta_data = COALESCE(raw_user_meta_data, '{}'::jsonb) || 
+                             jsonb_build_object('org_id', p_org_id, 'role', 'admin')
+    WHERE id = v_user_id;
+END; $$;
+
+-- 📊 تقرير الوجبات التي لم يتم ربطها بمكونات (BOM) لضبط التكاليف
+CREATE OR REPLACE FUNCTION public.get_products_without_bom(p_org_id uuid)
+RETURNS TABLE (
+    product_id uuid,
+    product_name text,
+    sku text,
+    category_name text
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.id,
+        p.name,
+        p.sku,
+        COALESCE(cat.name, 'غير مصنف')
+    FROM public.products p
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    WHERE p.organization_id = p_org_id
+      AND p.deleted_at IS NULL
+      AND p.product_type = 'STOCK'
+      AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = p.id);
 END; $$;
 
 -- 🛠️ دالة إغلاق الوردية

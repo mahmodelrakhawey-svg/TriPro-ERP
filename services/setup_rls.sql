@@ -16,8 +16,7 @@ AS $$
 BEGIN
   RETURN COALESCE(
     (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
-    (auth.jwt() ->> 'role')::text,
-    (SELECT role::text FROM public.profiles WHERE id = auth.uid())
+    (SELECT role FROM public.profiles WHERE id = auth.uid())
   );
 END;
 $$;
@@ -47,6 +46,7 @@ $$;
 -- =================================================================
 
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE security_logs ENABLE ROW LEVEL SECURITY;
 
@@ -88,8 +88,7 @@ ALTER TABLE cheques ENABLE ROW LEVEL SECURITY;
 -- تم التحديث: السوبر أدمن يرى الجميع، والأدمن العادي يرى مستخدمي شركته فقط
 DROP POLICY IF EXISTS "Profiles are viewable by everyone" ON profiles;
 CREATE POLICY "Profiles are viewable by everyone" ON profiles 
-FOR SELECT TO authenticated 
-USING (get_my_role() = 'super_admin' OR organization_id = get_my_org() OR id = auth.uid());
+FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin' OR organization_id = public.get_my_org() OR id = auth.uid());
 
 -- يمكن للمستخدم تعديل بياناته فقط
 DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
@@ -103,6 +102,10 @@ USING (
     get_my_role() = 'super_admin' 
     OR (get_my_role() = 'admin' AND organization_id = get_my_org())
 );
+
+-- سياسة السوبر أدمن على المنظمات
+DROP POLICY IF EXISTS "Super admins manage all organizations" ON organizations;
+CREATE POLICY "Super admins manage all organizations" ON organizations FOR ALL TO authenticated USING (get_my_role() = 'super_admin');
 
 -- 2. إعدادات الشركة (Company Settings)
 -- قراءة للجميع (المصادق عليهم)
@@ -229,8 +232,30 @@ USING (
 DROP POLICY IF EXISTS "Everyone can insert logs" ON security_logs;
 CREATE POLICY "Everyone can insert logs" ON security_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = performed_by);
 
--- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة والسياسات فوراً
-SELECT public.refresh_saas_schema();
+-- 📊 تقرير الوجبات التي لم يتم ربطها بمكونات (BOM) لضبط التكاليف
+CREATE OR REPLACE FUNCTION public.get_products_without_bom(p_org_id uuid)
+RETURNS TABLE (
+    product_id uuid,
+    product_name text,
+    sku text,
+    category_name text
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.id,
+        p.name,
+        p.sku,
+        COALESCE(cat.name, 'غير مصنف')
+    FROM public.products p
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    WHERE (p.organization_id = p_org_id OR public.get_my_role() = 'super_admin')
+      AND p.deleted_at IS NULL
+      AND p.product_type = 'STOCK'
+      AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = p.id);
+END; $$;
+
+-- ECT public.refresh_saas_schema();
 NOTIFY pgrst, 'reload config';
 
 -- =================================================================

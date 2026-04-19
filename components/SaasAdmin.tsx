@@ -79,6 +79,7 @@ interface Organization {
   total_sales?: number;
   total_collected?: number;
   next_payment_date?: string;
+  logo_url?: string;
 }
 
 const StatCard = ({ title, value, icon: Icon, color, suffix = '', growth = null }: any) => (
@@ -173,8 +174,9 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
     try {
       setUploadingLogo(true);
       const file = e.target.files[0];
-      const fileExt = file.name.split('.').pop();
-      const fileName = `new-org-logo-${Math.random()}.${fileExt}`;
+      if (!file) return;
+      const fileExt = file.name.split('.').pop() || 'png';
+      const fileName = `org-logo-${Date.now()}-${Math.floor(Math.random() * 1000)}.${fileExt}`;
       const filePath = `${fileName}`;
 
       const { error: uploadError } = await supabase.storage
@@ -220,7 +222,8 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
       await supabase.from('organizations').update({
           max_users: formData.maxUsers,
           allowed_modules: formData.modules,
-          subscription_expiry: formData.subscriptionExpiry
+          subscription_expiry: formData.subscriptionExpiry,
+          logo_url: formData.logoUrl // 👈 تم إضافة حفظ رابط الشعار في قاعدة البيانات
       }).eq('id', newOrgId);
 
       // 3. إنشاء حساب المستخدم في نظام Auth وربطه بالمنظمة الجديدة عبر الـ Metadata
@@ -769,6 +772,91 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
   );
 };
 
+const DeleteConfirmModal = ({ isOpen, onClose, onConfirm, organization, confirmName, setConfirmName, loading }: any) => {
+  if (!isOpen || !organization) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[110] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-6 space-y-6 text-center">
+          <div className="w-20 h-20 bg-rose-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Trash2 size={48} className="text-rose-600" />
+          </div>
+          <h3 className="font-black text-2xl text-slate-800">حذف المنظمة نهائياً؟</h3>
+          <p className="text-slate-500">
+            أنت على وشك حذف شركة <span className="font-bold text-rose-600">"{organization.name}"</span>. 
+            سيؤدي هذا الإجراء إلى مسح كافة البيانات، الفواتير، القيود، والمستخدمين المرتبطين بها للأبد.
+          </p>
+          
+          <div className="space-y-2 text-right">
+            <label className="text-sm font-bold text-slate-700">لتأكيد الحذف، يرجى كتابة اسم الشركة أدناه:</label>
+            <input 
+              type="text" 
+              className="w-full border-2 border-rose-100 rounded-xl p-3 outline-none focus:ring-2 focus:ring-rose-500 font-bold"
+              placeholder={organization.name}
+              value={confirmName}
+              onChange={(e) => setConfirmName(e.target.value)}
+            />
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <button 
+              onClick={onConfirm}
+              disabled={loading || confirmName.trim() !== organization.name.trim()}
+              className="w-full bg-rose-600 text-white font-black py-4 rounded-2xl hover:bg-rose-700 flex items-center justify-center gap-2 shadow-lg shadow-rose-100 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="animate-spin" /> : <Trash2 size={20} />} 
+              تأكيد الحذف النهائي
+            </button>
+            <button onClick={onClose} className="w-full py-3 text-slate-500 font-bold hover:text-slate-700">تراجع وإلغاء</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const OrphanedFilesModal = ({ isOpen, onClose, files, onDelete, loading }: any) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[80vh]">
+        <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+          <h3 className="font-black text-xl text-slate-800 flex items-center gap-2">
+            <Trash2 className="text-rose-600" /> المرفقات اليتيمة (في الـ Storage فقط)
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
+        </div>
+        <div className="p-6 overflow-y-auto flex-1">
+          {files.length === 0 ? (
+            <div className="text-center py-10 text-slate-500">لا توجد ملفات يتيمة حالياً ✅</div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-amber-600 font-bold mb-4 bg-amber-50 p-3 rounded-lg border border-amber-100">تحذير: هذه الملفات موجودة في المخزن السحابي ولكن لا تملك أي سجل يشير لها في قاعدة البيانات.</p>
+              {files.map((file: string) => (
+                <div key={file} className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-100">
+                  <span className="font-mono text-[10px] text-slate-600 truncate flex-1">{file}</span>
+                  <button onClick={() => onDelete(file)} className="text-rose-600 hover:bg-rose-100 p-2 rounded-lg" title="حذف الملف نهائياً">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="p-4 border-t bg-slate-50 flex justify-between gap-3">
+          <button onClick={onClose} className="px-6 py-2 bg-white border border-slate-200 rounded-xl font-bold text-slate-600">إغلاق</button>
+          {files.length > 0 && (
+            <button onClick={() => onDelete('all')} disabled={loading} className="px-6 py-2 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-700 flex items-center gap-2">
+              {loading ? <Loader2 className="animate-spin" /> : <Trash2 size={18} />} حذف كافة اليتامى
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const SaasAdmin: React.FC = () => {
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -777,6 +865,11 @@ const SaasAdmin: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deletingOrg, setDeletingOrg] = useState<Organization | null>(null);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [isOrphanedModalOpen, setIsOrphanedModalOpen] = useState(false);
+  const [orphanedFiles, setOrphanedFiles] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [activityTypeFilter, setActivityTypeFilter] = useState('all'); // 👈 حالة جديدة لفلتر نوع النشاط
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
@@ -827,6 +920,133 @@ const SaasAdmin: React.FC = () => {
       setLoading(false);
       setLoadingOrgs(false);
     }
+  };
+
+  const handleDeleteOrg = async () => {
+    if (!deletingOrg) return;
+    if (deleteConfirmName.trim() !== deletingOrg.name.trim()) {
+      showToast('اسم الشركة غير متطابق للتأكيد', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // 1. حذف الشعار من مخزن Supabase Storage إذا وجد
+      if (deletingOrg.logo_url) {
+        try {
+          // استخراج اسم الملف من الرابط (آخر جزء في الـ URL)
+          const urlParts = deletingOrg.logo_url.split('/');
+          const fileName = urlParts[urlParts.length - 1];
+          
+          if (fileName) {
+            const { error: storageError } = await supabase.storage
+              .from('logos')
+              .remove([fileName]);
+              
+            if (storageError) console.warn('Storage deletion warning:', storageError);
+          }
+        } catch (err) {
+          console.error('Failed to parse or delete logo from storage:', err);
+        }
+      }
+
+      // 2. حذف كافة المرفقات (قيود، سندات، شيكات) من الـ Storage
+      try {
+        const [jAtt, rAtt, pAtt, cAtt] = await Promise.all([
+          supabase.from('journal_attachments').select('file_path').eq('organization_id', deletingOrg.id),
+          supabase.from('receipt_voucher_attachments').select('file_path').eq('organization_id', deletingOrg.id),
+          supabase.from('payment_voucher_attachments').select('file_path').eq('organization_id', deletingOrg.id),
+          supabase.from('cheque_attachments').select('file_path').eq('organization_id', deletingOrg.id)
+        ]);
+
+        const allPaths = [
+          ...(jAtt.data?.map(a => a.file_path) || []),
+          ...(rAtt.data?.map(a => a.file_path) || []),
+          ...(pAtt.data?.map(a => a.file_path) || []),
+          ...(cAtt.data?.map(a => a.file_path) || [])
+        ];
+
+        if (allPaths.length > 0) {
+          const { error: attStorageError } = await supabase.storage
+            .from('documents')
+            .remove(allPaths);
+          
+          if (attStorageError) console.warn('Attachments storage deletion warning:', attStorageError);
+        }
+      } catch (err) {
+        console.error('Failed to clean up attachments from storage:', err);
+      }
+
+      // 3. حذف سجل المنظمة من قاعدة البيانات
+      const { error } = await supabase
+        .from('organizations')
+        .delete()
+        .eq('id', deletingOrg.id);
+
+      if (error) throw error;
+
+      showToast(`تم حذف الشركة ${deletingOrg.name} بنجاح ✅`, 'success');
+      await loadData();
+      setIsDeleteModalOpen(false);
+      setDeletingOrg(null);
+      setDeleteConfirmName('');
+    } catch (error: any) {
+      showToast('فشل حذف الشركة: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleScanOrphanedFiles = async () => {
+    setLoading(true);
+    try {
+      const [jRes, rRes, pRes, cRes, orgRes] = await Promise.all([
+        supabase.from('journal_attachments').select('file_path'),
+        supabase.from('receipt_voucher_attachments').select('file_path'),
+        supabase.from('payment_voucher_attachments').select('file_path'),
+        supabase.from('cheque_attachments').select('file_path'),
+        supabase.from('organizations').select('logo_url')
+      ]);
+
+      const dbPaths = new Set([
+        ...(jRes.data?.map(a => a.file_path) || []),
+        ...(rRes.data?.map(a => a.file_path) || []),
+        ...(pRes.data?.map(a => a.file_path) || []),
+        ...(cRes.data?.map(a => a.file_path) || []),
+        ...(orgRes.data?.map(o => o.logo_url?.split('/').pop()).filter(Boolean) || [])
+      ]);
+
+      const { data: docFiles } = await supabase.storage.from('documents').list();
+      const orphanedDocs = docFiles?.filter(f => f.name !== '.emptyKeep' && !dbPaths.has(f.name)).map(f => `documents/${f.name}`) || [];
+
+      setOrphanedFiles(orphanedDocs);
+      setIsOrphanedModalOpen(true);
+      showToast(`تم اكتشاف ${orphanedDocs.length} ملف يتيم`, 'info');
+    } catch (err: any) {
+      showToast('فشل الفحص: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteOrphanedFile = async (path: string) => {
+    setLoading(true);
+    try {
+      if (path === 'all') {
+        for (const file of orphanedFiles) {
+          const [bucket, name] = file.split('/');
+          await supabase.storage.from(bucket).remove([name]);
+        }
+        setOrphanedFiles([]);
+        setIsOrphanedModalOpen(false);
+        showToast('تم تنظيف كافة الملفات اليتيمة ✅', 'success');
+      } else {
+        const [bucket, name] = path.split('/');
+        await supabase.storage.from(bucket).remove([name]);
+        setOrphanedFiles(prev => prev.filter(f => f !== path));
+        showToast('تم حذف الملف بنجاح', 'success');
+      }
+    } catch (err: any) { showToast('فشل الحذف: ' + err.message, 'error'); } finally { setLoading(false); }
   };
 
   const handleImpersonate = async (orgId: string, orgName: string) => {
@@ -948,6 +1168,14 @@ const SaasAdmin: React.FC = () => {
           <p className="text-slate-500 mt-1 font-medium">نظرة عامة على أداء كافة الشركات المشتركة</p>
         </div>
         <div className="flex items-center gap-3">
+          <button 
+            onClick={handleScanOrphanedFiles}
+            className="flex items-center gap-2 bg-rose-50 border border-rose-100 px-4 py-2 rounded-xl text-rose-600 font-bold hover:bg-rose-100 transition-colors shadow-sm"
+            title="البحث عن مرفقات في الـ Storage لا تملك سجلات في قاعدة البيانات"
+          >
+            <Trash2 size={18} />
+            تنظيف المرفقات اليتيمة
+          </button>
           <button 
             onClick={handleFixSchema}
             className="flex items-center gap-2 bg-amber-50 border border-amber-100 px-4 py-2 rounded-xl text-amber-600 font-bold hover:bg-amber-100 transition-colors shadow-sm"
@@ -1174,6 +1402,13 @@ const SaasAdmin: React.FC = () => {
                             <Settings size={16} /> تعديل
                           </button>
                           <button 
+                            onClick={() => { setDeletingOrg(org); setIsDeleteModalOpen(true); }}
+                            className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-all flex items-center gap-1 font-bold text-xs border border-transparent hover:border-rose-200"
+                            title="حذف المنظمة نهائياً"
+                          >
+                            <Trash2 size={16} /> حذف
+                          </button>
+                          <button 
                             onClick={() => handleImpersonate(org.id, org.name)}
                             className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg transition-all flex items-center gap-1 font-bold text-xs border border-transparent hover:border-blue-200"
                             title="تصفح بيانات هذه الشركة"
@@ -1228,6 +1463,26 @@ const SaasAdmin: React.FC = () => {
         onClose={() => { setIsEditModalOpen(false); setEditingOrg(null); }} 
         onSuccess={loadData} 
         organization={editingOrg}
+      />
+      <DeleteConfirmModal 
+        isOpen={isDeleteModalOpen} 
+        onClose={() => { 
+          setIsDeleteModalOpen(false); 
+          setDeletingOrg(null); 
+          setDeleteConfirmName(''); 
+        }} 
+        onConfirm={handleDeleteOrg}
+        organization={deletingOrg}
+        confirmName={deleteConfirmName}
+        setConfirmName={setDeleteConfirmName}
+        loading={loading}
+      />
+      <OrphanedFilesModal 
+        isOpen={isOrphanedModalOpen} 
+        onClose={() => setIsOrphanedModalOpen(false)} 
+        files={orphanedFiles} 
+        onDelete={handleDeleteOrphanedFile}
+        loading={loading}
       />
     </div>
   );
