@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
+import { useAccounting } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
-import { TrendingUp, ShoppingBag, Utensils, DollarSign, Loader2 } from 'lucide-react';
+import { TrendingUp, ShoppingBag, Utensils, DollarSign, Loader2, Activity, Truck } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
+  const { settings } = useAccounting();
   const [salesData, setSalesData] = useState({
-    total: 0,
-    invoices: 0,
-    restaurant: 0,
-    count: 0,
-    profit: 0
+    monthSales: 0,
+    grossProfit: 0,
+    netProfit: 0,
+    monthPurchases: 0,
+    monthExpenses: 0
   });
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
@@ -20,31 +22,9 @@ export const Dashboard: React.FC = () => {
 
   const fetchStats = async () => {
     try {
-      // جلب تاريخ بداية الشهر الحالي (YYYY-MM-01)
-      const now = new Date();
-      const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-      
-      // جلب كافة المبيعات من الرؤية الموحدة
-      const { data, error } = await supabase
-        .from('monthly_sales_dashboard')
-        .select('*')
-        .gte('transaction_date', firstDayOfMonth);
-
+      const { data, error } = await supabase.rpc('get_dashboard_stats');
       if (error) throw error;
-
-      // تحليل البيانات وتجميع الإجماليات
-      const summary = (data || []).reduce((acc, curr) => {
-        const amount = Number(curr.amount) || 0;
-        const cost = Number(curr.total_cost) || 0;
-        acc.total += amount;
-        if (curr.type === 'Standard Invoice') acc.invoices += amount;
-        if (curr.type === 'Restaurant Order') acc.restaurant += amount;
-        acc.count += 1;
-        acc.profit += (amount - cost);
-        return acc;
-      }, { total: 0, invoices: 0, restaurant: 0, count: 0, profit: 0 });
-
-      setSalesData(summary);
+      setSalesData(data);
     } catch (err: any) {
       showToast('حدث خطأ أثناء تحميل بيانات المبيعات الموحدة', 'error');
       console.error(err);
@@ -75,12 +55,12 @@ export const Dashboard: React.FC = () => {
             <span className="text-[10px] font-black bg-white/20 px-3 py-1 rounded-full uppercase tracking-widest">Unified View</span>
           </div>
           <p className="text-blue-100 text-sm font-bold">إجمالي مبيعات الشهر (الموحدة)</p>
+          <p className="text-blue-100 text-sm font-bold">مبيعات الشهر (صافي الإيرادات)</p>
           <div className="text-4xl font-black mt-2 tracking-tighter">
-            {salesData.total.toLocaleString()} <span className="text-lg">ر.س</span>
+            {salesData.monthSales.toLocaleString()} <span className="text-lg">{settings?.currency || 'EGP'}</span>
           </div>
         </div>
 
-        {/* مجمل الربح الجديد */}
         <div className="bg-gradient-to-br from-emerald-600 to-teal-700 p-8 rounded-[2.5rem] text-white shadow-xl shadow-emerald-100">
           <div className="flex justify-between items-start mb-6">
             <div className="p-4 bg-white/20 rounded-2xl">
@@ -89,37 +69,33 @@ export const Dashboard: React.FC = () => {
           </div>
           <p className="text-emerald-100 text-sm font-bold">مجمل ربح الشهر</p>
           <div className="text-4xl font-black mt-2 tracking-tighter">
-            {salesData.profit.toLocaleString()} <span className="text-lg">ر.س</span>
+            {salesData.grossProfit.toLocaleString()} <span className="text-lg">{settings?.currency || 'EGP'}</span>
           </div>
         </div>
 
-        {/* مبيعات المطعم POS */}
-        <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+        {/* صافي الربح */}
+        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 p-8 rounded-[2.5rem] text-white shadow-xl shadow-indigo-100">
           <div className="flex justify-between items-start mb-6">
-            <div className="p-4 bg-orange-100 text-orange-600 rounded-2xl">
-              <Utensils size={28} />
+            <div className="p-4 bg-white/20 rounded-2xl">
+              <Activity size={28} />
             </div>
           </div>
-          <p className="text-slate-500 text-sm font-bold">مبيعات المطعم (POS)</p>
-          <div className="text-3xl font-black text-slate-900 mt-2">
-            {salesData.restaurant.toLocaleString()} <span className="text-base text-slate-400">ر.س</span>
+          <p className="text-indigo-100 text-sm font-bold">صافي الربح</p>
+          <div className="text-4xl font-black mt-2 tracking-tighter">
+            {salesData.netProfit.toLocaleString()} <span className="text-lg">{settings?.currency || 'EGP'}</span>
           </div>
-          <div className="mt-4 flex items-center gap-2 text-[10px] text-orange-600 font-bold bg-orange-50 w-fit px-3 py-1 rounded-full">
-            <div className="w-1.5 h-1.5 bg-orange-600 rounded-full animate-pulse" />
-            بيانات حية من موديول المطعم
-          </div>
+          <p className="text-[10px] mt-2 opacity-80 font-bold">بعد خصم المصروفات والضرائب</p>
         </div>
 
-        {/* مبيعات الفواتير العادية */}
         <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
           <div className="flex justify-between items-start mb-6">
-            <div className="p-4 bg-emerald-100 text-emerald-600 rounded-2xl">
-              <ShoppingBag size={28} />
+            <div className="p-4 bg-slate-100 text-slate-600 rounded-2xl">
+              <Truck size={28} />
             </div>
           </div>
-          <p className="text-slate-500 text-sm font-bold">مبيعات الفواتير (Invoices)</p>
-          <div className="text-3xl font-black text-slate-900 mt-2">
-            {salesData.invoices.toLocaleString()} <span className="text-base text-slate-400">ر.س</span>
+          <p className="text-slate-500 text-sm font-bold">مشتريات الشهر</p>
+          <div className="text-3xl font-black text-slate-900 mt-2 tracking-tighter">
+            {salesData.monthPurchases.toLocaleString()} <span className="text-base text-slate-400">{settings?.currency || 'EGP'}</span>
           </div>
         </div>
       </div>

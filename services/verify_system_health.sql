@@ -111,6 +111,23 @@ BEGIN
         END;
     END LOOP;
 
+    -- 7. فحص النسخ الاحتياطية اليتيمة
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '7️⃣ فحص النسخ الاحتياطية والـ SaaS:';
+    
+    SELECT count(*) INTO v_count FROM public.organization_backups b
+    LEFT JOIN public.organizations o ON b.organization_id = o.id
+    WHERE o.id IS NULL;
+
+    IF v_count > 0 THEN
+        RAISE WARNING '⚠️ تنبيه: يوجد % نسخة احتياطية يتيمة لشركات محذوفة!', v_count;
+    ELSE
+        RAISE NOTICE '✅ لا توجد نسخ احتياطية يتيمة.';
+    END IF;
+
+    SELECT count(*) INTO v_count FROM public.organization_backups;
+    RAISE NOTICE '📊 إجمالي عدد النسخ الاحتياطية في النظام: %', v_count;
+
     RAISE NOTICE '--------------------------------------------------';
     RAISE NOTICE '🏁 انتهى الفحص.';
 END $$;

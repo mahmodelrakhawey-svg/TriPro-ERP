@@ -179,7 +179,8 @@ const InventoryCountList = () => {
                 adjustment_date: new Date().toISOString().split('T')[0],
                 adjustment_number: adjustmentNumber,
                 reason: `تسوية تلقائية ناتجة عن الجرد رقم ${count.count_number}`,
-                status: 'posted'
+                status: 'posted',
+                organization_id: count.organization_id
             }).select().single();
 
             if (adjError) throw adjError;
@@ -192,7 +193,8 @@ const InventoryCountList = () => {
                 return {
                     stock_adjustment_id: adjDoc.id,
                     product_id: i.product_id,
-                    quantity: i.difference // الموجب يزيد المخزون، السالب ينقصه
+                    quantity: i.difference, // الموجب يزيد المخزون، السالب ينقصه
+                    organization_id: count.organization_id || (currentUser as any)?.organization_id
                 };
             });
 

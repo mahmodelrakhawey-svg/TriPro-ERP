@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import * as XLSX from 'xlsx';
+import { useAccounting } from '../context/AccountingContext';
 import { 
   Users, 
   DollarSign, 
@@ -13,7 +14,6 @@ import {
   Loader2,
   RefreshCw,
   Settings,
-  Upload,
   Trash2,
   X,
   Save,
@@ -24,7 +24,12 @@ import {
   XCircle,
   Search,
   Filter,
-  FileSpreadsheet
+  FileSpreadsheet,
+  RotateCcw,
+  Download,
+  Database as DatabaseIcon,
+  PlusCircle,
+  Upload
 } from 'lucide-react';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -80,6 +85,17 @@ interface Organization {
   total_collected?: number;
   next_payment_date?: string;
   logo_url?: string;
+}
+
+interface OrganizationBackup {
+  id: string;
+  organization_id: string;
+  backup_date: string;
+  backup_data: any; // jsonb
+  file_size_kb: number;
+  created_by: string; // auth.users.id
+  profiles: { full_name: string } | null; // Joined from profiles table
+  notes: string;
 }
 
 const StatCard = ({ title, value, icon: Icon, color, suffix = '', growth = null }: any) => (
@@ -858,6 +874,7 @@ const OrphanedFilesModal = ({ isOpen, onClose, files, onDelete, loading }: any) 
 };
 
 const SaasAdmin: React.FC = () => {
+  const { currentUser, isLoading } = useAccounting(); // جلب المستخدم الحالي وحالة التحميل
   const [stats, setStats] = useState<PlatformStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [orgs, setOrgs] = useState<Organization[]>([]);
@@ -874,6 +891,19 @@ const SaasAdmin: React.FC = () => {
   const [activityTypeFilter, setActivityTypeFilter] = useState('all'); // 👈 حالة جديدة لفلتر نوع النشاط
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
   const { showToast } = useToast();
+
+  // --- Backup Management States ---
+  const [activeAdminTab, setActiveAdminTab] = useState<'organizations' | 'backups'>('organizations');
+  const [selectedBackupOrgId, setSelectedBackupOrgId] = useState<string | null>(null);
+  const [backups, setBackups] = useState<OrganizationBackup[]>([]);
+  const [loadingBackups, setLoadingBackups] = useState(false);
+  const [creatingBackup, setCreatingBackup] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [orphanedBackupsCount, setOrphanedBackupsCount] = useState(0);
+
+
+  // --- End Backup Management States ---
 
   const loadData = async () => {
     try {
@@ -914,6 +944,22 @@ const SaasAdmin: React.FC = () => {
       }));
 
       setOrgs(processedOrgs);
+      // 🔍 فحص النسخ الاحتياطية اليتيمة لليوزر العالمي فقط
+      if (currentUser?.role === 'super_admin') {
+        const { data: allBackups } = await supabase
+          .from('organization_backups')
+          .select('organization_id');
+
+        if (allBackups) {
+          const orgIds = new Set(processedOrgs.map(o => o.id));
+          const orphaned = allBackups.filter(b => !orgIds.has(b.organization_id));
+          setOrphanedBackupsCount(orphaned.length);
+          
+          if (orphaned.length > 0) {
+            showToast(`تنبيه: تم العثور على ${orphaned.length} نسخة احتياطية يتيمة لشركات محذوفة!`, 'warning');
+          }
+        }
+      }      
     } catch (error: any) {
       showToast('خطأ في تحميل البيانات: ' + error.message, 'error');
     } finally {
@@ -921,6 +967,143 @@ const SaasAdmin: React.FC = () => {
       setLoadingOrgs(false);
     }
   };
+  const handleCleanupOrphanedBackups = async () => {
+    if (orphanedBackupsCount === 0) {
+      showToast('لا توجد نسخ احتياطية يتيمة لتنظيفها حالياً ✅', 'info');
+      return;
+    }
+    if (!window.confirm(`هل أنت متأكد من حذف ${orphanedBackupsCount} نسخة احتياطية يتيمة من قاعدة البيانات؟ لا يمكن التراجع عن هذا الإجراء.`)) return;
+    
+    setLoading(true);
+    try {
+      // استدعاء الدالة الجديدة من طرف الخادم لسرعة أكبر
+      const { data, error } = await supabase.rpc('cleanup_orphaned_backups');
+      if (error) throw error;
+      showToast(`تم تنظيف ${data || 0} نسخة يتيمة بنجاح من قاعدة البيانات ✅`, 'success');
+
+      setOrphanedBackupsCount(0);
+      await loadData();
+    } catch (error: any) {
+      showToast('فشل عملية التنظيف: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // --- Backup Management Functions ---
+  useEffect(() => {
+    if (currentUser) {
+      if (currentUser.role === 'super_admin') {
+        setSelectedBackupOrgId(orgs.length > 0 ? orgs[0].id : null);
+      } else if (currentUser.organization_id) {
+        setSelectedBackupOrgId(currentUser.organization_id);
+      }
+    }
+  }, [orgs, currentUser]);
+
+  useEffect(() => {
+    if (selectedBackupOrgId && activeAdminTab === 'backups') {
+      fetchBackups(selectedBackupOrgId);
+    }
+  }, [selectedBackupOrgId, activeAdminTab]);
+
+  const fetchBackups = async (orgId: string) => {
+    setLoadingBackups(true);
+    try {
+      const { data, error } = await supabase
+        .from('organization_backups')
+        .select('*, profiles(full_name)')
+        .eq('organization_id', orgId)
+        .order('backup_date', { ascending: false });
+      if (error) throw error;
+      setBackups(data || []);
+    } catch (err: any) {
+      showToast('فشل جلب النسخ الاحتياطية', 'error');
+    } finally {
+      setLoadingBackups(false);
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    if (!selectedBackupOrgId) return;
+    if (!window.confirm(`هل تريد إنشاء نسخة احتياطية جديدة لـ ${getOrgName(selectedBackupOrgId)}؟`)) return;
+    setCreatingBackup(true);
+    try {
+      const { error } = await supabase.rpc('create_organization_backup', { p_org_id: selectedBackupOrgId });
+      if (error) throw error;
+      showToast('تم إنشاء نسخة احتياطية بنجاح ✅', 'success');
+      fetchBackups(selectedBackupOrgId);
+    } catch (err: any) {
+      showToast('فشل إنشاء النسخة الاحتياطية', 'error');
+    } finally {
+      setCreatingBackup(false);
+    }
+  };
+
+  const handleDownloadBackup = (backup: OrganizationBackup) => {
+    const blob = new Blob([JSON.stringify(backup.backup_data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_${getOrgName(backup.organization_id)}_${new Date(backup.backup_date).toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleRestoreBackup = async (backup: OrganizationBackup) => {
+    if (!window.confirm('⚠️ تحذير: سيتم مسح البيانات الحالية واستبدالها بالنسخة الاحتياطية. هل تريد الاستمرار؟')) return;
+    if (window.prompt('لتأكيد الاستعادة النهائية، يرجى كتابة "استعادة" في المربع أدناه:') !== 'استعادة') return;
+    setRestoringId(backup.id);
+    try {
+      const { data, error } = await supabase.rpc('restore_organization_backup', {
+        p_org_id: backup.organization_id,
+        p_backup_data: backup.backup_data
+      });
+      if (error) throw error;
+      showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل عملية الاستعادة', 'error');
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  const handleExternalFileRestore = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !selectedBackupOrgId) return;
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const backupData = JSON.parse(evt.target?.result as string);
+        await handleRestoreBackup({ id: 'temp', organization_id: selectedBackupOrgId, backup_data: backupData } as any);
+      } catch (err: any) {
+        showToast('ملف غير صالح', 'error');
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDeleteBackup = async (backupId: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذه النسخة الاحتياطية؟ لا يمكن التراجع عن هذا الإجراء.')) return;
+    try {
+      const { error } = await supabase
+        .from('organization_backups')
+        .delete()
+        .eq('id', backupId);
+
+      if (error) throw error;
+      showToast('تم حذف النسخة الاحتياطية بنجاح ✅', 'success');
+      if (selectedBackupOrgId) fetchBackups(selectedBackupOrgId);
+    } catch (err: any) {
+      showToast('فشل حذف النسخة الاحتياطية: ' + err.message, 'error');
+      console.error('Error deleting backup:', err);
+    }
+  };
+
+  const getOrgName = (orgId: string) => {
+    return orgs.find(org => org.id === orgId)?.name || 'منظمة غير معروفة';
+  };
+  // --- End Backup Management Functions ---
 
   const handleDeleteOrg = async () => {
     if (!deletingOrg) return;
@@ -1135,6 +1318,17 @@ const SaasAdmin: React.FC = () => {
     }
   };
 
+  // 🛡️ حماية الصفحة: التأكد من أن اليوزر هو super_admin فقط
+  if (!isLoading && currentUser?.role !== 'super_admin') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-red-600 bg-red-50 rounded-3xl border border-red-100 p-8">
+        <Lock size={48} className="mb-4" />
+        <h2 className="text-2xl font-bold">وصول غير مصرح به</h2>
+        <p className="text-slate-600">هذه الصفحة مخصصة لمدير المنصة العالمي فقط.</p>
+      </div>
+    );
+  }
+
   const filteredOrgs = useMemo(() => {
     return orgs.filter(org => {
       const matchesSearch = org.name.toLowerCase().includes(searchTerm.toLowerCase());
@@ -1169,12 +1363,20 @@ const SaasAdmin: React.FC = () => {
         </div>
         <div className="flex items-center gap-3">
           <button 
-            onClick={handleScanOrphanedFiles}
+            onClick={handleCleanupOrphanedBackups}
             className="flex items-center gap-2 bg-rose-50 border border-rose-100 px-4 py-2 rounded-xl text-rose-600 font-bold hover:bg-rose-100 transition-colors shadow-sm"
-            title="البحث عن مرفقات في الـ Storage لا تملك سجلات في قاعدة البيانات"
+            title="حذف سجلات النسخ الاحتياطية التي لا تملك شركة (Database Cleanup)"
           >
             <Trash2 size={18} />
             تنظيف المرفقات اليتيمة
+          </button>
+          <button 
+            onClick={handleScanOrphanedFiles}
+            className="flex items-center gap-2 bg-slate-50 border border-slate-200 px-4 py-2 rounded-xl text-slate-600 font-bold hover:bg-slate-100 transition-colors shadow-sm"
+            title="فحص ملفات الـ Storage التي لا تملك سجلات (File Storage Cleanup)"
+          >
+            <DatabaseIcon size={18} />
+            فحص ملفات التخزين
           </button>
           <button 
             onClick={handleFixSchema}
@@ -1426,6 +1628,90 @@ const SaasAdmin: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Tabs Navigation */}
+      <div className="flex gap-4 border-b border-slate-200 mb-6">
+        <button 
+          onClick={() => setActiveAdminTab('organizations')}
+          className={`pb-2 px-4 font-bold transition-all ${activeAdminTab === 'organizations' ? 'border-b-4 border-blue-600 text-blue-600' : 'text-slate-400'}`}
+        >
+          إدارة المنظمات
+        </button>
+        <button 
+          onClick={() => setActiveAdminTab('backups')}
+          className={`pb-2 px-4 font-bold transition-all ${activeAdminTab === 'backups' ? 'border-b-4 border-blue-600 text-blue-600' : 'text-slate-400'}`}
+        >
+          النسخ الاحتياطي والاستعادة
+        </button>
+      </div>
+
+      {/* Tab Content: Backup & Restore Management */}
+      {activeAdminTab === 'backups' && (
+        <div className="bg-white p-8 rounded-[40px] shadow-sm border border-slate-200 space-y-8 animate-in fade-in">
+          <div className="flex flex-col md:flex-row justify-between items-end gap-6">
+            <div className="flex-1 w-full">
+              <label className="block text-sm font-black text-slate-700 mb-2">اختر المنظمة للإدارة:</label>
+              <select 
+                value={selectedBackupOrgId || ''} 
+                onChange={(e) => setSelectedBackupOrgId(e.target.value)} 
+                className="w-full border-2 border-slate-100 rounded-2xl px-4 py-3 font-bold text-slate-700 bg-slate-50 focus:border-blue-500 outline-none"
+              >
+                <option value="">-- اختر المنظمة --</option>
+                {orgs.map((org) => <option key={org.id} value={org.id}>{org.name} ({org.id.slice(0,8)})</option>)}
+              </select>
+            </div>
+            <div className="flex gap-3 flex-wrap">
+              <input type="file" ref={fileInputRef} accept=".json" className="hidden" onChange={handleExternalFileRestore} />
+              <button onClick={() => fileInputRef.current?.click()} className="bg-white border-2 border-slate-200 text-slate-600 px-6 py-3 rounded-2xl font-black hover:bg-slate-50 flex items-center gap-2 shadow-sm">
+                <Upload size={18} /> استعادة ملف خارجي
+              </button>
+              <button 
+                onClick={handleCreateBackup} 
+                disabled={creatingBackup || !selectedBackupOrgId} 
+                className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-blue-100"
+              >
+                {creatingBackup ? <Loader2 className="animate-spin" size={20} /> : <PlusCircle size={20} />} إنشاء نسخة احتياطية
+              </button>
+            </div>
+          </div>
+
+          {selectedBackupOrgId && (
+            <div className="border-2 border-slate-50 rounded-[32px] overflow-hidden">
+              <div className="bg-slate-50/50 p-4 border-b border-slate-100 font-black text-slate-500 text-xs uppercase tracking-widest">سجل النسخ الاحتياطية</div>
+              {loadingBackups ? (
+                <div className="p-20 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={32} /></div>
+              ) : backups.length === 0 ? (
+                <div className="p-20 text-center text-slate-400 font-bold">لا توجد نسخ احتياطية مسجلة لهذه الشركة حالياً.</div>
+              ) : (
+                <table className="w-full text-right text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-400 font-black text-[10px] uppercase border-b">
+                      <th className="p-4">تاريخ النسخة</th>
+                      <th className="p-4">الحجم (KB)</th>
+                      <th className="p-4">بواسطة</th>
+                      <th className="p-4 text-center">الإجراءات</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {backups.map((backup) => (
+                      <tr key={backup.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-4 font-bold">{new Date(backup.backup_date).toLocaleString()}</td>
+                        <td className="p-4 font-mono">{backup.file_size_kb ? backup.file_size_kb.toFixed(2) : '0'}</td>
+                        <td className="p-4 text-slate-500 font-medium">{backup.profiles?.full_name || 'النظام'}</td>
+                        <td className="p-4 flex justify-center gap-3">
+                          <button onClick={() => handleRestoreBackup(backup)} disabled={restoringId !== null} className={`p-2 rounded-xl transition-all ${restoringId === backup.id ? 'bg-orange-100 text-orange-600' : 'bg-orange-50 text-orange-600 hover:bg-orange-100'}`} title="استعادة"><RotateCcw size={18} /></button>
+                          <button onClick={() => handleDownloadBackup(backup)} className="p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100" title="تحميل"><Download size={18} /></button>
+                          <button onClick={() => handleDeleteBackup(backup.id)} className="p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100" title="حذف"><Trash2 size={18} /></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Growth Analysis Section */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -38,6 +38,18 @@ CREATE TABLE IF NOT EXISTS public.organizations (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
+-- جدول النسخ الاحتياطية للمنظمات (SaaS Backups)
+CREATE TABLE IF NOT EXISTS public.organization_backups (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    backup_date timestamptz DEFAULT now(),
+    backup_data jsonb NOT NULL,
+    file_size_kb numeric,
+    created_by uuid REFERENCES auth.users(id),
+    notes text,
+    created_at timestamptz DEFAULT now()
+);
+
 -- ================================================================
 -- 1.5 دوال الحماية المساعدة (Security Helpers) - يجب أن تكون في البداية
 -- ================================================================
@@ -542,7 +554,6 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     currency text DEFAULT 'EGP',
     exchange_rate numeric DEFAULT 1,
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     approver_id uuid REFERENCES auth.users(id), -- عمود جديد
     reference text, -- عمود جديد
     deleted_at timestamptz,
@@ -1895,3 +1906,4 @@ WHERE p.weighted_average_cost > p.purchase_price;
 
 COMMENT ON VIEW public.vw_inventory_wastage_analysis IS 'يوضح هذا التقرير مدى ارتفاع تكلفة الصنف عن سعر شرائه الأصلي نتيجة استبعاد الكميات الهالكة من وعاء التكلفة';
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
+NOTIFY pgrst, 'reload config';

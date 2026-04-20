@@ -13,8 +13,13 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS "Allow access to authenticated users" ON public.%I;', tbl);
     
     -- 3. إنشاء سياسة تسمح للمستخدمين المسجلين فقط (authenticated) بالقراءة والكتابة
-    -- هذا يعني أن أي شخص غير مسجل دخول لن يرى أي بيانات
-    EXECUTE format('CREATE POLICY "Allow access to authenticated users" ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true);', tbl);
+    -- تحديث: السوبر أدمن يمتلك صلاحية الوصول الكاملة عبر get_my_role()
+    EXECUTE format('
+        CREATE POLICY "Allow access to authenticated users" ON public.%I 
+        FOR ALL TO authenticated 
+        USING (public.get_my_role() = ''super_admin'' OR (organization_id = public.get_my_org() AND organization_id IS NOT NULL))
+        WITH CHECK (public.get_my_role() = ''super_admin'' OR (organization_id = public.get_my_org() AND organization_id IS NOT NULL));
+    ', tbl, tbl);
 END;
 $$ LANGUAGE plpgsql;
 

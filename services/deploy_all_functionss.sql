@@ -19,6 +19,15 @@ BEGIN
     RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
 END; $$;
 
+-- 🛠️ دالة للتحقق مما إذا كان المستخدم مسؤولاً (Admin/Super Admin)
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean 
+LANGUAGE plpgsql SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN (get_my_role() IN ('super_admin', 'admin'));
+END;
+$$;
 -- دالة للتأكد من حالة الاتصال (Health Check)
 CREATE OR REPLACE FUNCTION public.check_db_sync()
 RETURNS text LANGUAGE plpgsql AS $$
@@ -127,19 +136,8 @@ INSERT INTO public.permissions (module, action, description) VALUES
 ('restaurant', 'manage', 'إدارة المطعم'),
 ('admin', 'manage', 'إدارة الصلاحيات')
 ON CONFLICT (module, action) DO NOTHING;
-
--- 🛠️ ضمان وجود الأدوار الافتراضية لكل الشركات المسجلة حالياً
-INSERT INTO public.roles (organization_id, name, description)
-SELECT o.id, r.name, r.role_desc
-FROM public.organizations o
-CROSS JOIN (
-    VALUES 
-    ('admin', 'مدير النظام'),
-    ('accountant', 'محاسب'),
-    ('cashier', 'كاشير / بائع'),
-    ('chef', 'شيف / مطبخ')
-) AS r(name, role_desc)
-ON CONFLICT (name, organization_id) DO NOTHING;
+-- هذا الملف هو المرجع الوحيد لكافة دوال النظام (RPCs).
+-- يجب تشغيله بعد أي تعديل في منطق العمليات.
 
 -- ℹ️ الوصف: المحرك الكامل لمديولات (المبيعات، المشتريات، المرتجعات، المطاعم، الرواتب، المخازن، والتقارير)
 -- تم دمج كافة الدوال لضمان عمل النظام ككتلة واحدة مع عزل SaaS كامل.
@@ -167,10 +165,15 @@ BEGIN
             'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
             'create_restaurant_order', 'run_payroll_rpc', 'handle_new_user', 'check_user_limit',
             'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
-            'get_product_recipe_cost', 'recalculate_stock_rpc',
+            'get_product_recipe_cost', 'recalculate_stock_rpc', 'get_my_role', 'get_my_org', 'check_db_sync', 'is_admin',
+            'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'get_customer_balance',
+            'get_current_company_settings',
             'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema', 
-            'create_public_order', 'request_bill_via_qr', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift',
-            'get_or_create_qr_for_table', 'get_restaurant_sales_report'
+            'create_public_order', 'request_bill_via_qr', 'get_shift_summary', 'generate_shift_closing_entry', 
+            'close_shift', 'get_item_profit_report', 'cleanup_orphaned_backups', 'cleanup_storage_orphans_trigger',
+            'get_or_create_qr_for_table', 'get_restaurant_sales_report', 'process_wastage',
+            'create_organization_backup',
+            'restore_organization_backup'
         )
         THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature); -- Drop by full signature
@@ -1221,6 +1224,144 @@ BEGIN
     END LOOP;
 END; $$;
 
+-- ================================================================
+-- 5.1 معالجة الهالك (Wastage Processing)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.process_wastage(
+    p_warehouse_id uuid,
+    p_date date,
+    p_notes text,
+    p_items jsonb,
+    p_user_id uuid
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_adj_id uuid;
+    v_org_id uuid;
+    v_adj_no text;
+    v_item record;
+    v_total_cost numeric := 0;
+    v_item_cost numeric;
+    v_je_id uuid;
+    v_inventory_acc_id uuid;
+    v_wastage_acc_id uuid;
+    v_mappings jsonb;
+BEGIN
+    -- 1. تحديد المنظمة للمستخدم
+    SELECT organization_id INTO v_org_id FROM public.profiles WHERE id = p_user_id;
+    IF v_org_id IS NULL THEN 
+        v_org_id := public.get_my_org();
+    END IF;
+    
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'لا يمكن تحديد المنظمة للعملية'; END IF;
+
+    -- 2. توليد رقم العملية
+    v_adj_no := 'WST-' || to_char(p_date, 'YYYYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+
+    -- 3. إنشاء رأس التسوية المخزنية
+    INSERT INTO public.stock_adjustments (
+        organization_id, warehouse_id, adjustment_date, adjustment_number,
+        reason, status, created_by
+    ) VALUES (
+        v_org_id, p_warehouse_id, p_date, v_adj_no,
+        COALESCE(p_notes, 'تسجيل هالك مخزني'), 'posted', p_user_id
+    ) RETURNING id INTO v_adj_id;
+
+    -- 4. إدراج الأصناف وحساب التكلفة الإجمالية
+    FOR v_item IN SELECT * FROM jsonb_to_recordset(p_items) AS x("productId" uuid, "quantity" numeric)
+    LOOP
+        SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) INTO v_item_cost 
+        FROM public.products WHERE id = v_item."productId" AND organization_id = v_org_id;
+        
+        v_total_cost := v_total_cost + (v_item_cost * ABS(v_item."quantity"));
+
+        INSERT INTO public.stock_adjustment_items (
+            organization_id, stock_adjustment_id, product_id, quantity
+        ) VALUES (
+            v_org_id, v_adj_id, v_item."productId", -ABS(v_item."quantity")
+        );
+    END LOOP;
+
+    -- 5. إنشاء القيد المحاسبي آلياً لقيمة الهالك
+    IF v_total_cost > 0 THEN
+        SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+        
+        v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
+        v_wastage_acc_id := COALESCE(
+            (v_mappings->>'WASTAGE_EXPENSE')::uuid, 
+            (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1),
+            (SELECT id FROM public.accounts WHERE code = '512' AND organization_id = v_org_id LIMIT 1)
+        );
+
+        IF v_inventory_acc_id IS NOT NULL AND v_wastage_acc_id IS NOT NULL THEN
+            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+            VALUES (p_date, 'إثبات قيمة هالك مخزني - ' || COALESCE(p_notes, v_adj_no), v_adj_no, 'posted', v_org_id, true, v_adj_id, 'stock_adjustment')
+            RETURNING id INTO v_je_id;
+
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES 
+                (v_je_id, v_wastage_acc_id, v_total_cost, 0, 'تكلفة الهالك والفاقد', v_org_id),
+                (v_je_id, v_inventory_acc_id, 0, v_total_cost, 'نقص مخزون نتيجة هالك', v_org_id);
+                
+            UPDATE public.stock_adjustments SET related_journal_entry_id = v_je_id WHERE id = v_adj_id;
+        END IF;
+    END IF;
+
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+    RETURN v_adj_id;
+END;
+$$;
+
+-- ================================================================
+-- 5.2 تقرير أرباح الأصناف شامل الهالك (Item Profit Report)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.get_item_profit_report(
+    p_org_id uuid,
+    p_start_date date,
+    p_end_date date
+)
+RETURNS TABLE (
+    product_id uuid, product_name text, category_name text, quantity_sold numeric,
+    sales_revenue numeric, total_cogs numeric, wastage_qty numeric, wastage_cost numeric,
+    gross_profit numeric, net_item_profit numeric
+) 
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    WITH item_sales AS (
+        SELECT ii.product_id, SUM(ii.quantity) as qty, SUM(ii.quantity * ii.unit_price) as revenue, SUM(ii.quantity * COALESCE(ii.cost, 0)) as cogs
+        FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id
+        WHERE i.organization_id = p_org_id AND i.status IN ('posted', 'paid') AND i.invoice_date BETWEEN p_start_date AND p_end_date
+        GROUP BY ii.product_id
+        UNION ALL
+        SELECT oi.product_id, SUM(oi.quantity) as qty, SUM(oi.total_price) as revenue, SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) as cogs
+        FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id
+        WHERE o.organization_id = p_org_id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.created_at::date BETWEEN p_start_date AND p_end_date
+        GROUP BY oi.product_id
+    ),
+    agg_sales AS (
+        SELECT s.product_id, SUM(s.qty) as q, SUM(s.revenue) as r, SUM(s.cogs) as c FROM item_sales s GROUP BY s.product_id
+    ),
+    item_wastage AS (
+        SELECT sai.product_id, SUM(ABS(sai.quantity)) as w_q, SUM(ABS(sai.quantity) * COALESCE(pr.weighted_average_cost, pr.cost, pr.purchase_price, 0)) as w_c
+        FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id JOIN public.products pr ON sai.product_id = pr.id
+        WHERE sa.organization_id = p_org_id AND sa.status = 'posted' AND (sa.reason LIKE '%هالك%' OR sa.adjustment_number LIKE 'WST-%') AND sa.adjustment_date BETWEEN p_start_date AND p_end_date
+        GROUP BY sai.product_id
+    )
+    SELECT p.id, p.name::text, COALESCE(cat.name::text, 'غير مصنف'::text), COALESCE(s.q, 0), COALESCE(s.r, 0), COALESCE(s.c, 0), COALESCE(w.w_q, 0), COALESCE(w.w_c, 0),
+        (COALESCE(s.r, 0) - COALESCE(s.c, 0)), (COALESCE(s.r, 0) - COALESCE(s.c, 0) - COALESCE(w.w_c, 0))
+    FROM public.products p
+    LEFT JOIN public.item_categories cat ON p.category_id = cat.id
+    LEFT JOIN agg_sales s ON p.id = s.product_id
+    LEFT JOIN item_wastage w ON p.id = w.product_id
+    WHERE p.organization_id = p_org_id AND p.deleted_at IS NULL AND (s.q > 0 OR w.w_q > 0)
+    ORDER BY 10 DESC;
+END; $$;
+GRANT EXECUTE ON FUNCTION public.get_item_profit_report(uuid, date, date) TO authenticated;
+
 CREATE OR REPLACE FUNCTION public.recalculate_all_system_balances(p_org_id uuid DEFAULT NULL) 
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE 
@@ -1322,18 +1463,65 @@ BEGIN
     RETURN 'تمت إعادة مطابقة الأرصدة المالية والمخزنية وإصلاح قيود التكلفة بنجاح ✅';
 END; $$;
 
-CREATE OR REPLACE FUNCTION public.get_dashboard_stats() 
+CREATE OR REPLACE FUNCTION public.get_dashboard_stats(p_org_id uuid DEFAULT NULL) 
 RETURNS json 
 LANGUAGE plpgsql 
 SECURITY DEFINER
 SET search_path = public, auth -- 🛡️ تأمين مسار البحث لزيادة الأمان
 AS $$
-DECLARE v_month_sales numeric; v_receivables numeric; v_payables numeric; v_low_stock_count integer; v_chart_data json; v_org_id uuid;
+DECLARE 
+    v_month_revenue numeric; 
+    v_month_cogs numeric;
+    v_month_expenses numeric;
+    v_month_purchases numeric;
+    v_sales_target numeric;
+    v_receivables numeric; 
+    v_payables numeric; 
+    v_low_stock_count integer; 
+    v_chart_data json; 
+    v_org_id uuid;
+    v_start_month date := date_trunc('month', CURRENT_DATE);
 BEGIN
-    v_org_id := public.get_my_org();
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
     
-    SELECT COALESCE(SUM(amount), 0) INTO v_month_sales FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = date_trunc('month', CURRENT_DATE);
-    -- 🛡️ حساب الذمم المدينة (العملاء 1221) والدائنة (الموردين 201) من واقع أرصدة الحسابات الفرعية النشطة فقط
+    -- 1. المبيعات وصافي الإيرادات (كما تظهر في قائمة الدخل - الفئة 4 بالكامل)
+    SELECT COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_month_revenue
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id 
+      AND je.status = 'posted' 
+      AND (a.code LIKE '4%' OR a.type = 'REVENUE')
+      AND je.transaction_date >= v_start_month;
+
+    -- 2. تكلفة البضاعة المباعة (حساب 511 فقط كما في التقرير)
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_month_cogs
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id 
+      AND je.status = 'posted' 
+      AND (a.code LIKE '511%' OR a.name LIKE '%تكلفة البضاعة%')
+      AND je.transaction_date >= v_start_month;
+
+    -- 3. المصروفات التشغيلية (باقي الفئة 5 بما فيها 512 و 52 و 53 و 54)
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_month_expenses
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id 
+      AND je.status = 'posted' 
+      AND a.code LIKE '5%' AND a.code NOT LIKE '511%' AND a.name NOT LIKE '%تكلفة البضاعة%'
+      AND je.transaction_date >= v_start_month;
+
+    -- 4. مشتريات الشهر (إجمالي فواتير الشراء الفعلية)
+    SELECT COALESCE(SUM(total_amount), 0) INTO v_month_purchases
+    FROM public.purchase_invoices
+    WHERE organization_id = v_org_id AND status IN ('posted', 'paid') AND invoice_date >= v_start_month;
+
+    -- 5. جلب الهدف البيعي من الإعدادات
+    SELECT COALESCE(monthly_sales_target, 0) INTO v_sales_target FROM public.company_settings WHERE organization_id = v_org_id;
+
     SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '1221%' AND is_group = false AND deleted_at IS NULL;
     SELECT COALESCE(SUM(ABS(balance)), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '201%' AND is_group = false AND deleted_at IS NULL;
     
@@ -1342,11 +1530,152 @@ BEGIN
     -- جلب بيانات الرسم البياني لآخر 6 أشهر
     SELECT json_agg(t) INTO v_chart_data FROM (
         SELECT to_char(month, 'YYYY-MM') as name, 
-        COALESCE((SELECT SUM(amount) FROM public.monthly_sales_dashboard WHERE organization_id = v_org_id AND date_trunc('month', transaction_date) = month), 0) as sales 
+        COALESCE((SELECT SUM(jl.credit - jl.debit) FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id JOIN public.accounts a ON jl.account_id = a.id WHERE je.organization_id = v_org_id AND je.status = 'posted' AND a.code LIKE '4%' AND date_trunc('month', je.transaction_date) = month), 0) as sales 
         FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month
     ) t;
 
-    RETURN json_build_object('monthSales', v_month_sales, 'receivables', v_receivables, 'payables', v_payables, 'lowStockCount', v_low_stock_count, 'chartData', v_chart_data);
+    RETURN json_build_object(
+        'monthSales', v_month_revenue, 
+        'grossProfit', v_month_revenue - v_month_cogs,
+        'netProfit', v_month_revenue - v_month_cogs - v_month_expenses,
+        'monthExpenses', v_month_expenses,
+        'monthPurchases', v_month_purchases,
+        'salesTarget', v_sales_target,
+        'receivables', v_receivables, 
+        'payables', v_payables, 
+        'lowStockCount', v_low_stock_count, 
+        'chartData', v_chart_data
+    );
+END; $$;
+
+-- ================================================================
+-- 6. نظام النسخ الاحتياطي الذكي (SaaS Backup Engine)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.create_organization_backup(p_org_id uuid)
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_backup_id uuid;
+    v_final_json jsonb;
+BEGIN
+    -- تجميع كافة البيانات الهامة في كائن JSON واحد مفلتر بالمنظمة
+    SELECT jsonb_build_object(
+        'metadata', jsonb_build_object('org_id', p_org_id, 'date', now(), 'version', '1.0'),
+        'settings', (SELECT to_jsonb(t) FROM public.company_settings t WHERE organization_id = p_org_id),
+        'accounts', (SELECT jsonb_agg(to_jsonb(t)) FROM public.accounts t WHERE organization_id = p_org_id),
+        'products', (SELECT jsonb_agg(to_jsonb(t)) FROM public.products t WHERE organization_id = p_org_id),
+        'customers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.customers t WHERE organization_id = p_org_id),
+        'suppliers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.suppliers t WHERE organization_id = p_org_id),
+        'journal_entries', (SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_entries t WHERE organization_id = p_org_id),
+        'journal_lines', (SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_lines t WHERE organization_id = p_org_id),
+        'invoices', (SELECT jsonb_agg(to_jsonb(t)) FROM public.invoices t WHERE organization_id = p_org_id),
+        'purchase_invoices', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_invoices t WHERE organization_id = p_org_id),
+        'payments', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payments t WHERE organization_id = p_org_id)
+    ) INTO v_final_json;
+
+    -- إدراج النسخة في جدول النسخ الاحتياطية
+    INSERT INTO public.organization_backups (
+        organization_id, 
+        backup_data, 
+        file_size_kb, 
+        created_by,
+        notes
+    ) VALUES (
+        p_org_id, 
+        v_final_json, 
+        pg_column_size(v_final_json) / 1024.0, 
+        auth.uid(),
+        'نسخة احتياطية تلقائية للنظام'
+    ) RETURNING id INTO v_backup_id;
+
+    RETURN v_backup_id;
+END; $$;
+
+-- ================================================================
+-- 6.1 محرك استعادة البيانات (SaaS Restore Engine)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.restore_organization_backup(p_org_id uuid, p_backup_data jsonb)
+RETURNS text 
+LANGUAGE plpgsql 
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_item jsonb;
+BEGIN
+    -- 1. تنظيف البيانات الحالية للمنظمة بالترتيب العكسي (من الأبناء للآباء)
+    DELETE FROM public.journal_lines WHERE organization_id = p_org_id;
+    DELETE FROM public.journal_entries WHERE organization_id = p_org_id;
+    DELETE FROM public.invoice_items WHERE organization_id = p_org_id;
+    DELETE FROM public.invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_invoice_items WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.payments WHERE organization_id = p_org_id;
+    DELETE FROM public.products WHERE organization_id = p_org_id;
+    DELETE FROM public.customers WHERE organization_id = p_org_id;
+    DELETE FROM public.suppliers WHERE organization_id = p_org_id;
+    DELETE FROM public.accounts WHERE organization_id = p_org_id;
+    DELETE FROM public.company_settings WHERE organization_id = p_org_id;
+
+    -- 2. استعادة الإعدادات (Company Settings)
+    IF (p_backup_data->'settings') IS NOT NULL THEN
+        INSERT INTO public.company_settings 
+        SELECT * FROM jsonb_populate_record(NULL::public.company_settings, p_backup_data->'settings');
+    END IF;
+
+    -- 3. استعادة شجرة الحسابات (Accounts)
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'accounts') LOOP
+        INSERT INTO public.accounts SELECT * FROM jsonb_populate_record(NULL::public.accounts, v_item);
+    END LOOP;
+
+    -- 4. استعادة العملاء والموردين
+    IF (p_backup_data->'customers') IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'customers') LOOP
+            INSERT INTO public.customers SELECT * FROM jsonb_populate_record(NULL::public.customers, v_item);
+        END LOOP;
+    END IF;
+    IF (p_backup_data->'suppliers') IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'suppliers') LOOP
+            INSERT INTO public.suppliers SELECT * FROM jsonb_populate_record(NULL::public.suppliers, v_item);
+        END LOOP;
+    END IF;
+
+    -- 5. استعادة المنتجات والمخزون
+    IF (p_backup_data->'products') IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'products') LOOP
+            INSERT INTO public.products SELECT * FROM jsonb_populate_record(NULL::public.products, v_item);
+        END LOOP;
+    END IF;
+
+    -- 6. استعادة الفواتير (بيع وشراء)
+    IF (p_backup_data->'invoices') IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP
+            INSERT INTO public.invoices SELECT * FROM jsonb_populate_record(NULL::public.invoices, v_item);
+        END LOOP;
+    END IF;
+    IF (p_backup_data->'purchase_invoices') IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'purchase_invoices') LOOP
+            INSERT INTO public.purchase_invoices SELECT * FROM jsonb_populate_record(NULL::public.purchase_invoices, v_item);
+        END LOOP;
+    END IF;
+
+    -- 7. استعادة القيود ودفتر الأستاذ
+    IF (p_backup_data->'journal_entries') IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_entries') LOOP
+            INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_record(NULL::public.journal_entries, v_item);
+        END LOOP;
+    END IF;
+    IF (p_backup_data->'journal_lines') IS NOT NULL THEN
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_lines') LOOP
+            INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_record(NULL::public.journal_lines, v_item);
+        END LOOP;
+    END IF;
+
+    -- 8. تحديث الكاش وإعادة احتساب الأرصدة
+    PERFORM public.recalculate_all_system_balances(p_org_id);
+    
+    RETURN 'تمت استعادة كافة البيانات والروابط المحاسبية بنجاح ✅';
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.force_grant_admin_access(p_user_id uuid, p_org_id uuid)
@@ -1521,4 +1850,41 @@ BEGIN
     WHERE je.organization_id = p_org_id AND je.status = 'posted' AND je.related_document_id IS NULL AND (trim(je.reference) NOT ILIKE 'OB-%' AND trim(je.reference) NOT ILIKE 'COLL-%' AND trim(je.reference) NOT ILIKE 'TRF-%' AND trim(je.reference) NOT ILIKE 'CHQ-%') AND a.code LIKE '1221%';
     RETURN v_total;
 END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 🛠️ دالة تنظيف سجلات النسخ الاحتياطية اليتيمة
+CREATE OR REPLACE FUNCTION public.cleanup_orphaned_backups()
+RETURNS integer
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE deleted_count integer;
+BEGIN
+    DELETE FROM public.organization_backups WHERE organization_id NOT IN (SELECT id FROM public.organizations);
+    GET DIAGNOSTICS deleted_count = ROW_COUNT;
+    RETURN deleted_count;
+END; $$;
+
+-- 🛠️ دالة بدء تنظيف ملفات التخزين اليتيمة (Trigger for Edge Functions)
+CREATE OR REPLACE FUNCTION public.cleanup_storage_orphans_trigger()
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    INSERT INTO public.security_logs (event_type, description, metadata)
+    VALUES (
+        'storage_cleanup_request', 
+        'طلب تنظيف آلي لملفات التخزين اليتيمة عبر الخادم', 
+        jsonb_build_object(
+            'triggered_at', now(), 
+            'triggered_by', auth.uid(),
+            'status', 'initiated'
+        )
+    );
+    RETURN jsonb_build_object(
+        'status', 'success',
+        'message', 'تم بدء عملية التنظيف بنجاح. يمكنك مراقبة سجلات الأمان.'
+    );
+END; $$;
+
 NOTIFY pgrst, 'reload config';

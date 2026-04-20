@@ -24,6 +24,7 @@ END $$;
 -- 2. إضافة الأعمدة المفقودة (لضمان عدم حدوث أخطاء عند الحفظ)
 -- إعدادات الكسور العشرية
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS decimal_places integer DEFAULT 2;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS monthly_sales_target numeric DEFAULT 0;
 
 -- ربط الفواتير والشيكات بالقيود المحاسبية
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
@@ -145,6 +146,17 @@ CREATE TABLE IF NOT EXISTS public.work_order_material_usage (
     actual_quantity numeric NOT NULL,   -- الكمية المستهلكة فعلياً
     wastage_quantity numeric GENERATED ALWAYS AS (actual_quantity - standard_quantity) STORED,
     organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+);
+
+-- جدول سجلات النسخ الاحتياطية لكل شركة
+CREATE TABLE IF NOT EXISTS public.organization_backups (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    backup_date timestamptz DEFAULT now(),
+    backup_data jsonb NOT NULL, -- الملف الفعلي بصيغة JSON
+    file_size_kb numeric,
+    created_by uuid REFERENCES auth.users(id),
+    notes text
 );
 
 -- 3. التأكد من وجود الحسابات المحاسبية الحرجة (لتجنب أخطاء القيود الآلية)

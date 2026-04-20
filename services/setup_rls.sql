@@ -67,6 +67,7 @@ ALTER TABLE restaurant_tables ENABLE ROW LEVEL SECURITY;
 ALTER TABLE menu_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE modifier_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE modifiers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organization_backups ENABLE ROW LEVEL SECURITY;
 
 -- جداول العمليات
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
@@ -78,6 +79,13 @@ ALTER TABLE journal_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipt_vouchers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_vouchers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cheques ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_adjustments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_adjustment_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_counts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE inventory_count_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_transfers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE stock_transfer_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE opening_inventories ENABLE ROW LEVEL SECURITY;
 
 -- =================================================================
 -- تعريف السياسات (Policies)
@@ -117,7 +125,7 @@ USING (
 );
 -- تعديل للمدراء فقط
 DROP POLICY IF EXISTS "Only Admins can update settings" ON company_settings;
-CREATE POLICY "Only Admins can update settings" ON company_settings FOR UPDATE USING (is_admin());
+CREATE POLICY "Only Admins can update settings" ON company_settings FOR UPDATE USING (is_admin() OR public.get_my_role() = 'super_admin');
 
 -- 3. البيانات الأساسية (Products, Customers, Suppliers, Accounts)
 -- السوبر أدمن يرى الجميع، والمستخدم يرى بيانات منظمته فقط
@@ -142,7 +150,7 @@ CREATE POLICY "Basic data viewable by authenticated_cust" ON customers FOR SELEC
 DROP POLICY IF EXISTS "Basic data viewable by authenticated_supp" ON suppliers;
 CREATE POLICY "Basic data viewable by authenticated_supp" ON suppliers FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
 DROP POLICY IF EXISTS "Basic data viewable by authenticated_acc" ON accounts;
-CREATE POLICY "Basic data viewable by authenticated_acc" ON accounts FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('viewer', 'demo'));
+CREATE POLICY "Basic data viewable by authenticated_acc" ON accounts FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin' OR organization_id = public.get_my_org());
 
 -- إدارة البيانات الأساسية: السوبر أدمن لديه صلاحية مطلقة، والموظفون محصورون بمنظماتهم
 DROP POLICY IF EXISTS "Staff can manage products" ON products;
@@ -197,6 +205,33 @@ DROP POLICY IF EXISTS "Accountants manage journal lines" ON journal_lines;
 CREATE POLICY "Accountants manage journal lines" ON journal_lines FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant')));
 DROP POLICY IF EXISTS "Accountants manage vouchers" ON receipt_vouchers;
 CREATE POLICY "Accountants manage vouchers" ON receipt_vouchers FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant', 'sales')));
+
+-- 5. عمليات المخزون (Inventory Operations)
+-- تفعيل السياسات لجداول الجرد والتسويات التي سببت الخطأ
+DO $$ 
+DECLARE
+    inv_tables text[] := ARRAY['stock_adjustments', 'stock_adjustment_items', 'inventory_counts', 'inventory_count_items', 'stock_transfers', 'stock_transfer_items', 'opening_inventories', 'work_order_material_usage'];
+    t text;
+BEGIN
+    FOREACH t IN ARRAY inv_tables LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Inventory_SaaS_Policy" ON public.%I;', t);
+        EXECUTE format('
+            CREATE POLICY "Inventory_SaaS_Policy" ON public.%I 
+            FOR ALL TO authenticated 
+            USING (public.get_my_role() = ''super_admin'' OR (organization_id = public.get_my_org() AND organization_id IS NOT NULL))
+            WITH CHECK (public.get_my_role() = ''super_admin'' OR (organization_id = public.get_my_org() AND organization_id IS NOT NULL));
+        ', t, t);
+    END LOOP;
+END $$;
+
+-- 6. سياسة النسخ الاحتياطي (Backups)
+DROP POLICY IF EXISTS "Admins manage backups" ON organization_backups;
+CREATE POLICY "Admins manage backups" ON organization_backups 
+FOR ALL TO authenticated 
+USING (
+    public.get_my_role() = 'super_admin' 
+    OR (organization_id = public.get_my_org() AND is_admin())
+);
 
 -- 5. حماية بيانات الموارد البشرية والرواتب (HR & Payroll Security)
 -- تمنع هذه السياسة المحاسبين والبائعين من رؤية تفاصيل الرواتب الحساسة

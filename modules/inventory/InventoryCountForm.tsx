@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -108,7 +108,8 @@ const InventoryCountForm = () => {
             count_date: date,
             count_number: countNumber,
             status: 'draft',
-            notes: 'جرد يدوي من النظام'
+            notes: 'جرد يدوي من النظام',
+            organization_id: (currentUser as any)?.organization_id
         }).select().single();
 
         if (countError) throw countError;
@@ -119,7 +120,8 @@ const InventoryCountForm = () => {
             product_id: item.productId,
             system_qty: item.systemQty,
             actual_qty: item.actualQty,
-            difference: item.difference
+            difference: item.difference,
+            organization_id: (currentUser as any)?.organization_id
         }));
 
         const { error: itemsError } = await supabase.from('inventory_count_items').insert(countItems);

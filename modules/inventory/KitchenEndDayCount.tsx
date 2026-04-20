@@ -125,7 +125,8 @@ const KitchenEndDayCount = () => {
             count_date: date,
             count_number: countNumber,
             status: 'posted', // Directly posted
-            notes: 'جرد نهاية اليوم للمطبخ (تسوية تلقائية)'
+            notes: 'جرد نهاية اليوم للمطبخ (تسوية تلقائية)',
+            organization_id: (currentUser as any)?.organization_id
         }).select().single();
 
         if (countError) throw countError;
@@ -137,6 +138,7 @@ const KitchenEndDayCount = () => {
             system_qty: item.systemQty,
             actual_qty: item.actualQty,
             difference: item.difference,
+            organization_id: (currentUser as any)?.organization_id,
             notes: item.notes
         }));
 
@@ -154,7 +156,8 @@ const KitchenEndDayCount = () => {
                 adjustment_date: date,
                 adjustment_number: adjustmentNumber,
                 reason: `فروقات جرد مطبخ ${date}`,
-                status: 'posted'
+                status: 'posted',
+                organization_id: (currentUser as any)?.organization_id
             }).select().single();
 
             if (adjError) throw adjError;
@@ -164,7 +167,8 @@ const KitchenEndDayCount = () => {
                 return {
                     stock_adjustment_id: adjDoc.id,
                     product_id: i.productId,
-                    quantity: i.difference
+                    quantity: i.difference,
+                    organization_id: (currentUser as any)?.organization_id
                 };
             });
 

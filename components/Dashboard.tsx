@@ -1,10 +1,4 @@
 
-
-
-
-
-
-
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext'; // Assuming context provides demo data
 import { supabase } from '../supabaseClient';

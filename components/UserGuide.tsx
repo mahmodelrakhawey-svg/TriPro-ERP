@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { BookOpen, ChevronDown, ChevronUp, HelpCircle, FileText, Users, ShoppingCart, Truck, Package, Wallet, Settings } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronUp, HelpCircle, FileText, Users, ShoppingCart, Truck, Package, Wallet, Settings, Database } from 'lucide-react';
+import { Link } from 'react-router-dom';
 
 const UserGuide = () => {
   const [openSection, setOpenSection] = useState<string | null>(null);
@@ -101,6 +102,22 @@ const UserGuide = () => {
             <li><strong>المستخدمين والصلاحيات:</strong> إضافة مستخدمين وتحديد أدوارهم وصلاحياتهم بدقة.</li>
             <li><strong>النسخ الاحتياطي:</strong> تصدير واستيراد البيانات للحفاظ عليها.</li>
             <li><strong>إقفال السنة:</strong> أدوات إقفال السنة المالية وترحيل الأرصدة.</li>
+          </ul>
+        </div>
+      )
+    },
+    {
+      id: 'saas-admin',
+      title: 'إدارة النظام (SaaS Admin)',
+      icon: <Database className="text-blue-600" size={20} />,
+      content: (
+        <div className="space-y-2 text-slate-600">
+          <p>للمشرفين العامين (Super Admins) فقط. إدارة شاملة للمنظمات والنسخ الاحتياطية:</p>
+          <ul className="list-disc list-inside space-y-1 mr-4">
+            <li><strong>إدارة المنظمات:</strong> عرض وتعديل بيانات الشركات المشتركة.</li>
+            <li><strong>النسخ الاحتياطي:</strong> إنشاء وتحميل وحذف النسخ الاحتياطية لبيانات كل منظمة على حدة.</li>
+            <li><strong>استعادة البيانات:</strong> (قريباً) استعادة بيانات المنظمات من النسخ الاحتياطية.</li>
+            <li><Link to="/saas-admin" className="text-blue-600 hover:underline font-bold">انتقل إلى صفحة إدارة النظام</Link></li>
           </ul>
         </div>
       )

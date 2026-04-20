@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -251,7 +251,8 @@ const StockAdjustmentForm = () => {
             reason: reason,
             adjustment_number: adjustmentNumber,
             status: 'posted', // Direct posting for simplicity, or draft
-            created_by: currentUser?.id
+            created_by: currentUser?.id,
+            organization_id: (currentUser as any)?.organization_id
         }).select().single();
 
         if (headerError) throw headerError;
@@ -261,7 +262,8 @@ const StockAdjustmentForm = () => {
             stock_adjustment_id: header.id,
             product_id: item.productId,
             quantity: item.type === 'in' ? Math.abs(item.quantity) : -Math.abs(item.quantity),
-            type: item.type
+            type: item.type,
+            organization_id: (currentUser as any)?.organization_id
         }));
 
         const { error: itemsError } = await supabase.from('stock_adjustment_items').insert(dbItems);
