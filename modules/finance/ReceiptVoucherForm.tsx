@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -35,7 +35,32 @@ const ReceiptVoucherForm = () => {
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { showToast } = useToast();
-  
+    // إضافة حالة للرصيد اللحظي المباشر للعميل
+  const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
+
+  // جلب الرصيد الحقيقي (فواتير - تحصيلات) فور اختيار العميل
+  useEffect(() => {
+    const getRealBalance = async () => {
+      if (!formData.customerId) { setDynamicBalance(null); return; }
+      
+      const [inv, ret, rec, cn, chq] = await Promise.all([
+        supabase.from('invoices').select('total_amount').eq('customer_id', formData.customerId).neq('status', 'draft'),
+        supabase.from('sales_returns').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
+        supabase.from('receipt_vouchers').select('amount').eq('customer_id', formData.customerId).not('voucher_number', 'like', 'DEP-%'),
+        supabase.from('credit_notes').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
+        supabase.from('cheques').select('amount').eq('party_id', formData.customerId).eq('type', 'incoming').neq('status', 'rejected')
+      ]);
+
+      const debit = inv.data?.reduce((sum, i) => sum + Number(i.total_amount), 0) || 0;
+      const credit = (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
+                     (rec.data?.reduce((sum, rc) => sum + Number(rc.amount), 0) || 0) +
+                     (cn.data?.reduce((sum, c) => sum + Number(c.total_amount), 0) || 0) +
+                     (chq.data?.reduce((sum, cq) => sum + Number(cq.amount), 0) || 0);
+
+      setDynamicBalance(debit - credit);
+    };
+    getRealBalance();
+  }, [formData.customerId]);
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
@@ -267,8 +292,43 @@ const ReceiptVoucherForm = () => {
               setLoading(false);
               return;
           }
-          await updateVoucher(currentVoucherId, 'receipt', { ...formData, voucherNumber });
-          return;
+
+          // 1. تحديث بيانات السند في قاعدة البيانات وجلب بياناته المحدثة
+          const { data: voucherData, error: vErr } = await supabase
+              .from('receipt_vouchers')
+              .update({
+                  receipt_date: formData.date,
+                  customer_id: formData.customerId,
+                  amount: Number(formData.amount),
+                  treasury_account_id: formData.treasuryId,
+                  notes: formData.notes,
+                  payment_method: formData.paymentMethod,
+                  currency: formData.currency,
+                  exchange_rate: formData.exchangeRate,
+                  cost_center_id: formData.costCenterId || null,
+                  voucher_number: voucherNumber // تحديث رقم السند إذا تم إدخاله يدوياً
+              })
+              .eq('id', currentVoucherId)
+              .select()
+              .single();
+
+          if (vErr) throw vErr;
+
+          // 2. تحديث القيد المحاسبي المرتبط لضمان التزامن بين السند والحسابات
+          if (voucherData?.related_journal_entry_id) {
+              const customerAcc = getSystemAccount('CUSTOMERS'); // حساب العملاء
+              
+              await supabase.from('journal_entries').update({
+                  transaction_date: formData.date,
+                  description: formData.notes || `سند قبض من العميل`
+              }).eq('id', voucherData.related_journal_entry_id);
+
+              // تحديث سطر الخزينة (المدين) وحساب العميل (الدائن) بالمبالغ الجديدة
+              await supabase.from('journal_lines').update({ account_id: formData.treasuryId, debit: Number(formData.amount) }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('debit', 0);
+              await supabase.from('journal_lines').update({ account_id: customerAcc?.id, credit: Number(formData.amount) }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('credit', 0);
+          }
+
+          showToast('تم تعديل سند القبض بنجاح ✅', 'success');
         }
 
         if (!isAdmin && !can('treasury', 'create')) {
@@ -422,7 +482,14 @@ const ReceiptVoucherForm = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* العميل */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">استلام من العميل</label>
+                <div className="flex justify-between items-center mb-1">
+                    <label className="block text-sm font-bold text-slate-700">استلم من العميل</label>
+                    {formData.customerId && (
+                        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100 animate-in fade-in slide-in-from-top-1">
+                            الرصيد الحالي: {dynamicBalance !== null ? dynamicBalance.toLocaleString() : 'جاري الحساب...'} {formData.currency}
+                        </span>
+                    )}
+                </div>
                 <div className="relative">
                     <select 
                         value={formData.customerId}

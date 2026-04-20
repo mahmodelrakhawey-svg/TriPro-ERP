@@ -36,6 +36,33 @@ const PaymentVoucherForm = () => {
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   
+  // إضافة حالة للرصيد اللحظي المباشر من قاعدة البيانات
+  const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
+
+  // جلب الرصيد الحقيقي فور اختيار المورد لضمان المطابقة مع كشف الحساب
+  useEffect(() => {
+    const getRealBalance = async () => {
+      if (!formData.supplierId) { setDynamicBalance(null); return; }
+      
+      const [inv, pay, ret, dn, chq] = await Promise.all([
+        supabase.from('purchase_invoices').select('total_amount').eq('supplier_id', formData.supplierId).neq('status', 'draft'),
+        supabase.from('payment_vouchers').select('amount').eq('supplier_id', formData.supplierId),
+        supabase.from('purchase_returns').select('total_amount').eq('supplier_id', formData.supplierId).eq('status', 'posted'),
+        supabase.from('debit_notes').select('total_amount').eq('supplier_id', formData.supplierId),
+        supabase.from('cheques').select('amount').eq('party_id', formData.supplierId).eq('type', 'outgoing').neq('status', 'rejected')
+      ]);
+
+      const credit = inv.data?.reduce((sum, i) => sum + Number(i.total_amount), 0) || 0;
+      const debit = (pay.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0) +
+                    (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
+                    (dn.data?.reduce((sum, d) => sum + Number(d.total_amount), 0) || 0) +
+                    (chq.data?.reduce((sum, c) => sum + Number(c.amount), 0) || 0);
+
+      setDynamicBalance(credit - debit);
+    };
+    getRealBalance();
+  }, [formData.supplierId]);
+  
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
@@ -266,8 +293,56 @@ const PaymentVoucherForm = () => {
               setLoading(false);
               return;
           }
-          await updateVoucher(currentVoucherId, 'payment', { ...formData, voucherNumber });
-          return;
+              
+          // 1. تحديث بيانات السند في قاعدة البيانات وجلب بياناته المحدثة
+          const { data: voucherData, error: vErr } = await supabase
+              .from('payment_vouchers')
+              .update({
+                  payment_date: formData.date,
+                  supplier_id: formData.supplierId,
+                  amount: formData.amount,
+                  treasury_account_id: formData.treasuryId,
+                  notes: formData.notes,
+                  payment_method: formData.paymentMethod,
+                  currency: formData.currency,
+                  exchange_rate: formData.exchangeRate,
+                  cost_center_id: formData.costCenterId || null
+              })
+              .eq('id', currentVoucherId)
+              .select()
+              .single();
+
+          if (vErr) throw vErr;
+
+          // 2. تحديث القيد المحاسبي المرتبط لضمان توازن الحسابات
+          if (voucherData?.related_journal_entry_id) {
+              const supplierAcc = getSystemAccount('SUPPLIERS');
+              
+              await supabase.from('journal_entries').update({
+                  transaction_date: formData.date,
+                  description: formData.notes || `سند صرف للمورد`
+              }).eq('id', voucherData.related_journal_entry_id);
+
+              // تحديث سطر المورد (مدين) وسطر الخزينة (دائن) بالمبالغ الجديدة
+              if (supplierAcc) {
+                  // تحديث سطر المورد (المدين)
+                  await supabase.from('journal_lines').update({
+                      account_id: formData.supplierId, // حساب المورد
+                      debit: formData.amount,
+                      cost_center_id: formData.costCenterId || null
+                  }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('debit', 0);
+
+                  // تحديث سطر الخزينة (الدائن)
+                  await supabase.from('journal_lines').update({
+                      account_id: formData.treasuryId,
+                      credit: formData.amount
+                  }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('credit', 0);
+              }
+          }
+
+          showToast('تم تعديل سند الصرف بنجاح ✅', 'success');
+
+          // بعد التعديل، لا نحتاج لإعادة تعيين النموذج بالكامل، فقط تحديث القائمة إذا لزم الأمر
         }
 
         if (!isAdmin && !can('treasury', 'create')) {
@@ -422,7 +497,14 @@ const PaymentVoucherForm = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* المورد */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">صرف للمورد</label>
+                <div className="flex justify-between items-center mb-1">
+                    <label className="block text-sm font-bold text-slate-700">صرف للمورد</label>
+                    {formData.supplierId && (
+                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 animate-in fade-in slide-in-from-top-1">
+                            الرصيد الحالي: {dynamicBalance !== null ? dynamicBalance.toLocaleString() : 'جاري الحساب...'} {formData.currency}
+                        </span>
+                    )}
+                </div>
                 <div className="relative">
                     <select 
                         value={formData.supplierId}

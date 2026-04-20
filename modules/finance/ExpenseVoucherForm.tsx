@@ -258,13 +258,44 @@ const ExpenseVoucherForm = () => {
                      (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
         if (isEditing && currentVoucherId) {
-            // Update existing voucher
-            await updateVoucher(currentVoucherId, 'payment', { 
-                ...formData, 
-                voucherNumber,
-                recipient_name: formData.recipientName,
-                supplierId: null // Ensure no supplier is linked
-            });
+            // 1. تحديث السند في قاعدة البيانات وجلب معرف القيد المرتبط
+            const { data: voucherData, error: vErr } = await supabase
+                .from('payment_vouchers')
+                .update({
+                    payment_date: formData.date,
+                    amount: Number(formData.amount),
+                    treasury_account_id: formData.treasuryAccountId,
+                    notes: formData.description || `صرف مصروف: ${expenseAccountName}`,
+                    cost_center_id: formData.costCenterId || null,
+                    recipient_name: formData.recipientName
+                })
+                .eq('id', currentVoucherId)
+                .select()
+                .single();
+
+            if (vErr) throw vErr;
+
+            // تحديث القيد المحاسبي المرتبط لضمان التزامن بين السند والحسابات
+            if (voucherData?.related_journal_entry_id) {
+                await supabase.from('journal_entries').update({
+                    transaction_date: formData.date,
+                    description: formData.description || `صرف مصروف: ${expenseAccountName}`
+                }).eq('id', voucherData.related_journal_entry_id);
+
+                // تحديث سطر المصروف (المدين)
+                await supabase.from('journal_lines').update({
+                    account_id: formData.expenseAccountId,
+                    debit: Number(formData.amount),
+                    cost_center_id: formData.costCenterId || null
+                }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('debit', 0);
+
+                // تحديث سطر الخزينة (الدائن)
+                await supabase.from('journal_lines').update({
+                    account_id: formData.treasuryAccountId,
+                    credit: Number(formData.amount)
+                }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('credit', 0);
+            }
+
             showToast('تم تعديل سند المصروف بنجاح ✅', 'success');
         } else {
             // Create new voucher
