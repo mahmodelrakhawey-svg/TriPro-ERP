@@ -32,7 +32,8 @@ BEGIN
     -- أ. التحقق من الفاتورة
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
-    IF v_invoice.status = 'posted' OR v_invoice.status = 'paid' THEN RAISE EXCEPTION 'الفاتورة مرحلة بالفعل'; END IF;
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
+    DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'invoice';
 
     SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
 
@@ -114,5 +115,8 @@ BEGIN
     SET status = CASE WHEN (total_amount - COALESCE(paid_amount, 0)) <= 0 THEN 'paid' ELSE 'posted' END,
         related_journal_entry_id = v_journal_id
     WHERE id = p_invoice_id;
+
+    -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة بعد أي تعديلات
+    PERFORM public.recalculate_stock_rpc(v_org_id);
 END;
 $$;

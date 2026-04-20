@@ -229,7 +229,8 @@ const PurchaseInvoiceForm = () => {
         tax_amount: taxAmount,
         subtotal: subtotal, // إضافة هذا الحقل لضمان حساب المخزون بشكل صحيح
         notes: formData.notes,
-        status: 'draft',
+        status: 'draft', // إرجاع الحالة لمسودة عند التعديل لضمان إعادة الترحيل النظيف
+        related_journal_entry_id: null, // تصفير المرجع القديم في الواجهة
         currency: formData.currency,
         exchange_rate: formData.exchangeRate,
         created_by: currentUser?.id
@@ -244,6 +245,10 @@ const PurchaseInvoiceForm = () => {
         
         // حذف البنود القديمة لاستبدالها
         await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
+
+        // 🛡️ صمام أمان: حذف القيد المحاسبي القديم فوراً عند التعديل لضمان عدم تكرار المبالغ في الأستاذ العام
+        // سيتم إنشاء قيد جديد كلياً بالقيم الجديدة (4560) عند الضغط على "حفظ وترحيل"
+        await supabase.from('journal_entries').delete().eq('related_document_id', editingId).eq('related_document_type', 'purchase_invoice');
       } else {
         // إنشاء فاتورة جديدة
         const { data: invoice, error: insertError } = await supabase.from('purchase_invoices').insert(invoiceData).select().single();

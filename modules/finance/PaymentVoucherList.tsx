@@ -4,9 +4,10 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
 import { 
-    Search, Printer, FileText, RotateCcw, AlertTriangle, 
+    Search, Printer, FileText, RotateCcw, AlertTriangle, Trash2, Edit,
     ChevronLeft, ChevronRight, FileSpreadsheet, Loader2, Plus, ArrowUpRight, Eye, X, Paperclip
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -22,6 +23,7 @@ interface PaymentVoucher {
   amount: number;
   notes: string;
   payment_method: string;
+  related_journal_entry_id?: string;
   suppliers?: {
     name: string;
   };
@@ -31,6 +33,7 @@ interface PaymentVoucher {
 const PaymentVoucherList = () => {
   const navigate = useNavigate();
   const { currentUser, vouchers: contextVouchers } = useAccounting();
+  const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -142,6 +145,39 @@ const PaymentVoucherList = () => {
     setVoucherToPrint(voucher);
   };
 
+  const handleEdit = (voucher: PaymentVoucher) => {
+    navigate('/payment-voucher', { state: { voucherToEdit: voucher } });
+  };
+
+  const handleDeleteVoucher = async (voucher: PaymentVoucher) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذا السند؟ سيؤدي ذلك لحذف السند والقيود المحاسبية المرتبطة به نهائياً من الدفاتر.')) {
+        return;
+    }
+
+    try {
+        // 1. حذف القيد المحاسبي المرتبط أولاً لضمان عدم بقاء أرصدة وهمية في الأستاذ العام
+        if (voucher.related_journal_entry_id) {
+            await supabase
+                .from('journal_entries')
+                .delete()
+                .eq('id', voucher.related_journal_entry_id);
+        }
+
+        // 2. حذف السند من جدول سندات الصرف
+        const { error } = await supabase
+            .from('payment_vouchers')
+            .delete()
+            .eq('id', voucher.id);
+
+        if (error) throw error;
+
+        showToast('تم حذف سند الصرف والقيود المرتبطة بنجاح ✅', 'success');
+        refresh(); // تحديث القائمة فوراً
+    } catch (err: any) {
+        showToast('حدث خطأ أثناء محاولة الحذف: ' + err.message, 'error');
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className={voucherToPrint ? 'print:hidden' : ''}>
@@ -221,7 +257,7 @@ const PaymentVoucherList = () => {
                     <th className="py-5 px-6 text-center">المبلغ</th>
                     <th className="py-5 px-6 text-center">طريقة الدفع</th>
                     <th className="py-5 px-6 text-center">المرفقات</th>
-                    <th className="py-5 px-6 text-center w-24">طباعة</th>
+                    <th className="py-5 px-6 text-center w-40">إجراءات</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -247,9 +283,15 @@ const PaymentVoucherList = () => {
                                 </button>
                             )}
                         </td>
-                        <td className="py-4 px-6 text-center">
+                        <td className="py-4 px-6 text-center flex items-center justify-center gap-1">
+                            <button onClick={() => handleEdit(voucher)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="تعديل السند">
+                                <Edit size={18} />
+                            </button>
                             <button onClick={() => handlePrint(voucher)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="طباعة">
                                 <Printer size={18} />
+                            </button>
+                            <button onClick={() => handleDeleteVoucher(voucher)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="حذف السند">
+                                <Trash2 size={18} />
                             </button>
                         </td>
                     </tr>

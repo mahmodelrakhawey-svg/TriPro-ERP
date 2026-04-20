@@ -21,6 +21,34 @@ UPDATE public.orders o
 SET warehouse_id = (SELECT id FROM public.warehouses w WHERE w.organization_id = o.organization_id AND deleted_at IS NULL LIMIT 1)
 WHERE warehouse_id IS NULL;
 
+-- 🛠️ معالجة القيود اليتيمة والمكررة لضمان مطابقة الأستاذ مع الفواتير
+-- 1. ترميم الروابط المفقودة بناءً على رقم المرجع (في حال فقدان الـ UUID في القيود القديمة)
+UPDATE public.journal_entries je
+SET related_document_id = pi.id, related_document_type = 'purchase_invoice'
+FROM public.purchase_invoices pi
+WHERE je.reference = pi.invoice_number 
+AND je.related_document_id IS NULL 
+AND je.organization_id = pi.organization_id;
+
+-- 2. توجيه الفواتير إلى القيد الأحدث (الأصح بعد التعديل)
+UPDATE public.purchase_invoices pi
+SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pi.id AND je.related_document_type = 'purchase_invoice' ORDER BY je.created_at DESC LIMIT 1)
+WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = pi.id AND je.related_document_type = 'purchase_invoice');
+
+UPDATE public.invoices i
+SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' ORDER BY je.created_at DESC LIMIT 1)
+WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice');
+
+-- 3. حذف كافة القيود المكررة والإبقاء على الأحدث فقط لكل مستند
+DELETE FROM public.journal_entries 
+WHERE id IN (
+    SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY related_document_id, related_document_type ORDER BY created_at DESC) as entry_rank
+        FROM public.journal_entries 
+        WHERE related_document_id IS NOT NULL AND related_document_type IN ('purchase_invoice', 'invoice')
+    ) t WHERE entry_rank > 1
+);
+
 -- إعادة حساب كافة أرصدة العملاء لضمان المطابقة مع كشف الحساب
 UPDATE public.customers SET balance = public.get_customer_balance(id, organization_id);
 
@@ -30,6 +58,9 @@ WHERE (trim(reference) ILIKE 'COLL-%' OR trim(reference) ILIKE 'TRF-%' OR trim(r
 
 -- صيانة فهارس البحث
 CREATE INDEX IF NOT EXISTS idx_item_categories_name_search ON public.item_categories (organization_id, name);
+
+-- 🛡️ فهرس لتحسين أداء حذف والبحث عن القيود المرتبطة بالمستندات لضمان سرعة "نظام استبدال القيد"
+CREATE INDEX IF NOT EXISTS idx_journal_entries_related_doc ON public.journal_entries (related_document_id, related_document_type);
 
 -- إعادة احتساب أرصدة المخزون بالمنطق المطور (شامل استهلاك المطعم والتصنيع)
 SELECT public.recalculate_stock_rpc(id) FROM public.organizations;
@@ -49,24 +80,22 @@ END; $$;
 -- ============================================================
 -- 1. توحيد أسماء أعمدة المرتجعات (Schema Standardization)
 -- ============================================================
-DO $$ BEGIN
-    -- توحيد مسمى سعر الوحدة في جميع جداول النظام (Standardizing unit_price)
-    DECLARE
-        t text;
-        tables_to_fix text[] := ARRAY['quotation_items', 'sales_return_items', 'purchase_invoice_items', 'purchase_order_items', 'purchase_return_items', 'invoice_items', 'order_items', 'modifiers'];
-    BEGIN
-        FOREACH t IN ARRAY tables_to_fix LOOP
-            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'price') THEN
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'unit_price') THEN
-                    EXECUTE format('ALTER TABLE public.%I RENAME COLUMN price TO unit_price', t);
-                ELSE
-                    -- إذا كان الكولمان موجودين في السكيم العامة، انقل البيانات واحذف القديم
-                    EXECUTE format('UPDATE public.%I SET unit_price = COALESCE(price, 0) WHERE unit_price IS NULL OR unit_price = 0', t);
-                    EXECUTE format('ALTER TABLE public.%I DROP COLUMN price', t);
-                END IF;
+DO $$ 
+DECLARE
+    t text;
+    tables_to_fix text[] := ARRAY['quotation_items', 'sales_return_items', 'purchase_invoice_items', 'purchase_order_items', 'purchase_return_items', 'invoice_items', 'order_items', 'modifiers'];
+BEGIN
+    -- توحيد مسمى سعر الوحدة في جميع جداول النظام
+    FOREACH t IN ARRAY tables_to_fix LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'price') THEN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'unit_price') THEN
+                EXECUTE format('ALTER TABLE public.%I RENAME COLUMN price TO unit_price', t);
+            ELSE
+                EXECUTE format('UPDATE public.%I SET unit_price = COALESCE(price, 0) WHERE unit_price IS NULL OR unit_price = 0', t);
+                EXECUTE format('ALTER TABLE public.%I DROP COLUMN price', t);
             END IF;
-        END LOOP;
-    END;
+        END IF;
+    END LOOP;
 
     -- ضمان عدم تكرار التصنيفات
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'item_categories_name_org_unique') THEN

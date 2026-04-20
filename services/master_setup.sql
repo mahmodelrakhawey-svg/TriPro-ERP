@@ -551,7 +551,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
     treasury_account_id uuid REFERENCES public.accounts(id),
     cost_center_id uuid REFERENCES public.cost_centers(id),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     currency text DEFAULT 'EGP',
     exchange_rate numeric DEFAULT 1,
     approver_id uuid REFERENCES auth.users(id), -- عمود جديد
@@ -587,7 +587,7 @@ CREATE TABLE IF NOT EXISTS public.sales_returns (
     status text,
     warehouse_id uuid REFERENCES public.warehouses(id),
     notes text,
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- Changed to uuid for consistency
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL, -- Changed to uuid for consistency
     organization_id uuid REFERENCES public.organizations(id),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
@@ -617,7 +617,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoices (
     warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
     currency text DEFAULT 'SAR',
     exchange_rate numeric DEFAULT 1,
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     additional_expenses numeric DEFAULT 0, -- عمود جديد
     approver_id uuid REFERENCES auth.users(id),
     reference text,
@@ -648,7 +648,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_returns (
     status text,
     warehouse_id uuid REFERENCES public.warehouses(id),
     notes text,
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- Changed to uuid for consistency
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL, -- Changed to uuid for consistency
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
@@ -729,7 +729,7 @@ CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
     exchange_rate numeric DEFAULT 1,
     type text DEFAULT 'receipt', -- receipt, deposit
     organization_id uuid REFERENCES public.organizations(id),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id), -- Changed to uuid for consistency
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL, -- Changed to uuid for consistency
     created_at timestamptz DEFAULT now()
 );
 
@@ -747,7 +747,7 @@ CREATE TABLE IF NOT EXISTS public.payment_vouchers (
     exchange_rate numeric DEFAULT 1,
     recipient_name text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     created_at timestamptz DEFAULT now()
 );
 
@@ -765,7 +765,7 @@ CREATE TABLE IF NOT EXISTS public.cheques (
     transfer_account_number text,
     transfer_bank_name text,
     transfer_date date,
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     related_voucher_id uuid,
     organization_id uuid REFERENCES public.organizations(id),
     current_account_id uuid REFERENCES public.accounts(id), -- عمود جديد
@@ -844,7 +844,7 @@ CREATE TABLE IF NOT EXISTS public.credit_notes (
     status text DEFAULT 'draft',
     original_invoice_number text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     created_at timestamptz DEFAULT now()
 );
 
@@ -860,7 +860,7 @@ CREATE TABLE IF NOT EXISTS public.debit_notes (
     status text DEFAULT 'draft',
     original_invoice_number text, -- Changed to text for consistency
     organization_id uuid REFERENCES public.organizations(id),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     created_at timestamptz DEFAULT now()
 );
 
@@ -1030,7 +1030,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     grand_total numeric DEFAULT 0,
     warehouse_id uuid REFERENCES public.warehouses(id),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     user_id uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now(),
     updated_at timestamptz DEFAULT now()

@@ -55,6 +55,24 @@ BEGIN
     END LOOP;
 END $$;
 
+-- 🛠️ تصحيح قيود الربط بالقيود المحاسبية (SET NULL) لمنع الخطأ 23503 للأبد
+DO $$ 
+DECLARE 
+    r record;
+BEGIN
+    FOR r IN 
+        SELECT tc.table_name, tc.constraint_name, kcu.column_name
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
+        WHERE kcu.column_name IN ('related_journal_entry_id')
+        AND tc.constraint_type = 'FOREIGN KEY'
+        AND tc.table_schema = 'public'
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
+        EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES public.journal_entries(id) ON DELETE SET NULL', r.table_name, r.constraint_name, r.column_name);
+    END LOOP;
+END $$;
+
 -- ضمان وجود عمود organization_id في الجداول الأساسية
 ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
 ALTER TABLE public.role_permissions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
@@ -151,10 +169,10 @@ DECLARE
     func_name text; -- To store just the name part for comparison
 BEGIN
     -- Iterate over all functions in the public schema, getting their full signatures
-    FOR func_signature IN SELECT p.oid::regprocedure::text
+    FOR func_signature IN (SELECT p.oid::regprocedure::text
                           FROM pg_proc p
                           JOIN pg_namespace n ON n.oid = p.pronamespace
-                          WHERE n.nspname = 'public'
+                          WHERE n.nspname = 'public')
     LOOP
         -- Extract just the function name from the signature (e.g., "approve_invoice(uuid)" -> "approve_invoice")
         func_name := split_part(func_signature, '(', 1);
@@ -213,9 +231,8 @@ BEGIN
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
 
-    -- 🛡️ منع التكرار الحقيقي: نتحقق من وجود المعرف المرتبط فقط
-    -- إذا كانت الحالة 'posted' ولكن لا يوجد قيد (وهو حال عروض الأسعار المحولة)، يجب أن تستمر الدالة
-    IF v_invoice.related_journal_entry_id IS NOT NULL THEN RETURN; END IF;
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
+    DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'invoice';
 
     -- 🛡️ حماية من "سباق الزمن": لا تنشئ قيداً إذا لم تكن بنود الفاتورة قد وصلت بعد لقاعدة البيانات
     -- هذا يضمن عدم إنشاء قيد الإيراد بدون قيد التكلفة عند التحويل الآلي
@@ -282,6 +299,9 @@ BEGIN
 
     -- 7. تحديث حالة الفاتورة
     UPDATE public.invoices SET status = CASE WHEN (v_invoice.total_amount - COALESCE(v_invoice.paid_amount, 0)) <= 0 THEN 'paid' ELSE 'posted' END, related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
+
+    -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة بعد أي تعديلات
+    PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
 
 -- ب. اعتماد فاتورة المشتريات
@@ -293,13 +313,13 @@ DECLARE
     v_exchange_rate numeric; v_item_price_base numeric; v_total_amount_base numeric; v_tax_amount_base numeric; v_net_amount_base numeric;
     v_mappings jsonb;
 BEGIN
-    -- 1. التحقق من الفاتورة
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
-    IF v_invoice.status IN ('posted', 'paid') THEN RETURN; END IF; -- 🛡️ جعل الدالة تتحمل التكرار (Idempotent)
+
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
+    DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice';
 
     v_org_id := public.get_my_org();
-    IF v_invoice.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني: لا يمكنك اعتماد فاتورة شراء لا تنتمي لمؤسستك'; END IF;
 
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
@@ -337,6 +357,9 @@ BEGIN
 
     -- 7. تحديث حالة الفاتورة
     UPDATE public.purchase_invoices SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
+
+    -- 🚀 إعادة احتساب المخزون فوراً لضمان عدم تضاعف الكميات بعد التعديل
+    PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
 
 -- ================================================================
@@ -358,7 +381,9 @@ BEGIN
     -- 1. التحقق من المرتجع
     SELECT * INTO v_return FROM public.sales_returns WHERE id = p_return_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'مرتجع المبيعات غير موجود'; END IF;
-    IF v_return.status = 'posted' THEN RETURN; END IF;
+
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار
+    DELETE FROM public.journal_entries WHERE related_document_id = p_return_id AND related_document_type = 'sales_return';
     
     v_org_id := public.get_my_org();
     IF v_return.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني: لا تملك صلاحية هذا المرتجع'; END IF;
@@ -389,6 +414,9 @@ BEGIN
     IF v_total_cost > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_inv, v_total_cost, 0, 'إعادة للمخزون', v_org_id), (v_journal_id, v_acc_cogs, 0, v_total_cost, 'عكس تكلفة مبيعات', v_org_id); END IF;
 
     UPDATE public.sales_returns SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_return_id;
+
+    -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة بعد أي تعديلات
+    PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
 
 -- ب. اعتماد مرتجع مشتريات (Purchase Return)
@@ -400,7 +428,9 @@ DECLARE
 BEGIN
     SELECT * INTO v_return FROM public.purchase_returns WHERE id = p_return_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'المرتجع غير موجود'; END IF;
-    IF v_return.status = 'posted' THEN RETURN; END IF;
+
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
+    DELETE FROM public.journal_entries WHERE related_document_id = p_return_id AND related_document_type = 'purchase_return';
     
     v_org_id := public.get_my_org();
     IF v_return.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني'; END IF;
@@ -430,6 +460,9 @@ BEGIN
     IF COALESCE(v_return.tax_amount, 0) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_vat, 0, v_return.tax_amount, 'عكس ضريبة مدخلات', v_org_id); END IF;
 
     UPDATE public.purchase_returns SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_return_id;
+
+    -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة بعد أي تعديلات
+    PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
 
 -- ج. اعتماد الإشعار المدين (Debit Note) للموردين
@@ -481,6 +514,9 @@ BEGIN
     SELECT * INTO v_voucher FROM public.receipt_vouchers WHERE id = p_voucher_id AND organization_id = v_org_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند القبض غير موجود.'; END IF;
 
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار عند إعادة الاعتماد بعد التعديل
+    DELETE FROM public.journal_entries WHERE related_document_id = p_voucher_id AND related_document_type = 'receipt_voucher';
+
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.receipt_date, 'سند قبض رقم ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'receipt_voucher', true) RETURNING id INTO v_journal_id;
     
@@ -488,6 +524,9 @@ BEGIN
     VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id), (v_journal_id, p_credit_account_id, 0, v_voucher.amount, v_voucher.notes, v_org_id);
     
     UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
+
+    -- 🚀 إعادة مطابقة الأرصدة المالية فوراً لضمان الدقة بعد التعديل
+    PERFORM public.recalculate_all_system_balances(v_org_id);
 END; $$;
 
 -- و. اعتماد سند الصرف (Payment Voucher)
@@ -499,6 +538,9 @@ BEGIN
     SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id AND organization_id = v_org_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود.'; END IF;
 
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار عند إعادة الاعتماد بعد التعديل
+    DELETE FROM public.journal_entries WHERE related_document_id = p_voucher_id AND related_document_type = 'payment_voucher';
+
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.payment_date, 'سند صرف رقم ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'payment_voucher', true) RETURNING id INTO v_journal_id;
     
@@ -506,6 +548,9 @@ BEGIN
     VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id), (v_journal_id, v_voucher.treasury_account_id, 0, v_voucher.amount, v_voucher.notes, v_org_id);
 
     UPDATE public.payment_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
+
+    -- 🚀 إعادة مطابقة الأرصدة المالية فوراً لضمان الدقة بعد التعديل
+    PERFORM public.recalculate_all_system_balances(v_org_id);
 END; $$;
 
 -- ================================================================

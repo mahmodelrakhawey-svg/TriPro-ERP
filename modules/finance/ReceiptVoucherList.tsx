@@ -4,9 +4,10 @@
  */
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
 import { 
-    Search, Printer, FileText, RotateCcw, AlertTriangle, 
+    Search, Printer, FileText, RotateCcw, AlertTriangle, Edit, Trash2,
     ChevronLeft, ChevronRight, FileSpreadsheet, Loader2, Plus, Eye, X, Paperclip
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -21,6 +22,7 @@ interface ReceiptVoucher {
   receipt_date: string;
   amount: number;
   notes: string;
+  related_journal_entry_id?: string;
   payment_method: string;
   customers?: {
     name: string;
@@ -31,6 +33,7 @@ interface ReceiptVoucher {
 const ReceiptVoucherList = () => {
   const navigate = useNavigate();
   const { currentUser, vouchers: contextVouchers } = useAccounting();
+  const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -141,6 +144,30 @@ const ReceiptVoucherList = () => {
     setVoucherToPrint(voucher);
   };
 
+  const handleEdit = (voucher: ReceiptVoucher) => {
+    navigate('/receipt-voucher', { state: { voucherToEdit: voucher } });
+  };
+
+  const handleDeleteVoucher = async (voucher: ReceiptVoucher) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذا السند؟ سيؤدي ذلك لحذف السند والقيود المحاسبية المرتبطة به نهائياً.')) {
+        return;
+    }
+
+    try {
+        if (voucher.related_journal_entry_id) {
+            await supabase.from('journal_entries').delete().eq('id', voucher.related_journal_entry_id);
+        }
+
+        const { error } = await supabase.from('receipt_vouchers').delete().eq('id', voucher.id);
+        if (error) throw error;
+
+        showToast('تم حذف سند القبض والقيود المرتبطة بنجاح ✅', 'success');
+        refresh();
+    } catch (err: any) {
+        showToast('حدث خطأ أثناء محاولة الحذف: ' + err.message, 'error');
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className={voucherToPrint ? 'print:hidden' : ''}>
@@ -220,7 +247,7 @@ const ReceiptVoucherList = () => {
                     <th className="py-5 px-6 text-center">المبلغ</th>
                     <th className="py-5 px-6 text-center">طريقة الدفع</th>
                     <th className="py-5 px-6 text-center">المرفقات</th>
-                    <th className="py-5 px-6 text-center w-24">طباعة</th>
+                    <th className="py-5 px-6 text-center w-40">إجراءات</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -246,9 +273,15 @@ const ReceiptVoucherList = () => {
                                 </button>
                             )}
                         </td>
-                        <td className="py-4 px-6 text-center">
+                        <td className="py-4 px-6 text-center flex items-center justify-center gap-1">
+                            <button onClick={() => handleEdit(voucher)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="تعديل السند">
+                                <Edit size={18} />
+                            </button>
                             <button onClick={() => handlePrint(voucher)} className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all" title="طباعة">
                                 <Printer size={18} />
+                            </button>
+                            <button onClick={() => handleDeleteVoucher(voucher)} className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all" title="حذف السند">
+                                <Trash2 size={18} />
                             </button>
                         </td>
                     </tr>

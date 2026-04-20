@@ -1,13 +1,16 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
-import { ArrowDownLeft, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
+import { ArrowDownLeft, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle, Edit } from 'lucide-react';
 import { ReceiptVoucherPrint } from './ReceiptVoucherPrint';
 import { useToast } from '../../context/ToastContext';
 import { VoucherSchema } from '../../utils/schemas';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const ReceiptVoucherForm = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const DEMO_EMAIL = 'demo@tripro.com';
   const DEMO_USER_ID = 'demo-user-id';
   const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher, isDemo } = useAccounting();
@@ -72,6 +75,13 @@ const ReceiptVoucherForm = () => {
       )
     );
   }, [accounts]);
+
+  // تحميل بيانات السند عند التوجيه من السجل
+  useEffect(() => {
+    if (location.state && location.state.voucherToEdit) {
+      loadVoucher(location.state.voucherToEdit);
+    }
+  }, [location]);
 
   const loadVoucher = async (voucher: any) => {
     if (!voucher) return;

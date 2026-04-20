@@ -3,11 +3,14 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle } from 'lucide-react';
+import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle, Edit } from 'lucide-react';
 import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 import { VoucherSchema } from '../../utils/schemas';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 const PaymentVoucherForm = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const DEMO_EMAIL = 'demo@tripro.com';
   const DEMO_USER_ID = 'demo-user-id';
   const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher, isDemo } = useAccounting();
@@ -72,6 +75,13 @@ const PaymentVoucherForm = () => {
       )
     );
   }, [accounts]);
+
+  // تحميل بيانات السند عند التوجيه من السجل للتعديل
+  useEffect(() => {
+    if (location.state && location.state.voucherToEdit) {
+      loadVoucher(location.state.voucherToEdit);
+    }
+  }, [location]);
 
   const loadVoucher = async (voucher: any) => {
     if (!voucher) return;
