@@ -164,6 +164,118 @@ DO $$ BEGIN
 END $$;
 
 -- ============================================================
+-- 🛠️ نظام معالجة الدفع الفوري في فواتير المشتريات
+-- ============================================================
+
+-- 1. إضافة الأعمدة لجدول المشتريات (في حال لم يتم تحديث الماستر)
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
+
+
+-- 2. دالة اعتماد فاتورة المشتريات مع دعم السداد الفوري (القيود الآلية)
+DROP FUNCTION IF EXISTS public.approve_purchase_invoice(uuid);
+CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_inv record;
+    v_je_id uuid;
+    v_org_id uuid;
+    v_mappings jsonb;
+    v_supplier_acc_id uuid;
+    v_inventory_acc_id uuid;
+    v_vat_acc_id uuid;
+BEGIN
+    SELECT * INTO v_inv FROM public.purchase_invoices WHERE id = p_invoice_id;
+    IF v_inv IS NULL THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
+    v_org_id := v_inv.organization_id;
+
+    -- جلب روابط الحسابات من الإعدادات
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    -- جلب الحسابات (الأولوية للربط المخصص Mapping ثم الكود الافتراضي الصحيح)
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE (code = '10301' OR code = '103') AND organization_id = v_org_id ORDER BY code DESC LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT_INPUT')::uuid, (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1));
+
+    -- صمام أمان: التأكد من وجود الحسابات قبل إنشاء القيد
+    IF v_supplier_acc_id IS NULL OR v_inventory_acc_id IS NULL OR v_vat_acc_id IS NULL THEN
+        RAISE EXCEPTION 'فشل العثور على الحسابات المطلوبة (الموردين أو المخزون أو الضريبة) في دليل الحسابات.';
+    END IF;
+
+    -- أ. إنشاء القيد الرئيسي
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+    VALUES (v_inv.invoice_date, 'فاتورة مشتريات رقم: ' || v_inv.invoice_number, v_inv.invoice_number, 'posted', v_org_id, true, v_inv.id, 'purchase_invoice')
+    RETURNING id INTO v_je_id;
+
+    -- ب. جانب المدين: المشتريات والضريبة
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_inventory_acc_id, v_inv.subtotal, 0, 'مشتريات - فاتورة ' || v_inv.invoice_number, v_org_id);
+    IF COALESCE(v_inv.tax_amount, 0) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_vat_acc_id, v_inv.tax_amount, 0, 'ضريبة مدخلات - فاتورة ' || v_inv.invoice_number, v_org_id);
+    END IF;
+
+    -- ج. جانب الدائن: المورد (بكامل القيمة) ثم المدين (بالمسدد فوري)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_supplier_acc_id, 0, v_inv.total_amount, 'استحقاق مورد - فاتورة ' || v_inv.invoice_number, v_org_id);
+
+    IF COALESCE(v_inv.paid_amount, 0) > 0 AND v_inv.treasury_account_id IS NOT NULL THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_supplier_acc_id, v_inv.paid_amount, 0, 'سداد فوري - فاتورة ' || v_inv.invoice_number, v_org_id);
+        
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_inv.treasury_account_id, 0, v_inv.paid_amount, 'صرف نقدية سداد فوري - فاتورة ' || v_inv.invoice_number, v_org_id);
+    END IF;
+
+    UPDATE public.purchase_invoices SET related_journal_entry_id = v_je_id, status = 'posted' WHERE id = v_inv.id;
+    PERFORM public.update_single_supplier_balance(v_inv.supplier_id);
+    RETURN v_je_id;
+END; $$;
+
+-- 3. تحديث دالة رصيد المورد لتأخذ في الاعتبار "المسدد فوري" من إجمالي الفاتورة
+CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id uuid)
+RETURNS void LANGUAGE plpgsql AS $$
+DECLARE v_balance numeric := 0;
+DECLARE v_org_id uuid;
+DECLARE v_supplier_name text;
+BEGIN
+    SELECT organization_id, name INTO v_org_id, v_supplier_name FROM public.suppliers WHERE id = p_supplier_id;
+
+    -- 1. الرصيد الافتتاحي
+    SELECT COALESCE(opening_balance, 0) INTO v_balance FROM public.suppliers WHERE id = p_supplier_id;
+
+    -- 2. الدائن: فواتير المشتريات (يُضاف الصافي المتبقي فقط: الإجمالي - المدفوع فورياً)
+    SELECT v_balance + COALESCE(SUM(total_amount - paid_amount), 0) INTO v_balance 
+    FROM public.purchase_invoices WHERE supplier_id = p_supplier_id AND status != 'draft';
+
+    -- 3. المدين: سندات الصرف المنفصلة
+    SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance 
+    FROM public.payment_vouchers WHERE supplier_id = p_supplier_id;
+
+    -- 4. المدين: المرتجعات والإشعارات
+    SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance 
+    FROM public.purchase_returns WHERE supplier_id = p_supplier_id AND status = 'posted';
+    SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance 
+    FROM public.debit_notes WHERE supplier_id = p_supplier_id AND status = 'posted';
+
+    -- 4.5 المدين: الشيكات الصادرة (المقبولة فقط)
+    SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance 
+    FROM public.cheques WHERE party_id = p_supplier_id AND type = 'outgoing' AND status != 'rejected';
+
+    -- 5. القيود اليدوية والموردين (المقيدة باسم المورد)
+    SELECT v_balance + COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_balance
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id AND je.status = 'posted' AND je.related_document_id IS NULL
+    AND (trim(je.reference) NOT ILIKE 'COLL-%' AND trim(je.reference) NOT ILIKE 'TRF-%')
+    AND (a.code LIKE '201%' OR a.code LIKE '221%')
+    AND (je.description ILIKE '%' || v_supplier_name || '%');
+
+    UPDATE public.suppliers SET balance = v_balance WHERE id = p_supplier_id;
+END; $$;
+
+-- ============================================================
 -- 2. إضافة أعمدة الـ SaaS والاشتراكات لجدول المنظمات
 -- ============================================================
 ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS allowed_modules text[] DEFAULT '{"accounting"}';

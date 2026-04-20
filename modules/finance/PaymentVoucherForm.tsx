@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -38,25 +38,44 @@ const PaymentVoucherForm = () => {
   
   // إضافة حالة للرصيد اللحظي المباشر من قاعدة البيانات
   const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
+  const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
+
+  // تصفية الموردين بناءً على نص البحث
+  const filteredSuppliers = useMemo(() => {
+    return suppliers.filter(s => 
+      (s.name || '').toLowerCase().includes(supplierSearchTerm.toLowerCase())
+    );
+  }, [suppliers, supplierSearchTerm]);
 
   // جلب الرصيد الحقيقي فور اختيار المورد لضمان المطابقة مع كشف الحساب
   useEffect(() => {
     const getRealBalance = async () => {
       if (!formData.supplierId) { setDynamicBalance(null); return; }
       
-      const [inv, pay, ret, dn, chq] = await Promise.all([
-        supabase.from('purchase_invoices').select('total_amount').eq('supplier_id', formData.supplierId).neq('status', 'draft'),
+      const supplier: any = suppliers.find(s => s.id === formData.supplierId);
+      const opening = Number(supplier?.opening_balance || 0);
+
+      const [inv, pay, ret, dn, chq, manual] = await Promise.all([
+        supabase.from('purchase_invoices').select('total_amount, paid_amount').eq('supplier_id', formData.supplierId).neq('status', 'draft'),
         supabase.from('payment_vouchers').select('amount').eq('supplier_id', formData.supplierId),
         supabase.from('purchase_returns').select('total_amount').eq('supplier_id', formData.supplierId).eq('status', 'posted'),
         supabase.from('debit_notes').select('total_amount').eq('supplier_id', formData.supplierId),
-        supabase.from('cheques').select('amount').eq('party_id', formData.supplierId).eq('type', 'outgoing').neq('status', 'rejected')
+        supabase.from('cheques').select('amount').eq('party_id', formData.supplierId).eq('type', 'outgoing').neq('status', 'rejected'),
+        supabase.from('journal_lines')
+          .select('debit, credit, journal_entries!inner(description, status, related_document_id)')
+          .eq('journal_entries.status', 'posted')
+          .is('journal_entries.related_document_id', null)
+          .ilike('journal_entries.description', `%${supplier?.name}%`)
       ]);
 
-      const credit = inv.data?.reduce((sum, i) => sum + Number(i.total_amount), 0) || 0;
+      const manualCredit = manual.data?.reduce((sum, m) => sum + Number(m.credit), 0) || 0;
+      const manualDebit = manual.data?.reduce((sum, m) => sum + Number(m.debit), 0) || 0;
+
+      const credit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + opening + manualCredit;
       const debit = (pay.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0) +
                     (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
                     (dn.data?.reduce((sum, d) => sum + Number(d.total_amount), 0) || 0) +
-                    (chq.data?.reduce((sum, c) => sum + Number(c.amount), 0) || 0);
+                    (chq.data?.reduce((sum, c) => sum + Number(c.amount), 0) || 0) + manualDebit;
 
       setDynamicBalance(credit - debit);
     };
@@ -135,6 +154,7 @@ const PaymentVoucherForm = () => {
       const { data: atts } = await supabase.from('payment_voucher_attachments').select('*').eq('voucher_id', voucher.id);
       setExistingAttachments(atts || []);
     }
+    setSupplierSearchTerm('');
   };
 
   const handleNew = () => {
@@ -155,6 +175,7 @@ const PaymentVoucherForm = () => {
     setAttachments([]);
     setExistingAttachments([]);
     setErrors({});
+    setSupplierSearchTerm('');
   };
 
   const handlePrevious = () => {
@@ -505,6 +526,17 @@ const PaymentVoucherForm = () => {
                         </span>
                     )}
                 </div>
+                {/* حقل البحث السريع عن المورد */}
+                <div className="relative mb-2">
+                    <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
+                    <input 
+                        type="text"
+                        placeholder="بحث عن مورد بالاسم..."
+                        value={supplierSearchTerm}
+                        onChange={(e) => setSupplierSearchTerm(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-slate-50"
+                    />
+                </div>
                 <div className="relative">
                     <select 
                         value={formData.supplierId}
@@ -512,7 +544,7 @@ const PaymentVoucherForm = () => {
                         className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.partyId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     >
                         <option value="">اختر المورد...</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        {filteredSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     <User className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>

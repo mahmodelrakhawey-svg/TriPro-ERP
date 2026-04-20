@@ -29,7 +29,7 @@ const CustomerDepositForm = () => {
   ).filter(a => 
     a.name?.toLowerCase().includes(treasurySearchTerm.toLowerCase()) ||
     a.code?.toLowerCase().includes(treasurySearchTerm.toLowerCase())
-  ), [accounts]);
+  ), [accounts, treasurySearchTerm]);
 
   // حالة لتخزين السندات المجلوبة من قاعدة البيانات
   const [depositVouchers, setDepositVouchers] = useState<any[]>([]);

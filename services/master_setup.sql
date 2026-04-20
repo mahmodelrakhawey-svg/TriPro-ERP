@@ -612,10 +612,12 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoices (
     total_amount numeric,
     tax_amount numeric,
     subtotal numeric,
+    paid_amount numeric DEFAULT 0,
+    treasury_account_id uuid REFERENCES public.accounts(id),
     status text,
     notes text,
     warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
-    currency text DEFAULT 'SAR',
+    currency text DEFAULT 'EGP',
     exchange_rate numeric DEFAULT 1,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     additional_expenses numeric DEFAULT 0, -- عمود جديد
@@ -1511,8 +1513,8 @@ BEGIN
     -- 1. الرصيد الافتتاحي
     SELECT COALESCE(opening_balance, 0) INTO v_balance FROM public.suppliers WHERE id = p_supplier_id;
 
-    -- 2. الدائن: فواتير المشتريات
-    SELECT v_balance + COALESCE(SUM(total_amount), 0) INTO v_balance 
+    -- 2. الدائن: فواتير المشتريات (يُضاف الصافي فقط: الإجمالي - المدفوع فورياً)
+    SELECT v_balance + COALESCE(SUM(total_amount - paid_amount), 0) INTO v_balance 
     FROM public.purchase_invoices WHERE supplier_id = p_supplier_id AND status != 'draft';
 
     -- 3. المدين: سندات الصرف
@@ -1629,7 +1631,7 @@ DECLARE
     v_org_id uuid; v_cat_id uuid;
 BEGIN
     INSERT INTO public.organizations (name) VALUES ('الشركة النموذجية للتجارة') RETURNING id INTO v_org_id;
-    INSERT INTO public.company_settings (organization_id, company_name, currency, vat_rate) VALUES (v_org_id, 'الشركة النموذجية للتجارة', 'SAR', 0.15);
+    INSERT INTO public.company_settings (organization_id, company_name, currency, vat_rate) VALUES (v_org_id, 'الشركة النموذجية للتجارة', 'EGP', 0.14);
     INSERT INTO public.warehouses (organization_id, name) VALUES (v_org_id, 'المستودع الرئيسي');
     
     INSERT INTO public.accounts (organization_id, code, name, type, is_group) VALUES

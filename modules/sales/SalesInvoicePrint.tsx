@@ -99,10 +99,10 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
             </div>
             <div className="flex justify-between text-slate-900 text-xl font-black border-t-2 border-slate-800 pt-2">
                 <span>الإجمالي النهائي:</span>
-                <span>{Number(invoice.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} EGP</span>
+                <span>{Number(invoice.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {invoice.currency || 'EGP'}</span>
             </div>
             <div className="text-center pt-2 border-t border-slate-200 mt-2">
-                <p className="text-sm font-bold text-slate-600">{tafqeet(Number(invoice.totalAmount), 'EGP')}</p>
+                <p className="text-sm font-bold text-slate-600">{tafqeet(Number(invoice.totalAmount), invoice.currency || 'EGP')}</p>
             </div>
         </div>
       </div>

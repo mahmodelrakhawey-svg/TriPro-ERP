@@ -37,6 +37,14 @@ const ReceiptVoucherForm = () => {
   const { showToast } = useToast();
     // إضافة حالة للرصيد اللحظي المباشر للعميل
   const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+
+  // تصفية العملاء بناءً على نص البحث
+  const filteredCustomers = useMemo(() => {
+    return customers.filter(c => 
+      (c.name || '').toLowerCase().includes(customerSearchTerm.toLowerCase())
+    );
+  }, [customers, customerSearchTerm]);
 
   // جلب الرصيد الحقيقي (فواتير - تحصيلات) فور اختيار العميل
   useEffect(() => {
@@ -44,14 +52,14 @@ const ReceiptVoucherForm = () => {
       if (!formData.customerId) { setDynamicBalance(null); return; }
       
       const [inv, ret, rec, cn, chq] = await Promise.all([
-        supabase.from('invoices').select('total_amount').eq('customer_id', formData.customerId).neq('status', 'draft'),
+        supabase.from('invoices').select('total_amount, paid_amount').eq('customer_id', formData.customerId).neq('status', 'draft'),
         supabase.from('sales_returns').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
         supabase.from('receipt_vouchers').select('amount').eq('customer_id', formData.customerId).not('voucher_number', 'like', 'DEP-%'),
         supabase.from('credit_notes').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
         supabase.from('cheques').select('amount').eq('party_id', formData.customerId).eq('type', 'incoming').neq('status', 'rejected')
       ]);
 
-      const debit = inv.data?.reduce((sum, i) => sum + Number(i.total_amount), 0) || 0;
+      const debit = inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0;
       const credit = (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
                      (rec.data?.reduce((sum, rc) => sum + Number(rc.amount), 0) || 0) +
                      (cn.data?.reduce((sum, c) => sum + Number(c.total_amount), 0) || 0) +
@@ -134,6 +142,7 @@ const ReceiptVoucherForm = () => {
       const { data: atts } = await supabase.from('receipt_voucher_attachments').select('*').eq('voucher_id', voucher.id);
       setExistingAttachments(atts || []);
     }
+    setCustomerSearchTerm('');
   };
 
   const handleNew = () => {
@@ -154,6 +163,7 @@ const ReceiptVoucherForm = () => {
     setAttachments([]);
     setExistingAttachments([]);
     setErrors({});
+    setCustomerSearchTerm('');
   };
 
   const handlePrevious = () => {
@@ -490,6 +500,17 @@ const ReceiptVoucherForm = () => {
                         </span>
                     )}
                 </div>
+                {/* حقل البحث السريع عن العميل */}
+                <div className="relative mb-2">
+                    <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
+                    <input 
+                        type="text"
+                        placeholder="بحث عن عميل بالاسم..."
+                        value={customerSearchTerm}
+                        onChange={(e) => setCustomerSearchTerm(e.target.value)}
+                        className="w-full border border-slate-300 rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-slate-50"
+                    />
+                </div>
                 <div className="relative">
                     <select 
                         value={formData.customerId}
@@ -497,7 +518,7 @@ const ReceiptVoucherForm = () => {
                         className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.partyId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     >
                         <option value="">اختر العميل...</option>
-                        {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        {filteredCustomers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                     <User className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>

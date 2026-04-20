@@ -10,6 +10,7 @@ const ExpenseVoucherForm = () => {
   const { accounts, costCenters, updateVoucher, addEntry, currentUser, addDemoEntry } = useAccounting();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [expenseSearchTerm, setExpenseSearchTerm] = useState('');
   
   // Navigation & Editing State
   const { showToast } = useToast();
@@ -87,8 +88,10 @@ const ExpenseVoucherForm = () => {
     if (a.isGroup) return false;
     const type = String(a.type || '').toLowerCase();
     const code = a.code;
-    return type.includes('expense') || type.includes('مصروف') || code.startsWith('5');
-  }), [accounts]);
+    const matchesSearch = (a.name || '').toLowerCase().includes(expenseSearchTerm.toLowerCase()) || 
+                         (a.code || '').includes(expenseSearchTerm);
+    return (type.includes('expense') || type.includes('مصروف') || code.startsWith('5')) && matchesSearch;
+  }), [accounts, expenseSearchTerm]);
 
   const loadVoucher = async (voucher: any) => {
     if (!voucher) return;
@@ -129,6 +132,7 @@ const ExpenseVoucherForm = () => {
                 recipientName: voucherData.recipient_name || ''
             });
         }
+        setExpenseSearchTerm('');
     } catch (error) {
         console.error("Error loading voucher:", error);
     } finally {
@@ -151,6 +155,7 @@ const ExpenseVoucherForm = () => {
     });
     setAttachments([]);
     setExistingAttachments([]);
+    setExpenseSearchTerm('');
   };
 
   const handlePrevious = () => {
@@ -547,6 +552,17 @@ const ExpenseVoucherForm = () => {
                 <div className="space-y-6 bg-slate-50 p-6 rounded-2xl border border-slate-100">
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2">حساب المصروف (المدين)</label>
+                        {/* حقل البحث عن المصروف */}
+                        <div className="relative mb-2">
+                            <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
+                            <input 
+                                type="text"
+                                placeholder="بحث عن مصروف بالاسم أو الكود..."
+                                value={expenseSearchTerm}
+                                onChange={(e) => setExpenseSearchTerm(e.target.value)}
+                                className="w-full border border-slate-200 rounded-xl px-4 py-2 pr-10 focus:border-red-500 outline-none text-sm bg-white"
+                            />
+                        </div>
                         <select 
                             required
                             value={formData.expenseAccountId}

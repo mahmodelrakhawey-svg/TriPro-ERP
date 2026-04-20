@@ -38,7 +38,7 @@ const SalesInvoiceForm = () => {
     treasuryId: '',
     discountType: 'fixed' as 'percentage' | 'fixed',
     discountValue: 0,
-    currency: '', // نتركها فارغة ليتم جلبها من الإعدادات آلياً
+    currency: 'EGP',
     exchangeRate: 1
   });
 
@@ -238,7 +238,7 @@ const SalesInvoiceForm = () => {
                 salespersonId: fullInv.salesperson_id || '',
                 notes: fullInv.notes || '',
                 status: fullInv.status || 'draft',
-                currency: fullInv.currency || settings.currency || 'SAR',
+                currency: fullInv.currency || settings.currency || 'EGP',
                 exchangeRate: fullInv.exchange_rate || 1,
                 warehouseId: fullInv.warehouse_id || '',
                 paidAmount: fullInv.paid_amount || 0,
@@ -1178,10 +1178,10 @@ const SalesInvoiceForm = () => {
                                     onChange={(e) => setFormData({...formData, currency: e.target.value})}
                                     className="w-2/3 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none bg-white"
                                 >
+                        <option value="EGP">EGP</option>
                                     <option value="SAR">SAR</option>
                                     <option value="USD">USD</option>
                                     <option value="EUR">EUR</option>
-                                    <option value="EGP">EGP</option>
                                 </select>
                                 <input 
                                     type="number" 
@@ -1289,7 +1289,7 @@ const SalesInvoiceForm = () => {
                                                         </div>
                                                     </div>
                                                     <div className="text-left">
-                                                        <p className="font-black text-blue-600">{(price || 0).toLocaleString()} <span className="text-[10px] font-normal">ج.م</span></p>
+                                                        <p className="font-black text-blue-600">{(price || 0).toLocaleString()} <span className="text-[10px] font-normal">{formData.currency || 'EGP'}</span></p>
                                                         <p className={`text-[10px] font-bold ${stock > 5 ? 'text-emerald-500' : 'text-red-500'}`}>
                                                             المخزون: {stock}
                                                         </p>

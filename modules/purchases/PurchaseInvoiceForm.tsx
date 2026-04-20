@@ -11,7 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { z } from 'zod';
 
 const PurchaseInvoiceForm = () => {
-  const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice } = useAccounting();
+  const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -23,8 +23,10 @@ const PurchaseInvoiceForm = () => {
     date: new Date().toISOString().split('T')[0],
     notes: '',
     status: 'draft',
-    currency: 'SAR',
-    exchangeRate: 1
+    currency: 'EGP',
+    exchangeRate: 1,
+    paidAmount: 0,
+    treasuryAccountId: ''
   });
 
   const [items, setItems] = useState<any[]>([]);
@@ -33,6 +35,19 @@ const PurchaseInvoiceForm = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
+
+  // تصفية حسابات الخزينة والبنوك لسداد الفاتورة
+  const treasuryAccounts = useMemo(() => {
+    return accounts.filter(a => 
+      !a.isGroup && (
+        a.name.includes('صندوق') || 
+        a.name.includes('خزينة') || 
+        a.name.includes('بنك') || 
+        a.name.includes('نقد') ||
+        a.code.startsWith('123') || a.code.startsWith('101')
+      )
+    );
+  }, [accounts]);
 
   useEffect(() => {
     // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات)
@@ -70,9 +85,11 @@ const PurchaseInvoiceForm = () => {
                 date: fullInv.invoice_date || new Date().toISOString().split('T')[0],
                 notes: fullInv.notes || '',
                 status: fullInv.status || 'draft',
-                currency: fullInv.currency || settings.currency || 'SAR',
+                currency: fullInv.currency || settings.currency || 'EGP',
                 exchangeRate: fullInv.exchange_rate || 1,
                 warehouseId: fullInv.warehouse_id || '',
+                paidAmount: fullInv.paid_amount || 0,
+                treasuryAccountId: fullInv.treasury_account_id || '',
               }));
 
               // جلب البنود
@@ -206,7 +223,9 @@ const PurchaseInvoiceForm = () => {
         status: 'draft',
         currency: formData.currency,
         exchange_rate: formData.exchangeRate,
-        items: items
+        items: items,
+        paidAmount: formData.paidAmount,
+        treasuryAccountId: formData.treasuryAccountId
       };
       addDemoPurchaseInvoice(demoInvoice);
       setSuccessMessage('تم حفظ فاتورة مشتريات الديمو بنجاح!');
@@ -233,7 +252,9 @@ const PurchaseInvoiceForm = () => {
         related_journal_entry_id: null, // تصفير المرجع القديم في الواجهة
         currency: formData.currency,
         exchange_rate: formData.exchangeRate,
-        created_by: currentUser?.id
+        created_by: currentUser?.id,
+        paid_amount: formData.paidAmount,
+        treasury_account_id: formData.treasuryAccountId || null
       };
 
       let invoiceId = editingId;
@@ -337,6 +358,24 @@ const PurchaseInvoiceForm = () => {
               <input type="text" value={formData.invoiceNumber} onChange={e => setFormData({...formData, invoiceNumber: e.target.value})} className="w-full border rounded-lg p-2" placeholder="رقم الفاتورة الأصلي" />
             </div>
             <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ المدفوع (سداد فوري)</label>
+              <input 
+                type="number" 
+                step="any"
+                value={formData.paidAmount} 
+                onChange={e => setFormData({...formData, paidAmount: parseFloat(e.target.value) || 0})} 
+                className="w-full border rounded-lg p-2 font-bold text-emerald-600" 
+                placeholder="0.00"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-slate-700 mb-1">حساب الدفع</label>
+              <select value={formData.treasuryAccountId} onChange={e => setFormData({...formData, treasuryAccountId: e.target.value})} className="w-full border rounded-lg p-2 bg-white" disabled={formData.paidAmount <= 0}>
+                <option value="">-- اختر الحساب --</option>
+                {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>)}
+              </select>
+            </div>
+            <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">مستودع الاستلام</label>
               <select required value={formData.warehouseId} onChange={e => setFormData({...formData, warehouseId: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
                 {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
@@ -391,7 +430,7 @@ const PurchaseInvoiceForm = () => {
                 {filteredProducts.map(p => (
                   <div key={p.id} onClick={() => addProductToInvoice(p)} className="p-3 hover:bg-emerald-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group">
                     <div><span className="font-bold text-slate-700 group-hover:text-emerald-700">{p.name}</span><p className="text-[10px] text-slate-400 font-mono">{p.sku}</p></div>
-                    <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">{(p.purchase_price || p.cost || 0).toLocaleString()} SAR</span>
+                    <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">{(p.purchase_price || p.cost || 0).toLocaleString()} {formData.currency || 'EGP'}</span>
                   </div>
                 ))}
               </div>

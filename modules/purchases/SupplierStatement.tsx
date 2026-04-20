@@ -8,11 +8,12 @@ import * as XLSX from 'xlsx';
 type Transaction = {
   id: string;
   date: string;
-  type: 'invoice' | 'payment' | 'return' | 'debit_note';
+  type: 'invoice' | 'payment' | 'return' | 'debit_note' | 'manual';
   reference: string;
   description: string;
   debit: number;  // مدين (سداد/مرتجع)
   credit: number; // دائن (مشتريات)
+  paid_amount?: number;
   balance: number;
 };
 
@@ -54,7 +55,7 @@ const SupplierStatement = () => {
 
         // 1. جلب الفواتير (دائن - تزيد الرصيد)
         const { data: invoices } = await supabase.from('purchase_invoices')
-            .select('id, invoice_number, invoice_date, total_amount, notes')
+            .select('id, invoice_number, invoice_date, total_amount, notes, paid_amount')
             .match(filter)
             .neq('status', 'draft'); // فقط الفواتير المرحلة
 
@@ -83,13 +84,21 @@ const SupplierStatement = () => {
             .eq('type', 'outgoing')
             .neq('status', 'rejected');
 
+        // 6. جلب القيود اليدوية (التي تؤثر على حسابات الموردين وتحمل اسم المورد في البيان)
+        const { data: manualEntries } = await supabase.from('journal_lines')
+            .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code)')
+            .eq('journal_entries.status', 'posted')
+            .is('journal_entries.related_document_id', null)
+            .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
+            .ilike('journal_entries.description', `%${selectedSupplier?.name}%`);
+
         // تجميع كل الحركات
         let allTrans: any[] = [];
 
         invoices?.forEach(inv => {
             allTrans.push({
                 date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مشتريات', 
-                credit: inv.total_amount, debit: 0 
+                credit: inv.total_amount, debit: inv.paid_amount || 0, paid_amount: inv.paid_amount 
             });
         });
 
@@ -116,6 +125,16 @@ const SupplierStatement = () => {
             credit: 0, 
             debit: chq.amount 
         }));
+        
+
+        manualEntries?.forEach((line: any) => {
+            allTrans.push({
+                date: line.journal_entries.transaction_date, type: 'manual', 
+                ref: line.journal_entries.reference || 'JV', 
+                desc: line.journal_entries.description, 
+                credit: Number(line.credit), debit: Number(line.debit) 
+            });
+        });
 
         // ترتيب زمني
         allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -136,6 +155,7 @@ const SupplierStatement = () => {
                     description: t.desc,
                     debit: t.debit,
                     credit: t.credit,
+                    paid_amount: t.paid_amount,
                     balance: 0
                 });
             }
@@ -272,26 +292,28 @@ const SupplierStatement = () => {
                               <th className="p-4">البيان</th>
                               <th className="p-4 text-center">مدين (سداد)</th>
                               <th className="p-4 text-center">دائن (مشتريات)</th>
+                              <th className="p-4 text-center">سداد فوري</th>
                               <th className="p-4 text-center">الرصيد</th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                           <tr className="bg-slate-50 font-bold text-slate-500">
-                              <td colSpan={5} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                              <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
                               <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
                           </tr>
-                          {transactions.map((t, idx) => (
+                          {transactions.map((t: any, idx) => (
                               <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                   <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
                                   <td className="p-4 font-mono font-bold text-emerald-600">{t.reference}</td>
                                   <td className="p-4 text-slate-700">{t.description}</td>
                                   <td className="p-4 text-center font-bold text-red-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
                                   <td className="p-4 text-center font-bold text-emerald-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
+                                  <td className="p-4 text-center font-bold text-blue-600">{(t.paid_amount || 0) > 0 ? t.paid_amount.toLocaleString() : '-'}</td>
                                   <td className="p-4 text-center font-mono font-black bg-slate-50/50" dir="ltr">{t.balance.toLocaleString()}</td>
                               </tr>
                           ))}
                           {transactions.length === 0 && (
-                              <tr><td colSpan={6} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
+                              <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
                           )}
                       </tbody>
                   </table>
