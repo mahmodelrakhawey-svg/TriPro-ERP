@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
@@ -126,18 +126,20 @@ const GeneralLedger = () => {
       let customerEntryIds: string[] | null = null;
       if (selectedCustomerId) {
         // جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل
-        const [inv, rec, ret, cn] = await Promise.all([
+        const [inv, rec, ret, cn, restOrders] = await Promise.all([
           supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
           supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
           supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
-          supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null)
+          supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+          supabase.from('orders').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null) // إضافة طلبات المطعم
         ]);
 
         customerEntryIds = Array.from(new Set([
           ...(inv.data?.map(i => i.related_journal_entry_id) || []),
           ...(rec.data?.map(r => r.related_journal_entry_id) || []),
           ...(ret.data?.map(r => r.related_journal_entry_id) || []),
-          ...(cn.data?.map(c => c.related_journal_entry_id) || [])
+          ...(cn.data?.map(c => c.related_journal_entry_id) || []),
+          ...(restOrders.data?.map(o => o.related_journal_entry_id) || [])
         ]));
 
         if (customerEntryIds.length === 0) {

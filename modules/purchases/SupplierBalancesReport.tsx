@@ -36,10 +36,10 @@ const SupplierBalancesReport = () => {
       const filter = { organization_id: userOrgId };
 
       // 1. جلب الموردين
-      const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone').match(filter).is('deleted_at', null);
+      const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone, opening_balance').match(filter).is('deleted_at', null);
       
       // 2. جلب الحركات المالية
-      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
+      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount').match(filter).eq('status', 'posted');
       const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter);
       const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
       const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter);
@@ -48,7 +48,8 @@ const SupplierBalancesReport = () => {
       if (!suppliers) return;
 
       const balances = suppliers.map(supplier => {
-        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, i) => sum + Number(i.total_amount), 0) || 0;
+        const opening = Number(supplier.opening_balance || 0);
+        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0;
         
         const totalPaid = (payments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount), 0) || 0) +
                           (returns?.filter(r => r.supplier_id === supplier.id).reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
@@ -59,7 +60,7 @@ const SupplierBalancesReport = () => {
           id: supplier.id,
           name: supplier.name,
           phone: supplier.phone,
-          balance: totalInvoiced - totalPaid
+          balance: opening + totalInvoiced - totalPaid
         };
       }).sort((a, b) => b.balance - a.balance);
 

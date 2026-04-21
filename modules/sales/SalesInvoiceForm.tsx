@@ -176,15 +176,49 @@ const SalesInvoiceForm = () => {
               return;
           }
 
-          // استدعاء دالة RPC المحاسبية لضمان دقة الرصيد
-          const { data: calculatedBalance, error: rpcError } = await supabase
-              .rpc('get_customer_balance', { 
-                  p_customer_id: formData.customerId, 
-                  p_org_id: userOrgId 
-              });
+          // 🚀 تحديث: استخدام منطق الحساب الشامل لضمان مطابقة الرصيد مع كشف الحساب
+          const customer: any = customers.find(c => c.id === formData.customerId);
+          const opening = Number(customer?.opening_balance || 0);
 
-          if (rpcError) throw rpcError;
-          setCustomerBalance(calculatedBalance || 0);
+          const [inv, ret, rec, cn, chq, manual, restOrders] = await Promise.all([
+            supabase.from('invoices').select('total_amount, paid_amount').eq('customer_id', formData.customerId).neq('status', 'draft'),
+            supabase.from('sales_returns').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
+            supabase.from('receipt_vouchers').select('amount').eq('customer_id', formData.customerId).not('voucher_number', 'like', 'DEP-%'),
+            supabase.from('credit_notes').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
+            supabase.from('cheques').select('amount').eq('party_id', formData.customerId).eq('type', 'incoming').neq('status', 'rejected'),
+            supabase.from('journal_lines')
+              .select('debit, credit, journal_entries!inner(description, status, related_document_id)')
+              .eq('journal_entries.status', 'posted')
+              .filter('journal_entries.description', 'ilike', `%${customer?.name}%`),
+            supabase.from('orders').select('id, subtotal, total_tax').eq('customer_id', formData.customerId).neq('status', 'CANCELLED'),
+          ]);
+
+          let restPaymentsCredit = 0;
+          if (restOrders.data && restOrders.data.length > 0) {
+            const { data: pData } = await supabase.from('payments')
+              .select('amount')
+              .in('order_id', restOrders.data.map(o => o.id));
+            restPaymentsCredit = pData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+          }
+
+          const manualDebit = manual.data?.reduce((sum, m) => sum + Number(m.debit), 0) || 0;
+          const manualCredit = manual.data?.reduce((sum, m) => sum + Number(m.credit), 0) || 0;
+
+          const restOrdersDebit = restOrders.data?.reduce((sum, o) => sum + (Number(o.subtotal) + Number(o.total_tax)), 0) || 0;
+
+          const debit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + 
+                        opening + 
+                        manualDebit + 
+                        restOrdersDebit;
+
+          const credit = (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
+                         (rec.data?.reduce((sum, rc) => sum + Number(rc.amount), 0) || 0) +
+                         (cn.data?.reduce((sum, c) => sum + Number(c.total_amount), 0) || 0) +
+                         (chq.data?.reduce((sum, cq) => sum + Number(cq.amount), 0) || 0) + 
+                         manualCredit + 
+                         restPaymentsCredit;
+
+          setCustomerBalance(debit - credit);
 
             // 🔍 التحقق من الفواتير المتأخرة
             const { data: overdueData } = await supabase

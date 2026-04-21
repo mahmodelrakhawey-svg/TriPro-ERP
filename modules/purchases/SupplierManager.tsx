@@ -100,7 +100,7 @@ const SupplierManager = () => {
 
         const filter = { organization_id: userOrgId };
 
-        const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, invoice_date').match(filter).neq('status', 'draft');
+        const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_date').match(filter).neq('status', 'draft');
         const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter);
         const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
         const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter);
@@ -111,7 +111,7 @@ const SupplierManager = () => {
 
         invoices?.forEach(inv => {
             if (!newStats[inv.supplier_id]) return;
-            newStats[inv.supplier_id].balance += Number(inv.total_amount);
+            newStats[inv.supplier_id].balance += (Number(inv.total_amount) - Number(inv.paid_amount || 0));
             newStats[inv.supplier_id].totalPurchases += Number(inv.total_amount);
             if (!newStats[inv.supplier_id].lastInvoice || inv.invoice_date > newStats[inv.supplier_id].lastInvoice) {
                 newStats[inv.supplier_id].lastInvoice = inv.invoice_date;

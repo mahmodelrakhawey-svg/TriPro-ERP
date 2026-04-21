@@ -255,7 +255,7 @@ const PurchaseInvoiceForm = () => {
       const invoiceNumber = formData.invoiceNumber || `PUR-${Date.now().toString().slice(-6)}`;
       const invoiceData = {
         invoice_number: invoiceNumber,
-        supplier_id: formData.supplierId,
+        supplier_id: formData.supplierId, // No change
         warehouse_id: formData.warehouseId,
         invoice_date: formData.date,
         total_amount: totalAmount,
@@ -267,7 +267,7 @@ const PurchaseInvoiceForm = () => {
         currency: formData.currency,
         exchange_rate: formData.exchangeRate,
         created_by: currentUser?.id,
-        paid_amount: formData.paidAmount,
+        paid_amount: formData.paidAmount, // No change
         treasury_account_id: formData.treasuryAccountId || null
       };
 

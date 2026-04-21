@@ -55,7 +55,7 @@ const PaymentVoucherForm = () => {
       const supplier: any = suppliers.find(s => s.id === formData.supplierId);
       const opening = Number(supplier?.opening_balance || 0);
 
-      const [inv, pay, ret, dn, chq, manual] = await Promise.all([
+      const [inv, pay, ret, dn, chq, manual, manualJournalEntries] = await Promise.all([
         supabase.from('purchase_invoices').select('total_amount, paid_amount').eq('supplier_id', formData.supplierId).neq('status', 'draft'),
         supabase.from('payment_vouchers').select('amount').eq('supplier_id', formData.supplierId),
         supabase.from('purchase_returns').select('total_amount').eq('supplier_id', formData.supplierId).eq('status', 'posted'),
@@ -64,14 +64,20 @@ const PaymentVoucherForm = () => {
         supabase.from('journal_lines')
           .select('debit, credit, journal_entries!inner(description, status, related_document_id)')
           .eq('journal_entries.status', 'posted')
-          .is('journal_entries.related_document_id', null)
-          .ilike('journal_entries.description', `%${supplier?.name}%`)
+          .filter('journal_entries.description', 'ilike', `%${supplier?.name}%`),
+        supabase.from('journal_entries')
+          .select('id, reference, description, transaction_date, journal_lines!inner(debit, credit, account_id)')
+          .eq('status', 'posted')
+          .is('related_document_id', null)
+          .ilike('description', `%${supplier?.name}%`)
       ]);
 
       const manualCredit = manual.data?.reduce((sum, m) => sum + Number(m.credit), 0) || 0;
       const manualDebit = manual.data?.reduce((sum, m) => sum + Number(m.debit), 0) || 0;
 
-      const credit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + opening + manualCredit;
+      const credit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + 
+                     opening + 
+                     manualCredit;
       const debit = (pay.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0) +
                     (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
                     (dn.data?.reduce((sum, d) => sum + Number(d.total_amount), 0) || 0) +

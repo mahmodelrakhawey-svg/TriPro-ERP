@@ -153,6 +153,7 @@ CREATE POLICY "Settings_Update_Policy" ON company_settings FOR UPDATE TO authent
 DROP POLICY IF EXISTS "Basic data viewable by authenticated" ON products;
 CREATE POLICY "Basic data viewable by authenticated" ON products FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = 'anon' OR public.get_my_role() = 'super_admin');
 -- سياسة قراءة التصنيفات مع دعم البحث
+DROP POLICY IF EXISTS "restaurant_tables_viewable_anon" ON restaurant_tables;
 CREATE POLICY "restaurant_tables_viewable_anon" ON restaurant_tables FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = 'anon' OR public.get_my_role() = 'super_admin');
 DROP POLICY IF EXISTS "menu_categories_viewable_anon" ON menu_categories;
 CREATE POLICY "menu_categories_viewable_anon" ON menu_categories FOR SELECT TO authenticated, anon USING (organization_id = public.get_my_org() OR auth.role() = 'anon' OR public.get_my_role() = 'super_admin');
@@ -193,6 +194,13 @@ DROP POLICY IF EXISTS "Staff can manage orders" ON orders;
 CREATE POLICY "Staff can manage orders" ON orders FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
 DROP POLICY IF EXISTS "Staff can manage order_items" ON order_items;
 CREATE POLICY "Staff can manage order_items" ON order_items FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
+-- إضافة سياسة إدارة المطبخ المفقودة
+DROP POLICY IF EXISTS "Staff can manage kitchen_orders" ON kitchen_orders;
+CREATE POLICY "Staff can manage kitchen_orders" ON kitchen_orders 
+FOR ALL TO authenticated 
+USING (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()))
+WITH CHECK (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()));
+
 DROP POLICY IF EXISTS "Staff can manage customers" ON customers;
 CREATE POLICY "Staff can manage customers" ON customers FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
 DROP POLICY IF EXISTS "Staff can manage suppliers" ON suppliers;
@@ -320,8 +328,42 @@ BEGIN
       AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = p.id);
 END; $$;
 
--- ECT public.refresh_saas_schema();
 NOTIFY pgrst, 'reload config';
+
+-- =================================================================
+-- 🚀 سياسة الوصول المطلق للسوبر أدمن (Super Admin Universal Bypass)
+-- =================================================================
+-- تضمن هذه السياسة وصول السوبر أدمن لكافة الجداول الحسابية والمخزنية والمطاعم
+-- حتى في حال وجود تضارب في السياسات الأخرى.
+DO $$ 
+DECLARE
+    tbl text;
+    all_system_tables text[] := ARRAY[
+        'accounts', 'journal_entries', 'journal_lines', 'journal_attachments',
+        'receipt_vouchers', 'payment_vouchers', 'cheques', 'invoices', 'invoice_items',
+        'purchase_invoices', 'purchase_invoice_items', 'purchase_orders', 'purchase_order_items',
+        'purchase_returns', 'purchase_return_items', 'sales_returns', 'sales_return_items',
+        'products', 'item_categories', 'warehouses', 'stock_adjustments', 'stock_adjustment_items',
+        'inventory_counts', 'inventory_count_items', 'stock_transfers', 'stock_transfer_items',
+        'opening_inventories', 'restaurant_tables', 'menu_categories', 'table_sessions',
+        'orders', 'order_items', 'kitchen_orders', 'modifier_groups', 'modifiers', 'order_item_modifiers',
+        'shifts', 'payments', 'delivery_orders'
+    ];
+BEGIN
+    FOREACH tbl IN ARRAY all_system_tables LOOP
+        -- حذف أي نسخة قديمة من سياسة التجاوز
+        EXECUTE format('DROP POLICY IF EXISTS "SuperAdmin_Universal_Access" ON public.%I;', tbl);
+        -- إنشاء السياسة الجديدة التي تسمح بكل العمليات للسوبر أدمن
+        EXECUTE format('
+            CREATE POLICY "SuperAdmin_Universal_Access" ON public.%I 
+            FOR ALL TO authenticated 
+            USING (public.get_my_role() = ''super_admin'');
+        ', tbl);
+    END LOOP;
+END $$;
+
+-- تنشيط الكاش لضمان نفاذ السياسات فوراً
+SELECT public.refresh_saas_schema();
 
 -- =================================================================
 -- تعليمات التنفيذ

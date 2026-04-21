@@ -128,12 +128,23 @@ const SupplierStatement = () => {
         
 
         manualEntries?.forEach((line: any) => {
-            allTrans.push({
-                date: line.journal_entries.transaction_date, type: 'manual', 
-                ref: line.journal_entries.reference || 'JV', 
-                desc: line.journal_entries.description, 
-                credit: Number(line.credit), debit: Number(line.debit) 
+            // 🛡️ منع تكرار المستندات إذا كانت مسجلة بالفعل (مثل الشيكات أو الفواتير)
+            const isDuplicate = allTrans.some(t => {
+                const clean = (r: any) => r?.toString().trim().toUpperCase()
+                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-)/i, '') || '';
+                const r1 = clean(t.ref);
+                const r2 = clean(line.journal_entries.reference);
+                return r1 === r2 && r1 !== '' && r1 !== 'NULL';
             });
+
+            if (!isDuplicate) {
+                allTrans.push({
+                    date: line.journal_entries.transaction_date, type: 'manual', 
+                    ref: line.journal_entries.reference || 'JV', 
+                    desc: line.journal_entries.description, 
+                    credit: Number(line.credit), debit: Number(line.debit) 
+                });
+            }
         });
 
         // ترتيب زمني

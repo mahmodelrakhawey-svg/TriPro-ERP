@@ -119,59 +119,79 @@ const KdsScreen = () => {
   const { updateKitchenOrderStatus } = useAccounting();
   const [audioEnabled, setAudioEnabled] = useState(false);
   
+  // جلب معرف المنظمة لضمان دقة البيانات في بيئة SaaS
+  const getOrgId = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const metadataOrgId = session?.user?.user_metadata?.org_id || session?.user?.app_metadata?.org_id;
+    if (metadataOrgId) return metadataOrgId;
+
+    // Fallback: جلب المعرف من البروفايل مباشرة إذا كان مفقوداً في الميتا داتا
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('organization_id')
+      .eq('id', session?.user?.id)
+      .single();
+    
+    return profile?.organization_id;
+  }, []);
+
   const fetchKitchenOrders = async () => {
     try {
+      const orgId = await getOrgId();
+      if (!orgId) {
+        console.warn("Organization ID not found, retrying...");
+        return;
+      }
+
       const { data, error } = await supabase
         .from('kitchen_orders')
         .select(`
-          id, status, created_at,
-          order_items!inner(
+          id, 
+          status, 
+          created_at,
+          order_items!inner (
             id, quantity, notes, modifiers,
-            products!inner(name),
-            orders!inner(id, order_number, created_at, table_sessions(restaurant_tables(name)))
+            products!inner (name),
+            orders!inner (
+              id, order_number, status, created_at, 
+              table_sessions (restaurant_tables (name))
+            )
           )
         `)
-        .in('status', ['NEW', 'PREPARING', 'READY'])
+        .eq('organization_id', orgId)
+        .neq('status', 'SERVED')
         .order('created_at', { ascending: true });
 
       if (error) throw error;
 
       const groupedByOrder: { [key: string]: KitchenOrderTicket } = {};
-      data.forEach((ko: any) => { //NOSONAR
-        const orderItem = ko.order_items;
+      (data || []).forEach((ko: any) => {
+        // 🛡️ معالجة مرنة في حال رجوع البيانات كمصفوفة أو كائن
+        const orderItem = ko.order_items; // ✅ بعد !inner، يجب أن يكون كائناً واحداً
+
         if (!orderItem || !orderItem.orders) return;
-        const order = orderItem.orders;
+        const order = orderItem.orders; // ✅ يجب أن يكون كائناً واحداً
         const orderId = order.id;
+        const currentStatus = (ko.status || '').toUpperCase();
 
         if (!groupedByOrder[orderId]) {
           groupedByOrder[orderId] = {
             order_id: orderId,
-            order_number: order.order_number,
-            table_name: order.table_sessions?.restaurant_tables?.name || 'سفري/توصيل',
-            created_at: order.created_at,
+            order_number: order.order_number || 'N/A',
+            table_name: order.table_sessions?.restaurant_tables?.name || (order.order_type === 'TAKEAWAY' ? 'سفري' : order.order_type === 'DELIVERY' ? 'توصيل' : 'غير محدد'),
+            created_at: order.created_at || ko.created_at,
             items: [],
           };
         }
-
-        // تجميع الأصناف المتشابهة
-        const notesString = orderItem.notes || '';
-        const modifiersString = JSON.stringify(orderItem.modifiers || []);
-        const existingItemIndex = groupedByOrder[orderId].items.findIndex(
-          i => i.product_name === orderItem.products.name && i.notes === notesString && JSON.stringify(i.selectedModifiers || []) === modifiersString
-        );
-
-        if (existingItemIndex > -1) {
-          groupedByOrder[orderId].items[existingItemIndex].quantity += orderItem.quantity;
-        } else {
-          groupedByOrder[orderId].items.push({
-            id: ko.id, // We might need to handle multiple IDs if we truly aggregate
-            status: ko.status,
-            quantity: orderItem.quantity,
-            notes: orderItem.notes,
-            selectedModifiers: orderItem.modifiers,
-            product_name: orderItem.products.name,
-          });
-        }
+        // ✅ لا نقوم بتجميع الأصناف هنا، كل kitchen_order_item هو سطر منفصل
+        groupedByOrder[orderId].items.push({
+          id: ko.id, // معرف kitchen_order الفريد
+          status: currentStatus as any,
+          quantity: orderItem.quantity,
+          notes: orderItem.notes,
+          selectedModifiers: orderItem.modifiers,
+          product_name: orderItem.products.name,
+        });
       });
 
       Object.values(groupedByOrder).forEach(ticket => {
@@ -202,8 +222,16 @@ const KdsScreen = () => {
 
   useEffect(() => {
     throttledFetch();
-    const subscription = supabase.channel('public:kitchen_orders')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kitchen_orders' }, payload => {
+    let subscription: any;
+    
+    getOrgId().then(orgId => {
+      subscription = supabase.channel(`kds-changes-${orgId}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'kitchen_orders',
+          filter: `organization_id=eq.${orgId}` 
+        }, payload => {
         throttledFetch();
         if (payload.eventType === 'INSERT') {
             try {
@@ -212,8 +240,10 @@ const KdsScreen = () => {
             } catch (e) { console.error(e) }
         }
       }).subscribe();
-    return () => { supabase.removeChannel(subscription); };
-  }, [throttledFetch]);
+    });
+
+    return () => { if(subscription) supabase.removeChannel(subscription); };
+  }, [throttledFetch, getOrgId]);
 
   const handleUpdateStatus = useCallback(async (kitchenOrderItemId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => {
     // ⚡ تحديث تفاؤلي (Optimistic UI): نقوم بنقل الطلب في الواجهة فوراً ليشعر الشيف بسرعة النظام

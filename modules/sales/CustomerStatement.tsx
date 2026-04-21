@@ -127,7 +127,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             const desc = (je.description || '').toLowerCase();
             const custName = (selectedCustomer?.name || '').toLowerCase();
             const isTarget = desc.includes(custName) || ref.includes('OB-');
-            const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-');
+            const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-') || ref.includes('RV-'); // إضافة RV- لمنع تكرار سندات القبض
             return isTarget && !isForbidden;
         }) || [];
 

@@ -13,6 +13,7 @@ type PurchaseInvoice = {
   invoice_date: string;
   total_amount: number;
   tax_amount: number;
+  paid_amount?: number;
   status: 'draft' | 'posted' | 'paid';
   suppliers: {
     name: string;
@@ -100,7 +101,7 @@ const PurchaseInvoiceList = () => {
   const openPaymentModal = (invoice: PurchaseInvoice) => {
     setSelectedInvoiceForPayment(invoice);
     setPaymentFormData({
-        amount: invoice.total_amount, // افتراضياً سداد كامل المبلغ
+        amount: invoice.total_amount - (invoice.paid_amount || 0), // افتراضياً سداد المبلغ المتبقي
         date: new Date().toISOString().split('T')[0],
         treasuryAccountId: treasuryAccounts.length === 1 ? treasuryAccounts[0].id : (settings.defaultTreasuryId || ''),
         notes: `سداد فاتورة مشتريات رقم ${invoice.invoice_number}`
