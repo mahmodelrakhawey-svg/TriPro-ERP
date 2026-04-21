@@ -172,7 +172,7 @@ const SalesReturnForm = () => {
         total_amount: totalAmount,
         tax_amount: taxAmount,
         notes: formData.notes,
-        status: 'posted',
+        status: 'draft',
         created_by: currentUser?.id
       }).select().single();
 
@@ -190,68 +190,19 @@ const SalesReturnForm = () => {
           unit_price: item.price, // تم التغيير ليطابق 'unit_price' الموحد في قاعدة البيانات
           total: item.quantity * item.price
         });
-
-        const product = products.find(p => p.id === item.productId);
-        const newStock = (product?.stock || 0) + Number(item.quantity);
-        await supabase.from('products').update({ stock: newStock }).eq('id', item.productId);
       }
 
-      // 3. إنشاء القيد المحاسبي العكسي
-      const normalizeCode = (code: string | number) => String(code).trim();
-      const normalizeText = (text: string) => (text || '').toLowerCase();
-      const findAccount = (preferredCodes: string[], nameKeywords: string[]) => {
-           for (const code of preferredCodes) {
-               const found = accounts?.find(a => normalizeCode(a.code) === code);
-               if (found) return found;
-           }
-           return accounts?.find(a => nameKeywords.some(k => normalizeText(a.name).includes(k)));
-      };
+      // 3. اعتماد المرتجع عبر المحرك المحاسبي الموحد (RPC)
+      const { error: rpcError } = await supabase.rpc('approve_sales_return', { p_return_id: returnDoc.id });
+      if (rpcError) throw rpcError;
 
-      const salesReturnAcc = findAccount(['412'], ['مردودات مبيعات', 'sales return']); 
-      const salesAcc = getSystemAccount('SALES_REVENUE') || findAccount(['411'], ['مبيعات', 'sales']);
-      const targetSalesAcc = salesReturnAcc || salesAcc;
-
-      const taxAcc = getSystemAccount('VAT') || findAccount(['2231'], ['ضريبة', 'tax', 'vat']); 
-      const customerAcc = getSystemAccount('CUSTOMERS') || findAccount(['1221', '10201'], ['عملاء', 'customer']); 
-      const cogsAcc = getSystemAccount('COGS') || findAccount(['511', '501'], ['تكلفة', 'cogs']);
-      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || findAccount(['10302'], ['مخزون', 'inventory']);
-
-      if (targetSalesAcc && customerAcc) {
-        // حساب تكلفة البضاعة المرتجعة
-        let totalCost = 0;
-        for (const item of items) {
-            const product = products.find(p => p.id === item.productId);
-            const itemCost = product?.purchase_price || product?.cost || 0;
-            totalCost += (item.quantity * itemCost);
-        }
-
-        const lines = [
-          { accountId: targetSalesAcc.id, debit: subtotal, credit: 0, description: `مرتجع مبيعات - ${returnNumber}` },
-          { accountId: customerAcc.id, debit: 0, credit: totalAmount, description: `مرتجع مبيعات من العميل ${customer?.name}` }
-        ];
-        if (taxAmount > 0 && taxAcc) {
-          lines.push({ accountId: taxAcc.id, debit: taxAmount, credit: 0, description: 'عكس ضريبة المبيعات' });
-        }
-
-        // عكس قيد التكلفة
-        if (totalCost > 0 && cogsAcc && inventoryAcc) {
-            lines.push({ accountId: inventoryAcc.id, debit: totalCost, credit: 0, description: 'إرجاع بضاعة للمخزون' });
-            lines.push({ accountId: cogsAcc.id, debit: 0, credit: totalCost, description: 'عكس تكلفة البضاعة المباعة' });
-        }
-
-        await addEntry({
-          date: formData.date,
-          description: `مرتجع مبيعات - ${customer?.name}`,
-          reference: returnNumber,
-          status: 'posted',
-          lines: lines as any[]
-        });
-      }
-
-      showToast('تم حفظ مرتجع المبيعات بنجاح', 'success');
+      showToast('تم حفظ واعتماد مرتجع المبيعات وتحديث المخزون بنجاح ✅', 'success');
       setItems([]);
       setFormData({ ...formData, returnNumber: '', notes: '' });
       setOriginalInvoiceId(null);
+      
+      // التوجيه للسجل لمنع تكرار الإرسال
+      setTimeout(() => navigate('/free-returns-report'), 1500);
 
     } catch (error: any) {
       console.error('Error saving return:', error);

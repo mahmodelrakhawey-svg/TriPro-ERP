@@ -622,8 +622,7 @@ const SalesInvoiceForm = () => {
             total_amount: Number(totalAmount),
             tax_amount: Number(taxAmount),
             notes: formData.notes,
-            status: 'draft', // Always save as draft, approval is a separate step
-            // حقول جديدة للتعامل مع الدفع الجزئي والخصم
+            status: editingId ? formData.status : 'draft', // الحفاظ على الحالة الأصلية عند التعديل
             subtotal: subtotal,
             discount_amount: discountAmount,
             paid_amount: formData.paidAmount,
@@ -639,37 +638,55 @@ const SalesInvoiceForm = () => {
         if (editingId) {
             // Update existing invoice
             const { error: updateError } = await supabase.from('invoices').update(invoiceData).eq('id', editingId);
-            if (updateError) throw updateError;
+            
+            if (updateError) {
+                if (updateError.code === '23505') {
+                    throw new Error('رقم الفاتورة مكرر. يرجى استخدام رقم آخر أو تعديل الفاتورة الحالية.');
+                }
+                throw updateError;
+            }
             
             // Delete old items to replace with new ones
             await supabase.from('invoice_items').delete().eq('invoice_id', editingId);
         } else {
             // Insert new invoice
             const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();
-            if (insertError) throw insertError;
+            if (insertError) {
+                if (insertError.code === '23505') {
+                    throw new Error('رقم الفاتورة هذا مسجل مسبقاً. يرجى استخدام رقم آخر.');
+                }
+                throw insertError;
+            }
             invoiceId = invoice.id;
         }
 
         // Insert items
         if (invoiceId) {
-            for (const item of items) {
-                // جلب التكلفة الحالية للمنتج لحفظها في الفاتورة (لتقارير الربحية)
+            const itemsToInsert = items.map(item => {
                 const product = products.find(p => p.id === item.productId);
-                const itemCost = product?.cost || product?.purchase_price || 0;
-
-                await supabase.from('invoice_items').insert({
+                return {
                     organization_id: userOrgId,
                     invoice_id: invoiceId,
                     product_id: item.productId,
                     quantity: Number(item.quantity),
                     unit_price: Number(item.unitPrice),
                     total: Number(item.total),
-                    cost: itemCost // حفظ التكلفة
-                });
-            }
+                    cost: product?.cost || product?.purchase_price || 0
+                };
+            });
+
+            const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
+            if (itemsError) throw itemsError;
         }
 
-        setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح!');
+        // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً
+        if (invoiceData.status === 'posted' || invoiceData.status === 'paid') {
+            await approveSalesInvoice(invoiceId);
+            showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
+        } else {
+            setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح!');
+        }
+
         // تفريغ النموذج
         setItems([]);
         setFormData(prev => ({
@@ -681,6 +698,13 @@ const SalesInvoiceForm = () => {
         }));
         setEditingId(null);
         setTimeout(() => setSuccessMessage(null), 4000);
+
+        // 🚀 صمام أمان: التوجه للسجل لمنع التكرار عند النقر المتعدد
+        if (editingId) {
+            setSaving(false);
+            navigate('/invoices-list');
+            return;
+        }
         if(barcodeInputRef.current) barcodeInputRef.current.focus();
 
     } catch (err: any) {
@@ -797,22 +821,29 @@ const SalesInvoiceForm = () => {
         };
 
         const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();
-        if (insertError) throw insertError;
+        if (insertError) {
+            if (insertError.code === '23505') {
+                throw new Error('رقم الفاتورة مكرر. يرجى تغيير الرقم أو الحفظ كمسودة أولاً.');
+            }
+            throw insertError;
+        }
         const invoiceId = invoice.id;
 
-        for (const item of items) {
+        const itemsToInsert = items.map(item => {
             const product = products.find(p => p.id === item.productId);
-            const itemCost = product?.cost || product?.purchase_price || 0;
-            await supabase.from('invoice_items').insert({
+            return {
                 organization_id: userOrgId,
                 invoice_id: invoiceId,
                 product_id: item.productId,
                 quantity: Number(item.quantity),
                 unit_price: Number(item.unitPrice),
                 total: Number(item.total),
-                cost: itemCost
-            });
-        }
+                cost: product?.cost || product?.purchase_price || 0
+            };
+        });
+
+        const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
+        if (itemsError) throw itemsError;
 
         // --- 2. Approve the newly created invoice ---
         await approveSalesInvoice(invoiceId);

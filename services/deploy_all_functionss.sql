@@ -1,41 +1,54 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
 -- 🌟 النسخة الشاملة الموحدة (Version 22.0 - Supplier UUID Enforcement)
 
--- 🛠️ دالة جلب معرف المنظمة للمستخدم الحالي (ضرورية جداً لعمل النظام)
-CREATE OR REPLACE FUNCTION public.get_my_role()
-RETURNS text 
-LANGUAGE plpgsql SECURITY DEFINER AS $$
+-- ================================================================
+-- 0. تنظيف شامل لتجنب تعارض التوقيعات (يجب أن يكون في البداية)
+-- ================================================================
+DO $$
+DECLARE
+    func_signature text;
+    func_name text;
 BEGIN
-  RETURN COALESCE(
-    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
-    (SELECT role FROM public.profiles WHERE id = auth.uid())
-  );
+    FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
+    LOOP
+        func_name := split_part(func_signature, '(', 1);
+        IF func_name IN (
+            'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
+            'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
+            'get_my_role', 'get_my_org', 'is_admin', 'get_dashboard_stats', 'refresh_saas_schema'
+        ) THEN
+            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+        END IF;
+    END LOOP;
+END $$;
+
+-- 🛠️ توحيد دوال الهوية (Core Identity)
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth, pg_temp AS $$
+DECLARE _role text;
+BEGIN
+    _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', '');
+    IF _role IS NOT NULL THEN RETURN _role; END IF;
+    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN COALESCE(_role, 'viewer');
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
-RETURNS uuid 
-LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth, pg_temp AS $$
+DECLARE _org_id uuid;
 BEGIN
-    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
+    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN _org_id;
 END; $$;
 
--- 🛠️ دالة للتحقق مما إذا كان المستخدم مسؤولاً (Admin/Super Admin)
-CREATE OR REPLACE FUNCTION public.is_admin()
-RETURNS boolean 
-LANGUAGE plpgsql SECURITY DEFINER
-AS $$
-BEGIN
-  RETURN (get_my_role() IN ('super_admin', 'admin'));
-END;
-$$;
--- دالة للتأكد من حالة الاتصال (Health Check)
-CREATE OR REPLACE FUNCTION public.check_db_sync()
-RETURNS text LANGUAGE plpgsql AS $$
-BEGIN
-    RETURN 'Database is synchronized and healthy ✅';
-END; $$;
+CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN RETURN (public.get_my_role() IN ('super_admin', 'admin')); END; $$;
 
--- 🛠️ أولاً: إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS) مع الحذف المتتالي (CASCADE)
+-- 🛠️ إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS)
 -- نضمن أن حذف المنظمة يؤدي لمسح كافة بياناتها تلقائياً (حل ERROR 23503 للأبد)
 DO $$ 
 DECLARE 
@@ -53,6 +66,14 @@ BEGIN
         EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
         EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE CASCADE', r.table_name, r.constraint_name);
     END LOOP;
+
+    -- 🛡️ تفعيل الأقفال الحديدية برمجياً (SaaS Document Guard)
+    -- نستخدم هذه الطريقة لضمان تطبيق القيد حتى لو كانت الجداول موجودة مسبقاً
+    ALTER TABLE IF EXISTS public.receipt_vouchers DROP CONSTRAINT IF EXISTS receipt_vouchers_number_org_unique;
+    ALTER TABLE IF EXISTS public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
+    
+    ALTER TABLE IF EXISTS public.payment_vouchers DROP CONSTRAINT IF EXISTS payment_vouchers_number_org_unique;
+    ALTER TABLE IF EXISTS public.payment_vouchers ADD CONSTRAINT payment_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
 END $$;
 
 -- 🛠️ تصحيح قيود الربط بالقيود المحاسبية (SET NULL) لمنع الخطأ 23503 للأبد
@@ -71,6 +92,14 @@ BEGIN
         EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
         EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES public.journal_entries(id) ON DELETE SET NULL', r.table_name, r.constraint_name, r.column_name);
     END LOOP;
+
+    -- 🛡️ فرض القيود الفريدة لمنع التكرار برمجياً (SaaS Integrity)
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'receipt_vouchers_number_org_unique') THEN
+        ALTER TABLE public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_vouchers_number_org_unique') THEN
+        ALTER TABLE public.payment_vouchers ADD CONSTRAINT payment_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
+    END IF;
 END $$;
 
 -- ضمان وجود عمود organization_id في الجداول الأساسية
@@ -197,6 +226,14 @@ BEGIN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature); -- Drop by full signature
         END IF;
     END LOOP;
+
+    -- 🛡️ فرض القيود الفريدة لمنع التكرار (SaaS Integrity)
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invoices_number_org_unique') THEN
+        ALTER TABLE public.invoices ADD CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'receipt_vouchers_number_org_unique') THEN
+        ALTER TABLE public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
+    END IF;
 END $$;
 
 -- ================================================================
@@ -234,6 +271,8 @@ BEGIN
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
     DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'invoice';
 
+    -- تم إزالة شرط الـ RETURN للسماح بإعادة الترحيل وتحديث البيانات عند التعديل (Re-posting)
+
     -- 🛡️ حماية من "سباق الزمن": لا تنشئ قيداً إذا لم تكن بنود الفاتورة قد وصلت بعد لقاعدة البيانات
     -- هذا يضمن عدم إنشاء قيد الإيراد بدون قيد التكلفة عند التحويل الآلي
     IF NOT EXISTS (SELECT 1 FROM public.invoice_items WHERE invoice_id = p_invoice_id) THEN RETURN; END IF;
@@ -241,12 +280,12 @@ BEGIN
     -- 🛡️ تأمين معرف المنظمة (SaaS Protection) - حل مشكلة عروض الأسعار
     -- نعتمد على المنظمة المسجلة في الفاتورة، أو منظمة المستخدم، أو منظمة العميل كخيار أخير
     v_org_id := COALESCE(v_invoice.organization_id, public.get_my_org(), (SELECT organization_id FROM public.customers WHERE id = v_invoice.customer_id));
-    IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة التابعة لها الفاتورة. يرجى التأكد من تسجيل الدخول بشكل صحيح.'; END IF;
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من صلاحيات الوصول.'; END IF;
 
     -- ترميم المنظمة في الفاتورة إذا كانت مفقودة لضمان تماسك البيانات
     IF v_invoice.organization_id IS NULL THEN UPDATE public.invoices SET organization_id = v_org_id WHERE id = p_invoice_id; END IF;
 
-    -- 2. جلب روابط الحسابات المخصصة من إعدادات الشركة
+    -- 2. جلب روابط الحسابات من إعدادات الشركة (Scoped by Org)
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
     -- 3. جلب الحسابات (الأولوية للربط المخصص Mapping ثم الكود الافتراضي)
@@ -259,7 +298,7 @@ BEGIN
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
     IF v_sales_acc_id IS NULL OR v_customer_acc_id IS NULL OR v_cogs_acc_id IS NULL OR v_inventory_acc_id IS NULL THEN
-        RAISE EXCEPTION 'حسابات المبيعات أو العملاء أو تكلفة المبيعات أو المخزون غير معرّفة في دليل الحسابات.';
+        RAISE EXCEPTION 'حسابات المبيعات أو المخزون غير معرّفة لهذه المنظمة.';
     END IF;
 
     -- 4. تحديث المخزون وحساب تكلفة البضاعة المباعة (COGS)
@@ -319,7 +358,8 @@ BEGIN
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
     DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice';
 
-    v_org_id := public.get_my_org();
+    v_org_id := COALESCE(v_invoice.organization_id, public.get_my_org());
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة للفاتورة.'; END IF;
 
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
@@ -514,8 +554,11 @@ BEGIN
     SELECT * INTO v_voucher FROM public.receipt_vouchers WHERE id = p_voucher_id AND organization_id = v_org_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند القبض غير موجود.'; END IF;
 
-    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار عند إعادة الاعتماد بعد التعديل
-    DELETE FROM public.journal_entries WHERE related_document_id = p_voucher_id AND related_document_type = 'receipt_voucher';
+    -- 🛡️ ضمان جذري: حذف أي قيود تحمل نفس رقم السند لنفس المنظمة منعاً للتكرار التاريخي
+    DELETE FROM public.journal_entries 
+    WHERE organization_id = v_org_id 
+    AND (related_document_id = p_voucher_id OR reference = v_voucher.voucher_number)
+    AND related_document_type = 'receipt_voucher';
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.receipt_date, 'سند قبض رقم ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'receipt_voucher', true) RETURNING id INTO v_journal_id;
@@ -538,8 +581,11 @@ BEGIN
     SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id AND organization_id = v_org_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود.'; END IF;
 
-    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار عند إعادة الاعتماد بعد التعديل
-    DELETE FROM public.journal_entries WHERE related_document_id = p_voucher_id AND related_document_type = 'payment_voucher';
+    -- 🛡️ ضمان جذري: حذف أي قيود تحمل نفس رقم السند لنفس المنظمة منعاً للتكرار التاريخي
+    DELETE FROM public.journal_entries 
+    WHERE organization_id = v_org_id 
+    AND (related_document_id = p_voucher_id OR reference = v_voucher.voucher_number)
+    AND related_document_type = 'payment_voucher';
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.payment_date, 'سند صرف رقم ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'payment_voucher', true) RETURNING id INTO v_journal_id;
@@ -784,7 +830,7 @@ BEGIN
     v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
+    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org()), true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
     IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
     IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
@@ -1418,16 +1464,72 @@ DECLARE
     v_mappings jsonb;
     v_item_cost numeric;
     v_item record;
+    v_cust_acc_id uuid;
+    v_supp_acc_id uuid;
 BEGIN
     v_target_org := COALESCE(p_org_id, public.get_my_org());
     
     -- 1. تحديث المخزون أولاً لضمان دقة المتوسطات المرجحة
     PERFORM public.recalculate_stock_rpc(v_target_org);
 
+    -- 🛡️ توحيد الروابط: ربط السندات بالقيد "الأحدث" لفك أي تعليق قبل التنظيف
+    UPDATE public.receipt_vouchers rv SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' ORDER BY je.created_at DESC LIMIT 1)
+    WHERE organization_id = v_target_org AND EXISTS (SELECT 1 FROM public.journal_entries WHERE related_document_id = rv.id);
+    
+    UPDATE public.payment_vouchers pv SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' ORDER BY je.created_at DESC LIMIT 1)
+    WHERE organization_id = v_target_org AND EXISTS (SELECT 1 FROM public.journal_entries WHERE related_document_id = pv.id);
+
+    -- 🛡️ مزامنة معرف المنظمة لضمان ظهور البيانات في RLS
+    -- ضمان أن القيود تتبع المنظمة الصحيحة للمستند التابع لها
+    UPDATE public.journal_entries je SET organization_id = i.organization_id FROM public.invoices i WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' AND je.organization_id != i.organization_id;
+    UPDATE public.journal_entries je SET organization_id = rv.organization_id FROM public.receipt_vouchers rv WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' AND je.organization_id != rv.organization_id;
+    
+    -- إصلاح القيود اليدوية اليتيمة التي قد تنتمي لمنظمة المستخدم الحالي
+    UPDATE public.journal_entries SET organization_id = COALESCE(organization_id, v_target_org) WHERE organization_id IS NULL;
+
+    -- مزامنة أسطر القيد مع القيد الأب
+    UPDATE public.journal_lines jl SET organization_id = je.organization_id 
+    FROM public.journal_entries je WHERE jl.journal_entry_id = je.id AND jl.organization_id != je.organization_id AND je.organization_id = v_target_org;
+
+    -- 🛡️ جديد: مزامنة معرف المنظمة بين المستندات وقيودها (SaaS ID Inheritance)
+    -- هذا يضمن بقاء القيود داخل نطاق الشركة الصحيح ويمنع اختفاء البيانات بسبب سياسات RLS
+    UPDATE public.journal_entries je SET organization_id = i.organization_id FROM public.invoices i WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' AND je.organization_id != i.organization_id;
+    UPDATE public.journal_entries je SET organization_id = pi.organization_id FROM public.purchase_invoices pi WHERE je.related_document_id = pi.id AND je.related_document_type = 'purchase_invoice' AND je.organization_id != pi.organization_id;
+    UPDATE public.journal_entries je SET organization_id = rv.organization_id FROM public.receipt_vouchers rv WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' AND je.organization_id != rv.organization_id;
+    UPDATE public.journal_entries je SET organization_id = pv.organization_id FROM public.payment_vouchers pv WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' AND je.organization_id != pv.organization_id;
+    UPDATE public.journal_entries je SET organization_id = c.organization_id FROM public.cheques c WHERE je.related_document_id = c.id AND je.related_document_type = 'cheque' AND je.organization_id != c.organization_id;
+
+    -- مزامنة معرف المنظمة لأسطر القيود من القيد الأب لضمان ظهورها في ميزان المراجعة
+    UPDATE public.journal_lines jl 
+    SET organization_id = je.organization_id 
+    FROM public.journal_entries je 
+    WHERE jl.journal_entry_id = je.id AND (jl.organization_id IS NULL OR jl.organization_id != je.organization_id);
+
     -- 🛡️ جديد: إصلاح قيود التكلفة المفقودة (Repairing missing COGS entries)
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_target_org;
+    v_cust_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_target_org LIMIT 1));
+    v_supp_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_target_org LIMIT 1));
     v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_target_org AND deleted_at IS NULL LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_target_org AND deleted_at IS NULL LIMIT 1));
+
+    -- 🛡️ جديد: إعادة ترحيل السندات اليتيمة (Auto-Republish Orphan Vouchers)
+    -- سندات القبض
+    FOR v_item IN SELECT id FROM public.receipt_vouchers WHERE organization_id = v_target_org AND (related_journal_entry_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.journal_entries WHERE id = related_journal_entry_id)) LOOP
+        BEGIN
+            PERFORM public.approve_receipt_voucher(v_item.id, v_cust_acc_id);
+        EXCEPTION WHEN OTHERS THEN 
+            CONTINUE; 
+        END;
+    END LOOP;
+
+    -- سندات الصرف
+    FOR v_item IN SELECT id FROM public.payment_vouchers WHERE organization_id = v_target_org AND (related_journal_entry_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.journal_entries WHERE id = related_journal_entry_id)) LOOP
+        BEGIN
+            PERFORM public.approve_payment_voucher(v_item.id, v_supp_acc_id);
+        EXCEPTION WHEN OTHERS THEN 
+            CONTINUE; 
+        END;
+    END LOOP;
 
     IF v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN
         FOR v_inv IN SELECT id, related_journal_entry_id FROM public.invoices WHERE organization_id = v_target_org AND status IN ('posted', 'paid') AND related_journal_entry_id IS NOT NULL LOOP

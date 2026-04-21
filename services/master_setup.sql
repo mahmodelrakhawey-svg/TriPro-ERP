@@ -67,7 +67,10 @@ CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
+    RETURN NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+EXCEPTION 
+    WHEN OTHERS THEN 
+        RETURN NULL;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.is_admin()
@@ -81,7 +84,7 @@ CREATE TABLE IF NOT EXISTS public.roles (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     description text,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     UNIQUE(name, organization_id) -- السماح بنفس الاسم لشركات مختلفة
 );
 
@@ -129,7 +132,7 @@ CREATE TABLE IF NOT EXISTS public.role_permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     role_id uuid REFERENCES public.roles(id) ON DELETE CASCADE,
     permission_id uuid REFERENCES public.permissions(id) ON DELETE CASCADE,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     UNIQUE(role_id, permission_id)
 );
 
@@ -171,7 +174,7 @@ DECLARE
 BEGIN
     -- 1. جلب البيانات من Metadata
     v_org_id := (new.raw_user_meta_data->>'org_id')::uuid;
-    v_role := COALESCE(new.raw_user_meta_data->>'role', 'admin');
+    v_role := COALESCE(new.raw_user_meta_data->>'role', 'viewer');
 
     -- 2. تأمين حالة المنظمة للمستخدم الأول في النظام
     IF v_org_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.profiles) THEN
@@ -384,11 +387,12 @@ CREATE TABLE IF NOT EXISTS public.journal_lines (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
     account_id uuid REFERENCES public.accounts(id),
-    debit numeric(19,4) DEFAULT 0,
-    credit numeric(19,4) DEFAULT 0,
+    debit numeric(19,4) DEFAULT 0 CHECK (debit >= 0),
+    credit numeric(19,4) DEFAULT 0 CHECK (credit >= 0),
     description text,
     cost_center_id uuid REFERENCES public.cost_centers(id),
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    CONSTRAINT journal_lines_debit_credit_check CHECK (NOT (debit > 0 AND credit > 0))
 );
 
 CREATE TABLE IF NOT EXISTS public.journal_attachments (
@@ -448,11 +452,11 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
     manager text,
     phone text,
     type text DEFAULT 'warehouse',
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deleted_at timestamptz,
-    deletion_reason text
+     deletion_reason text,
+     UNIQUE (organization_id, name)
 );
-
 -- تصنيفات الأصناف (موجود في الهيكل الحالي)
 CREATE TABLE IF NOT EXISTS public.item_categories (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -559,7 +563,8 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     deleted_at timestamptz,
     organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
-    created_at timestamptz DEFAULT now() NOT NULL
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number)
 );
 
 CREATE TABLE IF NOT EXISTS public.invoice_items (
@@ -730,9 +735,10 @@ CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
     currency text DEFAULT 'SAR',
     exchange_rate numeric DEFAULT 1,
     type text DEFAULT 'receipt', -- receipt, deposit
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL, -- Changed to uuid for consistency
-    created_at timestamptz DEFAULT now()
+    created_at timestamptz DEFAULT now(),
+    CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number)
 );
 
 CREATE TABLE IF NOT EXISTS public.payment_vouchers (
@@ -748,9 +754,10 @@ CREATE TABLE IF NOT EXISTS public.payment_vouchers (
     currency text DEFAULT 'SAR',
     exchange_rate numeric DEFAULT 1,
     recipient_name text, -- Changed to text for consistency
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
-    created_at timestamptz DEFAULT now()
+    created_at timestamptz DEFAULT now(),
+    CONSTRAINT payment_vouchers_number_org_unique UNIQUE (organization_id, voucher_number)
 );
 
 CREATE TABLE IF NOT EXISTS public.cheques (
@@ -769,7 +776,7 @@ CREATE TABLE IF NOT EXISTS public.cheques (
     transfer_date date,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     related_voucher_id uuid,
-    organization_id uuid REFERENCES public.organizations(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     current_account_id uuid REFERENCES public.accounts(id), -- عمود جديد
     created_at timestamptz DEFAULT now()
 );

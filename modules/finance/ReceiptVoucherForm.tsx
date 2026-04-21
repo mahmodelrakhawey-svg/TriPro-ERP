@@ -324,21 +324,21 @@ const ReceiptVoucherForm = () => {
 
           if (vErr) throw vErr;
 
-          // 2. تحديث القيد المحاسبي المرتبط لضمان التزامن بين السند والحسابات
-          if (voucherData?.related_journal_entry_id) {
-              const customerAcc = getSystemAccount('CUSTOMERS'); // حساب العملاء
-              
-              await supabase.from('journal_entries').update({
-                  transaction_date: formData.date,
-                  description: formData.notes || `سند قبض من العميل`
-              }).eq('id', voucherData.related_journal_entry_id);
-
-              // تحديث سطر الخزينة (المدين) وحساب العميل (الدائن) بالمبالغ الجديدة
-              await supabase.from('journal_lines').update({ account_id: formData.treasuryId, debit: Number(formData.amount) }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('debit', 0);
-              await supabase.from('journal_lines').update({ account_id: customerAcc?.id, credit: Number(formData.amount) }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('credit', 0);
+          // 🚀 استدعاء المحرك المحاسبي الموحد بدلاً من التعديل اليدوي الخطير
+          const customerAcc = getSystemAccount('CUSTOMERS');
+          if (customerAcc) {
+              await supabase.rpc('approve_receipt_voucher', { 
+                  p_voucher_id: currentVoucherId, 
+                  p_credit_account_id: customerAcc.id 
+              });
           }
 
           showToast('تم تعديل سند القبض بنجاح ✅', 'success');
+          
+          // 🚀 إصلاح: التوقف هنا بعد التعديل لمنع تنفيذ كود الإدراج (Insert) بالأسفل
+          setLoading(false);
+          navigate('/receipt-vouchers-list');
+          return;
         }
 
         if (!isAdmin && !can('treasury', 'create')) {
@@ -375,7 +375,13 @@ const ReceiptVoucherForm = () => {
             organization_id: orgId
         }).select().single();
 
-        if (voucherError) throw voucherError;
+        if (voucherError) {
+            // 🛡️ صمام أمان: منع التكرار بناءً على القيد الفريد في قاعدة البيانات
+            if (voucherError.code === '23505') {
+                throw new Error('رقم السند هذا مسجل مسبقاً. يرجى استخدام رقم آخر أو تعديل السند الحالي.');
+            }
+            throw voucherError;
+        }
 
         // 1.5. رفع المرفقات (إذا وجدت)
         if (attachments.length > 0 && voucherData) {

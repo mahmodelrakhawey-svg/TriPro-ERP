@@ -1,7 +1,7 @@
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script)
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script) - النسخة الاحترافية الموحدة
--- تاريخ التحديث: 2026-06-05 (Full Maintenance Version v16)
--- الوصف: فرض صحة معرفات UUID في الفواتير وتأمين حقل المورد لضمان السلامة المحاسبية.
+-- تاريخ التحديث: 2026-06-10 (SaaS Core Optimization v17)
+-- الوصف: تحسين التوافق مع تعدد الشركات ودعم المستخدم العالمي (Super Admin) لضمان استقرار النظام.
 
 BEGIN;
 
@@ -10,10 +10,32 @@ BEGIN;
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
-LANGUAGE plpgsql SECURITY DEFINER AS $$
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE _org_id uuid;
 BEGIN
-    -- دعم اليوزر العالمي: إذا لم يوجد org_id في الـ JWT يعني أنه سوبر أدمن
-    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
+    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN _org_id;
+EXCEPTION 
+    WHEN OTHERS THEN 
+        RETURN NULL;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS text 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth, pg_temp
+AS $$
+BEGIN
+    RETURN COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', '')::text,
+        (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1)
+    );
+EXCEPTION WHEN OTHERS THEN 
+    RETURN 'viewer';
 END; $$;
 
 -- ترميم: إسناد الطلبات التي ليس لها مستودع إلى المستودع الرئيسي للشركة
@@ -39,18 +61,58 @@ UPDATE public.invoices i
 SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' ORDER BY je.created_at DESC LIMIT 1)
 WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice');
 
+-- 2.1 التطهير الجذري للمستندات (Document Purge)
+-- نحذف أي مستند مكرر فوراً لنتمكن من تفعيل "القفل الحديدي" Unique Constraint
+DELETE FROM public.receipt_vouchers WHERE id IN (
+    SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (
+            PARTITION BY organization_id, voucher_number ORDER BY created_at DESC
+        ) as rank
+        FROM public.receipt_vouchers WHERE voucher_number IS NOT NULL AND voucher_number != ''
+    ) t WHERE rank > 1
+);
+
+DELETE FROM public.payment_vouchers WHERE id IN (
+    SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY voucher_number, organization_id ORDER BY created_at DESC) as rank
+        FROM public.payment_vouchers WHERE voucher_number IS NOT NULL AND voucher_number != ''
+    ) t WHERE rank > 1
+);
+
+DELETE FROM public.invoices WHERE id IN (
+    SELECT id FROM (
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY invoice_number, organization_id ORDER BY created_at DESC) as rank
+        FROM public.invoices WHERE invoice_number IS NOT NULL AND invoice_number != ''
+    ) t WHERE rank > 1
+);
+
+-- 2.1 توجيه السندات إلى القيد الأحدث (Winning Entry) قبل حذف المكررات لفك الارتباط
+UPDATE public.receipt_vouchers rv
+SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' ORDER BY je.created_at DESC LIMIT 1)
+WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher');
+
+UPDATE public.payment_vouchers pv
+SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' ORDER BY je.created_at DESC LIMIT 1)
+WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher');
+
 -- 3. حذف كافة القيود المكررة والإبقاء على الأحدث فقط لكل مستند
+-- 3. حذف كافة القيود المكررة والإبقاء على الأحدث فقط (تنظيف جراحي شامل)
 DELETE FROM public.journal_entries 
 WHERE id IN (
     SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (PARTITION BY related_document_id, related_document_type ORDER BY created_at DESC) as entry_rank
+        SELECT id, 
+               ROW_NUMBER() OVER (PARTITION BY COALESCE(related_document_id::text, reference), organization_id ORDER BY created_at DESC) as entry_rank
         FROM public.journal_entries 
-        WHERE related_document_id IS NOT NULL AND related_document_type IN ('purchase_invoice', 'invoice')
+        WHERE (related_document_id IS NOT NULL OR (reference IS NOT NULL AND reference != ''))
     ) t WHERE entry_rank > 1
 );
 
 -- إعادة حساب كافة أرصدة العملاء لضمان المطابقة مع كشف الحساب
 UPDATE public.customers SET balance = public.get_customer_balance(id, organization_id);
+
+-- ترميم روابط السندات بالقيود (في حال كان السند مسجلاً ولكن غير مربوط بالقيد)
+-- ضمان ترحيل كافة المستندات اليتيمة قبل حساب الأرصدة
+SELECT public.recalculate_all_system_balances(id) FROM public.organizations;
 
 -- تنظيف مراجع القيود لضمان الربط الصحيح
 UPDATE public.journal_entries SET related_document_type = 'cheque_collection' 
@@ -189,6 +251,9 @@ BEGIN
     IF v_inv IS NULL THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
     v_org_id := v_inv.organization_id;
 
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
+    DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice';
+
     -- جلب روابط الحسابات من الإعدادات
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
@@ -229,6 +294,8 @@ BEGIN
 
     UPDATE public.purchase_invoices SET related_journal_entry_id = v_je_id, status = 'posted' WHERE id = v_inv.id;
     PERFORM public.update_single_supplier_balance(v_inv.supplier_id);
+    -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة (مثل نظام المبيعات)
+    PERFORM public.recalculate_stock_rpc(v_org_id);
     RETURN v_je_id;
 END; $$;
 
@@ -317,8 +384,16 @@ CREATE POLICY "org_delete_policy" ON public.organizations FOR DELETE TO authenti
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 -- حذف جميع السياسات القديمة لتجنب التعارض
 DO $$ 
+DECLARE
+    v_pol_sql text;
 BEGIN
-    EXECUTE (SELECT string_agg('DROP POLICY IF EXISTS ' || quote_ident(policyname) || ' ON public.profiles;', ' ') FROM pg_policies WHERE tablename = 'profiles');
+    SELECT string_agg('DROP POLICY IF EXISTS ' || quote_ident(policyname) || ' ON public.profiles;', ' ') 
+    INTO v_pol_sql
+    FROM pg_policies WHERE tablename = 'profiles' AND schemaname = 'public';
+    
+    IF v_pol_sql IS NOT NULL THEN
+        EXECUTE v_pol_sql;
+    END IF;
 END $$;
 
 -- السياسات الصحيحة والآمنة لجدول المستخدمين
@@ -634,16 +709,23 @@ BEGIN
             -- تحديد جداول المنيو المسموح للمشاهدين (Viewer) برؤيتها
             v_is_menu_table := t IN ('products', 'item_categories', 'menu_categories', 'modifiers', 'modifier_groups', 'restaurant_tables', 'bill_of_materials');
 
-            -- سياسة القراءة (عزل الشركات + حماية البيانات الحساسة من المشاهدين)
             IF v_is_menu_table THEN
                 EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t, t);
-            ELSE
-                -- الجداول الحساسة (الفواتير، الموظفين، الحسابات) لا يراها إلا الموظفون (استثناء Viewer و Demo)
-                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
+            ELSIF t != 'organizations' THEN
+                -- الجداول الحساسة: السوبر أدمن، أو الأدمن/المحاسب في منظمته
+                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (
+                    public.get_my_role() = ''super_admin'' 
+                    OR (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''viewer'', ''demo''))
+                );', t, t);
             END IF;
             
-            -- سياسة التعديل (فقط للأدوار المصرح لها، ومنع الديمو والمشاهد)
-            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''demo'', ''viewer'')) WITH CHECK ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''demo'', ''viewer''));', t, t);
+            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING (
+                (SELECT public.get_my_role()) = ''super_admin'' 
+                OR (organization_id = (SELECT public.get_my_org()) AND (SELECT public.get_my_role()) IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+            ) WITH CHECK (
+                (SELECT public.get_my_role()) = ''super_admin'' 
+                OR (organization_id = (SELECT public.get_my_org()) AND (SELECT public.get_my_role()) IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+            );', t, t);
 
             BEGIN
                 EXECUTE format('ALTER TABLE public.%I ALTER COLUMN organization_id SET NOT NULL', t);

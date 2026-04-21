@@ -9,26 +9,37 @@
 -- تعتمد على جدول profiles الذي يحتوي على عمود role
 CREATE OR REPLACE FUNCTION public.get_my_role()
 RETURNS text 
-LANGUAGE plpgsql 
-SECURITY DEFINER
+LANGUAGE plpgsql SECURITY DEFINER 
 SET search_path = public, auth, pg_temp
 AS $$
+DECLARE
+  _role text;
 BEGIN
-  RETURN COALESCE(
-    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
-    (SELECT role FROM public.profiles WHERE id = auth.uid())
-  );
-END;
-$$;
+    _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', '');
+    IF _role IS NOT NULL THEN RETURN _role; END IF;
 
--- 1.1 دالة جلب معرف المنظمة (ضرورية لعزل البيانات ودعم السوبر أدمن)
+    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN COALESCE(_role, 'viewer');
+EXCEPTION WHEN OTHERS THEN 
+    RETURN 'viewer';
+END; $$;
+
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
-LANGUAGE plpgsql 
-SECURITY DEFINER AS $$
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  _org_id uuid;
 BEGIN
-    -- دعم اليوزر العالمي: إذا لم يوجد org_id في الـ JWT يعني أنه سوبر أدمن
-    RETURN (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
+    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+
+    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN _org_id;
+EXCEPTION 
+    WHEN OTHERS THEN 
+        RETURN NULL;
 END; $$;
 
 -- 2. دالة للتحقق مما إذا كان المستخدم مسؤولاً (Admin/Super Admin)
@@ -60,6 +71,8 @@ ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payrolls ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payroll_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE shifts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE receipt_voucher_attachments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payment_voucher_attachments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE table_sessions ENABLE ROW LEVEL SECURITY;
@@ -94,38 +107,46 @@ ALTER TABLE opening_inventories ENABLE ROW LEVEL SECURITY;
 -- 1. جدول المستخدمين (Profiles)
 -- يمكن للجميع قراءة بيانات المستخدمين (لأغراض العرض في القوائم)
 -- تم التحديث: السوبر أدمن يرى الجميع، والأدمن العادي يرى مستخدمي شركته فقط
-DROP POLICY IF EXISTS "Profiles are viewable by everyone" ON profiles;
-CREATE POLICY "Profiles are viewable by everyone" ON profiles 
-FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin' OR organization_id = public.get_my_org() OR id = auth.uid());
+DROP POLICY IF EXISTS "Profiles_Select_Policy" ON profiles;
+CREATE POLICY "Profiles_Select_Policy" ON profiles 
+FOR SELECT TO authenticated USING (
+    id = auth.uid() 
+    OR (SELECT public.get_my_role()) = 'super_admin' 
+    OR organization_id = (SELECT public.get_my_org())
+);
 
 -- يمكن للمستخدم تعديل بياناته فقط
 DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
-CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Users can update own profile" ON profiles FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
 
 -- إدارة المستخدمين: السوبر أدمن يمتلك صلاحية مطلقة، والأدمن محصور بمنظمته
 DROP POLICY IF EXISTS "Admins can manage profiles" ON profiles;
 CREATE POLICY "Admins can manage profiles" ON profiles 
 FOR ALL TO authenticated 
 USING (
-    get_my_role() = 'super_admin' 
-    OR (get_my_role() = 'admin' AND organization_id = get_my_org())
+    public.get_my_role() = 'super_admin' 
+    OR (public.get_my_role() = 'admin' AND organization_id = public.get_my_org())
 );
 
 -- سياسة السوبر أدمن على المنظمات
-DROP POLICY IF EXISTS "Super admins manage all organizations" ON organizations;
-CREATE POLICY "Super admins manage all organizations" ON organizations FOR ALL TO authenticated USING (get_my_role() = 'super_admin');
+DROP POLICY IF EXISTS "Org_SuperAdmin_Policy" ON organizations;
+CREATE POLICY "Org_SuperAdmin_Policy" ON organizations FOR ALL TO authenticated USING (public.get_my_role() = 'super_admin');
+
+DROP POLICY IF EXISTS "Org_Select_Policy" ON organizations;
+CREATE POLICY "Org_Select_Policy" ON organizations FOR SELECT TO authenticated USING (id = public.get_my_org());
 
 -- 2. إعدادات الشركة (Company Settings)
 -- قراءة للجميع (المصادق عليهم)
-DROP POLICY IF EXISTS "Settings viewable by authenticated" ON company_settings;
-CREATE POLICY "Settings viewable by authenticated" ON company_settings 
+DROP POLICY IF EXISTS "Settings_Select_Policy" ON company_settings;
+CREATE POLICY "Settings_Select_Policy" ON company_settings 
 FOR SELECT TO authenticated 
 USING (
     organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin'
 );
+
 -- تعديل للمدراء فقط
-DROP POLICY IF EXISTS "Only Admins can update settings" ON company_settings;
-CREATE POLICY "Only Admins can update settings" ON company_settings FOR UPDATE USING (is_admin() OR public.get_my_role() = 'super_admin');
+DROP POLICY IF EXISTS "Settings_Update_Policy" ON company_settings;
+CREATE POLICY "Settings_Update_Policy" ON company_settings FOR UPDATE TO authenticated USING (public.is_admin() AND (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin'));
 
 -- 3. البيانات الأساسية (Products, Customers, Suppliers, Accounts)
 -- السوبر أدمن يرى الجميع، والمستخدم يرى بيانات منظمته فقط
@@ -151,6 +172,9 @@ DROP POLICY IF EXISTS "Basic data viewable by authenticated_supp" ON suppliers;
 CREATE POLICY "Basic data viewable by authenticated_supp" ON suppliers FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
 DROP POLICY IF EXISTS "Basic data viewable by authenticated_acc" ON accounts;
 CREATE POLICY "Basic data viewable by authenticated_acc" ON accounts FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin' OR organization_id = public.get_my_org());
+
+-- سياسة المرفقات (ضمان رؤية مرفقات الشركة فقط)
+CREATE POLICY "Attachments_SaaS_Policy" ON receipt_voucher_attachments FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
 
 -- إدارة البيانات الأساسية: السوبر أدمن لديه صلاحية مطلقة، والموظفون محصورون بمنظماتهم
 DROP POLICY IF EXISTS "Staff can manage products" ON products;
@@ -180,17 +204,23 @@ CREATE POLICY "Admins/Accountants manage accounts" ON accounts FOR ALL TO authen
 -- السوبر أدمن يرى كل العمليات للدعم، والمستخدم يرى عمليات شركته فقط
 DROP POLICY IF EXISTS "Financials viewable by authenticated" ON invoices;
 CREATE POLICY "Financials viewable by authenticated" ON invoices FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
-DROP POLICY IF EXISTS "Financials viewable by authenticated_pi" ON purchase_invoices;
-CREATE POLICY "Financials viewable by authenticated_pi" ON purchase_invoices FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
-DROP POLICY IF EXISTS "Financials viewable by authenticated_je" ON journal_entries;
-CREATE POLICY "Financials viewable by authenticated_je" ON journal_entries FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
-DROP POLICY IF EXISTS "Sales can manage invoices" ON invoices;
-CREATE POLICY "Sales can manage invoices" ON invoices FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
+
+-- حماية القيود المحاسبية (ممنوع على الـ Viewer و البائعين)
+DROP POLICY IF EXISTS "Journal_Entries_Isolation" ON journal_entries;
+CREATE POLICY "Journal_Entries_Isolation" ON journal_entries 
+FOR SELECT TO authenticated 
+USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('viewer', 'demo', 'sales', 'chef'));
 
 -- إدارة العمليات (Create/Update) حسب الدور
 -- المبيعات
-DROP POLICY IF EXISTS "Sales can manage invoice items" ON invoice_items;
-CREATE POLICY "Sales can manage invoice items" ON invoice_items FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
+DROP POLICY IF EXISTS "Invoices_Manage_Policy" ON invoices;
+CREATE POLICY "Invoices_Manage_Policy" ON invoices FOR ALL TO authenticated USING (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
+
+-- السندات (إضافة سياسة صريحة للسندات لضمان التوافق مع SaaS)
+DROP POLICY IF EXISTS "Vouchers_SaaS_Policy" ON receipt_vouchers;
+CREATE POLICY "Vouchers_SaaS_Policy" ON receipt_vouchers FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+DROP POLICY IF EXISTS "Vouchers_Pay_SaaS_Policy" ON payment_vouchers;
+CREATE POLICY "Vouchers_Pay_SaaS_Policy" ON payment_vouchers FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
 
 -- المشتريات
 DROP POLICY IF EXISTS "Purchases can manage POs" ON purchase_invoices;

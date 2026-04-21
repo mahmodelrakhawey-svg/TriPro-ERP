@@ -2,13 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Save, ArrowRight, ArrowLeft, ShieldCheck, Plus, Search, Loader2, Printer, MessageCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom'; 
 import { supabase } from '../../supabaseClient';
 import { CustomerDepositPrint } from './CustomerDepositPrint';
 import { z } from 'zod';
 
 const CustomerDepositForm = () => {
-  const { customers, accounts, addEntry, getSystemAccount, updateVoucher, currentUser } = useAccounting();
+  const { customers, accounts, getSystemAccount, currentUser, addEntry, updateVoucher } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   

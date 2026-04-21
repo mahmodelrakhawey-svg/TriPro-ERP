@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -335,36 +335,23 @@ const PaymentVoucherForm = () => {
 
           if (vErr) throw vErr;
 
-          // 2. تحديث القيد المحاسبي المرتبط لضمان توازن الحسابات
-          if (voucherData?.related_journal_entry_id) {
-              const supplierAcc = getSystemAccount('SUPPLIERS');
-              
-              await supabase.from('journal_entries').update({
-                  transaction_date: formData.date,
-                  description: formData.notes || `سند صرف للمورد`
-              }).eq('id', voucherData.related_journal_entry_id);
-
-              // تحديث سطر المورد (مدين) وسطر الخزينة (دائن) بالمبالغ الجديدة
-              if (supplierAcc) {
-                  // تحديث سطر المورد (المدين)
-                  await supabase.from('journal_lines').update({
-                      account_id: formData.supplierId, // حساب المورد
-                      debit: formData.amount,
-                      cost_center_id: formData.costCenterId || null
-                  }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('debit', 0);
-
-                  // تحديث سطر الخزينة (الدائن)
-                  await supabase.from('journal_lines').update({
-                      account_id: formData.treasuryId,
-                      credit: formData.amount
-                  }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('credit', 0);
-              }
+          // 🚀 الحل الجذري: استدعاء الدالة المحاسبية الموحدة لإعادة ترحيل القيد بشكل صحيح ومتوازن
+          const supplierAcc = getSystemAccount('SUPPLIERS');
+          if (supplierAcc) {
+              await supabase.rpc('approve_payment_voucher', { 
+                  p_voucher_id: currentVoucherId, 
+                  p_debit_account_id: supplierAcc.id 
+              });
           }
 
           showToast('تم تعديل سند الصرف بنجاح ✅', 'success');
-
-          // بعد التعديل، لا نحتاج لإعادة تعيين النموذج بالكامل، فقط تحديث القائمة إذا لزم الأمر
+          
+          // 🚀 إصلاح: التوقف هنا بعد التعديل لمنع تكرار السند
+          setLoading(false);
+          navigate('/payment-vouchers-list');
+          return;
         }
+
 
         if (!isAdmin && !can('treasury', 'create')) {
             showToast('ليس لديك صلاحية إنشاء سندات صرف', 'error');
@@ -400,7 +387,13 @@ const PaymentVoucherForm = () => {
             organization_id: orgId
         }).select().single();
 
-        if (voucherError) throw voucherError;
+        if (voucherError) {
+            // 🛡️ القفل الحديدي: منع تكرار أرقام سندات الصرف
+            if (voucherError.code === '23505') {
+                throw new Error('رقم السند هذا مسجل مسبقاً لهذه الشركة.');
+            }
+            throw voucherError;
+        }
 
         // 1.5. رفع المرفقات (إذا وجدت)
         if (attachments.length > 0 && voucherData) {

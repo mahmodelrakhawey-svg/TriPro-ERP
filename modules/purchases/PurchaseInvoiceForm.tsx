@@ -36,6 +36,20 @@ const PurchaseInvoiceForm = () => {
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
 
+  // Print State
+  const [companySettings, setCompanySettings] = useState<any>(null);
+
+  useEffect(() => {
+    // 🛡️ استخدام RPC هو الحل الوحيد لتجنب خطأ 406 في جميع الشاشات المالية
+    supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
+      if (error) {
+        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+      } else {
+        setCompanySettings(data);
+      }
+    });
+  }, []);
+
   // تصفية حسابات الخزينة والبنوك لسداد الفاتورة
   const treasuryAccounts = useMemo(() => {
     return accounts.filter(a => 
@@ -267,9 +281,7 @@ const PurchaseInvoiceForm = () => {
         // حذف البنود القديمة لاستبدالها
         await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
 
-        // 🛡️ صمام أمان: حذف القيد المحاسبي القديم فوراً عند التعديل لضمان عدم تكرار المبالغ في الأستاذ العام
-        // سيتم إنشاء قيد جديد كلياً بالقيم الجديدة (4560) عند الضغط على "حفظ وترحيل"
-        await supabase.from('journal_entries').delete().eq('related_document_id', editingId).eq('related_document_type', 'purchase_invoice');
+        // 🛡️ ملاحظة: تم نقل منطق تنظيف القيود القديمة ليكون داخل الـ RPC على السيرفر لضمان سلامة البيانات
       } else {
         // إنشاء فاتورة جديدة
         const { data: invoice, error: insertError } = await supabase.from('purchase_invoices').insert(invoiceData).select().single();
@@ -288,9 +300,9 @@ const PurchaseInvoiceForm = () => {
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
       if (itemsError) throw itemsError;
 
-      if (post) {
+      // 🚀 إذا كانت الفاتورة مرحلة أو تم النقر على "حفظ وترحيل"، نستخدم الـ RPC فوراً
+      if (post || invoiceData.status === 'posted') {
         await approvePurchaseInvoice(invoiceId!);
-        setSuccessMessage('تم حفظ فاتورة المشتريات وترحيلها بنجاح!');
       } else {
         setSuccessMessage(editingId ? 'تم تحديث فاتورة المشتريات بنجاح!' : 'تم حفظ فاتورة المشتريات كمسودة بنجاح!');
       }
