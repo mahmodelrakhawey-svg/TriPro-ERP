@@ -1735,7 +1735,13 @@ BEGIN
             EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
         END IF;
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Staff_%I" ON %I;', t, t);
-        EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON %I FOR ALL USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''));', t, t);
+ا        EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON %I FOR ALL TO authenticated USING (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''))
+        ) WITH CHECK (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''))
+        );', t, t);
     END LOOP;
 END $$;
 
@@ -1758,7 +1764,13 @@ BEGIN
         -- حجب كافة المعاملات المالية (فواتير، قيود، رواتب) عن المشاهدين عبر الـ QR
         EXECUTE format('CREATE POLICY "Trans_Select_%I" ON %I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
         EXECUTE format('DROP POLICY IF EXISTS "Trans_Staff_%I" ON %I;', t, t);
-        EXECUTE format('CREATE POLICY "Trans_Staff_%I" ON %I FOR ALL USING (organization_id = public.get_my_org() AND get_my_role() IN (''super_admin'', ''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''));', t, t);
+        EXECUTE format('CREATE POLICY "Trans_Staff_%I" ON %I FOR ALL TO authenticated USING (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+        ) WITH CHECK (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+        );', t, t);
     END LOOP;
 END $$;
 

@@ -130,15 +130,6 @@ SELECT public.recalculate_stock_rpc(id) FROM public.organizations;
 -- مزامنة المتوسط المرجح للأصناف لضمان دقة التكلفة في الفواتير
 UPDATE public.products SET weighted_average_cost = COALESCE(NULLIF(weighted_average_cost, 0), cost, purchase_price, 0);
 
-CREATE OR REPLACE FUNCTION public.get_my_role()
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-  RETURN COALESCE(
-    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
-    (SELECT role FROM public.profiles WHERE id = auth.uid())
-  );
-END; $$;
-
 -- ============================================================
 -- 1. توحيد أسماء أعمدة المرتجعات (Schema Standardization)
 -- ============================================================

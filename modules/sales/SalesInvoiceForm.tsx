@@ -340,7 +340,7 @@ const SalesInvoiceForm = () => {
   }, [productSearchTerm, products]);
 
   const getProductPrice = (product: any) => {
-      const price = product.sales_price || product.price || 0;
+      const price = product.sales_price || 0; // Removed product.price
       if (pricingTier === 'wholesale') return product.wholesalePrice || price;
       if (pricingTier === 'half') return product.halfWholesalePrice || price;
       return price;
@@ -643,7 +643,7 @@ const SalesInvoiceForm = () => {
     // ملاحظة: في هذا التصميم، يتم حفظ الفاتورة كمسودة أولاً.
     // القيد المحاسبي الفعلي وتحديث المخزون يتم عند "اعتماد" الفاتورة من شاشة سجل الفواتير.
     // لذلك، سنقوم فقط بحفظ بيانات الفاتورة بما في ذلك المبلغ المدفوع والخزينة.
-    // تم تعديل دالة الاعتماد في السياق المحاسبي للتعامل مع هذه البيانات.
+    // تم تعديل دالة الاعتماد في السياق المحاسبي للانات.
     try {       
         // Prepare invoice data
         const invoiceData = {

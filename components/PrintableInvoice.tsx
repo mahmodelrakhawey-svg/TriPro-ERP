@@ -11,8 +11,8 @@ interface PrintableInvoiceProps {
 export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoiceProps>(({ order, settings, isProforma }, ref) => {
   if (!order) return <div ref={ref} className="hidden" />;
 
-  const subtotal = order.items.reduce((sum, item) => sum + ((Number(item.price) || 0) * (Number(item.quantity) || 0)), 0);
-  const modifiersTotal = order.items.reduce((sum, item) => sum + (((Number(item.unitPrice) || 0) - (Number(item.price) || 0)) * (Number(item.quantity) || 0)), 0);
+  const subtotal = order.items.reduce((sum, item) => sum + (Number(item.price ?? item.unitPrice ?? 0) * (Number(item.quantity) || 0)), 0);
+  const modifiersTotal = order.items.reduce((sum, item) => sum + ((Number(item.unitPrice || 0) - Number(item.price ?? item.unitPrice ?? 0)) * (Number(item.quantity) || 0)), 0);
   const subtotalWithModifiers = subtotal + modifiersTotal;
   const discountAmount = order.discount?.type === 'fixed' ? (Number(order.discount.value) || 0) : subtotalWithModifiers * ((Number(order.discount?.value) || 0) / 100);
   const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;

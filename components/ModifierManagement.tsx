@@ -38,7 +38,7 @@ const SortableGroup: React.FC<SortableGroupProps> = ({
   newModifiers, 
   setNewModifiers, 
   onUpdateGroup, 
-  onDeleteGroup, 
+  onDeleteGroup,
   onAddModifier, 
   onUpdateModifier, 
   onDeleteModifier 

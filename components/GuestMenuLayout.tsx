@@ -286,9 +286,9 @@ const updateItemNotes = (localId: string, newNotes: string) => {
           isOpen={isModifierModalOpen}
           onClose={() => setIsModifierModalOpen(false)}
           product={{
-            id: productForModifiers.id,
-            name: productForModifiers.name,
-            price: productForModifiers.sales_price,
+            id: productForModifiers.id, // Changed price to sales_price
+            name: productForModifiers.name, // Changed price to sales_price
+            price: productForModifiers.sales_price, // Changed price to sales_price
             cost: productForModifiers.cost || 0
           }}
           onConfirm={handleConfirmModifiers}

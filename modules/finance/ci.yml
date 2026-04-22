@@ -1,0 +1,24 @@
+# ملف فحص استقرار النظام - نسخة المطور المحلي
+name: Local Stability Check
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - name: Install Dependencies
+        run: npm install
+      - name: Run Security Audit
+        run: npm audit
+      - name: Run Unit Tests
+        run: npm test

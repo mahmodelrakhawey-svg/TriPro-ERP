@@ -253,7 +253,11 @@ const PurchaseInvoiceForm = () => {
 
     try {
       const invoiceNumber = formData.invoiceNumber || `PUR-${Date.now().toString().slice(-6)}`;
+      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      if (!userOrgId) throw new Error("تعذر تحديد هوية الشركة.");
+
       const invoiceData = {
+        organization_id: userOrgId,
         invoice_number: invoiceNumber,
         supplier_id: formData.supplierId, // No change
         warehouse_id: formData.warehouseId,
@@ -290,12 +294,12 @@ const PurchaseInvoiceForm = () => {
       }
 
       const itemsToInsert = items.map(item => ({
+        organization_id: userOrgId,
         purchase_invoice_id: invoiceId, // استخدام المعرف الصحيح (سواء جديد أو موجود)
         product_id: item.productId,
         quantity: item.quantity,
         unit_price: item.unitPrice,
-        total: item.total,
-        organization_id: (currentUser as any)?.organization_id
+        total: item.total
       }));
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
       if (itemsError) throw itemsError;

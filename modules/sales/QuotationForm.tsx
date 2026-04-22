@@ -86,7 +86,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
             item.productName = product.name;
             
             // Logic to pick price based on Tier
-            let priceToUse = product.sales_price || product.price || 0; // Default retail
+            let priceToUse = product.sales_price || 0; // Removed product.price
             if (pricingTier === 'wholesale') priceToUse = product.wholesalePrice || product.sales_price || product.price || 0;
             if (pricingTier === 'half') priceToUse = product.halfWholesalePrice || product.sales_price || product.price || 0;
 
@@ -106,7 +106,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
           
           const product = products.find(p => p.id === item.productId);
           if (!product) return item;
-
+          // Removed product.price
           let newPrice = product.sales_price || product.price || 0;
           if (tier === 'wholesale') newPrice = product.wholesalePrice || product.sales_price || product.price || 0;
           if (tier === 'half') newPrice = product.halfWholesalePrice || product.sales_price || product.price || 0;
@@ -153,9 +153,11 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
 
     try {
         let quote;
+        const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
         if (quotationId) {
             // تحديث عرض سعر موجود
             const { data, error } = await supabase.from('quotations').update({
+                organization_id: userOrgId,
                 customer_id: formData.customerId,
                 quotation_date: formData.date,
                 expiry_date: formData.expiryDate,
@@ -174,6 +176,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
             // إنشاء عرض سعر جديد
             const quotationNumber = `QT-${Date.now().toString().slice(-6)}`;
             const { data, error } = await supabase.from('quotations').insert({
+                organization_id: userOrgId,
                 quotation_number: quotationNumber,
                 customer_id: formData.customerId,
                 quotation_date: formData.date,
@@ -191,6 +194,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
 
         // 2. حفظ البنود
         const quoteItems = items.map(item => ({
+            organization_id: userOrgId,
             quotation_id: quote.id,
             product_id: item.productId,
             quantity: item.quantity,

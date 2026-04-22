@@ -1006,7 +1006,6 @@ const PosScreen = () => {
             productId: item.product_id,
             name: item.products?.name,
             quantity: item.quantity,
-            price: item.products?.sales_price || 0,
             unitPrice: item.unit_price || item.price || 0, // ✅ الاعتماد على unit_price أولاً
             notes: item.notes,
             selectedModifiers: item.modifiers,
@@ -1591,8 +1590,8 @@ const PosScreen = () => {
         onClose={() => setModifierTarget(null)}
         product={{ 
             id: modifierTarget.id, 
-            name: modifierTarget.name, 
-            price: modifierTarget.sales_price || modifierTarget.price || 0, // استخدام سعر البيع الأساسي
+            name: modifierTarget.name, // Changed price to sales_price
+            price: modifierTarget.sales_price || 0, // Changed price to sales_price
             cost: (modifierTarget as any).cost || 0 
         }}
         onConfirm={handleConfirmModifiers}

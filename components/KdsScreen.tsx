@@ -11,8 +11,8 @@ type KitchenOrderItem = {
   id: string; // kitchen_order id
   status: 'NEW' | 'PREPARING' | 'READY' | 'SERVED';
   quantity: number;
-  notes: string | null;
-  selectedModifiers?: { name: string; price: number }[];
+  notes: string | null; // Changed to unit_price
+  selectedModifiers?: { name: string; unit_price: number }[];
   product_name: string;
 };
 
@@ -74,7 +74,7 @@ const OrderTicket = React.memo(({ ticket, onUpdateStatus, borderColor }: { ticke
                 {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                   <div className="mt-1 ml-9 flex flex-wrap gap-1">
                     {item.selectedModifiers.map((mod, idx) => (
-                      <span key={idx} className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-sm">
+                      <span key={idx} className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-sm"> {/* Changed to unit_price */}
                         {mod.name}
                       </span>
                     ))}
@@ -153,8 +153,8 @@ const KdsScreen = () => {
             id, quantity, notes, modifiers,
             products!inner (name),
             orders!inner (
-              id, order_number, status, created_at, 
-              table_sessions (restaurant_tables (name))
+              id, order_number, status, created_at, order_type,
+              table_sessions!left (restaurant_tables (name))
             )
           )
         `)

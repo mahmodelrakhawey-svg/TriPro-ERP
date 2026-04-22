@@ -38,7 +38,9 @@ const SalesReturnForm = () => {
     setIsSearching(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = (currentUser as any)?.organization_id || 
+                       (currentUser as any)?.user_metadata?.org_id ||
+                       (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
 
       const { data: invoice, error } = await supabase
         .from('invoices')
@@ -63,7 +65,7 @@ const SalesReturnForm = () => {
             productId: item.product_id,
             name: item.products?.name,
             quantity: returnPartialQuantities ? 0 : item.quantity, // هنا يتم ضبط الكمية بناءً على خيار الإرجاع الجزئي
-            price: item.unit_price || item.price,
+            unitPrice: item.unit_price, // Changed to unitPrice
             maxQuantity: item.quantity // نحتفظ بالكمية الأصلية هنا
         }));
         setItems(newItems);
@@ -88,7 +90,7 @@ const SalesReturnForm = () => {
   };
 
   const addItem = (product: any) => {
-    setItems([...items, { productId: product.id, name: product.name, quantity: 1, price: product.sales_price || product.price || 0 }]);
+    setItems([...items, { productId: product.id, name: product.name, quantity: 1, unitPrice: product.sales_price || 0 }]); // Changed to unitPrice
     setProductSearch('');
   };
 
@@ -99,12 +101,12 @@ const SalesReturnForm = () => {
     if (field === 'quantity') {
         const item = newItems[index];
         // التحقق من الكمية القصوى إذا كانت محددة (في حالة الاستيراد من فاتورة)
-        if (item.maxQuantity !== undefined && Number(value) > item.maxQuantity) {
+        if (item.maxQuantity !== undefined && Number(value) > item.maxQuantity) { // Changed to unitPrice
              showToast(`لا يمكنك إرجاع كمية أكبر من ${item.maxQuantity}`, 'warning');
              processedValue = item.maxQuantity;
         }
     }
-
+    // Changed to unitPrice
     newItems[index][field] = processedValue;
     setItems(newItems);
   };
@@ -115,7 +117,7 @@ const SalesReturnForm = () => {
     }
   };
 
-  const calculateTotal = () => items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+  const calculateTotal = () => items.reduce((sum, item) => sum + (item.quantity * item.unitPrice), 0); // Changed to unitPrice
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -124,7 +126,7 @@ const SalesReturnForm = () => {
         customerId: z.string().min(1, 'الرجاء اختيار العميل'),
         warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
         date: z.string().min(1, 'التاريخ مطلوب'),
-        items: z.array(z.object({
+        items: z.array(z.object({ // Changed to unitPrice
             productId: z.string().min(1, 'الرجاء اختيار المنتج'),
             quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
             price: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
@@ -149,7 +151,9 @@ const SalesReturnForm = () => {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = (currentUser as any)?.organization_id || 
+                       (currentUser as any)?.user_metadata?.org_id ||
+                       (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
 
       if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
 
@@ -185,10 +189,10 @@ const SalesReturnForm = () => {
         await supabase.from('sales_return_items').insert({
           organization_id: userOrgId,
           sales_return_id: returnDoc.id,
-          product_id: item.productId,
-          quantity: item.quantity,
-          unit_price: item.price, // تم التغيير ليطابق 'unit_price' الموحد في قاعدة البيانات
-          total: item.quantity * item.price
+          product_id: item.productId, // Changed to unitPrice
+          quantity: item.quantity, // Changed to unitPrice
+          unit_price: item.unitPrice, // Changed to unitPrice
+          total: item.quantity * item.unitPrice // Changed to unitPrice
         });
       }
 
@@ -321,9 +325,9 @@ const SalesReturnForm = () => {
             {items.map((item, idx) => (
               <tr key={idx} className="border-b">
                 <td className="p-3">{item.name}</td>
-                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td>
-                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.price} onChange={e => updateItem(idx, 'price', Number(e.target.value))} /></td>
-                <td className="p-3 font-bold">{(item.quantity * item.price).toLocaleString()}</td>
+                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td> {/* Changed to unitPrice */}
+                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} /></td> {/* Changed to unitPrice */}
+                <td className="p-3 font-bold">{(item.quantity * item.unitPrice).toLocaleString()}</td> {/* Changed to unitPrice */}
                 <td className="p-3"><button onClick={() => removeItem(idx)} className="text-red-500"><Trash2 size={18} /></button></td>
               </tr>
             ))}

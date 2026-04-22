@@ -15,11 +15,15 @@ BEGIN
         IF func_name IN (
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
             'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
-            'get_my_role', 'get_my_org', 'is_admin', 'get_dashboard_stats', 'refresh_saas_schema'
+            'get_dashboard_stats', 'refresh_saas_schema',
+            'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc',
+            'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report',
+            'process_wastage', 'get_item_profit_report'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
     END LOOP;
+
 END $$;
 
 -- 🛠️ توحيد دوال الهوية (Core Identity)
@@ -809,6 +813,7 @@ BEGIN
     )
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
+        COALESCE((SELECT SUM(delivery_fee) FROM public.delivery_orders WHERE order_id IN (SELECT id FROM shift_orders)), 0) as total_delivery_fees,
         -- محرك التكلفة المطور: يبحث في تكلفة البند (التي أصبحت مرتبطة بـ BOM الآن) ثم باقي المصادر
         COALESCE((
             SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id AND organization_id = v_shift.organization_id LIMIT 1)))
@@ -820,6 +825,7 @@ BEGIN
     INTO v_summary
     FROM shift_orders;
 
+    -- تحديث حساب الفرق ليشمل رسوم التوصيل المحصلة
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
     v_actual_cash_collected := v_summary.cash_total + v_diff;
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
@@ -832,6 +838,7 @@ BEGIN
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
     VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org()), true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
+    IF v_summary.total_delivery_fees > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.total_delivery_fees, 'إيراد رسوم توصيل الوردية', v_shift.organization_id); END IF;
     IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
     IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
     IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
@@ -2034,4 +2041,5 @@ BEGIN
     );
 END; $$;
 
+NOTIFY pgrst, 'reload config';
 NOTIFY pgrst, 'reload config';

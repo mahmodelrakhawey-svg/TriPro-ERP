@@ -174,26 +174,38 @@ CREATE POLICY "Basic data viewable by authenticated_supp" ON suppliers FOR SELEC
 DROP POLICY IF EXISTS "Basic data viewable by authenticated_acc" ON accounts;
 CREATE POLICY "Basic data viewable by authenticated_acc" ON accounts FOR SELECT TO authenticated USING (public.get_my_role() = 'super_admin' OR organization_id = public.get_my_org());
 
--- سياسة المرفقات (ضمان رؤية مرفقات الشركة فقط)
-CREATE POLICY "Attachments_SaaS_Policy" ON receipt_voucher_attachments FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+-- سياسة المرفقات الشاملة (ضمان رؤية مرفقات الشركة فقط لكافة أنواع السندات)
+DO $$ 
+DECLARE t text;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments'] LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Attachments_SaaS_Policy" ON public.%I;', t);
+        EXECUTE format('CREATE POLICY "Attachments_SaaS_Policy" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t);
+    END LOOP;
+END $$;
 
 -- إدارة البيانات الأساسية: السوبر أدمن لديه صلاحية مطلقة، والموظفون محصورون بمنظماتهم
-DROP POLICY IF EXISTS "Staff can manage products" ON products;
-CREATE POLICY "Staff can manage products" ON products FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'purchases', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage restaurant_tables" ON restaurant_tables;
-CREATE POLICY "Staff can manage restaurant_tables" ON restaurant_tables FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage menu_categories" ON menu_categories;
-CREATE POLICY "Staff can manage menu_categories" ON menu_categories FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage modifier_groups" ON modifier_groups;
-CREATE POLICY "Staff can manage modifier_groups" ON modifier_groups FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage modifiers" ON modifiers;
-CREATE POLICY "Staff can manage modifiers" ON modifiers FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage table_sessions" ON table_sessions;
-CREATE POLICY "Staff can manage table_sessions" ON table_sessions FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage orders" ON orders;
-CREATE POLICY "Staff can manage orders" ON orders FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage order_items" ON order_items;
-CREATE POLICY "Staff can manage order_items" ON order_items FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
+DO $$ 
+DECLARE 
+    t text;
+    basic_tables text[] := ARRAY['products', 'item_categories', 'warehouses', 'restaurant_tables', 'menu_categories', 'modifier_groups', 'modifiers', 'table_sessions', 'orders', 'order_items', 'customers', 'suppliers', 'accounts', 'assets', 'employees'];
+BEGIN 
+    FOREACH t IN ARRAY basic_tables LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Policy_Staff_%I" ON public.%I;', t, t);
+        -- حذف المسميات القديمة لضمان عدم التضارب
+        EXECUTE format('DROP POLICY IF EXISTS "Staff can manage %I" ON public.%I;', t, t);
+        EXECUTE format('DROP POLICY IF EXISTS "Admins/Accountants manage accounts" ON public.%I;', t);
+        
+        EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON public.%I FOR ALL TO authenticated USING (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''))
+        ) WITH CHECK (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''))
+        );', t, t);
+    END LOOP;
+END $$;
+
 -- إضافة سياسة إدارة المطبخ المفقودة
 DROP POLICY IF EXISTS "Staff can manage kitchen_orders" ON kitchen_orders;
 CREATE POLICY "Staff can manage kitchen_orders" ON kitchen_orders 
@@ -201,17 +213,30 @@ FOR ALL TO authenticated
 USING (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()))
 WITH CHECK (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()));
 
-DROP POLICY IF EXISTS "Staff can manage customers" ON customers;
-CREATE POLICY "Staff can manage customers" ON customers FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'sales', 'accountant')));
-DROP POLICY IF EXISTS "Staff can manage suppliers" ON suppliers;
-CREATE POLICY "Staff can manage suppliers" ON suppliers FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'purchases', 'accountant')));
-DROP POLICY IF EXISTS "Admins/Accountants manage accounts" ON accounts;
-CREATE POLICY "Admins/Accountants manage accounts" ON accounts FOR ALL TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer')) WITH CHECK ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer'));
-
 -- 4. العمليات المالية (Invoices, Journals, Vouchers)
 -- السوبر أدمن يرى كل العمليات للدعم، والمستخدم يرى عمليات شركته فقط
 DROP POLICY IF EXISTS "Financials viewable by authenticated" ON invoices;
 CREATE POLICY "Financials viewable by authenticated" ON invoices FOR SELECT TO authenticated USING (get_my_role() = 'super_admin' OR organization_id = get_my_org());
+
+DO $$ 
+DECLARE 
+    t text;
+    trans_tables text[] := ARRAY['invoices', 'invoice_items', 'purchase_invoices', 'purchase_invoice_items', 'journal_entries', 'journal_lines', 'receipt_vouchers', 'payment_vouchers', 'cheques', 'credit_notes', 'debit_notes', 'payrolls', 'payroll_items', 'quotations', 'quotation_items', 'purchase_orders', 'purchase_order_items'];
+BEGIN 
+    FOREACH t IN ARRAY trans_tables LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Trans_Staff_%I" ON public.%I;', t, t);
+        -- تنظيف السياسات القديمة
+        EXECUTE format('DROP POLICY IF EXISTS "%I_Manage_Policy" ON public.%I;', t, t);
+        
+        EXECUTE format('CREATE POLICY "Trans_Staff_%I" ON public.%I FOR ALL TO authenticated USING (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+        ) WITH CHECK (
+            public.get_my_role() = ''super_admin'' 
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+        );', t, t);
+    END LOOP;
+END $$;
 
 -- حماية القيود المحاسبية (ممنوع على الـ Viewer و البائعين)
 DROP POLICY IF EXISTS "Journal_Entries_Isolation" ON journal_entries;
@@ -238,17 +263,17 @@ CREATE POLICY "Purchases can manage PO items" ON purchase_invoice_items FOR ALL 
 
 -- المحاسبة (القيود والسندات)
 DROP POLICY IF EXISTS "Accountants manage journals" ON journal_entries;
-CREATE POLICY "Accountants manage journals" ON journal_entries FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant')));
+CREATE POLICY "Accountants manage journals" ON journal_entries FOR ALL TO authenticated USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant'))) WITH CHECK (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant')));
 DROP POLICY IF EXISTS "Accountants manage journal lines" ON journal_lines;
-CREATE POLICY "Accountants manage journal lines" ON journal_lines FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant')));
+CREATE POLICY "Accountants manage journal lines" ON journal_lines FOR ALL TO authenticated USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant'))) WITH CHECK (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant')));
 DROP POLICY IF EXISTS "Accountants manage vouchers" ON receipt_vouchers;
-CREATE POLICY "Accountants manage vouchers" ON receipt_vouchers FOR ALL USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant', 'sales')));
+CREATE POLICY "Accountants manage vouchers" ON receipt_vouchers FOR ALL TO authenticated USING (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant', 'sales'))) WITH CHECK (get_my_role() = 'super_admin' OR (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager', 'accountant', 'sales')));
 
 -- 5. عمليات المخزون (Inventory Operations)
 -- تفعيل السياسات لجداول الجرد والتسويات التي سببت الخطأ
 DO $$ 
 DECLARE
-    inv_tables text[] := ARRAY['stock_adjustments', 'stock_adjustment_items', 'inventory_counts', 'inventory_count_items', 'stock_transfers', 'stock_transfer_items', 'opening_inventories', 'work_order_material_usage'];
+    inv_tables text[] := ARRAY['stock_adjustments', 'stock_adjustment_items', 'inventory_counts', 'inventory_count_items', 'stock_transfers', 'stock_transfer_items', 'opening_inventories', 'work_order_material_usage', 'bill_of_materials'];
     t text;
 BEGIN
     FOREACH t IN ARRAY inv_tables LOOP
@@ -347,7 +372,9 @@ DECLARE
         'inventory_counts', 'inventory_count_items', 'stock_transfers', 'stock_transfer_items',
         'opening_inventories', 'restaurant_tables', 'menu_categories', 'table_sessions',
         'orders', 'order_items', 'kitchen_orders', 'modifier_groups', 'modifiers', 'order_item_modifiers',
-        'shifts', 'payments', 'delivery_orders'
+        'shifts', 'payments', 'delivery_orders',
+        'assets', 'employees', 'payrolls', 'payroll_items', 'employee_advances',
+        'credit_notes', 'debit_notes', 'work_orders', 'work_order_costs', 'notifications'
     ];
 BEGIN
     FOREACH tbl IN ARRAY all_system_tables LOOP

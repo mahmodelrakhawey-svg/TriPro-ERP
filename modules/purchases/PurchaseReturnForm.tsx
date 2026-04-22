@@ -87,10 +87,14 @@ const PurchaseReturnForm = () => {
 
     setSaving(true);
     try {
+      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      if (!userOrgId) throw new Error("تعذر تحديد هوية الشركة. يرجى إعادة تسجيل الدخول.");
+
       const returnNumber = formData.returnNumber || `PRET-${Date.now().toString().slice(-6)}`;
 
       // 1. Insert Purchase Return Header
       const { data: returnHeader, error: headerError } = await supabase.from('purchase_returns').insert({
+        organization_id: userOrgId,
         return_number: returnNumber,
         supplier_id: formData.supplierId,
         original_invoice_id: formData.originalInvoiceId || null,
@@ -99,70 +103,31 @@ const PurchaseReturnForm = () => {
         total_amount: totalAmount,
         tax_amount: taxAmount,
         notes: formData.notes,
-        status: 'posted', // Save as posted directly since we handle logic here
+        status: 'draft', // نحفظه كمسودة ثم نرحله عبر RPC لضمان سلامة المخزون
         created_by: currentUser?.id
       }).select().single();
 
       if (headerError) throw headerError;
 
-      // 2. Insert Items and Update Stock
-      for (const item of items) {
-        // Insert Item
-        await supabase.from('purchase_return_items').insert({
-            purchase_return_id: returnHeader.id, // تم التحديث ليتوافق مع قاعدة البيانات
-            product_id: item.productId,
-            quantity: item.quantity,
-            unit_price: item.price,
-            total: item.total
-        });
+      // 2. Insert Items (Bulk Insert لسرعة الأداء وتوافق RLS)
+      const itemsToInsert = items.map(item => ({
+        organization_id: userOrgId,
+        purchase_return_id: returnHeader.id,
+        product_id: item.productId,
+        quantity: item.quantity,
+        unit_price: item.price,
+        total: item.total
+      }));
 
-        // Update Stock (Decrease)
-        const product = products.find(p => p.id === item.productId);
-        if (product) {
-            const newStock = (product.stock || 0) - Number(item.quantity);
-            const currentWhStock = product.warehouse_stock || {};
-            const newWhStock = { ...currentWhStock, [formData.warehouseId]: (Number(currentWhStock[formData.warehouseId]) || 0) - Number(item.quantity) };
-            
-            await supabase.from('products').update({ 
-                stock: newStock,
-                warehouse_stock: newWhStock
-            }).eq('id', item.productId);
-        }
-      }
+      const { error: itemsError } = await supabase.from('purchase_return_items').insert(itemsToInsert);
+      if (itemsError) throw itemsError;
 
-      // 3. Create Journal Entry (Frontend Logic)
-      // Debit: Supplier (201)
-      // Credit: Inventory (103)
-      // Credit: VAT Input (10204) - Reversing input tax
-
-      // استخدام الحسابات من النظام بدلاً من الأكواد الثابتة
-      const supplierAcc = getSystemAccount('SUPPLIERS');
-      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY');
-      const vatInputAcc = getSystemAccount('VAT_INPUT');
-
-      if (supplierAcc && inventoryAcc) {
-          const lines = [
-              { accountId: supplierAcc.id, debit: totalAmount, credit: 0, description: `مرتجع مشتريات - ${returnNumber}` }
-          ];
-
-          // Inventory Credit (Net Amount)
-          lines.push({ accountId: inventoryAcc.id, debit: 0, credit: subtotal, description: `إخراج مخزون - مرتجع ${returnNumber}` });
-
-          // VAT Credit (Tax Amount) - Reverse Input Tax
-          if (taxAmount > 0 && vatInputAcc) {
-              lines.push({ accountId: vatInputAcc.id, debit: 0, credit: taxAmount, description: `عكس ضريبة المدخلات` });
-          }
-
-          await addEntry({
-              date: formData.date,
-              description: `مرتجع مشتريات للمورد ${suppliers.find(s => s.id === formData.supplierId)?.name}`,
-              reference: returnNumber,
-              status: 'posted',
-              lines: lines as any[]
-          });
-      } else {
-          showToast('تنبيه: تم حفظ المرتجع ولكن لم يتم إنشاء القيد لعدم العثور على الحسابات الأساسية (الموردين, المخزون, الضريبة).', 'warning');
-      }
+      // 3. استدعاء المحرك المحاسبي الموحد (RPC) لتحديث المخزون والقيود آلياً
+      const { error: rpcError } = await supabase.rpc('approve_purchase_return', { 
+        p_return_id: returnHeader.id 
+      });
+      
+      if (rpcError) throw rpcError;
 
       showToast('تم حفظ مرتجع المشتريات وتحديث المخزون وإنشاء القيد بنجاح ✅', 'success');
       setFormData(prev => ({ ...prev, supplierId: '', originalInvoiceId: '', returnNumber: '', notes: '' }));

@@ -20,17 +20,17 @@ const PurchaseOrderForm = () => {
   const [productSearch, setProductSearch] = useState('');
 
   const addItem = (product: any) => {
-    setItems([...items, { productId: product.id, name: product.name, quantity: 1, price: product.purchase_price || product.cost || 0 }]);
+    setItems([...items, { productId: product.id, name: product.name, quantity: 1, unitPrice: product.purchase_price || 0 }]); // Changed to unitPrice
     setProductSearch('');
   };
 
   const updateItem = (index: number, field: string, value: any) => {
     const newItems = [...items];
-    newItems[index][field] = value;
+    newItems[index][field] = value; // Changed to unitPrice
     setItems(newItems);
   };
 
-  const calculateTotal = () => items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
+  const calculateTotal = () => items.reduce((sum, item) => sum + (item.quantity * (item.unitPrice || 0)), 0);
 
   const handleSave = async () => {
     // التحقق باستخدام Zod
@@ -42,7 +42,7 @@ const PurchaseOrderForm = () => {
         items: items.map(i => ({
             productId: i.productId,
             quantity: i.quantity,
-            unitPrice: i.price
+            unitPrice: i.unitPrice
         })),
         notes: formData.notes
     };
@@ -62,6 +62,9 @@ const PurchaseOrderForm = () => {
     }
 
     try {
+      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      if (!userOrgId) throw new Error("تعذر تحديد المنظمة. يرجى إعادة تسجيل الدخول.");
+
       const total = calculateTotal();
       const taxRate = settings.enableTax ? (settings.vatRate ? settings.vatRate / 100 : 0.15) : 0;
       const tax = total * taxRate;
@@ -70,6 +73,7 @@ const PurchaseOrderForm = () => {
 
       // 1. حفظ أمر الشراء
       const { data: order, error: orderError } = await supabase.from('purchase_orders').insert({
+        organization_id: userOrgId,
         supplier_id: formData.supplierId,
         order_number: orderNumber,
         order_date: formData.date,
@@ -84,11 +88,12 @@ const PurchaseOrderForm = () => {
 
       // 2. حفظ البنود
       const orderItems = items.map(item => ({
+          organization_id: userOrgId,
           order_id: order.id,
           product_id: item.productId,
           quantity: item.quantity,
-          unit_price: item.price,
-          total: item.quantity * item.price
+          unit_price: item.unitPrice,
+          total: item.quantity * item.unitPrice
       }));
 
       const { error: itemsError } = await supabase.from('purchase_order_items').insert(orderItems);
@@ -170,8 +175,8 @@ const PurchaseOrderForm = () => {
               <tr key={idx} className="border-b">
                 <td className="p-3">{item.name}</td>
                 <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td>
-                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.price} onChange={e => updateItem(idx, 'price', Number(e.target.value))} /></td>
-                <td className="p-3 font-bold">{(item.quantity * item.price).toLocaleString()}</td>
+                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} /></td> {/* Changed to unitPrice */}
+                <td className="p-3 font-bold">{(item.quantity * (item.unitPrice || 0)).toLocaleString()}</td>
                 <td className="p-3"><button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={18} /></button></td>
               </tr>
             ))}
