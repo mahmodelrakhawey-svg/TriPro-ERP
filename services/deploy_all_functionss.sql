@@ -397,7 +397,17 @@ BEGIN
     VALUES (v_invoice.invoice_date, 'فاتورة مبيعات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'invoice', true) RETURNING id INTO v_journal_id;
 
     -- 6. إنشاء أسطر القيد
-    IF (v_invoice.total_amount - COALESCE(v_invoice.paid_amount, 0)) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_customer_acc_id, (v_invoice.total_amount - COALESCE(v_invoice.paid_amount, 0)), 0, 'استحقاق عميل', v_org_id); END IF;
+    IF (v_invoice.total_amount - COALESCE(v_invoice.paid_amount, 0)) != 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (
+            v_journal_id, 
+            v_customer_acc_id, 
+            CASE WHEN (v_invoice.total_amount - v_invoice.paid_amount) > 0 THEN (v_invoice.total_amount - v_invoice.paid_amount) ELSE 0 END,
+            CASE WHEN (v_invoice.total_amount - v_invoice.paid_amount) < 0 THEN ABS(v_invoice.total_amount - v_invoice.paid_amount) ELSE 0 END,
+            CASE WHEN (v_invoice.total_amount - v_invoice.paid_amount) > 0 THEN 'استحقاق عميل' ELSE 'فائض تحصيل (رصيد دائن)' END,
+            v_org_id
+        ); 
+    END IF;
     IF COALESCE(v_invoice.paid_amount, 0) > 0 THEN IF v_treasury_acc_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد حساب الخزينة للمبلغ المدفوع'; END IF; INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_treasury_acc_id, COALESCE(v_invoice.paid_amount, 0), 0, 'تحصيل نقدي', v_org_id); END IF;
     IF COALESCE(v_invoice.discount_amount, 0) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_discount_acc_id, COALESCE(v_invoice.discount_amount, 0), 0, 'خصم ممنوح', v_org_id); END IF;
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, v_invoice.subtotal, 'إيراد مبيعات', v_org_id);

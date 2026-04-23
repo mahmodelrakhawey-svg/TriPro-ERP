@@ -112,10 +112,17 @@ BEGIN
     ) RETURNING id INTO v_journal_id;
 
     -- هـ. إنشاء أسطر القيد (بالعملة المحلية)
-    -- 1. المدين: العميل (المبلغ المتبقي)
-    IF (v_total_amount_base - v_paid_amount_base) > 0 THEN
+    -- 1. العميل (مدين بالاستحقاق أو دائن بالفائض)
+    IF (v_total_amount_base - v_paid_amount_base) != 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_journal_id, v_customer_acc_id, (v_total_amount_base - v_paid_amount_base), 0, 'استحقاق عميل - ' || v_invoice.invoice_number, v_org_id);
+        VALUES (
+            v_journal_id, 
+            v_customer_acc_id, 
+            CASE WHEN (v_total_amount_base - v_paid_amount_base) > 0 THEN (v_total_amount_base - v_paid_amount_base) ELSE 0 END,
+            CASE WHEN (v_total_amount_base - v_paid_amount_base) < 0 THEN ABS(v_total_amount_base - v_paid_amount_base) ELSE 0 END,
+            CASE WHEN (v_total_amount_base - v_paid_amount_base) > 0 THEN 'استحقاق عميل - ' || v_invoice.invoice_number ELSE 'فائض تحصيل - ' || v_invoice.invoice_number END, 
+            v_org_id
+        );
     END IF;
 
     -- 2. المدين: الخزينة (المبلغ المدفوع)
