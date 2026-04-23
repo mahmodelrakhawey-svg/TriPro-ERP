@@ -1,5 +1,5 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
--- 🌟 النسخة الشاملة الموحدة (Version 22.0 - Supplier UUID Enforcement)
+-- 🌟 النسخة الشاملة الموحدة (Version 23.0 - POS Shift Fix)
 
 -- ================================================================
 -- 0. تنظيف شامل لتجنب تعارض التوقيعات (يجب أن يكون في البداية)
@@ -12,9 +12,10 @@ BEGIN
     FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
     LOOP
         func_name := split_part(func_signature, '(', 1);
-        IF func_name IN (
+        -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح
+        IF REPLACE(func_name, 'public.', '') IN (
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
-            'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
+            'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note', 'start_shift',
             'get_dashboard_stats', 'refresh_saas_schema',
             'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc',
             'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report',
@@ -109,6 +110,68 @@ END $$;
 -- ضمان وجود عمود organization_id في الجداول الأساسية
 ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
 ALTER TABLE public.role_permissions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
+-- ================================================================
+-- 🏗️ نظام إدارة الورديات المطور (Enhanced Shift Management)
+-- ================================================================
+
+-- 🛡️ حذف يدوي صريح لضمان عدم حدوث خطأ 42P13 عند تغيير نوع البيانات المعاد
+DROP FUNCTION IF EXISTS public.start_shift(uuid, numeric, boolean);
+DROP FUNCTION IF EXISTS public.get_active_shift(uuid);
+
+-- 1. دالة بدء الوردية - مطورة لتعيد السجل الكامل لضمان تحديث الـ State في React
+CREATE OR REPLACE FUNCTION public.start_shift(
+    p_user_id uuid, 
+    p_opening_balance numeric, 
+    p_resume_existing boolean DEFAULT false
+)
+RETURNS public.shifts 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+AS $$
+DECLARE 
+    v_existing_shift public.shifts; 
+    v_new_shift public.shifts;
+    v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    -- صمام أمان: منع إنشاء وردية بدون منظمة
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من تسجيل الدخول بشكل صحيح.';
+    END IF;
+
+    -- التحقق من وجود وردية مفتوحة
+    SELECT * INTO v_existing_shift 
+    FROM public.shifts 
+    WHERE user_id = p_user_id AND end_time IS NULL AND organization_id = v_org_id 
+    LIMIT 1;
+
+    IF v_existing_shift.id IS NOT NULL AND p_resume_existing THEN 
+        RETURN v_existing_shift; 
+    END IF;
+
+    IF v_existing_shift.id IS NOT NULL THEN 
+        RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم. يرجى إغلاقها أولاً.'; 
+    END IF;
+
+    -- إنشاء وردية جديدة
+    INSERT INTO public.shifts (user_id, start_time, opening_balance, organization_id, status)
+    VALUES (p_user_id, now(), p_opening_balance, v_org_id, 'OPEN') 
+    RETURNING * INTO v_new_shift;
+
+    RETURN v_new_shift;
+END; $$;
+
+-- 2. دالة التحقق من الوردية النشطة (Gatekeeper RPC)
+CREATE OR REPLACE FUNCTION public.get_active_shift(p_user_id uuid)
+RETURNS public.shifts 
+LANGUAGE plpgsql 
+SECURITY DEFINER AS $$
+BEGIN
+    RETURN (SELECT * FROM public.shifts 
+            WHERE user_id = p_user_id AND end_time IS NULL AND organization_id = public.get_my_org() 
+            LIMIT 1);
+END; $$;
 
 -- 🛠️ ضبط القيم الافتراضية التلقائية للمنظمة (SaaS Auto-Pilot)
 ALTER TABLE public.invoices ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
@@ -209,6 +272,7 @@ BEGIN
     LOOP
         -- Extract just the function name from the signature (e.g., "approve_invoice(uuid)" -> "approve_invoice")
         func_name := split_part(func_signature, '(', 1);
+        func_name := REPLACE(func_name, 'public.', '');
 
         -- List of functions defined in this file that should be dropped before re-creation
         IF func_name IN (
@@ -216,7 +280,7 @@ BEGIN
             'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
             'create_restaurant_order', 'run_payroll_rpc', 'handle_new_user', 'check_user_limit',
             'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
-            'get_product_recipe_cost', 'recalculate_stock_rpc', 'get_my_role', 'get_my_org', 'check_db_sync', 'is_admin',
+            'get_product_recipe_cost', 'recalculate_stock_rpc', 'run_period_depreciation', 'get_my_role', 'get_my_org', 'check_db_sync', 'is_admin',
             'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'get_customer_balance',
             'get_current_company_settings',
             'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema', 
@@ -362,7 +426,8 @@ BEGIN
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
     DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice';
 
-    v_org_id := COALESCE(v_invoice.organization_id, public.get_my_org());
+    -- 🛡️ جلب المنظمة من الفاتورة مباشرة لضمان نجاح الترحيل لليوزر العالمي
+    v_org_id := COALESCE(v_invoice.organization_id, (SELECT organization_id FROM public.suppliers WHERE id = v_invoice.supplier_id));
     IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة للفاتورة.'; END IF;
 
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
@@ -473,11 +538,11 @@ BEGIN
     SELECT * INTO v_return FROM public.purchase_returns WHERE id = p_return_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'المرتجع غير موجود'; END IF;
 
-    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
-    DELETE FROM public.journal_entries WHERE related_document_id = p_return_id AND related_document_type = 'purchase_return';
-    
-    v_org_id := public.get_my_org();
-    IF v_return.organization_id != v_org_id THEN RAISE EXCEPTION 'تحذير أمني'; END IF;
+    -- 🛡️ استخراج المنظمة من المستند نفسه لضمان عملها للأدمن والسوبر أدمن بشكل مستقل عن الجلسة
+    v_org_id := v_return.organization_id;
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'معرف المنظمة مفقود في مستند المرتجع'; END IF;
+
+    DELETE FROM public.journal_entries WHERE related_document_id = p_return_id AND related_document_type = 'purchase_return' AND organization_id = v_org_id;
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_acc_inv := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
@@ -804,6 +869,10 @@ DECLARE
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
+
+    -- 🛡️ ضمان مبدأ Idempotency: حذف أي قيد إغلاق قديم لهذه الوردية منعاً لتكرار المبالغ في الأستاذ العام
+    DELETE FROM public.journal_entries WHERE related_document_id = p_shift_id AND related_document_type = 'shift';
+
     WITH shift_orders AS (
         SELECT id, subtotal, total_tax FROM public.orders
         WHERE (user_id = v_shift.user_id OR user_id IS NULL)
@@ -814,25 +883,48 @@ BEGIN
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
         COALESCE((SELECT SUM(delivery_fee) FROM public.delivery_orders WHERE order_id IN (SELECT id FROM shift_orders)), 0) as total_delivery_fees,
-        -- محرك التكلفة المطور: يبحث في تكلفة البند (التي أصبحت مرتبطة بـ BOM الآن) ثم باقي المصادر
+        -- محرك التكلفة المطور: يجمع تكلفة المكونات من BOM وتكلفة الأصناف المخزنية المباشرة
         COALESCE((
-            SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id AND organization_id = v_shift.organization_id LIMIT 1)))
-            FROM public.order_items itms 
-            WHERE itms.order_id IN (SELECT id FROM shift_orders)
+            SELECT SUM(item_cost) FROM (
+                -- أ. حساب تكلفة الأصناف التي لها وصفات (مثل الوجبات) - نجمع كافة المكونات
+                SELECT
+                    COALESCE(bom.quantity_required, 0) * oi.quantity * COALESCE(ing.weighted_average_cost, ing.cost, ing.purchase_price, 0) as item_cost
+                FROM public.order_items oi
+                JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id
+                JOIN public.products ing ON bom.raw_material_id = ing.id -- المكونات الخام
+                WHERE oi.order_id IN (SELECT id FROM shift_orders)
+                AND oi.organization_id = v_shift.organization_id
+
+                UNION ALL
+
+                -- ب. حساب تكلفة الأصناف المخزنية المباشرة (مثل المشروبات) التي ليس لها وصفة
+                SELECT
+                    oi.quantity * COALESCE(prod.weighted_average_cost, prod.cost, prod.purchase_price, 0) as item_cost
+                FROM public.order_items oi
+                JOIN public.products prod ON oi.product_id = prod.id
+                WHERE oi.order_id IN (SELECT id FROM shift_orders)
+                AND oi.organization_id = v_shift.organization_id
+                AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = prod.id)
+            ) as cogs_sub
         ), 0) as cost_total,
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
     INTO v_summary
     FROM shift_orders;
 
+    -- تحديد المنظمة بذكاء (الهوية الهيكلية الموحدة)
+    v_shift.organization_id := COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org());
+
     -- تحديث حساب الفرق ليشمل رسوم التوصيل المحصلة
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
     v_actual_cash_collected := v_summary.cash_total + v_diff;
+
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
+
     v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
     v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
     v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_shift.organization_id LIMIT 1));
-    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT_OUTPUT')::uuid, (v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
     v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
@@ -924,11 +1016,13 @@ DECLARE
     v_item jsonb; v_je_id uuid; v_mappings jsonb; v_user_id uuid; v_payroll_item_id uuid;
     v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
     v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
+    v_fixed_allowances numeric := 0; v_monthly_additions numeric := 0; v_monthly_deductions numeric := 0;
 BEGIN
-    v_user_id := auth.uid();
-    v_org_id := COALESCE((SELECT organization_id FROM public.profiles WHERE id = v_user_id LIMIT 1), public.get_my_org());
+    -- 🛡️ جلب المنظمة من دالة الهوية الموحدة لضمان التوافق مع الأدمن والسوبر أدمن
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة، يرجى إعادة تسجيل الدخول.'; END IF;
 
-    -- 🛡️ منع تكرار صرف الرواتب لنفس الشهر والسنة لهذه المنظمة لضمان استقرار الدفاتر
+    -- 🛡️ حماية SaaS: منع تكرار صرف الرواتب لنفس الفترة داخل نفس الشركة
     IF EXISTS (SELECT 1 FROM public.payrolls WHERE payroll_month = p_month AND payroll_year = p_year AND organization_id = v_org_id AND status = 'paid') THEN
         RAISE EXCEPTION 'تم اعتماد وصرف مسير الرواتب لشهر (%) سنة (%) مسبقاً لهذه المنظمة.', p_month, p_year;
     END IF;
@@ -952,9 +1046,23 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p_items)) THEN RAISE EXCEPTION 'لا توجد بيانات موظفين صالحة في المسير.'; END IF;
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric;
-        v_total_additions := v_total_additions + (v_item->>'additions')::numeric;
-        v_total_deductions := v_total_deductions + COALESCE((v_item->>'other_deductions')::numeric, 0);
+        -- 1. جلب البدلات الثابتة من الجدول
+        SELECT COALESCE(SUM(amount), 0) INTO v_fixed_allowances 
+        FROM public.employee_allowances WHERE employee_id = (v_item->>'employee_id')::uuid;
+
+        -- 2. جلب المتغيرات الشهرية (الإضافات)
+        SELECT COALESCE(SUM(amount), 0) INTO v_monthly_additions 
+        FROM public.payroll_variables WHERE employee_id = (v_item->>'employee_id')::uuid 
+        AND month = p_month AND year = p_year AND type = 'addition' AND is_processed = false;
+
+        -- 3. جلب المتغيرات الشهرية (الاستقطاعات)
+        SELECT COALESCE(SUM(amount), 0) INTO v_monthly_deductions 
+        FROM public.payroll_variables WHERE employee_id = (v_item->>'employee_id')::uuid 
+        AND month = p_month AND year = p_year AND type = 'deduction' AND is_processed = false;
+
+        v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric + v_fixed_allowances;
+        v_total_additions := v_total_additions + (v_item->>'additions')::numeric + v_monthly_additions;
+        v_total_deductions := v_total_deductions + COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions;
         v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
         v_total_payroll_tax := v_total_payroll_tax + COALESCE((v_item->>'payroll_tax')::numeric, 0);
         v_total_net := v_total_net + (v_item->>'net_salary')::numeric;
@@ -965,8 +1073,17 @@ BEGIN
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         INSERT INTO public.payroll_items (payroll_id, employee_id, gross_salary, additions, payroll_tax, advances_deducted, other_deductions, net_salary, organization_id)
-        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, (v_item->>'gross_salary')::numeric, (v_item->>'additions')::numeric, COALESCE((v_item->>'payroll_tax')::numeric, 0), (v_item->>'advances_deducted')::numeric, (v_item->>'other_deductions')::numeric, (v_item->>'net_salary')::numeric, v_org_id)
+        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, 
+               (v_item->>'gross_salary')::numeric + v_fixed_allowances, 
+               (v_item->>'additions')::numeric + v_monthly_additions, 
+               COALESCE((v_item->>'payroll_tax')::numeric, 0), (v_item->>'advances_deducted')::numeric, 
+               COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions, 
+               (v_item->>'net_salary')::numeric, v_org_id)
         RETURNING id INTO v_payroll_item_id;
+
+        -- تحديث المتغيرات الشهرية كـ "تمت معالجتها" لمنع تكرارها
+        UPDATE public.payroll_variables SET is_processed = true 
+        WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year;
 
         -- 🔗 تحديث حالة السلف المستردة وربطها ببنود المسير لضمان عدم تكرار الخصم
         IF (v_item->>'advances_deducted')::numeric > 0 THEN
@@ -980,6 +1097,8 @@ BEGIN
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type) 
     VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year, 'posted', v_org_id, true, v_payroll_id, 'payroll') RETURNING id INTO v_je_id;
+
+    RAISE NOTICE 'Payroll JE created: ID=% for OrgID=%', v_je_id, v_org_id;
 
     IF v_total_gross > 0 AND v_salaries_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); END IF;
     IF v_total_additions > 0 AND v_bonuses_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF;
@@ -1412,6 +1531,110 @@ BEGIN
     RETURN v_adj_id;
 END;
 $$;
+
+-- 2. محرك الإهلاك التلقائي للأصول
+CREATE OR REPLACE FUNCTION public.run_period_depreciation(p_date date, p_org_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_asset record; v_dep_amount numeric; v_je_id uuid; v_processed int := 0; v_skipped int := 0; v_ref text;
+BEGIN
+    v_ref := 'DEP-' || to_char(p_date, 'YYYY-MM');
+    FOR v_asset IN 
+        SELECT * FROM public.assets WHERE organization_id = p_org_id AND status = 'active' AND purchase_date <= p_date AND current_value > COALESCE(salvage_value, 0)
+    LOOP
+        IF EXISTS (SELECT 1 FROM public.journal_entries WHERE related_document_id = v_asset.id AND related_document_type = 'asset_depreciation' AND transaction_date >= date_trunc('month', p_date) AND transaction_date <= (date_trunc('month', p_date) + interval '1 month - 1 day')) THEN
+            v_skipped := v_skipped + 1; CONTINUE;
+        END IF;
+        v_dep_amount := (v_asset.purchase_cost - COALESCE(v_asset.salvage_value, 0)) / (COALESCE(v_asset.useful_life, 5) * 12);
+        IF (v_asset.current_value - v_dep_amount) < COALESCE(v_asset.salvage_value, 0) THEN v_dep_amount := v_asset.current_value - COALESCE(v_asset.salvage_value, 0); END IF;
+        IF v_dep_amount <= 0 THEN v_skipped := v_skipped + 1; CONTINUE; END IF;
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+        VALUES (p_date, 'قسط إهلاك شهر ' || to_char(p_date, 'MM/YYYY') || ' - ' || v_asset.name, v_ref, 'posted', p_org_id, true, v_asset.id, 'asset_depreciation') RETURNING id INTO v_je_id;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_asset.depreciation_expense_account_id, v_dep_amount, 0, 'إثبات مصروف الإهلاك', p_org_id), (v_je_id, v_asset.accumulated_depreciation_account_id, 0, v_dep_amount, 'إثبات مجمع الإهلاك', p_org_id);
+        UPDATE public.assets SET current_value = current_value - v_dep_amount WHERE id = v_asset.id;
+        v_processed := v_processed + 1;
+    END LOOP;
+    IF v_processed > 0 THEN PERFORM public.recalculate_all_system_balances(p_org_id); END IF;
+    RETURN jsonb_build_object('processed', v_processed, 'skipped', v_skipped);
+END; $$;
+
+-- ================================================================
+-- 5.3 محرك الإهلاك التلقائي (Automatic Depreciation Engine)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.run_period_depreciation(p_date date, p_org_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_asset record;
+    v_dep_amount numeric;
+    v_je_id uuid;
+    v_processed int := 0;
+    v_skipped int := 0;
+    v_ref text;
+BEGIN
+    -- تعيين مرجع موحد لعملية الإهلاك في هذا الشهر
+    v_ref := 'DEP-' || to_char(p_date, 'YYYY-MM');
+
+    FOR v_asset IN 
+        SELECT * FROM public.assets 
+        WHERE organization_id = p_org_id 
+        AND status = 'active' 
+        AND purchase_date <= p_date
+        AND current_value > COALESCE(salvage_value, 0)
+    LOOP
+        -- 🛡️ منع التكرار: التأكد من عدم وجود قيد إهلاك لهذا الأصل في هذا الشهر
+        IF EXISTS (
+            SELECT 1 FROM public.journal_entries 
+            WHERE related_document_id = v_asset.id 
+            AND related_document_type = 'asset_depreciation'
+            AND transaction_date >= date_trunc('month', p_date)
+            AND transaction_date <= (date_trunc('month', p_date) + interval '1 month - 1 day')
+        ) THEN
+            v_skipped := v_skipped + 1;
+            CONTINUE;
+        END IF;
+
+        -- 📏 حساب القسط الشهري: (التكلفة - الخردة) / (العمر الافتراضي * 12 شهر)
+        v_dep_amount := (v_asset.purchase_cost - COALESCE(v_asset.salvage_value, 0)) / (COALESCE(v_asset.useful_life, 5) * 12);
+        
+        -- 🛡️ صمام أمان: التأكد من أن الإهلاك لا يجعل القيمة أقل من الخردة
+        IF (v_asset.current_value - v_dep_amount) < COALESCE(v_asset.salvage_value, 0) THEN
+            v_dep_amount := v_asset.current_value - COALESCE(v_asset.salvage_value, 0);
+        END IF;
+
+        IF v_dep_amount <= 0 THEN
+            v_skipped := v_skipped + 1;
+            CONTINUE;
+        END IF;
+
+        -- 1. إنشاء قيد اليومية الآلي
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+        VALUES (p_date, 'قسط إهلاك شهر ' || to_char(p_date, 'MM/YYYY') || ' - ' || v_asset.name, v_ref, 'posted', p_org_id, true, v_asset.id, 'asset_depreciation')
+        RETURNING id INTO v_je_id;
+
+        -- 2. أسطر القيد: مدين مصروف الإهلاك / دائن مجمع الإهلاك
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES 
+            (v_je_id, v_asset.depreciation_expense_account_id, v_dep_amount, 0, 'إثبات مصروف الإهلاك للفترة', p_org_id),
+            (v_je_id, v_asset.accumulated_depreciation_account_id, 0, v_dep_amount, 'إثبات مجمع الإهلاك للفترة', p_org_id);
+
+        -- 3. تحديث القيمة الدفترية للأصل
+        UPDATE public.assets 
+        SET current_value = current_value - v_dep_amount
+        WHERE id = v_asset.id;
+
+        v_processed := v_processed + 1;
+    END LOOP;
+
+    -- إعادة احتساب أرصدة الحسابات لتعكس مصروف الإهلاك في ميزان المراجعة
+    IF v_processed > 0 THEN
+        PERFORM public.recalculate_all_system_balances(p_org_id);
+    END IF;
+
+    RETURN jsonb_build_object('processed', v_processed, 'skipped', v_skipped);
+END; $$;
+GRANT EXECUTE ON FUNCTION public.run_period_depreciation(date, uuid) TO authenticated;
+
 
 -- ================================================================
 -- 5.2 تقرير أرباح الأصناف شامل الهالك (Item Profit Report)

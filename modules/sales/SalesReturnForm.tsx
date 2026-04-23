@@ -19,6 +19,7 @@ const SalesReturnForm = () => {
   const [isSearching, setIsSearching] = useState(false);
   const [returnPartialQuantities, setReturnPartialQuantities] = useState(false);
   const [originalInvoiceId, setOriginalInvoiceId] = useState<string | null>(null);
+  const [originalInvoiceOrgId, setOriginalInvoiceOrgId] = useState<string | null>(null);
 
   // تعيين المستودع الافتراضي عند التحميل
   useEffect(() => {
@@ -37,15 +38,10 @@ const SalesReturnForm = () => {
     if (!searchInvoiceNumber.trim()) return;
     setIsSearching(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = (currentUser as any)?.organization_id || 
-                       (currentUser as any)?.user_metadata?.org_id ||
-                       (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
-
       const { data: invoice, error } = await supabase
         .from('invoices')
         .select('*, invoice_items(*, products(name))')
-        .eq('organization_id', userOrgId)
+        // البحث في كافة المنظمات إذا كان المستخدم سوبر أدمن، أو منظمته فقط إذا كان مستخدماً عادياً (بفضل RLS)
         .ilike('invoice_number', `%${searchInvoiceNumber.trim()}%`)
         .limit(1)
         .maybeSingle();
@@ -60,6 +56,7 @@ const SalesReturnForm = () => {
             notes: `مرتجع من فاتورة رقم ${invoice.invoice_number}` 
         }));
         setOriginalInvoiceId(invoice.id);
+        setOriginalInvoiceOrgId(invoice.organization_id);
         const newItems = invoice.invoice_items.map((item: any) => ({
 
             productId: item.product_id,
@@ -126,10 +123,10 @@ const SalesReturnForm = () => {
         customerId: z.string().min(1, 'الرجاء اختيار العميل'),
         warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
         date: z.string().min(1, 'التاريخ مطلوب'),
-        items: z.array(z.object({ // Changed to unitPrice
+        items: z.array(z.object({
             productId: z.string().min(1, 'الرجاء اختيار المنتج'),
             quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
-            price: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
+            unitPrice: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
         })).min(1, 'يجب إضافة بند واحد على الأقل')
     });
 
@@ -150,12 +147,12 @@ const SalesReturnForm = () => {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = (currentUser as any)?.organization_id || 
-                       (currentUser as any)?.user_metadata?.org_id ||
-                       (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
+      const { data: profile } = await supabase.from('profiles').select('organization_id, role').eq('id', currentUser?.id).single();
+      
+      // تحديد المنظمة المستهدفة: من الفاتورة الأصلية أولاً، ثم من بروفايل المستخدم
+      const targetOrgId = originalInvoiceOrgId || profile?.organization_id;
 
-      if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
+      if (!targetOrgId && profile?.role !== 'super_admin') throw new Error("تعذر تحديد المنظمة.");
 
       const subtotal = calculateTotal();
       const taxRate = settings.enableTax ? ((settings.vatRate || 14) / 100) : 0;
@@ -167,7 +164,7 @@ const SalesReturnForm = () => {
 
       // 1. حفظ المرتجع
       const { data: returnDoc, error: retError } = await supabase.from('sales_returns').insert({
-        organization_id: userOrgId,
+        organization_id: targetOrgId,
         customer_id: formData.customerId,
         warehouse_id: formData.warehouseId,
         original_invoice_id: originalInvoiceId,
@@ -184,17 +181,18 @@ const SalesReturnForm = () => {
 
       if (!returnDoc) throw new Error("فشل حفظ مستند المرتجع.");
 
-      // 2. حفظ البنود وتحديث المخزون (زيادة)
-      for (const item of items) {
-        await supabase.from('sales_return_items').insert({
-          organization_id: userOrgId,
-          sales_return_id: returnDoc.id,
-          product_id: item.productId, // Changed to unitPrice
-          quantity: item.quantity, // Changed to unitPrice
-          unit_price: item.unitPrice, // Changed to unitPrice
-          total: item.quantity * item.unitPrice // Changed to unitPrice
-        });
-      }
+      // 2. حفظ البنود دفعة واحدة (Bulk Insert) للأداء العالي
+      const itemsToInsert = items.map(item => ({
+        organization_id: targetOrgId,
+        sales_return_id: returnDoc.id,
+        product_id: item.productId,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        total: item.quantity * item.unitPrice
+      }));
+
+      const { error: itemsError } = await supabase.from('sales_return_items').insert(itemsToInsert);
+      if (itemsError) throw itemsError;
 
       // 3. اعتماد المرتجع عبر المحرك المحاسبي الموحد (RPC)
       const { error: rpcError } = await supabase.rpc('approve_sales_return', { p_return_id: returnDoc.id });
@@ -325,10 +323,30 @@ const SalesReturnForm = () => {
             {items.map((item, idx) => (
               <tr key={idx} className="border-b">
                 <td className="p-3">{item.name}</td>
-                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td> {/* Changed to unitPrice */}
-                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} /></td> {/* Changed to unitPrice */}
-                <td className="p-3 font-bold">{(item.quantity * item.unitPrice).toLocaleString()}</td> {/* Changed to unitPrice */}
-                <td className="p-3"><button onClick={() => removeItem(idx)} className="text-red-500"><Trash2 size={18} /></button></td>
+                <td className="p-3">
+                  <input 
+                    type="number" 
+                    step="any" 
+                    className="w-full border rounded p-1 text-center" 
+                    value={item.quantity} 
+                    onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} 
+                  />
+                </td>
+                <td className="p-3">
+                  <input 
+                    type="number" 
+                    step="any" 
+                    className="w-full border rounded p-1 text-center" 
+                    value={item.unitPrice} 
+                    onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} 
+                  />
+                </td>
+                <td className="p-3 font-bold">{(item.quantity * item.unitPrice).toLocaleString()}</td>
+                <td className="p-3">
+                  <button onClick={() => removeItem(idx)} className="text-red-500">
+                    <Trash2 size={18} />
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

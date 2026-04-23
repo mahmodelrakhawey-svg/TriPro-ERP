@@ -179,57 +179,57 @@ const CustomerDepositForm = () => {
 
     setLoading(true);
     try {
-        if (isEditing && currentVoucherId) {
+        let voucherId = currentVoucherId;
+
+        if (isEditing && voucherId) {
              // تحديث سند موجود
-             await updateVoucher(currentVoucherId, 'receipt', {
-                 ...formData,
-                 amount: Number(formData.amount),
-                 treasuryId: formData.treasuryAccountId,
-                 customerId: formData.customerId
-             });
-             showToast('تم تعديل سند التأمين بنجاح ✅', 'success');
+             const { error: updateError } = await supabase
+                .from('receipt_vouchers')
+                .update({
+                    receipt_date: formData.date,
+                    customer_id: formData.customerId,
+                    amount: Number(formData.amount),
+                    treasury_account_id: formData.treasuryAccountId,
+                    notes: formData.description || 'قبض تأمين من عميل',
+                    payment_method: formData.paymentMethod
+                })
+                .eq('id', voucherId);
+             
+             if (updateError) throw updateError;
         } else {
             // إنشاء سند جديد وحفظه في قاعدة البيانات مباشرة
             const voucherNumber = formData.voucherNumber || `DEP-${Date.now().toString().slice(-6)}`;
-            const customerDepositsAcc = getSystemAccount('CUSTOMER_DEPOSITS'); // 203
-            const customer = customers.find(c => c.id === formData.customerId);
-
-            if (!customerDepositsAcc) {
-                throw new Error('حساب تأمينات العملاء غير موجود في النظام.');
-            }
-
-            // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
             const orgId = (currentUser as any)?.organization_id || 
                          (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
-            // 1. حفظ السند في جدول receipt_vouchers
             const { data: voucherData, error: voucherError } = await supabase.from('receipt_vouchers').insert({
                 voucher_number: voucherNumber,
                 receipt_date: formData.date,
                 customer_id: formData.customerId,
                 amount: Number(formData.amount),
                 treasury_account_id: formData.treasuryAccountId,
-                notes: formData.description || `تأمين مستلم من ${customer?.name}`,
+                notes: formData.description || 'قبض تأمين من عميل',
                 payment_method: formData.paymentMethod,
                 organization_id: orgId
-                // لا يوجد عمود subType في الجدول، نعتمد على الملاحظات أو التوجيه المحاسبي
             }).select().single();
 
             if (voucherError) throw voucherError;
+            voucherId = voucherData.id;
+        }
 
-            // 2. إنشاء القيد المحاسبي يدوياً (لضمان التوجيه لحساب التأمينات وليس العملاء)
-            await addEntry({
-                date: formData.date,
-                reference: voucherNumber,
-                description: formData.description || `قبض تأمين من ${customer?.name}`,
-                status: 'posted',
-                lines: [
-                    { account_id: formData.treasuryAccountId, accountId: formData.treasuryAccountId, debit: Number(formData.amount), credit: 0, description: `قبض تأمين - ${voucherNumber}` },
-                    { account_id: customerDepositsAcc.id, accountId: customerDepositsAcc.id, debit: 0, credit: Number(formData.amount), description: `تأمين مستلم من ${customer?.name}` }
-                ]
-            });
+        // 🛡️ استخدام المحرك المحاسبي الموحد لضمان قيد واحد سليم ومرتبط بالسند
+        // نمرر حساب التأمينات (226) كطرف دائن بدلاً من حساب العملاء
+        const customerDepositsAcc = getSystemAccount('CUSTOMER_DEPOSITS');
+        if (!customerDepositsAcc) throw new Error('حساب تأمينات العملاء غير معرّف في الإعدادات.');
 
-            showToast('تم حفظ سند تأمين العميل بنجاح ✅', 'success');
+        const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', {
+            p_voucher_id: voucherId,
+            p_credit_account_id: customerDepositsAcc.id
+        });
+
+        if (rpcError) throw rpcError;
+
+        showToast(isEditing ? 'تم تعديل السند وتحديث القيد بنجاح ✅' : 'تم حفظ سند تأمين العميل بنجاح ✅', 'success');
             
             // تحديث القائمة محلياً لإظهار السند الجديد فوراً
             const { data: newVoucher } = await supabase
@@ -241,7 +241,6 @@ const CustomerDepositForm = () => {
                 .maybeSingle(); // استخدام maybeSingle لتجنب خطأ 406
                 
             if (newVoucher) setDepositVouchers(prev => [newVoucher, ...prev]);
-        }
         handleNew();
     } catch (error: any) {
         showToast('حدث خطأ: ' + error.message, 'error');

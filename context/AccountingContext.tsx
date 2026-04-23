@@ -2779,8 +2779,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw new Error(`حسابات الإهلاك غير محددة أو غير موجودة (تأكد من وجود ${SYSTEM_ACCOUNTS.DEPRECIATION_EXPENSE} و ${SYSTEM_ACCOUNTS.ACCUMULATED_DEPRECIATION})`);
       }
 
-      // جلب معرف المنظمة لضمان ربط القيد بشكل صحيح
-      const { data: org } = await supabase.from('organizations').select('id').limit(1).single();
+      // 🛡️ استخدام معرف المنظمة من بيانات المستخدم الحالي لضمان مطابقة سياسة RLS
+      const orgId = (currentUser as any)?.organization_id || (await supabase.auth.getUser()).data.user?.user_metadata?.org_id;
 
       // استخدام الإدراج المباشر لضمان ربط القيد بالأصل عبر related_document_id
       const { data: entry, error: entryError } = await supabase.from('journal_entries').insert({
@@ -2791,14 +2791,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           is_posted: true,
           related_document_id: asset.id,
           related_document_type: 'asset_depreciation',
-          organization_id: org?.id
+          organization_id: orgId
       }).select().single();
       
       if (entryError) throw entryError;
       
       const lines = [
-          { journal_entry_id: entry.id, account_id: depExpAcc.id, debit: amount, credit: 0, description: `مصروف إهلاك - ${asset.name}`, organization_id: org?.id },
-          { journal_entry_id: entry.id, account_id: accDepAcc.id, debit: 0, credit: amount, description: `مجمع إهلاك - ${asset.name}`, organization_id: org?.id }
+          { journal_entry_id: entry.id, account_id: depExpAcc.id, debit: amount, credit: 0, description: `مصروف إهلاك - ${asset.name}`, organization_id: orgId },
+          { journal_entry_id: entry.id, account_id: accDepAcc.id, debit: 0, credit: amount, description: `مجمع إهلاك - ${asset.name}`, organization_id: orgId }
       ];
       
       const { error: linesError } = await supabase.from('journal_lines').insert(lines);
@@ -3180,7 +3180,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return newCustomer;
     }
     try {
-      const { data, error } = await supabase.from('customers').insert([customerData]).select().single();
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const { data, error } = await supabase.from('customers').insert([{
+        ...customerData,
+        organization_id: orgId
+      }]).select().single();
       if (error) throw error;
       setCustomers(prev => [data, ...prev]);
       return data;
@@ -3267,7 +3271,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- Employee Actions ---
   const addEmployee = async (employeeData: any) => {
     try {
-      const { data, error } = await supabase.from('employees').insert([employeeData]).select().single();
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const { data, error } = await supabase.from('employees').insert([{
+        ...employeeData,
+        organization_id: orgId
+      }]).select().single();
       if (error) throw error;
       setEmployees(prev => [data, ...prev]);
       return data;
@@ -3306,7 +3314,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- Supplier Actions ---
   const addSupplier = async (supplierData: Omit<Supplier, 'id'>) => {
     try {
-      const { data, error } = await supabase.from('suppliers').insert([supplierData]).select().single();
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const { data, error } = await supabase.from('suppliers').insert([{
+        ...supplierData,
+        organization_id: orgId
+      }]).select().single();
       if (error) throw error;
       setSuppliers(prev => [data, ...prev]);
       return data;
@@ -3992,6 +4004,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { data, error } = await supabase // Insert new table
             .from('restaurant_tables')
             .insert({
+                organization_id: (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id,
                 name: tableData.name,
                 capacity: tableData.capacity,
                 section: tableData.section || null,

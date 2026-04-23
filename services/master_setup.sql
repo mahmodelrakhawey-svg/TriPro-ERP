@@ -53,30 +53,35 @@ CREATE TABLE IF NOT EXISTS public.organization_backups (
 -- ================================================================
 -- 1.5 دوال الحماية المساعدة (Security Helpers) - يجب أن تكون في البداية
 -- ================================================================
-
 CREATE OR REPLACE FUNCTION public.get_my_role()
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth, pg_temp AS $$
 BEGIN
   RETURN COALESCE(
-    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
-    (SELECT role FROM public.profiles WHERE id = auth.uid())
+    NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', ''),
+    (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1),
+    'viewer'
   );
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
-LANGUAGE plpgsql SECURITY DEFINER AS $$
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth, pg_temp AS $$
+DECLARE _org_id uuid;
 BEGIN
-    RETURN NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN _org_id;
 EXCEPTION 
-    WHEN OTHERS THEN 
-        RETURN NULL;
+    WHEN OTHERS THEN RETURN NULL;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
-    RETURN (public.get_my_role() IN ('super_admin', 'admin'));
+    RETURN (public.get_my_role() IN ('super_admin', 'admin', 'owner'));
 END; $$;
 
 -- الصلاحيات والمستخدمين
@@ -931,6 +936,31 @@ CREATE TABLE IF NOT EXISTS public.employees (
     created_at timestamptz DEFAULT now()
 );
 
+-- جدول البدلات الثابتة للموظفين (Fixed Allowances)
+CREATE TABLE IF NOT EXISTS public.employee_allowances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    name text NOT NULL, -- مثال: بدل سكن، بدل انتقال
+    amount numeric NOT NULL DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- جدول المتغيرات الشهرية (Monthly Variables - Additions/Deductions)
+CREATE TABLE IF NOT EXISTS public.payroll_variables (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    month integer NOT NULL,
+    year integer NOT NULL,
+    type text NOT NULL CHECK (type IN ('addition', 'deduction')), -- إضافات أو استقطاعات
+    name text NOT NULL, -- مثال: مكافأة أداء، تأخير، عمل إضافي
+    amount numeric NOT NULL DEFAULT 0,
+    is_processed boolean DEFAULT false, -- هل تم تضمينها في مسير رواتب مرحل؟
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(employee_id, month, year, name, type)
+);
+
 CREATE TABLE IF NOT EXISTS public.payrolls (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     payroll_month integer,
@@ -1735,7 +1765,7 @@ BEGIN
             EXECUTE format('CREATE POLICY "Policy_Select_%I" ON %I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
         END IF;
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Staff_%I" ON %I;', t, t);
-ا        EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON %I FOR ALL TO authenticated USING (
+        EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON %I FOR ALL TO authenticated USING (
             public.get_my_role() = ''super_admin'' 
             OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''))
         ) WITH CHECK (
@@ -1779,7 +1809,7 @@ END $$;
 DO $$ 
 DECLARE 
     t text;
-    hr_tables text[] := ARRAY['employees', 'payrolls', 'payroll_items', 'employee_advances'];
+    hr_tables text[] := ARRAY['employees', 'payrolls', 'payroll_items', 'employee_advances', 'employee_allowances', 'payroll_variables'];
 BEGIN 
     FOREACH t IN ARRAY hr_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "HR_Select_%I" ON %I;', t, t);

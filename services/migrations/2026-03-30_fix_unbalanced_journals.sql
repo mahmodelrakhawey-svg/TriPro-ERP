@@ -3,221 +3,95 @@
 -- التاريخ: 30 مارس 2026 (تحديث: 15 أبريل 2026 - إصلاح الصلاحيات)
 -- =================================================================
 
+DROP FUNCTION IF EXISTS public.generate_shift_closing_entry(uuid);
 CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id UUID)
 RETURNS UUID
 LANGUAGE plpgsql
-AS $$
+SECURITY DEFINER AS $$
 DECLARE
     v_shift RECORD;
-    v_sales_acc UUID;
-    v_vat_acc UUID;
-    v_cash_acc UUID;
-    v_bank_acc UUID;
-    v_shortage_acc UUID;
-    v_overage_acc UUID;
-    v_cogs_acc UUID;
-    v_inventory_acc UUID;
-    v_rounding_diff_acc UUID; -- حساب فروقات التقريب
-    v_enable_tax BOOLEAN := FALSE; -- هل الضريبة مفعلة في إعدادات الشركة
-    v_vat_rate NUMERIC := 0; -- نسبة الضريبة من إعدادات الشركة
-    
-    v_journal_entry_id UUID;
-    v_journal_lines JSONB[] := ARRAY[]::JSONB[];
-    
-    v_total_grand_total NUMERIC := 0; -- إجمالي المبيعات الكلي (شامل الضريبة)
-    v_total_tax NUMERIC := 0;
-    v_net_sales NUMERIC := 0;
-    
-    v_cash_sales NUMERIC := 0;
-    v_card_sales NUMERIC := 0;
-    v_wallet_sales NUMERIC := 0;
-    
-    v_diff NUMERIC := 0; -- فرق العجز/الزيادة في الصندوق
-    v_total_cogs NUMERIC := 0;
-    
-    v_total_debits NUMERIC := 0;
-    v_total_credits NUMERIC := 0;
-    v_balancing_diff NUMERIC := 0;
+    v_summary record; v_je_id uuid; v_mappings jsonb;
+    v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
+    v_cogs_acc_id uuid; v_inventory_acc_id uuid;
+    v_diff numeric := 0; v_actual_cash_collected numeric := 0;
 BEGIN
     -- 1. التحقق من الوردية
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF v_shift IS NULL THEN RAISE EXCEPTION 'Shift not found'; END IF;
     IF v_shift.end_time IS NULL THEN RAISE EXCEPTION 'Shift is not closed yet'; END IF;
 
-    -- منع التكرار: إذا كان هناك قيد مرتبط مسبقاً، نرجعه فوراً ولا ننشئ واحداً جديداً (حل مشكلة الخطأ 409)
-    IF v_shift.related_journal_entry_id IS NOT NULL THEN
-        RETURN v_shift.related_journal_entry_id;
+    -- 🛡️ ضمان مبدأ Idempotency: حذف أي قيد إغلاق قديم لهذه الوردية منعاً لتكرار المبالغ في الأستاذ العام
+    DELETE FROM public.journal_entries WHERE related_document_id = p_shift_id AND related_document_type = 'shift';
+
+    WITH shift_orders AS (
+        SELECT id, subtotal, total_tax FROM public.orders
+        WHERE (user_id = v_shift.user_id OR user_id IS NULL)
+        AND status IN ('COMPLETED', 'PAID', 'posted')
+        AND organization_id = v_shift.organization_id
+        AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
+    )
+    SELECT
+        COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
+        COALESCE((SELECT SUM(delivery_fee) FROM public.delivery_orders WHERE order_id IN (SELECT id FROM shift_orders)), 0) as total_delivery_fees,
+        -- محرك التكلفة المطور: يجمع تكلفة المكونات من BOM وتكلفة الأصناف المخزنية المباشرة
+        COALESCE((
+            SELECT SUM(item_cost) FROM (
+                -- أ. حساب تكلفة الأصناف التي لها وصفات (مثل الوجبات) - نجمع كافة المكونات
+                SELECT
+                    COALESCE(bom.quantity_required, 0) * oi.quantity * COALESCE(ing.weighted_average_cost, ing.cost, ing.purchase_price, 0) as item_cost
+                FROM public.order_items oi
+                JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id
+                JOIN public.products ing ON bom.raw_material_id = ing.id -- المكونات الخام
+                WHERE oi.order_id IN (SELECT id FROM shift_orders)
+                AND oi.organization_id = v_shift.organization_id
+
+                UNION ALL
+
+                -- ب. حساب تكلفة الأصناف المخزنية المباشرة (مثل المشروبات) التي ليس لها وصفة
+                SELECT
+                    oi.quantity * COALESCE(prod.weighted_average_cost, prod.cost, prod.purchase_price, 0) as item_cost
+                FROM public.order_items oi
+                JOIN public.products prod ON oi.product_id = prod.id
+                WHERE oi.order_id IN (SELECT id FROM shift_orders)
+                AND oi.organization_id = v_shift.organization_id
+                AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = prod.id)
+            ) as cogs_sub
+        ), 0) as cost_total,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
+    INTO v_summary
+    FROM shift_orders;
+
+    -- تحديد المنظمة بذكاء (الهوية الهيكلية الموحدة)
+    v_shift.organization_id := COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org());
+
+    -- تحديث حساب الفرق ليشمل رسوم التوصيل المحصلة
+    v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
+    v_actual_cash_collected := v_summary.cash_total + v_diff;
+
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
+
+    v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT_OUTPUT')::uuid, (v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org()), true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
+    IF v_summary.total_delivery_fees > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.total_delivery_fees, 'إيراد رسوم توصيل الوردية', v_shift.organization_id); END IF;
+    IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
+    IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
+    IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
+    IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية الوردية', v_shift.organization_id);
+    ELSIF v_diff > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية الوردية', v_shift.organization_id); END IF;
+    IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية', v_shift.organization_id),
+               (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية', v_shift.organization_id);
     END IF;
-
-    -- 2. جلب نسبة الضريبة وحالة تفعيلها من إعدادات الشركة
-    SELECT vat_rate, enable_tax INTO v_vat_rate, v_enable_tax FROM public.company_settings LIMIT 1;
-    -- إذا كانت الضريبة مفعلة ولكن النسبة صفر، نستخدم 15% كافتراضي
-    IF v_enable_tax AND COALESCE(v_vat_rate, 0) = 0 THEN
-        v_vat_rate := 0.15;
-    ELSIF NOT v_enable_tax THEN
-        v_vat_rate := 0; -- إذا كانت الضريبة غير مفعلة، تكون النسبة صفر
-    ELSE
-        v_vat_rate := COALESCE(v_vat_rate, 0); -- استخدام النسبة الموجودة أو صفر إذا كانت NULL
-        -- تصحيح: إذا كانت النسبة مسجلة كرقم صحيح (مثلاً 14) وليس كسر عشري (0.14)
-        IF v_vat_rate >= 1 THEN
-            v_vat_rate := v_vat_rate / 100;
-        END IF;
-    END IF;
-
-    -- 3 & 5. جلب إحصائيات التحصيل بناءً على "وقت الوردية" حصراً
-    -- هذا هو الحل الجذري: أي مبلغ دخل الصندوق بين وقت الفتح والإغلاق سيتم تسجيله
-    SELECT 
-        COALESCE(SUM(amount), 0),
-        COALESCE(SUM(CASE WHEN payment_method = 'CASH' THEN amount ELSE 0 END), 0),
-        COALESCE(SUM(CASE WHEN payment_method = 'CARD' THEN amount ELSE 0 END), 0),
-        COALESCE(SUM(CASE WHEN payment_method = 'WALLET' THEN amount ELSE 0 END), 0)
-    INTO v_total_grand_total, v_cash_sales, v_card_sales, v_wallet_sales
-    FROM public.payments
-    WHERE created_at >= v_shift.start_time 
-      AND created_at <= v_shift.end_time
-      AND status = 'COMPLETED';
-
-    -- 4. استنتاج المبيعات الصافية والضريبة من الإجمالي الكلي ونسبة الضريبة
-    IF v_vat_rate > 0 THEN
-        v_total_tax := v_total_grand_total * (v_vat_rate / (1 + v_vat_rate));
-        v_net_sales := v_total_grand_total - v_total_tax;
-    ELSE
-        v_total_tax := 0;
-        v_net_sales := v_total_grand_total;
-    END IF;
-
-    -- 6. حساب التكلفة (COGS) - الربط عبر المدفوعات لضمان شمول كل ما تم بيعه فعلياً
-    -- تم تعديل الاستعلام ليشمل كافة المكونات لكل صنف مباع لضمان دقة التكلفة والمخزون
-    SELECT COALESCE(SUM(item_cost), 0)
-    INTO v_total_cogs
-    FROM (
-        -- أ. حساب تكلفة الأصناف التي لها وصفات (مثل الوجبات) - نجمع كافة المكونات
-        SELECT 
-            COALESCE(r.quantity_required, 0) * COALESCE(oi.quantity, 0) * COALESCE(ing.cost, ing.purchase_price, 0) as item_cost
-        FROM public.order_items oi
-        JOIN public.orders o ON oi.order_id = o.id
-        JOIN public.payments p ON o.id = p.order_id -- الربط بالمدفوعات
-        JOIN public.bill_of_materials r ON oi.product_id = r.product_id
-        JOIN public.products ing ON r.raw_material_id = ing.id -- المكونات الخام
-        WHERE p.created_at >= v_shift.start_time AND p.created_at <= v_shift.end_time 
-          AND p.status = 'COMPLETED' AND o.status = 'COMPLETED'
-
-        UNION ALL
-
-        -- ب. حساب تكلفة الأصناف المخزنية المباشرة (مثل المشروبات) التي ليس لها وصفة
-        SELECT 
-            COALESCE(oi.quantity, 0) * COALESCE(prod.cost, prod.purchase_price, 0) as item_cost
-        FROM public.order_items oi
-        JOIN public.orders o ON oi.order_id = o.id
-        JOIN public.payments p ON o.id = p.order_id
-        JOIN public.products prod ON oi.product_id = prod.id
-        WHERE prod.item_type = 'STOCK' 
-          AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = prod.id)
-          AND p.created_at >= v_shift.start_time AND p.created_at <= v_shift.end_time 
-          AND p.status = 'COMPLETED' AND o.status = 'COMPLETED'
-    ) subquery;
-
-    v_diff := COALESCE(v_shift.difference, 0);
-
-    -- 7. جلب الحسابات الأساسية (مع فحص صارم لوجودها)
-    SELECT id INTO v_sales_acc FROM public.accounts WHERE code = '411' LIMIT 1;
-    IF v_sales_acc IS NULL THEN RAISE EXCEPTION 'Account with code 411 (Sales Revenue) not found. Please create it.'; END IF;
-
-    SELECT id INTO v_vat_acc FROM public.accounts WHERE code = '2231' LIMIT 1;
-    IF v_vat_acc IS NULL THEN RAISE EXCEPTION 'Account with code 2231 (Output VAT) not found. Please create it.'; END IF;
-
-    SELECT id INTO v_cash_acc FROM public.accounts WHERE code = '1231' LIMIT 1;
-    IF v_cash_acc IS NULL THEN RAISE EXCEPTION 'Account with code 1231 (Cash) not found. Please create it.'; END IF;
-
-    SELECT id INTO v_bank_acc FROM public.accounts WHERE code = '123201' LIMIT 1; -- البنك الأهلي كافتراضي
-    IF v_bank_acc IS NULL THEN SELECT id INTO v_bank_acc FROM public.accounts WHERE code = '1232' LIMIT 1; END IF;
-    IF v_bank_acc IS NULL THEN RAISE EXCEPTION 'Bank Account (123201 or 1232) not found. Please create it.'; END IF;
-    
-    SELECT id INTO v_shortage_acc FROM public.accounts WHERE code = '541' LIMIT 1;
-    IF v_shortage_acc IS NULL THEN RAISE EXCEPTION 'Account with code 541 (Cash Shortage) not found. Please create it.'; END IF;
-
-    SELECT id INTO v_overage_acc FROM public.accounts WHERE code = '421' LIMIT 1;
-    IF v_overage_acc IS NULL THEN RAISE EXCEPTION 'Account with code 421 (Miscellaneous Revenue/Overage) not found. Please create it.'; END IF;
-
-    SELECT id INTO v_cogs_acc FROM public.accounts WHERE code = '511' LIMIT 1;
-    IF v_cogs_acc IS NULL THEN RAISE EXCEPTION 'Account with code 511 (COGS) not found. Please create it.'; END IF;
-
-    SELECT id INTO v_inventory_acc FROM public.accounts WHERE code = '10301' LIMIT 1;
-    IF v_inventory_acc IS NULL THEN SELECT id INTO v_inventory_acc FROM public.accounts WHERE code = '103' LIMIT 1; END IF;
-    IF v_inventory_acc IS NULL THEN RAISE EXCEPTION 'Account with code 10301 (Raw Material Inventory) not found. Please create it.'; END IF;
-    
-    -- حساب لتسوية الفروقات (مثلاً إيرادات متنوعة أو مصروفات متنوعة)
-    SELECT id INTO v_rounding_diff_acc FROM public.accounts WHERE code = '421' LIMIT 1; 
-    IF v_rounding_diff_acc IS NULL THEN RAISE EXCEPTION 'Account with code 421 (Rounding Difference) not found. Please create it.'; END IF;
-
-    -- 8. بناء أسطر القيد
-    
-    -- أ. الإيرادات (دائن)
-    IF v_net_sales > 0 THEN 
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_sales_acc, 'debit', 0, 'credit', v_net_sales, 'description', 'إيراد مبيعات وردية'));
-        v_total_credits := v_total_credits + v_net_sales;
-    END IF;
-    
-    -- ب. الضريبة (دائن)
-    IF v_total_tax > 0 THEN 
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_vat_acc, 'debit', 0, 'credit', v_total_tax, 'description', 'ضريبة مبيعات وردية'));
-        v_total_credits := v_total_credits + v_total_tax;
-    END IF;
-
-    -- ج. المدفوعات البنكية (مدين)
-    IF (v_card_sales + v_wallet_sales) > 0 AND v_bank_acc IS NOT NULL THEN 
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_bank_acc, 'debit', (v_card_sales + v_wallet_sales), 'credit', 0, 'description', 'متحصلات شبكة/محفظة'));
-        v_total_debits := v_total_debits + (v_card_sales + v_wallet_sales);
-    END IF;
-    
-    -- د. المدفوعات النقدية "المتوقعة" (مدين)
-    -- ملاحظة: نحن نثبت النقدية المتوقعة أولاً، ثم نعالج العجز/الزيادة في خطوة منفصلة
-    IF v_cash_sales > 0 THEN 
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_cash_acc, 'debit', v_cash_sales, 'credit', 0, 'description', 'متحصلات نقدية (مبيعات)'));
-        v_total_debits := v_total_debits + v_cash_sales;
-    END IF;
-
-    -- هـ. موازنة القيد (إجباري لضمان ظهور القيد)
-    v_balancing_diff := v_total_debits - v_total_credits;
-    
-    IF ABS(v_balancing_diff) > 0 THEN
-        IF v_balancing_diff > 0 THEN
-            v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_rounding_diff_acc, 'debit', 0, 'credit', ABS(v_balancing_diff), 'description', 'تسوية فروقات مبيعات - مراجعة يدوية مطلوبة'));
-        ELSE
-            v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_rounding_diff_acc, 'debit', ABS(v_balancing_diff), 'credit', 0, 'description', 'تسوية فروقات مبيعات - مراجعة يدوية مطلوبة'));
-        END IF;
-    END IF;
-
-    -- و. قيد التكلفة والمخزون (منفصل ومتوازن ذاتياً)
-    IF v_total_cogs > 0 THEN
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_cogs_acc, 'debit', v_total_cogs, 'credit', 0, 'description', 'تكلفة مبيعات الوردية'));
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_inventory_acc, 'debit', 0, 'credit', v_total_cogs, 'description', 'صرف مخزون للوردية'));
-    END IF;
-
-    -- ز. تسوية العجز والزيادة الفعلي (Shift Difference)
-    -- هذا يعالج الفرق بين الكاش المتوقع (v_cash_sales) والكاش الفعلي المدخل
-    IF v_diff < 0 THEN -- عجز
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_cash_acc, 'debit', 0, 'credit', ABS(v_diff), 'description', 'إثبات عجز وردية'));
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_shortage_acc, 'debit', ABS(v_diff), 'credit', 0, 'description', 'مصروف عجز وردية'));
-    ELSIF v_diff > 0 THEN -- زيادة
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_cash_acc, 'debit', v_diff, 'credit', 0, 'description', 'إثبات زيادة وردية'));
-        v_journal_lines := array_append(v_journal_lines, jsonb_build_object('account_id', v_overage_acc, 'debit', 0, 'credit', v_diff, 'description', 'إيراد زيادة وردية'));
-    END IF;
-
-    -- 9. إنشاء القيد
-    IF array_length(v_journal_lines, 1) > 0 THEN
-        INSERT INTO public.journal_entries (transaction_date, description, reference, status, user_id)
-        VALUES (now(), 'إقفال وردية - ' || to_char(v_shift.start_time, 'YYYY-MM-DD HH24:MI'), 'SHIFT-' || substring(p_shift_id::text, 1, 8), 'posted', v_shift.user_id)
-        RETURNING id INTO v_journal_entry_id;
-
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description)
-        SELECT v_journal_entry_id, (line->>'account_id')::uuid, (line->>'debit')::numeric, (line->>'credit')::numeric, line->>'description'
-        FROM jsonb_array_elements(to_jsonb(v_journal_lines)) AS line;
-
-        UPDATE public.shifts SET related_journal_entry_id = v_journal_entry_id WHERE id = p_shift_id;
-    END IF;
-    
-    RETURN v_journal_entry_id;
+    RETURN v_je_id;
 END;
 $$;
 

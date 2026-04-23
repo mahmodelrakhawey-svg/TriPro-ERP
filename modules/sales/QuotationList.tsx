@@ -115,11 +115,16 @@ const QuotationList = () => {
               
               if (!quote || !quoteItems) throw new Error('بيانات العرض غير مكتملة');
 
+              // جلب معرف المنظمة من عرض السعر لضمان نجاح العملية في نظام SaaS
+              const quotationOrgId = (quote as any).organization_id;
+              if (!quotationOrgId) throw new Error('فشل تحديد هوية الشركة المرتبطة بالعرض');
+
               const invoiceNumber = `INV-${Date.now().toString().slice(-6)}`;
               const paidAmount = Number(convertData.paidAmount) || 0;
 
               // 2. إنشاء الفاتورة كمسودة أولاً (Draft) لضمان صحة دورة الترحيل المحاسبي
               const { data: invoice, error: invError } = await supabase.from('invoices').insert({
+                  organization_id: quotationOrgId,
                   invoice_number: invoiceNumber,
                   customer_id: quote.customer_id,
                   invoice_date: new Date().toISOString().split('T')[0],

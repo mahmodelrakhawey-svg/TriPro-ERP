@@ -587,9 +587,8 @@ const SalesInvoiceForm = () => {
     }
 
     // جلب معرف المنظمة بشكل آمن مع صمام أمان (SaaS Security)
-    const userOrgId = (currentUser as any)?.organization_id || 
-                     (currentUser as any)?.user_metadata?.org_id ||
-                     (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
+    const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
+    const userOrgId = profile?.organization_id;
 
     if (!userOrgId) {
         showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
@@ -643,7 +642,7 @@ const SalesInvoiceForm = () => {
     // ملاحظة: في هذا التصميم، يتم حفظ الفاتورة كمسودة أولاً.
     // القيد المحاسبي الفعلي وتحديث المخزون يتم عند "اعتماد" الفاتورة من شاشة سجل الفواتير.
     // لذلك، سنقوم فقط بحفظ بيانات الفاتورة بما في ذلك المبلغ المدفوع والخزينة.
-    // تم تعديل دالة الاعتماد في السياق المحاسبي للانات.
+    // تم تعديل دالة الاعتماد في السياق المحاسبي للتعامل مع هذه البيانات.
     try {       
         // Prepare invoice data
         const invoiceData = {
@@ -793,9 +792,8 @@ const SalesInvoiceForm = () => {
 
     setSaving(true);
 
-    const userOrgId = (currentUser as any)?.organization_id || 
-                     (currentUser as any)?.user_metadata?.org_id ||
-                     (await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).maybeSingle()).data?.organization_id;
+    const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
+    const userOrgId = profile?.organization_id;
 
     if (!userOrgId) {
         showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');

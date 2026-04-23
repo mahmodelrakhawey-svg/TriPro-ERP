@@ -746,6 +746,22 @@ BEGIN
             CREATE POLICY "Modify_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer')) WITH CHECK ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer'));
         END IF;
     END LOOP;
+    -- ضمان عدم تكرار أرقام الفواتير والسندات لكل منظمة (القفل الحديدي)
+    ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_number_org_unique;
+    ALTER TABLE public.invoices ADD CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number);
+
+    ALTER TABLE public.sales_returns DROP CONSTRAINT IF EXISTS sales_returns_number_org_unique;
+    ALTER TABLE public.sales_returns ADD CONSTRAINT sales_returns_number_org_unique UNIQUE (organization_id, return_number);
+
+    ALTER TABLE public.purchase_returns DROP CONSTRAINT IF EXISTS purchase_returns_number_org_unique;
+    ALTER TABLE public.purchase_returns ADD CONSTRAINT purchase_returns_number_org_unique UNIQUE (organization_id, return_number);
+
+    ALTER TABLE public.purchase_invoices DROP CONSTRAINT IF EXISTS purchase_invoices_number_org_unique;
+    ALTER TABLE public.purchase_invoices ADD CONSTRAINT purchase_invoices_number_org_unique UNIQUE (organization_id, invoice_number);
+
+    ALTER TABLE public.receipt_vouchers DROP CONSTRAINT IF EXISTS receipt_vouchers_number_org_unique;
+    ALTER TABLE public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
+
 END $$;
 
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً

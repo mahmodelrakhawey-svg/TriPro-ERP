@@ -13,6 +13,7 @@ const PurchaseReturnForm = () => {
   const [formData, setFormData] = useState({
     supplierId: '',
     originalInvoiceId: '',
+    originalInvoiceOrgId: null as string | null, // تتبع معرف المنظمة للفاتورة الأصلية
     warehouseId: '',
     date: new Date().toISOString().split('T')[0],
     returnNumber: '',
@@ -26,6 +27,16 @@ const PurchaseReturnForm = () => {
     if (!formData.supplierId) return [];
     return purchaseInvoices.filter(inv => inv.supplierId === formData.supplierId && (inv.status as any) === 'posted');
   }, [formData.supplierId, purchaseInvoices]);
+
+  // تحديث معرف المنظمة عند اختيار فاتورة
+  useEffect(() => {
+      if (formData.originalInvoiceId) {
+          const inv = supplierInvoices.find(i => i.id === formData.originalInvoiceId);
+          if (inv) {
+              setFormData(prev => ({ ...prev, originalInvoiceOrgId: (inv as any).organization_id }));
+          }
+      }
+  }, [formData.originalInvoiceId, supplierInvoices]);
 
   useEffect(() => {
     // اختيار المستودع تلقائياً إذا كان الوحيد المتاح
@@ -87,14 +98,23 @@ const PurchaseReturnForm = () => {
 
     setSaving(true);
     try {
-      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-      if (!userOrgId) throw new Error("تعذر تحديد هوية الشركة. يرجى إعادة تسجيل الدخول.");
+      // جلب بيانات الجلسة الحالية (المصدر الأكثر دقة للـ Admin المتنقل)
+      const { data: { session } } = await supabase.auth.getSession();
+      const metadataOrgId = session?.user?.user_metadata?.org_id;
+      const profileOrgId = (currentUser as any)?.organization_id;
+      
+      // 🎯 المظلة الأمنية: الفاتورة الأصلية أولاً، ثم ميتاداتا الجلسة، ثم البروفايل
+      const targetOrgId = formData.originalInvoiceOrgId || metadataOrgId || profileOrgId;
+
+      if (!targetOrgId && currentUser?.role !== 'super_admin') {
+          throw new Error("تعذر تحديد هوية الشركة. يرجى إعادة تسجيل الدخول واختيار الشركة.");
+      }
 
       const returnNumber = formData.returnNumber || `PRET-${Date.now().toString().slice(-6)}`;
 
       // 1. Insert Purchase Return Header
       const { data: returnHeader, error: headerError } = await supabase.from('purchase_returns').insert({
-        organization_id: userOrgId,
+        organization_id: targetOrgId,
         return_number: returnNumber,
         supplier_id: formData.supplierId,
         original_invoice_id: formData.originalInvoiceId || null,
@@ -111,7 +131,7 @@ const PurchaseReturnForm = () => {
 
       // 2. Insert Items (Bulk Insert لسرعة الأداء وتوافق RLS)
       const itemsToInsert = items.map(item => ({
-        organization_id: userOrgId,
+        organization_id: targetOrgId,
         purchase_return_id: returnHeader.id,
         product_id: item.productId,
         quantity: item.quantity,

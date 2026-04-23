@@ -188,7 +188,12 @@ END $$;
 DO $$ 
 DECLARE 
     t text;
-    basic_tables text[] := ARRAY['products', 'item_categories', 'warehouses', 'restaurant_tables', 'menu_categories', 'modifier_groups', 'modifiers', 'table_sessions', 'orders', 'order_items', 'customers', 'suppliers', 'accounts', 'assets', 'employees'];
+    basic_tables text[] := ARRAY[
+        'products', 'item_categories', 'warehouses', 'restaurant_tables', 
+        'menu_categories', 'modifier_groups', 'modifiers', 'table_sessions', 
+        'orders', 'order_items', 'customers', 'suppliers', 'accounts', 
+        'assets', 'employees'
+    ];
 BEGIN 
     FOREACH t IN ARRAY basic_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Policy_Staff_%I" ON public.%I;', t, t);
@@ -198,10 +203,10 @@ BEGIN
         
         EXECUTE format('CREATE POLICY "Policy_Staff_%I" ON public.%I FOR ALL TO authenticated USING (
             public.get_my_role() = ''super_admin'' 
-            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''))
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''owner'', ''manager'', ''accountant'', ''sales'', ''purchases'', ''cashier'', ''chef''))
         ) WITH CHECK (
             public.get_my_role() = ''super_admin'' 
-            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''sales'', ''purchases'', ''accountant''))
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''owner'', ''manager'', ''accountant'', ''sales'', ''purchases'', ''cashier'', ''chef''))
         );', t, t);
     END LOOP;
 END $$;
@@ -230,10 +235,10 @@ BEGIN
         
         EXECUTE format('CREATE POLICY "Trans_Staff_%I" ON public.%I FOR ALL TO authenticated USING (
             public.get_my_role() = ''super_admin'' 
-            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''owner'', ''manager'', ''accountant'', ''sales'', ''purchases''))
         ) WITH CHECK (
             public.get_my_role() = ''super_admin'' 
-            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
+            OR (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''owner'', ''manager'', ''accountant'', ''sales'', ''purchases''))
         );', t, t);
     END LOOP;
 END $$;

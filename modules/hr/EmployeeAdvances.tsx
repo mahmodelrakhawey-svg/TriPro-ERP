@@ -82,17 +82,15 @@ const EmployeeAdvances = () => {
     
     setSaving(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
-
-      if (!userOrgId) throw new Error('تعذر تحديد المنظمة.');
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      if (!orgId && currentUser?.role !== 'super_admin') throw new Error('تعذر تحديد المنظمة.');
 
       const employee = employees.find(e => e.id === formData.employeeId);
       const reference = `ADV-${Date.now().toString().slice(-6)}`;
 
       // 1. حفظ السلفة
       const { error: advError } = await supabase.from('employee_advances').insert({
-        organization_id: userOrgId,
+        organization_id: orgId,
         employee_id: formData.employeeId,
         amount: formData.amount,
         request_date: formData.date,

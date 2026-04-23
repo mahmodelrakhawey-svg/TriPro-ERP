@@ -175,20 +175,20 @@ const PayrollReport = () => {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {payrollData.map((item) => (
-                            <tr key={item.id}>
-                                <td className="p-3 font-bold">{item.employees?.full_name} <span className="text-xs font-normal text-slate-500 block">{item.employees?.position}</span></td>
-                                <td className="p-3">{item.gross_salary.toLocaleString()}</td>
-                                <td className="p-3 text-emerald-600">{item.additions.toLocaleString()}</td>
-                                <td className="p-3 text-red-600">{(item.payroll_tax || 0).toLocaleString()}</td>
-                                <td className="p-3 text-red-600">{item.other_deductions.toLocaleString()}</td>
-                                <td className="p-3 text-red-600">{item.advances_deducted.toLocaleString()}</td>
-                                <td className="p-3 font-bold text-slate-900 bg-slate-50">{item.net_salary.toLocaleString()}</td>
-                                <td className="p-3 print:hidden">
-                                    <button onClick={() => handlePrintSlip(item)} className="text-slate-400 hover:text-blue-600 p-1" title="طباعة قسيمة">
-                                        <Receipt size={18} />
-                                    </button>
-                                </td>
-                            </tr>
+                    item && <tr key={item.id}>
+                        <td className="p-3 font-bold">{item.employees?.full_name || 'غير محدد'} <span className="text-xs font-normal text-slate-500 block">{item.employees?.position || 'غير محدد'}</span></td>
+                        <td className="p-3">{(item.gross_salary || 0).toLocaleString()}</td>
+                        <td className="p-3 text-emerald-600">{(item.additions || 0).toLocaleString()}</td>
+                        <td className="p-3 text-red-600">{(item.payroll_tax || 0).toLocaleString()}</td>
+                        <td className="p-3 text-red-600">{(item.other_deductions || 0).toLocaleString()}</td>
+                        <td className="p-3 text-red-600">{(item.advances_deducted || 0).toLocaleString()}</td>
+                        <td className="p-3 font-bold text-slate-900 bg-slate-50">{(item.net_salary || 0).toLocaleString()}</td>
+                        <td className="p-3 print:hidden">
+                            <button onClick={() => handlePrintSlip(item)} className="text-slate-400 hover:text-blue-600 p-1" title="طباعة قسيمة">
+                                <Receipt size={18} />
+                            </button>
+                        </td>
+                    </tr>
                         ))}
                     </tbody>
                     <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
