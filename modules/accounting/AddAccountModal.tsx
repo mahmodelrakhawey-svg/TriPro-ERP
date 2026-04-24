@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType, Account } from '../../types';
 import { X, Save } from 'lucide-react';
@@ -71,10 +71,25 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
       return;
     }
 
-    // التحقق من تكرار الكود
-    if (accounts.some(acc => acc.code === result.data.code.trim() && acc.id !== accountToEdit?.id)) {
+    const trimmedCode = result.data.code.trim();
+
+    // 1. التحقق من تكرار الكود
+    if (accounts.some(acc => acc.code === trimmedCode && acc.id !== accountToEdit?.id)) {
       setError('رقم الحساب مستخدم بالفعل، الرجاء اختيار رقم آخر');
       return;
+    }
+
+    // 2. 🇪🇬 فرض التبعية الشجرية (المعيار المصري)
+    if (formData.parentAccount) {
+      const parentAcc = accounts.find(a => a.id === formData.parentAccount);
+      if (parentAcc && !trimmedCode.startsWith(parentAcc.code)) {
+        setError(`خطأ في التكويد: يجب أن يبدأ كود الحساب بكود الأب (${parentAcc.code}) لضمان دقة التقارير الآلية.`);
+        return;
+      }
+      if (parentAcc && parentAcc.type !== result.data.type) {
+        setError(`تعارض في النوع: الحساب الابن يجب أن يتبع نفس نوع الأب (${parentAcc.type}).`);
+        return;
+      }
     }
 
     try {

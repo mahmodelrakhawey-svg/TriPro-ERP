@@ -1,4 +1,4 @@
-﻿import { useMemo } from 'react';
+﻿﻿import { useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Link } from 'react-router-dom';
 import { 
@@ -14,7 +14,7 @@ import {
 const ImportantReports = () => {
   const { 
     invoices, purchaseInvoices, products, 
-    customers, settings 
+    customers, settings, entries, accounts
   } = useAccounting();
 
   const analytics = useMemo(() => {
@@ -22,8 +22,28 @@ const ImportantReports = () => {
     const currentMonth = today.getMonth();
     const currentYear = today.getFullYear();
 
-    // 1. Financial Summary (Estimated from Operational Data)
-    const totalSales = (invoices || []).reduce((sum, inv) => sum + inv.totalAmount, 0);
+    // 1. Financial Summary (Ledger Based for Accuracy)
+    let wholesaleSales = 0;
+    let restaurantSales = 0;
+
+    (entries || []).forEach(entry => {
+      if (entry.status !== 'posted') return;
+      entry.lines.forEach(line => {
+        const acc = (accounts || []).find(a => a.id === line.accountId);
+        if (!acc) return;
+        
+        // حساب مبيعات الجملة (411)
+        if (acc.code === '411') {
+          wholesaleSales += (line.credit - line.debit);
+        } 
+        // حسابات مبيعات المطعم (4111 صالة و 4112 توصيل)
+        else if (acc.code.startsWith('4111') || acc.code.startsWith('4112')) {
+          restaurantSales += (line.credit - line.debit);
+        }
+      });
+    });
+
+    const totalSales = wholesaleSales + restaurantSales;
     const totalPurchases = (purchaseInvoices || []).reduce((sum, inv) => sum + inv.totalAmount, 0);
     
     // Calculate Inventory Value
@@ -35,12 +55,21 @@ const ImportantReports = () => {
         const d = new Date(currentYear, currentMonth - i, 1);
         const monthName = d.toLocaleDateString('ar-EG', { month: 'short' });
 
-        const monthSales = (invoices || [])
-            .filter(inv => {
-                const invDate = new Date(inv.date);
-                return invDate.getFullYear() === d.getFullYear() && invDate.getMonth() === d.getMonth();
-            })
-            .reduce((sum, inv) => sum + inv.totalAmount, 0);
+        let monthWholesale = 0;
+        let monthRestaurant = 0;
+
+        (entries || []).forEach(entry => {
+            const entryDate = new Date(entry.transaction_date || entry.date);
+            if (entry.status === 'posted' && entryDate.getFullYear() === d.getFullYear() && entryDate.getMonth() === d.getMonth()) {
+                entry.lines.forEach(line => {
+                    const acc = (accounts || []).find(a => a.id === line.accountId);
+                    if (acc) {
+                        if (acc.code === '411') monthWholesale += (line.credit - line.debit);
+                        else if (acc.code.startsWith('4111') || acc.code.startsWith('4112')) monthRestaurant += (line.credit - line.debit);
+                    }
+                });
+            }
+        });
 
         const monthPurchases = (purchaseInvoices || [])
             .filter(inv => {
@@ -49,7 +78,12 @@ const ImportantReports = () => {
             })
             .reduce((sum, inv) => sum + inv.totalAmount, 0);
 
-        monthlyTrends.push({ name: monthName, sales: monthSales, purchases: monthPurchases });
+        monthlyTrends.push({ 
+            name: monthName, 
+            wholesale: monthWholesale, 
+            restaurant: monthRestaurant, 
+            purchases: monthPurchases 
+        });
     }
 
     // 3. Top Customers (by Sales Volume)
@@ -158,7 +192,8 @@ const ImportantReports = () => {
                                 cursor={{fill: '#f8fafc'}}
                             />
                             <Legend wrapperStyle={{paddingTop: '20px'}} />
-                            <Bar dataKey="sales" name="المبيعات" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={30} />
+                            <Bar dataKey="wholesale" name="مبيعات الجملة" stackId="sales" fill="#3b82f6" barSize={30} />
+                            <Bar dataKey="restaurant" name="مبيعات المطعم" stackId="sales" fill="#8b5cf6" radius={[6, 6, 0, 0]} barSize={30} />
                             <Bar dataKey="purchases" name="المشتريات" fill="#f59e0b" radius={[6, 6, 0, 0]} barSize={30} />
                         </BarChart>
                     </ResponsiveContainer>

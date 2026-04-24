@@ -43,6 +43,15 @@ const ACCOUNT_LABELS: Record<string, string> = {
   CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
 };
 
+interface CloudBackup {
+  id: string;
+  organization_id: string;
+  backup_date: string;
+  backup_data: any;
+  file_size_kb: number;
+  notes: string;
+}
+
 const Settings = () => {
   const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'demo'>('general');
   const [formData, setFormData] = useState({ 
@@ -52,6 +61,7 @@ const Settings = () => {
       defaultWarehouseId: '',
       defaultTreasuryId: ''
   });
+  const [cloudBackups, setCloudBackups] = useState<CloudBackup[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
   const [settingsId, setSettingsId] = useState<string | null>(null);
@@ -107,8 +117,22 @@ const Settings = () => {
         }
         setLoading(false);
     };
+
     fetchSettings();
-  }, []);
+    fetchCloudBackups();
+  }, [currentUser]);
+
+  const fetchCloudBackups = async () => {
+    const orgId = (currentUser as any)?.organization_id;
+    if (!orgId) return;
+    const { data } = await supabase
+      .from('organization_backups')
+      .select('*')
+      .eq('organization_id', orgId)
+      .order('backup_date', { ascending: false })
+      .limit(5);
+    setCloudBackups(data || []);
+  };
 
   // Security Check
   if (!loading && ((currentUserRole as string) !== 'super_admin' && (currentUserRole as string) !== 'admin' || (currentUserRole as string) === 'demo')) {
@@ -253,6 +277,55 @@ const Settings = () => {
       reader.readAsText(file);
     } else {
       reader.readAsBinaryString(file);
+    }
+  };
+
+  const handleCreateCloudBackup = async () => {
+    const orgId = (currentUser as any)?.organization_id;
+    if (!orgId) {
+      showToast('فشل تحديد المنظمة. يرجى إعادة تسجيل الدخول.', 'error');
+      return;
+    }
+
+    if (!window.confirm('هل تريد إنشاء نسخة احتياطية كاملة لبيانات المنشأة في السحابة الآن؟')) return;
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('create_organization_backup', { 
+        p_org_id: orgId 
+      });
+      if (error) throw error;
+      showToast(`تم إنشاء النسخة الاحتياطية بنجاح ✅ رقم النسخة: ${data}`, 'success');
+      fetchCloudBackups();
+    } catch (err: any) {
+      showToast('فشل إنشاء النسخة الاحتياطية: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestoreCloudBackup = async (backup: CloudBackup) => {
+    if (!window.confirm('⚠️ تحذير شديد: استعادة هذه النسخة ستمسح كافة البيانات الحالية وتستبدلها ببيانات النسخة المختارة. هل تريد الاستمرار؟')) return;
+    
+    const confirmText = window.prompt('لتأكيد العملية، يرجى كتابة كلمة "استعادة" في المربع أدناه:');
+    if (!confirmText || (confirmText.trim() !== 'استعادة' && confirmText.trim() !== 'استعاده')) {
+      showToast('تم إلغاء عملية الاستعادة أو لم يتم إدخال كلمة التأكيد بشكل صحيح', 'info');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('restore_organization_backup', { 
+        p_org_id: backup.organization_id,
+        p_backup_data: backup.backup_data
+      });
+      if (error) throw error;
+      showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err: any) {
+      showToast('فشل عملية الاستعادة: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -953,12 +1026,57 @@ const Settings = () => {
                           
                           <div className="flex gap-4">
                               <button 
+                                onClick={handleCreateCloudBackup}
+                                className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 font-bold shadow-md transition-all"
+                              >
+                                  <Database size={18} /> إنشاء نسخة سحابية
+                              </button>
+
+                              <button 
                                 onClick={exportData}
                                 className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-bold shadow-md transition-all"
                               >
                                   <Download size={18} /> تصدير قاعدة البيانات
                               </button>
                               
+                              {cloudBackups.length > 0 && (
+                                  <div className="mt-4 w-full border-t border-blue-100 pt-4">
+                                      <h4 className="font-bold text-blue-800 mb-3 text-sm">آخر النسخ السحابية المتوفرة:</h4>
+                                      <div className="space-y-2">
+                                          {cloudBackups.map(b => (
+                                              <div key={b.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-blue-100 shadow-sm">
+                                                  <div>
+                                                      <div className="font-bold text-xs text-slate-700">{new Date(b.backup_date).toLocaleString('ar-EG')}</div>
+                                                      <div className="text-[10px] text-slate-400">الحجم: {b.file_size_kb.toFixed(2)} KB</div>
+                                                  </div>
+                                                  <div className="flex gap-2">
+                                                      <button 
+                                                          onClick={() => handleRestoreCloudBackup(b)}
+                                                          className="px-3 py-1 bg-orange-50 text-orange-600 border border-orange-200 rounded-md text-[10px] font-black hover:bg-orange-100 transition-colors"
+                                                      >
+                                                          استعادة النسخة
+                                                      </button>
+                                                      <button 
+                                                          onClick={() => {
+                                                              const blob = new Blob([JSON.stringify(b.backup_data)], { type: 'application/json' });
+                                                              const url = URL.createObjectURL(blob);
+                                                              const a = document.createElement('a');
+                                                              a.href = url;
+                                                              a.download = `backup_${new Date(b.backup_date).toISOString()}.json`;
+                                                              a.click();
+                                                          }}
+                                                          className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
+                                                          title="تحميل الملف"
+                                                      >
+                                                          <Download size={14} />
+                                                      </button>
+                                                  </div>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  </div>
+                              )}
+
                               <div className="relative">
                                   <input 
                                     type="file" 

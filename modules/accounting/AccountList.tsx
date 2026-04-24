@@ -1,17 +1,17 @@
-﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw } from 'lucide-react';
+import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AddAccountModal from './AddAccountModal';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 
 const AccountList = () => {
-  const { accounts, deleteAccount, refreshData, isLoading } = useAccounting();
+  const { accounts, deleteAccount, refreshData, isLoading, can } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(''); // Removed unused `isLoading` from useAccounting
   const [showOnlyGroups, setShowOnlyGroups] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -98,6 +98,12 @@ const AccountList = () => {
   };
 
   const handleDelete = async (id: string, name: string, balance: number) => {
+    const account = accounts.find(a => a.id === id);
+    if (account && PROTECTED_SYSTEM_ACCOUNT_CODES.includes(account.code)) {
+        showToast(`تنبيه: لا يمكن حذف الحساب "${name}" لأنه حساب نظام أساسي ضروري لاستقرار التقارير.`, 'warning');
+        return;
+    }
+
     const hasChildren = accounts.some(a => (a as any).parent_id === id);
     if (hasChildren) {
         showToast('لا يمكن حذف حساب رئيسي يحتوي على حسابات فرعية. يرجى حذف الحسابات الفرعية أولاً.', 'warning');
@@ -128,6 +134,138 @@ const AccountList = () => {
         } catch (error: any) {
             showToast('فشل تصفير الأرصدة: ' + error.message, 'error');
         }
+    }
+  };
+
+  const handleAutoFixAccountTypes = async () => {
+    if (!can('accounting', 'update')) {
+      showToast('ليس لديك صلاحية لتعديل الحسابات.', 'error');
+      return;
+    }
+
+    if (!window.confirm('هل أنت متأكد من إصلاح أنواع الحسابات تلقائياً؟\nسيتم تعديل نوع الحساب (أصول، خصوم، إيرادات، مصروفات، حقوق ملكية) بناءً على بادئة كود الحساب.\n\nلا يمكن التراجع عن هذا الإجراء.')) {
+      return;
+    }
+
+    showToast('جاري إصلاح أنواع الحسابات تلقائياً...', 'info');
+    let updatedCount = 0;
+    const updates = [];
+
+    for (const acc of accounts) {
+      if (acc.isGroup) continue; // لا نعدل أنواع الحسابات التجميعية
+
+      let expectedType = '';
+      const codePrefix = acc.code.charAt(0);
+
+      if (codePrefix === '1') expectedType = 'ASSET';
+      else if (codePrefix === '2') expectedType = 'LIABILITY';
+      else if (codePrefix === '3') expectedType = 'EQUITY';
+      else if (codePrefix === '4') expectedType = 'REVENUE';
+      else if (codePrefix === '5') expectedType = 'EXPENSE';
+
+      if (expectedType && acc.type.toUpperCase() !== expectedType) {
+        updates.push(supabase.from('accounts').update({ type: expectedType }).eq('id', acc.id));
+        updatedCount++;
+      }
+    }
+
+    if (updates.length === 0) {
+      showToast('جميع أنواع الحسابات مطابقة لأكوادها. لا توجد حاجة للإصلاح.', 'success');
+      return;
+    }
+
+    try {
+      await Promise.all(updates);
+      showToast(`تم إصلاح ${updatedCount} حساب بنجاح.`, 'success');
+      refreshData(); // إعادة تحميل البيانات بعد التحديث
+    } catch (error: any) {
+      console.error('Error auto-fixing account types:', error);
+      showToast('فشل إصلاح أنواع الحسابات: ' + error.message, 'error');
+    }
+  };
+
+  const handleCreateMissingAccounts = async () => {
+    if (!window.confirm('هل تريد فحص وإنشاء الحسابات الأساسية المفقودة؟\nسيقوم النظام بإنشاء الحسابات الضرورية للتقارير والقيود الآلية إذا لم تكن موجودة.')) {
+      return;
+    }
+
+    setEditingAccount(null); // تأمين حالة التحميل
+    showToast('جاري فحص الحسابات المفقودة...', 'info');
+
+    // قائمة الحسابات الأساسية المطلوبة (بالترتيب الهرمي)
+    const essentialTemplate = [
+      { code: '1', name: 'الأصول', type: 'ASSET', is_group: true, parent_code: null },
+      { code: '2', name: 'الخصوم (الإلتزامات)', type: 'LIABILITY', is_group: true, parent_code: null },
+      { code: '3', name: 'حقوق الملكية', type: 'EQUITY', is_group: true, parent_code: null },
+      { code: '4', name: 'الإيرادات', type: 'REVENUE', is_group: true, parent_code: null },
+      { code: '5', name: 'المصروفات', type: 'EXPENSE', is_group: true, parent_code: null },
+      { code: '11', name: 'الأصول غير المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
+      { code: '12', name: 'الأصول المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
+      { code: '22', name: 'الخصوم المتداولة', type: 'LIABILITY', is_group: true, parent_code: '2' },
+      { code: '121', name: 'المخزون', type: 'ASSET', is_group: true, parent_code: '12' },
+      { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_code: '12' },
+      { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_code: '12' },
+      { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_code: '22' },
+      { code: '3999', name: 'الأرصدة الافتتاحية (حساب وسيط)', type: 'EQUITY', is_group: false, parent_code: '3' },
+      { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_code: '4' },
+      { code: '511', name: 'تكلفة البضاعة المباعة', type: 'EXPENSE', is_group: false, parent_code: '5' },
+      { code: '53', name: 'المصروفات الإدارية والعمومية', type: 'EXPENSE', is_group: true, parent_code: '5' },
+      { code: '541', name: 'تسوية عجز الصندوق', type: 'EXPENSE', is_group: false, parent_code: '53' },
+    ];
+
+    let createdCount = 0;
+
+    try {
+      // جلب معرف المنظمة الحالي
+      const { data: { user } } = await supabase.auth.getUser();
+      const orgId = user?.user_metadata?.org_id;
+
+      if (!orgId) throw new Error('تعذر تحديد معرف المنظمة');
+
+      // معالجة القالب بالتتابع لضمان وجود الأب قبل الابن
+      for (const item of essentialTemplate) {
+        // فحص هل الحساب موجود مسبقاً (محلياً من القائمة الحالية لتسريع العملية)
+        const exists = accounts.some(a => a.code === item.code);
+        
+        if (!exists) {
+          // البحث عن ID الحساب الأب بناءً على الكود
+          let parentId = null;
+          if (item.parent_code) {
+            // نبحث في قاعدة البيانات عن الأب لضمان الحصول على أحدث ID
+            const { data: parentAcc } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('organization_id', orgId)
+              .eq('code', item.parent_code)
+              .maybeSingle();
+            
+            parentId = parentAcc?.id || null;
+          }
+
+          const { error: insertError } = await supabase.from('accounts').insert({
+            code: item.code,
+            name: item.name,
+            type: item.type,
+            is_group: item.is_group,
+            parent_id: parentId,
+            organization_id: orgId,
+            is_active: true
+          });
+
+          if (!insertError) createdCount++;
+        }
+      }
+
+      if (createdCount > 0) {
+        showToast(`تم إنشاء ${createdCount} حساب بنجاح ✅`, 'success');
+        refreshData();
+      } else {
+        showToast('جميع الحسابات الأساسية موجودة بالفعل ✨', 'info');
+      }
+
+    } catch (err: any) {
+      console.error(err);
+      showToast('فشل إنشاء الحسابات: ' + err.message, 'error');
     }
   };
 
@@ -229,6 +367,22 @@ const AccountList = () => {
             >
               <RefreshCw size={18} className={isLoading ? 'animate-spin text-blue-600' : ''} />
               <span>تحديث الأرصدة</span>
+            </button>
+            <button 
+              onClick={handleCreateMissingAccounts}
+              className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-100 font-bold transition-colors shadow-sm"
+              title="إنشاء الحسابات المفقودة اللازمة للنظام"
+            >
+              <Sparkles size={18} />
+              <span>إنشاء الحسابات المفقودة</span>
+            </button>
+            <button 
+              onClick={handleAutoFixAccountTypes}
+              className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:bg-amber-100 font-bold transition-colors shadow-sm"
+              title="إصلاح أنواع الحسابات تلقائياً بناءً على أكوادها"
+            >
+              <Wrench size={18} />
+              <span>إصلاح أنواع الحسابات</span>
             </button>
             <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 font-bold transition-colors">
                 <Download size={18} /> تصدير Excel

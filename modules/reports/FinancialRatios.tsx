@@ -1,19 +1,83 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2 } from 'lucide-react';
+import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 
 const FinancialRatios = () => {
-  const { accounts, entries } = useAccounting();
+  const { accounts, entries, currentUser } = useAccounting();
+  const { showToast } = useToast();
+  const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
+  const [endDate, setEndDate] = useState(`${new Date().getFullYear()}-12-31`);
+  const [loadingData, setLoadingData] = useState(false); // For fetching ledger lines
+  const [ledgerLines, setLedgerLines] = useState<any[]>([]);
+
+  // Fetch ledger data for the specified period
+  const fetchLedgerData = async () => {
+    setLoadingData(true);
+    if (currentUser?.role === 'demo') {
+        // For demo, we'll use the existing `entries` data but filter it by date
+        setLedgerLines(entries.filter(e => e.status === 'posted' && e.date >= startDate && e.date <= endDate).flatMap(entry => entry.lines.map(line => ({
+            ...line,
+            journal_entries: { transaction_date: entry.date, status: entry.status }
+        }))));
+        setLoadingData(false);
+        return;
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userOrgId = user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
+      }
+
+      const { data, error } = await supabase
+        .from('journal_lines')
+        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+        .eq('journal_entries.status', 'posted')
+        .eq('journal_entries.organization_id', userOrgId)
+        .lte('journal_entries.transaction_date', endDate);
+
+      if (error) throw error;
+      setLedgerLines(data || []);
+    } catch (err: any) {
+      console.error('Error fetching ledger data for financial ratios:', err);
+      showToast('فشل جلب البيانات: ' + err.message, 'error');
+    } finally {
+      setLoadingData(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLedgerData();
+  }, [startDate, endDate, accounts, currentUser]); // Re-fetch when period or accounts change
 
   const ratios = useMemo(() => {
-    if (!accounts || accounts.length === 0) return null;
+    if (!accounts || accounts.length === 0 || loadingData) return null; // Wait for ledger data
+
+    // تجميع أرصدة الفترة والأرصدة التراكمية من واقع القيود لضمان الدقة المطلقة
+    const periodAccountBalances: Record<string, number> = {};
+    const cumulativeAccountBalances: Record<string, number> = {};
+
+    ledgerLines.forEach(line => {
+        const accId = line.account_id;
+        const amount = (line.debit - line.credit);
+        const transDate = line.journal_entries?.transaction_date;
+
+        cumulativeAccountBalances[accId] = (cumulativeAccountBalances[accId] || 0) + amount;
+        if (transDate >= startDate) {
+            periodAccountBalances[accId] = (periodAccountBalances[accId] || 0) + amount;
+        }
+    });
 
     // 1. تجميع الأرصدة حسب التصنيف
     let currentAssets = 0;
     let currentLiabilities = 0;
+    let totalLiabilities = 0; // جديد: لإجمالي الخصوم
     let inventory = 0;
     let totalAssets = 0;
     let totalEquity = 0;
@@ -21,64 +85,53 @@ const FinancialRatios = () => {
     let cogs = 0;
     let totalExpenses = 0;
     let netIncome = 0;
-    let receivables = 0;
 
     accounts.forEach(acc => {
         if (acc.isGroup) return;
-        const code = acc.code;
-        const balance = acc.balance || 0;
+
+        // استخدام الأرصدة المحسوبة من القيود بدلاً من عمود الجدول لضمان مطابقة ميزان المراجعة
+        const balance = cumulativeAccountBalances[acc.id] || 0;
+        const periodBalance = periodAccountBalances[acc.id] || 0;
+
         const type = String(acc.type || '').toUpperCase();
         const subType = String(acc.sub_type || '').toLowerCase();
+        const code = String(acc.code || '');
 
-        // 1. تصنيف الأصول (متداولة vs غير متداولة)
-        if (type === 'ASSET' || type === 'أصول') {
+        // أصول
+        if (type.includes('ASSET') || type.includes('أصول') || code.startsWith('1')) {
             totalAssets += balance;
-            
-            // الأولوية لـ sub_type لضمان التوافق مع الدليل الشجري
-            if (
-                subType === 'current' || 
-                code.startsWith('12') || 
-                code.startsWith('103') || 
-                code.startsWith('123')
-            ) {
+            if (subType === 'current' || code.startsWith('12') || code.startsWith('103') || code.startsWith('111')) {
                 currentAssets += balance;
             }
-        }
-
-        // 2. تصنيف الخصوم
-        if (type === 'LIABILITY' || type === 'خصوم') {
-            const absBalance = Math.abs(balance);
-            if (subType === 'current' || code.startsWith('2')) {
-                currentLiabilities += absBalance;
+            if (code.startsWith('103') || subType === 'inventory') {
+                inventory += balance;
             }
         }
 
-        // المخزون (121 في الدليل الجديد أو 103 في القديم)
-        if (code.startsWith('121') || code.startsWith('103') || subType === 'inventory') {
-            inventory += balance;
+        // خصوم
+        if (type.includes('LIABILITY') || type.includes('خصوم') || code.startsWith('2')) {
+            totalLiabilities += -balance;
+            // الخصوم المتداولة تشمل الموردين (201) والالتزامات المتداولة (22)
+            if (subType === 'current' || code.startsWith('22') || code.startsWith('201')) {
+                currentLiabilities += -balance;
+            }
         }
 
-        // العملاء (122 في الدليل الجديد)
-        if (code.startsWith('122') || code.startsWith('102') || subType === 'receivable') {
-            receivables += balance;
+        // حقوق ملكية
+        if (type.includes('EQUITY') || type.includes('ملكية') || code.startsWith('3')) {
+            totalEquity += -balance;
         }
 
-        // حقوق الملكية
-        if (type === 'EQUITY' || type === 'حقوق ملكية' || code.startsWith('3')) {
-            totalEquity += Math.abs(balance);
+        // إيرادات
+        if (type.includes('REVENUE') || type.includes('إيراد') || code.startsWith('4')) {
+            sales += -periodBalance;
         }
 
-        // المبيعات (4) - الدائن يزيد الربح
-        if (type === 'REVENUE' || type === 'INCOME' || code.startsWith('4')) {
-            sales += Math.abs(balance);
-        }
-
-        // المصروفات (5) - المدين ينقص الربح
-        if (type === 'EXPENSE' || code.startsWith('5')) {
-            totalExpenses += balance;
-            // تكلفة البضاعة المباعة (51)
+        // مصروفات
+        if (type.includes('EXPENSE') || type.includes('مصروف') || code.startsWith('5')) {
+            totalExpenses += periodBalance;
             if (code.startsWith('51') || subType === 'cogs') {
-                cogs += balance;
+                cogs += periodBalance;
             }
         }
     });
@@ -95,7 +148,8 @@ const FinancialRatios = () => {
     const netProfitMargin = sales > 0 ? (netIncome / sales) * 100 : 0;
     const roa = totalAssets > 0 ? (netIncome / totalAssets) * 100 : 0; // العائد على الأصول
     const roe = totalEquity > 0 ? (netIncome / totalEquity) * 100 : 0; // العائد على حقوق الملكية
-    const debtToEquity = totalEquity > 0 ? (currentLiabilities / totalEquity) : 0;
+    const debtToEquity = totalEquity > 0 ? (totalLiabilities / totalEquity) : 0; // تم التعديل لاستخدام totalLiabilities
+    const inventoryTurnover = cogs > 0 && inventory > 0 ? cogs / inventory : 0; // جديد: معدل دوران المخزون
 
     // حساب نقطة التعادل
     const variableCosts = cogs; // التكاليف المتغيرة (تكلفة البضاعة)
@@ -112,13 +166,14 @@ const FinancialRatios = () => {
         roa,
         roe,
         debtToEquity,
+        inventoryTurnover, // جديد
         workingCapital: currentAssets - currentLiabilities,
         fixedCosts,
         variableCosts,
         breakEvenPoint,
         sales
     };
-  }, [accounts]); // يعتمد على الحسابات فقط لضمان الثبات
+  }, [accounts, ledgerLines, loadingData]); // Depend on ledgerLines and loadingData
 
   // حساب مقارنة الأداء السنوي
   const currentYear = new Date().getFullYear();
@@ -191,10 +246,24 @@ const FinancialRatios = () => {
         </div>
         <div className="flex items-center gap-2 text-xs">
             <span className="text-slate-400">المثالي: {ideal}</span>
-            {/* مؤشر بسيط للحالة */}
-            {Number(value) > 0 && (
-                <span className={`px-2 py-0.5 rounded-full ${value >= parseFloat(ideal) ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                    {value >= parseFloat(ideal) || (ideal === '-' && value > 0) ? 'جيد' : 'منخفض'}
+            {/* مؤشر بسيط للحالة - تم تعديل المنطق ليكون أكثر دقة */}
+            {(value !== null && value !== undefined) && (
+                <span className={`px-2 py-0.5 rounded-full ${
+                    // Working Capital: Good if > 0
+                    (title === 'رأس المال العامل' && value > 0) ? 'bg-emerald-100 text-emerald-700' :
+                    (title === 'رأس المال العامل' && value <= 0) ? 'bg-red-100 text-red-700' :
+                    // Break-even Point: Good if sales > breakEvenPoint
+                    (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales > value) ? 'bg-emerald-100 text-emerald-700' :
+                    (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales <= value && value > 0) ? 'bg-red-100 text-red-700' :
+                    // Other ratios: Use generic comparison
+                    (value >= parseFloat(ideal) || (ideal === '-' && value > 0)) ? 'bg-emerald-100 text-emerald-700' :
+                    'bg-amber-100 text-amber-700'
+                }`}>
+                    {(title === 'رأس المال العامل' && value > 0) ? 'جيد' :
+                     (title === 'رأس المال العامل' && value <= 0) ? 'ضعيف' :
+                     (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales > value) ? 'جيد' :
+                     (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales <= value && value > 0) ? 'مرتفع' :
+                     (value >= parseFloat(ideal) || (ideal === '-' && value > 0)) ? 'جيد' : 'منخفض'}
                 </span>
             )}
         </div>
@@ -260,26 +329,37 @@ const FinancialRatios = () => {
   // منع اختفاء الأرقام: إذا كانت الحسابات لا تزال فارغة، نظهر مؤشر تحميل بدلاً من أصفار
   if (accounts.length === 0 || !ratios) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen space-y-4">
+      <div className="flex flex-col items-center justify-center h-screen space-y-4 animate-in fade-in">
         <Loader2 className="animate-spin text-indigo-600" size={48} />
         <p className="text-slate-500 font-bold italic">جاري موازنة النسب المالية والبيانات التاريخية...</p>
       </div>
     );
   }
 
+  // تحديد حالة التحميل الكلية
+  const overallLoading = loadingData || loadingCharts;
+
   return (
     <div className="space-y-8 animate-in fade-in pb-12">
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-end gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm print:hidden">
+      <div className="flex flex-col md:flex-row justify-between items-end gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm print:hidden animate-in fade-in">
         <div>
             <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-3">
                 <Gauge className="text-indigo-600" size={32} /> التحليل المالي والنسب
             </h1>
             <p className="text-slate-500 mt-1 font-medium">مؤشرات الأداء المالي لتقييم صحة المنشأة واتخاذ القرارات</p>
         </div>
-        <div className="flex gap-2">
-            <div className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl text-sm font-bold border border-indigo-100 flex items-center">
-                تحديث فوري
+        <div className="flex gap-2 items-center">
+            <div className="flex items-center gap-2 bg-white border border-slate-300 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors font-bold text-sm">
+                <RefreshCw size={16} className={overallLoading ? "animate-spin" : ""} /> تحديث
+            </div>
+            <div className="flex items-center gap-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1">من</label>
+                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="w-full border rounded-lg p-2" />
+            </div>
+            <div className="flex items-center gap-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1">إلى</label>
+                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border rounded-lg p-2" />
             </div>
             <button onClick={handleExportExcel} className="bg-emerald-600 text-white px-4 py-2 rounded-xl flex items-center gap-2 shadow-lg hover:bg-emerald-700 transition-all">
                 <Download size={18}/> تصدير Excel
@@ -393,9 +473,18 @@ const FinancialRatios = () => {
                   title="نقطة التعادل (Break-even Point)" 
                   value={ratios.breakEvenPoint} 
                   suffix="ج.م"
-                  ideal={`< ${ratios.sales.toLocaleString()}`} 
+                  ideal={`أقل من المبيعات الفعلية (${ratios.sales.toLocaleString()})`} 
                   description="حجم المبيعات اللازم لتغطية كافة التكاليف (لا ربح ولا خسارة)."
                   color="fuchsia"
+            />
+              {/* جديد: معدل دوران المخزون */}
+              <RatioCard 
+                  title="معدل دوران المخزون" 
+                  value={ratios.inventoryTurnover} 
+                  suffix="مرة"
+                  ideal="> 5" 
+                  description="عدد المرات التي يتم فيها بيع واستبدال المخزون خلال الفترة (كفاءة إدارة المخزون)."
+                  color="sky"               
               />
           </div>
       </div>

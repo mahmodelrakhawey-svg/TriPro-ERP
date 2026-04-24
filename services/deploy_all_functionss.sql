@@ -1952,14 +1952,37 @@ BEGIN
         'metadata', jsonb_build_object('org_id', p_org_id, 'date', now(), 'version', '1.0'),
         'settings', (SELECT to_jsonb(t) FROM public.company_settings t WHERE organization_id = p_org_id),
         'accounts', (SELECT jsonb_agg(to_jsonb(t)) FROM public.accounts t WHERE organization_id = p_org_id),
+        'warehouses', (SELECT jsonb_agg(to_jsonb(t)) FROM public.warehouses t WHERE organization_id = p_org_id),
+        'cost_centers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.cost_centers t WHERE organization_id = p_org_id),
+        'item_categories', (SELECT jsonb_agg(to_jsonb(t)) FROM public.item_categories t WHERE organization_id = p_org_id),
+        'menu_categories', (SELECT jsonb_agg(to_jsonb(t)) FROM public.menu_categories t WHERE organization_id = p_org_id),
         'products', (SELECT jsonb_agg(to_jsonb(t)) FROM public.products t WHERE organization_id = p_org_id),
         'customers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.customers t WHERE organization_id = p_org_id),
         'suppliers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.suppliers t WHERE organization_id = p_org_id),
         'journal_entries', (SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_entries t WHERE organization_id = p_org_id),
         'journal_lines', (SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_lines t WHERE organization_id = p_org_id),
         'invoices', (SELECT jsonb_agg(to_jsonb(t)) FROM public.invoices t WHERE organization_id = p_org_id),
+        'invoice_items', (SELECT jsonb_agg(to_jsonb(t)) FROM public.invoice_items t WHERE organization_id = p_org_id),
         'purchase_invoices', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_invoices t WHERE organization_id = p_org_id),
-        'payments', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payments t WHERE organization_id = p_org_id)
+        'purchase_invoice_items', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_invoice_items t WHERE organization_id = p_org_id),
+        'receipt_vouchers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.receipt_vouchers t WHERE organization_id = p_org_id),
+        'payment_vouchers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payment_vouchers t WHERE organization_id = p_org_id),
+        'cheques', (SELECT jsonb_agg(to_jsonb(t)) FROM public.cheques t WHERE organization_id = p_org_id),
+        'credit_notes', (SELECT jsonb_agg(to_jsonb(t)) FROM public.credit_notes t WHERE organization_id = p_org_id),
+        'debit_notes', (SELECT jsonb_agg(to_jsonb(t)) FROM public.debit_notes t WHERE organization_id = p_org_id),
+        'employees', (SELECT jsonb_agg(to_jsonb(t)) FROM public.employees t WHERE organization_id = p_org_id),
+        'assets', (SELECT jsonb_agg(to_jsonb(t)) FROM public.assets t WHERE organization_id = p_org_id),
+        'payrolls', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payrolls t WHERE organization_id = p_org_id),
+        'stock_adjustments', (SELECT jsonb_agg(to_jsonb(t)) FROM public.stock_adjustments t WHERE organization_id = p_org_id),
+        'restaurant_tables', (SELECT jsonb_agg(to_jsonb(t)) FROM public.restaurant_tables t WHERE organization_id = p_org_id),
+        'orders', (SELECT jsonb_agg(to_jsonb(t)) FROM public.orders t WHERE organization_id = p_org_id),
+        'payments', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payments t WHERE organization_id = p_org_id),
+        'bill_of_materials', (SELECT jsonb_agg(to_jsonb(t)) FROM public.bill_of_materials t WHERE organization_id = p_org_id),
+        'opening_inventories', (SELECT jsonb_agg(to_jsonb(t)) FROM public.opening_inventories t WHERE organization_id = p_org_id),
+        'quotations', (SELECT jsonb_agg(to_jsonb(t)) FROM public.quotations t WHERE organization_id = p_org_id),
+        'purchase_orders', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_orders t WHERE organization_id = p_org_id),
+        'sales_returns', (SELECT jsonb_agg(to_jsonb(t)) FROM public.sales_returns t WHERE organization_id = p_org_id),
+        'purchase_returns', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_returns t WHERE organization_id = p_org_id)
     ) INTO v_final_json;
 
     -- إدراج النسخة في جدول النسخ الاحتياطية
@@ -1991,78 +2014,140 @@ AS $$
 DECLARE
     v_item jsonb;
 BEGIN
-    -- 1. تنظيف البيانات الحالية للمنظمة بالترتيب العكسي (من الأبناء للآباء)
-    DELETE FROM public.journal_lines WHERE organization_id = p_org_id;
-    DELETE FROM public.journal_entries WHERE organization_id = p_org_id;
+    IF p_backup_data IS NULL OR p_backup_data = 'null'::jsonb THEN
+        RAISE EXCEPTION 'بيانات النسخة الاحتياطية غير صالحة أو فارغة.';
+    END IF;
+
+    -- 🛡️ المرحلة 1: التنظيف المتسلسل (Hierarchical Deletion)
+    -- [المرفقات واللوجات]
+    DELETE FROM public.receipt_voucher_attachments WHERE organization_id = p_org_id;
+    DELETE FROM public.payment_voucher_attachments WHERE organization_id = p_org_id;
+    DELETE FROM public.cheque_attachments WHERE organization_id = p_org_id;
+    DELETE FROM public.journal_attachments WHERE organization_id = p_org_id;
+    DELETE FROM public.notification_audit_log WHERE organization_id = p_org_id;
+    DELETE FROM public.notifications WHERE organization_id = p_org_id;
+    DELETE FROM public.security_logs WHERE organization_id = p_org_id;
+    
+    -- [بنود وتفاصيل العمليات]
+    DELETE FROM public.order_item_modifiers WHERE organization_id = p_org_id;
+    DELETE FROM public.kitchen_orders WHERE organization_id = p_org_id;
+    DELETE FROM public.order_items WHERE organization_id = p_org_id;
     DELETE FROM public.invoice_items WHERE organization_id = p_org_id;
-    DELETE FROM public.invoices WHERE organization_id = p_org_id;
     DELETE FROM public.purchase_invoice_items WHERE organization_id = p_org_id;
-    DELETE FROM public.purchase_invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.sales_return_items WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_return_items WHERE organization_id = p_org_id;
+    DELETE FROM public.quotation_items WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_order_items WHERE organization_id = p_org_id;
+    DELETE FROM public.stock_adjustment_items WHERE organization_id = p_org_id;
+    DELETE FROM public.stock_transfer_items WHERE organization_id = p_org_id;
+    DELETE FROM public.inventory_count_items WHERE organization_id = p_org_id;
+    DELETE FROM public.payroll_items WHERE organization_id = p_org_id;
+    DELETE FROM public.journal_lines WHERE organization_id = p_org_id;
+
+    -- [رؤوس العمليات والمستندات]
+    DELETE FROM public.sales_returns WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_returns WHERE organization_id = p_org_id;
     DELETE FROM public.payments WHERE organization_id = p_org_id;
+    DELETE FROM public.delivery_orders WHERE organization_id = p_org_id;
+    DELETE FROM public.orders WHERE organization_id = p_org_id;
+    DELETE FROM public.invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.receipt_vouchers WHERE organization_id = p_org_id;
+    DELETE FROM public.payment_vouchers WHERE organization_id = p_org_id;
+    DELETE FROM public.cheques WHERE organization_id = p_org_id;
+    DELETE FROM public.credit_notes WHERE organization_id = p_org_id;
+    DELETE FROM public.debit_notes WHERE organization_id = p_org_id;
+    DELETE FROM public.journal_entries WHERE organization_id = p_org_id;
+    DELETE FROM public.payrolls WHERE organization_id = p_org_id;
+    DELETE FROM public.stock_adjustments WHERE organization_id = p_org_id;
+    DELETE FROM public.stock_transfers WHERE organization_id = p_org_id;
+    DELETE FROM public.inventory_counts WHERE organization_id = p_org_id;
+    DELETE FROM public.quotations WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_orders WHERE organization_id = p_org_id;
+    DELETE FROM public.work_orders WHERE organization_id = p_org_id;
+
+    -- [البيانات الوسيطة والشيفتات]
+    DELETE FROM public.bill_of_materials WHERE organization_id = p_org_id;
+    DELETE FROM public.assets WHERE organization_id = p_org_id;
+    DELETE FROM public.shifts WHERE organization_id = p_org_id;
+    DELETE FROM public.table_sessions WHERE organization_id = p_org_id;
+    DELETE FROM public.employee_advances WHERE organization_id = p_org_id;
+    DELETE FROM public.employee_allowances WHERE organization_id = p_org_id;
+    DELETE FROM public.payroll_variables WHERE organization_id = p_org_id;
+    DELETE FROM public.opening_inventories WHERE organization_id = p_org_id;
+
+    -- [التعريفات والكيانات]
     DELETE FROM public.products WHERE organization_id = p_org_id;
     DELETE FROM public.customers WHERE organization_id = p_org_id;
     DELETE FROM public.suppliers WHERE organization_id = p_org_id;
-    DELETE FROM public.accounts WHERE organization_id = p_org_id;
-    DELETE FROM public.company_settings WHERE organization_id = p_org_id;
+    DELETE FROM public.employees WHERE organization_id = p_org_id;
+    DELETE FROM public.restaurant_tables WHERE organization_id = p_org_id;
 
-    -- 2. استعادة الإعدادات (Company Settings)
-    IF (p_backup_data->'settings') IS NOT NULL THEN
-        INSERT INTO public.company_settings 
-        SELECT * FROM jsonb_populate_record(NULL::public.company_settings, p_backup_data->'settings');
+    -- 🚀 2. البناء المتسلسل المصفح V4 (Industrial Multi-Pass)
+    -- [تمريرة 1: إدخال الهياكل والبيانات المستقلة]
+    IF (p_backup_data->'warehouses') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'warehouses') LOOP INSERT INTO public.warehouses SELECT * FROM jsonb_populate_record(NULL::public.warehouses, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
+    IF (p_backup_data->'accounts') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'accounts') LOOP INSERT INTO public.accounts SELECT * FROM jsonb_populate_record(NULL::public.accounts, v_item - 'parent_id') ON CONFLICT DO NOTHING; END LOOP; END IF;
+    IF (p_backup_data->'journal_entries') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_entries') LOOP INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_record(NULL::public.journal_entries, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
+
+    -- [تمريرة 2: إدخال الفواتير بدون روابط القيود لمنع الخطأ المرجعي]
+    IF (p_backup_data->'invoices') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP 
+            INSERT INTO public.invoices SELECT * FROM jsonb_populate_record(NULL::public.invoices, v_item - 'related_journal_entry_id') ON CONFLICT DO NOTHING; 
+        END LOOP; 
     END IF;
 
-    -- 3. استعادة شجرة الحسابات (Accounts)
-    FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'accounts') LOOP
-        INSERT INTO public.accounts SELECT * FROM jsonb_populate_record(NULL::public.accounts, v_item);
-    END LOOP;
+    -- [تمريرة 3: حقن الروابط بعد ضمان وجود السجلات]
+    IF (p_backup_data->'invoices') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP 
+            UPDATE public.invoices SET related_journal_entry_id = (v_item->>'related_journal_entry_id')::uuid 
+            WHERE id = (v_item->>'id')::uuid AND (v_item->>'related_journal_entry_id') IS NOT NULL; 
+        END LOOP; 
+    END IF;
 
-    -- 4. استعادة العملاء والموردين
-    IF (p_backup_data->'customers') IS NOT NULL THEN
+    -- [تمريرة 4: استعادة التفاصيل (Items & Lines)]
+    IF (p_backup_data->'invoice_items') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoice_items') LOOP INSERT INTO public.invoice_items SELECT * FROM jsonb_populate_record(NULL::public.invoice_items, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
+    IF (p_backup_data->'journal_lines') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_lines') LOOP INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_record(NULL::public.journal_lines, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
+
+    IF (p_backup_data->'customers') IS NOT NULL AND (p_backup_data->'customers') != 'null'::jsonb THEN
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'customers') LOOP
             INSERT INTO public.customers SELECT * FROM jsonb_populate_record(NULL::public.customers, v_item);
         END LOOP;
     END IF;
-    IF (p_backup_data->'suppliers') IS NOT NULL THEN
+
+    IF (p_backup_data->'suppliers') IS NOT NULL AND (p_backup_data->'suppliers') != 'null'::jsonb THEN
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'suppliers') LOOP
             INSERT INTO public.suppliers SELECT * FROM jsonb_populate_record(NULL::public.suppliers, v_item);
         END LOOP;
     END IF;
 
-    -- 5. استعادة المنتجات والمخزون
-    IF (p_backup_data->'products') IS NOT NULL THEN
+    IF (p_backup_data->'products') IS NOT NULL AND (p_backup_data->'products') != 'null'::jsonb THEN
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'products') LOOP
             INSERT INTO public.products SELECT * FROM jsonb_populate_record(NULL::public.products, v_item);
         END LOOP;
     END IF;
 
-    -- 6. استعادة الفواتير (بيع وشراء)
-    IF (p_backup_data->'invoices') IS NOT NULL THEN
+    IF (p_backup_data->'invoices') IS NOT NULL AND (p_backup_data->'invoices') != 'null'::jsonb THEN
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP
             INSERT INTO public.invoices SELECT * FROM jsonb_populate_record(NULL::public.invoices, v_item);
         END LOOP;
     END IF;
-    IF (p_backup_data->'purchase_invoices') IS NOT NULL THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'purchase_invoices') LOOP
-            INSERT INTO public.purchase_invoices SELECT * FROM jsonb_populate_record(NULL::public.purchase_invoices, v_item);
-        END LOOP;
-    END IF;
 
-    -- 7. استعادة القيود ودفتر الأستاذ
-    IF (p_backup_data->'journal_entries') IS NOT NULL THEN
+    IF (p_backup_data->'journal_entries') IS NOT NULL AND (p_backup_data->'journal_entries') != 'null'::jsonb THEN
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_entries') LOOP
             INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_record(NULL::public.journal_entries, v_item);
         END LOOP;
     END IF;
-    IF (p_backup_data->'journal_lines') IS NOT NULL THEN
+
+    IF (p_backup_data->'journal_lines') IS NOT NULL AND (p_backup_data->'journal_lines') != 'null'::jsonb THEN
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_lines') LOOP
             INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_record(NULL::public.journal_lines, v_item);
         END LOOP;
     END IF;
 
-    -- 8. تحديث الكاش وإعادة احتساب الأرصدة
     PERFORM public.recalculate_all_system_balances(p_org_id);
-    
-    RETURN 'تمت استعادة كافة البيانات والروابط المحاسبية بنجاح ✅';
+    RETURN '✅ تمت استعادة كافة البيانات بنجاح باستخدام المحرك المتسلسل.';
+EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION '❌ فشل استعادة البيانات: %', SQLERRM;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.force_grant_admin_access(p_user_id uuid, p_org_id uuid)
@@ -2276,3 +2361,4 @@ END; $$;
 
 NOTIFY pgrst, 'reload config';
 NOTIFY pgrst, 'reload config';
+ن 

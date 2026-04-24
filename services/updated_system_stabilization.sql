@@ -1,42 +1,203 @@
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script)
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script) - النسخة الاحترافية الموحدة
--- تاريخ التحديث: 2026-06-10 (SaaS Core Optimization v17)
--- الوصف: تحسين التوافق مع تعدد الشركات ودعم المستخدم العالمي (Super Admin) لضمان استقرار النظام.
+-- تاريخ التحديث: 2026-06-05 (Full Maintenance Version v16)
+-- الوصف: فرض صحة معرفات UUID في الفواتير وتأمين حقل المورد لضمان السلامة المحاسبية.
 
 BEGIN;
+
+-- ============================================================
+-- 🛡️ محرك تحصين التكامل المرجعي (Global CASCADE Reinforcement)
+-- الوصف: يقوم هذا الجزء بتحويل كافة قيود الجداول لدعم الحذف التلقائي
+-- لمنع أخطاء (Foreign Key Violation) أثناء عمليات الاستعادة والحذف.
+-- ============================================================
+DO $$ 
+DECLARE 
+    r record;
+BEGIN
+    FOR r IN (
+        SELECT 
+            tc.table_name, 
+            tc.constraint_name, 
+            kcu.column_name, 
+            ccu.table_name AS foreign_table_name,
+            ccu.column_name AS foreign_column_name 
+        FROM information_schema.table_constraints AS tc 
+        JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name 
+        JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name 
+        WHERE tc.constraint_type = 'FOREIGN KEY' 
+          AND tc.table_schema = 'public'
+          -- استثناء الجداول السيادية لـ Supabase
+          AND ccu.table_name NOT IN ('users', 'audit_log')
+          -- استثناء الأعمدة المالية التي يفضل فيها الـ SET NULL منعاً للحذف التسلسلي الكارثي
+          AND kcu.column_name NOT IN ('related_journal_entry_id')
+    ) LOOP
+        -- تحصين القيود: الحقول التي تسبب اعتناء متبادل نجعلها SET NULL دائماً لضمان نجاح الاستعادة
+        IF r.column_name IN ('default_treasury_id', 'default_warehouse_id', 'parent_id', 'approver_id', 'category_id', 'related_journal_entry_id', 'original_invoice_id', 'original_order_id') THEN
+            EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
+            EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES public.%I(%I) ON DELETE SET NULL',
+                           r.table_name, r.constraint_name, r.column_name, r.foreign_table_name, r.foreign_column_name);
+        ELSE
+            EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
+            EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES public.%I(%I) ON DELETE CASCADE',
+                           r.table_name, r.constraint_name, r.column_name, r.foreign_table_name, r.foreign_column_name);
+        END IF;
+    END LOOP;
+
+    RAISE NOTICE '✅ تم تحصين كافة قيود التكامل المرجعي بنجاح.';
+END $$;
+
+
 
 -- ============================================================
 -- 0. إصلاح الدوال الأساسية للهوية (Core Identity Functions)
 -- ============================================================
 CREATE OR REPLACE FUNCTION public.get_my_org()
 RETURNS uuid 
-LANGUAGE plpgsql SECURITY DEFINER 
-SET search_path = public, auth, pg_temp
-AS $$
-DECLARE _org_id uuid;
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  _org_id uuid;
 BEGIN
+    -- محاولة جلب المعرف من الـ JWT أولاً (الأسرع)
     _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+
+    -- إذا فشل (مثل حالات تسجيل الدخول القديمة)، نبحث في البروفايل بناءً على المعرف الفريد
     SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
     RETURN _org_id;
-EXCEPTION 
-    WHEN OTHERS THEN 
-        RETURN NULL;
 END; $$;
 
-CREATE OR REPLACE FUNCTION public.get_my_role()
-RETURNS text 
-LANGUAGE plpgsql SECURITY DEFINER 
-SET search_path = public, auth, pg_temp
-AS $$
+-- 🛠️ دالة تلقائية لضمان تعبئة معرف المنظمة في طلبات المطبخ
+CREATE OR REPLACE FUNCTION public.fn_ensure_kitchen_order_org()
+RETURNS TRIGGER AS $$
 BEGIN
-    RETURN COALESCE(
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', '')::text,
-        (SELECT role FROM public.profiles WHERE id = auth.uid() LIMIT 1)
-    );
-EXCEPTION WHEN OTHERS THEN 
-    RETURN 'viewer';
-END; $$;
+    -- إذا كانت organization_id موجودة بالفعل، لا نفعل شيئاً
+    IF NEW.organization_id IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id 
+        FROM public.order_items 
+        WHERE id = NEW.order_item_id;
+    END IF;
+    
+    -- إذا ظل فارغاً، نستخدم معرف المستخدم الحالي
+    IF NEW.organization_id IS NULL THEN
+        NEW.organization_id := public.get_my_org();
+    END IF;
+    
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ensure_kitchen_org ON public.kitchen_orders;
+CREATE TRIGGER trg_ensure_kitchen_org 
+BEFORE INSERT ON public.kitchen_orders 
+FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_kitchen_order_org();
+
+-- 🛠️ تأمين جدول طلبات المطبخ (kitchen_orders) لبيئة الـ SaaS والمدراء
+ALTER TABLE IF EXISTS public.kitchen_orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+ALTER TABLE public.kitchen_orders ALTER COLUMN organization_id SET NOT NULL; -- ✅ فرض عدم السماح بقيم NULL
+ALTER TABLE public.kitchen_orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org(); -- ✅ تعيين قيمة افتراضية
+-- ترميم البيانات: ربط طلبات المطبخ "اليتيمة" بالمنظمة بناءً على الطلب الأصلي
+UPDATE public.kitchen_orders ko
+SET organization_id = oi.organization_id
+FROM public.order_items oi
+WHERE ko.order_item_id = oi.id AND ko.organization_id IS NULL;
+
+-- 🛠️ تأمين وتوحيد جداول المطاعم لبيئة الـ SaaS
+-- 1. جداول الطاولات والجلسات
+ALTER TABLE IF EXISTS public.restaurant_tables ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+ALTER TABLE IF EXISTS public.table_sessions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+
+-- 2. تأمين عمود المنظمة في الجداول الأساسية ومنع القيم الفارغة
+DO $$ BEGIN
+    ALTER TABLE public.restaurant_tables ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+    ALTER TABLE public.table_sessions ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+    ALTER TABLE public.orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+END $$;
+
+-- 3. ترميم بيانات الطاولات والجلسات المفقودة (حالة الأدمن)
+UPDATE public.restaurant_tables SET organization_id = public.get_my_org() WHERE organization_id IS NULL;
+
+UPDATE public.table_sessions ts
+SET organization_id = rt.organization_id
+FROM public.restaurant_tables rt
+WHERE ts.table_id = rt.id AND ts.organization_id IS NULL;
+
+-- 4. ترميم الروابط المفقودة في الطلبات (Orders) لضمان ظهورها في المطبخ
+UPDATE public.orders o
+SET organization_id = COALESCE(sub.org_id, p.organization_id)
+FROM public.profiles p
+LEFT JOIN (
+    SELECT id, organization_id as org_id FROM public.table_sessions
+) sub ON o.session_id = sub.id
+WHERE o.user_id = p.id 
+AND o.organization_id IS NULL;
+
+-- 5. ترميم بنود الطلبات (Order Items)
+UPDATE public.order_items oi
+SET organization_id = o.organization_id
+FROM public.orders o
+WHERE oi.order_id = o.id AND oi.organization_id IS NULL;
+
+-- 6. ترميم طلبات المطبخ النهائية
+UPDATE public.kitchen_orders ko
+SET organization_id = oi.organization_id
+FROM public.order_items oi
+WHERE ko.order_item_id = oi.id AND ko.organization_id IS NULL;
+
+-- 🛠️ إصلاح قيود الربط في قائمة المواد لضمان نجاح الاستعادة والحذف
+ALTER TABLE IF EXISTS public.bill_of_materials 
+DROP CONSTRAINT IF EXISTS bill_of_materials_raw_material_id_fkey,
+ADD CONSTRAINT bill_of_materials_raw_material_id_fkey 
+FOREIGN KEY (raw_material_id) REFERENCES public.products(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.quotation_items 
+DROP CONSTRAINT IF EXISTS quotation_items_product_id_fkey,
+ADD CONSTRAINT quotation_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.purchase_order_items 
+DROP CONSTRAINT IF EXISTS purchase_order_items_product_id_fkey,
+ADD CONSTRAINT purchase_order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+
+-- 🛠️ ترميم قيود السندات لضمان نجاح الاستعادة
+ALTER TABLE IF EXISTS public.receipt_vouchers 
+DROP CONSTRAINT IF EXISTS receipt_vouchers_customer_id_fkey,
+ADD CONSTRAINT receipt_vouchers_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.payment_vouchers 
+DROP CONSTRAINT IF EXISTS payment_vouchers_supplier_id_fkey,
+ADD CONSTRAINT payment_vouchers_supplier_id_fkey FOREIGN KEY (supplier_id) REFERENCES public.suppliers(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.credit_notes 
+DROP CONSTRAINT IF EXISTS credit_notes_customer_id_fkey,
+ADD CONSTRAINT credit_notes_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
+
+-- 🛠️ ترميم قيود الموظفين لضمان نجاح الاستعادة
+ALTER TABLE IF EXISTS public.employee_advances 
+DROP CONSTRAINT IF EXISTS employee_advances_employee_id_fkey,
+ADD CONSTRAINT employee_advances_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.payroll_items 
+DROP CONSTRAINT IF EXISTS payroll_items_employee_id_fkey,
+ADD CONSTRAINT payroll_items_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES public.employees(id) ON DELETE CASCADE;
+
+-- 🛠️ ترميم قيود بنود المبيعات والمرتجعات لضمان نجاح الاستعادة
+ALTER TABLE IF EXISTS public.invoice_items 
+DROP CONSTRAINT IF EXISTS invoice_items_product_id_fkey,
+ADD CONSTRAINT invoice_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.sales_return_items 
+DROP CONSTRAINT IF EXISTS sales_return_items_product_id_fkey,
+ADD CONSTRAINT sales_return_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.purchase_invoice_items 
+DROP CONSTRAINT IF EXISTS purchase_invoice_items_product_id_fkey,
+ADD CONSTRAINT purchase_invoice_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+
+ALTER TABLE IF EXISTS public.purchase_return_items 
+DROP CONSTRAINT IF EXISTS purchase_return_items_product_id_fkey,
+ADD CONSTRAINT purchase_return_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
 
 -- ترميم: إسناد الطلبات التي ليس لها مستودع إلى المستودع الرئيسي للشركة
 UPDATE public.orders o
@@ -61,58 +222,18 @@ UPDATE public.invoices i
 SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' ORDER BY je.created_at DESC LIMIT 1)
 WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice');
 
--- 2.1 التطهير الجذري للمستندات (Document Purge)
--- نحذف أي مستند مكرر فوراً لنتمكن من تفعيل "القفل الحديدي" Unique Constraint
-DELETE FROM public.receipt_vouchers WHERE id IN (
-    SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (
-            PARTITION BY organization_id, voucher_number ORDER BY created_at DESC
-        ) as rank
-        FROM public.receipt_vouchers WHERE voucher_number IS NOT NULL AND voucher_number != ''
-    ) t WHERE rank > 1
-);
-
-DELETE FROM public.payment_vouchers WHERE id IN (
-    SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (PARTITION BY voucher_number, organization_id ORDER BY created_at DESC) as rank
-        FROM public.payment_vouchers WHERE voucher_number IS NOT NULL AND voucher_number != ''
-    ) t WHERE rank > 1
-);
-
-DELETE FROM public.invoices WHERE id IN (
-    SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (PARTITION BY invoice_number, organization_id ORDER BY created_at DESC) as rank
-        FROM public.invoices WHERE invoice_number IS NOT NULL AND invoice_number != ''
-    ) t WHERE rank > 1
-);
-
--- 2.1 توجيه السندات إلى القيد الأحدث (Winning Entry) قبل حذف المكررات لفك الارتباط
-UPDATE public.receipt_vouchers rv
-SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' ORDER BY je.created_at DESC LIMIT 1)
-WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher');
-
-UPDATE public.payment_vouchers pv
-SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' ORDER BY je.created_at DESC LIMIT 1)
-WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher');
-
 -- 3. حذف كافة القيود المكررة والإبقاء على الأحدث فقط لكل مستند
--- 3. حذف كافة القيود المكررة والإبقاء على الأحدث فقط (تنظيف جراحي شامل)
 DELETE FROM public.journal_entries 
 WHERE id IN (
     SELECT id FROM (
-        SELECT id, 
-               ROW_NUMBER() OVER (PARTITION BY COALESCE(related_document_id::text, reference), organization_id ORDER BY created_at DESC) as entry_rank
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY related_document_id, related_document_type ORDER BY created_at DESC) as entry_rank
         FROM public.journal_entries 
-        WHERE (related_document_id IS NOT NULL OR (reference IS NOT NULL AND reference != ''))
+        WHERE related_document_id IS NOT NULL AND related_document_type IN ('purchase_invoice', 'invoice')
     ) t WHERE entry_rank > 1
 );
 
 -- إعادة حساب كافة أرصدة العملاء لضمان المطابقة مع كشف الحساب
 UPDATE public.customers SET balance = public.get_customer_balance(id, organization_id);
-
--- ترميم روابط السندات بالقيود (في حال كان السند مسجلاً ولكن غير مربوط بالقيد)
--- ضمان ترحيل كافة المستندات اليتيمة قبل حساب الأرصدة
-SELECT public.recalculate_all_system_balances(id) FROM public.organizations;
 
 -- تنظيف مراجع القيود لضمان الربط الصحيح
 UPDATE public.journal_entries SET related_document_type = 'cheque_collection' 
@@ -125,10 +246,19 @@ CREATE INDEX IF NOT EXISTS idx_item_categories_name_search ON public.item_catego
 CREATE INDEX IF NOT EXISTS idx_journal_entries_related_doc ON public.journal_entries (related_document_id, related_document_type);
 
 -- إعادة احتساب أرصدة المخزون بالمنطق المطور (شامل استهلاك المطعم والتصنيع)
-SELECT public.recalculate_stock_rpc(id) FROM public.organizations;
+SELECT public.recalculate_stock_rpc();
 
 -- مزامنة المتوسط المرجح للأصناف لضمان دقة التكلفة في الفواتير
 UPDATE public.products SET weighted_average_cost = COALESCE(NULLIF(weighted_average_cost, 0), cost, purchase_price, 0);
+
+CREATE OR REPLACE FUNCTION public.get_my_role()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  RETURN COALESCE(
+    (nullif(current_setting('request.jwt.claims', true), '')::jsonb -> 'user_metadata' ->> 'role')::text,
+    (SELECT role FROM public.profiles WHERE id = auth.uid())
+  );
+END; $$;
 
 -- ============================================================
 -- 1. توحيد أسماء أعمدة المرتجعات (Schema Standardization)
@@ -242,9 +372,6 @@ BEGIN
     IF v_inv IS NULL THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
     v_org_id := v_inv.organization_id;
 
-    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
-    DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice';
-
     -- جلب روابط الحسابات من الإعدادات
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
@@ -285,8 +412,6 @@ BEGIN
 
     UPDATE public.purchase_invoices SET related_journal_entry_id = v_je_id, status = 'posted' WHERE id = v_inv.id;
     PERFORM public.update_single_supplier_balance(v_inv.supplier_id);
-    -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة (مثل نظام المبيعات)
-    PERFORM public.recalculate_stock_rpc(v_org_id);
     RETURN v_je_id;
 END; $$;
 
@@ -320,7 +445,7 @@ BEGIN
     SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance 
     FROM public.cheques WHERE party_id = p_supplier_id AND type = 'outgoing' AND status != 'rejected';
 
-    -- 5. القيود اليدوية والموردين (المقيدة باسم المورد)
+    -- 5. القيود اليدوية والموردين (المقيدة باسم المورد في الحسابات 201 أو 221)
     SELECT v_balance + COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_balance
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
@@ -375,16 +500,8 @@ CREATE POLICY "org_delete_policy" ON public.organizations FOR DELETE TO authenti
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 -- حذف جميع السياسات القديمة لتجنب التعارض
 DO $$ 
-DECLARE
-    v_pol_sql text;
 BEGIN
-    SELECT string_agg('DROP POLICY IF EXISTS ' || quote_ident(policyname) || ' ON public.profiles;', ' ') 
-    INTO v_pol_sql
-    FROM pg_policies WHERE tablename = 'profiles' AND schemaname = 'public';
-    
-    IF v_pol_sql IS NOT NULL THEN
-        EXECUTE v_pol_sql;
-    END IF;
+    EXECUTE (SELECT string_agg('DROP POLICY IF EXISTS ' || quote_ident(policyname) || ' ON public.profiles;', ' ') FROM pg_policies WHERE tablename = 'profiles');
 END $$;
 
 -- السياسات الصحيحة والآمنة لجدول المستخدمين
@@ -700,23 +817,16 @@ BEGIN
             -- تحديد جداول المنيو المسموح للمشاهدين (Viewer) برؤيتها
             v_is_menu_table := t IN ('products', 'item_categories', 'menu_categories', 'modifiers', 'modifier_groups', 'restaurant_tables', 'bill_of_materials');
 
+            -- سياسة القراءة (عزل الشركات + حماية البيانات الحساسة من المشاهدين)
             IF v_is_menu_table THEN
                 EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t, t);
-            ELSIF t != 'organizations' THEN
-                -- الجداول الحساسة: السوبر أدمن، أو الأدمن/المحاسب في منظمته
-                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (
-                    public.get_my_role() = ''super_admin'' 
-                    OR (organization_id = public.get_my_org() AND public.get_my_role() NOT IN (''viewer'', ''demo''))
-                );', t, t);
+            ELSE
+                -- الجداول الحساسة (الفواتير، الموظفين، الحسابات) لا يراها إلا الموظفون (استثناء Viewer و Demo)
+                EXECUTE format('CREATE POLICY "Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''viewer'', ''demo''));', t, t);
             END IF;
             
-            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING (
-                (SELECT public.get_my_role()) = ''super_admin'' 
-                OR (organization_id = (SELECT public.get_my_org()) AND (SELECT public.get_my_role()) IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
-            ) WITH CHECK (
-                (SELECT public.get_my_role()) = ''super_admin'' 
-                OR (organization_id = (SELECT public.get_my_org()) AND (SELECT public.get_my_role()) IN (''admin'', ''manager'', ''accountant'', ''sales'', ''purchases''))
-            );', t, t);
+            -- سياسة التعديل (فقط للأدوار المصرح لها، ومنع الديمو والمشاهد)
+            EXECUTE format('CREATE POLICY "Modify_Policy_%I" ON public.%I FOR ALL TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''demo'', ''viewer'')) WITH CHECK ((organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') AND public.get_my_role() NOT IN (''demo'', ''viewer''));', t, t);
 
             BEGIN
                 EXECUTE format('ALTER TABLE public.%I ALTER COLUMN organization_id SET NOT NULL', t);
@@ -746,22 +856,6 @@ BEGIN
             CREATE POLICY "Modify_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer')) WITH CHECK ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('demo', 'viewer'));
         END IF;
     END LOOP;
-    -- ضمان عدم تكرار أرقام الفواتير والسندات لكل منظمة (القفل الحديدي)
-    ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_number_org_unique;
-    ALTER TABLE public.invoices ADD CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number);
-
-    ALTER TABLE public.sales_returns DROP CONSTRAINT IF EXISTS sales_returns_number_org_unique;
-    ALTER TABLE public.sales_returns ADD CONSTRAINT sales_returns_number_org_unique UNIQUE (organization_id, return_number);
-
-    ALTER TABLE public.purchase_returns DROP CONSTRAINT IF EXISTS purchase_returns_number_org_unique;
-    ALTER TABLE public.purchase_returns ADD CONSTRAINT purchase_returns_number_org_unique UNIQUE (organization_id, return_number);
-
-    ALTER TABLE public.purchase_invoices DROP CONSTRAINT IF EXISTS purchase_invoices_number_org_unique;
-    ALTER TABLE public.purchase_invoices ADD CONSTRAINT purchase_invoices_number_org_unique UNIQUE (organization_id, invoice_number);
-
-    ALTER TABLE public.receipt_vouchers DROP CONSTRAINT IF EXISTS receipt_vouchers_number_org_unique;
-    ALTER TABLE public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
-
 END $$;
 
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً

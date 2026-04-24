@@ -58,20 +58,21 @@ const Dashboard = () => {
     let mCogs = 0;
     let mExpenses = 0;
 
-    // حساب المبيعات والمشتريات من الفواتير
-    demoInvoices.filter(inv => inv.date >= startOfMonth && inv.status !== 'draft')
-      .forEach(inv => mSales += (inv.subtotal || 0));
-    
-    demoPurchaseInvoices.filter(inv => inv.date >= startOfMonth && inv.status !== 'draft')
-      .forEach(inv => mPurchases += (inv.subtotal || 0));
-
     // حساب المصروفات والتكاليف من دفتر الأستاذ (القيود)
     entries.filter(e => e.date >= startOfMonth && e.status === 'posted').forEach(entry => {
       entry.lines.forEach(line => {
         const acc = accounts.find(a => a.id === line.accountId);
         if (!acc) return;
         const code = String(acc.code);
-        const type = String(acc.type).toLowerCase();
+
+        // حساب المبيعات الصافية (4) - تضمن مبيعات المطعم وتطرح الخصومات المسموح بها
+        if (code.startsWith('4')) {
+          mSales += (line.credit - line.debit);
+        }
+        // حساب المشتريات (إذا تم توجيهها لحسابات تكلفة مباشرة)
+        if (code.startsWith('511') && !acc.name.includes('تكلفة')) {
+          mPurchases += (line.debit - line.credit);
+        }
 
         // تكلفة البضاعة (COGS)
         if (code.startsWith('511') || acc.name.includes('تكلفة')) {

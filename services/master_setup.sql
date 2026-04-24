@@ -526,7 +526,7 @@ CREATE TABLE IF NOT EXISTS public.products (
 CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-    raw_material_id uuid REFERENCES public.products(id),
+    raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     quantity_required numeric NOT NULL DEFAULT 1
 );
@@ -575,7 +575,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
 CREATE TABLE IF NOT EXISTS public.invoice_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_id uuid REFERENCES public.invoices(id) ON DELETE CASCADE,
-    product_id uuid REFERENCES public.products(id),
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric,
     unit_price numeric,
     total numeric,
@@ -606,7 +606,7 @@ CREATE TABLE IF NOT EXISTS public.sales_returns (
 CREATE TABLE IF NOT EXISTS public.sales_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     sales_return_id uuid REFERENCES public.sales_returns(id) ON DELETE CASCADE,
-    product_id uuid REFERENCES public.products(id),
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric,
     unit_price numeric,
     total numeric,
@@ -642,7 +642,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoices (
 CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     purchase_invoice_id uuid REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
-    product_id uuid REFERENCES public.products(id),
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric,
     unit_price numeric,
     total numeric,
@@ -669,7 +669,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_returns (
 CREATE TABLE IF NOT EXISTS public.purchase_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     purchase_return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE,
-    product_id uuid REFERENCES public.products(id),
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric,
     unit_price numeric,
     total numeric,
@@ -695,7 +695,7 @@ CREATE TABLE IF NOT EXISTS public.quotations (
 CREATE TABLE IF NOT EXISTS public.quotation_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     quotation_id uuid REFERENCES public.quotations(id) ON DELETE CASCADE,
-    product_id uuid REFERENCES public.products(id),
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric,
     unit_price numeric, -- توحيد المسمى مع باقي النظام
     total numeric,
@@ -719,7 +719,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_orders (
 CREATE TABLE IF NOT EXISTS public.purchase_order_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_id uuid REFERENCES public.purchase_orders(id) ON DELETE CASCADE, -- توحيد المسمى ليتوافق مع نظام الطلبات
-    product_id uuid REFERENCES public.products(id),
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric,
     unit_price numeric, -- توحيد المسمى مع باقي النظام
     total numeric,
@@ -730,7 +730,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_order_items (
 CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_number text,
-    customer_id uuid REFERENCES public.customers(id),
+    customer_id uuid REFERENCES public.customers(id) ON DELETE CASCADE,
     receipt_date date,
     amount numeric,
     notes text,
@@ -749,7 +749,7 @@ CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
 CREATE TABLE IF NOT EXISTS public.payment_vouchers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_number text,
-    supplier_id uuid REFERENCES public.suppliers(id),
+    supplier_id uuid REFERENCES public.suppliers(id) ON DELETE CASCADE,
     payment_date date,
     amount numeric,
     notes text,
@@ -849,7 +849,7 @@ CREATE TABLE IF NOT EXISTS public.rejected_cash_closings (
 CREATE TABLE IF NOT EXISTS public.credit_notes (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     credit_note_number text,
-    customer_id uuid REFERENCES public.customers(id),
+    customer_id uuid REFERENCES public.customers(id) ON DELETE CASCADE,
     note_date date,
     amount_before_tax numeric,
     tax_amount numeric,
@@ -865,7 +865,7 @@ CREATE TABLE IF NOT EXISTS public.credit_notes (
 CREATE TABLE IF NOT EXISTS public.debit_notes (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     debit_note_number text,
-    supplier_id uuid REFERENCES public.suppliers(id),
+    supplier_id uuid REFERENCES public.suppliers(id) ON DELETE CASCADE,
     note_date date,
     amount_before_tax numeric,
     tax_amount numeric,
@@ -978,7 +978,7 @@ CREATE TABLE IF NOT EXISTS public.payrolls (
 CREATE TABLE IF NOT EXISTS public.payroll_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     payroll_id uuid REFERENCES public.payrolls(id) ON DELETE CASCADE,
-    employee_id uuid REFERENCES public.employees(id),
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
     gross_salary numeric,
     additions numeric,
     payroll_tax numeric DEFAULT 0, -- عمود ضريبة كسب العمل
@@ -990,7 +990,7 @@ CREATE TABLE IF NOT EXISTS public.payroll_items (
 
 CREATE TABLE IF NOT EXISTS public.employee_advances (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    employee_id uuid REFERENCES public.employees(id),
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
     amount numeric,
     request_date date,
     status text DEFAULT 'pending', -- pending, approved, paid, deducted
@@ -1330,18 +1330,16 @@ CREATE TABLE IF NOT EXISTS public.notification_audit_log (
 -- 2.5 التقارير واللوحات البرمجية (Views)
 -- ================================================================
 CREATE OR REPLACE VIEW public.monthly_sales_dashboard WITH (security_invoker = true) AS
- -- 🛡️ تم التحديث ليعتمد على الحسابات المالية لضمان الدقة وتطابق التقارير
  SELECT 
     jl.id,
     je.transaction_date,
     (jl.credit - jl.debit) AS amount,
-    -- جلب التكلفة من المستند المرتبط إذا وجد
-    0 AS total_cost, 
     CASE 
-        WHEN a.code LIKE '411%' THEN 'Sales'
+        WHEN a.code = '411' THEN 'Wholesale'
+        WHEN a.code LIKE '4111%' OR a.code LIKE '4112%' THEN 'Restaurant'
         WHEN a.code LIKE '412%' THEN 'Returns'
         ELSE 'Other Revenue'
-    END as type,
+    END as sales_type,
     je.organization_id
  FROM public.journal_lines jl
  JOIN public.journal_entries je ON jl.journal_entry_id = je.id
@@ -1956,5 +1954,31 @@ FROM public.products p
 WHERE p.weighted_average_cost > p.purchase_price;
 
 COMMENT ON VIEW public.vw_inventory_wastage_analysis IS 'يوضح هذا التقرير مدى ارتفاع تكلفة الصنف عن سعر شرائه الأصلي نتيجة استبعاد الكميات الهالكة من وعاء التكلفة';
+-- ================================================================
+-- 8. قيود حماية الحسابات الأساسية (System Protection)
+-- ================================================================
+
+CREATE OR REPLACE FUNCTION public.prevent_system_account_deletion()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- قائمة الأكواد المحمية (المستويات السيادية وحسابات الربط الآلي)
+    IF OLD.code IN (
+        '1', '2', '3', '4', '5', -- المستوى الأول
+        '11', '12', '21', '22', '31', '41', '51', '52', '53', -- المستوى الثاني
+        '103', '1221', '1231', '201', '3999', '411', '412', '413', '511', '541' -- حسابات العمليات
+    ) THEN
+        RAISE EXCEPTION '⚠️ خطأ سيادي: لا يمكن حذف الحساب (%) لأنه حساب نظام أساسي مرتبط بالتقارير المالية والقيود الآلية.', OLD.name;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ربط القيد بجدول الحسابات
+DROP TRIGGER IF EXISTS trg_protect_system_accounts ON public.accounts;
+CREATE TRIGGER trg_protect_system_accounts
+BEFORE DELETE ON public.accounts
+FOR EACH ROW
+EXECUTE FUNCTION public.prevent_system_account_deletion();
+
 -- تم الانتهاء من إعداد قاعدة البيانات بالكامل! ✅
 NOTIFY pgrst, 'reload config';
