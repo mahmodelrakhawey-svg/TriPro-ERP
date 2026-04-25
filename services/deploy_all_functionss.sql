@@ -1,5 +1,5 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
--- 🌟 النسخة الشاملة الموحدة (Version 23.0 - POS Shift Fix)
+-- 🌟 النسخة الشاملة الموحدة (Version 33.0 - V12 Consolidated Functions)
 
 -- ================================================================
 -- 0. تنظيف شامل لتجنب تعارض التوقيعات (يجب أن يكون في البداية)
@@ -14,44 +14,13 @@ BEGIN
         func_name := split_part(func_signature, '(', 1);
         -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح
         IF REPLACE(func_name, 'public.', '') IN (
-            'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
-            'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note', 'start_shift',
-            'get_dashboard_stats', 'refresh_saas_schema',
-            'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc',
-            'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report',
-            'process_wastage', 'get_item_profit_report'
+            'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher', 'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note', 'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin', 'get_products_without_bom', 'calculate_product_wac', 'get_customer_balance', 'update_single_supplier_balance', 'update_product_stock', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup', 'restore_organization_backup', 'force_grant_admin_access', 'get_or_create_qr_for_table', 'get_current_company_settings', 'fn_ensure_kitchen_order_org', 'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse', 'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger', 'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups', 'cleanup_storage_orphans_trigger', 'sync_role_permissions', 'create_new_client_v2', 'handle_new_user', 'check_user_limit', 'prevent_system_account_deletion', 'set_emergency_mode', 'get_saas_platform_metrics', 'repair_all_admin_permissions', 'clear_demo_data'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
     END LOOP;
 
 END $$;
-
--- 🛠️ توحيد دوال الهوية (Core Identity)
-CREATE OR REPLACE FUNCTION public.get_my_role()
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER 
-SET search_path = public, auth, pg_temp AS $$
-DECLARE _role text;
-BEGIN
-    _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', '');
-    IF _role IS NOT NULL THEN RETURN _role; END IF;
-    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
-    RETURN COALESCE(_role, 'viewer');
-END; $$;
-
-CREATE OR REPLACE FUNCTION public.get_my_org()
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER 
-SET search_path = public, auth, pg_temp AS $$
-DECLARE _org_id uuid;
-BEGIN
-    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
-    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
-    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
-    RETURN _org_id;
-END; $$;
-
-CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN RETURN (public.get_my_role() IN ('super_admin', 'admin')); END; $$;
 
 -- 🛠️ إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS)
 -- نضمن أن حذف المنظمة يؤدي لمسح كافة بياناتها تلقائياً (حل ERROR 23503 للأبد)
@@ -105,19 +74,6 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_vouchers_number_org_unique') THEN
         ALTER TABLE public.payment_vouchers ADD CONSTRAINT payment_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
     END IF;
-END $$;
-
--- ضمان وجود عمود organization_id في الجداول الأساسية
-ALTER TABLE public.roles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
-ALTER TABLE public.role_permissions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE;
--- ================================================================
--- 🏗️ نظام إدارة الورديات المطور (Enhanced Shift Management)
--- ================================================================
-
--- 🛡️ حذف يدوي صريح لضمان عدم حدوث خطأ 42P13 عند تغيير نوع البيانات المعاد
-DROP FUNCTION IF EXISTS public.start_shift(uuid, numeric, boolean);
-DROP FUNCTION IF EXISTS public.get_active_shift(uuid);
-
 -- 1. دالة بدء الوردية - مطورة لتعيد السجل الكامل لضمان تحديث الـ State في React
 CREATE OR REPLACE FUNCTION public.start_shift(
     p_user_id uuid, 
@@ -172,19 +128,6 @@ BEGIN
             WHERE user_id = p_user_id AND end_time IS NULL AND organization_id = public.get_my_org() 
             LIMIT 1);
 END; $$;
-
--- 🛠️ ضبط القيم الافتراضية التلقائية للمنظمة (SaaS Auto-Pilot)
-ALTER TABLE public.invoices ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.purchase_invoices ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.invoice_items ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.purchase_invoice_items ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.products ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.journal_entries ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.journal_lines ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.warehouses ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.receipt_vouchers ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-ALTER TABLE public.payment_vouchers ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-
 -- 🛠️ تفعيل الحماية لجدول الإعدادات وتصحيح السياسة (حل مشكلة 406)
 ALTER TABLE public.company_settings ENABLE ROW LEVEL SECURITY;
 
@@ -194,10 +137,6 @@ CREATE POLICY "Settings view policy" ON public.company_settings
 FOR SELECT TO authenticated USING (
     organization_id = COALESCE(public.get_my_org(), (SELECT organization_id FROM public.profiles WHERE id = auth.uid()))
 );
-
-
--- 🛠️ إضافة عمود الحالة للمستودعات إذا كان مفقوداً (حل مشكلة ERROR 42703)
-ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
 
 -- تعبئة البيانات القديمة (إن وجدت) بمنظمة افتراضية لضمان ظهورها في الشاشة
 -- تم تحسين المنطق لمنع أخطاء Duplicate Key
@@ -213,43 +152,6 @@ BEGIN
     END IF;
 END $$;
 
--- 🛠️ إنشاء وتعبئة جدول الصلاحيات الأساسية (هذا ما يجعل المصفوفة تظهر في الشاشة)
-CREATE TABLE IF NOT EXISTS public.permissions (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    module TEXT NOT NULL,
-    action TEXT NOT NULL,
-    description TEXT,
-    UNIQUE(module, action)
-);
-
-INSERT INTO public.permissions (module, action, description) VALUES
-('sales', 'view', 'عرض المبيعات'),
-('sales', 'create', 'إنشاء فاتورة مبيعات'),
-('sales', 'update', 'تعديل فاتورة مبيعات'),
-('sales', 'delete', 'حذف فاتورة مبيعات'),
-('sales', 'approve', 'اعتماد الفواتير'),
-('purchases', 'view', 'عرض المشتريات'),
-('purchases', 'create', 'إنشاء فاتورة مشتريات'),
-('products', 'view', 'عرض المنتجات'),
-('products', 'create', 'إضافة منتجات'),
-('products', 'update', 'تعديل منتجات'),
-('products', 'delete', 'حذف منتجات'),
-('inventory', 'view', 'عرض المخزون والتقارير'),
-('inventory', 'manage', 'إدارة تسويات المخازن'),
-('hr', 'view', 'عرض الموظفين'),
-('hr', 'manage', 'إدارة الرواتب'),
-('accounting', 'view', 'عرض القيود والتقارير'),
-('accounting', 'create', 'إنشاء قيود محاسبية'),
-('accounting', 'update', 'تعديل القيود المحاسبية'),
-('accounting', 'delete', 'حذف القيود المحاسبية'),
-('accounting', 'post', 'ترحيل القيود المحاسبية'),
-('treasury', 'view', 'عرض الخزينة'),
-('treasury', 'create', 'إنشاء سندات'),
-('treasury', 'update', 'تعديل سندات'),
-('treasury', 'manage', 'إدارة الخزينة'),
-('restaurant', 'manage', 'إدارة المطعم'),
-('admin', 'manage', 'إدارة الصلاحيات')
-ON CONFLICT (module, action) DO NOTHING;
 -- هذا الملف هو المرجع الوحيد لكافة دوال النظام (RPCs).
 -- يجب تشغيله بعد أي تعديل في منطق العمليات.
 
@@ -257,70 +159,6 @@ ON CONFLICT (module, action) DO NOTHING;
 -- تم دمج كافة الدوال لضمان عمل النظام ككتلة واحدة مع عزل SaaS كامل.
 
 -- ================================================================
--- 0. تنظيف شامل لتجنب تعارض التوقيعات (Drop Old Functions)
--- ================================================================
-DO $$
-DECLARE
-    func_signature text;
-    func_name text; -- To store just the name part for comparison
-BEGIN
-    -- Iterate over all functions in the public schema, getting their full signatures
-    FOR func_signature IN (SELECT p.oid::regprocedure::text
-                          FROM pg_proc p
-                          JOIN pg_namespace n ON n.oid = p.pronamespace
-                          WHERE n.nspname = 'public')
-    LOOP
-        -- Extract just the function name from the signature (e.g., "approve_invoice(uuid)" -> "approve_invoice")
-        func_name := split_part(func_signature, '(', 1);
-        func_name := REPLACE(func_name, 'public.', '');
-
-        -- List of functions defined in this file that should be dropped before re-creation
-        IF func_name IN (
-            'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
-            'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
-            'create_restaurant_order', 'run_payroll_rpc', 'handle_new_user', 'check_user_limit',
-            'initialize_egyptian_coa', 'sync_role_permissions', 'create_new_client_v2', 'add_product_with_opening_balance',
-            'get_product_recipe_cost', 'recalculate_stock_rpc', 'run_period_depreciation', 'get_my_role', 'get_my_org', 'check_db_sync', 'is_admin',
-            'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'get_customer_balance',
-            'get_current_company_settings',
-            'recalculate_all_system_balances', 'get_dashboard_stats', 'force_grant_admin_access', 'refresh_saas_schema', 
-            'create_public_order', 'request_bill_via_qr', 'get_shift_summary', 'generate_shift_closing_entry', 
-            'close_shift', 'get_item_profit_report', 'cleanup_orphaned_backups', 'cleanup_storage_orphans_trigger',
-            'get_or_create_qr_for_table', 'get_restaurant_sales_report', 'process_wastage',
-            'create_organization_backup',
-            'restore_organization_backup'
-        )
-        THEN
-            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature); -- Drop by full signature
-        END IF;
-    END LOOP;
-
-    -- 🛡️ فرض القيود الفريدة لمنع التكرار (SaaS Integrity)
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'invoices_number_org_unique') THEN
-        ALTER TABLE public.invoices ADD CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'receipt_vouchers_number_org_unique') THEN
-        ALTER TABLE public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
-    END IF;
-END $$;
-
--- ================================================================
--- 0.5. دالة تحديث كاش النظام (System Cache Refresh Function)
--- ================================================================
--- هذه الدالة ضرورية لتحديث PostgREST أو أي كاش آخر بعد تغييرات المخطط
--- تم إضافتها هنا لضمان وجودها عند استدعائها في نهاية الملف
-CREATE OR REPLACE FUNCTION public.refresh_saas_schema()
-RETURNS text
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-BEGIN
-    -- الأمر السحري لإعادة تحميل كاش الـ API (Schema Reload)
-    EXECUTE 'NOTIFY pgrst, ''reload config''';
-    RETURN 'تم تحديث هيكل البيانات وتنشيط الكاش بنجاح ✅';
-END;
-$$;
-
 -- 1. دوال المبيعات والمشتريات (Sales & Purchases)
 -- ================================================================
 
@@ -1382,7 +1220,8 @@ DECLARE v_org_id uuid;
 BEGIN
     -- جلب معرف المنظمة للدور المستهدف لضمان الأمان
     SELECT organization_id INTO v_org_id FROM public.roles WHERE id = p_role_id;
-    IF v_org_id IS NULL OR v_org_id != public.get_my_org() THEN
+    -- 🛡️ تحديث: السماح للسوبر أدمن بالمزامنة لأي شركة حتى لو لم يكن "داخل" سياقها الآن
+    IF v_org_id IS NULL OR (v_org_id != public.get_my_org() AND public.get_my_role() != 'super_admin') THEN
         RAISE EXCEPTION 'غير مصرح لك بتعديل صلاحيات هذا الدور.';
     END IF;
 
@@ -1869,14 +1708,19 @@ DECLARE
     v_org_id uuid;
     v_start_month date := date_trunc('month', CURRENT_DATE);
 BEGIN
-    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    v_org_id := p_org_id;
+    -- إذا لم يتم تمرير معرف منظمة، نحاول جلب المنظمة الحالية من الجلسة
+    -- بالنسبة للسوبر أدمن، إذا لم يكن لديه منظمة نشطة، v_org_id سيظل NULL مما يعني "رؤية شاملة لكافة الشركات"
+    IF v_org_id IS NULL AND public.get_my_role() != 'super_admin' THEN
+        v_org_id := public.get_my_org();
+    END IF;
     
     -- 1. المبيعات وصافي الإيرادات (كما تظهر في قائمة الدخل - الفئة 4 بالكامل)
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_month_revenue
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
-    WHERE je.organization_id = v_org_id 
+    WHERE (v_org_id IS NULL OR je.organization_id = v_org_id)
       AND je.status = 'posted' 
       AND (a.code LIKE '4%' OR a.type = 'REVENUE')
       AND je.transaction_date >= v_start_month;
@@ -1886,7 +1730,7 @@ BEGIN
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
-    WHERE je.organization_id = v_org_id 
+    WHERE (v_org_id IS NULL OR je.organization_id = v_org_id)
       AND je.status = 'posted' 
       AND (a.code LIKE '511%' OR a.name LIKE '%تكلفة البضاعة%')
       AND je.transaction_date >= v_start_month;
@@ -1896,7 +1740,7 @@ BEGIN
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
-    WHERE je.organization_id = v_org_id 
+    WHERE (v_org_id IS NULL OR je.organization_id = v_org_id)
       AND je.status = 'posted' 
       AND a.code LIKE '5%' AND a.code NOT LIKE '511%' AND a.name NOT LIKE '%تكلفة البضاعة%'
       AND je.transaction_date >= v_start_month;
@@ -1904,20 +1748,25 @@ BEGIN
     -- 4. مشتريات الشهر (إجمالي فواتير الشراء الفعلية)
     SELECT COALESCE(SUM(total_amount), 0) INTO v_month_purchases
     FROM public.purchase_invoices
-    WHERE organization_id = v_org_id AND status IN ('posted', 'paid') AND invoice_date >= v_start_month;
+    WHERE (v_org_id IS NULL OR organization_id = v_org_id) AND status IN ('posted', 'paid') AND invoice_date >= v_start_month;
 
     -- 5. جلب الهدف البيعي من الإعدادات
-    SELECT COALESCE(monthly_sales_target, 0) INTO v_sales_target FROM public.company_settings WHERE organization_id = v_org_id;
+    IF v_org_id IS NOT NULL THEN
+        SELECT COALESCE(monthly_sales_target, 0) INTO v_sales_target FROM public.company_settings WHERE organization_id = v_org_id;
+    ELSE
+        -- للسوبر أدمن: إجمالي الأهداف لكل الشركات
+        SELECT COALESCE(SUM(monthly_sales_target), 0) INTO v_sales_target FROM public.company_settings;
+    END IF;
 
-    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '1221%' AND is_group = false AND deleted_at IS NULL;
-    SELECT COALESCE(SUM(ABS(balance)), 0) INTO v_payables FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '201%' AND is_group = false AND deleted_at IS NULL;
+    SELECT COALESCE(SUM(balance), 0) INTO v_receivables FROM public.accounts WHERE (v_org_id IS NULL OR organization_id = v_org_id) AND code LIKE '1221%' AND is_group = false AND deleted_at IS NULL;
+    SELECT COALESCE(SUM(ABS(balance)), 0) INTO v_payables FROM public.accounts WHERE (v_org_id IS NULL OR organization_id = v_org_id) AND code LIKE '201%' AND is_group = false AND deleted_at IS NULL;
     
-    SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE organization_id = v_org_id AND stock <= COALESCE(min_stock_level, 0) AND deleted_at IS NULL;
+    SELECT COUNT(*) INTO v_low_stock_count FROM public.products WHERE (v_org_id IS NULL OR organization_id = v_org_id) AND stock <= COALESCE(min_stock_level, 0) AND deleted_at IS NULL;
 
     -- جلب بيانات الرسم البياني لآخر 6 أشهر
     SELECT json_agg(t) INTO v_chart_data FROM (
         SELECT to_char(month, 'YYYY-MM') as name, 
-        COALESCE((SELECT SUM(jl.credit - jl.debit) FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id JOIN public.accounts a ON jl.account_id = a.id WHERE je.organization_id = v_org_id AND je.status = 'posted' AND a.code LIKE '4%' AND date_trunc('month', je.transaction_date) = month), 0) as sales 
+        COALESCE((SELECT SUM(jl.credit - jl.debit) FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id JOIN public.accounts a ON jl.account_id = a.id WHERE (v_org_id IS NULL OR je.organization_id = v_org_id) AND je.status = 'posted' AND a.code LIKE '4%' AND date_trunc('month', je.transaction_date) = month), 0) as sales 
         FROM generate_series(date_trunc('month', CURRENT_DATE) - INTERVAL '5 months', date_trunc('month', CURRENT_DATE), '1 month') as month
     ) t;
 
@@ -1950,39 +1799,35 @@ BEGIN
     -- تجميع كافة البيانات الهامة في كائن JSON واحد مفلتر بالمنظمة
     SELECT jsonb_build_object(
         'metadata', jsonb_build_object('org_id', p_org_id, 'date', now(), 'version', '1.0'),
-        'settings', (SELECT to_jsonb(t) FROM public.company_settings t WHERE organization_id = p_org_id),
-        'accounts', (SELECT jsonb_agg(to_jsonb(t)) FROM public.accounts t WHERE organization_id = p_org_id),
-        'warehouses', (SELECT jsonb_agg(to_jsonb(t)) FROM public.warehouses t WHERE organization_id = p_org_id),
-        'cost_centers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.cost_centers t WHERE organization_id = p_org_id),
-        'item_categories', (SELECT jsonb_agg(to_jsonb(t)) FROM public.item_categories t WHERE organization_id = p_org_id),
-        'menu_categories', (SELECT jsonb_agg(to_jsonb(t)) FROM public.menu_categories t WHERE organization_id = p_org_id),
-        'products', (SELECT jsonb_agg(to_jsonb(t)) FROM public.products t WHERE organization_id = p_org_id),
-        'customers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.customers t WHERE organization_id = p_org_id),
-        'suppliers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.suppliers t WHERE organization_id = p_org_id),
-        'journal_entries', (SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_entries t WHERE organization_id = p_org_id),
-        'journal_lines', (SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_lines t WHERE organization_id = p_org_id),
-        'invoices', (SELECT jsonb_agg(to_jsonb(t)) FROM public.invoices t WHERE organization_id = p_org_id),
-        'invoice_items', (SELECT jsonb_agg(to_jsonb(t)) FROM public.invoice_items t WHERE organization_id = p_org_id),
-        'purchase_invoices', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_invoices t WHERE organization_id = p_org_id),
-        'purchase_invoice_items', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_invoice_items t WHERE organization_id = p_org_id),
-        'receipt_vouchers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.receipt_vouchers t WHERE organization_id = p_org_id),
-        'payment_vouchers', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payment_vouchers t WHERE organization_id = p_org_id),
-        'cheques', (SELECT jsonb_agg(to_jsonb(t)) FROM public.cheques t WHERE organization_id = p_org_id),
-        'credit_notes', (SELECT jsonb_agg(to_jsonb(t)) FROM public.credit_notes t WHERE organization_id = p_org_id),
-        'debit_notes', (SELECT jsonb_agg(to_jsonb(t)) FROM public.debit_notes t WHERE organization_id = p_org_id),
-        'employees', (SELECT jsonb_agg(to_jsonb(t)) FROM public.employees t WHERE organization_id = p_org_id),
-        'assets', (SELECT jsonb_agg(to_jsonb(t)) FROM public.assets t WHERE organization_id = p_org_id),
-        'payrolls', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payrolls t WHERE organization_id = p_org_id),
-        'stock_adjustments', (SELECT jsonb_agg(to_jsonb(t)) FROM public.stock_adjustments t WHERE organization_id = p_org_id),
-        'restaurant_tables', (SELECT jsonb_agg(to_jsonb(t)) FROM public.restaurant_tables t WHERE organization_id = p_org_id),
-        'orders', (SELECT jsonb_agg(to_jsonb(t)) FROM public.orders t WHERE organization_id = p_org_id),
-        'payments', (SELECT jsonb_agg(to_jsonb(t)) FROM public.payments t WHERE organization_id = p_org_id),
-        'bill_of_materials', (SELECT jsonb_agg(to_jsonb(t)) FROM public.bill_of_materials t WHERE organization_id = p_org_id),
-        'opening_inventories', (SELECT jsonb_agg(to_jsonb(t)) FROM public.opening_inventories t WHERE organization_id = p_org_id),
-        'quotations', (SELECT jsonb_agg(to_jsonb(t)) FROM public.quotations t WHERE organization_id = p_org_id),
-        'purchase_orders', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_orders t WHERE organization_id = p_org_id),
-        'sales_returns', (SELECT jsonb_agg(to_jsonb(t)) FROM public.sales_returns t WHERE organization_id = p_org_id),
-        'purchase_returns', (SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_returns t WHERE organization_id = p_org_id)
+        'settings', COALESCE((SELECT to_jsonb(t) FROM public.company_settings t WHERE organization_id = p_org_id), '{}'::jsonb),
+        'accounts', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.accounts t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'warehouses', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.warehouses t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'item_categories', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.item_categories t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'menu_categories', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.menu_categories t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'restaurant_tables', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.restaurant_tables t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'products', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.products t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'customers', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.customers t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'suppliers', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.suppliers t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'employees', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.employees t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'journal_entries', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_entries t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'journal_lines', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.journal_lines t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'invoices', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.invoices t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'invoice_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.invoice_items t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'purchase_invoices', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_invoices t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'purchase_invoice_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.purchase_invoice_items t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'receipt_vouchers', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.receipt_vouchers t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'payment_vouchers', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payment_vouchers t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'cheques', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.cheques t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'orders', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.orders t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'order_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.order_items t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'kitchen_orders', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.kitchen_orders t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'delivery_orders', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.delivery_orders t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'payments', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payments t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'bill_of_materials', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.bill_of_materials t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'stock_adjustments', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.stock_adjustments t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'stock_adjustment_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.stock_adjustment_items t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'payrolls', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payrolls t WHERE organization_id = p_org_id), '[]'::jsonb),
+        'payroll_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payroll_items t WHERE organization_id = p_org_id), '[]'::jsonb)
     ) INTO v_final_json;
 
     -- إدراج النسخة في جدول النسخ الاحتياطية
@@ -2018,136 +1863,121 @@ BEGIN
         RAISE EXCEPTION 'بيانات النسخة الاحتياطية غير صالحة أو فارغة.';
     END IF;
 
-    -- 🛡️ المرحلة 1: التنظيف المتسلسل (Hierarchical Deletion)
-    -- [المرفقات واللوجات]
-    DELETE FROM public.receipt_voucher_attachments WHERE organization_id = p_org_id;
-    DELETE FROM public.payment_voucher_attachments WHERE organization_id = p_org_id;
-    DELETE FROM public.cheque_attachments WHERE organization_id = p_org_id;
-    DELETE FROM public.journal_attachments WHERE organization_id = p_org_id;
+    -- 🛡️ [جديد V7] فحص سلامة النسخة قبل البدء (Pre-Restore Integrity Check)
+    -- فحص المستودعات: إذا وجدت فواتير أو منتجات، يجب وجود مستودعات
+    IF ((p_backup_data->'invoices') IS NOT NULL OR (p_backup_data->'products') IS NOT NULL) 
+       AND ((p_backup_data->'warehouses') IS NULL OR jsonb_array_length(p_backup_data->'warehouses') = 0) THEN
+        RAISE EXCEPTION 'فشل فحص السلامة: النسخة تحتوي على فواتير أو منتجات ولكنها تفتقر لبيانات المستودعات. تم إيقاف الاستعادة لحماية البيانات.';
+    END IF;
+
+    -- فحص الحسابات: العمود الفقري للنظام
+    IF (p_backup_data->'accounts') IS NULL OR jsonb_array_length(p_backup_data->'accounts') = 0 THEN
+        RAISE EXCEPTION 'فشل فحص السلامة: النسخة تفتقر لدليل الحسابات. لا يمكن الاستعادة بدون هيكل محاسبي.';
+    END IF;
+
+    -- فحص العملاء والموردين
+    IF (p_backup_data->'invoices') IS NOT NULL AND ((p_backup_data->'customers') IS NULL OR jsonb_array_length(p_backup_data->'customers') = 0) THEN
+        RAISE EXCEPTION 'فشل فحص السلامة: توجد فواتير مبيعات ولكن بيانات العملاء مفقودة في النسخة.';
+    END IF;
+
+    IF (p_backup_data->'purchase_invoices') IS NOT NULL AND ((p_backup_data->'suppliers') IS NULL OR jsonb_array_length(p_backup_data->'suppliers') = 0) THEN
+        RAISE EXCEPTION 'فشل فحص السلامة: توجد فواتير مشتريات ولكن بيانات الموردين مفقودة في النسخة.';
+    END IF;
+
+    -- إذا اجتاز النظام الفحوصات أعلاه، نبدأ الآن العملية الفعلية
+    RAISE NOTICE '✅ فحص سلامة النسخة نجح. جاري بدء عملية التطهير والبناء...';
+
+    -- 🛡️ المرحلة 1: التطهير المتسلسل العشري (Strategic Purge)
+    -- حجر الزاوية: مسح المرفقات واللوجات أولاً
     DELETE FROM public.notification_audit_log WHERE organization_id = p_org_id;
-    DELETE FROM public.notifications WHERE organization_id = p_org_id;
     DELETE FROM public.security_logs WHERE organization_id = p_org_id;
     
-    -- [بنود وتفاصيل العمليات]
+    -- مسح بنود العمليات (الأبناء الصغار)
     DELETE FROM public.order_item_modifiers WHERE organization_id = p_org_id;
-    DELETE FROM public.kitchen_orders WHERE organization_id = p_org_id;
     DELETE FROM public.order_items WHERE organization_id = p_org_id;
+    DELETE FROM public.kitchen_orders WHERE organization_id = p_org_id;
     DELETE FROM public.invoice_items WHERE organization_id = p_org_id;
     DELETE FROM public.purchase_invoice_items WHERE organization_id = p_org_id;
-    DELETE FROM public.sales_return_items WHERE organization_id = p_org_id;
-    DELETE FROM public.purchase_return_items WHERE organization_id = p_org_id;
-    DELETE FROM public.quotation_items WHERE organization_id = p_org_id;
-    DELETE FROM public.purchase_order_items WHERE organization_id = p_org_id;
-    DELETE FROM public.stock_adjustment_items WHERE organization_id = p_org_id;
-    DELETE FROM public.stock_transfer_items WHERE organization_id = p_org_id;
-    DELETE FROM public.inventory_count_items WHERE organization_id = p_org_id;
-    DELETE FROM public.payroll_items WHERE organization_id = p_org_id;
     DELETE FROM public.journal_lines WHERE organization_id = p_org_id;
+    DELETE FROM public.payroll_items WHERE organization_id = p_org_id;
+    DELETE FROM public.stock_adjustment_items WHERE organization_id = p_org_id;
 
-    -- [رؤوس العمليات والمستندات]
-    DELETE FROM public.sales_returns WHERE organization_id = p_org_id;
-    DELETE FROM public.purchase_returns WHERE organization_id = p_org_id;
-    DELETE FROM public.payments WHERE organization_id = p_org_id;
+    -- مسح رؤوس العمليات (الآباء)
     DELETE FROM public.delivery_orders WHERE organization_id = p_org_id;
+    DELETE FROM public.payments WHERE organization_id = p_org_id;
     DELETE FROM public.orders WHERE organization_id = p_org_id;
     DELETE FROM public.invoices WHERE organization_id = p_org_id;
     DELETE FROM public.purchase_invoices WHERE organization_id = p_org_id;
-    DELETE FROM public.receipt_vouchers WHERE organization_id = p_org_id;
-    DELETE FROM public.payment_vouchers WHERE organization_id = p_org_id;
-    DELETE FROM public.cheques WHERE organization_id = p_org_id;
-    DELETE FROM public.credit_notes WHERE organization_id = p_org_id;
-    DELETE FROM public.debit_notes WHERE organization_id = p_org_id;
     DELETE FROM public.journal_entries WHERE organization_id = p_org_id;
     DELETE FROM public.payrolls WHERE organization_id = p_org_id;
     DELETE FROM public.stock_adjustments WHERE organization_id = p_org_id;
-    DELETE FROM public.stock_transfers WHERE organization_id = p_org_id;
-    DELETE FROM public.inventory_counts WHERE organization_id = p_org_id;
-    DELETE FROM public.quotations WHERE organization_id = p_org_id;
-    DELETE FROM public.purchase_orders WHERE organization_id = p_org_id;
-    DELETE FROM public.work_orders WHERE organization_id = p_org_id;
+    DELETE FROM public.cheques WHERE organization_id = p_org_id;
+    DELETE FROM public.receipt_vouchers WHERE organization_id = p_org_id;
+    DELETE FROM public.payment_vouchers WHERE organization_id = p_org_id;
 
-    -- [البيانات الوسيطة والشيفتات]
+    -- مسح الكيانات والبنية التحتية
     DELETE FROM public.bill_of_materials WHERE organization_id = p_org_id;
-    DELETE FROM public.assets WHERE organization_id = p_org_id;
-    DELETE FROM public.shifts WHERE organization_id = p_org_id;
-    DELETE FROM public.table_sessions WHERE organization_id = p_org_id;
-    DELETE FROM public.employee_advances WHERE organization_id = p_org_id;
-    DELETE FROM public.employee_allowances WHERE organization_id = p_org_id;
-    DELETE FROM public.payroll_variables WHERE organization_id = p_org_id;
-    DELETE FROM public.opening_inventories WHERE organization_id = p_org_id;
-
-    -- [التعريفات والكيانات]
     DELETE FROM public.products WHERE organization_id = p_org_id;
     DELETE FROM public.customers WHERE organization_id = p_org_id;
     DELETE FROM public.suppliers WHERE organization_id = p_org_id;
     DELETE FROM public.employees WHERE organization_id = p_org_id;
     DELETE FROM public.restaurant_tables WHERE organization_id = p_org_id;
+    DELETE FROM public.accounts WHERE organization_id = p_org_id;
+    DELETE FROM public.warehouses WHERE organization_id = p_org_id;
 
-    -- 🚀 2. البناء المتسلسل المصفح V4 (Industrial Multi-Pass)
-    -- [تمريرة 1: إدخال الهياكل والبيانات المستقلة]
-    IF (p_backup_data->'warehouses') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'warehouses') LOOP INSERT INTO public.warehouses SELECT * FROM jsonb_populate_record(NULL::public.warehouses, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
-    IF (p_backup_data->'accounts') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'accounts') LOOP INSERT INTO public.accounts SELECT * FROM jsonb_populate_record(NULL::public.accounts, v_item - 'parent_id') ON CONFLICT DO NOTHING; END LOOP; END IF;
-    IF (p_backup_data->'journal_entries') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_entries') LOOP INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_record(NULL::public.journal_entries, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
+    -- 🚀 المرحلة 2: بناء البنى السيادية
+    IF (p_backup_data->'settings') IS NOT NULL AND (p_backup_data->'settings') != 'null'::jsonb THEN
+        INSERT INTO public.company_settings SELECT * FROM jsonb_populate_record(NULL::public.company_settings, p_backup_data->'settings') 
+        ON CONFLICT (organization_id) DO UPDATE SET company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
+    END IF;
 
-    -- [تمريرة 2: إدخال الفواتير بدون روابط القيود لمنع الخطأ المرجعي]
+    IF (p_backup_data->'warehouses') IS NOT NULL THEN INSERT INTO public.warehouses SELECT * FROM jsonb_populate_recordset(NULL::public.warehouses, p_backup_data->'warehouses') ON CONFLICT DO NOTHING; END IF;
+    IF (p_backup_data->'item_categories') IS NOT NULL THEN INSERT INTO public.item_categories SELECT * FROM jsonb_populate_recordset(NULL::public.item_categories, p_backup_data->'item_categories') ON CONFLICT DO NOTHING; END IF;
+
+    -- 🚀 المرحلة 3: بناء شجرة الحسابات
+    IF (p_backup_data->'accounts') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'accounts') LOOP 
+            INSERT INTO public.accounts SELECT * FROM jsonb_populate_record(NULL::public.accounts, v_item - 'parent_id') ON CONFLICT DO NOTHING; 
+        END LOOP;
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'accounts') LOOP 
+            UPDATE public.accounts SET parent_id = (v_item->>'parent_id')::uuid WHERE id = (v_item->>'id')::uuid AND (v_item->>'parent_id') IS NOT NULL;
+        END LOOP;
+    END IF;
+
+    -- 🚀 المرحلة 4: زرع الكيانات (الأصول البشرية والتجارية)
+    IF (p_backup_data->'customers') IS NOT NULL THEN INSERT INTO public.customers SELECT * FROM jsonb_populate_recordset(NULL::public.customers, p_backup_data->'customers') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, balance = EXCLUDED.balance; END IF;
+    IF (p_backup_data->'suppliers') IS NOT NULL THEN INSERT INTO public.suppliers SELECT * FROM jsonb_populate_recordset(NULL::public.suppliers, p_backup_data->'suppliers') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, balance = EXCLUDED.balance; END IF;
+    IF (p_backup_data->'employees') IS NOT NULL THEN INSERT INTO public.employees SELECT * FROM jsonb_populate_recordset(NULL::public.employees, p_backup_data->'employees') ON CONFLICT DO NOTHING; END IF;
+    IF (p_backup_data->'restaurant_tables') IS NOT NULL THEN INSERT INTO public.restaurant_tables SELECT * FROM jsonb_populate_recordset(NULL::public.restaurant_tables, p_backup_data->'restaurant_tables') ON CONFLICT DO NOTHING; END IF;
+    IF (p_backup_data->'products') IS NOT NULL THEN INSERT INTO public.products SELECT * FROM jsonb_populate_recordset(NULL::public.products, p_backup_data->'products') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, stock = EXCLUDED.stock; END IF;
+
+    -- 🚀 المرحلة 5: زرع رؤوس المستندات (بدون الروابط الدائرية)
+    IF (p_backup_data->'journal_entries') IS NOT NULL THEN INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_recordset(NULL::public.journal_entries, p_backup_data->'journal_entries') ON CONFLICT (id) DO NOTHING; END IF;
     IF (p_backup_data->'invoices') IS NOT NULL THEN 
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP 
-            INSERT INTO public.invoices SELECT * FROM jsonb_populate_record(NULL::public.invoices, v_item - 'related_journal_entry_id') ON CONFLICT DO NOTHING; 
+            INSERT INTO public.invoices SELECT * FROM jsonb_populate_record(NULL::public.invoices, v_item - 'related_journal_entry_id') ON CONFLICT (id) DO NOTHING; 
+        END LOOP; 
+    END IF;
+    IF (p_backup_data->'purchase_invoices') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'purchase_invoices') LOOP 
+            INSERT INTO public.purchase_invoices SELECT * FROM jsonb_populate_record(NULL::public.purchase_invoices, v_item - 'related_journal_entry_id') ON CONFLICT (id) DO NOTHING; 
         END LOOP; 
     END IF;
 
-    -- [تمريرة 3: حقن الروابط بعد ضمان وجود السجلات]
-    IF (p_backup_data->'invoices') IS NOT NULL THEN 
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP 
-            UPDATE public.invoices SET related_journal_entry_id = (v_item->>'related_journal_entry_id')::uuid 
-            WHERE id = (v_item->>'id')::uuid AND (v_item->>'related_journal_entry_id') IS NOT NULL; 
-        END LOOP; 
-    END IF;
+    -- 🚀 المرحلة 6: زرع التفاصيل والبنود (Items & Lines)
+    IF (p_backup_data->'journal_lines') IS NOT NULL THEN INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_recordset(NULL::public.journal_lines, p_backup_data->'journal_lines') ON CONFLICT (id) DO NOTHING; END IF;
+    IF (p_backup_data->'invoice_items') IS NOT NULL THEN INSERT INTO public.invoice_items SELECT * FROM jsonb_populate_recordset(NULL::public.invoice_items, p_backup_data->'invoice_items') ON CONFLICT (id) DO NOTHING; END IF;
+    IF (p_backup_data->'purchase_invoice_items') IS NOT NULL THEN INSERT INTO public.purchase_invoice_items SELECT * FROM jsonb_populate_recordset(NULL::public.purchase_invoice_items, p_backup_data->'purchase_invoice_items') ON CONFLICT (id) DO NOTHING; END IF;
+    IF (p_backup_data->'bill_of_materials') IS NOT NULL THEN INSERT INTO public.bill_of_materials SELECT * FROM jsonb_populate_recordset(NULL::public.bill_of_materials, p_backup_data->'bill_of_materials') ON CONFLICT (id) DO NOTHING; END IF;
 
-    -- [تمريرة 4: استعادة التفاصيل (Items & Lines)]
-    IF (p_backup_data->'invoice_items') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoice_items') LOOP INSERT INTO public.invoice_items SELECT * FROM jsonb_populate_record(NULL::public.invoice_items, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
-    IF (p_backup_data->'journal_lines') IS NOT NULL THEN FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_lines') LOOP INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_record(NULL::public.journal_lines, v_item) ON CONFLICT DO NOTHING; END LOOP; END IF;
-
-    IF (p_backup_data->'customers') IS NOT NULL AND (p_backup_data->'customers') != 'null'::jsonb THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'customers') LOOP
-            INSERT INTO public.customers SELECT * FROM jsonb_populate_record(NULL::public.customers, v_item);
-        END LOOP;
-    END IF;
-
-    IF (p_backup_data->'suppliers') IS NOT NULL AND (p_backup_data->'suppliers') != 'null'::jsonb THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'suppliers') LOOP
-            INSERT INTO public.suppliers SELECT * FROM jsonb_populate_record(NULL::public.suppliers, v_item);
-        END LOOP;
-    END IF;
-
-    IF (p_backup_data->'products') IS NOT NULL AND (p_backup_data->'products') != 'null'::jsonb THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'products') LOOP
-            INSERT INTO public.products SELECT * FROM jsonb_populate_record(NULL::public.products, v_item);
-        END LOOP;
-    END IF;
-
-    IF (p_backup_data->'invoices') IS NOT NULL AND (p_backup_data->'invoices') != 'null'::jsonb THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP
-            INSERT INTO public.invoices SELECT * FROM jsonb_populate_record(NULL::public.invoices, v_item);
-        END LOOP;
-    END IF;
-
-    IF (p_backup_data->'journal_entries') IS NOT NULL AND (p_backup_data->'journal_entries') != 'null'::jsonb THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_entries') LOOP
-            INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_record(NULL::public.journal_entries, v_item);
-        END LOOP;
-    END IF;
-
-    IF (p_backup_data->'journal_lines') IS NOT NULL AND (p_backup_data->'journal_lines') != 'null'::jsonb THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_lines') LOOP
-            INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_record(NULL::public.journal_lines, v_item);
-        END LOOP;
-    END IF;
+    -- 🚀 المرحلة 7: حقن الروابط النهائية (Stitching)
+    UPDATE public.invoices i SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' LIMIT 1) WHERE organization_id = p_org_id AND related_journal_entry_id IS NULL;
+    UPDATE public.purchase_invoices pi SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pi.id AND je.related_document_type = 'purchase_invoice' LIMIT 1) WHERE organization_id = p_org_id AND related_journal_entry_id IS NULL;
 
     PERFORM public.recalculate_all_system_balances(p_org_id);
-    RETURN '✅ تمت استعادة كافة البيانات بنجاح باستخدام المحرك المتسلسل.';
+    RETURN '✅ [V11] تمت الاستعادة بنجاح: تم إصلاح ترميز النصوص وفرض بناء المستودعات قبل الفواتير.';
 EXCEPTION WHEN OTHERS THEN
-    RAISE EXCEPTION '❌ فشل استعادة البيانات: %', SQLERRM;
+    RAISE EXCEPTION '❌ فشل محرك الاستعادة V10 الشامل: %', SQLERRM;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.force_grant_admin_access(p_user_id uuid, p_org_id uuid)
@@ -2304,8 +2134,6 @@ CREATE TRIGGER trg_auto_approve_invoice_items
 
 -- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
 SELECT public.refresh_saas_schema();
-NOTIFY pgrst, 'reload config';
-SELECT public.refresh_saas_schema();
 -- تحديث دالة رصيد العميل لضمان عدم التكرار
 CREATE OR REPLACE FUNCTION public.get_customer_balance(p_customer_id UUID, p_org_id UUID)
 RETURNS NUMERIC AS $$
@@ -2359,6 +2187,247 @@ BEGIN
     );
 END; $$;
 
-NOTIFY pgrst, 'reload config';
-NOTIFY pgrst, 'reload config';
-ن 
+-- 🛠️ دالة تلقائية لضمان تعبئة معرف المنظمة في طلبات المطبخ
+CREATE OR REPLACE FUNCTION public.fn_ensure_kitchen_order_org()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- إذا كانت organization_id موجودة بالفعل، لا نفعل شيئاً
+    IF NEW.organization_id IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id 
+        FROM public.order_items 
+        WHERE id = NEW.order_item_id;
+    END IF;
+    
+    -- إذا ظل فارغاً، نستخدم معرف المستخدم الحالي
+    IF NEW.organization_id IS NULL THEN
+        NEW.organization_id := public.get_my_org();
+    END IF;
+    
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ensure_kitchen_org ON public.kitchen_orders;
+CREATE TRIGGER trg_ensure_kitchen_org 
+BEFORE INSERT ON public.kitchen_orders 
+FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_kitchen_order_org();
+
+-- 🛠️ دالة حماية الحسابات الأساسية من الحذف
+CREATE OR REPLACE FUNCTION public.prevent_system_account_deletion()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- قائمة الأكواد المحمية (المستويات السيادية وحسابات الربط الآلي)
+    IF OLD.code IN (
+        '1', '2', '3', '4', '5', -- المستوى الأول
+        '11', '12', '21', '22', '31', '41', '51', '52', '53', -- المستوى الثاني
+        '103', '1221', '1231', '201', '3999', '411', '412', '413', '511', '541' -- حسابات العمليات
+    ) THEN
+        RAISE EXCEPTION '⚠️ خطأ سيادي: لا يمكن حذف الحساب (%) لأنه حساب نظام أساسي مرتبط بالتقارير المالية والقيود الآلية.', OLD.name;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ربط القيد بجدول الحسابات
+DROP TRIGGER IF EXISTS trg_protect_system_accounts ON public.accounts;
+CREATE TRIGGER trg_protect_system_accounts
+BEFORE DELETE ON public.accounts
+FOR EACH ROW
+EXECUTE FUNCTION public.prevent_system_account_deletion();
+
+-- 🛠️ دالة مشغل فرض اختيار المستودع تلقائياً للمستندات (فواتير، مشتريات)
+CREATE OR REPLACE FUNCTION public.fn_ensure_document_warehouse()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.warehouse_id IS NULL THEN
+        NEW.warehouse_id := COALESCE(
+            (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = NEW.organization_id),
+            (SELECT id FROM public.warehouses WHERE organization_id = NEW.organization_id AND deleted_at IS NULL LIMIT 1)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ensure_invoice_warehouse ON public.invoices;
+CREATE TRIGGER trg_ensure_invoice_warehouse BEFORE INSERT ON public.invoices FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_document_warehouse();
+
+DROP TRIGGER IF EXISTS trg_ensure_purchase_warehouse ON public.purchase_invoices;
+CREATE TRIGGER trg_ensure_purchase_warehouse BEFORE INSERT ON public.purchase_invoices FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_document_warehouse();
+
+-- 🛠️ دالة ربط تلقائي لطلبات الـ QR بالكاشير عند الدفع
+CREATE OR REPLACE FUNCTION public.fn_assign_cashier_to_qr_order()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- إذا تغيرت الحالة إلى مدفوع والطلب ليس له صاحب، نربطه بالمستخدم الحالي الذي أجرى التعديل
+    IF NEW.status IN ('PAID', 'COMPLETED') AND NEW.user_id IS NULL THEN
+        NEW.user_id := auth.uid();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_assign_cashier ON public.orders;
+CREATE TRIGGER trg_assign_cashier
+BEFORE UPDATE OF status ON public.orders
+FOR EACH ROW EXECUTE FUNCTION public.fn_assign_cashier_to_qr_order();
+
+-- 🛠️ دالة فرض اختيار المستودع تلقائياً للطلبات (Auto-Warehouse Enforcement)
+CREATE OR REPLACE FUNCTION public.fn_ensure_order_warehouse()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.warehouse_id IS NULL THEN
+        NEW.warehouse_id := COALESCE(
+            (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = NEW.organization_id),
+            (SELECT id FROM public.warehouses WHERE organization_id = NEW.organization_id AND deleted_at IS NULL LIMIT 1)
+        );
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_ensure_order_warehouse ON public.orders;
+CREATE TRIGGER trg_ensure_order_warehouse
+BEFORE INSERT ON public.orders
+FOR EACH ROW
+EXECUTE FUNCTION public.fn_ensure_order_warehouse();
+
+-- 🛠️ مراقب تحديث حالة طلبات المطبخ
+CREATE OR REPLACE FUNCTION public.trg_fn_update_kitchen_status_time()
+RETURNS TRIGGER AS $t$
+BEGIN
+    IF (OLD.status IS DISTINCT FROM NEW.status) THEN
+        NEW.status_updated_at = now();
+    END IF;
+    RETURN NEW;
+END; $t$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_kitchen_status_time ON public.kitchen_orders;
+CREATE TRIGGER trg_kitchen_status_time
+BEFORE UPDATE ON public.kitchen_orders
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_update_kitchen_status_time();
+
+-- 🛠️ نظام حساب تكلفة الوجبات التلقائي بناءً على المكونات (BOM)
+CREATE OR REPLACE FUNCTION public.trg_fn_sync_meal_cost() RETURNS TRIGGER AS $t$
+BEGIN
+    UPDATE public.products
+    SET cost = (
+        SELECT COALESCE(SUM(bom.quantity_required * COALESCE(ing.cost, ing.purchase_price, 0)), 0)
+        FROM public.bill_of_materials bom
+        JOIN public.products ing ON bom.raw_material_id = ing.id
+        WHERE bom.product_id = COALESCE(NEW.product_id, OLD.product_id)
+    )
+    WHERE id = COALESCE(NEW.product_id, OLD.product_id);
+    RETURN NULL;
+END; $t$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_meal_cost_sync ON public.bill_of_materials;
+CREATE TRIGGER trg_meal_cost_sync 
+AFTER INSERT OR UPDATE OR DELETE ON public.bill_of_materials
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_sync_meal_cost();
+
+-- 🛡️ مشغل التزامن التلقائي لرصيد العميل (لضمان عمل الرصيد في الماستر سيت أب)
+CREATE OR REPLACE FUNCTION public.sync_customer_balance_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (TG_OP = 'DELETE') THEN
+        UPDATE public.customers SET balance = get_customer_balance(OLD.customer_id, OLD.organization_id) WHERE id = OLD.customer_id;
+        RETURN OLD;
+    ELSE
+        UPDATE public.customers SET balance = get_customer_balance(NEW.customer_id, NEW.organization_id) WHERE id = NEW.customer_id;
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 🛡️ 1. دالة تفعيل وضع الطوارئ (Emergency Mode Toggle)
+-- تتيح للسوبر أدمن تجاوز حماية الرواتب الحساسة في الجلسة الحالية
+CREATE OR REPLACE FUNCTION public.set_emergency_mode(p_enable boolean)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF public.get_my_role() != 'super_admin' THEN
+        RAISE EXCEPTION 'غير مصرح: هذه الدالة مخصصة للمدير العام فقط.';
+    END IF;
+
+    IF p_enable THEN
+        PERFORM set_config('app.emergency_mode', 'on', false);
+        RETURN '🚨 وضع الطوارئ نشط: تم فتح الوصول للبيانات الحساسة لهذه الجلسة.';
+    ELSE
+        PERFORM set_config('app.emergency_mode', 'off', false);
+        RETURN '🛡️ تم إيقاف وضع الطوارئ: الحماية مفعّلة الآن.';
+    END IF;
+END; $$;
+
+-- 📊 2. دالة إحصائيات المنصة الشاملة (Super Admin SaaS Metrics)
+CREATE OR REPLACE FUNCTION public.get_saas_platform_metrics()
+RETURNS TABLE (
+    total_orgs bigint,
+    active_orgs bigint,
+    total_invoices_count bigint,
+    total_transactions_value numeric,
+    total_storage_used_kb numeric,
+    orgs_expiring_soon bigint
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF public.get_my_role() != 'super_admin' THEN
+        RAISE EXCEPTION 'غير مصرح بالوصول لإحصائيات المنصة.';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        (SELECT count(*) FROM public.organizations) as total_orgs,
+        (SELECT count(*) FROM public.organizations WHERE is_active = true AND (subscription_expiry IS NULL OR subscription_expiry >= now())) as active_orgs,
+        (SELECT count(*) FROM public.invoices WHERE status != 'draft') as total_invoices_count,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM public.invoices WHERE status IN ('posted', 'paid')) as total_transactions_value,
+        (SELECT COALESCE(SUM(file_size_kb), 0) FROM public.organization_backups) as total_storage_used_kb,
+        (SELECT count(*) FROM public.organizations WHERE subscription_expiry BETWEEN now() AND now() + interval '7 days') as orgs_expiring_soon;
+END; $$;
+
+-- 🚀 3. دالة تنظيف البيانات التجريبية (إصلاح تكرار المنظمة)
+CREATE OR REPLACE FUNCTION public.clear_demo_data(p_org_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF NOT public.is_admin() THEN RAISE EXCEPTION 'صلاحيات غير كافية.'; END IF;
+    
+    DELETE FROM public.invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.journal_entries WHERE organization_id = p_org_id AND related_document_type != 'opening_balance';
+    -- تحديث المخزون للأصناف ليصبح صفراً
+    UPDATE public.products SET stock = 0, warehouse_stock = '{}'::jsonb WHERE organization_id = p_org_id;
+    
+    RETURN 'تم تنظيف البيانات التشغيلية بنجاح ✅';
+END; $$;
+
+-- 🛡️ 4. دالة إصلاح صلاحيات كافة المديرين (Bulk Admin Permission Repair)
+CREATE OR REPLACE FUNCTION public.repair_all_admin_permissions()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    r record;
+BEGIN
+    IF public.get_my_role() != 'super_admin' THEN RAISE EXCEPTION 'غير مصرح: للسوبر أدمن فقط.'; END IF;
+    FOR r IN SELECT id FROM public.organizations LOOP
+        PERFORM public.sync_role_permissions((SELECT id FROM public.roles WHERE organization_id = r.id AND name = 'admin'), ARRAY(SELECT id FROM public.permissions));
+    END LOOP;
+    RETURN 'تمت مزامنة كافة الصلاحيات لكل مديري الشركات بنجاح ✅';
+END; $$;
+
+-- 🛡️ 5. محرك التعيين التلقائي للمنظمة (Auto-Organization Enforcer)
+-- يضمن هذا المحرك أن أي صف يتم إنشاؤه سيأخذ رقم منظمة المستخدم الحالية تلقائياً
+CREATE OR REPLACE FUNCTION public.fn_force_org_id_on_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- إذا كان المستخدم سوبر أدمن، نسمح له بتحديد المنظمة يدوياً
+    IF public.get_my_role() = 'super_admin' THEN
+        NEW.organization_id := COALESCE(NEW.organization_id, public.get_my_org());
+    ELSE
+        -- للآدمن وأي مستخدم آخر: نفرض منظمتهم الحقيقية من البروفايل
+        NEW.organization_id := public.get_my_org();
+    END IF;
+    
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
+SELECT public.refresh_saas_schema();
