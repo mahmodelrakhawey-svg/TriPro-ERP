@@ -9,7 +9,7 @@ import { useToast } from '../../context/ToastContext';
 type Transaction = {
   id: string;
   date: string;
-  type: 'invoice' | 'receipt' | 'return' | 'credit_note';
+  type: 'invoice' | 'receipt' | 'return' | 'credit_note' | 'pos_order';
   reference: string;
   description: string;
   debit: number;  // مدين (فاتورة)
@@ -114,7 +114,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             
         const { data: manualEntries } = await supabase.from('journal_entries')
             .select(`
-                id, reference, transaction_date, description, status,
+                id, reference, transaction_date, description, status, related_document_type,
                 journal_lines!inner(debit, credit, account_id, accounts!inner(code))
             `)
             .eq('organization_id', userOrgId)
@@ -127,7 +127,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             const desc = (je.description || '').toLowerCase();
             const custName = (selectedCustomer?.name || '').toLowerCase();
             const isTarget = desc.includes(custName) || ref.includes('OB-');
-            const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-') || ref.includes('RV-'); // إضافة RV- لمنع تكرار سندات القبض
+            const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-') || ref.includes('RV-') || ref.includes('SHIFT-') || je.related_document_type === 'shift'; 
             return isTarget && !isForbidden;
         }) || [];
 
@@ -207,7 +207,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                 allTrans.push({
                     id: ord.id,
                     date: ord.created_at,
-                    type: 'invoice', // نعامله كفاتورة (استحقاق)
+                    type: 'pos_order',
                     ref: ord.order_number,
                     desc: typeLabel,
                     debit: total, 
@@ -283,7 +283,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             return { ...t, balance: runningBal };
         });
 
-        setUnpostedCount(finalTrans.filter(t => !t.isPosted).length);
+        // إصلاح: تجاهل طلبات المطعم من عداد المستندات غير المرحة لأنها ترحل مجمعاً مع الوردية
+        setUnpostedCount(finalTrans.filter(t => !t.isPosted && t.type !== 'pos_order').length);
         setOpeningBalance(openBal);
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
@@ -560,7 +561,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                                   <td className="p-4 font-mono font-bold text-blue-600 flex items-center gap-2">
                                       {/* إخفاء البادئات عند العرض فقط ليكون المظهر أنيقاً وموحداً */}
                                       {t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-)/, '')}
-                                      {!t.isPosted && (
+                                      {!t.isPosted && t.type !== 'pos_order' && (
                                           <div className="flex items-center gap-1">
                                               <span title="هذا المستند ليس له قيد يومية!">
                                                   <AlertTriangle size={14} className="text-red-500" />
@@ -572,6 +573,11 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                                                   <RefreshCw size={10} /> إصلاح القيد
                                               </button>
                                           </div>
+                                      )}
+                                      {t.type === 'pos_order' && !t.isPosted && (
+                                          <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded border border-amber-200 font-bold">
+                                              بانتظار إغلاق الوردية
+                                          </span>
                                       )}
                                   </td>
                                   <td className="p-4 text-slate-700">{t.description}</td>

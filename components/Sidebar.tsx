@@ -1,6 +1,8 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
+import { supabase } from '../supabaseClient';
+import { secureStorage } from '../utils/securityMiddleware';
 import { 
     LayoutDashboard, BookOpen, FileText, PieChart, Settings,
     ScrollText, Library, ShoppingCart, Users, Truck, Package, 
@@ -10,6 +12,7 @@ import {
 
 const Sidebar = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const { currentUser, userPermissions, settings, organization } = useAccounting();
 
   const role = (currentUser?.role as string)?.toLowerCase() || 'viewer';
@@ -32,6 +35,33 @@ const Sidebar = () => {
     today.setHours(0, 0, 0, 0);
     return Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   }, [organization, isSuperAdmin]);
+
+  // دالة للعودة للوضع العالمي عند النقر على رابط لوحة تحكم ساس
+  const handleSaasAdminClick = async (e: React.MouseEvent) => {
+    const originalOrgId = secureStorage.getItem('admin_original_org_id');
+    if (originalOrgId) {
+      // إذا كان هناك معرف منظمة أصلي مخزن، يعني أننا في وضع المحاكاة (Impersonation)
+      e.preventDefault();
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        let targetOrgId = originalOrgId === 'main' ? null : originalOrgId;
+
+        // 1. استعادة المنظمة الأصلية في البروفايل لفك قيد RLS
+        await supabase.from('profiles').update({ organization_id: targetOrgId }).eq('id', user.id);
+
+        // 2. تحديث Metadata في Auth لضمان تحديث الـ Token (JWT)
+        await supabase.auth.updateUser({ data: { ...user.user_metadata, org_id: targetOrgId } });
+
+        secureStorage.removeItem('admin_original_org_id');
+        window.location.href = '/#/saas-admin';
+        window.location.reload(); // إعادة تحميل شاملة لتطهير السياق (Context Cleanse)
+      } catch (err) {
+        console.error("Error resetting org state from sidebar:", err);
+      }
+    }
+  };
 
   const toggleSection = (section: string) => {
     setOpenSection(openSection === section ? null : section);
@@ -777,7 +807,11 @@ const Sidebar = () => {
                     <span>إدارة الأدوار والصلاحيات</span>
                 </Link>
                 {isSuperAdmin && (
-                    <Link to="/saas-admin" className={getNavClass('/saas-admin')}>
+                    <Link 
+                        to="/saas-admin" 
+                        className={getNavClass('/saas-admin')}
+                        onClick={handleSaasAdminClick}
+                    >
                         <ShieldCheck size={18} />
                         <span>إدارة المنصة (SaaS)</span>
                     </Link>

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
@@ -65,7 +65,9 @@ const ReceiptVoucherForm = () => {
           .eq('journal_entries.status', 'posted')
           .filter('journal_entries.description', 'ilike', `%${customer?.name}%`),
         supabase.from('orders').select('subtotal, total_tax').eq('customer_id', formData.customerId).neq('status', 'CANCELLED'),
-        supabase.from('payments').select('amount').eq('customer_id', formData.customerId)
+        // إصلاح جلب مدفوعات المطعم عبر معرفات الطلبات الخاصة بالعميل
+        supabase.from('payments').select('amount, orders!inner(customer_id)')
+          .eq('orders.customer_id', formData.customerId)
       ]);
 
       const manualDebit = manual.data?.reduce((sum, m) => sum + Number(m.debit), 0) || 0;

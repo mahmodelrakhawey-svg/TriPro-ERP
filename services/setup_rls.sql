@@ -1,7 +1,7 @@
 -- =================================================================
 -- 🔒 إعدادات الأمان المتقدمة (Row Level Security - RLS)
 -- =================================================================
--- النسخة V12 النهائية الموحدة - دمج محرك الأمان الديناميكي وتوحيد السياسات
+-- النسخة V14 النهائية الموحدة - دعم اليوزر العالمي وإحصائيات ساس
 
 -- حذف الدوال القديمة لضمان التحديث
 
@@ -72,8 +72,8 @@ DROP POLICY IF EXISTS "profiles_select_policy" ON profiles;
 CREATE POLICY "profiles_select_policy" ON profiles 
 FOR SELECT TO authenticated USING (
     id = auth.uid() 
-    OR public.get_my_role() = 'super_admin' 
-    OR organization_id = public.get_my_org()
+    OR organization_id = public.get_my_org() 
+    OR public.get_my_role() = 'super_admin'
 );
 
 -- يمكن للمستخدم تعديل بياناته فقط
@@ -128,6 +128,8 @@ DECLARE
         'receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments',
         'sales_returns', 'sales_return_items', 'purchase_invoices', 'purchase_invoice_items', 'invoices', 'invoice_items',
         'purchase_returns', 'purchase_return_items', 'opening_inventories', 'budgets'
+        , 'work_order_material_usage', 'notification_audit_log', 'notification_preferences', 'notifications',
+        'system_error_logs', 'order_item_modifiers', 'payroll_variables', 'employee_allowances'
     ];
 BEGIN
     FOREACH t IN ARRAY basic_tables LOOP

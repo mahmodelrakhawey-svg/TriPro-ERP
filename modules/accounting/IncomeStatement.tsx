@@ -23,20 +23,26 @@ const IncomeStatement = () => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userRole = session?.user?.user_metadata?.role;
 
-      if (!userOrgId) {
+      if (!userOrgId && userRole !== 'super_admin') {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('journal_lines')
         .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
         .eq('journal_entries.status', 'posted')
-        .eq('journal_entries.organization_id', userOrgId)
         .gte('journal_entries.transaction_date', startDate)
         .lte('journal_entries.transaction_date', endDate);
+
+      if (userOrgId) {
+        query = query.eq('journal_entries.organization_id', userOrgId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setLedgerLines(data || []);

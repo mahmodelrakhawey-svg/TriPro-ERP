@@ -25,10 +25,11 @@ const WastageAnalysisReport = () => {
   const generateReport = async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userRole = session?.user?.user_metadata?.role;
 
-      if (!userOrgId) {
+      if (!userOrgId && userRole !== 'super_admin') {
         showToast('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.', 'error');
         return;
       }

@@ -1,6 +1,6 @@
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script)
 -- 🛡️ سكربت التثبيت والصيانة الشامل (System Stabilization Script) - النسخة الاحترافية الموحدة
--- تاريخ التحديث: 2026-06-12 (V12 Schema & Data Fixes)
+-- تاريخ التحديث: 2026-06-15 (V14 Enhanced SaaS Logic)
 -- الوصف: تحصين القيود وصيانة البيانات وهيكل الجداول فقط.
 
 BEGIN;
@@ -310,13 +310,27 @@ ALTER TABLE public.company_settings ADD CONSTRAINT company_settings_organization
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
-ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); -- 🛡️ إصلاح خطأ دالة إعادة المطابقة
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_tax numeric DEFAULT 0;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_discount numeric DEFAULT 0;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS grand_total numeric DEFAULT 0;
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS current_account_id uuid REFERENCES public.accounts(id);
-ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS notes text; -- ملاحظات بنود الجرد
+ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS notes text;
+
+-- إضافة أعمدة مفقودة تم رصدها في هيكل القاعدة الحالي لضمان التوافق
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS monthly_sales_target numeric DEFAULT 0;
+ALTER TABLE public.assets ADD COLUMN IF NOT EXISTS cost_center_id uuid REFERENCES public.cost_centers(id);
+ALTER TABLE public.employee_advances ADD COLUMN IF NOT EXISTS payroll_item_id uuid REFERENCES public.payroll_items(id);
+ALTER TABLE public.payroll_items ADD COLUMN IF NOT EXISTS payroll_tax numeric DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS expected_cash numeric DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS actual_cash numeric DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS difference numeric DEFAULT 0;
+ALTER TABLE public.modifiers ADD COLUMN IF NOT EXISTS cost numeric DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
+ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id);
 
 -- ربط المرتجعات بالفواتير
 ALTER TABLE public.sales_returns ADD COLUMN IF NOT EXISTS original_invoice_id uuid REFERENCES public.invoices(id);
@@ -401,79 +415,8 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_ensure_invoice_warehouse ON public.invoices;
 CREATE TRIGGER trg_ensure_invoice_warehouse BEFORE INSERT ON public.invoices FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_document_warehouse();
 
--- ============================================================
--- 9. تحديث دالة إغلاق الوردية الشاملة (Unified Shift Closing)
--- ============================================================
--- تضمن هذه الدالة إثبات العجز/الزيادة + خصم المخزون بالتكلفة في قيد واحد
-CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb;
-    v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
-    v_cogs_acc_id uuid; v_inventory_acc_id uuid;
-    v_diff numeric := 0; v_actual_cash_collected numeric := 0;
-BEGIN
-    SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
-    WITH shift_orders AS (
-        SELECT id, subtotal, total_tax FROM public.orders
-        WHERE (user_id = v_shift.user_id OR user_id IS NULL) 
-        AND status IN ('COMPLETED', 'PAID', 'posted') AND organization_id = v_shift.organization_id
-        AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
-    )
-    SELECT 
-        COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
-        COALESCE((SELECT SUM(itms.quantity * COALESCE(NULLIF(itms.unit_cost, 0), (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) FROM public.products WHERE id = itms.product_id AND organization_id = v_shift.organization_id LIMIT 1))) FROM public.order_items itms WHERE itms.order_id IN (SELECT id FROM shift_orders)), 0) as cost_total,
-        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
-        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
-    INTO v_summary
-    FROM shift_orders;
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
-    v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_shift.organization_id LIMIT 1));
-    v_card_acc_id := COALESCE((v_mappings->>'BANK_ACCOUNTS')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_shift.organization_id LIMIT 1));
-    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_shift.organization_id LIMIT 1));
-    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_shift.organization_id LIMIT 1));
-    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_shift.organization_id LIMIT 1));
-    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_shift.organization_id LIMIT 1));
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
-    IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
-    v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
-    v_actual_cash_collected := v_summary.cash_total + v_diff;
-    IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
-    IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
-    IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية', v_shift.organization_id);
-    ELSIF v_diff > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية', v_shift.organization_id); END IF;
-    IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN 
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية', v_shift.organization_id), 
-               (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية', v_shift.organization_id); 
-    END IF;
-    RETURN v_je_id;
-END; $$;
-
--- ============================================================
--- 🛡️ محرك التعيين التلقائي السيادي (Nuclear Organization Enforcer)
--- الوصف: يضمن هذا الجزء أن أي عملية إضافة بيانات في أي جدول للنظام
--- ستحمل معرف المنظمة الصحيح تلقائياً، مما يمنع أخطاء الـ RLS 42501 للأبد.
--- ============================================================
-
--- 1. التأكد من وجود الدالة المحركة (Function)
-CREATE OR REPLACE FUNCTION public.fn_force_org_id_on_insert()
-RETURNS TRIGGER AS $f$
-BEGIN
-    -- إذا كان المستخدم سوبر أدمن، نسمح له بتحديد المنظمة يدوياً (للتنقل بين الشركات)
-    IF public.get_my_role() = 'super_admin' THEN
-        NEW.organization_id := COALESCE(NEW.organization_id, public.get_my_org());
-    ELSE
-        -- للآدمن وأي مستخدم آخر: نفرض منظمتهم الحقيقية من البروفايل/التوكن
-        NEW.organization_id := public.get_my_org();
-    END IF;
-    RETURN NEW;
-END; $f$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- 2. حلقة التكرار لتطبيق المشغلات (Triggers) على كافة الجداول
+-- ملاحظة: تم نقل تعريف الدوال البرمجية (Functions) إلى deploy_all_functionss.sql لضمان التجانس.
+-- هنا نقوم فقط بتطبيق المشغلات (Triggers) لضمان استقرار البيئة.
 DO $$ 
 DECLARE 
     t text;
