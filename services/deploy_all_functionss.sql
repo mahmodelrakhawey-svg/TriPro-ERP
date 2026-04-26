@@ -75,6 +75,8 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_vouchers_number_org_unique') THEN
         ALTER TABLE public.payment_vouchers ADD CONSTRAINT payment_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
     END IF;
+    END $$;
+
 -- 1. دالة بدء الوردية - مطورة لتعيد السجل الكامل لضمان تحديث الـ State في React
 CREATE OR REPLACE FUNCTION public.start_shift(
     p_user_id uuid, 
@@ -1250,7 +1252,6 @@ BEGIN
     v_bonus_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1);
     v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
     v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
-    v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
     -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
@@ -1971,11 +1972,25 @@ END; $$;
 -- 📅 تفعيل الجدولة اليومية (Daily Schedule)
 -- سيتم تشغيل هذه المهمة يومياً في تمام الساعة 3:00 صباحاً بتوقيت الخادم
 -- ملاحظة: يجب التأكد من تفعيل ملحق pg_cron في إعدادات Supabase (Extensions)
+-- 🛡️ حماية: نتحقق من وجود ملحق pg_cron قبل محاولة الجدولة لمنع توقف السكربت
 DO $$
 BEGIN
     -- محاولة إلغاء الجدولة القديمة لتجنب التكرار عند إعادة تشغيل السكربت
     PERFORM cron.unschedule('daily-system-backup');
 EXCEPTION WHEN OTHERS THEN NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'cron') THEN
+        -- 1. محاولة إلغاء الجدولة القديمة لتجنب التكرار
+        BEGIN
+            EXECUTE 'SELECT cron.unschedule(''daily-system-backup'')';
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
+
+        -- 2. إعادة الجدولة باستخدام EXECUTE لتجنب خطأ Compilation
+        EXECUTE 'SELECT cron.schedule(''daily-system-backup'', ''0 3 * * *'', ''SELECT public.run_daily_backups_all_orgs();'')';
+        RAISE NOTICE '✅ تم تفعيل جدولة النسخ الاحتياطي اليومي بنجاح.';
+    ELSE
+        RAISE WARNING '⚠️ تنبيه: ملحق pg_cron غير مفعل. لن يتم تفعيل الجدولة التلقائية. يمكنك تفعيله من Dashboard -> Database -> Extensions.';
+    END IF;
 END $$;
 
 SELECT cron.schedule('daily-system-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');

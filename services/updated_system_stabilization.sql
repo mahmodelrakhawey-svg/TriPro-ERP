@@ -3,8 +3,6 @@
 -- تاريخ التحديث: 2026-06-15 (V14 Enhanced SaaS Logic)
 -- الوصف: تحصين القيود وصيانة البيانات وهيكل الجداول فقط.
 
-BEGIN;
-
 -- ============================================================
 -- 🛡️ محرك تحصين التكامل المرجعي (Global CASCADE Reinforcement)
 -- الوصف: يقوم هذا الجزء بتحويل كافة قيود الجداول لدعم الحذف التلقائي
@@ -42,6 +40,7 @@ BEGIN
                            r.table_name, r.constraint_name, r.column_name, r.foreign_table_name, r.foreign_column_name);
         END IF;
     END LOOP;
+END $$;
 
 -- 🛠️ تأمين جدول طلبات المطبخ (kitchen_orders) لبيئة الـ SaaS والمدراء
 ALTER TABLE IF EXISTS public.kitchen_orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
@@ -74,11 +73,11 @@ WHERE ts.table_id = rt.id AND ts.organization_id IS NULL;
 
 -- 4. ترميم الروابط المفقودة في الطلبات (Orders) لضمان ظهورها في المطبخ
 UPDATE public.orders o
-SET organization_id = COALESCE(sub.org_id, p.organization_id)
+SET organization_id = COALESCE(
+    (SELECT organization_id FROM public.table_sessions ts WHERE ts.id = o.session_id),
+    p.organization_id
+)
 FROM public.profiles p
-LEFT JOIN (
-    SELECT id, organization_id as org_id FROM public.table_sessions
-) sub ON o.session_id = sub.id
 WHERE o.user_id = p.id 
 AND o.organization_id IS NULL;
 
@@ -165,10 +164,10 @@ WHERE EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.related_document_
 DELETE FROM public.journal_entries 
 WHERE id IN (
     SELECT id FROM (
-        SELECT id, ROW_NUMBER() OVER (PARTITION BY related_document_id, related_document_type ORDER BY created_at DESC) as entry_rank
+        SELECT id, ROW_NUMBER() OVER (PARTITION BY organization_id, related_document_id, related_document_type ORDER BY created_at DESC) as entry_rank
         FROM public.journal_entries
-        WHERE related_document_id IS NOT NULL AND related_document_type IN ('purchase_invoice', 'invoice') AND organization_id = je.organization_id
-    ) t WHERE entry_rank > 1
+        WHERE related_document_id IS NOT NULL AND related_document_type IN ('purchase_invoice', 'invoice')
+    ) sub WHERE entry_rank > 1
 );
 
 -- تنظيف مراجع القيود لضمان الربط الصحيح
@@ -425,11 +424,13 @@ BEGIN
     -- استخراج كافة جداول المخطط التي تحتوي على عمود organization_id
     -- مع استثناء الجداول الإدارية والسيادية لضمان استقرار النظام
     tables_list := ARRAY(
-        SELECT table_name 
-        FROM information_schema.columns 
-        WHERE table_schema = 'public' 
-        AND column_name = 'organization_id'
-        AND table_name NOT IN ('spatial_ref_sys', 'organizations', 'organization_backups', 'profiles', 'permissions', 'roles', 'role_permissions')
+        SELECT c.table_name 
+        FROM information_schema.columns c
+        JOIN information_schema.tables t ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+        WHERE c.table_schema = 'public' 
+        AND c.column_name = 'organization_id'
+        AND t.table_type = 'BASE TABLE'
+        AND c.table_name NOT IN ('spatial_ref_sys', 'organizations', 'organization_backups', 'profiles', 'permissions', 'roles', 'role_permissions')
     );
 
     FOREACH t IN ARRAY tables_list LOOP
@@ -439,5 +440,3 @@ BEGIN
                         FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_on_insert()', t);
     END LOOP;
 END $$;
-
-COMMIT;
