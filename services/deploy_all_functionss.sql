@@ -33,7 +33,7 @@ BEGIN
         -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح
         IF REPLACE(func_name, 'public.', '') IN (
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher', 'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note', 'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin', 'get_products_without_bom', 'calculate_product_wac', 'get_customer_balance', 'update_single_supplier_balance', 'update_product_stock', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup', 'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access', 'get_or_create_qr_for_table', 'get_current_company_settings', 'fn_ensure_kitchen_order_org', 'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse', 'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger', 'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups', 'cleanup_storage_orphans_trigger', 'sync_role_permissions', 'create_new_client_v2', 'handle_new_user', 'check_user_limit', 'prevent_system_account_deletion', 'set_emergency_mode', 'get_saas_platform_metrics', 'repair_all_admin_permissions', 'clear_demo_data'
-            , 'get_admin_platform_metrics'
+            , 'get_admin_platform_metrics', 'fix_unbalanced_journal_entry'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
@@ -2787,6 +2787,37 @@ BEGIN
     AND status IN ('posted', 'paid');
     
     RETURN v_balance;
+END; $$;
+
+-- 🛠️ دالة إصلاح القيود غير المتوازنة (Unbalanced Entry Fixer)
+CREATE OR REPLACE FUNCTION public.fix_unbalanced_journal_entry(p_je_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_diff numeric; v_org_id uuid; v_suspense_acc_id uuid;
+BEGIN
+    SELECT organization_id INTO v_org_id FROM public.journal_entries WHERE id = p_je_id;
+    
+    -- إزالة أي سطور توازن آلي قديمة لمنع التكرار عند إعادة التشغيل
+    DELETE FROM public.journal_lines WHERE journal_entry_id = p_je_id AND description = 'توازن آلي (فرق مدين/دائن)';
+
+    -- حساب الفرق (مدين - دائن)
+    SELECT SUM(debit) - SUM(credit) INTO v_diff FROM public.journal_lines WHERE journal_entry_id = p_je_id;
+
+    IF ABS(COALESCE(v_diff, 0)) < 0.001 THEN RETURN; END IF;
+
+    -- استخدام حساب 3999 (الأرصدة الافتتاحية/الوسيط) لموازنة القيد
+    SELECT id INTO v_suspense_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code = '3999' LIMIT 1;
+
+    IF v_suspense_acc_id IS NULL THEN
+        -- إذا لم يوجد، نستخدم أي حساب غير رئيسي (كحل أخير)
+        SELECT id INTO v_suspense_acc_id FROM public.accounts WHERE organization_id = v_org_id AND is_group = false LIMIT 1;
+    END IF;
+
+    IF v_diff > 0 THEN -- المدين أكبر -> نحتاج سطر دائن
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (p_je_id, v_suspense_acc_id, 0, ABS(v_diff), 'توازن آلي (فرق مدين/دائن)', v_org_id);
+    ELSE -- الدائن أكبر -> نحتاج سطر مدين
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (p_je_id, v_suspense_acc_id, ABS(v_diff), 0, 'توازن آلي (فرق مدين/دائن)', v_org_id);
+    END IF;
 END; $$;
 
 -- 🛡️ دالة تحديث رصيد مورد واحد (Single Supplier Balance Updater)
