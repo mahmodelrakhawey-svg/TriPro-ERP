@@ -931,7 +931,7 @@ DECLARE
     v_item jsonb; v_je_id uuid; v_mappings jsonb; v_user_id uuid; v_payroll_item_id uuid;
     v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
     v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
-    v_fixed_allowances numeric := 0; v_monthly_additions numeric := 0; v_monthly_deductions numeric := 0;
+    v_fixed_allowances numeric := 0; v_monthly_additions numeric := 0; v_monthly_deductions numeric := 0; v_emp_net numeric := 0;
 BEGIN
     -- 🛡️ جلب المنظمة من دالة الهوية الموحدة لضمان التوافق مع الأدمن والسوبر أدمن
     v_org_id := public.get_my_org();
@@ -1249,6 +1249,8 @@ BEGIN
     v_sal_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '531' LIMIT 1);
     v_bonus_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1);
     v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
+    v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
+    v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
     -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
