@@ -7,8 +7,26 @@
 DO $$
 DECLARE
     func_signature text;
+    trig_record record;
     func_name text;
 BEGIN
+    -- 🛡️ المرحلة 0.أ: تنظيف كافة المشغلات (Triggers) القديمة لضمان "بداية نظيفة" (Clean Slate)
+    -- هذا الجزء يمنع تعطل العمليات بسبب مشغلات قديمة تشير لدوال تم تغيير توقيعها أو حذفها
+    FOR trig_record IN (
+        SELECT trigger_name, event_object_table 
+        FROM information_schema.triggers 
+        WHERE trigger_schema = 'public'
+        -- نستهدف فقط الجداول التي يديرها النظام لضمان الأمان وعدم المساس بإضافات أخرى
+        AND event_object_table IN (
+            'products', 'invoices', 'purchase_invoices', 'orders', 'order_items',
+            'kitchen_orders', 'journal_entries', 'accounts', 'bill_of_materials', 
+            'modifier_groups', 'payments', 'assets', 'menu_categories', 'item_categories',
+            'purchase_invoice_items', 'invoice_items', 'stock_adjustment_items', 'shifts'
+        )
+    ) LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', trig_record.trigger_name, trig_record.event_object_table);
+    END LOOP;
+
     FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
     LOOP
         func_name := split_part(func_signature, '(', 1);
@@ -1342,6 +1360,15 @@ BEGIN
     RETURN v_cost;
 END; $$;
 
+-- 🛠️ دالة تحديث مخزون صنف واحد (Single Product Stock Updater)
+CREATE OR REPLACE FUNCTION public.update_product_stock(p_product_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid;
+BEGIN
+    SELECT organization_id INTO v_org_id FROM public.products WHERE id = p_product_id;
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+END; $$;
+
 -- ز. صيانة النظام والتقارير
 CREATE OR REPLACE FUNCTION public.recalculate_stock_rpc(p_org_id uuid DEFAULT NULL) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE prod_record RECORD; wh_record RECORD; total_qty NUMERIC; wh_json JSONB; wh_qty NUMERIC; v_target_org uuid;
@@ -1967,10 +1994,28 @@ BEGIN
     END LOOP;
 
     -- 2. سياسة الاستبقاء (Retention Policy): 
-    -- حذف النسخ التلقائية القديمة جداً (أقدم من 30 يوم) للحفاظ على مساحة التخزين في قاعدة البيانات
+    -- تقليص مدة الاحتفاظ إلى 5 أيام لتحسين أداء قاعدة البيانات وتقليل الحجم في الباقة المجانية
     DELETE FROM public.organization_backups 
-    WHERE created_at < (now() - interval '30 days')
+    WHERE created_at < (now() - interval '5 days')
     AND notes = 'نسخة احتياطية تلقائية للنظام';
+
+    -- 3. سياسة تنظيف الإشعارات العدوانية (Aggressive Notification Cleanup)
+    -- أ. حذف كافة الإشعارات المقروءة فوراً (لا داعي للأرشفة في الباقة المجانية)
+    DELETE FROM public.notifications WHERE is_read = true;
+
+    -- ب. حذف الإشعارات غير المقروءة التي مر عليها أكثر من 48 ساعة
+    DELETE FROM public.notifications WHERE created_at < (now() - interval '2 days');
+
+    -- ج. معالج التكرار (Deduplication Guard): حذف الإشعارات القديمة المكررة لنفس الموضوع
+    -- يبقي فقط على أحدث إشعار لكل مستخدم حول نفس العنوان (مثل: "نقص مخزون صنف X")
+    DELETE FROM public.notifications n1 USING public.notifications n2 
+    WHERE n1.id < n2.id AND n1.title = n2.title AND n1.user_id = n2.user_id AND n1.is_read = false;
+
+    -- 4. سياسة تنظيف السجلات (Log Cleanup Policy):
+    -- الاحتفاظ بآخر 3 أيام فقط من سجلات الأخطاء والأمان لتوفير المساحة
+    DELETE FROM public.system_error_logs WHERE created_at < (now() - interval '7 days');
+    DELETE FROM public.security_logs WHERE created_at < (now() - interval '7 days');
+    DELETE FROM public.notification_audit_log WHERE created_at < (now() - interval '7 days');
 END; $$;
 
 -- 📅 تفعيل الجدولة اليومية (Daily Schedule)
@@ -1979,25 +2024,20 @@ END; $$;
 -- 🛡️ حماية: نتحقق من وجود ملحق pg_cron قبل محاولة الجدولة لمنع توقف السكربت
 DO $$
 BEGIN
-    -- محاولة إلغاء الجدولة القديمة لتجنب التكرار عند إعادة تشغيل السكربت
-    PERFORM cron.unschedule('daily-system-backup');
-EXCEPTION WHEN OTHERS THEN NULL;
     IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'cron') THEN
-        -- 1. محاولة إلغاء الجدولة القديمة لتجنب التكرار
+        -- 1. إلغاء الجدولة القديمة (إن وجدت) لتجنب التكرار عند إعادة النشر
         BEGIN
             EXECUTE 'SELECT cron.unschedule(''daily-system-backup'')';
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
 
-        -- 2. إعادة الجدولة باستخدام EXECUTE لتجنب خطأ Compilation
-        EXECUTE 'SELECT cron.schedule(''daily-system-backup'', ''0 3 * * *'', ''SELECT public.run_daily_backups_all_orgs();'')';
+        -- 2. إعادة الجدولة: تشغيل يومي الساعة 3:00 صباحاً
+        PERFORM cron.schedule('daily-system-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');
         RAISE NOTICE '✅ تم تفعيل جدولة النسخ الاحتياطي اليومي بنجاح.';
     ELSE
         RAISE WARNING '⚠️ تنبيه: ملحق pg_cron غير مفعل. لن يتم تفعيل الجدولة التلقائية. يمكنك تفعيله من Dashboard -> Database -> Extensions.';
     END IF;
 END $$;
-
-SELECT cron.schedule('daily-system-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');
 
 -- ================================================================
 -- 6.1 محرك استعادة البيانات (SaaS Restore Engine)
@@ -2155,15 +2195,24 @@ BEGIN
     IF (p_backup_data->'products') IS NOT NULL THEN INSERT INTO public.products SELECT * FROM jsonb_populate_recordset(NULL::public.products, p_backup_data->'products') ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, stock = EXCLUDED.stock; END IF;
 
     -- 🚀 المرحلة 5: زرع رؤوس المستندات (بدون الروابط الدائرية)
-    IF (p_backup_data->'journal_entries') IS NOT NULL THEN INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_recordset(NULL::public.journal_entries, p_backup_data->'journal_entries') ON CONFLICT (id) DO NOTHING; END IF;
+    -- تم تحويلها إلى حلقة (Loop) لضمان الدقة ومعالجة التعارضات بشكل فردي
+    IF (p_backup_data->'journal_entries') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_entries') LOOP
+            INSERT INTO public.journal_entries SELECT * FROM jsonb_populate_record(NULL::public.journal_entries, v_item) 
+            ON CONFLICT (id) DO UPDATE SET organization_id = EXCLUDED.organization_id; 
+        END LOOP;
+    END IF;
+
     IF (p_backup_data->'employee_allowances') IS NOT NULL THEN INSERT INTO public.employee_allowances SELECT * FROM jsonb_populate_recordset(NULL::public.employee_allowances, p_backup_data->'employee_allowances') ON CONFLICT DO NOTHING; END IF;
     IF (p_backup_data->'payroll_variables') IS NOT NULL THEN INSERT INTO public.payroll_variables SELECT * FROM jsonb_populate_recordset(NULL::public.payroll_variables, p_backup_data->'payroll_variables') ON CONFLICT DO NOTHING; END IF;
     IF (p_backup_data->'employee_advances') IS NOT NULL THEN INSERT INTO public.employee_advances SELECT * FROM jsonb_populate_recordset(NULL::public.employee_advances, p_backup_data->'employee_advances') ON CONFLICT DO NOTHING; END IF;
+
     IF (p_backup_data->'invoices') IS NOT NULL THEN 
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoices') LOOP 
             INSERT INTO public.invoices SELECT * FROM jsonb_populate_record(NULL::public.invoices, v_item - 'related_journal_entry_id') ON CONFLICT (id) DO NOTHING; 
         END LOOP; 
     END IF;
+
     IF (p_backup_data->'purchase_invoices') IS NOT NULL THEN 
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'purchase_invoices') LOOP 
             INSERT INTO public.purchase_invoices SELECT * FROM jsonb_populate_record(NULL::public.purchase_invoices, v_item - 'related_journal_entry_id') ON CONFLICT (id) DO NOTHING; 
@@ -2173,22 +2222,53 @@ BEGIN
     IF (p_backup_data->'payment_vouchers') IS NOT NULL THEN INSERT INTO public.payment_vouchers SELECT * FROM jsonb_populate_recordset(NULL::public.payment_vouchers, p_backup_data->'payment_vouchers') ON CONFLICT DO NOTHING; END IF;
 
     -- 🚀 المرحلة 6: زرع التفاصيل والبنود (Items & Lines)
-    IF (p_backup_data->'journal_lines') IS NOT NULL THEN INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_recordset(NULL::public.journal_lines, p_backup_data->'journal_lines') ON CONFLICT (id) DO NOTHING; END IF;
-    IF (p_backup_data->'invoice_items') IS NOT NULL THEN INSERT INTO public.invoice_items SELECT * FROM jsonb_populate_recordset(NULL::public.invoice_items, p_backup_data->'invoice_items') ON CONFLICT (id) DO NOTHING; END IF;
-    IF (p_backup_data->'purchase_invoice_items') IS NOT NULL THEN INSERT INTO public.purchase_invoice_items SELECT * FROM jsonb_populate_recordset(NULL::public.purchase_invoice_items, p_backup_data->'purchase_invoice_items') ON CONFLICT (id) DO NOTHING; END IF;
+    IF (p_backup_data->'journal_lines') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_lines') LOOP
+            -- 🛡️ فحص ذكي: لا تدرج السطر إلا إذا كان القيد الأب موجوداً فعلياً في القاعدة
+            -- هذا يمنع انهيار العملية بالكامل بسبب سجل واحد تالف في النسخة الاحتياطية
+            IF EXISTS (SELECT 1 FROM public.journal_entries WHERE id = (v_item->>'journal_entry_id')::uuid) THEN
+                INSERT INTO public.journal_lines SELECT * FROM jsonb_populate_record(NULL::public.journal_lines, v_item) 
+                ON CONFLICT (id) DO UPDATE SET 
+                    organization_id = p_org_id,
+                    journal_entry_id = EXCLUDED.journal_entry_id,
+                    account_id = EXCLUDED.account_id,
+                    debit = EXCLUDED.debit,
+                    credit = EXCLUDED.credit;
+            END IF;
+        END LOOP;
+    END IF;
+
+    -- 🚀 تحسين: زرع بنود الفواتير مع فحص الأب (Parent Integrity Check)
+    IF (p_backup_data->'invoice_items') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'invoice_items') LOOP
+            IF EXISTS (SELECT 1 FROM public.invoices WHERE id = (v_item->>'invoice_id')::uuid) THEN
+                INSERT INTO public.invoice_items SELECT * FROM jsonb_populate_record(NULL::public.invoice_items, v_item) ON CONFLICT (id) DO NOTHING;
+            END IF;
+        END LOOP;
+    END IF;
+
+    IF (p_backup_data->'purchase_invoice_items') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'purchase_invoice_items') LOOP
+            IF EXISTS (SELECT 1 FROM public.purchase_invoices WHERE id = (v_item->>'purchase_invoice_id')::uuid) THEN
+                INSERT INTO public.purchase_invoice_items SELECT * FROM jsonb_populate_record(NULL::public.purchase_invoice_items, v_item) ON CONFLICT (id) DO NOTHING;
+            END IF;
+        END LOOP;
+    END IF;
+
     IF (p_backup_data->'bill_of_materials') IS NOT NULL THEN INSERT INTO public.bill_of_materials SELECT * FROM jsonb_populate_recordset(NULL::public.bill_of_materials, p_backup_data->'bill_of_materials') ON CONFLICT (id) DO NOTHING; END IF;
     IF (p_backup_data->'opening_inventories') IS NOT NULL THEN INSERT INTO public.opening_inventories SELECT * FROM jsonb_populate_recordset(NULL::public.opening_inventories, p_backup_data->'opening_inventories') ON CONFLICT DO NOTHING; END IF;
 
     -- 🚀 المرحلة 7: حقن الروابط النهائية (Stitching)
-    UPDATE public.invoices i SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' LIMIT 1) WHERE organization_id = p_org_id AND related_journal_entry_id IS NULL;
-    UPDATE public.purchase_invoices pi SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pi.id AND je.related_document_type = 'purchase_invoice' LIMIT 1) WHERE organization_id = p_org_id AND related_journal_entry_id IS NULL;
-    UPDATE public.receipt_vouchers rv SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' LIMIT 1) WHERE organization_id = p_org_id AND related_journal_entry_id IS NULL;
-    UPDATE public.payment_vouchers pv SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' LIMIT 1) WHERE organization_id = p_org_id AND related_journal_entry_id IS NULL;
+    -- [جديد] محرك إعادة الربط التلقائي لضمان ظهور القيود في الفواتير والسندات
+    UPDATE public.invoices i SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' AND i.organization_id = p_org_id;
+    UPDATE public.purchase_invoices pi SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = pi.id AND je.related_document_type = 'purchase_invoice' AND pi.organization_id = p_org_id;
+    UPDATE public.receipt_vouchers rv SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' AND rv.organization_id = p_org_id;
+    UPDATE public.payment_vouchers pv SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' AND pv.organization_id = p_org_id;
 
     PERFORM public.recalculate_all_system_balances(p_org_id);
-    RETURN '✅ [V11] تمت الاستعادة بنجاح.';
+    RETURN '✅ [V13] تمت الاستعادة بنجاح مع ترميم كافة الروابط وتخطي البنود اليتيمة.';
 EXCEPTION WHEN OTHERS THEN
-    RAISE EXCEPTION '❌ فشل محرك الاستعادة V10 الشامل: %', SQLERRM;
+    RAISE EXCEPTION '❌ فشل محرك الاستعادة V13 الشامل: %', SQLERRM;
 END; $$;
 
 -- 🛡️ دالة فحص نزاهة النسخة الاحتياطية (Integrity Validator RPC)
@@ -2575,6 +2655,10 @@ BEFORE DELETE ON public.accounts
 FOR EACH ROW
 EXECUTE FUNCTION public.prevent_system_account_deletion();
 
+-- تفعيل حماية الحسابات الرئيسية
+DROP TRIGGER IF EXISTS trg_prevent_group_posting ON public.journal_lines;
+CREATE TRIGGER trg_prevent_group_posting BEFORE INSERT OR UPDATE ON public.journal_lines FOR EACH ROW EXECUTE FUNCTION public.check_account_is_not_group();
+
 -- 🛠️ دالة مشغل فرض اختيار المستودع تلقائياً للمستندات (فواتير، مشتريات)
 CREATE OR REPLACE FUNCTION public.fn_ensure_document_warehouse()
 RETURNS TRIGGER AS $$
@@ -2690,6 +2774,32 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 🛡️ دالة حساب رصيد العميل (Customer Balance Calculator)
+CREATE OR REPLACE FUNCTION public.get_customer_balance(p_customer_id uuid, p_org_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_balance numeric;
+BEGIN
+    -- حساب الرصيد من واقع الفواتير المرحلة وغير المدفوعة
+    SELECT COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) INTO v_balance
+    FROM public.invoices
+    WHERE customer_id = p_customer_id AND organization_id = p_org_id 
+    AND status IN ('posted', 'paid');
+    
+    RETURN v_balance;
+END; $$;
+
+-- 🛡️ دالة تحديث رصيد مورد واحد (Single Supplier Balance Updater)
+CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id uuid, p_org_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    UPDATE public.suppliers SET balance = (
+        SELECT COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0)
+        FROM public.purchase_invoices
+        WHERE supplier_id = p_supplier_id AND organization_id = p_org_id
+        AND status IN ('posted', 'paid')
+    ) WHERE id = p_supplier_id;
+END; $$;
 
 -- 🛡️ 1. دالة تفعيل وضع الطوارئ (Emergency Mode Toggle)
 -- تتيح للسوبر أدمن تجاوز حماية الرواتب الحساسة في الجلسة الحالية
@@ -2849,6 +2959,11 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.fn_force_org_id_on_insert()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- 🛡️ وضع الاستعادة: يسمح بمرور البيانات كما هي دون تعديل الهوية لضمان تماسك الروابط (FK Stability)
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN NEW;
+    END IF;
+
     -- إذا كان المستخدم سوبر أدمن، نسمح له بتحديد المنظمة يدوياً
     IF public.get_my_role() = 'super_admin' THEN
         NEW.organization_id := COALESCE(NEW.organization_id, public.get_my_org());
