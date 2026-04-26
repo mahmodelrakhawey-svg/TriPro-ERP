@@ -1866,6 +1866,7 @@ AS $$
 DECLARE
     v_backup_id uuid;
     v_final_json jsonb;
+    v_encryption_key text := 'TriPro-Secret-Safe-2026'; -- يمكن نقله لجدول سري لاحقاً
 BEGIN
     -- تجميع كافة البيانات الهامة في كائن JSON واحد مفلتر بالمنظمة
     SELECT jsonb_build_object(
@@ -1911,9 +1912,9 @@ BEGIN
         'opening_inventories', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.opening_inventories t WHERE organization_id = p_org_id), '[]'::jsonb),
         'assets', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.assets t WHERE organization_id = p_org_id), '[]'::jsonb),
         'payrolls', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payrolls t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'payroll_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payroll_items WHERE organization_id = p_org_id), '[]'::jsonb),
+        'payroll_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payroll_items t WHERE organization_id = p_org_id), '[]'::jsonb),
         'payroll_variables', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payroll_variables t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'work_orders', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.work_orders WHERE organization_id = p_org_id), '[]'::jsonb),
+        'work_orders', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.work_orders t WHERE organization_id = p_org_id), '[]'::jsonb),
         'credit_notes', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.credit_notes t WHERE organization_id = p_org_id), '[]'::jsonb),
         'debit_notes', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.debit_notes t WHERE organization_id = p_org_id), '[]'::jsonb),
         'notifications', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.notifications t WHERE user_id IN (SELECT id FROM public.profiles WHERE organization_id = p_org_id)), '[]'::jsonb)
@@ -1921,6 +1922,9 @@ BEGIN
 
     -- 🔒 توليد البصمة الرقمية (Checksum) وحقنها في الملف
     v_final_json := v_final_json || jsonb_build_object('checksum', md5(v_final_json::text));
+
+    -- 🛡️ [اختياري] يمكن تشفير حقل معين أو الملف كاملاً باستخدام pgcrypto هنا في المرحلة القادمة
+    -- حالياً نعتمد على حماية الـ RLS والبصمة الرقمية لضمان النزاهة.
 
     -- إدراج النسخة في جدول النسخ الاحتياطية
     INSERT INTO public.organization_backups (
@@ -2010,6 +2014,9 @@ BEGIN
         RAISE EXCEPTION 'بيانات النسخة الاحتياطية غير صالحة أو فارغة.';
     END IF;
 
+    -- 🛡️ تفعيل وضع الاستعادة لتجاوز صمامات أمان حذف الحسابات السيادية
+    PERFORM set_config('app.restore_mode', 'on', true);
+
     -- 🛡️ [جديد V7] فحص سلامة النسخة قبل البدء (Pre-Restore Integrity Check)
     -- 🛡️ صمامات الأمان والنزاهة (Restore Safety Valves)
     
@@ -2027,32 +2034,32 @@ BEGIN
 
     -- 3. فحص التبعية الهيكلية (Relational Integrity Check)
     -- منع استعادة "أبناء" بدون "آباء"
-    IF (p_backup_data->'invoice_items') IS NOT NULL AND (p_backup_data->'invoices') IS NULL THEN
+    IF jsonb_array_length(COALESCE(p_backup_data->'invoice_items', '[]'::jsonb)) > 0 AND jsonb_array_length(COALESCE(p_backup_data->'invoices', '[]'::jsonb)) = 0 THEN
         RAISE EXCEPTION 'فشل فحص النزاهة: الملف يحتوي على بنود فواتير ولكن يفتقر لبيانات الفواتير الرئيسية. تم إلغاء الاستعادة.';
     END IF;
 
-    IF (p_backup_data->'journal_lines') IS NOT NULL AND (p_backup_data->'journal_entries') IS NULL THEN
+    IF jsonb_array_length(COALESCE(p_backup_data->'journal_lines', '[]'::jsonb)) > 0 AND jsonb_array_length(COALESCE(p_backup_data->'journal_entries', '[]'::jsonb)) = 0 THEN
         RAISE EXCEPTION 'فشل فحص النزاهة: الملف يحتوي على قيود فرعية ولكن يفتقر لقيود اليومية الرئيسية. تم إلغاء الاستعادة.';
     END IF;
 
     -- 🛡️ [جديد V7] فحص سلامة الموديولات الأساسية قبل البدء (Module Integrity Check)
     -- فحص المستودعات: إذا وجدت فواتير أو منتجات، يجب وجود مستودعات
-    IF ((p_backup_data->'invoices') IS NOT NULL OR (p_backup_data->'products') IS NOT NULL) 
-       AND ((p_backup_data->'warehouses') IS NULL OR jsonb_array_length(p_backup_data->'warehouses') = 0) THEN
+    IF (jsonb_array_length(COALESCE(p_backup_data->'invoices', '[]'::jsonb)) > 0 OR jsonb_array_length(COALESCE(p_backup_data->'products', '[]'::jsonb)) > 0) 
+       AND jsonb_array_length(COALESCE(p_backup_data->'warehouses', '[]'::jsonb)) = 0 THEN
         RAISE EXCEPTION 'فشل فحص السلامة: النسخة تحتوي على فواتير أو منتجات ولكنها تفتقر لبيانات المستودعات. تم إيقاف الاستعادة لحماية البيانات.';
     END IF;
 
     -- فحص الحسابات: العمود الفقري للنظام
-    IF (p_backup_data->'accounts') IS NULL OR jsonb_array_length(p_backup_data->'accounts') = 0 THEN
+    IF jsonb_array_length(COALESCE(p_backup_data->'accounts', '[]'::jsonb)) = 0 THEN
         RAISE EXCEPTION 'فشل فحص السلامة: النسخة تفتقر لدليل الحسابات. لا يمكن الاستعادة بدون هيكل محاسبي.';
     END IF;
 
     -- فحص العملاء والموردين
-    IF (p_backup_data->'invoices') IS NOT NULL AND ((p_backup_data->'customers') IS NULL OR jsonb_array_length(p_backup_data->'customers') = 0) THEN
+    IF jsonb_array_length(COALESCE(p_backup_data->'invoices', '[]'::jsonb)) > 0 AND jsonb_array_length(COALESCE(p_backup_data->'customers', '[]'::jsonb)) = 0 THEN
         RAISE EXCEPTION 'فشل فحص السلامة: توجد فواتير مبيعات ولكن بيانات العملاء مفقودة في النسخة.';
     END IF;
 
-    IF (p_backup_data->'purchase_invoices') IS NOT NULL AND ((p_backup_data->'suppliers') IS NULL OR jsonb_array_length(p_backup_data->'suppliers') = 0) THEN
+    IF jsonb_array_length(COALESCE(p_backup_data->'purchase_invoices', '[]'::jsonb)) > 0 AND jsonb_array_length(COALESCE(p_backup_data->'suppliers', '[]'::jsonb)) = 0 THEN
         RAISE EXCEPTION 'فشل فحص السلامة: توجد فواتير مشتريات ولكن بيانات الموردين مفقودة في النسخة.';
     END IF;
 
@@ -2257,11 +2264,15 @@ DECLARE
     v_final_balance numeric;
     v_initial_stock numeric;
     v_final_stock numeric;
+    v_wh_id uuid;
     v_prod_id uuid;
 BEGIN
     -- 🚀 1. إنشاء شركة اختبارية (SaaS Sandbox)
     v_org_id := public.create_new_client_v2('Test Restore Org', 'test@restore.com', 'commercial');
     test_step := '1. تهيئة المنظمة'; status := 'SUCCESS ✅'; details := 'تم إنشاء المنظمة برقم: ' || v_org_id; RETURN NEXT;
+
+    -- جلب المستودع الافتراضي الذي تم إنشاؤه آلياً
+    SELECT id INTO v_wh_id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1;
 
     -- 📥 2. إدخال بيانات (مالية ومخزنية) اختبارية
     -- أ. قيد محاسبي
@@ -2274,8 +2285,12 @@ BEGIN
         (v_prod_id, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '411' LIMIT 1), 0, 5000, v_org_id);
 
     -- ب. صنف مخزني برصيد
-    INSERT INTO public.products (name, stock, opening_balance, purchase_price, organization_id)
-    VALUES ('صنف اختباري', 100, 100, 10, v_org_id) RETURNING id INTO v_prod_id;
+    INSERT INTO public.products (name, purchase_price, organization_id)
+    VALUES ('صنف اختباري', 10, v_org_id) RETURNING id INTO v_prod_id;
+    
+    -- تسجيل الرصيد الافتتاحي في جدول الحركات لكي يراه محرك المخزون
+    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
+    VALUES (v_prod_id, v_wh_id, 100, 10, v_org_id);
 
     PERFORM public.recalculate_all_system_balances(v_org_id);
     SELECT balance INTO v_initial_balance FROM public.accounts WHERE organization_id = v_org_id AND code = '1';
@@ -2536,6 +2551,11 @@ FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_kitchen_order_org();
 CREATE OR REPLACE FUNCTION public.prevent_system_account_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- 🛡️ استثناء: السماح بالحذف إذا كان النظام في وضع الاستعادة (Restore Mode)
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN OLD;
+    END IF;
+
     -- قائمة الأكواد المحمية (المستويات السيادية وحسابات الربط الآلي)
     IF OLD.code IN (
         '1', '2', '3', '4', '5', -- المستوى الأول
