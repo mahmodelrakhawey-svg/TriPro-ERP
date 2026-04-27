@@ -1,5 +1,5 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
--- 🌟 النسخة الشاملة الموحدة (Version 35.0 - Deduplicated & Synced)
+-- 🌟 النسخة الشاملة الموحدة (Version 36.0 - Cheque Restore & Balance Sync)
 
 -- ================================================================
 -- 0. تنظيف شامل لتجنب تعارض التوقيعات (يجب أن يكون في البداية)
@@ -95,11 +95,16 @@ BEGIN
     END IF;
     END $$;
 
--- 1. دالة بدء الوردية - مطورة لتعيد السجل الكامل لضمان تحديث الـ State في React
+-- 🛡️ دالة بدء الوردية (Start Shift) - النسخة الموحدة
+-- تم تحديث التوقيع ليتوافق مع نداء الواجهة الأمامية ويدعم السوبر أدمن والشركات المتعددة
+DROP FUNCTION IF EXISTS public.start_shift(uuid, numeric, boolean);
+DROP FUNCTION IF EXISTS public.start_shift_v2(numeric, boolean, uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.start_shift(
-    p_user_id uuid, 
-    p_opening_balance numeric, 
-    p_resume_existing boolean DEFAULT false
+    p_opening_balance numeric,
+    p_resume_existing boolean,
+    p_treasury_acc uuid,
+    p_user_id uuid
 )
 RETURNS public.shifts 
 LANGUAGE plpgsql 
@@ -110,14 +115,17 @@ DECLARE
     v_new_shift public.shifts;
     v_org_id uuid;
 BEGIN
-    v_org_id := public.get_my_org();
+    -- جلب منظمة المستخدم (سواء من بروفايله أو من التوكن للسوبر أدمن)
+    v_org_id := COALESCE(
+        public.get_my_org(), 
+        (SELECT organization_id FROM public.profiles WHERE id = p_user_id)
+    );
     
-    -- صمام أمان: منع إنشاء وردية بدون منظمة
     IF v_org_id IS NULL THEN
-        RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من تسجيل الدخول بشكل صحيح.';
+        RAISE EXCEPTION 'فشل تحديد المنظمة. تأكد من ضبط المنظمة النشطة للسوبر أدمن.';
     END IF;
 
-    -- التحقق من وجود وردية مفتوحة
+    -- البحث عن وردية مفتوحة
     SELECT * INTO v_existing_shift 
     FROM public.shifts 
     WHERE user_id = p_user_id AND end_time IS NULL AND organization_id = v_org_id 
@@ -131,15 +139,14 @@ BEGIN
         RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم. يرجى إغلاقها أولاً.'; 
     END IF;
 
-    -- إنشاء وردية جديدة
-    INSERT INTO public.shifts (user_id, start_time, opening_balance, organization_id, status)
-    VALUES (p_user_id, now(), p_opening_balance, v_org_id, 'OPEN') 
+    -- إنشاء الوردية الجديدة مع ربط الخزينة المختارة
+    INSERT INTO public.shifts (user_id, start_time, opening_balance, treasury_account_id, organization_id, status)
+    VALUES (p_user_id, now(), p_opening_balance, p_treasury_acc, v_org_id, 'OPEN') 
     RETURNING * INTO v_new_shift;
 
     RETURN v_new_shift;
 END; $$;
 
--- 2. دالة التحقق من الوردية النشطة (Gatekeeper RPC)
 CREATE OR REPLACE FUNCTION public.get_active_shift(p_user_id uuid)
 RETURNS public.shifts 
 LANGUAGE plpgsql 
@@ -751,28 +758,31 @@ DECLARE
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     
+    WITH shift_orders AS (
+        SELECT id, subtotal, total_tax, grand_total
+        FROM public.orders
+        WHERE (user_id = v_shift.user_id OR user_id IS NULL)
+        AND organization_id = v_shift.organization_id
+        AND created_at BETWEEN v_shift.start_time AND now()
+        AND status IN ('COMPLETED', 'PAID', 'posted')
+    )
     SELECT 
         COALESCE(SUM(subtotal), 0) as total_subtotal,
         COALESCE(SUM(total_tax), 0) as total_tax,
         COALESCE(SUM(grand_total), 0) as total_sales,
-        -- حساب المبالغ من واقع المدفوعات الفعلية لضمان الدقة (يشمل طلبات الكاشير والـ QR)
-        COALESCE((SELECT SUM(amount) FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CASH'), 0) as cash_sales,
-        COALESCE((SELECT SUM(amount) FROM public.payments pay WHERE pay.order_id = o.id AND pay.payment_method = 'CARD'), 0) as card_sales
+        -- حساب المبالغ من واقع المدفوعات الفعلية (دقة متناهية للمطاعم)
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_sales,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_sales
     INTO v_summary
-    FROM public.orders o
-    WHERE (o.user_id = v_shift.user_id OR o.user_id IS NULL) -- تشمل طلبات الـ QR التي تمت معالجتها
-    AND o.organization_id = v_shift.organization_id
-    AND o.created_at BETWEEN v_shift.start_time AND now()
-    AND o.status IN ('COMPLETED', 'PAID', 'posted')
-    AND o.organization_id = v_shift.organization_id;
+    FROM shift_orders;
 
     RETURN json_build_object(
-        'opening_balance', v_shift.opening_balance,
-        'total_sales', v_summary.total_sales,
-        'total_tax', v_summary.total_tax,
-        'cash_sales', v_summary.cash_sales,
-        'card_sales', v_summary.card_sales,
-        'expected_cash', v_shift.opening_balance + v_summary.cash_sales
+        'opening_balance', COALESCE(v_shift.opening_balance, 0),
+        'total_sales', COALESCE(v_summary.total_sales, 0),
+        'total_tax', COALESCE(v_summary.total_tax, 0),
+        'cash_sales', COALESCE(v_summary.cash_sales, 0),
+        'card_sales', COALESCE(v_summary.card_sales, 0),
+        'expected_cash', COALESCE(v_shift.opening_balance, 0) + COALESCE(v_summary.cash_sales, 0)
     );
 END; $$;
 
@@ -1655,6 +1665,9 @@ BEGIN
     UPDATE public.payment_vouchers pv SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' ORDER BY je.created_at DESC LIMIT 1)
     WHERE organization_id = v_target_org AND EXISTS (SELECT 1 FROM public.journal_entries WHERE related_document_id = pv.id);
 
+    UPDATE public.cheques c SET related_journal_entry_id = (SELECT id FROM public.journal_entries je WHERE je.related_document_id = c.id AND je.related_document_type = 'cheque' ORDER BY je.created_at DESC LIMIT 1)
+    WHERE organization_id = v_target_org AND EXISTS (SELECT 1 FROM public.journal_entries WHERE related_document_id = c.id);
+
     -- 🛡️ مزامنة معرف المنظمة لضمان ظهور البيانات في RLS
     -- ضمان أن القيود تتبع المنظمة الصحيحة للمستند التابع لها
     UPDATE public.journal_entries je SET organization_id = i.organization_id FROM public.invoices i WHERE je.related_document_id = i.id AND je.related_document_type = 'invoice' AND je.organization_id != i.organization_id;
@@ -2109,6 +2122,9 @@ BEGIN
     -- 🛡️ المرحلة 1: التطهير المتسلسل العشري (Strategic Purge)
     -- حجر الزاوية: مسح المرفقات واللوجات أولاً
     DELETE FROM public.notification_audit_log WHERE organization_id = p_org_id;
+    DELETE FROM public.cheque_attachments WHERE organization_id = p_org_id;
+    DELETE FROM public.receipt_voucher_attachments WHERE organization_id = p_org_id;
+    DELETE FROM public.payment_voucher_attachments WHERE organization_id = p_org_id;
     DELETE FROM public.notification_preferences WHERE organization_id = p_org_id;
     DELETE FROM public.security_logs WHERE organization_id = p_org_id;
     DELETE FROM public.journal_attachments WHERE organization_id = p_org_id;
@@ -2221,6 +2237,13 @@ BEGIN
     IF (p_backup_data->'receipt_vouchers') IS NOT NULL THEN INSERT INTO public.receipt_vouchers SELECT * FROM jsonb_populate_recordset(NULL::public.receipt_vouchers, p_backup_data->'receipt_vouchers') ON CONFLICT DO NOTHING; END IF;
     IF (p_backup_data->'payment_vouchers') IS NOT NULL THEN INSERT INTO public.payment_vouchers SELECT * FROM jsonb_populate_recordset(NULL::public.payment_vouchers, p_backup_data->'payment_vouchers') ON CONFLICT DO NOTHING; END IF;
 
+    -- 🚀 زرع الشيكات (التي كانت مفقودة في V35)
+    IF (p_backup_data->'cheques') IS NOT NULL THEN 
+        FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'cheques') LOOP 
+            INSERT INTO public.cheques SELECT * FROM jsonb_populate_record(NULL::public.cheques, v_item - 'related_journal_entry_id') ON CONFLICT (id) DO NOTHING; 
+        END LOOP; 
+    END IF;
+
     -- 🚀 المرحلة 6: زرع التفاصيل والبنود (Items & Lines)
     IF (p_backup_data->'journal_lines') IS NOT NULL THEN 
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'journal_lines') LOOP
@@ -2247,6 +2270,11 @@ BEGIN
         END LOOP;
     END IF;
 
+    -- زرع المرفقات
+    IF (p_backup_data->'cheque_attachments') IS NOT NULL THEN INSERT INTO public.cheque_attachments SELECT * FROM jsonb_populate_recordset(NULL::public.cheque_attachments, p_backup_data->'cheque_attachments') ON CONFLICT DO NOTHING; END IF;
+    IF (p_backup_data->'receipt_voucher_attachments') IS NOT NULL THEN INSERT INTO public.receipt_voucher_attachments SELECT * FROM jsonb_populate_recordset(NULL::public.receipt_voucher_attachments, p_backup_data->'receipt_voucher_attachments') ON CONFLICT DO NOTHING; END IF;
+    IF (p_backup_data->'payment_voucher_attachments') IS NOT NULL THEN INSERT INTO public.payment_voucher_attachments SELECT * FROM jsonb_populate_recordset(NULL::public.payment_voucher_attachments, p_backup_data->'payment_voucher_attachments') ON CONFLICT DO NOTHING; END IF;
+
     IF (p_backup_data->'purchase_invoice_items') IS NOT NULL THEN 
         FOR v_item IN SELECT * FROM jsonb_array_elements(p_backup_data->'purchase_invoice_items') LOOP
             IF EXISTS (SELECT 1 FROM public.purchase_invoices WHERE id = (v_item->>'purchase_invoice_id')::uuid) THEN
@@ -2264,6 +2292,7 @@ BEGIN
     UPDATE public.purchase_invoices pi SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = pi.id AND je.related_document_type = 'purchase_invoice' AND pi.organization_id = p_org_id;
     UPDATE public.receipt_vouchers rv SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = rv.id AND je.related_document_type = 'receipt_voucher' AND rv.organization_id = p_org_id;
     UPDATE public.payment_vouchers pv SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = pv.id AND je.related_document_type = 'payment_voucher' AND pv.organization_id = p_org_id;
+    UPDATE public.cheques c SET related_journal_entry_id = je.id FROM public.journal_entries je WHERE je.related_document_id = c.id AND je.related_document_type = 'cheque' AND c.organization_id = p_org_id;
 
     PERFORM public.recalculate_all_system_balances(p_org_id);
     RETURN '✅ [V13] تمت الاستعادة بنجاح مع ترميم كافة الروابط وتخطي البنود اليتيمة.';

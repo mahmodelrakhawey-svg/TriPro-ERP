@@ -322,8 +322,8 @@ ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS monthly_sales_targe
 ALTER TABLE public.assets ADD COLUMN IF NOT EXISTS cost_center_id uuid REFERENCES public.cost_centers(id);
 ALTER TABLE public.employee_advances ADD COLUMN IF NOT EXISTS payroll_item_id uuid REFERENCES public.payroll_items(id);
 ALTER TABLE public.payroll_items ADD COLUMN IF NOT EXISTS payroll_tax numeric DEFAULT 0;
-ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
 ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS expected_cash numeric DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
 ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS actual_cash numeric DEFAULT 0;
 ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS difference numeric DEFAULT 0;
 ALTER TABLE public.modifiers ADD COLUMN IF NOT EXISTS cost numeric DEFAULT 0;

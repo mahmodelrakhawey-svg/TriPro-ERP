@@ -593,7 +593,8 @@ CREATE TABLE IF NOT EXISTS public.shifts (
     start_time timestamptz DEFAULT now(),
     end_time timestamptz,
     opening_balance numeric DEFAULT 0,
-    actual_cash numeric,
+    actual_cash numeric DEFAULT 0,
+    treasury_account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
     status text DEFAULT 'OPEN',
     notes text,
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE

@@ -122,6 +122,7 @@ DECLARE
         'employee_advances', 'employee_allowances', 'payroll_variables', 'quotations', 'quotation_items',
         'purchase_orders', 'purchase_order_items', 'stock_adjustments', 'stock_adjustment_items',
         'stock_transfers', 'stock_transfer_items', 'inventory_counts', 'inventory_count_items',
+        'shifts', 'table_sessions', 'restaurant_tables',
         'work_orders', 'work_order_costs', 'bank_reconciliations', 'notifications', 'notification_preferences',
         'notification_audit_log', 'security_logs', 'system_error_logs', 'cash_closings', 'rejected_cash_closings',
         'credit_notes', 'debit_notes', 'receipt_vouchers', 'payment_vouchers', 'cheques',
