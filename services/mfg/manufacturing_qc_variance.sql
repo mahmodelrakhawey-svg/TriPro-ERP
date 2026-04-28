@@ -35,7 +35,8 @@ BEGIN
 END; $$;
 
 -- 3. رؤية تحليل انحراف المواد (BOM Variance View)
-CREATE OR REPLACE VIEW public.v_mfg_bom_variance AS
+DROP VIEW IF EXISTS public.v_mfg_bom_variance CASCADE;
+CREATE VIEW public.v_mfg_bom_variance AS
 SELECT 
     po.order_number,
     p.name as product_name,

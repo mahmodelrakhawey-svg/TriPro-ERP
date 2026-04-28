@@ -164,7 +164,8 @@ const RoutingBOMManager = () => {
         if (stepsError) throw stepsError;
         setRoutingSteps((stepsData || []).map((s: any) => ({
           ...s,
-          attachments: s.mfg_step_attachments || []
+          attachments: s.mfg_step_attachments || [],
+          materials: s.mfg_step_materials || [] // <--- تم إضافة هذا السطر لربط المواد الخام بالعرض
         })));
       } else {
         setRoutingSteps([]);

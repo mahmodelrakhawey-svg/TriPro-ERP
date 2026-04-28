@@ -29,12 +29,18 @@ DECLARE
     v_inv_acc uuid;
     v_labor_acc uuid;
     v_org_id uuid;
+    v_scrap_qty numeric := 0;
 BEGIN
     -- 1. جلب بيانات التقدم والتحقق من الصلاحية
     SELECT * INTO v_step FROM public.mfg_order_progress WHERE id = p_progress_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سجل تقدم المرحلة غير موجود'; END IF;
     IF v_step.status = 'completed' THEN RETURN; END IF; -- منع التكرار
     v_org_id := v_step.organization_id;
+
+    -- [جديد] جلب إجمالي التالف المسجل لهذه المرحلة لزيادة الاستهلاك الفعلي
+    SELECT COALESCE(SUM(quantity), 0) INTO v_scrap_qty 
+    FROM public.mfg_scrap_logs 
+    WHERE order_progress_id = p_progress_id;
 
     -- 2. جلب بيانات مركز العمل لحساب التكلفة
     SELECT rs.standard_time_minutes, wc.hourly_rate 
@@ -69,16 +75,25 @@ BEGIN
         UPDATE public.products SET stock = stock - v_usage_qty 
         WHERE id = v_mat.raw_material_id AND organization_id = v_org_id;
 
-        -- ب. تسجيل الاستهلاك الفعلي (نفترض حالياً الفعلي = المعياري عند الإغلاق السريع)
+        -- ب. تسجيل الاستهلاك الفعلي (إضافة الكمية المعيارية + التالف الخاص بنفس المادة إن وجد)
         INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, organization_id)
-        VALUES (p_progress_id, v_mat.raw_material_id, v_usage_qty, v_usage_qty, v_org_id);
+        VALUES (
+            p_progress_id, 
+            v_mat.raw_material_id, 
+            v_usage_qty, 
+            v_usage_qty + COALESCE((SELECT SUM(quantity) FROM public.mfg_scrap_logs WHERE order_progress_id = p_progress_id AND product_id = v_mat.raw_material_id), 0), 
+            v_org_id
+        );
     END LOOP;
 
     -- 5. المحرك المحاسبي الصناعي: توليد قيد الإنتاج تحت التشغيل (WIP Entry)
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     
     -- جلب الحسابات (نستخدم كود 10303 للإنتاج تحت التشغيل و 10301 للمواد الخام)
-    v_wip_acc := (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1);
+    v_wip_acc := COALESCE(
+        (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1),
+        (SELECT id FROM public.accounts WHERE code = '103' AND is_group = false AND organization_id = v_org_id LIMIT 1)
+    );
     v_inv_acc := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
     v_labor_acc := COALESCE((v_mappings->>'LABOR_COST_ALLOCATED')::uuid, (SELECT id FROM public.accounts WHERE code = '513' AND organization_id = v_org_id LIMIT 1));
 
@@ -159,7 +174,10 @@ BEGIN
 
     -- 4. المحرك المحاسبي: قيد إغلاق WIP وتحويله لمنتج تام
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    v_wip_acc := (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1);
+    v_wip_acc := COALESCE(
+        (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1),
+        (SELECT id FROM public.accounts WHERE code = '103' AND is_group = false AND organization_id = v_org_id LIMIT 1)
+    );
     v_fg_acc := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
 
     IF v_total_cost > 0 AND v_wip_acc IS NOT NULL AND v_fg_acc IS NOT NULL THEN
@@ -393,7 +411,7 @@ DECLARE
     v_batch_ref text;
 BEGIN
     v_org_id := public.get_my_org();
-    v_batch_ref := 'BATCH-' || to_char(now(), 'YYMMDD') || '-' || substring(gen_random_uuid()::text, 1, 4);
+    v_batch_ref := 'BATCH-' || to_char(now(), 'YYMMDDHH24MI') || '-' || substring(gen_random_uuid()::text, 1, 4);
 
     -- 1. تجميع الكميات المطلوبة لكل منتج من الفواتير المحددة
     FOR v_item IN 
@@ -409,7 +427,7 @@ BEGIN
             start_date, organization_id, batch_number
         ) VALUES (
             'MFG-MERGED-' || substring(gen_random_uuid()::text, 1, 8),
-            v_item.product_id, v_item.total_qty, 'draft', 
+            v_item.product_id, v_item.total_qty, 'in_progress', 
             now()::date, v_org_id, v_batch_ref
         ) RETURNING id INTO v_prod_order_id;
 
@@ -422,7 +440,12 @@ BEGIN
             v_org_id
         FROM public.mfg_routings r
         JOIN public.mfg_routing_steps rs ON r.id = rs.routing_id
-        WHERE r.product_id = v_item.product_id AND r.is_default = true;
+        WHERE r.product_id = v_item.product_id 
+        AND (r.is_default = true OR r.id = (
+            SELECT id FROM public.mfg_routings 
+            WHERE product_id = v_item.product_id 
+            ORDER BY is_default DESC, created_at DESC LIMIT 1
+        ));
 
         v_order_count := v_order_count + 1;
     END LOOP;
@@ -758,3 +781,67 @@ BEGIN
     
     RETURN v_alert_count;
 END; $$;
+-- 20. دالة فحص جاهزية المنتج للإنتاج (Production Readiness Check)
+-- تضمن أن المنتج لديه BOM و Routing قبل محاولة إنشاء أمر تشغيل
+CREATE OR REPLACE FUNCTION public.mfg_check_production_readiness(p_product_id uuid)
+RETURNS TABLE (
+    is_ready boolean,
+    missing_elements text[]
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_errors text[] := '{}';
+BEGIN
+    -- 1. فحص وجود BOM
+    IF NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = p_product_id) THEN
+        v_errors := array_append(v_errors, 'قائمة المواد (BOM) غير معرفة');
+    END IF;
+
+    -- 2. فحص وجود مسار إنتاج (Routing)
+    IF NOT EXISTS (SELECT 1 FROM public.mfg_routings WHERE product_id = p_product_id AND deleted_at IS NULL) THEN
+        v_errors := array_append(v_errors, 'مسار الإنتاج (Routing) غير معرف');
+    END IF;
+
+    -- 3. فحص وجود خطوات في المسار
+    IF EXISTS (SELECT 1 FROM public.mfg_routings WHERE product_id = p_product_id) AND 
+       NOT EXISTS (SELECT 1 FROM public.mfg_routing_steps rs 
+                   JOIN public.mfg_routings r ON rs.routing_id = r.id 
+                   WHERE r.product_id = p_product_id) THEN
+        v_errors := array_append(v_errors, 'مسار الإنتاج لا يحتوي على خطوات تنفيذية');
+    END IF;
+
+    RETURN QUERY SELECT 
+        (array_length(v_errors, 1) IS NULL) as is_ready,
+        v_errors;
+END; $$;
+
+-- دالة جلب الفواتير القابلة للتصنيع (Helper for BatchOrderManager)
+CREATE OR REPLACE FUNCTION public.mfg_get_pending_invoices(p_org_id uuid)
+RETURNS TABLE (
+    invoice_id uuid,
+    invoice_num text,
+    cust_name text,
+    order_date timestamptz,
+    total numeric
+) LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public 
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT i.id, i.invoice_number, c.name, i.created_at, COALESCE(i.total_amount, 0) as total
+    FROM public.invoices i
+    JOIN public.customers c ON i.customer_id = c.id
+    WHERE i.organization_id = p_org_id
+    AND i.status != 'draft' -- جلب الفواتير المعتمدة فقط أو حسب سياق عملك
+    AND EXISTS (
+        SELECT 1 FROM public.invoice_items ii
+        JOIN public.mfg_routings r ON ii.product_id = r.product_id
+        WHERE ii.invoice_id = i.id
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM public.mfg_production_orders po 
+        -- استبعاد الفاتورة إذا كان رقمها موجوداً ضمن مرجع الدفعة أو حقل مخصص
+        WHERE po.batch_number LIKE '%' || i.invoice_number || '%'
+    )
+    ORDER BY i.created_at DESC;
+END; $$;
+-- نهاية ملف الدوال السيادية

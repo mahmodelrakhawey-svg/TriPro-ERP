@@ -115,12 +115,14 @@ CREATE TABLE IF NOT EXISTS public.mfg_scrap_logs (
 );
 
 -- 10. رؤية لوحة تحكم التصنيع (Manufacturing Dashboard View)
-CREATE OR REPLACE VIEW public.v_mfg_dashboard AS
+DROP VIEW IF EXISTS public.v_mfg_dashboard CASCADE;
+CREATE VIEW public.v_mfg_dashboard AS
 WITH progress_stats AS (
     SELECT 
         production_order_id,
         count(*) as total_steps,
         count(*) FILTER (WHERE status = 'completed') as completed_steps,
+        count(*) FILTER (WHERE qc_verified = true) as qc_passed_steps,
         SUM(labor_cost_actual) as total_labor_cost
     FROM public.mfg_order_progress
     GROUP BY production_order_id
@@ -135,6 +137,7 @@ SELECT
     po.end_date,
     ps.total_steps,
     ps.completed_steps,
+    COALESCE(ps.qc_passed_steps, 0) as qc_passed_steps,
     CASE 
         WHEN ps.total_steps > 0 THEN ROUND((ps.completed_steps::numeric / ps.total_steps::numeric) * 100, 2)
         ELSE 0 
@@ -172,7 +175,8 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price numeric DEFAULT 0;
 CREATE INDEX IF NOT EXISTS idx_mfg_serials_num ON public.mfg_batch_serials(serial_number, organization_id);
 
 -- 12. رؤية ربحية أمر الإنتاج (Manufacturing Profitability View)
-CREATE OR REPLACE VIEW public.v_mfg_order_profitability AS
+DROP VIEW IF EXISTS public.v_mfg_order_profitability CASCADE;
+CREATE VIEW public.v_mfg_order_profitability AS
 WITH actual_costs AS (
     SELECT 
         op.production_order_id,
@@ -192,13 +196,13 @@ SELECT
     p.name as product_name,
     po.quantity_to_produce as qty,
     (po.quantity_to_produce * COALESCE(p.price, 0)) as sales_value,
-    ac.total_labor_cost as actual_labor,
-    ac.total_material_cost as actual_material,
-    (ac.total_labor_cost + ac.total_material_cost) as total_actual_cost,
-    (po.quantity_to_produce * COALESCE(p.price, 0)) - (ac.total_labor_cost + ac.total_material_cost) as net_profit,
+    COALESCE(ac.total_labor_cost, 0) as actual_labor,
+    COALESCE(ac.total_material_cost, 0) as actual_material,
+    (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0)) as total_actual_cost,
+    (po.quantity_to_produce * COALESCE(p.price, 0)) - (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0)) as net_profit,
     CASE 
-        WHEN (po.quantity_to_produce * COALESCE(p.price, 0)) > 0 
-        THEN ROUND((((po.quantity_to_produce * COALESCE(p.price, 0)) - (ac.total_labor_cost + ac.total_material_cost)) / (po.quantity_to_produce * COALESCE(p.price, 0)) * 100), 2)
+        WHEN (po.quantity_to_produce * COALESCE(p.price, 0)) > 0
+        THEN ROUND((((po.quantity_to_produce * COALESCE(p.price, 0)) - (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0))) / (po.quantity_to_produce * COALESCE(p.price, 0)) * 100), 2)
         ELSE 0 
     END as margin_percentage,
     po.organization_id
@@ -208,17 +212,14 @@ LEFT JOIN actual_costs ac ON po.id = ac.production_order_id;
 
 -- 13. رؤية كفاءة مراكز العمل (Work Center Efficiency View)
 -- تقارن بين الوقت المعياري المفترض والوقت الفعلي المستغرق لكل مركز عمل
-CREATE OR REPLACE VIEW public.v_mfg_work_center_efficiency AS
+DROP VIEW IF EXISTS public.v_mfg_work_center_efficiency CASCADE;
+CREATE VIEW public.v_mfg_work_center_efficiency AS
 SELECT 
     wc.name as work_center_name,
     COUNT(op.id) as tasks_completed,
     SUM(rs.standard_time_minutes * op.produced_qty) as total_standard_minutes,
-    SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60) as total_actual_minutes,
-    CASE 
-        WHEN SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60) > 0 
-        THEN ROUND((SUM(rs.standard_time_minutes * op.produced_qty) / SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60) * 100), 2)
-        ELSE 0 
-    END as efficiency_percentage,
+    GREATEST(SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60), 1) as total_actual_minutes,
+    ROUND((SUM(rs.standard_time_minutes * op.produced_qty) / GREATEST(SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60), 1) * 100), 2) as efficiency_percentage,
     wc.organization_id
 FROM public.mfg_work_centers wc
 JOIN public.mfg_routing_steps rs ON wc.id = rs.work_center_id

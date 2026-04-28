@@ -34,25 +34,21 @@ const BatchOrderManager = () => {
     if (!orgId) return;
     setLoading(true);
     
-    // جلب الفواتير التي تحتوي على منتجات لها مسار إنتاج ولم تُصنع بعد
-    // ملاحظة: نستخدم كود مبسط للعرض، في النظام الحقيقي يفضل عمل RPC لهذا الاستعلام المعقد
-    const { data, error } = await supabase
-      .from('invoices')
-      .select('id, invoice_number, created_at, total_amount, customers(name)') // <--- تم تعديل هذا السطر
-      .eq('organization_id', orgId)
-      .order('created_at', { ascending: false })
-      .limit(20);
+    // استخدام الدالة الاحترافية لجلب الفواتير القابلة للتصنيع فقط
+    const { data, error } = await supabase.rpc('mfg_get_pending_invoices', {
+      p_org_id: orgId
+    });
 
     if (error) {
       showToast('خطأ في جلب الفواتير', 'error');
     } else {
-      // <--- تم إضافة هذا الجزء لتحويل البيانات
+      // Map the RPC response to the SalesInvoice interface
       const formattedInvoices = (data || []).map((inv: any) => ({
-        id: inv.id,
-        invoice_number: inv.invoice_number,
-        customer_name: inv.customers?.name || 'N/A', // استخراج اسم العميل من الكائن المتداخل
-        created_at: inv.created_at,
-        total_amount: inv.total_amount,
+        id: inv.invoice_id, // RPC returns invoice_id
+        invoice_number: inv.invoice_num, // RPC returns invoice_num
+        customer_name: inv.cust_name, // RPC returns cust_name
+        created_at: inv.order_date, // RPC returns order_date
+        total_amount: inv.total, // RPC returns total (now guaranteed non-null)
       }));
       setInvoices(formattedInvoices);
     }

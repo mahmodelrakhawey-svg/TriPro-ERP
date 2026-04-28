@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting as useOrg } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
-import { Play, CheckCircle, Barcode, Loader2, Factory, AlertTriangle, X, Printer, Paperclip, Download } from 'lucide-react';
+import { Play, CheckCircle, Barcode, Loader2, Factory, AlertTriangle, X, Printer, Paperclip, Download, RefreshCw } from 'lucide-react';
 
 interface ShopFloorTask {
   progress_id: string;
@@ -41,7 +41,7 @@ const ShopFloorManager = () => {
   const fetchTasks = async () => {
     if (!orgId) return;
     setLoading(true);
-    const { data, error } = await supabase.rpc('mfg_get_shop_floor_tasks');
+    const { data, error } = await supabase.rpc('mfg_get_shop_floor_tasks', { p_work_center_id: null });
     if (error) {
       showToast('خطأ في جلب المهام', 'error');
     } else {
@@ -195,6 +195,14 @@ const ShopFloorManager = () => {
               <p className="text-gray-500 text-sm mt-1">إدارة وبدء العمليات الإنتاجية اللحظية</p>
             </div>
             
+            <button 
+              onClick={fetchTasks}
+              className="p-2 text-gray-400 hover:text-blue-600 transition-colors"
+              title="تحديث المهام"
+            >
+              <RefreshCw size={20} className={loading ? 'animate-spin' : ''} />
+            </button>
+
             <form onSubmit={handleScan} className="relative group">
               <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
                 <Barcode className="h-5 w-5 text-gray-400 group-focus-within:text-blue-500 transition-colors" />
