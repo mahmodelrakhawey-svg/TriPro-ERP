@@ -1,5 +1,5 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
--- 🌟 النسخة الشاملة الموحدة (Version 36.0 - Cheque Restore & Balance Sync)
+-- 🌟 النسخة الشاملة الموحدة (Version 37.0 - Manufacturing Cost Integration)
 
 -- ================================================================
 -- 0. تنظيف شامل لتجنب تعارض التوقيعات (يجب أن يكون في البداية)
@@ -34,6 +34,7 @@ BEGIN
         IF REPLACE(func_name, 'public.', '') IN (
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher', 'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note', 'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin', 'get_products_without_bom', 'calculate_product_wac', 'get_customer_balance', 'update_single_supplier_balance', 'update_product_stock', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup', 'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access', 'get_or_create_qr_for_table', 'get_current_company_settings', 'fn_ensure_kitchen_order_org', 'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse', 'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger', 'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups', 'cleanup_storage_orphans_trigger', 'sync_role_permissions', 'create_new_client_v2', 'handle_new_user', 'check_user_limit', 'prevent_system_account_deletion', 'set_emergency_mode', 'get_saas_platform_metrics', 'repair_all_admin_permissions', 'clear_demo_data'
             , 'get_admin_platform_metrics', 'fix_unbalanced_journal_entry'
+            , 'trg_fn_sync_product_costs_on_update'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
@@ -812,17 +813,16 @@ BEGIN
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
         COALESCE((SELECT SUM(delivery_fee) FROM public.delivery_orders WHERE order_id IN (SELECT id FROM shift_orders)), 0) as total_delivery_fees,
-        -- محرك التكلفة المطور: يجمع تكلفة المكونات من BOM وتكلفة الأصناف المخزنية المباشرة
+        -- محرك التكلفة المطور: يجمع التكلفة الشاملة (مواد + عمالة + إضافات) من الوصفات أو التكلفة المباشرة
         COALESCE((
             SELECT SUM(item_cost) FROM (
-                -- أ. حساب تكلفة الأصناف التي لها وصفات (مثل الوجبات) - نجمع كافة المكونات
+                -- أ. حساب تكلفة الأصناف التي لها وصفات (مثل الوجبات) - نستخدم دالة التكلفة الشاملة
                 SELECT
-                    COALESCE(bom.quantity_required, 0) * oi.quantity * COALESCE(ing.weighted_average_cost, ing.cost, ing.purchase_price, 0) as item_cost
+                    oi.quantity * public.get_product_recipe_cost(oi.product_id) as item_cost
                 FROM public.order_items oi
-                JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id
-                JOIN public.products ing ON bom.raw_material_id = ing.id -- المكونات الخام
                 WHERE oi.order_id IN (SELECT id FROM shift_orders)
                 AND oi.organization_id = v_shift.organization_id
+                AND EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = oi.product_id)
 
                 UNION ALL
 
@@ -1363,11 +1363,29 @@ END; $$;
 -- و. دالة جلب تكلفة وصفة المنتج (للمطاعم والتصنيع)
 CREATE OR REPLACE FUNCTION public.get_product_recipe_cost(p_product_id UUID)
 RETURNS NUMERIC LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_cost NUMERIC;
+DECLARE 
+    v_material_cost NUMERIC;
+    v_prod record;
 BEGIN
-    SELECT COALESCE(SUM(r.quantity_required * COALESCE(ing.weighted_average_cost, ing.cost, ing.purchase_price, 0)), 0) INTO v_cost
-    FROM public.bill_of_materials r JOIN public.products ing ON r.raw_material_id = ing.id WHERE r.product_id = p_product_id;
-    RETURN v_cost;
+    -- 1. جلب بيانات المنتج الأساسية (العمالة والمصاريف)
+    SELECT labor_cost, overhead_cost, is_overhead_percentage 
+    INTO v_prod 
+    FROM public.products 
+    WHERE id = p_product_id;
+    
+    -- 2. حساب تكلفة المواد الخام من الـ BOM
+    SELECT COALESCE(SUM(r.quantity_required * COALESCE(ing.weighted_average_cost, ing.cost, ing.purchase_price, 0)), 0) 
+    INTO v_material_cost
+    FROM public.bill_of_materials r 
+    JOIN public.products ing ON r.raw_material_id = ing.id 
+    WHERE r.product_id = p_product_id;
+
+    -- 3. الحساب النهائي (دمج المواد + العمالة + المصاريف الإضافية)
+    IF v_prod.is_overhead_percentage THEN
+        RETURN v_material_cost + COALESCE(v_prod.labor_cost, 0) + (v_material_cost * COALESCE(v_prod.overhead_cost, 0) / 100);
+    ELSE
+        RETURN v_material_cost + COALESCE(v_prod.labor_cost, 0) + COALESCE(v_prod.overhead_cost, 0);
+    END IF;
 END; $$;
 
 -- 🛠️ دالة تحديث مخزون صنف واحد (Single Product Stock Updater)
@@ -2775,15 +2793,34 @@ FOR EACH ROW EXECUTE FUNCTION public.trg_fn_update_kitchen_status_time();
 CREATE OR REPLACE FUNCTION public.trg_fn_sync_meal_cost() RETURNS TRIGGER AS $t$
 BEGIN
     UPDATE public.products
-    SET cost = (
-        SELECT COALESCE(SUM(bom.quantity_required * COALESCE(ing.cost, ing.purchase_price, 0)), 0)
-        FROM public.bill_of_materials bom
-        JOIN public.products ing ON bom.raw_material_id = ing.id
-        WHERE bom.product_id = COALESCE(NEW.product_id, OLD.product_id)
-    )
+    SET 
+        cost = public.get_product_recipe_cost(id),
+        manufacturing_cost = public.get_product_recipe_cost(id)
     WHERE id = COALESCE(NEW.product_id, OLD.product_id);
     RETURN NULL;
 END; $t$ LANGUAGE plpgsql;
+
+-- 🛠️ مشغل لتحديث التكلفة عند تغيير بيانات العمالة أو المصاريف في بطاقة الصنف
+CREATE OR REPLACE FUNCTION public.trg_fn_sync_product_costs_on_update() RETURNS TRIGGER AS $t$
+BEGIN
+    -- إذا تغيرت العمالة أو المصاريف أو نوع الحساب، نحدث التكلفة الإجمالية
+    IF (OLD.labor_cost IS DISTINCT FROM NEW.labor_cost OR 
+        OLD.overhead_cost IS DISTINCT FROM NEW.overhead_cost OR 
+        OLD.is_overhead_percentage IS DISTINCT FROM NEW.is_overhead_percentage) THEN
+        
+        -- إذا كان للمنتج وصفة، نعيد حسابها وتحديث التكلفة
+        IF EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = NEW.id) THEN
+            NEW.cost := public.get_product_recipe_cost(NEW.id);
+            NEW.manufacturing_cost := NEW.cost;
+        END IF;
+    END IF;
+    RETURN NEW;
+END; $t$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_product_costs_sync ON public.products;
+CREATE TRIGGER trg_product_costs_sync 
+BEFORE UPDATE ON public.products
+FOR EACH ROW EXECUTE FUNCTION public.trg_fn_sync_product_costs_on_update();
 
 DROP TRIGGER IF EXISTS trg_meal_cost_sync ON public.bill_of_materials;
 CREATE TRIGGER trg_meal_cost_sync 

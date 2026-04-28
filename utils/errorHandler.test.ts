@@ -27,7 +27,7 @@ describe('Error Handler Utils', () => {
 
     it('should handle AppError instances correctly', () => {
       const showNotification = vi.fn();
-      const originalError = new AppError('Custom error', 'CUSTOM', 'warning');
+      const originalError = new AppError('Custom error', 'CUSTOM', 'low');
       
       const result = handleError(originalError, { showNotification, logToConsole: false });
       

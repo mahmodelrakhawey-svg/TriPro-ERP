@@ -55,7 +55,7 @@ export async function secureApiFetch<T = any>(
     if (options.rateLimit) {
       const { secureStorage } = await import('./securityMiddleware');
       const userId = secureStorage.getItem('userId') || 'anonymous';
-      const rateLimitResult = checkRateLimit(userId, options.rateLimit.maxAttempts, options.rateLimit.windowMs);
+      const rateLimitResult = checkRateLimit(userId as string, options.rateLimit.maxAttempts, options.rateLimit.windowMs);
 
       if (!rateLimitResult.allowed) {
         return {

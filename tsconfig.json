@@ -13,6 +13,10 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
 
     /* Linting */
     // 🔒 SECURITY NOTE: strict mode will be enabled after fixing existing type errors
@@ -26,11 +30,9 @@
     "noImplicitThis": false
   },
   "include": [
-    "App.tsx",
-    "components",
-    "context",
-    "modules",
-    "services"
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.d.ts"
   ],
   "exclude": ["node_modules", "supabase"]
 }

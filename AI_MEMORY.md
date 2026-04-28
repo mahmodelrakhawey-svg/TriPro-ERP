@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٣‏/٤‏/٢٠٢٦، ١١:٥١:٤٤ ص
+📅 تاريخ التحديث: ٢٧‏/٤‏/٢٠٢٦، ٤:٢٦:٢٢ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -32,10 +32,12 @@
     📄 TrialBalanceAdvanced.tsx
     📄 verify_closing.sql
   📁 admin/
+    📄 auto_setup_new_org.sql
     📄 DataMigration.tsx
     📄 DataMigrationCenter.tsx
     📄 PermissionsManager.tsx
     📄 RecycleBin.tsx
+    📄 SaaSAdmin.tsx
   📁 assets/
     📄 AssetManager.tsx
   📁 banking/
@@ -46,6 +48,7 @@
   📁 finance/
     📄 BankReconciliationForm.tsx
     📄 CashClosingForm.tsx
+    📄 ci.yml
     📄 CustomerDepositForm.tsx
     📄 CustomerDepositPrint.tsx
     📄 ExpenseVoucherForm.tsx
@@ -91,6 +94,7 @@
     📄 useProducts.ts
     📄 WarehouseManager.tsx
     📄 WastageManager.tsx
+    📄 WastageReport.tsx
   📁 manufacturing/
     📄 ManufacturingManager.tsx
     📄 WorkOrderManager.tsx
@@ -189,6 +193,7 @@
   📄 run-flow-test.ts
   📄 SaasAdmin.tsx
   📄 search-tool.ts
+  📄 SearchableSelect.tsx
   📄 SecurityLogs.tsx
   📄 Settings.tsx
   📄 Sidebar.tsx
@@ -198,6 +203,14 @@
   📄 UserManager.tsx
   📄 UserProfile.tsx
 📁 services/
+  📁 mfg/
+    📄 GenealogyViewer.tsx
+    📄 manufacturing_functions.sql
+    📄 manufacturing_rls.sql
+    📄 manufacturing_setup.sql
+    📄 manufacturing_stabilization.sql
+    📄 ShopFloorManager.tsx
+    📄 WorkCenterEfficiencyTable.tsx
   📁 migrations/
     📄 2026-01-25_create_restaurant_module.sql
     📄 2026-01-26_restaurant_functions.sql
@@ -233,24 +246,27 @@
   📄 add_payment_method_column.sql
   📄 approve_credit_note_rpc.sql
   📄 approve_debit_note_rpc.sql
-  📄 approve_invoice_rpc.sql
   📄 approve_payment_voucher_rpc.sql
   📄 approve_purchase_invoice_rpc.sql
   📄 approve_purchase_return_rpc.sql
   📄 approve_receipt_voucher_rpc.sql
   📄 approve_sales_return_rpc.sql
+  📄 ArchiveManager.tsx
+  📄 backup_script.sh
+  📄 BackupRestoreManager.tsx
   📄 cash_closing_setup.sql
   📄 create_fix_schema_function.sql
   📄 create-client.ts
   📄 Dashboard.tsx
-  📄 deploy_all_functions.sql
   📄 deploy_all_functionss.sql
   📄 egyptian_coa_full.sql
   📄 ensure_returns_columns.sql
+  📄 export_org_data.sql
   📄 factory_reset_complete.sql
   📄 fix_customer_balance_mismatch.sql sql
   📄 fix_deficit_relationship.sql
   📄 fix_invoices_schema.sql
+  📄 fix_item_categories_description.sql
   📄 fix_missing_accounts.sql
   📄 fix_notification_requirements.sql
   📄 fix_notification_schema.sql
@@ -261,12 +277,15 @@
   📄 fix_schema_inconsistencies.sql
   📄 geminiService.ts
   📄 index.ts
+  📄 initialize_egyptian_coa.sql
+  📄 IntegrityCheckScreen.tsx
   📄 inventory_costing_setup.sql
   📄 invoice_items_queries.sql
   📄 invoiceItems.ts
   📄 link_returns_to_invoices.sql
   📄 master_setup.sql
   📄 modifierService.ts
+  📄 NEXT_PHASE_ROADMAP.md
   📄 NotificationScheduler.ts
   📄 notificationService.ts
   📄 notificationTestUtils.ts
@@ -297,6 +316,7 @@
   📄 test_payment_voucher.sql
   📄 test_receipt_voucher_logic.sql
   📄 test_receipt_voucher_v2.sql
+  📄 update_products_schema_v2.sql
   📄 updated_system_stabilization.sql
   📄 UserManagement.tsx
   📄 verify_and_fix_returns_schema.sql
@@ -488,7 +508,7 @@ import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
 import RecycleBin from './modules/admin/RecycleBin';
-import SaasAdmin from './components/SaasAdmin'; // <--- أضف هذا السطر
+import SaasAdmin from './components/SaasAdmin';
 import DataMigrationCenter from './modules/admin/DataMigrationCenter';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement';
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
@@ -635,12 +655,14 @@ const DemoWatermark = () => {
     );
 };
 
-const SuspendedScreen = () => (
+const SuspendedScreen = ({ message }: { message?: string }) => (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center" dir="rtl">
         <div className="bg-white p-10 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full">
             <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6"><X className="text-rose-600" size={40} /></div>
             <h1 className="text-2xl font-black text-slate-800 mb-2">عذراً، هذا الحساب متوقف</h1>
-            <p className="text-slate-500 mb-6 font-medium">يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل.</p>
+            <p className="text-slate-500 mb-6 font-medium">
+                {message || "يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل."}
+            </p>
             <button onClick={() => supabase.auth.signOut()} className="w-full bg-slate-100 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">تسجيل الخروج</button>
         </div>
     </div>
@@ -649,7 +671,8 @@ const SuspendedScreen = () => (
 const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
     const { organization, currentUser, isLoading } = useAccounting();
     
-    if (isLoading) return null;
+    // إذا كان هناك مستخدم مسجل بالفعل، لا نغلق الشاشة أثناء تحديث البيانات في الخلفية
+    if (isLoading && !currentUser) return null;
 
     const role = currentUser?.role || '';
     const isSuperAdmin = role === 'super_admin';
@@ -660,7 +683,8 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     const isExpired = expiryDate && expiryDate < new Date().toISOString().split('T')[0];
 
     if (organization && ((organization as any).is_active === false || isExpired) && !isSuperAdmin) {
-        return <SuspendedScreen />;
+        const message = (organization as any).suspension_reason || (isExpired ? "لقد انتهت فترة اشتراككم. يرجى التجديد للمتابعة." : undefined);
+        return <SuspendedScreen message={message} />;
     }
 
     const isAllowed = isSuperAdmin || isDemo || (organization && (allowedModules.includes(module) || allowedModules.length === 0));
@@ -702,7 +726,7 @@ const MainLayout = () => {
                     <Header />
                 </div>
                 {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
-                <main className="flex-1 p-8 overflow-y-auto bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
+                <main className="flex-1 p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
                         <Routes>
                 <Route path="/login" element={<Navigate to="/" replace />} />
@@ -827,6 +851,16 @@ const MainLayout = () => {
     );
 };
 
+// 🛡️ مكون حماية المسارات (ProtectedRoute)
+const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
+  const { currentUser } = useAuth();
+  if (!currentUser) {
+    // إذا لم يكن مسجلاً، يظهر صفحة الهبوط (LandingPage) التي تحتوي على خيار الدخول
+    return <LandingPage />;
+  }
+  return <>{children}</>;
+};
+
 const AppContent = () => {
   const [session, setSession] = useState<any>(null);
   const { isLoading: authLoading, currentUser, authInitialized } = useAuth();
@@ -860,9 +894,13 @@ const AppContent = () => {
     <HashRouter>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
       <Routes>
+        {/* 1. المسارات العامة (متاحة للجميع دون تسجيل دخول) */}
         <Route path="/customer-display" element={<CustomerDisplay />} />
         <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
-        <Route path="/*" element={currentUser ? <MainLayout /> : <LandingPage />} />
+        <Route path="/menu" element={<GuestMenuLayout />} />
+
+        {/* 2. المسارات المحمية (تتطلب حساب موظف) */}
+        <Route path="/*" element={<ProtectedRoute><MainLayout /></ProtectedRoute>} />
       </Routes>
     </HashRouter>
   );
@@ -958,6 +996,7 @@ export const SYSTEM_ACCOUNTS = {
   SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
   WITHHOLDING_TAX: '2232', // ضريبة الخصم والتحصيل
   EMPLOYEE_ADVANCES: '1223', // سلف الموظفين
+  PAYROLL_TAX: '2233', // ضريبة كسب العمل
 };
 
 // ------------------------------------------------------------------
@@ -1188,8 +1227,9 @@ interface AccountingContextType {
   addProductsBulk: (products: Omit<Product, 'id'>[]) => void;
   produceItem: (productId: string, quantity: number, warehouseId: string, date: string, additionalCost?: number, reference?: string) => Promise<{ success: boolean, message: string }>;
   categories: Category[];
-  addCategory: (name: string) => void;
-  deleteCategory: (id: string) => void;
+  addCategory: (name: string) => Promise<void>;
+  updateCategory: (id: string, updates: Partial<Category>) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
   warehouses: Warehouse[];
   addWarehouse: (warehouse: Omit<Warehouse, 'id'>) => Promise<any>;
   updateWarehouse: (id: string, warehouse: Partial<Warehouse>) => Promise<void>;
@@ -1276,8 +1316,17 @@ interface AccountingContextType {
   addUser: (user: any) => void;
   updateUser: (id: string, user: Partial<User>) => void;
   deleteUser: (id: string) => void;
-  settings: SystemSettings;
-  updateSettings: (newSettings: SystemSettings) => void;
+  settings: SystemSettings & { 
+    defaultWarehouseId?: string; 
+    defaultTreasuryId?: string; 
+    account_mappings?: any;
+    lastClosedDate?: string;
+    preventPriceModification?: boolean;
+    maxCashDeficitLimit?: number;
+    decimalPlaces?: number;
+    logoUrl?: string;
+  };
+  updateSettings: (newSettings: any) => void;
   exportData: () => void;
   importData: (jsonData: string) => boolean;
   factoryReset: () => void;
@@ -1289,6 +1338,9 @@ interface AccountingContextType {
   lastUpdated: Date | null;
   recalculateStock: () => Promise<void>;
   clearCache: () => Promise<void>;
+  recalculateAllBalances: () => Promise<void>; // New
+  purgeDeletedRecords: () => Promise<void>; // New
+  refreshSaasSchema: () => Promise<void>; // New
   exportJournalToCSV: () => void;
   authInitialized: boolean;
   isLoading: boolean;
@@ -1302,6 +1354,7 @@ interface AccountingContextType {
   addOpeningBalanceTransaction: (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => Promise<void>;
   checkSystemAccounts: () => { missing: string[]; found: string[] };
   createMissingSystemAccounts: () => Promise<{ success: boolean; message: string; created: string[] }>;
+  checkEssentialAccounts: () => Promise<void>;
   addDemoInvoice: (invoice: any) => void;
   currentShift: any | null;
   startShift: (openingBalance: number) => Promise<boolean>;
@@ -1480,45 +1533,49 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return { demoAccounts, allDemoEntries };
   };
 
-  const fetchData = async () => {
-    setIsLoading(true);
-    
-    // تنظيف الحالة (State) فوراً قبل جلب بيانات جديدة لمنع تسرب البيانات بين الحسابات
-    if (!isDemoState) {
-      setAccounts([]);
-      setEntries([]);
-      setCustomers([]);
-      setSuppliers([]);
-      setProducts([]);
-      setInvoices([]);
-      setVouchers([]);
-      setNotifications([]);
+  const addCategory = async (name: string) => {
+    try {
+      // نرسل معرف الشركة فقط إذا كان موجوداً، وإلا نترك قاعدة البيانات تستخدم القيمة الافتراضية
+      const payload: any = { name };
+      if ((currentUser as any)?.organization_id) {
+        payload.organization_id = (currentUser as any).organization_id;
+      }
+      const { data, error } = await supabase.from('item_categories').insert(payload).select().single();
+      if (error) throw error;
+      await fetchData();
+      showToast('تم إضافة التصنيف بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل إضافة التصنيف: ' + err.message, 'error');
     }
+  };
 
-    // تنظيف الحالة (State) فوراً وبشكل شامل قبل أي عملية جلب
-    setAccounts([]);
-    setEntries([]);
-    setCustomers([]);
-    setSuppliers([]);
-    setProducts([]);
-    setInvoices([]);
-    setVouchers([]);
-    setNotifications([]);
-    setPurchaseInvoices([]);
+  const updateCategory = async (id: string, updates: Partial<Category>) => {
+    try {
+      const { error } = await supabase.from('item_categories').update(updates).eq('id', id);
+      if (error) throw error;
+      await fetchData();
+      showToast('تم تحديث التصنيف بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل تحديث التصنيف: ' + err.message, 'error');
+    }
+  };
 
-    // التحقق من هوية المستخدم (لإخفاء التكلفة عن الديمو)
+  const deleteCategory = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذا التصنيف؟')) return;
+    try {
+      const { error } = await supabase.from('item_categories').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+      if (error) throw error;
+      await fetchData();
+      showToast('تم حذف التصنيف بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل حذف التصنيف: ' + err.message, 'error');
+    }
+  };
+
+  const fetchData = useCallback(async (orgId?: string) => {
     const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-    // معالجة خطأ التوكن غير الصالح (يحدث عند مسح قاعدة البيانات أو انتهاء الجلسة)
-    if (sessionError && (sessionError.message.includes('Refresh Token') || sessionError.status === 400)) {
-        console.warn("Invalid session detected, signing out...", sessionError);
-        await supabase.auth.signOut();
-        setIsLoading(false);
-        return;
-    }
-
     const isDemo = session?.user?.user_metadata?.app_role === 'demo' || session?.user?.email === DEMO_EMAIL || session?.user?.id === DEMO_USER_ID;
-    const currentOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+    const currentOrgId = orgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
 
     if (!currentOrgId && !isDemo) {
         if (process.env.NODE_ENV === 'development') console.warn("No Org ID found, skipping fetch to prevent leakage");
@@ -1527,8 +1584,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     setIsDemoState(isDemo);
-    // تحديد ما إذا كان يجب جلب البيانات المحمية (فقط عند وجود جلسة)
-    const shouldFetchProtected = !!session;
+    // لا نسمح بجلب البيانات المحمية إلا إذا كان هناك جلسة صالحة وغير منتهية
+    const shouldFetchProtected = !!session && !sessionError;
+
+    // 🛠️ تحسين لليوزر العالمي (Super Admin): إذا لم يكن هناك orgId، نجلب كل شيء
+    const isSuperAdmin = session?.user?.user_metadata?.role === 'super_admin' || 
+                        session?.user?.user_metadata?.app_role === 'super_admin';
+    
+    // بناء استعلام الحسابات بذكاء
+    let accountsQuery = supabase.from('accounts').select('*').is('deleted_at', null);
+    if (currentOrgId && !isSuperAdmin) {
+        accountsQuery = accountsQuery.eq('organization_id', currentOrgId);
+    }
 
     // --- معالجة وضع الديمو بشكل منفصل تماماً لمنع التضارب ---
     if (isDemo) {
@@ -1560,6 +1627,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCostCenters([{id: 'demo-cc-1', name: 'الفرع الرئيسي', code: 'CC-01'}, {id: 'demo-cc-2', name: 'فرع الرياض', code: 'CC-02'}]);
         setRestaurantTables(DUMMY_TABLES);
         setMenuCategories(DUMMY_MENU_CATEGORIES);
+        setCategories(DUMMY_MENU_CATEGORIES as any);
         
         // تعيين المستخدمين للديمو
         setUsers([
@@ -1635,12 +1703,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         { data: depreciationData },
         { data: allBalances }, // جلب أرصدة جميع الحسابات من السيرفر
         { data: restaurantTablesData },
-        { data: menuCategoriesData }
+        { data: menuCategoriesData },
+        { data: itemCategoriesData }
       ] = await Promise.all([
         shouldFetchProtected ? supabase.from('warehouses').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('company_settings').select('*').eq('organization_id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-        shouldFetchProtected ? supabase.from('organizations').select('*').eq('id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-        shouldFetchProtected ? supabase.from('accounts').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected && currentOrgId ? supabase.from('organizations').select('*').eq('id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+        shouldFetchProtected ? accountsQuery : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').eq('organization_id', currentOrgId).order('transaction_date', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('customers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('suppliers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
@@ -1655,9 +1724,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         shouldFetchProtected ? supabase.from('payment_vouchers').select('*').eq('organization_id', currentOrgId).order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('notifications').select('*').eq('organization_id', currentOrgId).eq('is_read', false).limit(20) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('organization_id', currentOrgId).eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.rpc('get_all_account_balances') : Promise.resolve({ data: [], error: null }), // الـ RPC محمي داخلياً بـ get_my_org()
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances', { p_org_id: currentOrgId }) : Promise.resolve({ data: [], error: null }),
         shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null })
+        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null }),
+        shouldFetchProtected ? supabase.from('item_categories').select('*').eq('organization_id', currentOrgId).is('deleted_at', null).order('display_order') : Promise.resolve({ data: [], error: null })
       ]);
 
       // حفظ بيانات المنظمة الحالية (بما فيها الموديولات المسموحة)
@@ -1666,11 +1736,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       // 1. معالجة المستودعات
-      if (whs && whs.length > 0) {
-        setWarehouses(whs);
-      } else if (warehouses.length === 0) {
-        if (warehouses.length === 0) setWarehouses([{id: generateUUID(), name: 'المستودع الرئيسي', type: 'warehouse'}]);
-      }
+      setWarehouses(whs || []);
 
       // 2. معالجة الإعدادات
       if (sysSettings) {
@@ -1697,7 +1763,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               maxCashDeficitLimit: sysSettings.max_cash_deficit_limit ?? 500,
               // @ts-ignore
               decimalPlaces: sysSettings.decimal_places !== undefined ? sysSettings.decimal_places : 2,
-              account_mappings: sysSettings.account_mappings || {}
+              account_mappings: sysSettings.account_mappings || {},
+              defaultWarehouseId: sysSettings.default_warehouse_id,
+              defaultTreasuryId: sysSettings.default_treasury_id
           });
       }
 
@@ -1718,42 +1786,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           // Database seeding is now handled by SQL script
       }
 
-      // دالة مساعدة للتحقق من وجود الحسابات وإضافتها
-      const ensureAccount = async (code: string, name: string, type: string) => {
-          if (accs) {
-              const exists = accs.find((a: any) => a.code === code);
-              if (!exists) {
-                  const { data: newAcc, error: createError } = await supabase.from('accounts').insert({
-                      id: generateUUID(),
-                      code: code,
-                      name: name,
-                      type: type,
-                      is_group: false
-                  }).select().single();
-                  if (!createError && newAcc) accs.push(newAcc);
-              }
+      // إذا كان الدليل فارغاً تماماً (شركة جديدة)، نقوم بتأسيسه من الثوابت فوراً
+      if (shouldFetchProtected && !accError && accs.length === 0 && !isDemo) {
+          if (process.env.NODE_ENV === 'development') console.log("New organization detected, seeding default Chart of Accounts...");
+          // نستخدم منطق createMissingSystemAccounts ولكن بشكل مباشر هنا
+          for (const accDef of INITIAL_ACCOUNTS) {
+              const parentId = accDef.parent_account ? accs.find(a => a.code === accDef.parent_account)?.id : null;
+              const { data: newAcc } = await supabase.from('accounts').insert({
+                  id: generateUUID(), code: accDef.code, name: accDef.name, type: accDef.type,
+                  is_group: accDef.is_group, parent_id: parentId, organization_id: currentOrgId
+              }).select().single();
+              if (newAcc) accs.push(newAcc);
           }
-      };
-
-      // التحقق من الحسابات الأساسية
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_ADJUSTMENTS, 'فروقات جرد وتسويات مخزنية', 'EXPENSE');
-      await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_BONUSES, 'مصروف مكافآت وإضافي', 'EXPENSE');
-      await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_DEDUCTIONS, 'إيراد خصومات وجزاءات', 'REVENUE');
-      await ensureAccount(SYSTEM_ACCOUNTS.VAT_INPUT, 'ضريبة القيمة المضافة - مدخلات', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.BANK_CHARGES, 'مصروفات بنكية', 'EXPENSE');
-      await ensureAccount(SYSTEM_ACCOUNTS.BANK_INTEREST_INCOME, 'فوائد بنكية (إيراد)', 'REVENUE');
-      await ensureAccount(SYSTEM_ACCOUNTS.TAX_AUTHORITY, 'مصلحة الضرائب المصرية', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.SOCIAL_INSURANCE, 'هيئة التأمينات الاجتماعية', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.WITHHOLDING_TAX, 'ضريبة الخصم والتحصيل', 'LIABILITY');
-      await ensureAccount(SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, 'سلف الموظفين', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMER_DEPOSITS, 'تأمينات العملاء', 'LIABILITY');
-      await ensureAccount('123201', 'البنك الأهلي المصري', 'ASSET');
-      await ensureAccount(SYSTEM_ACCOUNTS.SUPPLIERS, 'الموردين', 'LIABILITY'); // 201
-      await ensureAccount(SYSTEM_ACCOUNTS.CUSTOMERS, 'العملاء', 'ASSET');
-      // ملاحظة: لا نقوم بإنشاء حساب 103 هنا لأنه حساب رئيسي يتم إنشاؤه عبر ملف SQL
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_RAW_MATERIALS, 'مخزون المواد الخام', 'ASSET'); // 10301
-      await ensureAccount(SYSTEM_ACCOUNTS.INVENTORY_FINISHED_GOODS, 'مخزون المنتج التام', 'ASSET'); // 10302
-      await ensureAccount(SYSTEM_ACCOUNTS.SALARIES_EXPENSE, 'الرواتب والأجور', 'EXPENSE');
+      }
 
       // 4. معالجة القيود وحساب الأرصدة
       if (jError && process.env.NODE_ENV === 'development') console.error("Journal Fetch Error:", jError);
@@ -1842,7 +1887,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         setAccounts(accountsWithBalances);
         secureStorage.setItem('cached_accounts', accs); // تحديث الكاش
-      } else if (shouldFetchProtected && !accError && (!accs || accs.length === 0)) {
+      } else if (shouldFetchProtected && !accError && accs.length === 0 && !isDemo) {
         if (process.env.NODE_ENV === 'development') console.error("Chart of Accounts is empty. Please run the setup SQL script on your database.");
       }
 
@@ -2019,6 +2064,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // Restaurant Data
       if (restaurantTablesData) setRestaurantTables(restaurantTablesData);
       if (menuCategoriesData) setMenuCategories(menuCategoriesData);
+      if (itemCategoriesData) setCategories(itemCategoriesData);
 
       setLastUpdated(new Date());
     } catch (error) {
@@ -2026,7 +2072,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [currentUser]);
 
   // دالة لإضافة فاتورة وهمية للحالة المحلية (لتحسين تجربة الديمو)
   const addDemoInvoice = (invoice: any) => {
@@ -2352,7 +2398,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   useEffect(() => {
-    fetchData();
+    // إزالة fetchData() من هنا لأن handleAuthChange سيقوم باستدعائها 
+    // فور التأكد من حالة المستخدم، وهذا يمنع التكرار والاهتزاز.
+    
+    // التأكد من حالة الجلسة عند بدء التشغيل
+    supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) handleAuthChange(session.user);
+        else setIsLoading(false);
+    });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       handleAuthChange(session?.user || null);
@@ -2408,6 +2461,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const checkEssentialAccounts = useCallback(async () => {
+    // لا نقوم بالفحص في وضع الديمو أو إذا لم يتم تسجيل الدخول
+    if (isDemoState || !currentUser) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('repair_missing_accounts');
+      if (error) throw error;
+      
+      // إذا أضافت الدالة حسابات جديدة (تحتوي الرسالة على كلمة "إضافة")، نقوم بتحديث البيانات في الواجهة
+      if (data && (data.includes('إضافة') || data.includes('حساب'))) {
+        await fetchData();
+      }
+    } catch (err) {
+      if (process.env.NODE_ENV === 'development') console.error("Repair Accounts Error:", err);
+    }
+  }, [currentUser, isDemoState, fetchData]);
+
   const handleAuthChange = useCallback(async (user: any) => {
     if (user) {
         try {
@@ -2441,12 +2511,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 // إصلاح: التحقق من وجود role_id قبل الاستعلام لتجنب خطأ 400
                 if (profile && profile.role_id) {
                     const { data: rolePerms } = await supabase.from('role_permissions').select('permissions(module, action)').eq('role_id', profile.role_id);
-                    setUserPermissions(new Set(rolePerms?.map((p: any) => p.permissions && `${p.permissions.module}.${p.permissions.action}`) || []));
+                    
+                    const perms = new Set(rolePerms?.map((p: any) => p.permissions && `${p.permissions.module}.${p.permissions.action}`) || []);
+                    
+                    // صمام أمان للأدمن: إذا كانت القائمة فارغة وهو أدمن، نعطيه صلاحيات أساسية
+                    if (perms.size === 0 && (roleName === 'admin' || roleName === 'manager')) {
+                        ['products', 'sales', 'accounting', 'purchases', 'inventory'].forEach(m => 
+                            ['view', 'create', 'update', 'delete', 'approve', 'post'].forEach(a => perms.add(`${m}.${a}`))
+                        );
+                    }
+                    setUserPermissions(perms);
                 } else {
                     setUserPermissions(new Set()); // مستخدم بدون دور محدد
                 }
             }
-            fetchData(); 
+            await fetchData(profile?.organization_id);
+            await checkEssentialAccounts(); // 🛠️ تشغيل الفحص التلقائي للحسابات فور الدخول
         } catch (error) {
             if (process.env.NODE_ENV === 'development') console.error("Error handling auth change:", error);
             setCurrentUser(null);
@@ -2457,7 +2537,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setUserPermissions(new Set());
     }
     setAuthInitialized(true);
-  }, []);
+  }, [fetchData, checkEssentialAccounts]);
+
   
   useEffect(() => {
     if (currentUser) {
@@ -2468,6 +2549,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const salespeople = useMemo(() => users.filter(u => u.role === 'sales' || u.role === 'admin').map(u => ({ id: u.id, name: u.name })), [users]);
 
   const logActivity = async (action: string, details: string, amount?: number, metadata?: any) => {
+    // 🛡️ صمام أمان: تخطي الحفظ في قاعدة البيانات إذا كنا في وضع الديمو أو إذا لم يتم تحديد المنظمة
+    if (isDemoState || currentUser?.role === 'demo' || !currentUser?.organization_id) {
+        return;
+    }
+
     const newLog: ActivityLogEntry = {
       id: generateUUID(),
       date: new Date().toISOString(),
@@ -2483,14 +2569,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // السماح بتسجيل عمليات المدير العام الافتراضي (ID الأصفار)
         const isHardcodedAdmin = currentUser?.id === ADMIN_USER_ID;
         
-        if (currentUser) {
-            await supabase.from('security_logs').insert({
+        if (currentUser && (currentUser as any)?.organization_id) {
+            const logPayload: any = {
                 event_type: action,
                 description: details,
-                performed_by: isHardcodedAdmin ? null : currentUser.id,
                 created_at: new Date().toISOString(),
-                metadata: amount ? { ...metadata, amount } : metadata
-            });
+                metadata: amount ? { ...metadata, amount } : metadata,
+                organization_id: (currentUser as any).organization_id
+            };
+
+            // إرسال معرف المستخدم فقط إذا كان UUID صالحاً وليس للمدير العام الافتراضي
+            // لمنع خطأ 400 في حال كان الجدول يرفض القيم الفارغة للـ UUID أو الـ Null
+            if (!isHardcodedAdmin && currentUser.id && currentUser.id !== '00000000-0000-0000-0000-000000000000') {
+                logPayload.performed_by = currentUser.id;
+            }
+
+            await supabase.from('security_logs').insert(logPayload);
         }
     } catch (error) {
         if (process.env.NODE_ENV === 'development') console.warn("Failed to persist activity log to DB", error);
@@ -2517,13 +2611,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     try {
       const oldData = products.find(p => p.id === id);
+      if (!oldData) throw new Error("الصنف غير موجود");
       
       // ضمان التوافق: نسخ product_type إلى item_type إذا تم تحديثه
+      // ضمان التوافق: الحفاظ على نوع المنتج وعدم تغييره تلقائياً
       const dbUpdates: any = { ...updates };
       if (dbUpdates.product_type) {
           dbUpdates.item_type = dbUpdates.product_type;
       }
 
+      
+      // إذا لم يتم إرسال نوع جديد، نحافظ على النوع القديم (مهم جداً للـ POS)
+      dbUpdates.product_type = updates.product_type || (oldData as any).product_type || 'STOCK';
+      dbUpdates.item_type = dbUpdates.product_type;
+      
       const { error } = await supabase.from('products').update(dbUpdates).eq('id', id);
       if (error) throw error;
       
@@ -2620,8 +2721,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw new Error(`لا يمكن إضافة قيد بتاريخ ${entryData.date} لأن الفترة المالية مغلقة.`);
       }
 
-      const { data: org } = await supabase.from('organizations').select('id').limit(1).single();
-      const organization_id = org?.id;
+      const organization_id = currentUser?.organization_id;
 
       // تنظيف البيانات من النصوص غير المرغوبة (null/undefined) قبل الحفظ
       const cleanStr = (s: any) => String(s || '').replace(/null|undefined/gi, '').trim();
@@ -2804,9 +2904,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       if (error) throw error;
       
-      // إعادة احتساب المخزون لضمان ظهور الكميات المشتراة فوراً
-      await supabase.rpc('recalculate_stock_rpc');
-      
       await fetchData(); // تحديث الأرصدة
       showToast('تم ترحيل فاتورة المشتريات وتسجيل الضريبة بنجاح ✅', 'success');
     } catch (err: any) {
@@ -2822,7 +2919,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const customerAccId = getSystemAccount('CUSTOMERS')?.id;
     const otherRevAccId = getSystemAccount('OTHER_REVENUE')?.id;
     const cashAccId = getSystemAccount('CASH')?.id;
-
     const creditAccount = data.targetAccountId || (data.subType === 'customer' ? customerAccId : otherRevAccId);
     const debitAccount = data.treasuryAccountId || cashAccId;
 
@@ -2831,36 +2927,31 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
 
-    const entryId = await addEntry({
-        date: data.date, reference: vNum, description: data.description,
-        lines: [
-            { accountId: debitAccount, debit: Number(data.amount), credit: 0 },
-            { accountId: creditAccount, debit: 0, credit: Number(data.amount) }
-        ],
-        attachments: data.attachments
+    // 1. حفظ السند أولاً
+    const { data: voucher, error: vError } = await supabase.from('receipt_vouchers').insert({
+      id: id,
+      voucher_number: vNum,
+      receipt_date: data.date,
+      amount: data.amount,
+      customer_id: data.partyId,
+      treasury_account_id: debitAccount,
+      notes: data.description,
+      payment_method: data.paymentMethod || 'cash',
+      organization_id: currentUser?.organization_id
+    }).select().single();
+
+    if (vError) throw vError;
+
+    // 2. اعتماد السند عبر RPC لإنشاء القيد المحاسبي بشكل ذري
+    const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', {
+      p_voucher_id: voucher.id,
+      p_credit_account_id: creditAccount
     });
-    if (entryId) {
-      // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
-      const orgId = (currentUser as any)?.organization_id || 
-                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
-      // حفظ السند في قاعدة البيانات
-      await supabase.from('receipt_vouchers').insert({
-        id: id,
-        voucher_number: vNum,
-        receipt_date: data.date,
-        amount: data.amount,
-        customer_id: data.partyId,
-        treasury_account_id: debitAccount,
-        notes: data.description,
-        related_journal_entry_id: entryId,
-        payment_method: data.paymentMethod || 'cash',
-        organization_id: orgId
-      });
+    if (rpcError) throw rpcError;
 
-      setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt' }, ...prev]);
-      logActivity('سند قبض', `قبض مبلغ ${data.amount} من ${data.partyName}`, data.amount);
-    }
+    await fetchData();
+    logActivity('سند قبض', `قبض مبلغ ${data.amount} من ${data.partyName}`, data.amount);
   };
 
   const addCustomerDeposit = async (data: any) => {
@@ -2880,37 +2971,32 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
 
-    const entryId = await addEntry({
-        date: data.date, reference: vNum, description: data.description,
-        lines: [
-            { accountId: debitAccount, debit: Number(data.amount), credit: 0, description: `قبض تأمين من ${data.partyName}` },
-            { accountId: creditAccount, debit: 0, credit: Number(data.amount), description: `تأمين مستلم - ${data.partyName}` }
-        ],
-        attachments: data.attachments
+    // 1. حفظ سند التأمين
+    const { data: voucher, error: vError } = await supabase.from('receipt_vouchers').insert({
+      id: id,
+      voucher_number: vNum,
+      receipt_date: data.date,
+      amount: data.amount,
+      customer_id: data.partyId,
+      treasury_account_id: debitAccount,
+      notes: data.description,
+      payment_method: 'cash',
+      type: 'deposit',
+      organization_id: currentUser?.organization_id
+    }).select().single();
+
+    if (vError) throw vError;
+
+    // 2. اعتماد السند
+    const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', {
+      p_voucher_id: voucher.id,
+      p_credit_account_id: creditAccount
     });
-    if (entryId) {
-      // جلب معرف المنظمة مع صمام أمان
-      const orgId = (currentUser as any)?.organization_id || 
-                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
-      // حفظ السند في قاعدة البيانات
-      await supabase.from('receipt_vouchers').insert({
-        id: id,
-        voucher_number: vNum,
-        receipt_date: data.date,
-        amount: data.amount,
-        customer_id: data.partyId,
-        treasury_account_id: debitAccount,
-        notes: data.description,
-        related_journal_entry_id: entryId,
-        payment_method: 'cash',
-        type: 'deposit',
-        organization_id: orgId
-      });
+    if (rpcError) throw rpcError;
 
-      setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'receipt', subType: 'customer_deposit' }, ...prev]);
-      logActivity('سند تأمين', `قبض تأمين مبلغ ${data.amount} من ${data.partyName}`, data.amount);
-    }
+    await fetchData();
+    logActivity('سند تأمين', `قبض تأمين مبلغ ${data.amount} من ${data.partyName}`, data.amount);
   };
 
   const updateVoucher = async (id: string, type: 'receipt' | 'payment', data: any) => {
@@ -2962,36 +3048,31 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
 
-    const entryId = await addEntry({
-        date: data.date, reference: vNum, description: data.description,
-        lines: [
-            { accountId: debitAccount, debit: Number(data.amount), credit: 0, costCenterId: data.costCenterId },
-            { accountId: creditAccount, debit: 0, credit: Number(data.amount) }
-        ],
-        attachments: data.attachments
+    // 1. حفظ سند الصرف (يستخدم للموردين والمصروفات)
+    const { data: voucher, error: vError } = await supabase.from('payment_vouchers').insert({
+      id: id,
+      voucher_number: vNum,
+      payment_date: data.date,
+      amount: data.amount,
+      supplier_id: data.subType === 'supplier' ? data.partyId : null,
+      treasury_account_id: creditAccount,
+      notes: data.description,
+      payment_method: data.paymentMethod || 'cash',
+      organization_id: currentUser?.organization_id
+    }).select().single();
+
+    if (vError) throw vError;
+
+    // 2. ترحيل السند عبر RPC
+    const { error: rpcError } = await supabase.rpc('approve_payment_voucher', {
+      p_voucher_id: voucher.id,
+      p_debit_account_id: debitAccount
     });
-    if (entryId) {
-      // جلب معرف المنظمة مع صمام أمان
-      const orgId = (currentUser as any)?.organization_id || 
-                   (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
-      // حفظ السند في قاعدة البيانات
-      await supabase.from('payment_vouchers').insert({
-        id: id,
-        voucher_number: vNum,
-        payment_date: data.date,
-        amount: data.amount,
-        supplier_id: data.subType === 'supplier' ? data.partyId : null,
-        treasury_account_id: creditAccount,
-        notes: data.description,
-        related_journal_entry_id: entryId,
-        payment_method: data.paymentMethod || 'cash',
-        organization_id: orgId
-      });
+    if (rpcError) throw rpcError;
 
-      setVouchers(prev => [{ ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId, type: 'payment' }, ...prev]);
-      logActivity('سند صرف', `صرف مبلغ ${data.amount} إلى ${data.partyName}`, data.amount);
-    }
+    await fetchData();
+    logActivity('سند صرف', `صرف مبلغ ${data.amount} إلى ${data.partyName}`, data.amount);
   };
 
   const addTransfer = async (data: any) => {
@@ -3038,47 +3119,37 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
         const transferNumber = `TRN-${Date.now().toString().slice(-6)}`;
-        const { data: header, error: headerError } = await supabase.from('stock_transfers').insert({
-            from_warehouse_id: data.fromWarehouseId,
-            to_warehouse_id: data.toWarehouseId,
-            transfer_date: data.date,
-            transfer_number: transferNumber,
-            notes: data.notes,
-            status: 'posted',
-            created_by: currentUser?.id
-        }).select().single();
+      // 1. حفظ رأس المستند كمسودة
+      const { data: header, error: headerError } = await supabase.from('stock_transfers').insert({
+        from_warehouse_id: data.fromWarehouseId,
+        to_warehouse_id: data.toWarehouseId,
+        transfer_date: data.date,
+        transfer_number: transferNumber,
+        notes: data.notes,
+        status: 'draft',
+        created_by: currentUser?.id,
+        organization_id: currentUser?.organization_id
+      }).select().single();
 
-        if (headerError) throw headerError;
+      if (headerError) throw headerError;
 
-        const items = data.items.map((item: any) => ({
-            stock_transfer_id: header.id,
-            product_id: item.productId,
-            quantity: item.quantity
-        }));
+      // 2. حفظ بنود التحويل
+      const items = data.items.map((item: any) => ({
+        stock_transfer_id: header.id,
+        product_id: item.productId,
+        quantity: item.quantity,
+        organization_id: currentUser?.organization_id
+      }));
 
-        const { error: itemsError } = await supabase.from('stock_transfer_items').insert(items);
-        if (itemsError) throw itemsError;
+      const { error: itemsError } = await supabase.from('stock_transfer_items').insert(items);
+      if (itemsError) throw itemsError;
 
-        // تحديث الأرصدة يدوياً لضمان الفورية والدقة
-        for (const item of items) {
-            const { data: product } = await supabase.from('products').select('warehouse_stock').eq('id', item.product_id).single();
-            if (product) {
-                const currentWarehouseStock = product.warehouse_stock || {};
-                const fromQty = Number(currentWarehouseStock[data.fromWarehouseId] || 0);
-                const toQty = Number(currentWarehouseStock[data.toWarehouseId] || 0);
-                
-                const newWarehouseStock = {
-                    ...currentWarehouseStock,
-                    [data.fromWarehouseId]: fromQty - Number(item.quantity),
-                    [data.toWarehouseId]: toQty + Number(item.quantity)
-                };
+      // 3. ترحيل التحويل المخزني عبر RPC لضمان تحديث الأرصدة في عملية واحدة
+      const { error: rpcError } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: header.id });
+      if (rpcError) throw rpcError;
 
-                await supabase.from('products').update({ warehouse_stock: newWarehouseStock }).eq('id', item.product_id);
-            }
-        }
-
-        await fetchData(); // تحديث الواجهة بالبيانات الجديدة
-        showToast('تم التحويل المخزني بنجاح', 'success');
+      await fetchData();
+      showToast('تم التحويل المخزني بنجاح ✅', 'success');
     } catch (error: any) {
         console.error(error);
         showToast('فشل التحويل: ' + error.message, 'error');
@@ -3101,6 +3172,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (qError) throw qError;
       if (quote.status === 'converted') throw new Error('تم تحويل عرض السعر هذا مسبقاً');
 
+      const userOrgId = (currentUser as any)?.organization_id;
+
       // محاولة تحديد خزينة افتراضية إذا لم يتم تحديدها وكان هناك مبلغ مدفوع
       // هذا يحل مشكلة عدم وجود قائمة اختيار في الواجهة حالياً
       let finalTreasuryId = treasuryId;
@@ -3122,11 +3195,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         status: 'draft',
         warehouse_id: warehouseId,
         paid_amount: paidAmount || 0,
-        treasury_account_id: finalTreasuryId || null
+        treasury_account_id: finalTreasuryId || null,
+        organization_id: userOrgId
       };
 
       // 3. إنشاء الفاتورة
-      const { data: invoice, error: iError } = await supabase.from('invoices').insert(invoiceData).select().single();
+      const { data: invoice, error: iError } = await supabase.from('invoices').insert({ ...invoiceData, organization_id: userOrgId }).select().single();
       if (iError) throw iError;
 
       // 4. نقل البنود
@@ -3135,9 +3209,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           invoice_id: invoice.id,
           product_id: item.product_id,
           quantity: item.quantity,
-          price: item.unit_price,
+          unit_price: item.unit_price,
           total: item.total,
-          cost: 0 // سيتم تحديثه عند الاعتماد
+          cost: 0, // سيتم تحديثه عند الاعتماد
+          organization_id: userOrgId || (currentUser as any)?.organization_id
         }));
         
         const { error: itemsError } = await supabase.from('invoice_items').insert(items);
@@ -3172,6 +3247,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (poError) throw poError;
       if (po.status === 'converted') throw new Error('تم تحويل أمر الشراء هذا مسبقاً');
 
+      const userOrgId = (currentUser as any)?.organization_id;
+
       // 2. تجهيز بيانات فاتورة المشتريات
       const invoiceData = {
         invoice_number: `PINV-${Date.now().toString().slice(-6)}`,
@@ -3182,7 +3259,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         tax_amount: po.tax_amount,
         subtotal: po.total_amount - (po.tax_amount || 0),
         notes: `تحويل من أمر شراء #${po.po_number}`,
-        status: 'draft'
+        status: 'draft',
+        organization_id: userOrgId
       };
 
       // 3. إنشاء الفاتورة
@@ -3195,8 +3273,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           purchase_invoice_id: invoice.id,
           product_id: item.product_id,
           quantity: item.quantity,
-          price: item.unit_price || item.price || 0,
-          total: item.total
+          unit_price: item.unit_price || item.price || 0,
+          total: item.total,
+          organization_id: userOrgId
         }));
         
         const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(items);
@@ -3280,7 +3359,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       // استدعاء دالة قاعدة البيانات (RPC) بدلاً من الحساب في المتصفح
       // هذا أسرع بكثير ويمنع تجميد المتصفح عند وجود بيانات كثيرة
-      const { error } = await supabase.rpc('recalculate_stock_rpc');
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      
+      const { error } = await supabase.rpc('recalculate_stock_rpc', { p_org_id: orgId });
       
       if (error) throw error;
 
@@ -3289,6 +3371,52 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (err: any) {
       console.error("Recalculate Stock Error:", err);
       showToast("حدث خطأ أثناء تحديث الأرصدة: " + err.message, 'error');
+    }
+  };
+
+  const recalculateAllBalances = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      if (!orgId) throw new Error("معرف المنظمة غير موجود.");
+
+      const { error } = await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      if (error) throw error;
+      showToast('تمت إعادة مطابقة جميع الأرصدة بنجاح ✅', 'success');
+      await fetchData();
+    } catch (err: any) {
+      console.error("Error recalculating all balances:", err);
+      showToast("فشل إعادة مطابقة الأرصدة: " + err.message, 'error');
+    }
+  };
+
+  const purgeDeletedRecords = async () => {
+    if (!window.confirm('تحذير: هذا الإجراء سيقوم بحذف جميع السجلات التي تم وضع علامة "محذوف" عليها نهائياً من قاعدة البيانات. لا يمكن التراجع عن هذا الإجراء.')) {
+      return;
+    }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      if (!orgId) throw new Error("معرف المنظمة غير موجود.");
+
+      const { error } = await supabase.rpc('purge_deleted_records', { p_org_id: orgId });
+      if (error) throw error;
+      showToast('تم تنظيف البيانات المحذوفة نهائياً بنجاح ✅', 'success');
+      await fetchData();
+    } catch (err: any) {
+      console.error("Error purging deleted records:", err);
+      showToast("فشل تنظيف البيانات: " + err.message, 'error');
+    }
+  };
+
+  const refreshSaasSchema = async () => {
+    try {
+      const { error } = await supabase.rpc('refresh_saas_schema');
+      if (error) throw error;
+      showToast('تم تحديث كاش النظام بنجاح ✅', 'success');
+    } catch (err: any) {
+      console.error("Error refreshing SaaS schema:", err);
+      showToast("فشل تحديث كاش النظام: " + err.message, 'error');
     }
   };
 
@@ -3496,19 +3624,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addAsset = async (data: any) => {
     try {
+      // 🛡️ صمام أمان: التأكد من وجود هوية الشركة قبل الإرسال لمنع فشل الاتصال
+      const orgId = (currentUser as any)?.organization_id;
+      if (!orgId) {
+        showToast('خطأ أمني: لم يتم تحديد هوية الشركة. يرجى إعادة تسجيل الدخول.', 'error');
+        return;
+      }
+
       // 1. حفظ الأصل في جدول 'assets'
       const { data: newAsset, error: assetError } = await supabase
         .from('assets')
         .insert({
           name: data.name,
           purchase_date: data.purchaseDate,
-          purchase_cost: data.purchaseCost,
-          salvage_value: data.salvageValue,
-          useful_life: data.usefulLife,
+          purchase_cost: Number(data.purchaseCost) || 0,
+          salvage_value: Number(data.salvageValue) || 0,
+          useful_life: Number(data.usefulLife) || 0,
           asset_account_id: data.assetAccountId,
           accumulated_depreciation_account_id: data.accumulatedDepreciationAccountId || null,
           depreciation_expense_account_id: data.depreciationExpenseAccountId || null,
-          organization_id: (currentUser as any)?.organization_id // استخدام معرف المنظمة من المستخدم الحالي مباشرة
+          organization_id: orgId
         })
         .select()
         .single();
@@ -3546,9 +3681,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // 3. تحديث قائمة الأصول في الواجهة
       await fetchData();
-    } catch (error: any) {
-      console.error('Error adding asset:', error);
-      showToast('فشل إضافة الأصل: ' + error.message, 'error');
+    } catch (err: any) {
+      console.error('Critical Asset Error:', err);
+      // 🚨 رسالة ذكية في حال كان مانع الإعلانات هو السبب
+      if (err.message?.includes('fetch') || !err.status) {
+        showToast('فشل الاتصال بالسيرفر. يرجى التأكد من إيقاف مانع الإعلانات (AdBlock) وتحديث الصفحة.', 'error');
+      } else {
+        showToast('فشل إضافة الأصل: ' + err.message, 'error');
+      }
     }
   };
   
@@ -3567,8 +3707,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw new Error(`حسابات الإهلاك غير محددة أو غير موجودة (تأكد من وجود ${SYSTEM_ACCOUNTS.DEPRECIATION_EXPENSE} و ${SYSTEM_ACCOUNTS.ACCUMULATED_DEPRECIATION})`);
       }
 
-      // جلب معرف المنظمة لضمان ربط القيد بشكل صحيح
-      const { data: org } = await supabase.from('organizations').select('id').limit(1).single();
+      // 🛡️ استخدام معرف المنظمة من بيانات المستخدم الحالي لضمان مطابقة سياسة RLS
+      const orgId = (currentUser as any)?.organization_id || (await supabase.auth.getUser()).data.user?.user_metadata?.org_id;
 
       // استخدام الإدراج المباشر لضمان ربط القيد بالأصل عبر related_document_id
       const { data: entry, error: entryError } = await supabase.from('journal_entries').insert({
@@ -3579,14 +3719,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           is_posted: true,
           related_document_id: asset.id,
           related_document_type: 'asset_depreciation',
-          organization_id: org?.id
+          organization_id: orgId
       }).select().single();
       
       if (entryError) throw entryError;
       
       const lines = [
-          { journal_entry_id: entry.id, account_id: depExpAcc.id, debit: amount, credit: 0, description: `مصروف إهلاك - ${asset.name}`, organization_id: org?.id },
-          { journal_entry_id: entry.id, account_id: accDepAcc.id, debit: 0, credit: amount, description: `مجمع إهلاك - ${asset.name}`, organization_id: org?.id }
+          { journal_entry_id: entry.id, account_id: depExpAcc.id, debit: amount, credit: 0, description: `مصروف إهلاك - ${asset.name}`, organization_id: orgId },
+          { journal_entry_id: entry.id, account_id: accDepAcc.id, debit: 0, credit: amount, description: `مجمع إهلاك - ${asset.name}`, organization_id: orgId }
       ];
       
       const { error: linesError } = await supabase.from('journal_lines').insert(lines);
@@ -3665,7 +3805,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             p_month: payrollMonth,
             p_year: payrollYear,
             p_date: date,
-            p_treasury_account_id: treasuryAccountId,
+            p_treasury_acc: treasuryAccountId,
             p_items: items
         });
 
@@ -3726,8 +3866,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       pnlAccounts.forEach(acc => {
         const balance = accountBalances[acc.id] || 0;
 
-        // تخطي الحسابات الصفرية
-        if (Math.abs(balance) < 0.01) return;
+        // تخطي الحسابات الصفرية (نستخدم عتبة دقيقة جداً لضمان تصفير كافة الخانات العشرية الأربع)
+        if (Math.abs(balance) < 0.0001) return;
 
         // للإقفال: نعكس طبيعة الرصيد
         if (balance > 0) {
@@ -3752,7 +3892,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       
       if (!retainedEarningsId) throw new Error("حساب الأرباح المبقاة (3103) غير موجود.");
 
-      if (Math.abs(netResult) > 0.01) {
+      if (Math.abs(netResult) > 0.0001) {
           if (netResult > 0) {
               // الفرق موجب (مدين > دائن) يعني الإيرادات (التي أصبحت مدينة) أكبر -> ربح -> دائن في حقوق الملكية
               closingLines.push({ accountId: retainedEarningsId, debit: 0, credit: netResult, description: `ترحيل صافي ربح عام ${year}` });
@@ -3841,7 +3981,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
 
-  const getFinancialSummary = () => {
+  const financialSummaryResult = useMemo(() => {
     let s = { 
       totalAssets: 0, totalLiabilities: 0, totalEquity: 0, totalRevenue: 0, totalExpenses: 0, netIncome: 0,
       monthlySales: 0, monthlyPurchases: 0, grossProfit: 0 
@@ -3869,7 +4009,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     s.netIncome = s.totalRevenue - s.totalExpenses;
     s.totalEquity += s.netIncome;
     return s;
-  };
+  }, [accounts, invoices, purchaseInvoices, settings.vatRate]);
+
+  const getFinancialSummary = useCallback(() => financialSummaryResult, [financialSummaryResult]);
 
   const addWarehouse = async (warehouseData: Omit<Warehouse, 'id'>) => {
     try {
@@ -3966,7 +4108,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return newCustomer;
     }
     try {
-      const { data, error } = await supabase.from('customers').insert([customerData]).select().single();
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const { data, error } = await supabase.from('customers').insert([{
+        ...customerData,
+        organization_id: orgId
+      }]).select().single();
       if (error) throw error;
       setCustomers(prev => [data, ...prev]);
       return data;
@@ -4053,7 +4199,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- Employee Actions ---
   const addEmployee = async (employeeData: any) => {
     try {
-      const { data, error } = await supabase.from('employees').insert([employeeData]).select().single();
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const { data, error } = await supabase.from('employees').insert([{
+        ...employeeData,
+        organization_id: orgId
+      }]).select().single();
       if (error) throw error;
       setEmployees(prev => [data, ...prev]);
       return data;
@@ -4092,7 +4242,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- Supplier Actions ---
   const addSupplier = async (supplierData: Omit<Supplier, 'id'>) => {
     try {
-      const { data, error } = await supabase.from('suppliers').insert([supplierData]).select().single();
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const { data, error } = await supabase.from('suppliers').insert([{
+        ...supplierData,
+        organization_id: orgId
+      }]).select().single();
       if (error) throw error;
       setSuppliers(prev => [data, ...prev]);
       return data;
@@ -4246,7 +4400,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               });
 
               // إضافة الطرف الدائن للتكاليف الإضافية (محملة على المصروفات الصناعية أو الرواتب)
-              if (additionalCost > 0) {
+              if (additionalCost > 0) { // Check if additionalCost is positive
                   const overheadAcc = accounts.find(a => a.name.includes('تشغيل') || a.name.includes('صناعي')) || getSystemAccount('COGS'); // استخدام حساب تكلفة كبديل
                   if (overheadAcc) lines.push({ accountId: overheadAcc.id, debit: 0, credit: additionalCost, description: `تحميل تكاليف صناعية - ${finishedProduct.name}` });
               }
@@ -4255,7 +4409,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   date: date,
                   reference: customReference || `MFG-${Date.now().toString().slice(-6)}`,
                   description: `عملية تصنيع: ${finishedProduct.name} (الكمية: ${quantity})`,
-                  status: 'posted',
+                  status: 'posted', // Ensure status is explicitly set
                   lines: lines
               });
           }
@@ -4272,7 +4426,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const can = (module: string, action: string): boolean => {
     if (userRole === 'super_admin') return true;
     return userPermissions.has(`${module}.${action}`);
-  };
+  }; // Closing brace for can function
 
   const calculateProductPrice = (product: Product): number => {
       const today = new Date().toISOString().split('T')[0];
@@ -4333,7 +4487,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             'credit_notes', 'debit_notes', 'stock_transfers', 'stock_adjustments', 
             'inventory_counts', 'cheques', 'assets', 'opening_inventories', 'work_orders'
         ];
-        for (const table of documentTables) {
+        for (const table of documentTables) { // Loop through document tables
             const { error } = await supabase.from(table).delete().neq('id', ADMIN_USER_ID);
             if (error) throw new Error(`فشل حذف المستندات من جدول ${table}: ${error.message}`);
         }
@@ -4375,6 +4529,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addOpeningBalanceTransaction = async (entityId: string, entityType: 'customer' | 'supplier', amount: number, date: string, name: string) => {
       if (amount <= 0) return;
       
+      // 🛡️ صمام أمان: التحقق من صحة الـ UUID قبل الإرسال لمنع خطأ 400 (Bad Request)
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+      if (!uuidRegex.test(entityId)) { // Validate entityId format
+        showToast(`خطأ في البيانات: معرف ${entityType === 'customer' ? 'العميل' : 'المورد'} غير صحيح.`, 'error');
+        return;
+      }
+
       const ref = `OB-${entityId.slice(0, 6)}`;
       // 3999: أرصدة افتتاحية (وسيط) Or 301: رأس المال/حقوق الملكية
       const openingEquityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية')) || accounts.find(a => a.code === '301');
@@ -4390,7 +4551,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               await addEntry({
                   date: date,
                   description: `رصيد افتتاحي للعميل ${name}`,
-                  reference: ref,
+                  reference: ref, // Use the generated reference
                   status: 'posted',
                   lines: [
                       { accountId: customerAcc.id, debit: amount, credit: 0, description: `رصيد افتتاحي - ${name}` },
@@ -4414,7 +4575,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               await addEntry({
                   date: date,
                   description: `رصيد افتتاحي للمورد ${name}`,
-                  reference: ref,
+                  reference: ref, // Use the generated reference
                   status: 'posted',
                   lines: [
                       { accountId: openingEquityAcc.id, debit: amount, credit: 0, description: `رصيد افتتاحي - ${name}` },
@@ -4443,56 +4604,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const acc = accounts.find(a => a.code === code);
           if (acc) {
               found.push(`${key}: ${code} - ${acc.name}`);
-          } else {
+          } else { // If account not found
               missing.push(`${key}: ${code}`);
           }
       });
 
-      return { missing, found };
+      return { missing, found }; // Return both missing and found accounts
   };
 
   const createMissingSystemAccounts = async () => {
-      const created: string[] = [];
+    try {
+      // التأكد من جلب المعرف من currentUser أو الجلسة مباشرة لضمان الأمان في SaaS
+      const { data: { session } } = await supabase.auth.getSession();
+      const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
       
-      // خريطة لتتبع الأكواد الموجودة (سواء كانت في قاعدة البيانات أو تم إنشاؤها للتو)
-      const codeToId = new Map<string, string>();
-      accounts.forEach(a => codeToId.set(a.code, a.id));
+      if (!orgId) throw new Error("معرف المنظمة غير موجود.");
 
-      // نمر على جميع الحسابات المعرفة في الثوابت (INITIAL_ACCOUNTS)
-      // هذا يضمن إضافة أي حساب جديد تم تعريفه في الكود ولم يتم إضافته لقاعدة البيانات
-      for (const accDef of INITIAL_ACCOUNTS) {
-          if (codeToId.has(accDef.code)) continue; // الحساب موجود بالفعل
+      const { data, error } = await supabase.rpc('repair_missing_accounts');
+      if (error) throw error;
 
-          // محاولة العثور على معرف الحساب الأب
-          let parentId = null;
-          if (accDef.parent_account) {
-              parentId = codeToId.get(accDef.parent_account) || null;
-          }
-
-          try {
-              const newId = generateUUID();
-              await supabase.from('accounts').insert({
-                  id: newId,
-                  code: accDef.code,
-                  name: accDef.name,
-                  type: accDef.type,
-                  is_group: accDef.is_group,
-                  parent_id: parentId,
-                  is_active: true
-              });
-              
-              codeToId.set(accDef.code, newId); // تحديث الخريطة للحسابات اللاحقة
-              created.push(`${accDef.code} - ${accDef.name}`);
-          } catch (e) {
-              console.error(`Failed to create ${accDef.code}`, e);
-          }
-      }
-
-      await fetchData();
-      if (created.length > 0) {
-          return { success: true, message: `تم إنشاء ${created.length} حساب جديد بنجاح.`, created };
-      } else {
-          return { success: true, message: 'جميع الحسابات متطابقة مع الدليل الافتراضي.', created: [] };
+      await fetchData(); 
+      return { success: true, message: data || 'تم فحص وإصلاح دليل الحسابات بنجاح.', created: [] };
+    } catch (err: any) {
+      console.error("Error repairing missing accounts:", err);
+      throw new Error("فشل إصلاح دليل الحسابات: " + err.message);
       }
   };
 
@@ -4511,7 +4646,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) {
         // إذا الدالة غير موجودة، نتابع بشكل محلي
         if (error.code === 'PGRST202' || (error.details && error.details.includes('open_table_session'))) {
-          const fallbackSessionId = `session-${Date.now()}`;
+              const fallbackSessionId = `session-${Date.now()}`; // Generate a fallback session ID
           setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
           showToast('تم فتح الجلسة محليًا (fallback) بنجاح', 'success');
           return fallbackSessionId;
@@ -4523,7 +4658,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('تم فتح الجلسة بنجاح', 'success');
       return data;
     } catch (error: any) {
-      console.error("Error opening table session:", error);
+      console.error("Error opening table session:", error); // Log the error
       if (error.code === 'PGRST202' || (error.details && error.details.includes('open_table_session'))) {
         const fallbackSessionId = `session-${Date.now()}`;
         setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
@@ -4538,7 +4673,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const createRestaurantOrder = async (orderData: { sessionId: string | null; items: any[]; orderType: 'dine-in' | 'takeaway' | 'delivery'; customerId: string | null; }) => {
     if (isDemoState) {
         showToast('تم إرسال الطلب للمطبخ بنجاح (محاكاة)', 'success');
-        return `local-order-${Date.now()}`;
+        return `local-order-${Date.now()}`; // Return a local order ID for demo
     }
 
     if (!currentUser) {
@@ -4552,7 +4687,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
         const { data, error } = await supabase.rpc('create_restaurant_order', {
-            p_session_id: orderData.sessionId,
             p_user_id: currentUser.id,
             p_order_type: orderData.orderType.toUpperCase(),
             p_notes: '', // Can be added later
@@ -4563,7 +4697,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (error) throw error;
 
         showToast(`تم إرسال الطلب للمطبخ بنجاح`, 'success');
-        // The table status was already updated when the session was opened.
+        // The table status was already updated when the session was opened. // Comment for clarity
         // We just need to return the new order ID.
         return data;
 
@@ -4574,7 +4708,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           return null;
       }
       showToast(`فشل إنشاء الطلب: ${error.message || error}`, 'error');
-      return null;
+      return null; // Return null on error
     }
   };
 
@@ -4583,7 +4717,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('تم إضافة الصنف إلى الطلب', 'success');
     } catch (error: any) {
       console.error('Failed to add restaurant order item:', error);
-      showToast(`فشل إضافة الصنف: ${error.message || error}`, 'error');
+      showToast(`فشل إضافة الصنف: ${error.message || error}`, 'error'); // Show error message
     }
   };
 
@@ -4610,11 +4744,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (payErr) throw payErr;
 
         // 3. تم إلغاء الترحيل المحاسبي الفوري.
-        // سيتم إنشاء قيد مجمع عند إغلاق الوردية عبر دالة `generate_shift_closing_entry`.
-        // سيقوم الـ Trigger الموجود على جدول `orders` بمعالجة استهلاك المخزون تلقائياً.
-
-        // 4. تحديث حالة الطلب
-        await supabase.from('orders').update({ status: 'COMPLETED', updated_at: new Date().toISOString() }).eq('id', orderId);
+                // 4. تحديث حالة الطلب وربطه بالكاشير الحالي (ضروري لطلبات الـ QR)
+        await supabase.from('orders')
+            .update({ 
+                status: 'COMPLETED', 
+                user_id: currentUser?.id, // 👈 ضمان ربط الطلب بالكاشير الذي استلم المال
+                updated_at: new Date().toISOString() 
+            })
+            .eq('id', orderId);
 
         // 4. إغلاق جلسة الطاولة (باستخدام الدالة الموجودة في قاعدة البيانات)
         if (order?.session_id) {
@@ -4721,7 +4858,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (err: any) {
         console.error("Failed to update kitchen order status:", err);
         // Show toast only if it fails, as a fallback
-        showToast(`فشل تحديث حالة الطلب: ${err.message}`, 'error');
+        showToast(`فشل تحديث حالة الطلب: ${err.message}`, 'error'); // Show error message
     }
   };
 
@@ -4731,7 +4868,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const table = restaurantTables.find(t => t.id === tableId);
         if (table?.status === 'OCCUPIED') {
             return {
-                sessionId: `demo-session-${tableId}`,
+                sessionId: `demo-session-${tableId}`, // Demo session ID
                 orderId: `demo-order-${tableId}`,
                 items: [
                     { productId: 'demo-p1', name: 'لابتوب HP ProBook 450', quantity: 1, price: 25000, notes: '', savedQuantity: 1 },
@@ -4761,10 +4898,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 items.push({ 
                     id: item.id, // Order Item ID (Required for split payment)
                     productId: item.product_id, 
-                    name: item.products?.name, 
-                    quantity: item.quantity, 
-                    unitPrice: item.unit_price, 
-                    notes: item.notes, 
+                    name: item.products?.name || 'صنف غير معروف', 
+                    quantity: Number(item.quantity || 0), 
+                    price: Number(item.unit_price || 0), 
+                    unitPrice: Number(item.unit_price || 0), 
+                    notes: item.notes || '', 
                     selectedModifiers: item.modifiers,
                     savedQuantity: item.quantity 
                 });
@@ -4791,9 +4929,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return newTable;
     }
     try {
-        const { data, error } = await supabase
+        const { data, error } = await supabase // Insert new table
             .from('restaurant_tables')
             .insert({
+                organization_id: (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id,
                 name: tableData.name,
                 capacity: tableData.capacity,
                 section: tableData.section || null,
@@ -4820,7 +4959,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               p_items: items,
               p_payment_method: method,
               p_amount: amount,
-              p_treasury_account_id: treasuryId
+              p_treasury_acc: treasuryId
           });
           if (error) throw error;
           return true;
@@ -4837,7 +4976,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
     try {
-        const { error } = await supabase
+        const { error } = await supabase // Update table
             .from('restaurant_tables')
             .update({
                 name: updates.name,
@@ -4866,7 +5005,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
     try {
-        const { error } = await supabase.from('restaurant_tables').delete().eq('id', id);
+        const { error } = await supabase.from('restaurant_tables').delete().eq('id', id); // Delete table
         if (error) throw error;
         showToast('تم حذف الطاولة بنجاح', 'success');
         await fetchData();
@@ -4901,7 +5040,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addProduct = async (productData: Omit<Product, 'id'>): Promise<Product | void> => {
     if (isDemoState) {
         const newProduct = { ...productData, id: `demo-p-${Date.now()}`, warehouseStock: {} } as Product;
-        setProducts(prev => [newProduct, ...prev]);
+        setProducts(prev => [newProduct, ...prev]); // Add new product to state
         showToast('تمت إضافة الصنف بنجاح (محاكاة)', 'success');
         return newProduct;
     }
@@ -4938,7 +5077,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
 
         const { data, error } = await supabase.from('products').insert(payload).select().single();
-
+        // Handle duplicate SKU error
         if (error) {
             if (error.code === '23505' && error.message.includes('products_sku_key')) {
                 throw new Error(`رمز SKU "${payload.sku}" مستخدم بالفعل. الرجاء إدخال رمز فريد.`);
@@ -4967,6 +5106,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const { data, error } = await supabase.rpc('start_shift', {
               p_user_id: currentUser?.id,
               p_opening_balance: openingBalance,
+              p_treasury_acc: settings.defaultTreasuryId,
               p_resume_existing: true // تفعيل خيار الاستئناف لتجنب الخطأ 400
           });
 
@@ -4980,11 +5120,65 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   };
 
+  // 🖨️ دالة توليد وطباعة تقرير الوردية (Z-Report)
+  const printShiftReport = (summary: any, actualCash: number, notes: string = '') => {
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    if (!printWindow) {
+        showToast('يرجى السماح بالنوافذ المنبثقة (Pop-ups) لتتمكن من الطباعة التلقائية', 'warning');
+        return;
+    }
+
+    const diff = actualCash - summary.expected_cash;
+    const status = diff === 0 ? 'مطابق' : diff > 0 ? 'زيادة' : 'عجز';
+
+    printWindow.document.write(`
+      <html dir="rtl">
+      <head>
+        <title>تقرير إغلاق وردية - TriPro ERP</title>
+        <style>
+          body { font-family: 'Arial', sans-serif; padding: 10px; font-size: 14px; line-height: 1.4; color: #000; }
+          .header { text-align: center; margin-bottom: 15px; border-bottom: 2px solid #000; padding-bottom: 10px; }
+          .info-box { border: 1px solid #eee; padding: 8px; border-radius: 8px; margin-bottom: 15px; background: #fdffdf; }
+          .row { display: flex; justify-content: space-between; margin: 8px 0; border-bottom: 1px dashed #eee; }
+          .bold { font-weight: bold; font-size: 1.1em; } /* Style for bold text */
+          .footer { text-align: center; margin-top: 20px; font-size: 10px; border-top: 1px dashed #000; padding-top: 10px; }
+          .status-label { font-weight: 900; color: ${diff < 0 ? '#ef4444' : '#10b981'}; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h2 style="margin:0">${settings.companyName || 'TriPro ERP'}</h2> <!-- Company name -->
+          <p style="margin:5px 0; font-weight:bold;">تقرير إغلاق وردية (Z-Report)</p> <!-- Report title -->
+        </div>
+        <div class="info-box">
+          <div class="row"><span>الكاشير:</span> <span>${currentUser?.name}</span></div> <!-- Cashier name -->
+          <div class="row"><span>وقت البدء:</span> <span>${new Date(currentShift?.start_time).toLocaleString('ar-EG')}</span></div> <!-- Start time -->
+          <div class="row"><span>وقت الإغلاق:</span> <span>${new Date().toLocaleString('ar-EG')}</span></div> <!-- End time -->
+        </div>
+        <div class="row"><span>الرصيد الافتتاحي:</span> <span>${Number(summary.opening_balance).toLocaleString()}</span></div>
+        <div class="row"><span>إجمالي المبيعات:</span> <span>${Number(summary.total_sales).toLocaleString()}</span></div>
+        <div class="row"><span>مبيعات نقدي:</span> <span>${Number(summary.cash_sales).toLocaleString()}</span></div>
+        <div class="row"><span>مبيعات شبكة:</span> <span>${Number(summary.card_sales).toLocaleString()}</span></div>
+        <hr/>
+        <div class="row bold"><span>النقد المتوقع:</span> <span>${Number(summary.expected_cash).toLocaleString()}</span></div>
+        <div class="row bold"><span>النقد الفعلي:</span> <span>${Number(actualCash).toLocaleString()}</span></div>
+        <div class="row bold"><span>الفارق:</span> <span class="status-label">${Number(diff).toLocaleString()} (${status})</span></div>
+        ${notes ? `<div style="margin-top:10px; font-size:12px;"><strong>ملاحظات:</strong><p style="margin:5px 0;">${notes}</p></div>` : ''} <!-- Notes -->
+        <div class="footer">
+          <p>TriPro ERP - حلول محاسبية ذكية</p>
+        </div>
+        <script>window.onload = function() { window.print(); setTimeout(() => window.close(), 1000); }</script>
+      </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const getCurrentShiftSummary = async () => {
       if (isDemoState) {
           return { opening_balance: 1000, total_sales: 1500, cash_sales: 1000, card_sales: 500, wallet_sales: 0, expected_cash: 2000 };
       }
-      if (!currentShift) return null;
+      if (!currentShift || !currentShift.id) return null;
       try {
           const { data, error } = await supabase.rpc('get_shift_summary', { p_shift_id: currentShift.id });
           if (error) throw error;
@@ -4998,16 +5192,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const closeCurrentShift = async (actualCash: number, notes?: string) => {
       if (isDemoState) { setCurrentShift(null); showToast('تم إغلاق الوردية (ديمو)', 'success'); return true; }
       if (!currentShift) return false;
+
       try {
+          // 1. جلب بيانات الملخص قبل تصفير الوردية للطباعة
+          const summary = await getCurrentShiftSummary();
+
           const { error } = await supabase.rpc('close_shift', {
               p_shift_id: currentShift.id,
               p_actual_cash: actualCash,
               p_notes: notes
           });
+
+          // 2. طباعة التقرير فور نجاح العملية
+          if (!error && summary) {
+              printShiftReport(summary, actualCash, notes || '');
+          }
+
           if (error) throw error;
 
           setCurrentShift(null);
-          showToast('تم إغلاق الوردية بنجاح', 'success');
+      showToast('تم إغلاق الوردية بنجاح', 'success'); // Show success toast
           logActivity('إغلاق وردية', `تم إغلاق الوردية بنجاح بمبلغ فعلي ${actualCash}`, actualCash, { shift_id: currentShift.id });
           return true;
       } catch (err: any) {
@@ -5039,7 +5243,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             })
             .select()
             .single();
-          if (error) throw error;
+          if (error) throw error; // Throw error if insert fails
           await fetchData();
           logActivity('إضافة حساب', `تم إضافة حساب جديد: ${accountData.name} (${accountData.code})`);
           return data;
@@ -5060,7 +5264,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deleteProduct,
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
       produceItem,
-      categories, addCategory: (n) => setCategories(prev => [...prev, { id: generateUUID(), name: n }]), deleteCategory: (id) => setCategories(prev => prev.filter(c => c.id !== id)),
+      categories, addCategory, updateCategory, deleteCategory,
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
       openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, menuCategories, updateKitchenOrderStatus, getOpenTableOrder,
@@ -5071,7 +5275,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       inventoryCounts, addInventoryCount: (c) => setInventoryCounts(prev => [{...c, id: generateUUID(), countNumber: `CNT-${Date.now().toString().slice(-4)}`}, ...prev]), 
       postInventoryCount: (id) => setInventoryCounts(prev => prev.map(c => c.id === id ? {...c, status: 'posted'} : c)),
       addInventoryAdjustment: (adj) => {}, 
-      cheques, addCheque, updateChequeStatus, 
+      cheques, addCheque, updateChequeStatus, // Cheque related functions
       assets, addAsset, runDepreciation, revaluateAsset, employees, addEmployee, updateEmployee, deleteEmployee, runPayroll, payrollHistory, 
       budgets, saveBudget: (budget) => setBudgets(prev => {
           const existingIdx = prev.findIndex(b => b.year === budget.year && b.month === budget.month);
@@ -5113,7 +5317,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               max_cash_deficit_limit: newSettings.maxCashDeficitLimit,
               // @ts-ignore
               decimal_places: newSettings.decimalPlaces,
-              account_mappings: newSettings.account_mappings
+              account_mappings: newSettings.account_mappings,
+              default_warehouse_id: newSettings.defaultWarehouseId || null,
+              default_treasury_id: newSettings.defaultTreasuryId || null
           }, { onConflict: 'organization_id' }).then(({ error }) => {
               if (error) console.error("Failed to save settings:", error);
           });
@@ -5123,6 +5329,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       userPermissions, can, lastUpdated, recalculateStock, clearCache, exportJournalToCSV,
       authInitialized, isLoading,
       getInvoicesPaginated, getJournalEntriesPaginated,
+      recalculateAllBalances, // New
+      purgeDeletedRecords, // New
+      refreshSaasSchema, // New
       restoreItem, permanentDeleteItem, emptyRecycleBin,
       calculateProductPrice, clearTransactions, addOpeningBalanceTransaction,
       currentShift,
@@ -5133,6 +5342,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       openShifts,
       fetchOpenShifts,
       checkSystemAccounts, createMissingSystemAccounts,
+      checkEssentialAccounts,
   addDemoInvoice, addDemoPurchaseInvoice, addDemoEntry, postDemoSalesInvoice, addDemoPaymentVoucher, addDemoReceiptVoucher,
       isDemo: isDemoState
     }}>
@@ -5161,6 +5371,12 @@ if (!supabaseUrl || !supabaseKey) {
     throw new Error("Supabase URL and Key must be defined in the .env file");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
 ```
 
