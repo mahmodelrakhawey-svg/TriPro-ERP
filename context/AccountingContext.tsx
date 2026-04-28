@@ -4141,6 +4141,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             offer_start_date: (productData as any).offer_start_date || null,
             offer_end_date: (productData as any).offer_end_date || null,
             offer_max_qty: (productData as any).offer_max_qty || null,
+            organization_id: (productData as any).organization_id,
+            mfg_type: (productData as any).mfg_type 
         };
 
         if (!payload.sku || payload.sku.trim() === '') {

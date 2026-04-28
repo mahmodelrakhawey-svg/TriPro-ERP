@@ -7,7 +7,7 @@ import {
     LayoutDashboard, BookOpen, FileText, PieChart, Settings,
     ScrollText, Library, ShoppingCart, Users, Truck, Package, 
     Receipt, RotateCcw, ClipboardList, History, Banknote, ArrowUpRight, ArrowDownLeft, ArrowRightLeft, Scale, Store, Wallet, TrendingUp, LogOut, Shield, ListChecks, Landmark, MonitorSmartphone, Briefcase, Settings as Cog, PenTool, FileCheck, Calculator, Gauge, Target, BarChartHorizontal, Bell, BarChartBig, FileMinus, FilePlus, PackageX, CircleDollarSign, FileSpreadsheet, PackageOpen, ShieldAlert, X, BarChart2, ShieldCheck, HelpCircle, ChevronDown
-    , Lock, Trash2, AlertTriangle, Percent, Database, Utensils, Clock
+    , Lock, Trash2, AlertTriangle, Percent, Database, Utensils, Clock, Factory, Layers
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -490,13 +490,55 @@ const Sidebar = () => {
         </SidebarSection>
 
         {/* Manufacturing Module */}
-        <SidebarSection title="التصنيع" icon={Cog} id="manufacturing" show={canAccessManufacturing || role === 'demo'}>
-                {canShow(['manufacturing'], ['create', 'read']) && (
-                <Link to="/manufacturing" className={getNavClass('/manufacturing')}>
-                    <Cog size={18} />
-                    <span>التصنيع والإنتاج</span>
-                </Link>
-                )}
+        <SidebarSection title="التصنيع والإنتاج" icon={Cog} id="manufacturing" show={canAccessManufacturing || role === 'demo'}>
+            {canShow(['manufacturing'], ['read', 'view']) && (
+            <Link to="/mfg/dashboard" className={getNavClass('/mfg/dashboard')}>
+                <LayoutDashboard size={18} />
+                <span>لوحة التحكم الصناعية</span>
+            </Link>
+            )}
+            {canShow(['manufacturing'], ['manage']) && (
+            <Link to="/mfg/batch-orders" className={getNavClass('/mfg/batch-orders')}>
+                <Layers size={18} />
+                <span>تخطيط الدفعات (Batching)</span>
+            </Link>
+            )}
+            {canShow(['manufacturing'], ['execute']) && (
+            <Link to="/mfg/shop-floor" className={getNavClass('/mfg/shop-floor')}>
+                <Factory size={18} />
+                <span>أرضية المصنع (تنفيذ)</span>
+            </Link>
+            )}
+            {canShow(['manufacturing'], ['qc']) && (
+            <Link to="/mfg/quality-control" className={getNavClass('/mfg/quality-control')}>
+                <ShieldCheck size={18} />
+                <span>رقابة الجودة (QC)</span>
+            </Link>
+            )}
+            {canShow(['manufacturing'], ['read', 'view']) && (
+            <Link to="/mfg/profitability" className={getNavClass('/mfg/profitability')}>
+                <CircleDollarSign size={18} />
+                <span>تحليل ربحية الإنتاج</span>
+            </Link>
+            )}
+            {canShow(['manufacturing'], ['read', 'view']) && (
+            <Link to="/mfg/variance-report" className={getNavClass('/mfg/variance-report')}>
+                <BarChart2 size={18} />
+                <span>تقرير انحراف المواد</span>
+            </Link>
+            )}
+            {canShow(['manufacturing'], ['read', 'view']) && (
+            <Link to="/mfg/genealogy" className={getNavClass('/mfg/genealogy')}>
+                <History size={18} />
+                <span>تتبع المنتج (Genealogy)</span>
+            </Link>
+            )}
+            {canShow(['manufacturing'], ['manage']) && (
+            <Link to="/mfg/routing-bom" className={getNavClass('/mfg/routing-bom')}>
+                <Settings size={18} />
+                <span>إعداد المسارات وقائمة المواد (BOM)</span>
+            </Link>
+            )}
         </SidebarSection>
 
         {/* Inventory Module (Mapped to 'inventory' and 'products' in DB) */}

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting as useOrg } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 
 interface EfficiencyData {
   work_center_name: string;
@@ -39,9 +40,31 @@ const WorkCenterEfficiencyTable = () => {
   if (loading) return <div className="p-4 text-center">جاري تحميل بيانات الكفاءة...</div>;
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md overflow-x-auto" dir="rtl">
-      <h2 className="text-xl font-bold mb-4 text-gray-800 border-b pb-2">مؤشرات أداء مراكز العمل</h2>
-      <table className="min-w-full table-auto">
+    <div className="space-y-6" dir="rtl">
+      {/* الرسم البياني التحليلي */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <h2 className="text-lg font-bold mb-6 text-gray-800 flex items-center gap-2">تحليل كفاءة الإنتاج اللحظي</h2>
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="work_center_name" tick={{fontSize: 12}} />
+              <YAxis unit="%" />
+              <Tooltip formatter={(value) => [`${value}%`, 'الكفاءة']} />
+              <Bar dataKey="efficiency_percentage" radius={[4, 4, 0, 0]} name="نسبة الكفاءة">
+                {data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.efficiency_percentage < 70 ? '#ef4444' : '#3b82f6'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* الجدول التفصيلي */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+        <h2 className="text-lg font-bold mb-4 text-gray-800 border-b pb-2">بيانات التشغيل التفصيلية</h2>
+        <table className="min-w-full table-auto">
         <thead className="bg-gray-100">
           <tr>
             <th className="px-4 py-2 text-right text-sm font-semibold text-gray-600">مركز العمل</th>
@@ -67,6 +90,7 @@ const WorkCenterEfficiencyTable = () => {
           ))}
         </tbody>
       </table>
+    </div>
     </div>
   );
 };

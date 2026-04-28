@@ -1007,7 +1007,11 @@ const ProductManager = () => {
           available_modifiers: formData.available_modifiers || [],
           labor_cost: formData.labor_cost || 0,
           overhead_cost: formData.overhead_cost || 0,
-          is_overhead_percentage: formData.is_overhead_percentage || false
+          is_overhead_percentage: formData.is_overhead_percentage || false,
+          organization_id: orgId,
+          // إضافة نوع التصنيع ليتوافق مع مديول التصنيع تلقائياً
+          mfg_type: formData.product_type === 'RAW_MATERIAL' ? 'raw' : 
+                    formData.product_type === 'MANUFACTURED' ? 'standard' : null
         };
 
         const newProduct = await addProduct(productPayload as any);
@@ -1819,8 +1823,9 @@ const ProductManager = () => {
                         className="w-full border rounded-lg p-2 bg-white"
                       >
                         <option value="STOCK">مخزوني (بضاعة)</option>
+                        <option value="RAW_MATERIAL">خامة أولية (Raw Material)</option>
+                        <option value="MANUFACTURED">منتج مصنع (Finished Good)</option>
                         <option value="SERVICE">خدمة (ليس لها مخزون)</option>
-                        <option value="MANUFACTURED">وجبة مطعم (تُصنع عند الطلب)</option>
                       </select>
                     </div>
                     <div>

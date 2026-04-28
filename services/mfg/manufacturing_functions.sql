@@ -63,7 +63,7 @@ BEGIN
         v_usage_qty := v_mat.quantity_required * p_qty;
 
         -- حساب تكلفة المواد المستهلكة (بناءً على المتوسط المرجح)
-        v_mat_total_cost := v_mat_total_cost + (v_usage_qty * COALESCE((SELECT weighted_average_cost FROM public.products WHERE id = v_mat.raw_material_id), 0));
+        v_mat_total_cost := v_mat_total_cost + (v_usage_qty * COALESCE((SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) FROM public.products WHERE id = v_mat.raw_material_id), 0));
 
         -- أ. خصم المواد من المخزون
         UPDATE public.products SET stock = stock - v_usage_qty 
@@ -141,7 +141,7 @@ BEGIN
 
     -- ب. إضافة تكلفة المواد الفعلية المستهلكة
     v_total_cost := v_total_cost + COALESCE((
-        SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, 0))
+        SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
         FROM public.mfg_actual_material_usage amu
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         JOIN public.products p ON amu.raw_material_id = p.id
@@ -467,6 +467,17 @@ BEGIN
     -- 1. الإعداد
     v_org_id := public.get_my_org();
     
+    -- ضمان وجود organization_id للاختبار
+    IF v_org_id IS NULL THEN
+        -- محاولة جلب أي organization_id موجود
+        SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+        IF v_org_id IS NULL THEN
+            -- إذا لم توجد أي منظمة، قم بإنشاء واحدة مؤقتة للاختبار
+            INSERT INTO public.organizations (name) VALUES ('Test Organization for MFG') RETURNING id INTO v_org_id;
+            step_name := '0. تهيئة المنظمة'; result := 'INFO'; details := 'تم إنشاء منظمة اختبار مؤقتة'; RETURN NEXT;
+        END IF;
+    END IF;
+    
     -- إنشاء منتج تام ومادة خام للاختبار
     INSERT INTO public.products (name, mfg_type, requires_serial, organization_id) 
     VALUES ('منتج اختباري نهائي', 'standard', true, v_org_id) RETURNING id INTO v_prod_id;
@@ -493,7 +504,7 @@ BEGIN
 
     -- 3. إنشاء أمر إنتاج وبدء التنفيذ
     INSERT INTO public.mfg_production_orders (order_number, product_id, quantity_to_produce, status, organization_id)
-    VALUES ('TEST-ORD-001', v_prod_id, 5, 'in_progress', v_org_id) RETURNING id INTO v_order_id;
+    VALUES ('TEST-' || substring(gen_random_uuid()::text, 1, 8), v_prod_id, 5, 'in_progress', v_org_id) RETURNING id INTO v_order_id;
 
     INSERT INTO public.mfg_order_progress (production_order_id, step_id, status, organization_id)
     VALUES (v_order_id, v_step_id, 'pending', v_org_id) RETURNING id INTO v_prog_id;

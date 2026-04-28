@@ -161,6 +161,13 @@ CREATE TABLE IF NOT EXISTS public.mfg_batch_serials (
 -- إضافة حقل في جدول المنتجات لتحديد ما إذا كان المنتج يتطلب رقم تسلسلي
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS requires_serial boolean DEFAULT false;
 
+-- إضافة عمود "نوع المنتج" لتحديد ما إذا كان "تحت التشغيل" (مطلوب لعمليات التصنيع)
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS mfg_type text DEFAULT 'standard'; 
+-- القيم المحتملة: 'standard' (منتج عادي), 'raw' (مادة خام), 'wip' (تحت التشغيل)
+
+-- إضافة حقل سعر البيع للمنتج (مطلوب لحساب الربحية)
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price numeric DEFAULT 0;
+
 -- فهرس للبحث السريع عن الأرقام التسلسلية
 CREATE INDEX IF NOT EXISTS idx_mfg_serials_num ON public.mfg_batch_serials(serial_number, organization_id);
 
