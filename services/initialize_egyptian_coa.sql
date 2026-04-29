@@ -17,6 +17,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
+    v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
 BEGIN
     v_vat_rate := CASE 
         WHEN p_activity_type = 'construction' THEN 0.05 
@@ -86,6 +87,7 @@ BEGIN
 
     ('10301', 'مخزون المواد الخام', 'asset', false, '103'),
     ('10302', 'مخزون المنتج التام', 'asset', false, '103'),
+    ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
         -- العملاء والمدينون
 
     ('1221', 'العملاء', 'asset', false, '122'),
@@ -149,6 +151,12 @@ BEGIN
     -- المصروفات
     ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'),
     ('512', 'تسويات الجرد (عجز المخزون)', 'expense', false, '51'),
+    ('5121', 'تكلفة الهالك والفاقد', 'expense', false, '51'),
+    ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
+    ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
+    ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
+    ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
+    ('5143', 'كهرباء وقوى محركة للمصنع', 'expense', false, '514'),
     ('521', 'دعاية وإعلان', 'expense', false, '52'),
     ('522', 'عمولات بيع وتسويق', 'expense', false, '52'),
     ('523', 'نقل ومشال للخارج', 'expense', false, '52'),
@@ -174,19 +182,7 @@ BEGIN
     IF p_activity_type = 'restaurant' THEN
         INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
         ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
-        ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41'),
-        ('5121', 'تكلفة الهالك والضيافة', 'expense', false, '51');
-    END IF;
-
-    -- إضافات خاصة بنشاط التصنيع
-    IF p_activity_type = 'manufacturing' THEN
-        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
-        ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
-        ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
-        ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
-        ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
-        ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
-        ('5143', 'كهرباء وقوى محركة للمصنع', 'expense', false, '514');
+        ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41');
     END IF;
 
     -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
@@ -247,6 +243,10 @@ BEGIN
     v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
     v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
     v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
+    v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
+    v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
+    v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
+    v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
 
     -- 🚀 ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
     INSERT INTO public.roles (organization_id, name, description)
@@ -264,7 +264,11 @@ BEGIN
             'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
-            'RETAINED_EARNINGS', v_retained_id
+            'RETAINED_EARNINGS', v_retained_id,
+            'INVENTORY_RAW_MATERIALS', v_raw_id,
+            'INVENTORY_WIP', v_wip_id,
+            'LABOR_COST_ALLOCATED', v_labor_mfg_id,
+            'WASTAGE_EXPENSE', v_wastage_id
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
 

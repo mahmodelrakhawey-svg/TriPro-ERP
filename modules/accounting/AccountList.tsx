@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
@@ -25,11 +25,12 @@ const AccountList = () => {
     '11', '12', '21', '22', '31', '41', '51', '52', '53',
     // المستوى 3 و 4 (عامة وخاصة بالمطاعم من initialize_egyptian_coa و SYSTEM_ACCOUNTS)
     '103', // المخزون (group)
-    '10301', // مخزون المواد الخام واللف والحزم / مخزون الخامات (خضروات/لحوم)
-    '10302', // مخزون قطع الغيار والمهمات / مخزون المشروبات والسلع الجاهزة
-    '10303', // مخزون الوقود والزيوت
-    '10304', // مخزون إنتاج غير تام
-    '10305', // مخزون المنتج التام (تصنيع)
+    '10301', // مخزون المواد الخام
+    '10302', // مخزون المنتج التام
+    '10303', // مخزون إنتاج تحت التشغيل (WIP)
+    '513',   // أجور عمال الإنتاج المباشرة
+    '514',   // تكاليف صناعية غير مباشرة (Group)
+    '5121',  // تكلفة الهالك والفاقد
     '10306', // بضائع بغرض البيع (تجارية)
     '10307', // اعتمادات مستندية لشراء بضائع
     '121', // مخزون الأغذية والمشروبات (restaurant specific)

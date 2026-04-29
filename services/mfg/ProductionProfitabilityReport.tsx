@@ -3,6 +3,7 @@ import { supabase } from '@/supabaseClient';
 import { useAccounting as useOrg } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart, Line } from 'recharts';
+import { formatNumber, formatPercentage } from '@/utils/formatters'; // استيراد الدوال الجديدة
 import { DollarSign, TrendingUp, TrendingDown, FileSpreadsheet, Loader2, PieChart } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -105,20 +106,20 @@ const ProductionProfitabilityReport = () => {
             {data.map((row, idx) => (
               <tr key={idx} className="hover:bg-gray-50 transition-colors text-sm">
                 <td className="p-4 font-mono font-bold text-blue-600">{row.order_number}</td>
-                <td className="p-4">{row.product_name} <span className="text-xs text-gray-400">(x{row.qty})</span></td>
-                <td className="p-4 text-center">{row.actual_material.toLocaleString()}</td>
-                <td className="p-4 text-center">{row.actual_labor.toLocaleString()}</td>
-                <td className="p-4 text-center font-bold">{row.total_actual_cost.toLocaleString()}</td>
-                <td className="p-4 text-center text-emerald-600 font-bold">{row.sales_value.toLocaleString()}</td>
+                <td className="p-4">{row.product_name} <span className="text-xs text-gray-400">(x{formatNumber(row.qty, {maximumFractionDigits: 0})})</span></td>
+                <td className="p-4 text-center">{formatNumber(row.actual_material)}</td>
+                <td className="p-4 text-center">{formatNumber(row.actual_labor)}</td>
+                <td className="p-4 text-center font-bold">{formatNumber(row.total_actual_cost)}</td>
+                <td className="p-4 text-center text-emerald-600 font-bold">{formatNumber(row.sales_value)}</td>
                 <td className={`p-4 text-center font-black ${row.net_profit >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                  {row.net_profit.toLocaleString()}
+                  {formatNumber(row.net_profit)}
                 </td>
                 <td className="p-4 text-center">
                   <span className={`px-2 py-1 rounded-full text-xs font-black ${
-                    row.margin_percentage > 20 ? 'bg-emerald-100 text-emerald-700' : 
-                    row.margin_percentage > 0 ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
+                    (row.margin_percentage || 0) > 20 ? 'bg-emerald-100 text-emerald-700' : 
+                    (row.margin_percentage || 0) > 0 ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'
                   }`}>
-                    {row.margin_percentage}%
+                    {formatPercentage(row.margin_percentage)}
                   </span>
                 </td>
               </tr>

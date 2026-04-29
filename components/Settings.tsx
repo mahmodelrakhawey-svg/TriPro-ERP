@@ -5,7 +5,7 @@ import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../utils/runRestaurantFlowTest';
@@ -17,6 +17,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   NOTES_RECEIVABLE: 'أوراق القبض (شيكات واردة)',
   INVENTORY: 'المخزون العام',
   INVENTORY_RAW_MATERIALS: 'مخزون المواد الخام',
+  INVENTORY_WIP: 'مخزون إنتاج تحت التشغيل (WIP)',
   INVENTORY_FINISHED_GOODS: 'مخزون المنتج التام',
   ACCUMULATED_DEPRECIATION: 'مجمع الإهلاك',
   SUPPLIERS: 'الموردين',
@@ -41,6 +42,8 @@ const ACCOUNT_LABELS: Record<string, string> = {
   WITHHOLDING_TAX: 'ضريبة الخصم والتحصيل',
   EMPLOYEE_ADVANCES: 'سلف الموظفين',
   CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
+  LABOR_COST_ALLOCATED: 'تكاليف العمالة الصناعية المحملة',
+  WASTAGE_EXPENSE: 'مصروف الهالك والفاقد الصناعي',
 };
 
 interface CloudBackup {
@@ -59,7 +62,9 @@ const Settings = () => {
       enableTax: true, allowNegativeStock: false, preventPriceModification: false, maxCashDeficitLimit: 500, decimalPlaces: 2,
       accountMappings: {} as Record<string, string>,
       defaultWarehouseId: '',
-      defaultTreasuryId: ''
+      defaultTreasuryId: '',
+      productionWarehouseId: '',
+      rawMaterialsWarehouseId: ''
   });
   const [cloudBackups, setCloudBackups] = useState<CloudBackup[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,7 +117,9 @@ const Settings = () => {
                 decimalPlaces: sData.decimal_places !== undefined ? sData.decimal_places : 2,
                 accountMappings: sData.account_mappings || {},
                 defaultWarehouseId: sData.default_warehouse_id || '',
-                defaultTreasuryId: sData.default_treasury_id || ''
+                defaultTreasuryId: sData.default_treasury_id || '',
+                productionWarehouseId: sData.production_warehouse_id || '',
+                rawMaterialsWarehouseId: sData.raw_material_warehouse_id || ''
             });
         }
         setLoading(false);
@@ -190,7 +197,9 @@ const Settings = () => {
             updated_at: new Date().toISOString(),
             account_mappings: formData.accountMappings,
             default_warehouse_id: formData.defaultWarehouseId || null,
-            default_treasury_id: formData.defaultTreasuryId || null
+            default_treasury_id: formData.defaultTreasuryId || null,
+            production_warehouse_id: formData.productionWarehouseId || null,
+            raw_material_warehouse_id: formData.rawMaterialsWarehouseId || null
         };
 
         let error;
@@ -585,6 +594,38 @@ const Settings = () => {
       }
   };
 
+  const handleAutoMapping = () => {
+      const mappingSource = {
+          ...SYSTEM_ACCOUNTS, 
+          CASH_SHORTAGE: '541',
+          INVENTORY_RAW_MATERIALS: '10301',
+          INVENTORY_WIP: '10303',
+          INVENTORY_FINISHED_GOODS: '10302',
+          LABOR_COST_ALLOCATED: '513',
+          WASTAGE_EXPENSE: '5121'
+      };
+
+      const newMappings = { ...formData.accountMappings };
+      let linkedCount = 0;
+
+      Object.entries(mappingSource).forEach(([key, defaultCode]) => {
+          // البحث عن الحساب بالكود الافتراضي بشرط ألا يكون حساباً تجميعياً
+          const matchedAccount = accounts.find(acc => acc.code === defaultCode && !acc.isGroup);
+          if (matchedAccount) {
+              newMappings[key] = matchedAccount.id;
+              linkedCount++;
+          }
+      });
+
+      setFormData(prev => ({ ...prev, accountMappings: newMappings }));
+      
+      if (linkedCount > 0) {
+          showToast(`تم ربط ${linkedCount} حساب بنجاح بناءً على الأكواد الافتراضية ✅`, 'success');
+      } else {
+          showToast('لم يتم العثور على حسابات مطابقة للأكواد الافتراضية في الدليل الحالي.', 'warning');
+      }
+  };
+
   const handleMappingChange = (key: string, accountId: string) => {
       setFormData(prev => ({ ...prev, accountMappings: { ...prev.accountMappings, [key]: accountId } }));
   };
@@ -853,6 +894,44 @@ const Settings = () => {
                               <p className="text-xs text-slate-500 mt-1">المستودع الذي سيتم اختياره تلقائياً في فواتير البيع والشراء.</p>
                           </div>
                           <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">مستودع الإنتاج الافتراضي (WIP)</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.productionWarehouseId}
+                                    onChange={(e) => setFormData({...formData, productionWarehouseId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر مستودع الإنتاج --</option>
+                                    {warehouses.map(w => (
+                                        <option key={w.id} value={w.id}>{w.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">المستودع الذي ستُحول إليه التكاليف أثناء عملية التصنيع.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">مستودع الخامات الافتراضي</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.rawMaterialsWarehouseId}
+                                    onChange={(e) => setFormData({...formData, rawMaterialsWarehouseId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-orange-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر مستودع الخامات --</option>
+                                    {warehouses.map(w => (
+                                        <option key={w.id} value={w.id}>{w.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">المستودع الذي يتم سحب المواد الأولية منه تلقائياً.</p>
+                          </div>
+                          <div>
                               <label className="block text-sm font-medium text-slate-700 mb-1">الخزينة الافتراضية للنظام</label>
                               <div className="relative">
                                 <select 
@@ -1116,19 +1195,50 @@ const Settings = () => {
 
               {activeTab === 'mapping' && (
                   <form onSubmit={handleSave} className="space-y-6 max-w-3xl animate-in fade-in">
-                      <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 mb-6">
-                          <h3 className="font-bold text-purple-800 mb-2">توجيه الحسابات الآلي</h3>
-                          <p className="text-sm text-purple-700">
-                              هنا يمكنك تحديد الحسابات التي سيستخدمها النظام تلقائياً عند إنشاء الفواتير والسندات. 
-                              إذا لم يتم تحديد حساب، سيستخدم النظام الكود الافتراضي.
-                          </p>
+                      <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                          <div>
+                              <h3 className="font-bold text-purple-800 mb-2">توجيه الحسابات الآلي</h3>
+                              <p className="text-sm text-purple-700">
+                                  هنا يمكنك تحديد الحسابات التي سيستخدمها النظام تلقائياً عند إنشاء الفواتير والسندات. 
+                                  إذا لم يتم تحديد حساب، سيستخدم النظام الكود الافتراضي.
+                              </p>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={handleAutoMapping}
+                            className="bg-white text-purple-600 border-2 border-purple-200 px-4 py-2 rounded-xl font-black text-xs hover:bg-purple-50 transition-all flex items-center gap-2 shrink-0 shadow-sm"
+                            title="البحث عن الحسابات بالأكواد الافتراضية وربطها بضغطة واحدة"
+                          >
+                            <RefreshCw size={16} />
+                            ربط تلقائي
+                          </button>
                       </div>
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {Object.entries({ ...SYSTEM_ACCOUNTS, CASH_SHORTAGE: '541' }).map(([key, defaultCode]) => (
-                              <div key={key}>
+                          {Object.entries({
+                              ...SYSTEM_ACCOUNTS, 
+                              CASH_SHORTAGE: '541',
+                              INVENTORY_RAW_MATERIALS: '10301',
+                              INVENTORY_WIP: '10303',
+                              INVENTORY_FINISHED_GOODS: '10302',
+                              LABOR_COST_ALLOCATED: '513',
+                              WASTAGE_EXPENSE: '5121'
+                          }).map(([key, defaultCode]) => {
+                              const isUnmapped = !formData.accountMappings[key];
+                              return (
+                                <div key={key}>
                                   <SearchableSelect
-                                      label={`${ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} (${defaultCode})`}
+                                      label={
+                                          <span className="flex items-center justify-between w-full">
+                                              <span>{ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} ({defaultCode})</span>
+                                              {isUnmapped && (
+                                                  <span className="text-amber-600 flex items-center gap-1 text-[10px] animate-pulse" title="هذا الحساب غير مربوط يدوياً - سيتم استخدام الكود الافتراضي">
+                                                      <AlertTriangle size={12} />
+                                                      غير مربوط ⚠️
+                                                  </span>
+                                              )}
+                                          </span>
+                                      }
                                       options={accounts
                                           .filter(acc => !acc.isGroup)
                                           .sort((a, b) => a.code.localeCompare(b.code))
@@ -1138,8 +1248,9 @@ const Settings = () => {
                                       placeholder={`-- الافتراضي (${defaultCode}) --`}
                                       className="w-full"
                                   />
-                              </div>
-                          ))}
+                                </div>
+                              );
+                          })}
                       </div>
                       <div className="pt-4 text-left">
                           <button type="submit" className="bg-purple-600 text-white px-8 py-2.5 rounded-lg hover:bg-purple-700 font-bold shadow-md">

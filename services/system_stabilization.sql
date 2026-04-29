@@ -288,6 +288,60 @@ BEGIN
     );
 END; $$;
 
+-- 🔒 إضافة نظام حماية الحسابات السيادية (Account Protection System)
+
+-- أ. دالة منع تعديل خصائص الحسابات الحساسة
+CREATE OR REPLACE FUNCTION public.protect_system_accounts_fn()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_protected_codes text[] := ARRAY[
+        '1', '2', '3', '4', '5', '11', '12', '21', '22', '31', '41', '51', '52', '53',
+        '103', '10301', '10302', '10303', '513', '514', '5121', '3999'
+    ];
+BEGIN
+    -- التحقق مما إذا كان الحساب ضمن القائمة المحمية
+    IF OLD.code = ANY(v_protected_codes) THEN
+        -- 1. منع تغيير النوع (Type) لضمان صحة الميزانية وقائمة الدخل
+        IF NEW.type <> OLD.type THEN
+            RAISE EXCEPTION 'لا يمكن تغيير نوع الحساب السيادي (%) لضمان سلامة التقارير المالية.', OLD.code;
+        END IF;
+        
+        -- 2. منع تغيير الكود (Code) لأن النظام يعتمد عليه في الربط الآلي
+        IF NEW.code <> OLD.code THEN
+            RAISE EXCEPTION 'لا يمكن تعديل كود الحساب السيادي (%). يرجى إنشاء حساب جديد بدلاً من ذلك.', OLD.code;
+        END IF;
+
+        -- 3. منع تغيير حالة المجموعة (is_group)
+        IF NEW.is_group <> OLD.is_group THEN
+            RAISE EXCEPTION 'لا يمكن تغيير طبيعة الحساب (رئيسي/فرعي) للحساب السيادي (%).', OLD.code;
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ب. دالة منع الحذف النهائي للحسابات السيادية
+CREATE OR REPLACE FUNCTION public.prevent_system_account_deletion_fn()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.code = ANY(ARRAY['1','2','3','4','5','103','10301','10302','10303','513','5121','3999']) THEN
+        RAISE EXCEPTION 'خطأ أمني: لا يمكن حذف حساب نظام أساسي (%). يمكنك فقط تعطيله إذا كان الرصيد صفراً.', OLD.code;
+    END IF;
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+-- ج. إنشاء الـ Triggers
+DROP TRIGGER IF EXISTS trg_protect_system_accounts ON public.accounts;
+CREATE TRIGGER trg_protect_system_accounts
+BEFORE UPDATE ON public.accounts
+FOR EACH ROW EXECUTE FUNCTION public.protect_system_accounts_fn();
+
+DROP TRIGGER IF EXISTS trg_prevent_system_account_deletion ON public.accounts;
+CREATE TRIGGER trg_prevent_system_account_deletion
+BEFORE DELETE ON public.accounts
+FOR EACH ROW EXECUTE FUNCTION public.protect_system_accounts_fn();
+
 COMMIT;
 
 -- رسالة تأكيد

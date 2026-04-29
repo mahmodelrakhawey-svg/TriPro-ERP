@@ -196,6 +196,9 @@ BEGIN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_je_id, v_wip_acc, 0, v_total_cost, 'إخلاء حساب الإنتاج تحت التشغيل', v_org_id);
     END IF;
+
+    -- 5. تحديث سعر البيع بناءً على التكلفة الفعلية وهامش الربح
+    PERFORM public.mfg_update_selling_price_from_cost(p_order_id);
 END; $$;
 
 -- 8. دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)

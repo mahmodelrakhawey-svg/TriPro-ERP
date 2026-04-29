@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_order_progress (
     actual_end_time timestamptz,
     produced_qty numeric DEFAULT 0,
     labor_cost_actual numeric DEFAULT 0,
+    employee_id uuid REFERENCES public.employees(id), -- إضافة عمود لربط العامل بالمرحلة
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
