@@ -1,9 +1,8 @@
 -- 🌟 ملف التأسيس الشامل (Master Setup) - TriPro ERP
--- 📅 تاريخ التحديث: 2026-06-16 (V15 Schema Perfection)
--- ℹ️ الوصف: النسخة الهيكلية النهائية - الهيكل الكامل ودوال الهوية فقط.
--- ⚠️ تحذير: تشغيل هذا الملف سيقوم بمسح جميع البيانات الموجودة في قاعدة البيانات!
+-- 📅 تاريخ التحديث: 2026-06-16 (Safe Idempotent Version)
+-- ℹ️ الوصف: النسخة الهيكلية الآمنة - تحديث الهيكل دون مسح البيانات.
 -- ================================================================
--- 0. تنظيف وإعداد المخطط (Reset Schema)
+-- 0. إعداد المخطط (Schema Setup)
 -- ================================================================
 -- ⚠️ تم إيقاف المسح الكامل للمخطط لسلامة بيئة SaaS
 -- في حال الرغبة في مسح شامل، قم بتشغيل DROP SCHEMA public CASCADE يدوياً مرة واحدة فقط.
@@ -229,11 +228,14 @@ CREATE TABLE IF NOT EXISTS public.accounts (
     deletion_reason text,
     is_active boolean DEFAULT true,
     created_at timestamptz DEFAULT now() NOT NULL,
-    UNIQUE (organization_id, code)
+    CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code)
 );
 
 CREATE TABLE IF NOT EXISTS public.journal_entries (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    transaction_date date DEFAULT now(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now(),
     description text,
     reference text,
     status text DEFAULT 'draft',
@@ -241,10 +243,7 @@ CREATE TABLE IF NOT EXISTS public.journal_entries (
     user_id uuid REFERENCES public.profiles(id),
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     related_document_id uuid,
-    related_document_type text,
-    created_at timestamptz DEFAULT now() NOT NULL,
-    transaction_date date DEFAULT now(),
-    updated_at timestamptz DEFAULT now()
+    related_document_type text
 );
 
 CREATE TABLE IF NOT EXISTS public.journal_lines (
@@ -364,7 +363,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     warehouse_stock jsonb DEFAULT '{}',
     category_id uuid REFERENCES public.item_categories(id),
     expiry_date date,
-    available_modifiers jsonb DEFAULT '[]'::jsonb, -- إضافات الأصناف المتاحة (مثل: إضافات البيتزا أو ملاحظات المطبخ)
+    available_modifiers jsonb DEFAULT '[]'::jsonb,
     
     -- حقول العروض
     offer_price numeric,
@@ -381,6 +380,22 @@ CREATE TABLE IF NOT EXISTS public.products (
     overhead_cost numeric(19,4) DEFAULT 0,
     is_overhead_percentage boolean DEFAULT false
 );
+
+-- ================================================================
+-- 1.6 تحديثات مديول التصنيع (MFG Updates)
+-- ================================================================
+-- نستخدم DO blocks لإضافة الأعمدة للجداول الموجودة مسبقاً لضمان عدم حدوث خطأ
+DO $$ 
+BEGIN
+    -- إضافة عمود تكلفة العمالة في مديول التصنيع لربط القيد المحاسبي
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='manufacturing_type') THEN
+        ALTER TABLE public.products ADD COLUMN manufacturing_type text DEFAULT 'STOCK';
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='journal_entries' AND column_name='mfg_process_id') THEN
+        ALTER TABLE public.journal_entries ADD COLUMN mfg_process_id uuid;
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,

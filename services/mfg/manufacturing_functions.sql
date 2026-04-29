@@ -847,4 +847,55 @@ BEGIN
     )
     ORDER BY i.created_at DESC;
 END; $$;
+
+-- 📊 21. عرض انحراف المواد (BOM Variance View)
+-- هذا العرض مطلوب للوحة التحكم الصناعية لمراقبة فروقات الاستهلاك
+DROP VIEW IF EXISTS public.v_mfg_bom_variance CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_bom_variance WITH (security_invoker = true) AS
+SELECT 
+    amu.id,
+    po.order_number,
+    p.name as product_name,
+    rm.name as material_name,
+    amu.standard_quantity,
+    amu.actual_quantity,
+    (amu.actual_quantity - amu.standard_quantity) as variance_qty,
+    CASE 
+        WHEN amu.standard_quantity > 0 
+        THEN ROUND(((amu.actual_quantity - amu.standard_quantity) / amu.standard_quantity) * 100, 2)
+        ELSE 0 
+    END as variance_percentage,
+    amu.organization_id,
+    po.id as production_order_id,
+    amu.created_at
+FROM public.mfg_actual_material_usage amu
+JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+JOIN public.mfg_production_orders po ON op.production_order_id = po.id
+JOIN public.products p ON po.product_id = p.id
+JOIN public.products rm ON amu.raw_material_id = rm.id;
+
+-- 📊 22. عرض كفاءة مراكز العمل (Work Center Efficiency View)
+DROP VIEW IF EXISTS public.v_mfg_work_center_efficiency CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_work_center_efficiency WITH (security_invoker = true) AS
+SELECT 
+    wc.id as work_center_id,
+    wc.name as work_center_name,
+    SUM(rs.standard_time_minutes * op.produced_qty) as total_standard_minutes,
+    SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time))/60) as total_actual_minutes,
+    CASE 
+        WHEN SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time))/60) > 0 
+        THEN ROUND((SUM(rs.standard_time_minutes * op.produced_qty) / SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time))/60)) * 100, 2)
+        ELSE 0 
+    END as efficiency_percentage,
+    wc.organization_id
+FROM public.mfg_work_centers wc
+JOIN public.mfg_routing_steps rs ON wc.id = rs.work_center_id
+JOIN public.mfg_order_progress op ON rs.id = op.step_id
+WHERE op.status = 'completed'
+GROUP BY wc.id, wc.name, wc.organization_id;
+
+-- منح الصلاحيات اللازمة للواجهة الأمامية
+GRANT SELECT ON public.v_mfg_bom_variance TO authenticated;
+GRANT SELECT ON public.v_mfg_work_center_efficiency TO authenticated;
+
 -- نهاية ملف الدوال السيادية

@@ -61,6 +61,13 @@ ALTER TABLE debit_notes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE work_order_costs ENABLE ROW LEVEL SECURITY;
 
+-- تفعيل الحماية لجداول مديول التصنيع (MFG) لضمان عزل البيانات ودعم اليوزر العالمي
+ALTER TABLE IF EXISTS mfg_production_orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS mfg_work_centers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS mfg_routing_steps ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS mfg_order_progress ENABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS mfg_actual_material_usage ENABLE ROW LEVEL SECURITY;
+
 -- =================================================================
 -- تعريف السياسات (Policies)
 -- =================================================================
@@ -130,7 +137,8 @@ DECLARE
         'sales_returns', 'sales_return_items', 'purchase_invoices', 'purchase_invoice_items', 'invoices', 'invoice_items',
         'purchase_returns', 'purchase_return_items', 'opening_inventories', 'budgets'
         , 'work_order_material_usage', 'notification_audit_log', 'notification_preferences', 'notifications',
-        'system_error_logs', 'order_item_modifiers', 'payroll_variables', 'employee_allowances'
+        'system_error_logs', 'order_item_modifiers', 'payroll_variables', 'employee_allowances',
+        'mfg_production_orders', 'mfg_work_centers', 'mfg_routing_steps', 'mfg_order_progress', 'mfg_actual_material_usage'
     ];
 BEGIN
     FOREACH t IN ARRAY basic_tables LOOP

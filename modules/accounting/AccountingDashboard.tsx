@@ -314,14 +314,18 @@ export default function AccountingDashboard() {
               'journal_lines', 'invoice_items', 'purchase_invoice_items', 
               'quotation_items', 'purchase_order_items', 'sales_return_items', 
               'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items', 
-              'inventory_count_items', 'payroll_items',
-              // جداول تفاصيل المطعم
-              'order_items', 'kitchen_orders', 'payments', 'inventory_transactions'
+          'inventory_count_items', 'payroll_items', 'work_order_material_usage', 
+          'mfg_actual_material_usage', 'mfg_order_progress',              // جداول تفاصيل المطعم
+          'order_items', 'kitchen_orders', 'payments'
           ];
           
           for (const table of tablesLines) {
+          try {
               await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          } catch (e) {
+              console.warn(`Table ${table} could not be cleared or does not exist`);
           }
+       }
 
           // 2. حذف المستندات (Documents)
           const tablesDocs = [
@@ -336,8 +340,12 @@ export default function AccountingDashboard() {
           ];
           
           for (const table of tablesDocs) {
+          try {
               await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          } catch (e) {
+              console.warn(`Table ${table} could not be cleared or does not exist`);
           }
+     }
 
           // 3. حذف القيود اليومية (Journal Entries)
           await supabase.from('journal_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -356,6 +364,59 @@ export default function AccountingDashboard() {
       } catch (e: any) {
           console.error(e);
           showToast('حدث خطأ أثناء التصفير: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleClearManufacturingOnly = async () => {
+      if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin') {
+          showToast('هذا الإجراء متاح فقط للمدير العام', 'warning');
+          return;
+      }
+
+      if (!window.confirm('⚠️ تحذير مديول التصنيع ⚠️\n\nسيتم حذف جميع أوامر التشغيل، استهلاك المواد، وقيود التكاليف الصناعية فقط.\nلن تتأثر المبيعات أو المشتريات أو الحسابات.\n\nهل تريد الاستمرار؟')) return;
+
+      setLoading(true);
+      try {
+          // 1. حذف حركات الاستهلاك والقيود المرتبطة بمديول التصنيع
+          // حذف قيود اليومية المرتبطة بالتصنيع أولاً
+          const { data: mfgEntries } = await supabase
+              .from('journal_entries')
+              .select('id')
+              .or('reference.ilike.MFG-%,description.ilike.%تصنيع%');
+
+          if (mfgEntries && mfgEntries.length > 0) {
+              const entryIds = mfgEntries.map(e => e.id);
+              await supabase.from('journal_lines').delete().in('journal_entry_id', entryIds);
+              await supabase.from('journal_entries').delete().in('id', entryIds);
+          }
+
+          // 2. حذف حركات مديول التصنيع
+          const mfgTables = [
+              'work_order_material_usage',
+              'mfg_actual_material_usage',
+              'work_orders',
+              'mfg_order_progress'
+          ];
+
+          for (const table of mfgTables) {
+              try {
+                  await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+              } catch (e) {
+                  console.warn(`Table ${table} might not exist or is empty`);
+              }
+          }
+
+          // 3. إعادة احتساب المخزون للحفاظ على التوازن
+          await supabase.rpc('recalculate_stock_rpc');
+          await clearCache();
+
+          showToast('تم تصفير مديول التصنيع بنجاح وإعادة احتساب المخزون ✅', 'success');
+          window.location.reload();
+      } catch (e: any) {
+          console.error(e);
+          showToast('حدث خطأ أثناء تصفير مديول التصنيع: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -385,10 +446,11 @@ export default function AccountingDashboard() {
           try { await supabase.from('modifiers').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
           try { await supabase.from('modifier_groups').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
           try { await supabase.from('bill_of_materials').delete().neq('product_id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
-          try { await supabase.from('inventory_transactions').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+          try { await supabase.from('mfg_actual_material_usage').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+          try { await supabase.from('work_order_material_usage').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
           try { await supabase.from('opening_inventories').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
 
-          const tables = ['products', 'customers', 'suppliers', 'employees'];
+          const tables = ['products', 'customers', 'suppliers', 'employees', 'item_categories', 'menu_categories'];
           for (const table of tables) {
               const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
               if (error) throw error;
@@ -451,6 +513,14 @@ export default function AccountingDashboard() {
                     >
                         <Trash2 size={16} />
                         تصفير العمليات
+                    </button>
+                    <button 
+                        onClick={handleClearManufacturingOnly}
+                        className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm font-bold text-sm"
+                        title="تصفير مديول التصنيع فقط (أوامر الشغل والتكاليف)"
+                    >
+                        <Activity size={16} />
+                        تصفير التصنيع
                     </button>
                     <button 
                         onClick={handleClearMasterData}

@@ -151,8 +151,10 @@ BEGIN
     -- المصروفات
     ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'),
     ('512', 'تسويات الجرد (عجز المخزون)', 'expense', false, '51'),
-    ('5121', 'تكلفة الهالك والفاقد', 'expense', false, '51'),
-    ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
+    ('5121', 'تكلفة الهالك والفاقد', 'expense', false, '51'), -- متاح الآن لكل الشركات
+    ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'), -- متاح الآن لكل الشركات
+    -- لإضافة حساب جديد: ('CODE', 'NAME', 'TYPE', IS_GROUP, 'PARENT_CODE')
+    
     ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
     ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
     ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
@@ -269,6 +271,8 @@ BEGIN
             'INVENTORY_WIP', v_wip_id,
             'LABOR_COST_ALLOCATED', v_labor_mfg_id,
             'WASTAGE_EXPENSE', v_wastage_id
+            -- أضف الربط الآلي هنا للحساب الجديد بنفس النمط
+        
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
 

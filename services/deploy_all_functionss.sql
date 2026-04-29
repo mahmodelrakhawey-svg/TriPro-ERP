@@ -576,6 +576,11 @@ BEGIN
     SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id AND organization_id = v_org_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود.'; END IF;
 
+    -- 🛡️ منع استخدام حساب الأرصدة الافتتاحية (3999) لترحيل سندات الصرف العادية
+    IF (SELECT code FROM public.accounts WHERE id = p_debit_account_id) = '3999' THEN
+        RAISE EXCEPTION '⚠️ خطأ محاسبي: لا يمكن استخدام حساب الأرصدة الافتتاحية (3999) لترحيل سندات الصرف العادية. يرجى اختيار حساب المصروف الصحيح.';
+    END IF;
+
     -- 🛡️ ضمان جذري: حذف أي قيود تحمل نفس رقم السند لنفس المنظمة منعاً للتكرار التاريخي
     DELETE FROM public.journal_entries 
     WHERE organization_id = v_org_id 
@@ -1168,6 +1173,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_pa
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
+    v_labor_mfg_id uuid; v_wastage_id uuid; v_raw_id uuid; v_wip_id uuid;
 BEGIN
     v_vat_rate := CASE WHEN p_activity_type = 'construction' THEN 0.05 WHEN p_activity_type = 'charity' THEN 0.00 ELSE 0.14 END;
     SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
@@ -1195,6 +1201,8 @@ BEGIN
     ('411', 'إيراد المبيعات', 'revenue', false, '41'), ('412', 'مردودات المبيعات', 'revenue', false, '41'), ('413', 'خصم مسموح به', 'revenue', false, '41'),
     ('421', 'إيرادات متنوعة', 'revenue', false, '42'), ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'), ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
     ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'), ('512', 'تسويات الجرد (عجز المخزون)', 'expense', false, '51'),
+    ('5121', 'تكلفة الهالك والفاقد', 'expense', false, '51'),
+    ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
     ('521', 'دعاية وإعلان', 'expense', false, '52'), ('522', 'عمولات بيع وتسويق', 'expense', false, '52'), ('523', 'نقل ومشال للخارج', 'expense', false, '52'), ('524', 'تعبئة وتغليف', 'expense', false, '52'),
     ('5251', 'عمولة فودافون كاش', 'expense', false, '525'), ('5252', 'عمولة فوري', 'expense', false, '525'), ('5253', 'عمولة تحويلات بنكية', 'expense', false, '525'),
     ('531', 'الرواتب والأجور', 'expense', false, '53'), ('5311', 'بدلات وانتقالات', 'expense', false, '53'), ('5312', 'مكافآت وحوافز', 'expense', false, '53'), ('532', 'إيجار مقرات إدارية', 'expense', false, '53'), ('533', 'إهلاك الأصول الثابتة', 'expense', false, '53'), ('534', 'رسوم ومصروفات بنكية', 'expense', false, '53'), ('535', 'كهرباء ومياه وغاز', 'expense', false, '53'), ('536', 'اتصالات وإنترنت', 'expense', false, '53'), ('537', 'صيانة وإصلاح', 'expense', false, '53'), ('538', 'أدوات مكتبية ومطبوعات', 'expense', false, '53'), ('539', 'ضيافة واستقبال', 'expense', false, '53'), ('541', 'تسوية عجز الصندوق', 'expense', false, '53'), ('542', 'إكراميات', 'expense', false, '53'), ('543', 'مصاريف نظافة', 'expense', false, '53');
@@ -1202,15 +1210,13 @@ BEGIN
     IF p_activity_type = 'restaurant' THEN
         INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
         ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
-        ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41'),
-        ('5121', 'تكلفة الهالك والضيافة', 'expense', false, '51');
+        ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41');
     END IF;
 
     -- إضافات خاصة بنشاط التصنيع
     IF p_activity_type = 'manufacturing' THEN
         INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
         ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
-        ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
         ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
         ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
         ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
@@ -1280,6 +1286,12 @@ BEGIN
     v_bonus_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5312' LIMIT 1);
     v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
     v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
+    v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
+    v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
+    v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
+    v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
+    v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
+
     -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
@@ -1288,7 +1300,11 @@ BEGIN
             'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
-            'RETAINED_EARNINGS', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1)
+            'RETAINED_EARNINGS', v_retained_id,
+            'INVENTORY_RAW_MATERIALS', v_raw_id,
+            'INVENTORY_WIP', v_wip_id,
+            'LABOR_COST_ALLOCATED', v_labor_mfg_id,
+            'WASTAGE_EXPENSE', v_wastage_id
         ),
         v_warehouse_id,
         v_cash_id

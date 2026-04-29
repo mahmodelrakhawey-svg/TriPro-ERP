@@ -69,6 +69,10 @@ export const SYSTEM_ACCOUNTS = {
   WITHHOLDING_TAX: '2232', // ضريبة الخصم والتحصيل
   EMPLOYEE_ADVANCES: '1223', // سلف الموظفين
   PAYROLL_TAX: '2233', // ضريبة كسب العمل
+  LABOR_COST_ALLOCATED: '513', // أجور عمال الإنتاج المباشرة
+  WASTAGE_EXPENSE: '5121', // تكلفة الهالك والفاقد
+  // أضف أي حساب جديد هنا بنفس الطريقة: KEY: 'CODE'
+
 };
 
 // ------------------------------------------------------------------
@@ -257,6 +261,8 @@ const FULL_DEMO_ACCOUNTS_RAW = [
   { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_account: '4' },
   { code: '421', name: 'إيرادات متنوعة', type: 'REVENUE', is_group: false, parent_account: '4' },
   { code: '5', name: 'المصروفات', type: 'EXPENSE', is_group: true, parent_account: null },
+  { code: '513', name: 'أجور عمال الإنتاج المباشرة', type: 'EXPENSE', is_group: false, parent_account: '5' },
+  { code: '5121', name: 'تكلفة الهالك والفاقد', type: 'EXPENSE', is_group: false, parent_account: '5' },
   { code: '511', name: 'تكلفة البضاعة المباعة', type: 'EXPENSE', is_group: false, parent_account: '5' },
   { code: '531', name: 'الرواتب والأجور', type: 'EXPENSE', is_group: false, parent_account: '5' },
   { code: '535', name: 'كهرباء ومياه وغاز', type: 'EXPENSE', is_group: false, parent_account: '5' },
