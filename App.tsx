@@ -117,6 +117,9 @@ import GenealogyViewer from './services/mfg/GenealogyViewer';
 import ProductionProfitabilityReport from './services/mfg/ProductionProfitabilityReport';
 import WorkOrderManager from './modules/manufacturing/WorkOrderManager'; // Keep for now if still used elsewhere or for migration
 import RoutingBOMManager from './services/mfg/RoutingBOMManager'; // New import
+import MaterialRequestsList from './services/mfg/MaterialRequestsList'; // New import for Material Requests
+import { RawMaterialsTurnover } from './services/RawMaterialsTurnover'; // New import for Raw Materials Turnover
+import WIPMonthlySummaryReport from './services/mfg/WIPMonthlySummaryReport'; // New import for WIP Monthly Summary
 import UserProfile from './components/UserProfile';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
@@ -401,6 +404,9 @@ const MainLayout = () => {
                 <Route path="/mfg/variance-report" element={<ModuleGuard module="manufacturing"><BOMVarianceReport /></ModuleGuard>} />
                 <Route path="/mfg/genealogy" element={<ModuleGuard module="manufacturing"><GenealogyViewer /></ModuleGuard>} />
                 <Route path="/mfg/routing-bom" element={<ModuleGuard module="manufacturing"><RoutingBOMManager /></ModuleGuard>} /> {/* New Route */}
+                <Route path="/mfg/material-requests" element={<ModuleGuard module="manufacturing"><MaterialRequestsList /></ModuleGuard>} /> {/* New Route */}
+                <Route path="/mfg/raw-materials-turnover" element={<ModuleGuard module="manufacturing"><RawMaterialsTurnover /></ModuleGuard>} /> {/* New Route */}
+                <Route path="/mfg/wip-monthly-summary" element={<ModuleGuard module="manufacturing"><WIPMonthlySummaryReport /></ModuleGuard>} /> {/* New Route */}
                 {/* <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} /> */} {/* Removed old work orders route */}
                 <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
                 <Route path="/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />

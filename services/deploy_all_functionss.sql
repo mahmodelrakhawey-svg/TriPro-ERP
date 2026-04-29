@@ -2989,9 +2989,70 @@ BEGIN
     END LOOP;
     RETURN 'تمت مزامنة كافة الصلاحيات لكل مديري الشركات بنجاح ✅';
 END; $$;
--- ================================================================
--- 7. حماية النزاهة المحاسبية (Accounting Integrity Guards)
--- ================================================================
+
+-- 7.1 دالة مساعدة: جلب رصيد حساب في تاريخ محدد (Helper for Historical Balance)
+-- الغرض: تستخدم لحساب الأرصدة الافتتاحية والختامية للفترات المحاسبية
+CREATE OR REPLACE FUNCTION public.get_account_balance_at_date(p_account_id uuid, p_date date, p_org_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_balance numeric;
+BEGIN
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+    INTO v_balance
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    WHERE jl.account_id = p_account_id
+      AND je.organization_id = p_org_id
+      AND je.status = 'posted' -- نعتمد فقط على القيود المرحلة
+      AND je.transaction_date <= p_date; -- نجمع كل الحركات حتى التاريخ المحدد
+    RETURN v_balance;
+END; $$;
+
+-- 7.2 دالة حساب معدل دوران المواد الخام (Raw Materials Turnover)
+-- الغرض: قياس كفاءة إدارة المخزون من المواد الخام خلال فترة محددة
+CREATE OR REPLACE FUNCTION public.mfg_calculate_raw_material_turnover(p_org_id uuid, p_start_date date, p_end_date date)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_cost_of_raw_materials_used numeric := 0;
+    v_beginning_raw_materials_inventory numeric := 0;
+    v_ending_raw_materials_inventory numeric := 0;
+    v_average_raw_materials_inventory numeric := 0;
+    v_raw_materials_account_id uuid;
+BEGIN
+    -- 1. جلب معرف حساب مخزون المواد الخام (Code: 10301)
+    SELECT id INTO v_raw_materials_account_id
+    FROM public.accounts
+    WHERE organization_id = p_org_id AND code = '10301' LIMIT 1;
+
+    IF v_raw_materials_account_id IS NULL THEN
+        RAISE EXCEPTION 'حساب مخزون المواد الخام (10301) غير معرف للمنظمة %', p_org_id;
+    END IF;
+
+    -- 2. حساب تكلفة المواد الخام المستخدمة (Numerator)
+    -- نجمع قيمة الدائن لحساب مخزون المواد الخام من القيود المتعلقة بالتصنيع خلال الفترة
+    SELECT COALESCE(SUM(jl.credit), 0)
+    INTO v_cost_of_raw_materials_used
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    WHERE jl.account_id = v_raw_materials_account_id
+      AND je.organization_id = p_org_id
+      AND je.status = 'posted'
+      AND je.transaction_date BETWEEN p_start_date AND p_end_date
+      AND je.related_document_type IN ('mfg_material_request', 'mfg_step'); -- تصفية للعمليات التصنيعية التي تستهلك المواد الخام
+
+    -- 3. حساب متوسط مخزون المواد الخام (Denominator)
+    -- نستخدم الدالة المساعدة الجديدة لجلب الرصيد في تاريخ محدد
+    v_beginning_raw_materials_inventory := public.get_account_balance_at_date(v_raw_materials_account_id, p_start_date - INTERVAL '1 day', p_org_id);
+    v_ending_raw_materials_inventory := public.get_account_balance_at_date(v_raw_materials_account_id, p_end_date, p_org_id);
+
+    v_average_raw_materials_inventory := (v_beginning_raw_materials_inventory + v_ending_raw_materials_inventory) / 2;
+
+    IF v_average_raw_materials_inventory <= 0 THEN
+        RETURN 0; -- تجنب القسمة على صفر إذا كان متوسط المخزون صفراً أو سالباً
+    END IF;
+
+    RETURN ROUND(v_cost_of_raw_materials_used / v_average_raw_materials_inventory, 2);
+END; $$;
 
 -- 🛡️ منع ترحيل أي قيد يدوي غير متوازن (مدين != دائن) لضمان سلامة الميزان
 CREATE OR REPLACE FUNCTION public.fn_validate_journal_entry_balance()

@@ -115,6 +115,19 @@ CREATE TABLE IF NOT EXISTS public.mfg_scrap_logs (
     created_at timestamptz DEFAULT now()
 );
 
+-- 9.5 جدول تسجيل انحرافات الإنتاج (Production Variances Table)
+CREATE TABLE IF NOT EXISTS public.mfg_production_variances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
+    actual_total_cost numeric DEFAULT 0,
+    standard_total_cost numeric DEFAULT 0,
+    variance_amount numeric DEFAULT 0,
+    variance_percentage numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(production_order_id)
+);
+
 -- 10. رؤية لوحة تحكم التصنيع (Manufacturing Dashboard View)
 DROP VIEW IF EXISTS public.v_mfg_dashboard CASCADE;
 CREATE VIEW public.v_mfg_dashboard AS
@@ -144,10 +157,13 @@ SELECT
         ELSE 0 
     END as completion_percentage,
     COALESCE(ps.total_labor_cost, 0) as current_labor_cost,
-    po.organization_id
+    po.organization_id,
+    pv.variance_amount,
+    pv.variance_percentage
 FROM public.mfg_production_orders po
 JOIN public.products p ON po.product_id = p.id
-LEFT JOIN progress_stats ps ON po.id = ps.production_order_id;
+LEFT JOIN progress_stats ps ON po.id = ps.production_order_id
+LEFT JOIN public.mfg_production_variances pv ON po.id = pv.production_order_id;
 
 -- 11. جداول تتبع الدفعات والأرقام التسلسلية (Batch & Serial Tracking)
 ALTER TABLE public.mfg_production_orders ADD COLUMN IF NOT EXISTS batch_number text;
