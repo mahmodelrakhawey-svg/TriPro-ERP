@@ -329,6 +329,7 @@ interface AccountingContextType {
   deleteRestaurantTable: (id: string) => Promise<void>;
   restaurantTables: RestaurantTable[];
   menuCategories: MenuCategory[];
+  createMaterialRequest: (orderId: string) => Promise<string | null>;
   addWastage: (data: { warehouseId: string, date: string, notes: string, items: any[] }) => Promise<boolean>;
   approveInvoice: (invoiceId: string) => Promise<boolean>;
   approveSalesInvoice: (invoiceId: string) => Promise<void>;
@@ -4047,6 +4048,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
   };
 
+  const createMaterialRequest = async (orderId: string) => {
+    if (isDemoState) {
+      showToast('تم إنشاء طلب صرف مواد (ديمو) بنجاح ✅', 'success');
+      return 'demo-request-id';
+    }
+    try {
+      const { data, error } = await supabase.rpc('mfg_create_material_request', { p_production_order_id: orderId });
+      if (error) throw error;
+      showToast('تم إنشاء طلب صرف المواد بناءً على BOM بنجاح ✅', 'success');
+      return data;
+    } catch (err: any) {
+      showToast('فشل إنشاء الطلب: ' + err.message, 'error');
+      return null;
+    }
+  };
+
   const updateRestaurantTable = async (id: string, updates: Partial<Omit<RestaurantTable, 'id' | 'created_at' | 'updated_at' | 'status'>>) => {
     if (isDemoState) {
         setRestaurantTables(prev => prev.map(t => t.id === id ? { ...t, ...updates, updated_at: new Date().toISOString() } : t).sort((a, b) => a.name.localeCompare(b.name)));
@@ -4348,6 +4365,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,
       openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, createRestaurantOrder, addRestaurantOrderItem, completeRestaurantOrder, restaurantTables, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, menuCategories, updateKitchenOrderStatus, getOpenTableOrder,
+      createMaterialRequest,
       addWastage,
       approveInvoice,
       quotations, addQuotation, convertQuotationToInvoice, updateQuotationStatus,
