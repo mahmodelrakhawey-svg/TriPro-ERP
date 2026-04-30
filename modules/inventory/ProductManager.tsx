@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -24,6 +24,7 @@ const createProductSchema = z.object({
     sales_account_id: z.string().uuid('حساب المبيعات غير صحيح').optional(),
     labor_cost: z.number().optional(),
     overhead_cost: z.number().optional(),
+    requires_serial: z.boolean().optional(),
 }).refine(data => data.sales_price >= data.purchase_price, {
     message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
     path: ['sales_price']
@@ -55,8 +56,39 @@ type Item = {
   unit?: string;
   offer_max_qty?: number | null;
   labor_cost?: number;
+  requires_serial: boolean; // Make it non-optional as it always has a default value in DB
   overhead_cost?: number;
   is_overhead_percentage?: boolean;
+  available_modifiers?: any[]; // Added this line to Item type
+};
+
+// Define a type for the formData state to ensure consistency
+type ProductFormData = {
+  name: string;
+  sku: string;
+  barcode: string;
+  sales_price: number;
+  description: string;
+  purchase_price: number;
+  unit: string;
+  product_type: 'STOCK' | 'SERVICE' | 'RAW_MATERIAL' | 'MANUFACTURED';
+  inventory_account_id: string;
+  cogs_account_id: string;
+  sales_account_id: string;
+  image_url: string;
+  opening_stock: number;
+  category_id: string | null;
+  min_stock_level: number;
+  requires_serial: boolean;
+  expiry_date: string;
+  offer_price: number;
+  offer_start_date: string;
+  offer_end_date: string;
+  offer_max_qty: number;
+  available_modifiers: any[];
+  labor_cost: number;
+  overhead_cost: number;
+  is_overhead_percentage: boolean;
 };
 
 const ProductManager = () => {
@@ -195,7 +227,7 @@ const ProductManager = () => {
   };
 
   // بيانات النموذج
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<ProductFormData>({
     name: '',
     sku: '',
     barcode: '',
@@ -211,6 +243,7 @@ const ProductManager = () => {
     opening_stock: 0,
     category_id: null,
     min_stock_level: 0, // حقل حد الطلب
+    requires_serial: false,
     expiry_date: '',
     offer_price: 0,
     offer_start_date: '',
@@ -242,6 +275,10 @@ const ProductManager = () => {
   }, [formData.labor_cost, formData.overhead_cost, formData.is_overhead_percentage, formData.product_type, recipeCost]);
 
   const handleOpenModal = async (item?: Item) => {
+    const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
+    const defaultCogs = getSystemAccount('COGS')?.id || '';
+    const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
+
     if (item) {
       // جلب تكلفة المكونات من قاعدة البيانات عند فتح الصنف للتعديل
       try {
@@ -250,26 +287,21 @@ const ProductManager = () => {
       } catch (e) {
         setRecipeCost(0);
       }
-
-      const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
-      const defaultCogs = getSystemAccount('COGS')?.id || '';
-      const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
-
       // التحقق من صلاحية الحسابات المرتبطة بالصنف، وإذا لم تكن صالحة، استخدم الحسابات الافتراضية
       const inventoryAccId = accounts.assets.find(a => a.id === item.inventory_account_id) ? item.inventory_account_id : defaultInventory;
       const cogsAccId = accounts.expenses.find(a => a.id === item.cogs_account_id) ? item.cogs_account_id : defaultCogs;
       const salesAccId = accounts.revenue.find(a => a.id === item.sales_account_id) ? item.sales_account_id : defaultSales;
 
       setEditingId(item.id);
-      setFormData({
+      const productDataToSet: ProductFormData = { // Explicitly type the object literal
         name: item.name,
         sku: item.sku || '',
         barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
         description: item.description || '',
         purchase_price: item.purchase_price || 0,
-        unit: (item as any).unit || 'قطعة',
-        product_type: (item as any).product_type || (item as any).item_type || 'STOCK', // Handle both for compatibility
+        unit: item.unit || 'قطعة', // Removed (item as any)
+        product_type: item.product_type, // Use item.product_type directly
         inventory_account_id: inventoryAccId || '',
         cogs_account_id: cogsAccId || '',
         sales_account_id: salesAccId || '',
@@ -277,25 +309,26 @@ const ProductManager = () => {
         opening_stock: 0,
         category_id: item.category_id || null,
         min_stock_level: item.min_stock_level || 0,
+        requires_serial: item.requires_serial, // Now it's guaranteed to be boolean
         expiry_date: item.expiry_date || '',
         offer_price: item.offer_price || 0,
         offer_start_date: item.offer_start_date || '',
         offer_end_date: item.offer_end_date || '',
         offer_max_qty: item.offer_max_qty || 0,
-        available_modifiers: (item as any).available_modifiers || [],
+        available_modifiers: item.available_modifiers || [], // Use item.available_modifiers directly
         labor_cost: item.labor_cost || 0,
         overhead_cost: item.overhead_cost || 0,
         is_overhead_percentage: item.is_overhead_percentage || false
-      });
+      };
+      setFormData(productDataToSet); // Pass the explicitly typed object    } else {
+      setFormData(productDataToSet); 
     } else {
       setRecipeCost(0);
       setEditingId(null);
       // تعيين قيم افتراضية للحسابات إذا وجدت لتسهيل الإدخال
-      const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
-      const defaultCogs = getSystemAccount('COGS')?.id || '';
-      const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
 
-      setFormData({ 
+
+      setFormData({ // This is the initial state, which is already correctly typed
         name: '', 
         sku: '', 
         barcode: '',
@@ -303,6 +336,7 @@ const ProductManager = () => {
         sales_price: 0, 
         purchase_price: 0, 
         unit: 'قطعة',
+        requires_serial: false,
         product_type: 'STOCK', // Default to STOCK for new products
         inventory_account_id: defaultInventory,
         cogs_account_id: defaultCogs,
@@ -956,7 +990,7 @@ const ProductManager = () => {
             unit: formData.unit,
             sales_price: formData.sales_price,
             purchase_price: formData.purchase_price,
-            product_type: formData.product_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
+            product_type: formData.product_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL',
             inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
             cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.cogs_account_id : null,
             sales_account_id: formData.sales_account_id,
@@ -964,6 +998,7 @@ const ProductManager = () => {
             organization_id: orgId,
             category_id: formData.category_id || null,
             is_active: true,
+            requires_serial: formData.requires_serial,
             min_stock_level: formData.min_stock_level,
             expiry_date: formData.expiry_date || null,
             offer_price: formData.offer_price || null,
@@ -999,6 +1034,7 @@ const ProductManager = () => {
           is_active: true,
           min_stock_level: formData.min_stock_level,
           category_id: formData.category_id || null,
+          requires_serial: formData.requires_serial,
           expiry_date: formData.expiry_date || null,
           offer_price: formData.offer_price || null,
           offer_start_date: formData.offer_start_date || null,
@@ -1171,6 +1207,7 @@ const ProductManager = () => {
         image_url: item.image_url || '',
         opening_stock: 0,
         min_stock_level: item.min_stock_level || 0,
+        requires_serial: item.requires_serial,
         expiry_date: item.expiry_date || '',
         offer_price: item.offer_price || 0,
         offer_start_date: newStart,
@@ -1695,7 +1732,7 @@ const ProductManager = () => {
                   <span className={`px-2 py-1 rounded text-xs font-bold ${item.item_type === 'STOCK' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
                     {item.item_type === 'STOCK' ? 'مخزوني' :
                      item.item_type === 'SERVICE' ? 'خدمي' :
-                     item.item_type === 'MANUFACTURED' ? 'وجبة مطعم' :
+                     item.item_type === 'MANUFACTURED' ? 'منتج مصنع / وجبة' :
                      item.item_type}
                   </span>
                 </td>
@@ -1862,6 +1899,13 @@ const ProductManager = () => {
                     <div>
                         <label className="block text-sm font-bold mb-1 text-slate-700">تاريخ الصلاحية</label>
                         <input type="date" value={formData.expiry_date} onChange={e => setFormData({...formData, expiry_date: e.target.value})} className="w-full border rounded-lg p-2" />
+                    </div>                  
+                    <div className="flex items-center gap-2 pt-6">
+                        <label className="relative inline-flex items-center cursor-pointer">
+                          <input type="checkbox" checked={formData.requires_serial} onChange={e => setFormData({...formData, requires_serial: e.target.checked})} className="sr-only peer" />
+                          <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                          <span className="mr-3 text-sm font-bold text-slate-700">يتطلب رقم تسلسلي (Serial Number)</span>
+                        </label>
                     </div>
                   <div>
                     <div className="flex items-end gap-2">

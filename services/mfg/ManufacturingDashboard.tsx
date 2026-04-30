@@ -1,18 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
-import { useAccounting as useOrg } from '@/context/AccountingContext';
+import { useAccounting } from '@/context/AccountingContext';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, LineChart, Line 
 } from 'recharts';
 import { 
-  Factory, Activity, AlertOctagon, ClipboardCheck, 
-  TrendingUp, Package, Users, Clock 
+  Factory, Activity, AlertOctagon, ClipboardCheck, CheckCircle2,
+  TrendingUp, Package, Users, Clock, Loader2, ArrowRight, List
 } from 'lucide-react';
 
 const ManufacturingDashboard = () => {
-  const { organization } = useOrg();
+  const { organization, finalizeProductionOrder } = useAccounting();
   const orgId = organization?.id;
+  const [orders, setOrders] = useState<any[]>([]);
+  const [finishingId, setFinishingId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     activeOrders: 0,
     avgEfficiency: 0,
@@ -41,6 +43,14 @@ const ManufacturingDashboard = () => {
         .select('*')
         .eq('organization_id', orgId);
 
+      // جلب أوامر الإنتاج الجارية
+      const { data: ordersData } = await supabase
+        .from('v_mfg_dashboard')
+        .select('*')
+        .eq('organization_id', orgId)
+        .neq('status', 'completed')
+        .order('created_at', { ascending: false });
+
       // 3. جلب عدد الانحرافات العالية (>10%)
       const { count: varianceCount } = await supabase
         .from('v_mfg_bom_variance')
@@ -67,11 +77,22 @@ const ManufacturingDashboard = () => {
         pendingQC: qcCount || 0
       });
       setEfficiencyData(effData || []);
+      setOrders(ordersData || []);
       setLoading(false);
     };
 
     fetchDashboardData();
   }, [orgId]);
+
+  const handleFinalize = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من إغلاق الأمر؟ سيتم ترحيل التكاليف من WIP إلى المخزن وتوليد قيد المحاسبة النهائي.')) return;
+    setFinishingId(id);
+    const result = await finalizeProductionOrder(id);
+    if (result.success) {
+      setOrders(prev => prev.filter(o => o.order_id !== id));
+    }
+    setFinishingId(null);
+  };
 
   const StatCard = ({ title, value, icon: Icon, color, suffix = "" }) => (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
@@ -159,6 +180,77 @@ const ManufacturingDashboard = () => {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* جدول إدارة الأوامر والترحيل المحاسبي */}
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-4 border-b bg-gray-50 flex justify-between items-center">
+          <h2 className="font-bold text-gray-800 flex items-center gap-2">
+            <Package size={20} className="text-blue-600" /> متابعة وإغلاق أوامر الإنتاج
+          </h2>
+        </div>
+        <table className="w-full text-right text-sm">
+          <thead>
+            <tr className="bg-gray-50 text-gray-400 font-bold border-b">
+              <th className="p-4">رقم الأمر</th>
+              <th className="p-4">المنتج</th>
+              <th className="p-4 text-center">الكمية</th>
+              <th className="p-4 text-center">الإنجاز</th>
+              <th className="p-4 text-center">الحالة</th>
+              <th className="p-4 text-center">الإجراءات</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {orders.map((order) => (
+              <tr key={order.order_id} className="hover:bg-gray-50">
+                <td className="p-4 font-mono font-bold text-blue-600">{order.order_number}</td>
+                <td className="p-4 font-bold">{order.product_name}</td>
+                <td className="p-4 text-center">{order.quantity_to_produce}</td>
+                <td className="p-4 text-center">
+                  <div className="w-24 bg-gray-100 h-2 rounded-full mx-auto overflow-hidden">
+                    <div className="bg-emerald-500 h-full transition-all" style={{ width: `${order.completion_percentage}%` }} />
+                  </div>
+                  <span className="text-[10px] text-gray-400">{order.completion_percentage}%</span>
+                </td>
+                <td className="p-4 text-center">
+                  <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${order.status === 'in_progress' ? 'bg-blue-50 text-blue-600' : 'bg-amber-50 text-amber-600'}`}>
+                    {order.status === 'in_progress' ? 'قيد التنفيذ' : 'مسودة'}
+                  </span>
+                </td>
+                <td className="p-4 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    {order.status === 'completed' && (
+                      <button
+                        onClick={() => {
+                          window.location.hash = `#/mfg/genealogy?search=${order.order_number}`;
+                        }}
+                        className="flex items-center gap-1 bg-blue-50 text-blue-600 px-2 py-1 rounded-lg font-bold hover:bg-blue-100 transition-all border border-blue-100"
+                        title="عرض الأرقام التسلسلية المنتجة"
+                      >
+                        <List size={14} /> تتبع السيريالات
+                      </button>
+                    )}
+                    {order.can_finalize ? (
+                    <button
+                      onClick={() => handleFinalize(order.order_id)}
+                      disabled={finishingId === order.order_id}
+                      className="flex items-center gap-1 mx-auto bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-sm"
+                      title="إغلاق محاسبي نهائي وتوليد السيريالات"
+                    >
+                      {finishingId === order.order_id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                      إغلاق وترحيل
+                    </button>
+                    ) : !order.status.includes('completed') && (
+                      <span className="text-[10px] text-gray-400 italic">
+                        انتظار المراحل/QC
+                      </span>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

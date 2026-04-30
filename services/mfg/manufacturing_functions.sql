@@ -127,7 +127,36 @@ BEGIN
         END IF;
     END IF;
 END; $$;
+-- 6.5 دالة تحديث التكلفة الفعلية للمنتج (Helper for finalization)
+CREATE OR REPLACE FUNCTION public.mfg_update_selling_price_from_cost(p_order_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_order record;
+    v_total_cost numeric := 0;
+BEGIN
+    SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
+    
+    -- حساب إجمالي التكاليف الفعلية لهذه الدفعة
+    SELECT SUM(COALESCE(labor_cost_actual, 0)) INTO v_total_cost
+    FROM public.mfg_order_progress WHERE production_order_id = p_order_id;
 
+    v_total_cost := v_total_cost + COALESCE((
+        SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
+        FROM public.mfg_actual_material_usage amu
+        JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+        JOIN public.products p ON amu.raw_material_id = p.id
+        WHERE op.production_order_id = p_order_id
+    ), 0);
+
+    -- تحديث متوسط التكلفة في بطاقة الصنف ليعكس الواقع الصناعي
+    IF v_order.quantity_to_produce > 0 THEN
+        UPDATE public.products 
+        SET cost = v_total_cost / v_order.quantity_to_produce,
+            weighted_average_cost = v_total_cost / v_order.quantity_to_produce
+        WHERE id = v_order.product_id;
+    END IF;
+END; $$;
 -- 7. دالة الإغلاق النهائي لطلب الإنتاج (MFG Finalization)
 -- تقوم بنقل التكلفة من الإنتاج تحت التشغيل (WIP) إلى المنتج التام (Finished Goods)
 CREATE OR REPLACE FUNCTION public.mfg_finalize_order(p_order_id uuid)
@@ -197,10 +226,13 @@ BEGIN
         VALUES (v_je_id, v_wip_acc, 0, v_total_cost, 'إخلاء حساب الإنتاج تحت التشغيل', v_org_id);
     END IF;
 
-    -- 5. تحديث سعر البيع بناءً على التكلفة الفعلية وهامش الربح
+    -- 5. توليد الأرقام التسلسلية آلياً (إذا كان المنتج يتطلب ذلك)
+    PERFORM public.mfg_generate_batch_serials(p_order_id);
+
+    -- 6. تحديث سعر البيع بناءً على التكلفة الفعلية وهامش الربح
     PERFORM public.mfg_update_selling_price_from_cost(p_order_id);
 
-    -- 6. حساب انحراف التكلفة بعد الإغلاق (للوحة التحكم والتقارير)
+    -- 7. حساب انحراف التكلفة بعد الإغلاق (للوحة التحكم والتقارير)
     PERFORM public.mfg_calculate_production_variance(p_order_id);
 END; $$;
 
@@ -372,7 +404,7 @@ BEGIN
         (v_mappings->>'WASTAGE_EXPENSE')::uuid, 
         (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1)
     );
-    v_wip_acc := (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1);
+    v_wip_acc := COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1));
 
     IF v_scrap_acc IS NOT NULL AND v_cost > 0 THEN
         INSERT INTO public.journal_entries (
@@ -468,18 +500,22 @@ DECLARE
     v_i integer;
     v_serial text;
 BEGIN
-    SELECT po.*, p.requires_serial INTO v_order 
+    -- جلب بيانات الطلب وكود المنتج (SKU)
+    SELECT po.*, p.requires_serial, p.sku INTO v_order 
     FROM public.mfg_production_orders po
     JOIN public.products p ON po.product_id = p.id
     WHERE po.id = p_order_id;
 
     IF v_order.requires_serial THEN
         FOR v_i IN 1..v_order.quantity_to_produce LOOP
-            v_serial := 'SN-' || v_order.order_number || '-' || LPAD(v_i::text, 4, '0');
+            -- تخصيص شكل السيريال: SN-[كود المنتج]-[رقم الطلب]-[التسلسل]
+            v_serial := 'SN-' || COALESCE(v_order.sku, 'PROD') || '-' || v_order.order_number || '-' || LPAD(v_i::text, 4, '0');
+            
             INSERT INTO public.mfg_batch_serials (production_order_id, product_id, serial_number, organization_id)
-            VALUES (p_order_id, v_order.product_id, v_serial, v_order.organization_id);
+            VALUES (p_order_id, v_order.product_id, v_serial, v_order.organization_id)
+            ON CONFLICT (serial_number, organization_id) DO NOTHING;
         END LOOP;
-    END IF;
+    END IF; -- توليد السيريالات يتم حتى لو لم تكن الحالة مكتملة بعد في بعض السيناريوهات
 END; $$;
 
 -- تحديث دالة mfg_finalize_order لتشمل توليد السيريالات
@@ -559,6 +595,19 @@ BEGIN
     RETURN NEXT;
 
     -- تنظيف بيانات الاختبار (اختياري، يفضل إبقاؤها في بيئة التجربة)
+END; $$;
+
+-- دالة البحث عن السيريالات المرتبطة بطلب
+CREATE OR REPLACE FUNCTION public.mfg_get_serials_by_order(p_order_number text)
+RETURNS TABLE (serial_number text, status text, created_at timestamptz) 
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT bs.serial_number, bs.status, bs.created_at
+    FROM public.mfg_batch_serials bs
+    JOIN public.mfg_production_orders po ON bs.production_order_id = po.id
+    WHERE po.order_number = p_order_number 
+    AND bs.organization_id = public.get_my_org();
 END; $$;
 
 -- 14. دالة تتبع "نسب" المنتج (Product Genealogy / Traceability)
@@ -1224,58 +1273,26 @@ GRANT SELECT ON public.v_mfg_wip_monthly_summary TO authenticated;
 
 -- 28. دالة المشغل لإنشاء طلب صرف مواد تلقائياً عند بدء الإنتاج
 -- تقوم هذه الدالة بتوليد طلب مواد بناءً على قائمة المواد المعيارية (BOM) فور بدء العمل
-CREATE OR REPLACE FUNCTION public.fn_mfg_auto_create_material_request()
-RETURNS TRIGGER AS $$
+
+
+-- 30. دالة إلغاء أمر إنتاج وتنظيف الحركات المرتبطة (Prevent Orphans)
+CREATE OR REPLACE FUNCTION public.mfg_cancel_order(p_order_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_order record;
 BEGIN
-    -- التدخل فقط عند تحول الحالة إلى 'in_progress'
-    IF (OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'in_progress') THEN
-        BEGIN
-            -- استدعاء دالة إنشاء الطلب التي قمنا ببنائها مسبقاً
-            PERFORM public.mfg_create_material_request(NEW.id);
-        EXCEPTION WHEN OTHERS THEN
-            -- تسجيل الخطأ في سجلات النظام لضمان عدم توقف العملية الأساسية في حال وجود مشكلة تقنية
-            INSERT INTO public.system_error_logs (error_message, function_name, organization_id)
-            VALUES ('فشل إنشاء طلب المواد التلقائي: ' || SQLERRM, 'fn_mfg_auto_create_material_request', NEW.organization_id);
-        END;
-    END IF;
-    RETURN NEW;
-END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+    SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
+    IF v_order.status = 'completed' THEN RAISE EXCEPTION 'لا يمكن إلغاء أمر إنتاج مكتمل ومرحل محاسبياً'; END IF;
 
--- ربط المشغل بجدول أوامر الإنتاج
-DROP TRIGGER IF EXISTS trg_mfg_auto_material_request ON public.mfg_production_orders;
-CREATE TRIGGER trg_mfg_auto_material_request
-AFTER UPDATE OF status ON public.mfg_production_orders
-FOR EACH ROW EXECUTE FUNCTION public.fn_mfg_auto_create_material_request();
+    -- 1. تحديث حالة الطلب
+    UPDATE public.mfg_production_orders SET status = 'cancelled', end_date = now()::date WHERE id = p_order_id;
 
--- 29. تقرير ملخص شهري لقيمة الإنتاج تحت التشغيل (WIP Monthly Summary)
--- يعرض قيمة المواد والعمالة المجمعة شهرياً حسب المنتج ومركز العمل لاتخاذ قرارات تسعير وتخطيط أفضل
-DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
-CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
-SELECT
-    to_char(po.created_at, 'YYYY-MM') AS month,
-    p.name AS product_name,
-    wc.name AS work_center_name,
-    po.organization_id,
-    COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
-    COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
-    (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
-FROM
-    public.mfg_production_orders po
-JOIN
-    public.products p ON po.product_id = p.id
-JOIN
-    public.mfg_order_progress op ON po.id = op.production_order_id
-JOIN
-    public.mfg_routing_steps rs ON op.step_id = rs.id
-JOIN
-    public.mfg_work_centers wc ON rs.work_center_id = wc.id
-LEFT JOIN
-    public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
-LEFT JOIN
-    public.products rm ON amu.raw_material_id = rm.id
-WHERE
-    po.status = 'in_progress'
-GROUP BY
-    1, 2, 3, 4;
+    -- 2. إلغاء طلبات صرف المواد المرتبطة التي لم يتم تنفيذها
+    UPDATE public.mfg_material_requests SET status = 'cancelled' 
+    WHERE production_order_id = p_order_id AND status IN ('pending', 'approved');
 
-GRANT SELECT ON public.v_mfg_wip_monthly_summary TO authenticated;
+    -- 3. حذف كافة مراحل التقدم التي لم تكتمل (لمنع وجود سجلات يتيمة)
+    DELETE FROM public.mfg_order_progress WHERE production_order_id = p_order_id AND status != 'completed';
+END; $$;

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { supabase } from './supabaseClient';
 
 // مكون صائد الأخطاء (Error Boundary) لمنع الشاشة البيضاء
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
@@ -30,10 +31,17 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
           </div>
 
           <button 
-            onClick={() => {
-                if(window.confirm('هل أنت متأكد؟ سيتم مسح جميع البيانات المحلية (مثل الجلسة الحالية) وإعادة تشغيل النظام.')) {
-                    localStorage.clear(); 
-                    window.location.reload();
+            onClick={async () => {
+                if(window.confirm('سيقوم النظام الآن بتنظيف الحركات اليتيمة من السيرفر ومسح الذاكرة المؤقتة للمتصفح. هل أنت متأكد؟')) {
+                    try {
+                        // استدعاء دالة التنظيف من السيرفر أولاً
+                        await supabase.rpc('purge_orphaned_financial_records');
+                        localStorage.clear(); 
+                        window.location.reload();
+                    } catch (e) {
+                        localStorage.clear();
+                        window.location.reload();
+                    }
                 }
             }}
             style={{ padding: '12px 24px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '16px', fontWeight: 'bold' }}

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -57,13 +57,17 @@ const StockCard = () => {
     description: '',
     purchase_price: 0,
     unit: 'قطعة',
-    product_type: 'STOCK' as 'STOCK' | 'SERVICE' | 'MANUFACTURED',
+    product_type: 'STOCK' as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL',
     inventory_account_id: '',
     cogs_account_id: '',
     sales_account_id: '',
     image_url: '',
     category_id: null as string | null,
     min_stock_level: 0,
+    requires_serial: false,
+    labor_cost: 0,
+    overhead_cost: 0,
+    is_overhead_percentage: false,
     expiry_date: '',
     offer_price: 0,
     offer_start_date: '',
@@ -469,13 +473,17 @@ const StockCard = () => {
               sales_price: item.sales_price || 0,
               purchase_price: item.purchase_price || 0,
               unit: item.unit || 'قطعة',
-              product_type: item.product_type || item.item_type || 'STOCK',
+              product_type: (item as any).product_type || (item as any).item_type || ((item as any).mfg_type ? 'MANUFACTURED' : 'STOCK'),
               inventory_account_id: inventoryAccId || '',
               cogs_account_id: cogsAccId || '',
               sales_account_id: salesAccId || '',
               image_url: item.image_url || '',
               category_id: item.category_id || null,
               min_stock_level: item.min_stock_level || 0,
+              requires_serial: Boolean((item as any).requires_serial),
+              labor_cost: (item as any).labor_cost || 0,
+              overhead_cost: (item as any).overhead_cost || 0,
+              is_overhead_percentage: (item as any).is_overhead_percentage || false,
               expiry_date: item.expiry_date || '',
               offer_price: item.offer_price || 0,
               offer_start_date: item.offer_start_date || '',
@@ -522,8 +530,13 @@ const StockCard = () => {
               sales_price: editFormData.sales_price,
               purchase_price: editFormData.purchase_price,
               product_type: editFormData.product_type,
-              inventory_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED') ? editFormData.inventory_account_id : null,
-              cogs_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED') ? editFormData.cogs_account_id : null,
+              unit: editFormData.unit,
+              requires_serial: editFormData.requires_serial,
+              labor_cost: editFormData.labor_cost,
+              overhead_cost: editFormData.overhead_cost,
+              is_overhead_percentage: editFormData.is_overhead_percentage,
+              inventory_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL') ? editFormData.inventory_account_id : null,
+              cogs_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL') ? editFormData.cogs_account_id : null,
               sales_account_id: editFormData.sales_account_id,
               image_url: editFormData.image_url,
               category_id: editFormData.category_id || null,
@@ -534,7 +547,10 @@ const StockCard = () => {
               offer_start_date: editFormData.offer_start_date || null,
               offer_end_date: editFormData.offer_end_date || null,
               offer_max_qty: editFormData.offer_max_qty || null,
-              available_modifiers: editFormData.available_modifiers || []
+              available_modifiers: editFormData.available_modifiers || [],
+              // ضمان تحديث نوع التصنيع للمديول الصناعي
+              mfg_type: editFormData.product_type === 'RAW_MATERIAL' ? 'raw' : 
+                        editFormData.product_type === 'MANUFACTURED' ? 'standard' : null
           };
           await updateProduct(selectedProductId, itemData);
           showToast('تم تحديث بيانات الصنف بنجاح ✅', 'success');
@@ -985,8 +1001,25 @@ const StockCard = () => {
                                     <label className="block text-sm font-bold mb-1 text-slate-700">نوع الصنف</label>
                                     <select value={editFormData.product_type} onChange={e => setEditFormData({...editFormData, product_type: e.target.value as any})} className="w-full border rounded-lg p-2 bg-white">
                                         <option value="STOCK">مخزوني (بضاعة)</option>
-                                        <option value="SERVICE">خدمة (ليس لها مخزون)</option>
-                                        <option value="MANUFACTURED">وجبة مطعم (تُصنع عند الطلب)</option>
+                                        <option value="RAW_MATERIAL">مواد خام (تصنيع)</option>
+                                        <option value="SERVICE">خدمة (غير مخزني)</option>
+                                        <option value="MANUFACTURED">منتج مصنع (يُصنع عند الطلب)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">وحدة القياس</label>
+                                    <select 
+                                        value={editFormData.unit} 
+                                        onChange={e => setEditFormData({...editFormData, unit: e.target.value})}
+                                        className="w-full border rounded-lg p-2 bg-white"
+                                    >
+                                        <option value="piece">قطعة (Piece)</option>
+                                        <option value="kg">كجم (KG)</option>
+                                        <option value="g">جرام (Gram)</option>
+                                        <option value="l">لتر (Liter)</option>
+                                        <option value="ml">مللي (ML)</option>
+                                        <option value="box">علبة/كرتون (Box)</option>
+                                        <option value="m">متر (Meter)</option>
                                     </select>
                                 </div>
                                 <div className="col-span-2 md:col-span-1">
@@ -1004,6 +1037,13 @@ const StockCard = () => {
                                 <div>
                                     <label className="block text-sm font-bold mb-1 text-slate-700">تاريخ الصلاحية</label>
                                     <input type="date" value={editFormData.expiry_date} onChange={e => setEditFormData({...editFormData, expiry_date: e.target.value})} className="w-full border rounded-lg p-2" />
+                                </div>
+                                <div className="flex items-center gap-2 pt-6">
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                      <input type="checkbox" checked={editFormData.requires_serial} onChange={e => setEditFormData({...editFormData, requires_serial: e.target.checked})} className="sr-only peer" />
+                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                                      <span className="mr-3 text-xs font-bold text-slate-700">تتبع بالأرقام التسلسلية</span>
+                                    </label>
                                 </div>
                                 <div>
                                     <label className="block text-sm font-bold mb-1 text-slate-700">التصنيف</label>

@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
-import { Search, History, Package, Settings, Clock, AlertCircle } from 'lucide-react';
+import { Search, History, Package, Settings, Clock, AlertCircle, List, ArrowRight, Printer } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 
 interface GenealogyData {
@@ -31,14 +31,49 @@ const GenealogyViewer = () => {
   const [serialSearch, setSerialSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<GenealogyData | null>(null);
+  const [foundSerials, setFoundSerials] = useState<any[]>([]);
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!serialSearch) return;
+  // دعم البحث التلقائي ومراقبة تغييرات الرابط
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hashPart = window.location.hash.split('?')[1];
+      const params = new URLSearchParams(hashPart || window.location.search);
+      const q = params.get('search');
+
+      if (q) {
+        setSerialSearch(q);
+        executeSearch(q);
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  const executeSearch = async (searchTerm: string) => {
+    const term = searchTerm?.trim();
+    if (!term) return;
 
     setLoading(true);
+    setData(null);
+    setFoundSerials([]);
+    
+    // 1. البحث أولاً: هل هذا "رقم أمر إنتاج"؟
+    const { data: serialsByOrder } = await supabase.rpc('mfg_get_serials_by_order', { 
+      p_order_number: term 
+    });
+
+    if (serialsByOrder && serialsByOrder.length > 0) {
+      setFoundSerials(serialsByOrder);
+      setData(null);
+      setLoading(false);
+      return;
+    }
+
+    // 2. إذا لم يكن رقم أمر، نبحث عنه كـ "رقم تسلسلي" مباشر
     const { data: result, error } = await supabase.rpc('mfg_get_product_genealogy', { 
-      p_serial_number: serialSearch 
+      p_serial_number: term 
     });
 
     if (error || result?.error) {
@@ -48,6 +83,75 @@ const GenealogyViewer = () => {
       setData(result);
     }
     setLoading(false);
+  };
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    executeSearch(serialSearch);
+  };
+
+  const selectSerial = (sn: string) => {
+    setSerialSearch(sn);
+    setFoundSerials([]);
+    setLoading(true);
+    
+    supabase.rpc('mfg_get_product_genealogy', { 
+      p_serial_number: sn 
+    }).then(({ data: result, error }) => {
+      if (error || result?.error) {
+        showToast(error?.message || result?.error, 'error');
+        setData(null);
+      } else {
+        setData(result);
+      }
+      setLoading(false);
+    });
+  };
+
+  const handlePrintSerial = () => {
+    if (!data) return;
+    const { name, serial_number, batch_number } = data.product_info;
+    const printWindow = window.open('', '', 'width=600,height=400');
+    if (printWindow) {
+        printWindow.document.write(`
+            <html dir="rtl">
+            <head>
+                <title>طباعة سيريال - ${serial_number}</title>
+                <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Tajawal', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+                    .label { 
+                        width: 80mm; 
+                        height: 40mm; 
+                        padding: 5mm; 
+                        text-align: center; 
+                        display: flex; 
+                        flex-direction: column; 
+                        justify-content: center;
+                        align-items: center;
+                        box-sizing: border-box;
+                    }
+                    .title { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+                    .serial-barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 42px; line-height: 1; margin: 5px 0; }
+                    .serial-text { font-family: monospace; font-size: 12px; font-weight: bold; }
+                    @media print {
+                        @page { size: 80mm 40mm; margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="label">
+                    <div class="title">${name}</div>
+                    <div class="serial-barcode">*${serial_number}*</div>
+                    <div class="serial-text">${serial_number}</div>
+                    <div style="font-size: 10px; margin-top: 5px;">رقم الدفعة: ${batch_number}</div>
+                </div>
+                <script>window.onload = function() { window.print(); window.close(); }</script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    }
   };
 
   return (
@@ -80,14 +184,44 @@ const GenealogyViewer = () => {
           </form>
         </div>
 
+        {/* عرض نتائج البحث برقم الأمر (قائمة السيريالات) */}
+        {foundSerials.length > 0 && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 animate-in fade-in">
+            <h2 className="font-bold text-gray-800 flex items-center gap-2 mb-4">
+              <List className="text-blue-500" size={20} /> الأرقام التسلسلية المنتجة لهذا الأمر
+            </h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {foundSerials.map((sn) => (
+                <button
+                  key={sn.serial_number}
+                  onClick={() => selectSerial(sn.serial_number)}
+                  className="p-3 bg-blue-50 text-blue-700 rounded-xl font-mono text-sm font-bold hover:bg-blue-100 transition-colors border border-blue-100 flex items-center justify-between group"
+                >
+                  {sn.serial_number}
+                  <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {data && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
             {/* Product Card */}
             <div className="md:col-span-1 space-y-6">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-                <h2 className="font-bold text-gray-800 flex items-center gap-2 mb-4 border-b pb-2">
-                  <Package className="text-blue-500" size={20} /> بيانات القطعة
-                </h2>
+                <div className="flex justify-between items-center mb-4 border-b pb-2">
+                  <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                    <Package className="text-blue-500" size={20} /> بيانات القطعة
+                  </h2>
+                  <button 
+                    onClick={handlePrintSerial} 
+                    className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" 
+                    title="طباعة ملصق السيريال"
+                  >
+                    <Printer size={18} />
+                  </button>
+                </div>
                 <div className="space-y-4">
                   <div><p className="text-xs text-gray-400">اسم المنتج</p><p className="font-bold">{data.product_info.name}</p></div>
                   <div><p className="text-xs text-gray-400">الرقم التسلسلي</p><p className="font-mono text-blue-600">{data.product_info.serial_number}</p></div>

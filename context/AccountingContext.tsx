@@ -304,6 +304,7 @@ interface AccountingContextType {
   deleteProduct: (id: string, reason?: string) => void;
   addProductsBulk: (products: Omit<Product, 'id'>[]) => void;
   produceItem: (productId: string, quantity: number, warehouseId: string, date: string, additionalCost?: number, reference?: string) => Promise<{ success: boolean, message: string }>;
+  finalizeProductionOrder: (orderId: string) => Promise<{ success: boolean, message: string }>;
   categories: Category[];
   addCategory: (name: string) => Promise<void>;
   updateCategory: (id: string, updates: Partial<Category>) => Promise<void>;
@@ -760,56 +761,82 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     try {
-      // استخدام Promise.all لجلب البيانات بشكل متوازي لتقليل وقت الانتظار
+      // جلب البيانات الخام (Raw) باستخدام Promise.allSettled لمنع انهيار النظام عند فشل طلب واحد
       const [
-        { data: whs, error: wError },
-        { data: sysSettings },
-        { data: orgData },
-        { data: fetchedAccounts, error: accError },
-        { data: jEntries, error: jError },
-        { data: custs },
-        { data: supps },
-        { data: prods },
-        { data: chqs },
-        { data: assetsData },
-        { data: employeesData },
-        { data: profilesData },
-        { data: salesInvoicesData },
-        { data: purchaseInvoicesData },
-        { data: rVouchers },
-        { data: pVouchers },
-        { data: notificationsData },
-        { data: depreciationData },
-        { data: allBalances }, // جلب أرصدة جميع الحسابات من السيرفر
-        { data: restaurantTablesData },
-        { data: menuCategoriesData },
-        { data: itemCategoriesData }
-      ] = await Promise.all([
-        shouldFetchProtected ? supabase.from('warehouses').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('company_settings').select('*').eq('organization_id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-        shouldFetchProtected && currentOrgId ? supabase.from('organizations').select('*').eq('id', currentOrgId).maybeSingle() : Promise.resolve({ data: null, error: null }),
-        shouldFetchProtected ? accountsQuery : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').eq('organization_id', currentOrgId).order('transaction_date', { ascending: false }).limit(1000) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('customers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('suppliers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('products').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('cheques').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('assets').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('employees').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('profiles').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('purchase_invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').eq('organization_id', currentOrgId).order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('payment_vouchers').select('*').eq('organization_id', currentOrgId).order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('notifications').select('*').eq('organization_id', currentOrgId).eq('is_read', false).limit(20) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('organization_id', currentOrgId).eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.rpc('get_all_account_balances', { p_org_id: currentOrgId }) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [], error: null }),
-        shouldFetchProtected ? supabase.from('item_categories').select('*').eq('organization_id', currentOrgId).is('deleted_at', null).order('display_order') : Promise.resolve({ data: [], error: null })
-      ]);
+        whsRaw,
+        sysSettingsRaw,
+        orgDataRaw,
+        fetchedAccountsRaw,
+        jEntriesRaw,
+        custsRaw,
+        suppsRaw,
+        prodsRaw,
+        chqsRaw,
+        assetsRaw,
+        employeesRaw,
+        profilesRaw,
+        salesInvoicesRaw,
+        purchaseInvoicesRaw,
+        rVouchersRaw,
+        pVouchersRaw,
+        notificationsRaw,
+        depreciationRaw,
+        allBalancesRaw,
+        restaurantTablesRaw,
+        menuCategoriesRaw,
+        itemCategoriesRaw
+      ] = (await Promise.allSettled([
+        shouldFetchProtected ? supabase.from('warehouses').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('company_settings').select('*').eq('organization_id', currentOrgId).maybeSingle() : Promise.resolve({ data: null }),
+        shouldFetchProtected && currentOrgId ? supabase.from('organizations').select('*').eq('id', currentOrgId).maybeSingle() : Promise.resolve({ data: null }),
+        shouldFetchProtected ? accountsQuery : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('*, journal_lines (*), journal_attachments (*)').eq('organization_id', currentOrgId).order('transaction_date', { ascending: false }).limit(1000) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('customers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('suppliers').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('products').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('cheques').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('assets').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('employees').select('*').eq('organization_id', currentOrgId).is('deleted_at', null) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('profiles').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('purchase_invoices').select('*').eq('organization_id', currentOrgId).order('invoice_date', { ascending: false }).limit(50) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('receipt_vouchers').select('*').eq('organization_id', currentOrgId).order('receipt_date', { ascending: false }).limit(50) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('payment_vouchers').select('*').eq('organization_id', currentOrgId).order('payment_date', { ascending: false }).limit(50) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('notifications').select('*').eq('organization_id', currentOrgId).eq('is_read', false).limit(20) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('journal_entries').select('related_document_id, journal_lines(credit)').eq('organization_id', currentOrgId).eq('related_document_type', 'asset_depreciation').eq('status', 'posted') : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.rpc('get_all_account_balances', { p_org_id: currentOrgId }) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('restaurant_tables').select('*').eq('organization_id', currentOrgId) : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('menu_categories').select('*').eq('organization_id', currentOrgId).order('display_order') : Promise.resolve({ data: [] }),
+        shouldFetchProtected ? supabase.from('item_categories').select('*').eq('organization_id', currentOrgId).is('deleted_at', null).order('display_order') : Promise.resolve({ data: [] })
+      ])).map(result => ({ data: result.status === 'fulfilled' ? (result.value as any).data : null, error: result.status === 'fulfilled' ? (result.value as any).error : result.reason })) as any[];
 
-      // حفظ بيانات المنظمة الحالية (بما فيها الموديولات المسموحة)
+      // استخراج البيانات وتجهيز المتغيرات (هنا تم حل مشكلة allBalances)
+      const whs = whsRaw.data || [];
+      const sysSettings = sysSettingsRaw.data;
+      const orgData = orgDataRaw.data;
+      const fetchedAccounts = fetchedAccountsRaw.data || [];
+      const accError = fetchedAccountsRaw.error;
+      const jEntries = jEntriesRaw.data || [];
+      const jError = jEntriesRaw.error;
+      const custs = custsRaw.data || [];
+      const supps = suppsRaw.data || [];
+      const prods = prodsRaw.data || [];
+      const chqs = chqsRaw.data || [];
+      const assetsData = assetsRaw.data || [];
+      const employeesData = employeesRaw.data || [];
+      const profilesData = profilesRaw.data || [];
+      const salesInvoicesData = salesInvoicesRaw.data || [];
+      const purchaseInvoicesData = purchaseInvoicesRaw.data || [];
+      const rVouchers = rVouchersRaw.data || [];
+      const pVouchers = pVouchersRaw.data || [];
+      const notificationsData = notificationsRaw.data || [];
+      const depreciationData = depreciationRaw.data || [];
+      const allBalances = allBalancesRaw?.data || [];
+      const restaurantTablesData = restaurantTablesRaw.data || [];
+      const menuCategoriesData = menuCategoriesRaw.data || [];
+      const itemCategoriesData = itemCategoriesRaw.data || [];
+
+      // حفظ بيانات المنظمة
       if (orgData) {
         setOrganization(orgData);
       }
@@ -884,7 +911,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // تحويل مصفوفة الأرصدة إلى خريطة لسهولة الوصول
       const dbBalances: Record<string, number> = {};
-      if (allBalances) {
+      if (Array.isArray(allBalances)) {
           allBalances.forEach((b: any) => {
               dbBalances[b.account_id] = Number(b.balance);
           });
@@ -3502,6 +3529,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const finalizeProductionOrder = async (orderId: string): Promise<{ success: boolean, message: string }> => {
+    try {
+      const { error } = await supabase.rpc('mfg_finalize_order', { p_order_id: orderId });
+      if (error) throw error;
+
+      await fetchData();
+      logActivity('إغلاق أمر إنتاج', `تم إغلاق أمر الإنتاج رقم ${orderId} وتحويل التكاليف للمنتج التام`);
+      return { success: true, message: 'تم إغلاق الأمر وتوليد القيد المحاسبي بنجاح ✅' };
+    } catch (error: any) {
+      console.error("Finalization Error:", error);
+      return { success: false, message: 'فشل إغلاق الأمر: ' + error.message };
+    }
+  };
+
   const can = (module: string, action: string): boolean => {
     if (userRole === 'super_admin') return true;
     return userPermissions.has(`${module}.${action}`);
@@ -4361,6 +4402,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       deleteProduct,
       addProductsBulk: (ps) => setProducts(prev => [...prev, ...ps.map(p => ({...p, id: generateUUID(), warehouseStock: {}}))]), 
       produceItem,
+      finalizeProductionOrder,
       categories, addCategory, updateCategory, deleteCategory,
       warehouses, addWarehouse, updateWarehouse, deleteWarehouse,
       invoices, addInvoice, approveSalesInvoice, purchaseInvoices, addPurchaseInvoice, approvePurchaseInvoice, salesReturns, addSalesReturn, purchaseReturns, addPurchaseReturn, stockTransactions, vouchers, addReceiptVoucher, addPaymentVoucher, updateVoucher, addCustomerDeposit,

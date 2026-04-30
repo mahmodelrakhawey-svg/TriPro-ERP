@@ -1,24 +1,46 @@
--- 🛠️ ملف استقرار مديول التصنيع (Manufacturing Stabilization)
+-- ️ ملف استقرار مديول التصنيع - Manufacturing Stabilization
+-- الهدف: تحسين البحث عن الأرقام التسلسلية وإعداد رؤى التقارير
 
--- إضافة عمود "نوع المنتج" لتحديد ما إذا كان "تحت التشغيل"
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS mfg_type text DEFAULT 'standard'; 
--- standard (منتج عادي), raw (مادة خام), wip (تحت التشغيل)
+BEGIN;
 
--- ضمان وجود الـ Triggers لفرض الـ organization_id
-DO $$ 
-DECLARE 
-    t text;
-BEGIN
-    FOR t IN ARRAY ARRAY['mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 'mfg_production_orders', 'mfg_order_progress', 'mfg_step_materials', 'mfg_actual_material_usage'] LOOP
-        EXECUTE format('DROP TRIGGER IF EXISTS trg_force_org_id_%I ON public.%I', t, t);
-        EXECUTE format('CREATE TRIGGER trg_force_org_id_%I 
-                        BEFORE INSERT ON public.%I 
-                        FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_on_insert()', t, t);
-    END LOOP;
-END $$;
+-- 1. إنشاء رؤية السيريالات المتاحة في المخازن
+CREATE OR REPLACE VIEW public.v_mfg_available_serials WITH (security_invoker = true) AS
+SELECT 
+    bs.id,
+    bs.serial_number,
+    p.name as product_name,
+    p.sku as product_code,
+    po.order_number,
+    po.batch_number,
+    bs.created_at as production_date,
+    bs.organization_id,
+    bs.status as serial_status
+FROM public.mfg_batch_serials bs
+JOIN public.products p ON bs.product_id = p.id
+JOIN public.mfg_production_orders po ON bs.production_order_id = po.id
+WHERE bs.status = 'in_stock';
 
--- فهرس لتحسين سرعة البحث في أوامر الإنتاج
-CREATE INDEX IF NOT EXISTS idx_mfg_orders_status ON public.mfg_production_orders(organization_id, status);
-CREATE INDEX IF NOT EXISTS idx_mfg_progress_order ON public.mfg_order_progress(production_order_id);
-CREATE INDEX IF NOT EXISTS idx_mfg_step_materials_step ON public.mfg_step_materials(step_id);
-CREATE INDEX IF NOT EXISTS idx_mfg_actual_usage_progress ON public.mfg_actual_material_usage(order_progress_id);
+-- 2. رؤية التتبع الشاملة لكافة السيريالات وحالاتها (Traceability Master Table)
+-- مخصصة للمحاسب لتتبع حركة كل قطعة من الإنتاج حتى البيع النهائي
+DROP VIEW IF EXISTS public.v_mfg_serials_master_tracker;
+CREATE VIEW public.v_mfg_serials_master_tracker WITH (security_invoker = true) AS
+SELECT 
+    bs.serial_number,
+    p.name as product_name,
+    p.sku as product_sku,
+    po.order_number,
+    po.batch_number,
+    bs.status as serial_status,
+    bs.created_at as production_date,
+    bs.organization_id
+FROM public.mfg_batch_serials bs
+JOIN public.products p ON bs.product_id = p.id
+JOIN public.mfg_production_orders po ON bs.production_order_id = po.id;
+
+CREATE INDEX IF NOT EXISTS idx_mfg_po_number ON public.mfg_production_orders(order_number);
+
+-- منح الصلاحيات اللازمة للرؤى لضمان ظهورها في واجهة المستخدم
+GRANT SELECT ON public.v_mfg_serials_master_tracker TO authenticated;
+GRANT SELECT ON public.v_mfg_available_serials TO authenticated;
+
+COMMIT;

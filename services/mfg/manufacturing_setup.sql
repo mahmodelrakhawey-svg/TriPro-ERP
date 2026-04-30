@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_order_progress (
     actual_end_time timestamptz,
     produced_qty numeric DEFAULT 0,
     labor_cost_actual numeric DEFAULT 0,
+    qc_verified boolean DEFAULT false,
     employee_id uuid REFERENCES public.employees(id), -- إضافة عمود لربط العامل بالمرحلة
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
@@ -127,6 +128,31 @@ CREATE TABLE IF NOT EXISTS public.mfg_production_variances (
     created_at timestamptz DEFAULT now(),
     UNIQUE(production_order_id)
 );
+-- 9.6 جدول طلبات صرف المواد (Material Requests)
+CREATE TABLE IF NOT EXISTS public.mfg_material_requests (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
+    request_number text UNIQUE NOT NULL,
+    request_date date DEFAULT now(),
+    status text DEFAULT 'pending', -- pending, approved, issued, cancelled
+    requested_by uuid REFERENCES public.profiles(id),
+    issued_by uuid REFERENCES public.profiles(id),
+    issue_date timestamptz,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- 9.7 جدول بنود طلبات صرف المواد
+CREATE TABLE IF NOT EXISTS public.mfg_material_request_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    material_request_id uuid REFERENCES public.mfg_material_requests(id) ON DELETE CASCADE,
+    raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity_requested numeric NOT NULL,
+    quantity_issued numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
 
 -- 10. رؤية لوحة تحكم التصنيع (Manufacturing Dashboard View)
 DROP VIEW IF EXISTS public.v_mfg_dashboard CASCADE;
@@ -150,6 +176,7 @@ SELECT
     po.start_date,
     po.end_date,
     ps.total_steps,
+    (po.status = 'in_progress' AND ps.total_steps > 0 AND ps.completed_steps = ps.total_steps) as can_finalize,
     ps.completed_steps,
     COALESCE(ps.qc_passed_steps, 0) as qc_passed_steps,
     CASE 
@@ -172,7 +199,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_batch_serials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
-    serial_number text UNIQUE NOT NULL,
+    serial_number text NOT NULL,
     status text DEFAULT 'in_stock', -- in_stock, sold, scrapped
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
@@ -189,7 +216,11 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS mfg_type text DEFAULT 'stan
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price numeric DEFAULT 0;
 
 -- فهرس للبحث السريع عن الأرقام التسلسلية
-CREATE INDEX IF NOT EXISTS idx_mfg_serials_num ON public.mfg_batch_serials(serial_number, organization_id);
+-- إزالة أي قيود قديمة قد تتعارض مع نظام تعدد العملاء SaaS
+ALTER TABLE public.mfg_batch_serials DROP CONSTRAINT IF EXISTS mfg_batch_serials_serial_number_key;
+
+-- إنشاء فهرس فريد يضمن عدم تكرار السيريال داخل المنظمة الواحدة فقط
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_serial_per_org ON public.mfg_batch_serials (serial_number, organization_id);
 
 -- 12. رؤية ربحية أمر الإنتاج (Manufacturing Profitability View)
 DROP VIEW IF EXISTS public.v_mfg_order_profitability CASCADE;
