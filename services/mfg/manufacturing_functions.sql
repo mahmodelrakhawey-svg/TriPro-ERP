@@ -281,6 +281,7 @@ END; $$;
 
 -- 10. دالة التحقق من توفر المواد الخام (Stock Availability Check)
 -- تظهر المواد التي بها عجز فقط مقارنة بالكمية المطلوب إنتاجها
+DROP FUNCTION IF EXISTS public.mfg_check_stock_availability(uuid, numeric);
 CREATE OR REPLACE FUNCTION public.mfg_check_stock_availability(p_product_id uuid, p_quantity numeric)
 RETURNS TABLE (
     material_id uuid,
@@ -477,10 +478,11 @@ BEGIN
     WHERE po.id = p_order_id;
 
     IF v_order.requires_serial THEN
-        FOR v_i IN 1..v_order.quantity_to_produce LOOP
+        FOR v_i IN 1..floor(COALESCE(v_order.quantity_to_produce, 0))::integer LOOP
             v_serial := 'SN-' || v_order.order_number || '-' || LPAD(v_i::text, 4, '0');
             INSERT INTO public.mfg_batch_serials (production_order_id, product_id, serial_number, organization_id)
-            VALUES (p_order_id, v_order.product_id, v_serial, v_order.organization_id);
+            VALUES (p_order_id, v_order.product_id, v_serial, v_order.organization_id)
+            ON CONFLICT (serial_number, organization_id) DO NOTHING;
         END LOOP;
     END IF;
 END; $$;
@@ -489,6 +491,7 @@ END; $$;
 -- (ملاحظة: الكود أدناه يفترض إضافة استدعاء الدالة الجديدة داخل finalize)
 
 -- 13. دالة اختبار دورة التصنيع الكاملة (Manufacturing Integration Test)
+DROP FUNCTION IF EXISTS public.mfg_test_full_cycle();
 CREATE OR REPLACE FUNCTION public.mfg_test_full_cycle()
 RETURNS TABLE(step_name text, result text, details text) LANGUAGE plpgsql SECURITY DEFINER 
 SET search_path = public AS $$
@@ -548,7 +551,6 @@ BEGIN
 
     -- 4. الإغلاق المالي وتوليد السيريالات
     PERFORM public.mfg_finalize_order(v_order_id);
-    PERFORM public.mfg_generate_batch_serials(v_order_id);
 
     step_name := '4. الإغلاق والسيريالات'; result := 'PASS ✅'; details := 'تم توليد 5 أرقام تسلسلية وتحديث المخزون'; RETURN NEXT;
 
@@ -561,9 +563,32 @@ BEGIN
     END IF;
     RETURN NEXT;
 
-    -- تنظيف بيانات الاختبار (اختياري، يفضل إبقاؤها في بيئة التجربة)
 END; $$;
 
+-- دالة تحديث سعر البيع بناءً على التكلفة الفعلية (تستخدم هامش ربح افتراضي 20%)
+-- تُستدعى عند إغلاق أمر الإنتاج لتحديث سعر المنتج في بطاقة الصنف
+DROP FUNCTION IF EXISTS public.mfg_update_selling_price_from_cost(uuid);
+CREATE OR REPLACE FUNCTION public.mfg_update_selling_price_from_cost(p_order_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_order record;
+    v_cost_per_unit numeric;
+BEGIN
+    SELECT po.* INTO v_order FROM public.mfg_production_orders po WHERE id = p_order_id;
+    IF NOT FOUND THEN RETURN; END IF;
+
+    -- جلب التكلفة الفعلية للوحدة من رؤية الربحية
+    SELECT (total_actual_cost / NULLIF(qty, 0)) INTO v_cost_per_unit 
+    FROM public.v_mfg_order_profitability 
+    WHERE order_id = p_order_id AND organization_id = v_order.organization_id;
+
+    IF v_cost_per_unit > 0 THEN
+        -- تحديث سعر المنتج (التكلفة + 20% هامش ربح)
+        UPDATE public.products 
+        SET price = ROUND(v_cost_per_unit * 1.20, 2)
+        WHERE id = v_order.product_id AND organization_id = v_order.organization_id;
+    END IF;
+END; $$;
 -- 14. دالة تتبع "نسب" المنتج (Product Genealogy / Traceability)
 -- تتيح استرجاع التاريخ الكامل لقطعة معينة عبر رقمها التسلسلي
 CREATE OR REPLACE FUNCTION public.mfg_get_product_genealogy(p_serial_number text)
@@ -597,8 +622,8 @@ BEGIN
     SELECT jsonb_agg(t) INTO v_components FROM (
         SELECT 
             rm.name as material_name,
-            ROUND(SUM(amu.standard_quantity) / v_order.quantity_to_produce, 4) as standard_per_unit,
-            ROUND(SUM(amu.actual_quantity) / v_order.quantity_to_produce, 4) as actual_per_unit
+            ROUND(SUM(amu.standard_quantity) / NULLIF(v_order.quantity_to_produce, 0), 4) as standard_per_unit,
+            ROUND(SUM(amu.actual_quantity) / NULLIF(v_order.quantity_to_produce, 0), 4) as actual_per_unit
         FROM public.mfg_actual_material_usage amu
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         JOIN public.products rm ON amu.raw_material_id = rm.id
@@ -687,6 +712,7 @@ END; $$;
 
 -- 16. دالة جلب مهام "أرضية المصنع" (Shop Floor Tasks)
 -- تعرض المهام المتاحة للبدء أو الإكمال في مركز عمل معين
+DROP FUNCTION IF EXISTS public.mfg_get_shop_floor_tasks(uuid);
 CREATE OR REPLACE FUNCTION public.mfg_get_shop_floor_tasks(p_work_center_id uuid DEFAULT NULL)
 RETURNS TABLE (
     progress_id uuid,
@@ -792,6 +818,7 @@ BEGIN
 END; $$;
 -- 20. دالة فحص جاهزية المنتج للإنتاج (Production Readiness Check)
 -- تضمن أن المنتج لديه BOM و Routing قبل محاولة إنشاء أمر تشغيل
+DROP FUNCTION IF EXISTS public.mfg_check_production_readiness(uuid);
 CREATE OR REPLACE FUNCTION public.mfg_check_production_readiness(p_product_id uuid)
 RETURNS TABLE (
     is_ready boolean,
@@ -963,14 +990,11 @@ BEGIN
 END; $$;
 
 -- 24. دالة حجز المخزون لأمر الإنتاج (Stock Reservation)
--- تمنع بيع المواد الخام المحجوزة لأمر إنتاج قائم
 CREATE OR REPLACE FUNCTION public.mfg_reserve_stock_for_order(p_order_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_item record;
     v_shortage_exists boolean := false;
 BEGIN
-    -- فحص النقص قبل البدء
     IF EXISTS (SELECT 1 FROM public.mfg_check_stock_availability(
         (SELECT product_id FROM public.mfg_production_orders WHERE id = p_order_id),
         (SELECT quantity_to_produce FROM public.mfg_production_orders WHERE id = p_order_id)
@@ -978,7 +1002,6 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'message', 'يوجد نقص في الخامات، لا يمكن حجز المخزون');
     END IF;
 
-    -- منطق الحجز (يمكن تطويره لاحقاً بإضافة عمود reserved_stock في جدول المنتجات)
     RETURN jsonb_build_object('success', true, 'message', 'تم التأكد من توفر كافة الخامات وتخصيصها للأمر');
 END; $$;
 
@@ -997,7 +1020,6 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
     v_org_id := v_order.organization_id;
 
-    -- التحقق مما إذا كان هناك طلب صرف مواد مفتوح بالفعل لهذا الأمر
     IF EXISTS (SELECT 1 FROM public.mfg_material_requests WHERE production_order_id = p_production_order_id AND status IN ('pending', 'approved')) THEN
         RAISE EXCEPTION 'يوجد بالفعل طلب صرف مواد مفتوح لأمر الإنتاج هذا.';
     END IF;
@@ -1007,24 +1029,18 @@ BEGIN
     INSERT INTO public.mfg_material_requests (
         production_order_id, request_number, requested_by, organization_id, status
     ) VALUES (
-        p_production_order_id, auth.uid(), v_org_id, 'pending'
+        p_production_order_id, v_request_number, auth.uid(), v_org_id, 'pending'
     ) RETURNING id INTO v_request_id;
 
-    -- إضافة بنود المواد الخام المطلوبة بناءً على BOM المسار الافتراضي
     FOR v_material_item IN
         SELECT
             sm.raw_material_id,
             SUM(sm.quantity_required * v_order.quantity_to_produce) AS total_required_qty
-        FROM
-            public.mfg_routings r
-        JOIN
-            public.mfg_routing_steps rs ON r.id = rs.routing_id
-        JOIN
-            public.mfg_step_materials sm ON rs.id = sm.step_id
-        WHERE
-            r.product_id = v_order.product_id AND r.is_default = TRUE AND r.organization_id = v_org_id
-        GROUP BY
-            sm.raw_material_id
+        FROM public.mfg_routings r
+        JOIN public.mfg_routing_steps rs ON r.id = rs.routing_id
+        JOIN public.mfg_step_materials sm ON rs.id = sm.step_id
+        WHERE r.product_id = v_order.product_id AND r.is_default = TRUE AND r.organization_id = v_org_id
+        GROUP BY sm.raw_material_id
     LOOP
         INSERT INTO public.mfg_material_request_items (
             material_request_id, raw_material_id, quantity_requested, organization_id
@@ -1036,249 +1052,123 @@ BEGIN
     RETURN v_request_id;
 END; $$;
 
--- 26. دالة صرف المواد من المخزون بناءً على طلب صرف المواد
+-- 26. دالة صرف المواد من المخزون
 CREATE OR REPLACE FUNCTION public.mfg_issue_material_request(p_request_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
-    v_request record;
-    v_item record;
-    v_org_id uuid;
-    v_je_id uuid;
-    v_mappings jsonb;
-    v_inv_raw_acc uuid;
-    v_wip_acc uuid;
-    v_total_issued_cost numeric := 0;
-    v_product_cost numeric;
+    v_request record; v_item record; v_org_id uuid; v_je_id uuid; v_mappings jsonb;
+    v_inv_raw_acc uuid; v_wip_acc uuid; v_total_issued_cost numeric := 0; v_product_cost numeric;
 BEGIN
     SELECT * INTO v_request FROM public.mfg_material_requests WHERE id = p_request_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'طلب صرف المواد غير موجود'; END IF;
-    IF v_request.status = 'issued' THEN RETURN; END IF; -- منع التكرار
-    IF v_request.status = 'cancelled' THEN RAISE EXCEPTION 'لا يمكن صرف طلب ملغى'; END IF;
+    IF v_request.status = 'issued' THEN RETURN; END IF;
     v_org_id := v_request.organization_id;
 
-    -- 1. خصم المواد من المخزون وتحديث الكميات المصروفة
     FOR v_item IN SELECT * FROM public.mfg_material_request_items WHERE material_request_id = p_request_id LOOP
-        -- التحقق من توفر المخزون
         SELECT COALESCE(stock, 0) INTO v_product_cost FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
         IF v_product_cost < v_item.quantity_requested THEN
-            RAISE EXCEPTION 'نقص في المخزون للمادة % (المطلوب: %، المتوفر: %)', (SELECT name FROM public.products WHERE id = v_item.raw_material_id), v_item.quantity_requested, v_product_cost;
+            RAISE EXCEPTION 'نقص في المخزون للمادة %', (SELECT name FROM public.products WHERE id = v_item.raw_material_id);
         END IF;
 
-        -- خصم من المخزون
-        UPDATE public.products SET stock = stock - v_item.quantity_requested
-        WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+        UPDATE public.products SET stock = stock - v_item.quantity_requested WHERE id = v_item.raw_material_id;
 
-        -- حساب التكلفة الإجمالية للمواد المصروفة
-        SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_product_cost
-        FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+        SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_product_cost FROM public.products WHERE id = v_item.raw_material_id;
         v_total_issued_cost := v_total_issued_cost + (v_item.quantity_requested * v_product_cost);
-
-        -- تحديث الكمية المصروفة في البند
         UPDATE public.mfg_material_request_items SET quantity_issued = v_item.quantity_requested WHERE id = v_item.id;
     END LOOP;
 
-    -- 2. تحديث حالة طلب الصرف
-    UPDATE public.mfg_material_requests SET
-        status = 'issued',
-        issued_by = auth.uid(),
-        issue_date = now()
-    WHERE id = p_request_id;
+    UPDATE public.mfg_material_requests SET status = 'issued', issued_by = auth.uid(), issue_date = now() WHERE id = p_request_id;
 
-    -- 3. المحرك المحاسبي: قيد صرف المواد الخام إلى WIP
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_inv_raw_acc := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
     v_wip_acc := COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1));
 
     IF v_total_issued_cost > 0 AND v_inv_raw_acc IS NOT NULL AND v_wip_acc IS NOT NULL THEN
-        INSERT INTO public.journal_entries (
-            transaction_date, description, reference, status, organization_id, is_posted,
-            related_document_id, related_document_type
-        ) VALUES (
-            now()::date,
-            'صرف مواد خام لأمر الإنتاج رقم: ' || (SELECT order_number FROM public.mfg_production_orders WHERE id = v_request.production_order_id),
-            v_request.request_number,
-            'posted', v_org_id, true, p_request_id, 'mfg_material_request'
-        ) RETURNING id INTO v_je_id;
-
-        -- من ح/ مخزون إنتاج تحت التشغيل (WIP)
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+        VALUES (now()::date, 'صرف مواد لأمر الإنتاج رقم: ' || (SELECT order_number FROM public.mfg_production_orders WHERE id = v_request.production_order_id), v_request.request_number, 'posted', v_org_id, true, p_request_id, 'mfg_material_request')
+        RETURNING id INTO v_je_id;
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_wip_acc, v_total_issued_cost, 0, 'تحميل مواد خام على الإنتاج تحت التشغيل', v_org_id);
-
-        -- إلى ح/ مخزون المواد الخام
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_inv_raw_acc, 0, v_total_issued_cost, 'صرف مواد خام من المخزن', v_org_id);
+        VALUES (v_je_id, v_wip_acc, v_total_issued_cost, 0, 'تحميل مواد خام على WIP', v_org_id), (v_je_id, v_inv_raw_acc, 0, v_total_issued_cost, 'صرف مواد خام من المخزن', v_org_id);
     END IF;
-
     PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
 
--- 27. رؤية تقييم الإنتاج تحت التشغيل (WIP Valuation Report)
--- تعرض قيمة المواد والعمالة التي لم تتحول لمنتج تام بعد
+-- 27. رؤية تقييم WIP
 DROP VIEW IF EXISTS public.v_mfg_wip_valuation CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_wip_valuation WITH (security_invoker = true) AS
-SELECT
-    po.id AS production_order_id,
-    po.order_number,
-    p.name AS product_name,
-    po.quantity_to_produce,
-    po.status,
-    po.organization_id,
-    COALESCE(SUM(op.labor_cost_actual), 0) AS total_labor_cost_incurred,
-    COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS total_material_cost_incurred,
-    (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_wip_value
-FROM
-    public.mfg_production_orders po
-JOIN
-    public.products p ON po.product_id = p.id
-LEFT JOIN
-    public.mfg_order_progress op ON po.id = op.production_order_id
-LEFT JOIN
-    public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
-LEFT JOIN
-    public.products rm ON amu.raw_material_id = rm.id
-WHERE
-    po.status = 'in_progress' -- فقط لأوامر الإنتاج التي لا تزال قيد التشغيل
-GROUP BY
-    po.id, po.order_number, p.name, po.quantity_to_produce, po.status, po.organization_id;
+SELECT po.id AS production_order_id, po.order_number, p.name AS product_name, po.quantity_to_produce, po.status, po.organization_id,
+       COALESCE(SUM(op.labor_cost_actual), 0) AS total_labor_cost_incurred,
+       COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS total_material_cost_incurred,
+       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_wip_value
+FROM public.mfg_production_orders po
+JOIN public.products p ON po.product_id = p.id
+LEFT JOIN public.mfg_order_progress op ON po.id = op.production_order_id
+LEFT JOIN public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
+LEFT JOIN public.products rm ON amu.raw_material_id = rm.id
+WHERE po.status = 'in_progress'
+GROUP BY po.id, po.order_number, p.name, po.quantity_to_produce, po.status, po.organization_id;
 
--- منح صلاحيات الوصول للرؤية الجديدة
-GRANT SELECT ON public.v_mfg_wip_valuation TO authenticated;
-
--- 24. دالة حجز المخزون لأمر الإنتاج (Stock Reservation)
--- تمنع بيع المواد الخام المحجوزة لأمر إنتاج قائم
-CREATE OR REPLACE FUNCTION public.mfg_reserve_stock_for_order(p_order_id uuid)
-RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_item record;
-    v_shortage_exists boolean := false;
+-- 28. مشغل إنشاء طلب الصرف تلقائياً
+CREATE OR REPLACE FUNCTION public.fn_mfg_auto_create_material_request()
+RETURNS TRIGGER AS $$
 BEGIN
-    -- فحص النقص قبل البدء
-    IF EXISTS (SELECT 1 FROM public.mfg_check_stock_availability(
-        (SELECT product_id FROM public.mfg_production_orders WHERE id = p_order_id),
-        (SELECT quantity_to_produce FROM public.mfg_production_orders WHERE id = p_order_id)
-    )) THEN
-        RETURN jsonb_build_object('success', false, 'message', 'يوجد نقص في الخامات، لا يمكن حجز المخزون');
+    IF NEW.status = 'in_progress' AND (OLD.status IS NULL OR OLD.status = 'draft') THEN
+        PERFORM public.mfg_create_material_request(NEW.id);
     END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-    -- منطق الحجز (يمكن تطويره لاحقاً بإضافة عمود reserved_stock في جدول المنتجات)
-    RETURN jsonb_build_object('success', true, 'message', 'تم التأكد من توفر كافة الخامات وتخصيصها للأمر');
+DROP TRIGGER IF EXISTS trg_mfg_auto_material_request ON public.mfg_production_orders;
+CREATE TRIGGER trg_mfg_auto_material_request
+AFTER UPDATE OF status ON public.mfg_production_orders
+FOR EACH ROW EXECUTE FUNCTION public.fn_mfg_auto_create_material_request();
+
+-- 29. تقرير ملخص شهري WIP
+DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
+SELECT to_char(po.created_at, 'YYYY-MM') AS month, p.name AS product_name, wc.name AS work_center_name, po.organization_id,
+       COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
+       COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
+       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
+FROM public.mfg_production_orders po
+JOIN public.products p ON po.product_id = p.id
+JOIN public.mfg_order_progress op ON po.id = op.production_order_id
+JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
+JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
+LEFT JOIN public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
+LEFT JOIN public.products rm ON amu.raw_material_id = rm.id
+WHERE po.status = 'in_progress'
+GROUP BY 1, 2, 3, 4;
+
+-- 30. دوال GenealogyViewer
+DROP FUNCTION IF EXISTS public.mfg_get_serials_by_order(text);
+CREATE OR REPLACE FUNCTION public.mfg_get_serials_by_order(p_order_number text)
+RETURNS TABLE (serial_number text, product_name text, batch_number text) LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+BEGIN
+    RETURN QUERY
+    SELECT bs.serial_number, p.name, po.batch_number
+    FROM public.mfg_batch_serials bs
+    JOIN public.mfg_production_orders po ON bs.production_order_id = po.id
+    JOIN public.products p ON bs.product_id = p.id
+    WHERE po.order_number = p_order_number AND po.organization_id = public.get_my_org();
 END; $$;
 
--- نهاية ملف الدوال السيادية
-
--- 28. دالة المشغل لإنشاء طلب صرف مواد تلقائياً عند بدء الإنتاج
--- تقوم هذه الدالة بتوليد طلب مواد بناءً على قائمة المواد المعيارية (BOM) فور بدء العمل
-CREATE OR REPLACE FUNCTION public.fn_mfg_auto_create_material_request()
-RETURNS TRIGGER AS $$
+DROP FUNCTION IF EXISTS public.mfg_get_production_order_details_by_number(text);
+CREATE OR REPLACE FUNCTION public.mfg_get_production_order_details_by_number(p_order_number text)
+RETURNS TABLE (order_id uuid, order_number text, status text, product_name text, quantity numeric) LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
 BEGIN
-    -- التدخل فقط عند تحول الحالة إلى 'in_progress'
-    IF (OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'in_progress') THEN
-        BEGIN
-            -- استدعاء دالة إنشاء الطلب التي قمنا ببنائها مسبقاً
-            PERFORM public.mfg_create_material_request(NEW.id);
-        EXCEPTION WHEN OTHERS THEN
-            -- تسجيل الخطأ في سجلات النظام لضمان عدم توقف العملية الأساسية في حال وجود مشكلة تقنية
-            INSERT INTO public.system_error_logs (error_message, function_name, organization_id)
-            VALUES ('فشل إنشاء طلب المواد التلقائي: ' || SQLERRM, 'fn_mfg_auto_create_material_request', NEW.organization_id);
-        END;
-    END IF;
-    RETURN NEW;
-END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+    RETURN QUERY
+    SELECT po.id, po.order_number, po.status, p.name, po.quantity_to_produce
+    FROM public.mfg_production_orders po
+    JOIN public.products p ON po.product_id = p.id
+    WHERE po.order_number = p_order_number AND po.organization_id = public.get_my_org();
+END; $$;
 
--- ربط المشغل بجدول أوامر الإنتاج
-DROP TRIGGER IF EXISTS trg_mfg_auto_material_request ON public.mfg_production_orders;
-CREATE TRIGGER trg_mfg_auto_material_request
-AFTER UPDATE OF status ON public.mfg_production_orders
-FOR EACH ROW EXECUTE FUNCTION public.fn_mfg_auto_create_material_request();
-
--- 29. تقرير ملخص شهري لقيمة الإنتاج تحت التشغيل (WIP Monthly Summary)
--- يعرض قيمة المواد والعمالة المجمعة شهرياً حسب المنتج ومركز العمل لاتخاذ قرارات تسعير وتخطيط أفضل
-DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
-CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
-SELECT
-    to_char(po.created_at, 'YYYY-MM') AS month,
-    p.name AS product_name,
-    wc.name AS work_center_name,
-    po.organization_id,
-    COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
-    COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
-    (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
-FROM
-    public.mfg_production_orders po
-JOIN
-    public.products p ON po.product_id = p.id
-JOIN
-    public.mfg_order_progress op ON po.id = op.production_order_id
-JOIN
-    public.mfg_routing_steps rs ON op.step_id = rs.id
-JOIN
-    public.mfg_work_centers wc ON rs.work_center_id = wc.id
-LEFT JOIN
-    public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
-LEFT JOIN
-    public.products rm ON amu.raw_material_id = rm.id
-WHERE
-    po.status = 'in_progress'
-GROUP BY
-    1, 2, 3, 4;
-
-GRANT SELECT ON public.v_mfg_wip_monthly_summary TO authenticated;
-
--- 28. دالة المشغل لإنشاء طلب صرف مواد تلقائياً عند بدء الإنتاج
--- تقوم هذه الدالة بتوليد طلب مواد بناءً على قائمة المواد المعيارية (BOM) فور بدء العمل
-CREATE OR REPLACE FUNCTION public.fn_mfg_auto_create_material_request()
-RETURNS TRIGGER AS $$
+CREATE OR REPLACE FUNCTION public.mfg_start_production_order(p_order_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
-    -- التدخل فقط عند تحول الحالة إلى 'in_progress'
-    IF (OLD.status IS DISTINCT FROM NEW.status AND NEW.status = 'in_progress') THEN
-        BEGIN
-            -- استدعاء دالة إنشاء الطلب التي قمنا ببنائها مسبقاً
-            PERFORM public.mfg_create_material_request(NEW.id);
-        EXCEPTION WHEN OTHERS THEN
-            -- تسجيل الخطأ في سجلات النظام لضمان عدم توقف العملية الأساسية في حال وجود مشكلة تقنية
-            INSERT INTO public.system_error_logs (error_message, function_name, organization_id)
-            VALUES ('فشل إنشاء طلب المواد التلقائي: ' || SQLERRM, 'fn_mfg_auto_create_material_request', NEW.organization_id);
-        END;
-    END IF;
-    RETURN NEW;
-END; $$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- ربط المشغل بجدول أوامر الإنتاج
-DROP TRIGGER IF EXISTS trg_mfg_auto_material_request ON public.mfg_production_orders;
-CREATE TRIGGER trg_mfg_auto_material_request
-AFTER UPDATE OF status ON public.mfg_production_orders
-FOR EACH ROW EXECUTE FUNCTION public.fn_mfg_auto_create_material_request();
-
--- 29. تقرير ملخص شهري لقيمة الإنتاج تحت التشغيل (WIP Monthly Summary)
--- يعرض قيمة المواد والعمالة المجمعة شهرياً حسب المنتج ومركز العمل لاتخاذ قرارات تسعير وتخطيط أفضل
-DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
-CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
-SELECT
-    to_char(po.created_at, 'YYYY-MM') AS month,
-    p.name AS product_name,
-    wc.name AS work_center_name,
-    po.organization_id,
-    COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
-    COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
-    (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
-FROM
-    public.mfg_production_orders po
-JOIN
-    public.products p ON po.product_id = p.id
-JOIN
-    public.mfg_order_progress op ON po.id = op.production_order_id
-JOIN
-    public.mfg_routing_steps rs ON op.step_id = rs.id
-JOIN
-    public.mfg_work_centers wc ON rs.work_center_id = wc.id
-LEFT JOIN
-    public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
-LEFT JOIN
-    public.products rm ON amu.raw_material_id = rm.id
-WHERE
-    po.status = 'in_progress'
-GROUP BY
-    1, 2, 3, 4;
-
-GRANT SELECT ON public.v_mfg_wip_monthly_summary TO authenticated;
+    UPDATE public.mfg_production_orders SET status = 'in_progress', start_date = now()::date WHERE id = p_order_id;
+END; $$;

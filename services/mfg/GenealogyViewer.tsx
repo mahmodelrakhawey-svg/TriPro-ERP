@@ -110,6 +110,23 @@ const GenealogyViewer = () => {
     setLoading(false);
   };
 
+  const handleRegenerateSerials = async () => {
+    if (!productionOrderDetails) return;
+    setLoading(true);
+    const { error } = await supabase.rpc('mfg_generate_batch_serials', { 
+        p_order_id: productionOrderDetails.order_id 
+    });
+    
+    if (error) {
+        showToast(error.message, 'error');
+    } else {
+        showToast('تمت معالجة طلب توليد الأرقام التسلسلية. يرجى التأكد من تفعيل "تتبع الأرقام التسلسلية" في بطاقة الصنف.', 'info');
+        // Re-fetch to see if serials appeared
+        executeSearch(serialSearch);
+    }
+    setLoading(false);
+  };
+
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     executeSearch(serialSearch);
@@ -319,7 +336,18 @@ const GenealogyViewer = () => {
                     ))}
                 </div>
             ) : (
-                <p className="text-gray-600 text-center py-4">لا توجد أرقام تسلسلية منتجة لهذا الأمر بعد. حالة الأمر: <span className="font-bold text-blue-600">{productionOrderDetails.status === 'draft' ? 'مسودة' : productionOrderDetails.status === 'in_progress' ? 'قيد التنفيذ' : productionOrderDetails.status}</span></p>
+                <div className="flex flex-col items-center gap-4 py-4">
+                    <p className="text-gray-600 text-center">لا توجد أرقام تسلسلية منتجة لهذا الأمر بعد. حالة الأمر: <span className="font-bold text-blue-600">{productionOrderDetails.status === 'draft' ? 'مسودة' : productionOrderDetails.status === 'in_progress' ? 'قيد التنفيذ' : productionOrderDetails.status === 'completed' ? 'مكتمل' : productionOrderDetails.status}</span></p>
+                    {productionOrderDetails.status === 'completed' && (
+                        <button
+                            onClick={handleRegenerateSerials}
+                            disabled={loading}
+                            className="text-blue-600 hover:text-blue-700 text-sm font-bold flex items-center gap-1 transition-colors"
+                        >
+                            <Settings size={14} className={loading ? 'animate-spin' : ''} /> {loading ? 'جاري التوليد...' : 'توليد الأرقام التسلسلية المفقودة'}
+                        </button>
+                    )}
+                </div>
             )}
           </div>
         )}

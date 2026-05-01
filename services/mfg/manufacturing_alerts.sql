@@ -98,3 +98,37 @@ BEGIN
     
     RETURN v_alert_count;
 END; $$;
+
+-- 🔔 تنبيه نقص الأرقام التسلسلية عند الإغلاق
+-- يتحقق من أوامر الإنتاج المكتملة التي تتطلب سيريالات ولم يتم توليد الكمية كاملة لها
+CREATE OR REPLACE FUNCTION public.mfg_check_missing_serials_alerts()
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_row record;
+    v_alert_count integer := 0;
+    v_admin_id uuid;
+    v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    FOR v_admin_id IN SELECT id FROM public.profiles WHERE organization_id = v_org_id AND role IN ('admin', 'manager') LOOP
+        FOR v_row IN 
+            SELECT order_number, product_name, quantity_to_produce, total_serials_generated
+            FROM public.v_mfg_dashboard
+            WHERE organization_id = v_org_id 
+              AND status = 'completed' 
+              AND requires_serial = true
+              AND total_serials_generated < quantity_to_produce
+        LOOP
+            INSERT INTO public.notifications (user_id, title, message, type, priority, organization_id)
+            VALUES (v_admin_id, 'تنبيه: نقص أرقام تسلسلية', 
+                    format('أمر الإنتاج (%s) للمنتج (%s) اكتمل بـ %s سيريال فقط من أصل %s مطلوب.',
+                           v_row.order_number, v_row.product_name, v_row.total_serials_generated, v_row.quantity_to_produce),
+                    'missing_serials', 'medium', v_org_id);
+            v_alert_count := v_alert_count + 1;
+        END LOOP;
+    END LOOP;
+    
+    RETURN v_alert_count;
+END; $$;

@@ -158,7 +158,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_material_request_items (
 
 -- 10. رؤية لوحة تحكم التصنيع (Manufacturing Dashboard View)
 DROP VIEW IF EXISTS public.v_mfg_dashboard CASCADE;
-CREATE VIEW public.v_mfg_dashboard AS
+CREATE OR REPLACE VIEW public.v_mfg_dashboard AS
 WITH progress_stats AS (
     SELECT 
         production_order_id,
@@ -167,6 +167,13 @@ WITH progress_stats AS (
         count(*) FILTER (WHERE qc_verified = true) as qc_passed_steps,
         SUM(labor_cost_actual) as total_labor_cost
     FROM public.mfg_order_progress
+    GROUP BY production_order_id
+),
+serial_stats AS (
+    SELECT 
+        production_order_id,
+        count(*) as total_serials
+    FROM public.mfg_batch_serials
     GROUP BY production_order_id
 )
 SELECT 
@@ -188,13 +195,16 @@ SELECT
     COALESCE(ps.total_labor_cost, 0) as current_labor_cost,
     po.organization_id,
     pv.variance_amount,
-    pv.variance_percentage
+    pv.variance_percentage,
+    COALESCE(ss.total_serials, 0) as total_serials_generated,
+    p.requires_serial
 FROM public.mfg_production_orders po
 JOIN public.products p ON po.product_id = p.id
 LEFT JOIN progress_stats ps ON po.id = ps.production_order_id
-LEFT JOIN public.mfg_production_variances pv ON po.id = pv.production_order_id;
-
+LEFT JOIN public.mfg_production_variances pv ON po.id = pv.production_order_id
+LEFT JOIN serial_stats ss ON po.id = ss.production_order_id;
 -- 11. جداول تتبع الدفعات والأرقام التسلسلية (Batch & Serial Tracking)
+-- يتم تعريف الجداول والأعمدة هنا قبل الرؤية (View) لضمان صحة التبعيات
 ALTER TABLE public.mfg_production_orders ADD COLUMN IF NOT EXISTS batch_number text;
 
 CREATE TABLE IF NOT EXISTS public.mfg_batch_serials (
@@ -212,21 +222,20 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS requires_serial boolean DEF
 
 -- إضافة عمود "نوع المنتج" لتحديد ما إذا كان "تحت التشغيل" (مطلوب لعمليات التصنيع)
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS mfg_type text DEFAULT 'standard'; 
--- القيم المحتملة: 'standard' (منتج عادي), 'raw' (مادة خام), 'wip' (تحت التشغيل)
 
 -- إضافة حقل سعر البيع للمنتج (مطلوب لحساب الربحية)
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price numeric DEFAULT 0;
 
 -- فهرس للبحث السريع عن الأرقام التسلسلية
--- إزالة أي قيود قديمة قد تتعارض مع نظام تعدد العملاء SaaS
 ALTER TABLE public.mfg_batch_serials DROP CONSTRAINT IF EXISTS mfg_batch_serials_serial_number_key;
 
 -- إنشاء فهرس فريد يضمن عدم تكرار السيريال داخل المنظمة الواحدة فقط
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_serial_per_org ON public.mfg_batch_serials (serial_number, organization_id);
 
+
 -- 12. رؤية ربحية أمر الإنتاج (Manufacturing Profitability View)
 DROP VIEW IF EXISTS public.v_mfg_order_profitability CASCADE;
-CREATE VIEW public.v_mfg_order_profitability AS
+CREATE OR REPLACE VIEW public.v_mfg_order_profitability AS
 WITH actual_costs AS (
     SELECT 
         op.production_order_id,
