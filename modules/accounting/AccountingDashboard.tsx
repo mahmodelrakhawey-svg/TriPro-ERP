@@ -314,8 +314,11 @@ export default function AccountingDashboard() {
               'journal_lines', 'invoice_items', 'purchase_invoice_items', 
               'quotation_items', 'purchase_order_items', 'sales_return_items', 
               'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items', 
-          'inventory_count_items', 'payroll_items', 'work_order_material_usage', 
-          'mfg_actual_material_usage', 'mfg_order_progress',              // جداول تفاصيل المطعم
+          'inventory_count_items', 'payroll_items',
+          'mfg_qc_inspections', 'mfg_batch_serials', 'mfg_production_variances', 
+          'mfg_scrap_logs', 'mfg_material_request_items',
+          'work_order_material_usage', 'mfg_actual_material_usage', 
+          'mfg_order_progress',              
           'order_items', 'kitchen_orders', 'payments'
           ];
           
@@ -334,7 +337,7 @@ export default function AccountingDashboard() {
               'receipt_vouchers', 'payment_vouchers', 'cheques', 
               'stock_transfers', 'stock_adjustments', 'inventory_counts',
               'payrolls', 'employee_advances', 'bank_reconciliations', 'cash_closings',
-              'opening_inventories', 'work_orders',
+              'opening_inventories', 'mfg_production_orders', 'mfg_material_requests', 'work_orders',
               // جداول مستندات المطعم
               'orders', 'table_sessions', 'shifts', 'rejected_cash_closings'
           ];
@@ -394,10 +397,16 @@ export default function AccountingDashboard() {
 
           // 2. حذف حركات مديول التصنيع
           const mfgTables = [
-              'work_order_material_usage',
+              'mfg_qc_inspections',
+              'mfg_scrap_logs',
+              'mfg_batch_serials',
+              'mfg_production_variances',
+              'mfg_material_request_items',
+              'mfg_material_requests',
+              'mfg_order_progress',
               'mfg_actual_material_usage',
-              'work_orders',
-              'mfg_order_progress'
+              'mfg_production_orders',
+              'work_orders'
           ];
 
           for (const table of mfgTables) {
