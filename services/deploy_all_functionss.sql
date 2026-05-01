@@ -326,6 +326,7 @@ BEGIN
 END; $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ب. اعتماد فاتورة المشتريات
+DROP FUNCTION IF EXISTS public.approve_purchase_invoice(uuid);
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -1834,6 +1835,46 @@ BEGIN
     RETURN 'تمت إعادة مطابقة الأرصدة المالية والمخزنية وإصلاح قيود التكلفة بنجاح ✅';
 END; $$;
 
+-- 🧹 دالة حذف السجلات المعلمة "كمحذوفة" نهائياً (من الـ Context)
+CREATE OR REPLACE FUNCTION public.purge_deleted_records(p_org_id UUID)
+RETURNS TEXT AS $$
+DECLARE v_total INTEGER := 0; v_count INTEGER;
+BEGIN
+    DELETE FROM public.journal_entries WHERE organization_id = p_org_id AND deleted_at IS NOT NULL;
+    GET DIAGNOSTICS v_count = ROW_COUNT; v_total := v_total + v_count;
+    DELETE FROM public.invoices WHERE organization_id = p_org_id AND deleted_at IS NOT NULL;
+    GET DIAGNOSTICS v_count = ROW_COUNT; v_total := v_total + v_count;
+    DELETE FROM public.products WHERE organization_id = p_org_id AND deleted_at IS NOT NULL;
+    GET DIAGNOSTICS v_count = ROW_COUNT; v_total := v_total + v_count;
+    RETURN 'تم تنظيف ' || v_total || ' سجل من سلة المحذوفات بنجاح.';
+END; $$ LANGUAGE plpgsql;
+
+-- 🧹 دالة تنظيف الحركات اليتيمة (Orphaned Records Cleanup)
+CREATE OR REPLACE FUNCTION public.purge_orphaned_financial_records()
+RETURNS TEXT AS $$
+DECLARE v_lines_deleted INTEGER := 0; v_entries_deleted INTEGER := 0; v_items_deleted INTEGER := 0;
+BEGIN
+    DELETE FROM public.journal_lines WHERE journal_entry_id NOT IN (SELECT id FROM public.journal_entries);
+    GET DIAGNOSTICS v_lines_deleted = ROW_COUNT;
+    DELETE FROM public.journal_entries WHERE status = 'posted' AND id NOT IN (SELECT DISTINCT journal_entry_id FROM public.journal_lines);
+    GET DIAGNOSTICS v_entries_deleted = ROW_COUNT;
+    DELETE FROM public.invoice_items WHERE invoice_id NOT IN (SELECT id FROM public.invoices);
+    DELETE FROM public.purchase_invoice_items WHERE purchase_invoice_id NOT IN (SELECT id FROM public.purchase_invoices);
+    GET DIAGNOSTICS v_items_deleted = ROW_COUNT;
+    RETURN format('تم تنظيف النظام بنجاح: %s سطر يتيم، %s قيد فارغ، %s بند فاتورة يتيم.', v_lines_deleted, v_entries_deleted, v_items_deleted);
+END; $$ LANGUAGE plpgsql;
+
+-- 🛠️ دالة إصلاح الحسابات المفقودة
+CREATE OR REPLACE FUNCTION public.repair_missing_accounts()
+RETURNS TEXT AS $$
+DECLARE v_org_id UUID; v_count INTEGER := 0;
+BEGIN
+    FOR v_org_id IN SELECT id FROM public.organizations LOOP
+        PERFORM public.initialize_egyptian_coa(v_org_id); -- الدالة ذكية وتضيف المفقود فقط
+    END LOOP;
+    RETURN 'تم فحص النظام وتحديث كافة حسابات المنظمات.';
+END; $$ LANGUAGE plpgsql;
+
 CREATE OR REPLACE FUNCTION public.get_dashboard_stats(p_org_id uuid DEFAULT NULL) 
 RETURNS json 
 LANGUAGE plpgsql 
@@ -2964,14 +3005,65 @@ CREATE OR REPLACE FUNCTION public.clear_demo_data(p_org_id uuid)
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     IF NOT public.is_admin() THEN RAISE EXCEPTION 'صلاحيات غير كافية.'; END IF;
-    
+
+    -- 1. حذف بيانات التصنيع بذكاء (فقط إذا كانت الجداول موجودة)
+    -- يتم استخدام EXECUTE لتجنب خطأ 42P01 أثناء تعريف الدالة
+    EXECUTE 'DO $clear_mfg$ BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_batch_serials'') THEN
+            DELETE FROM public.mfg_batch_serials WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_actual_material_usage WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_scrap_logs WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_production_variances WHERE organization_id = ' || quote_literal(p_org_id) || ';
+        END IF;
+        
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_qc_inspections'') THEN
+            DELETE FROM public.mfg_qc_inspections WHERE organization_id = ' || quote_literal(p_org_id) || ';
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_material_requests'') THEN
+            DELETE FROM public.mfg_material_request_items WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_material_requests WHERE organization_id = ' || quote_literal(p_org_id) || ';
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_production_orders'') THEN
+            DELETE FROM public.mfg_order_progress WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_production_orders WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_step_materials WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_routing_steps WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_routings WHERE organization_id = ' || quote_literal(p_org_id) || ';
+            DELETE FROM public.mfg_work_centers WHERE organization_id = ' || quote_literal(p_org_id) || ';
+        END IF;
+    END $clear_mfg$;';
+
+    DELETE FROM public.bill_of_materials WHERE organization_id = p_org_id;
+
+    -- 2. حذف بيانات المبيعات والمشتريات والمالية
     DELETE FROM public.invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.purchase_invoices WHERE organization_id = p_org_id;
+    DELETE FROM public.receipt_vouchers WHERE organization_id = p_org_id;
+    DELETE FROM public.payment_vouchers WHERE organization_id = p_org_id;
+    DELETE FROM public.orders WHERE organization_id = p_org_id;
+    DELETE FROM public.stock_adjustments WHERE organization_id = p_org_id;
+    DELETE FROM public.opening_inventories WHERE organization_id = p_org_id;
+    DELETE FROM public.cheques WHERE organization_id = p_org_id;
+    DELETE FROM public.credit_notes WHERE organization_id = p_org_id;
+    DELETE FROM public.debit_notes WHERE organization_id = p_org_id;
+    DELETE FROM public.payrolls WHERE organization_id = p_org_id;
+    DELETE FROM public.employee_advances WHERE organization_id = p_org_id;
+    DELETE FROM public.assets WHERE organization_id = p_org_id;
+    DELETE FROM public.customers WHERE organization_id = p_org_id;
+    DELETE FROM public.suppliers WHERE organization_id = p_org_id;
+    DELETE FROM public.employees WHERE organization_id = p_org_id;
+    DELETE FROM public.restaurant_tables WHERE organization_id = p_org_id;
+    DELETE FROM public.shifts WHERE organization_id = p_org_id;
+
     DELETE FROM public.journal_entries WHERE organization_id = p_org_id AND related_document_type != 'opening_balance';
     -- تحديث المخزون للأصناف ليصبح صفراً
     UPDATE public.products SET stock = 0, warehouse_stock = '{}'::jsonb WHERE organization_id = p_org_id;
     
     RETURN 'تم تنظيف البيانات التشغيلية بنجاح ✅';
 END; $$;
+
 
 -- 🛡️ 4. دالة إصلاح صلاحيات كافة المديرين (Bulk Admin Permission Repair)
 CREATE OR REPLACE FUNCTION public.repair_all_admin_permissions()

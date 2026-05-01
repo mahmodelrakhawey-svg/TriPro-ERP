@@ -24,13 +24,13 @@ BEGIN
     FOREACH t IN ARRAY ARRAY['mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 'mfg_production_orders', 'mfg_order_progress', 'mfg_step_materials', 'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances', 'mfg_material_requests', 'mfg_material_request_items'] LOOP
         EXECUTE format('DROP POLICY IF EXISTS "mfg_select_policy_%I" ON public.%I', t, t);
         EXECUTE format('CREATE POLICY "mfg_select_policy_%I" ON public.%I FOR SELECT TO authenticated 
-            USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'')', t, t);
+            USING (organization_id = public.get_my_org() OR public.is_super_admin())', t, t);
 
         EXECUTE format('DROP POLICY IF EXISTS "mfg_admin_policy_%I" ON public.%I', t, t);
         EXECUTE format('CREATE POLICY "mfg_admin_policy_%I" ON public.%I FOR ALL TO authenticated 
             USING (
                 (organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager''))
-                OR public.get_my_role() = ''super_admin''
+                OR public.is_super_admin()
             )', t, t);
     END LOOP;
 END $$;

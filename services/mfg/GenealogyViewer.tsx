@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
-import { Search, History, Package, Settings, Clock, AlertCircle, List, ArrowRight, Printer } from 'lucide-react';
+import { Search, History, Package, Settings, Clock, AlertCircle, List, ArrowRight, Printer, Play } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
 
 interface GenealogyData {
@@ -32,6 +32,7 @@ const GenealogyViewer = () => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<GenealogyData | null>(null);
   const [foundSerials, setFoundSerials] = useState<any[]>([]);
+  const [productionOrderDetails, setProductionOrderDetails] = useState<any | null>(null);
 
   // دعم البحث التلقائي ومراقبة تغييرات الرابط
   useEffect(() => {
@@ -58,29 +59,53 @@ const GenealogyViewer = () => {
     setLoading(true);
     setData(null);
     setFoundSerials([]);
+    setProductionOrderDetails(null);
     
     // 1. البحث أولاً: هل هذا "رقم أمر إنتاج"؟
-    const { data: serialsByOrder } = await supabase.rpc('mfg_get_serials_by_order', { 
+    const { data: orderDetails, error: orderError } = await supabase.rpc('mfg_get_production_order_details_by_number', {
       p_order_number: term 
     });
 
-    if (serialsByOrder && serialsByOrder.length > 0) {
-      setFoundSerials(serialsByOrder);
-      setData(null);
+    if (orderError) {
+      showToast(orderError.message, 'error');
       setLoading(false);
       return;
     }
 
-    // 2. إذا لم يكن رقم أمر، نبحث عنه كـ "رقم تسلسلي" مباشر
-    const { data: result, error } = await supabase.rpc('mfg_get_product_genealogy', { 
-      p_serial_number: term 
-    });
+    if (orderDetails && orderDetails.length > 0) {
+      setProductionOrderDetails(orderDetails[0]); // Assuming order_number is unique
 
-    if (error || result?.error) {
-      showToast(error?.message || result?.error, 'error');
-      setData(null);
+      // ثم نحاول جلب الأرقام التسلسلية لهذا الأمر
+      const { data: serialsByOrder, error: serialsError } = await supabase.rpc('mfg_get_serials_by_order', {
+        p_order_number: term
+      });
+
+      if (serialsError) {
+        showToast(serialsError.message, 'error');
+        setLoading(false);
+        return;
+      }
+
+      if (serialsByOrder && serialsByOrder.length > 0) {
+        setFoundSerials(serialsByOrder);
+        setData(null); // Clear single serial data
+      } else {
+        setFoundSerials([]); // No serials yet for this order
+        setData(null);
+      }
     } else {
-      setData(result);
+      // إذا لم يكن رقم أمر إنتاج، نبحث عنه كـ "رقم تسلسلي" مباشر
+      setProductionOrderDetails(null);
+      const { data: result, error } = await supabase.rpc('mfg_get_product_genealogy', { 
+        p_serial_number: term 
+      });
+
+      if (error || result?.error) {
+        showToast(error?.message || result?.error, 'error');
+        setData(null);
+      } else {
+        setData(result);
+      }
     }
     setLoading(false);
   };
@@ -91,6 +116,8 @@ const GenealogyViewer = () => {
   };
 
   const selectSerial = (sn: string) => {
+    // Clear production order details when selecting a single serial
+    setProductionOrderDetails(null);
     setSerialSearch(sn);
     setFoundSerials([]);
     setLoading(true);
@@ -154,6 +181,73 @@ const GenealogyViewer = () => {
     }
   };
 
+  const handlePrintAllSerials = () => {
+    if (foundSerials.length === 0) return;
+    
+    const printWindow = window.open('', '', 'width=600,height=800');
+    if (printWindow) {
+        const labelsHtml = foundSerials.map(sn => `
+            <div class="label">
+                <div class="title">${sn.product_name || 'منتج أمر إنتاج'}</div>
+                <div class="serial-barcode">*${sn.serial_number}*</div>
+                <div class="serial-text">${sn.serial_number}</div>
+                <div style="font-size: 10px; margin-top: 5px;">رقم الدفعة: ${sn.batch_number || '-'}</div>
+            </div>
+        `).join('<div style="page-break-after: always;"></div>');
+
+        printWindow.document.write(`
+            <html dir="rtl">
+            <head>
+                <title>طباعة ملصقات الأمر</title>
+                <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
+                <style>
+                    body { font-family: 'Tajawal', sans-serif; margin: 0; }
+                    .label { 
+                        width: 80mm; 
+                        height: 40mm; 
+                        padding: 5mm; 
+                        text-align: center; 
+                        display: flex; 
+                        flex-direction: column; 
+                        justify-content: center;
+                        align-items: center;
+                        box-sizing: border-box;
+                        margin: auto;
+                    }
+                    .title { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
+                    .serial-barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 42px; line-height: 1; margin: 5px 0; }
+                    .serial-text { font-family: monospace; font-size: 12px; font-weight: bold; }
+                    @media print {
+                        @page { size: 80mm 40mm; margin: 0; }
+                    }
+                </style>
+            </head>
+            <body>
+                ${labelsHtml}
+                <script>window.onload = function() { window.print(); window.close(); }</script>
+            </body>
+            </html>
+        `);
+        printWindow.document.close();
+    }
+  };
+
+  const handleStartProductionOrder = async () => {
+    if (!productionOrderDetails) return;
+    setLoading(true);
+    const { error } = await supabase.rpc('mfg_start_production_order', {
+        p_order_id: productionOrderDetails.order_id
+    });
+    if (error) {
+        showToast(error.message, 'error');
+    } else {
+        showToast('تم بدء أمر الإنتاج بنجاح.', 'success');
+        // Re-fetch details to update status
+        executeSearch(serialSearch);
+    }
+    setLoading(false);
+};
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen" dir="rtl">
       <div className="max-w-5xl mx-auto space-y-6">
@@ -184,24 +278,49 @@ const GenealogyViewer = () => {
           </form>
         </div>
 
-        {/* عرض نتائج البحث برقم الأمر (قائمة السيريالات) */}
-        {foundSerials.length > 0 && (
+        {/* عرض تفاصيل أمر الإنتاج أو قائمة السيريالات */}
+        {productionOrderDetails && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-blue-100 animate-in fade-in">
-            <h2 className="font-bold text-gray-800 flex items-center gap-2 mb-4">
-              <List className="text-blue-500" size={20} /> الأرقام التسلسلية المنتجة لهذا الأمر
-            </h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-              {foundSerials.map((sn) => (
-                <button
-                  key={sn.serial_number}
-                  onClick={() => selectSerial(sn.serial_number)}
-                  className="p-3 bg-blue-50 text-blue-700 rounded-xl font-mono text-sm font-bold hover:bg-blue-100 transition-colors border border-blue-100 flex items-center justify-between group"
-                >
-                  {sn.serial_number}
-                  <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
-                </button>
-              ))}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-bold text-gray-800 flex items-center gap-2">
+                <List className="text-blue-500" size={20} /> تفاصيل أمر الإنتاج: {productionOrderDetails.order_number}
+              </h2>
+              <div className="flex gap-2">
+                {productionOrderDetails.status === 'draft' && (
+                    <button
+                        onClick={handleStartProductionOrder}
+                        disabled={loading}
+                        className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-500 transition-colors text-sm disabled:opacity-50"
+                    >
+                        <Play size={16} /> {loading ? 'جاري البدء...' : 'بدء أمر الإنتاج'}
+                    </button>
+                )}
+                {foundSerials.length > 0 && ( // Only show print all if there are serials
+                    <button
+                        onClick={handlePrintAllSerials}
+                        className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-slate-700 transition-colors text-sm"
+                    >
+                        <Printer size={16} /> طباعة كل الملصقات
+                    </button>
+                )}
+              </div>
             </div>
+            {foundSerials.length > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {foundSerials.map((sn) => (
+                        <button
+                            key={sn.serial_number}
+                            onClick={() => selectSerial(sn.serial_number)}
+                            className="p-3 bg-blue-50 text-blue-700 rounded-xl font-mono text-sm font-bold hover:bg-blue-100 transition-colors border border-blue-100 flex items-center justify-between group"
+                        >
+                            {sn.serial_number}
+                            <ArrowRight size={14} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </button>
+                    ))}
+                </div>
+            ) : (
+                <p className="text-gray-600 text-center py-4">لا توجد أرقام تسلسلية منتجة لهذا الأمر بعد. حالة الأمر: <span className="font-bold text-blue-600">{productionOrderDetails.status === 'draft' ? 'مسودة' : productionOrderDetails.status === 'in_progress' ? 'قيد التنفيذ' : productionOrderDetails.status}</span></p>
+            )}
           </div>
         )}
 

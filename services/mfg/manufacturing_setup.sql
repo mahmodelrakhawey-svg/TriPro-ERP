@@ -1,5 +1,6 @@
 -- 🏭 ملف تأسيس مديول التصنيع المتقدم (Manufacturing Setup)
--- الوصد: جداول المراحل الإنتاجية ومراكز العمل
+-- ضمان وجود المخطط (Schema) إذا تم الفصل مستقبلاً
+-- CREATE SCHEMA IF NOT EXISTS mfg;
 
 -- 1. جداول مراكز العمل (Work Centers) - مثل: قسم القص، قسم الخياطة
 CREATE TABLE IF NOT EXISTS public.mfg_work_centers (
@@ -83,6 +84,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_actual_material_usage (
 );
 
 -- 8. رؤية تحليل انحراف المواد الخام (Raw Material Variance View)
+DROP VIEW IF EXISTS public.v_mfg_material_variance CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_material_variance AS
 SELECT
     po.order_number,

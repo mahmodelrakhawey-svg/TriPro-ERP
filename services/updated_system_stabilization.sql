@@ -42,6 +42,14 @@ BEGIN
     END LOOP;
 END $$;
 
+-- 3. إصلاح تكرار SKU (لضمان استقرار المخزن)
+WITH duplicates AS (
+    SELECT id, ROW_NUMBER() OVER (PARTITION BY sku, organization_id ORDER BY created_at DESC) as rn
+    FROM public.products
+    WHERE deleted_at IS NULL AND sku IS NOT NULL
+)
+UPDATE public.products SET sku = sku || '-DUP-' || id::text WHERE id IN (SELECT id FROM duplicates WHERE rn > 1);
+
 -- 🛠️ تأمين جدول طلبات المطبخ (kitchen_orders) لبيئة الـ SaaS والمدراء
 ALTER TABLE IF EXISTS public.kitchen_orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
 ALTER TABLE public.kitchen_orders ALTER COLUMN organization_id SET NOT NULL; -- ✅ فرض عدم السماح بقيم NULL
@@ -51,6 +59,48 @@ UPDATE public.kitchen_orders ko
 SET organization_id = oi.organization_id
 FROM public.order_items oi
 WHERE ko.order_item_id = oi.id AND ko.organization_id IS NULL;
+
+-- 🛠️ ترميم مديول التصنيع (MFG Data Integrity)
+-- ربط السجلات القديمة بالمنظمة الحالية لتمكين حذفها أو عزلها
+DO $$ 
+BEGIN
+    -- فحص وجود جداول التصنيع قبل محاولة الترميم (إصلاح الخطأ 42P01)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_orders') THEN
+        UPDATE public.mfg_production_orders SET organization_id = public.get_my_org() WHERE organization_id IS NULL;
+        
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_order_progress') THEN
+            UPDATE public.mfg_order_progress po SET organization_id = orders.organization_id 
+            FROM public.mfg_production_orders orders 
+            WHERE po.production_order_id = orders.id AND po.organization_id IS NULL;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_batch_serials') THEN
+            UPDATE public.mfg_batch_serials bs SET organization_id = orders.organization_id 
+            FROM public.mfg_production_orders orders 
+            WHERE bs.production_order_id = orders.id AND bs.organization_id IS NULL;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_actual_material_usage') THEN
+            UPDATE public.mfg_actual_material_usage amu SET organization_id = op.organization_id 
+            FROM public.mfg_order_progress op WHERE amu.order_progress_id = op.id AND amu.organization_id IS NULL;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_scrap_logs') THEN
+            UPDATE public.mfg_scrap_logs sl SET organization_id = op.organization_id 
+            FROM public.mfg_order_progress op WHERE sl.order_progress_id = op.id AND sl.organization_id IS NULL;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_material_requests') THEN
+            UPDATE public.mfg_material_requests mr SET organization_id = po.organization_id 
+            FROM public.mfg_production_orders po WHERE mr.production_order_id = po.id AND mr.organization_id IS NULL;
+        END IF;
+
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_variances') THEN
+            UPDATE public.mfg_production_variances pv SET organization_id = po.organization_id 
+            FROM public.mfg_production_orders po WHERE pv.production_order_id = po.id AND pv.organization_id IS NULL;
+        END IF;
+    END IF;
+END $$;
 
 -- 1. جداول الطاولات والجلسات
 ALTER TABLE IF EXISTS public.restaurant_tables ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);

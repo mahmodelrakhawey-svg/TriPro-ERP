@@ -4,6 +4,7 @@
 BEGIN;
 
 -- 1. إنشاء رؤية السيريالات المتاحة في المخازن
+DROP VIEW IF EXISTS public.v_mfg_available_serials CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_available_serials WITH (security_invoker = true) AS
 SELECT 
     bs.id,
