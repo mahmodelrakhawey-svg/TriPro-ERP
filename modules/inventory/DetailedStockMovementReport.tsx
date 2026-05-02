@@ -300,26 +300,15 @@ const DetailedStockMovementReport = () => {
               // الأفضل عرضها كحركة "نقل" ولكن الهيكل الحالي يدعم IN/OUT.
               // سنعرضها كحركة OUT من المصدر وحركة IN للمستلم ليكون التقرير دقيقاً وتفصيلياً
               allMovements.push({
-                  id: `TRN-OUT-${t.transfer_number}-${item.product_id}`,
-                  date: t.transfer_date,
-                  type: 'OUT',
-                  docType: 'تحويل صادر',
-                  docNumber: t.transfer_number,
-                  productName: item.products?.name,
-                  quantity: item.quantity,
-                  warehouseName: getWName(t.from_warehouse_id),
-                  notes: `إلى: ${getWName(t.to_warehouse_id)}`
-              });
-              allMovements.push({
-                  id: `TRN-IN-${t.transfer_number}-${item.product_id}`,
+                  id: `TRN-DOC-${t.transfer_number}-${item.product_id}`,
                   date: t.transfer_date,
                   type: 'IN',
-                  docType: 'تحويل وارد',
+                  quantity: 0, // كمية 0 لعدم التأثير على الرصيد الإجمالي للشركة
+                  docType: 'تحويل مخزني (داخلي)',
                   docNumber: t.transfer_number,
                   productName: item.products?.name,
-                  quantity: item.quantity,
-                  warehouseName: getWName(t.to_warehouse_id),
-                  notes: `من: ${getWName(t.from_warehouse_id)}`
+                  warehouseName: `${getWName(t.from_warehouse_id)} ➔ ${getWName(t.to_warehouse_id)}`,
+                  notes: `نقل كمية (${item.quantity}) - ${t.notes || ''}`
               });
           }
       });

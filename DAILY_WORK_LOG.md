@@ -1,80 +1,36 @@
 # 📅 سجل العمل اليومي
 
-## التاريخ: 25 يناير 2026
+## التاريخ: 03 إبريل 2026
 
 ### ✅ المهام المنجزة:
 
-1. **تحسين معالجة الأخطاء (Error Handling):**
-   - تم استبدال `alert()` بـ `showToast()` في معظم ملفات النظام لتحسين تجربة المستخدم.
-   - تم إضافة `try...catch` blocks للتعامل مع الأخطاء بشكل أفضل ومنع توقف التطبيق.
+1. **تحديث المحرك الموحد (SQL Engine v39.0):**
+   - تحديث `deploy_all_functionss.sql` ليشمل كافة الدوال الذرية لضمان نزاهة البيانات.
+   - إضافة دوال `approve_stock_transfer` و `cancel_stock_transfer` لإدارة التحويلات المخزنية.
+   - دمج وظيفة `mfg_finalize_order` لمعالجة تكاليف التصنيع محاسبياً.
 
-2. **تحديث الملفات التالية:**
-   - `modules/purchases/PurchaseInvoiceForm.tsx` (فواتير المشتريات)
-   - `modules/purchases/PurchaseOrderForm.tsx` (أوامر الشراء)
-   - `modules/purchases/DebitNoteForm.tsx` (الإشعارات المدينة)
-   - `modules/purchases/SupplierManager.tsx` (إدارة الموردين)
-   - `modules/purchases/PurchaseAnalysisReport.tsx` (تحليل المشتريات)
-   - `modules/purchases/SupplierStatement.tsx` (كشف حساب مورد)
-   - `modules/inventory/StockCard.tsx` (كارت الصنف)
-   - `modules/inventory/InventoryCountForm.tsx` (الجرد المخزني)
-   - `modules/inventory/StockAdjustmentForm.tsx` (التسوية المخزنية)
-   - `modules/inventory/StockTransfer.tsx` (التحويل المخزني)
-   - `modules/finance/PaymentVoucherForm.tsx` (سند الصرف)
-   - `modules/finance/CashClosingForm.tsx` (إقفال الصندوق)
-   - `modules/sales/CustomerManager.tsx` (إدارة العملاء)
-   - `components/UserProfile.tsx` (الملف الشخصي)
-   - `components/UserManager.tsx` (إدارة المستخدمين)
-   - `components/LandingPage.tsx` (صفحة الهبوط)
+2. **استقرار مديول المخازن (Inventory Stabilization):**
+   - تفعيل نظام الاعتماد/الإلغاء في `StockTransferList.tsx` وربطه بصلاحيات المستخدم.
+   - إصلاح منطق `StockCard.tsx` لعرض التحويلات كحركات توثيقية (0 كمية) على مستوى الشركة وحركات مؤثرة على مستوى المستودع.
+   - تحديث `InventoryCountForm.tsx` ليدعم جرد كافة أنواع الأصناف (خامات ومنتجات) مع فلترة المنظمة.
 
-4. **التحقق من صحة البيانات (Validation):**
-   - تم إنشاء ملف `utils/validationSchemas.ts` وإضافة مخططات Zod للفواتير والعملاء والعمليات الأساسية.
-   - تم تطبيق التحقق في الملفات التالية:
-     - `modules/sales/SalesInvoiceForm.tsx` (فواتير المبيعات)
-     - `modules/sales/CustomerManager.tsx` (إدارة العملاء)
-     - `modules/purchases/PurchaseOrderForm.tsx` (أوامر الشراء)
-     - `modules/accounting/JournalEntryForm.tsx` (قيود اليومية)
-     - `modules/inventory/ProductManager.tsx` (إدارة المنتجات)
+3. **تكامل مديول التصنيع (Manufacturing Integration):**
+   - ربط خصم المواد الخام بالمستودع المحدد في أمر التشغيل.
+   - أتمتة ربط تكاليف العمالة والمصاريف غير المباشرة بمتوسط تكلفة المنتج التام.
+   - تأمين جداول التصنيع بسياسات RLS متقدمة في `system_stabilization.sql`.
 
-5. **تحسين الأمان (Security Hardening):**
-   - تم إنشاء ملف `services/setup_rls.sql` لتفعيل Row Level Security (RLS) وحماية البيانات في قاعدة البيانات.
-   - تم تحديث `services/setup_rls.sql` لإصلاح مشاكل إنشاء الدوال والسياسات (استخدام plpgsql وإضافة DROP POLICY).
-   - تم إزالة `DROP FUNCTION` من `services/setup_rls.sql` لمنع حذف السياسات المرتبطة (مثل سياسات التخزين).
-
-6. **تحسين الأداء (Performance Optimization):**
-   - تم إنشاء `components/usePagination.ts` لتوفير hook قابل لإعادة الاستخدام للتعامل مع الصفحات (Pagination) في الجداول الكبيرة.
-   - تم تفعيل التصفح في `ProductManager` و `PurchaseInvoiceList` تلقائياً بفضل وجود الـ hook الجديد.
-   - تم تحديث `modules/sales/InvoiceList.tsx` لاستخدام `usePagination` وتحسين الأداء.
-   - تم تحديث `modules/finance/ReceiptVoucherList.tsx` لإضافة Pagination.
-   - تم تحديث `modules/finance/PaymentVoucherList.tsx` لإضافة Pagination.
-   - تم تحديث `modules/accounting/GeneralJournal.tsx` لإضافة Pagination.
-   - تم إنشاء `hooks/useCache.ts` لتخزين البيانات الثابتة مؤقتاً وتقليل الطلبات على السيرفر.
-
-7. **الاختبارات (Testing):**
-   - تم تشغيل اختبارات التحقق من البيانات (`schemas.test.ts`) بنجاح (26 اختبار ناجح).
-   - تم تشغيل اختبارات الأمان (`utils/securityUtils.test.ts`) بنجاح (6 اختبارات ناجحة).
-   - إجمالي الاختبارات الناجحة: 32 اختبار.
-   - تم إضافة اختبارات معالجة الأخطاء (`utils/errorHandler.test.ts`).
-   - تم إصلاح `utils/errorHandler.ts` ليكون غير حساس لحالة الأحرف (Case-insensitive) لضمان نجاح الاختبارات.
-
-8. **التوثيق (Documentation):**
-   - تم إنشاء مجلد `docs/` وإضافة `DEVELOPER_GUIDE.md` و `DATABASE_SCHEMA.md`.
-   - تم تحديث `README.md` ليكون أكثر احترافية ويشير إلى التوثيق الجديد.
-   - تم إنشاء `docs/API_REFERENCE.md` لتوثيق دوال Supabase RPC.
-   - تم إنشاء `docs/USER_GUIDE.md` كدليل استخدام للمستخدم النهائي.
-
-3. **إصلاحات:**
-   - إصلاح خطأ في بناء الجملة (Syntax Error) في ملف `SupplierStatement.tsx`.
-   - إصلاح خطأ في بناء الجملة (Syntax Error) في ملف `ItemProfitReport.tsx`.
-   - إضافة استيراد `useToast` المفقود في ملفات التقارير.
+4. **تحسينات الجودة البرمجية:**
+   - إصلاح أخطاء TypeScript في `ItemMovementReport.tsx`.
+   - تنظيف الملفات من أحرف BOM ومعالجة تحذيرات `validateDOMNesting`.
 
 ### 📝 ملاحظات للمستقبل:
-- عند إنشاء ملفات جديدة، تأكد دائماً من استخدام `useToast` بدلاً من `alert`.
-- يجب البدء في مرحلة التحقق من صحة البيانات (Validation) باستخدام مكتبة `Zod` كخطوة تالية.
-- يفضل مراجعة ملفات المبيعات (`modules/sales/*`) للتأكد من خلوها من `alert()`.
+- التركيز على استكمال استبدال `alert()` بـ `showToast` في `SalesInvoiceForm.tsx` و `AccountingContext.tsx`.
+- البدء في بناء واجهة "تسجيل الهالك الصناعي" (Scrap Recording UI).
+- تشغيل اختبارات العزل `test_saas_isolation()` للتأكد من أمان نظام تعدد الشركات.
 
 ---
 
-**حالة النظام:** مستقر وجاهز للمرحلة التالية.
+**حالة النظام:** حديد لا يصدأ - جاهز للإنتاج الصناعي.
 ```
 
 ### 💡 نصيحة بخصوص أداء المحرر (VS Code)

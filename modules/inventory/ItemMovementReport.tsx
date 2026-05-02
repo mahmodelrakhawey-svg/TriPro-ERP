@@ -286,10 +286,18 @@ const ItemMovementReport = () => {
                       userName: getUserName(t.created_by)
                   });
               }
-          } 
-          // إذا لم يتم اختيار مستودع (عرض كلي)، التحويلات الداخلية لا تؤثر على الرصيد الإجمالي للشركة
-          // لذلك لا نضيفها هنا لتجنب الازدواجية، أو يمكن إضافتها كحركة صفرية للتوضيح فقط.
-          // في هذا التقرير المالي/الكمي، نفضل عدم إظهارها إذا لم تؤثر على الرصيد المختار.
+          } else {
+              // عرض عام: إضافة حركة توثيقية لضمان اكتمال السجل التاريخي
+              allMovements.push({
+                  date: t.transfer_date,
+                  type: 'in',
+                  quantity: 0,
+                  documentType: 'تحويل مخزني (داخلي)',
+                  documentNumber: t.transfer_number,
+                  description: `${getWName(t.from_warehouse_id)} ➔ ${getWName(t.to_warehouse_id)} (كمية: ${item.quantity})`,
+                  userName: getUserName(t.created_by)
+              });
+          }
       });
 
       // معالجة التصنيع

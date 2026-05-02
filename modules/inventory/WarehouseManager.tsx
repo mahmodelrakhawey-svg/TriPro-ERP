@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState } from 'react';
+﻿﻿import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Warehouse, Plus, MapPin, Trash2, Edit2, Save, X, User, Phone } from 'lucide-react';

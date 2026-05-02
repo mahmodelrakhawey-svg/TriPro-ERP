@@ -17,6 +17,7 @@ interface SalesInvoice {
   customer_name: string;
   created_at: string;
   total_amount: number;
+  invoice_status: string; // Added this line
 }
 
 const BatchOrderManager = () => {
@@ -49,6 +50,7 @@ const BatchOrderManager = () => {
         customer_name: inv.cust_name, // RPC returns cust_name
         created_at: inv.order_date, // RPC returns order_date
         total_amount: inv.total, // RPC returns total (now guaranteed non-null)
+        invoice_status: inv.invoice_status, // Added this line
       }));
       setInvoices(formattedInvoices);
     }
@@ -206,7 +208,17 @@ const BatchOrderManager = () => {
                       }
                     </td>
                     <td className="p-4 font-mono font-bold text-gray-700">{invoice.invoice_number}</td>
-                    <td className="p-4 text-gray-800">{invoice.customer_name}</td>
+                    <td className="p-4">
+                      <div className="flex flex-col items-end">
+                        <span className="text-gray-800">{invoice.customer_name}</span>
+                        {invoice.invoice_status === 'posted' && (
+                          <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded mt-1 w-fit font-bold">مرحلة</span>
+                        )}
+                        {invoice.invoice_status === 'paid' && (
+                          <span className="text-[9px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded mt-1 w-fit font-bold">مدفوعة</span>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-4 text-gray-500 text-sm">
                       {new Date(invoice.created_at).toLocaleDateString('ar-EG')}
                     </td>

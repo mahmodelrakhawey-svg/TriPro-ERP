@@ -13,6 +13,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { ProductStockViewer } from '../../components/ProductStockViewer';
 import { useToast } from '../../context/ToastContext';
+import { handleError, AppError } from '../../utils/errorHandler';
 import CustomerStatement from './CustomerStatement';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
@@ -72,6 +73,7 @@ const SalesInvoiceForm = () => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
         console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+        showToast('تعذر تحميل إعدادات الشركة، قد تظهر بعض البيانات بشكل غير صحيح', 'warning');
       } else {
         setCompanySettings(data);
       }
@@ -218,7 +220,7 @@ const SalesInvoiceForm = () => {
                          manualCredit + 
                          restPaymentsCredit;
 
-          setCustomerBalance(debit - credit);
+            setCustomerBalance(debit - credit);
 
             // 🔍 التحقق من الفواتير المتأخرة
             const { data: overdueData } = await supabase
@@ -229,20 +231,27 @@ const SalesInvoiceForm = () => {
                 .neq('status', 'draft');
 
             const today = new Date().toISOString().split('T')[0];
-            const overdueInvoices = overdueData?.filter((inv: any) => inv.status !== 'paid' && inv.due_date && inv.due_date < today && (inv.total_amount - (inv.paid_amount || 0)) > 0) || [];
+            const overdueInvoices = overdueData?.filter((inv: any) => 
+                inv.status !== 'paid' && 
+                inv.due_date && 
+                inv.due_date < today && 
+                (inv.total_amount - (inv.paid_amount || 0)) > 0
+            ) || [];
             
             if (overdueInvoices.length > 0) {
                 setTimeout(() => {
                     showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
                 }, 500);
             }
-      } catch (error: any) {
-          console.error("Error calculating customer balance:", error);
-      }
-  };
-  useEffect(() => {
-    fetchCustomerBalance();
-  }, [formData.customerId, currentUser, contextInvoices]);
+        } catch (error: any) {
+            console.error("Error calculating customer balance:", error);
+            handleError(error, { showNotification: showToast, context: { customerId: formData.customerId } });
+        }
+    };
+
+    useEffect(() => {
+        fetchCustomerBalance();
+    }, [formData.customerId, currentUser, contextInvoices]);
 
   const handleRefreshBalance = async () => {
       setIsRefreshingBalance(true);
@@ -586,15 +595,13 @@ const SalesInvoiceForm = () => {
         }
     }
 
-    // جلب معرف المنظمة بشكل آمن مع صمام أمان (SaaS Security)
-    const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
-    const userOrgId = profile?.organization_id;
+    try {
+        const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
+        const userOrgId = profile?.organization_id;
 
-    if (!userOrgId) {
-        showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
-        setSaving(false);
-        return;
-    }
+        if (!userOrgId) {
+            throw new AppError('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'ORG_ID_MISSING', 'critical');
+        }
 
     if (!settings.allowNegativeStock) {
         for (const item of items) {
@@ -638,12 +645,6 @@ const SalesInvoiceForm = () => {
     // توليد رقم فاتورة فريد مرة واحدة لاستخدامه في القيد والفاتورة
     const invoiceNumber = formData.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`;
 
-    // إنشاء قيد اليومية تلقائياً (Sales Journal Entry)
-    // ملاحظة: في هذا التصميم، يتم حفظ الفاتورة كمسودة أولاً.
-    // القيد المحاسبي الفعلي وتحديث المخزون يتم عند "اعتماد" الفاتورة من شاشة سجل الفواتير.
-    // لذلك، سنقوم فقط بحفظ بيانات الفاتورة بما في ذلك المبلغ المدفوع والخزينة.
-    // تم تعديل دالة الاعتماد في السياق المحاسبي للتعامل مع هذه البيانات.
-    try {       
         // Prepare invoice data
         const invoiceData = {
             organization_id: userOrgId,
@@ -674,7 +675,7 @@ const SalesInvoiceForm = () => {
             
             if (updateError) {
                 if (updateError.code === '23505') {
-                    throw new Error('رقم الفاتورة مكرر. يرجى استخدام رقم آخر أو تعديل الفاتورة الحالية.');
+                    throw new AppError('رقم الفاتورة مكرر. يرجى استخدام رقم آخر أو تعديل الفاتورة الحالية.', 'DUPLICATE_INV_NO', 'high');
                 }
                 throw updateError;
             }
@@ -686,7 +687,7 @@ const SalesInvoiceForm = () => {
             const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();
             if (insertError) {
                 if (insertError.code === '23505') {
-                    throw new Error('رقم الفاتورة هذا مسجل مسبقاً. يرجى استخدام رقم آخر.');
+                    throw new AppError('رقم الفاتورة هذا مسجل مسبقاً. يرجى استخدام رقم آخر.', 'DUPLICATE_INV_NO', 'high');
                 }
                 throw insertError;
             }
@@ -742,7 +743,7 @@ const SalesInvoiceForm = () => {
 
     } catch (err: any) {
         console.error("فشل حفظ الفاتورة", err);
-        showToast(err?.message || 'فشل حفظ الفاتورة', 'error');
+        handleError(err, { showNotification: showToast, context: { operation: 'حفظ الفاتورة' } });
     } finally {
         setSaving(false);
     }
@@ -890,7 +891,7 @@ const SalesInvoiceForm = () => {
 
     } catch (err: any) {
         console.error("فشل الحفظ والترحيل", err);
-        showToast(err?.message || 'فشل الحفظ والترحيل', 'error');
+        handleError(err, { showNotification: showToast, context: { operation: 'حفظ وترحيل الفاتورة' } });
     } finally {
         setSaving(false);
     }

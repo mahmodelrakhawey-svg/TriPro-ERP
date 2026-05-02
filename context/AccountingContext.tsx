@@ -3,6 +3,7 @@ import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware'; // Assuming this exists
+import { handleError, AppError } from '../utils/errorHandler';
 import { 
   Account, JournalEntry, Invoice, Product, Customer, Supplier, 
   PurchaseInvoice, SalesReturn, PurchaseReturn, StockTransaction,
@@ -381,6 +382,8 @@ interface AccountingContextType {
   transfers: any[];
   addTransfer: (transfer: any) => Promise<void>;
   addStockTransfer: (transfer: any) => Promise<void>;
+  approveStockTransfer: (transferId: string) => Promise<void>;
+  cancelStockTransfer: (transferId: string) => Promise<void>;
   bankReconciliations: any[];
   addBankReconciliation: (rec: any) => void;
   getBookBalanceAtDate: (accountId: string, date: string) => number;
@@ -625,7 +628,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       showToast('تم إضافة التصنيف بنجاح ✅', 'success');
     } catch (err: any) {
-      showToast('فشل إضافة التصنيف: ' + err.message, 'error');
+      handleError(err, { showNotification: showToast, context: { operation: 'إضافة تصنيف' } });
     }
   };
 
@@ -636,7 +639,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       showToast('تم تحديث التصنيف بنجاح ✅', 'success');
     } catch (err: any) {
-      showToast('فشل تحديث التصنيف: ' + err.message, 'error');
+      handleError(err, { showNotification: showToast, context: { operation: 'تحديث التصنيف' } });
     }
   };
 
@@ -648,7 +651,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       showToast('تم حذف التصنيف بنجاح ✅', 'success');
     } catch (err: any) {
-      showToast('فشل حذف التصنيف: ' + err.message, 'error');
+      handleError(err, { showNotification: showToast, context: { operation: 'حذف التصنيف' } });
     }
   };
 
@@ -1987,8 +1990,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData();
       return true;
     } catch (err: any) {
-      if (process.env.NODE_ENV === 'development') console.error('Error approving invoice:', err);
-      showToast('فشل اعتماد الفاتورة: ' + err.message, 'error');
+      handleError(err, { showNotification: showToast, context: { operation: 'اعتماد الفاتورة' } });
       return false;
     }
   };
@@ -2013,8 +2015,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await fetchData(); // تحديث الأرصدة
       showToast('تم ترحيل فاتورة المشتريات وتسجيل الضريبة بنجاح ✅', 'success');
     } catch (err: any) {
-      if (process.env.NODE_ENV === 'development') console.error('Error approving purchase invoice:', err);
-      throw new Error(err.message || 'فشل اعتماد فاتورة المشتريات');
+      handleError(err, { showNotification: showToast, context: { operation: 'اعتماد فاتورة مشتريات' } });
     }
   };
 
@@ -2259,6 +2260,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } catch (error: any) {
         console.error(error);
         showToast('فشل التحويل: ' + error.message, 'error');
+    }
+  };
+
+  const approveStockTransfer = async (transferId: string) => {
+    try {
+      const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: transferId });
+      if (error) throw error;
+      showToast('تم اعتماد التحويل وتحديث المخزون بنجاح ✅', 'success');
+      await fetchData();
+    } catch (error: any) {
+      showToast('فشل اعتماد التحويل: ' + error.message, 'error');
+    }
+  };
+
+  const cancelStockTransfer = async (transferId: string) => {
+    try {
+      const { error } = await supabase.rpc('cancel_stock_transfer', { p_transfer_id: transferId });
+      if (error) throw error;
+      showToast('تم إلغاء التحويل وإعادة أرصدة المخزون بنجاح ✅', 'success');
+      await fetchData();
+    } catch (error: any) {
+      showToast('فشل إلغاء التحويل: ' + error.message, 'error');
     }
   };
 
@@ -2841,7 +2864,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('تم تسجيل قيد الإهلاك بنجاح', 'success');
       await fetchData(); // تحديث البيانات لعرض القيمة الجديدة
     } catch (error: any) {
-      showToast('فشل تسجيل الإهلاك: ' + error.message, 'error');
+      handleError(error, { showNotification: showToast, context: { operation: 'تسجيل الإهلاك' } });
     }
   };
 
@@ -2920,8 +2943,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         showToast("تم ترحيل الرواتب بنجاح ✅", 'success');
         await fetchData();
     } catch (err: any) {
-        console.error(err);
-        showToast("خطأ في ترحيل الرواتب: " + err.message, 'error');
+      handleError(err, { showNotification: showToast, context: { operation: 'ترحيل الرواتب' } });
     }
   };
 
@@ -3406,11 +3428,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const produceItem = async (productId: string, quantity: number, warehouseId: string, date: string, additionalCost: number = 0, customReference?: string): Promise<{ success: boolean, message: string }> => {
     try {
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
       // 1. التحقق من وجود قائمة مواد (BOM)
       const { data: bom, error: bomError } = await supabase
         .from('bill_of_materials')
         .select('raw_material_id, quantity_required')
-        .eq('product_id', productId);
+        .eq('product_id', productId)
+        .eq('organization_id', orgId);
 
       if (bomError) throw bomError;
       if (!bom || bom.length === 0) {
@@ -3426,8 +3451,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           
           const { data: rawMaterial } = await supabase
             .from('products')
-            .select('id, name, stock, warehouse_stock, purchase_price, cost')
+            .select('id, name, stock, warehouse_stock, purchase_price, cost, organization_id')
             .eq('id', item.raw_material_id)
+            .eq('organization_id', orgId)
             .single();
 
           if (!rawMaterial) throw new Error(`المادة الخام غير موجودة (ID: ${item.raw_material_id})`);
@@ -3452,7 +3478,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const p = item.product;
           const newStock = (p.stock || 0) - item.deductQty;
           const newWhStock = { ...p.warehouse_stock, [warehouseId]: (p.warehouse_stock?.[warehouseId] || 0) - item.deductQty };
-          await supabase.from('products').update({ stock: newStock, warehouse_stock: newWhStock }).eq('id', p.id);
+          await supabase.from('products')
+            .update({ stock: newStock, warehouse_stock: newWhStock })
+            .eq('id', p.id)
+            .eq('organization_id', orgId);
       }
 
       // 4. إضافة المنتج التام
@@ -4429,6 +4458,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       notifications, markNotificationAsRead, clearAllNotifications,
       activityLog,
       transfers, addTransfer, addStockTransfer,
+      approveStockTransfer,
+      cancelStockTransfer,
       bankReconciliations, addBankReconciliation: (rec) => setBankReconciliations(prev => [...prev, rec]),
       getBookBalanceAtDate, getAccountBalanceInPeriod,
       salespeople,

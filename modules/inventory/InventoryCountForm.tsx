@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -26,21 +26,26 @@ const InventoryCountForm = () => {
     }
     
     setLoadingProducts(true);
-    if (currentUser?.role === 'demo') {
-        setItems([]);
-        setLoadingProducts(false);
-        return;
-    }
     try {
-        // جلب أحدث بيانات للأصناف لضمان دقة الرصيد
-        const { data: latestProducts } = await supabase.from('products').select('*');
-        
-        const productsSource = latestProducts || products;
+        let productsSource = products;
+
+        if (currentUser?.role !== 'demo') {
+            const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+            // جلب أحدث بيانات للأصناف لضمان دقة الرصيد مع الفلترة حسب المنظمة
+            let query = supabase.from('products').select('*').is('deleted_at', null);
+            if (orgId) query = query.eq('organization_id', orgId);
+            
+            const { data: latestProducts, error } = await query;
+            if (error) throw error;
+            if (latestProducts) productsSource = latestProducts;
+        }
 
         const warehouseProducts = productsSource
-            .filter((p: any) => p.item_type === 'STOCK' || !p.item_type) // استبعاد الخدمات (SERVICE)
+            .filter((p: any) => {
+                const type = p.product_type || p.item_type || 'STOCK';
+                return type !== 'SERVICE';
+            }) // استبعاد الخدمات وضم الأصناف المخزنية والمواد الخام والتصنيع
             .map((p: any) => {
-                // محاولة الحصول على الرصيد: أولاً من رصيد المستودع المحدد، ثم من الرصيد العام
                 let currentQty = 0;
                 
                 // استخدام الحقل القياسي warehouse_stock
@@ -65,10 +70,15 @@ const InventoryCountForm = () => {
                     notes: ''
                 };
             });
-        setItems(warehouseProducts);
-    } catch (error) {
+
+        if (warehouseProducts.length === 0) {
+            showToast('لا توجد أصناف قابلة للجرد في هذا المستودع', 'info');
+        } else {
+            setItems(warehouseProducts);
+        }
+    } catch (error: any) {
         console.error("Error fetching products:", error);
-        showToast("حدث خطأ أثناء جلب بيانات الأصناف", 'error');
+        showToast("حدث خطأ أثناء جلب بيانات الأصناف: " + error.message, 'error');
     } finally {
         setLoadingProducts(false);
     }

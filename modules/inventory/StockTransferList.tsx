@@ -2,11 +2,11 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { ArrowRightLeft, Search, Eye, Loader2, Printer, Download } from 'lucide-react';
+import { ArrowRightLeft, Search, Eye, Loader2, Printer, Download, CheckCircle, Clock, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const StockTransferList = () => {
-  const { warehouses, currentUser, transfers: contextTransfers } = useAccounting();
+  const { warehouses, currentUser, transfers: contextTransfers, approveStockTransfer, cancelStockTransfer, can } = useAccounting();
   const [transfers, setTransfers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -44,6 +44,20 @@ const StockTransferList = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleApprove = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من اعتماد هذا التحويل؟ سيتم خصم الكميات من المستودع المصدر وإضافتها للمستلم.')) return;
+    await approveStockTransfer(id);
+    if (isModalOpen) setIsModalOpen(false);
+    fetchTransfers();
+  };
+
+  const handleCancel = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من إلغاء هذا التحويل؟ سيتم إعادة الكميات إلى المستودع المصدر.')) return;
+    await cancelStockTransfer(id);
+    if (isModalOpen) setIsModalOpen(false);
+    fetchTransfers();
   };
 
   const getWarehouseName = (id: string) => {
@@ -123,6 +137,7 @@ const StockTransferList = () => {
                     <th className="p-4">التاريخ</th>
                     <th className="p-4">من مستودع</th>
                     <th className="p-4">إلى مستودع</th>
+                    <th className="p-4">الحالة</th>
                     <th className="p-4">عدد الأصناف</th>
                     <th className="p-4">ملاحظات</th>
                     <th className="p-4">الإجراءات</th>
@@ -138,16 +153,45 @@ const StockTransferList = () => {
                             <td className="p-4">{t.transfer_date}</td>
                             <td className="p-4">{getWarehouseName(t.from_warehouse_id)}</td>
                             <td className="p-4">{getWarehouseName(t.to_warehouse_id)}</td>
+                            <td className="p-4">
+                                {t.status === 'posted' ? (
+                                    <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 w-fit"><CheckCircle size={12}/> مرحّل</span>
+                                ) : t.status === 'cancelled' ? (
+                                    <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 w-fit"><X size={12}/> ملغي</span>
+                                ) : (
+                                    <span className="bg-amber-100 text-amber-700 px-2 py-1 rounded text-xs font-bold flex items-center gap-1 w-fit"><Clock size={12}/> مسودة</span>
+                                )}
+                            </td>
                             <td className="p-4">{t.stock_transfer_items?.length || 0}</td>
                             <td className="p-4 text-slate-500 text-sm">{t.notes || '-'}</td>
                             <td className="p-4">
-                                <button 
-                                    onClick={() => handleViewDetails(t)}
-                                    className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                                    title="عرض التفاصيل"
-                                >
-                                    <Eye size={18} />
-                                </button>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => handleViewDetails(t)}
+                                        className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                                        title="عرض التفاصيل"
+                                    >
+                                        <Eye size={18} />
+                                    </button>
+                                    {t.status === 'draft' && can('inventory', 'approve') && (
+                                        <button 
+                                            onClick={() => handleApprove(t.id)}
+                                            className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                                            title="اعتماد وترحيل"
+                                        >
+                                            <CheckCircle size={18} />
+                                        </button>
+                                    )}
+                                    {t.status === 'posted' && can('inventory', 'cancel') && (
+                                        <button 
+                                            onClick={() => handleCancel(t.id)}
+                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                            title="إلغاء التحويل"
+                                        >
+                                            <X size={18} />
+                                        </button>
+                                    )}
+                                </div>
                             </td>
                         </tr>
                     ))
@@ -163,7 +207,23 @@ const StockTransferList = () => {
             <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 print:shadow-none print:w-full print:max-w-none">
                 <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
                     <h3 className="font-bold text-lg text-slate-800">تفاصيل التحويل {selectedTransfer.transfer_number}</h3>
-                    <div className="flex gap-2 print:hidden">
+                    <div className="flex items-center gap-2 print:hidden">
+                        {selectedTransfer.status === 'draft' && can('inventory', 'approve') && (
+                            <button 
+                                onClick={() => handleApprove(selectedTransfer.id)}
+                                className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-emerald-700"
+                            >
+                                <CheckCircle size={16} /> اعتماد الآن
+                            </button>
+                        )}
+                        {selectedTransfer.status === 'posted' && can('inventory', 'cancel') && (
+                            <button 
+                                onClick={() => handleCancel(selectedTransfer.id)}
+                                className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1 hover:bg-red-700"
+                            >
+                                <X size={16} /> إلغاء التحويل
+                            </button>
+                        )}
                         <button onClick={handleExportExcel} className="text-slate-500 hover:text-emerald-600 p-1" title="تصدير Excel"><Download size={20} /></button>
                         <button onClick={handlePrint} className="text-slate-500 hover:text-blue-600 p-1"><Printer size={20} /></button>
                         <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 p-1">✕</button>
@@ -172,7 +232,12 @@ const StockTransferList = () => {
                 <div className="p-6">
                     <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                         <div><span className="text-slate-500 block">التاريخ:</span> <span className="font-bold">{selectedTransfer.transfer_date}</span></div>
-                        <div><span className="text-slate-500 block">الحالة:</span> <span className="font-bold text-emerald-600">مرحل</span></div>
+                        <div><span className="text-slate-500 block">الحالة:</span> 
+                            <span className={`font-bold ${selectedTransfer.status === 'posted' ? 'text-emerald-600' : selectedTransfer.status === 'cancelled' ? 'text-red-600' : 'text-amber-600'}`}>
+                                {selectedTransfer.status === 'posted' ? 'مرحّل (تم التأثير في المخازن)' : 
+                                 selectedTransfer.status === 'cancelled' ? 'ملغي' : 'مسودة (في انتظار الاعتماد)'}
+                            </span>
+                        </div>
                         <div><span className="text-slate-500 block">من:</span> <span className="font-bold">{getWarehouseName(selectedTransfer.from_warehouse_id)}</span></div>
                         <div><span className="text-slate-500 block">إلى:</span> <span className="font-bold">{getWarehouseName(selectedTransfer.to_warehouse_id)}</span></div>
                         {selectedTransfer.notes && <div className="col-span-2"><span className="text-slate-500 block">ملاحظات:</span> <span className="font-bold">{selectedTransfer.notes}</span></div>}

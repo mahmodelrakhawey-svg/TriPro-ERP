@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
+import { useToast } from '@/context/ToastContext';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
   PieChart, Pie, Cell, LineChart, Line 
@@ -12,6 +13,7 @@ import {
 
 const ManufacturingDashboard = () => {
   const { organization, finalizeProductionOrder } = useAccounting();
+  const { showToast } = useToast();
   const orgId = organization?.id;
   const [orders, setOrders] = useState<any[]>([]);
   const [finishingId, setFinishingId] = useState<string | null>(null);
@@ -44,12 +46,17 @@ const ManufacturingDashboard = () => {
         .eq('organization_id', orgId);
 
       // جلب أوامر الإنتاج الجارية
-      const { data: ordersData } = await supabase
+      const { data: ordersData, error: ordersError } = await supabase
         .from('v_mfg_dashboard')
         .select('*')
         .eq('organization_id', orgId)
-        .neq('status', 'completed')
+        .neq('status', 'completed') 
         .order('created_at', { ascending: false });
+
+      if (ordersError) {
+        console.error("خطأ في جلب بيانات الأوامر:", ordersError.message, ordersError.details);
+        showToast('فشل تحميل قائمة أوامر الإنتاج: ' + ordersError.message, 'error');
+      }
 
       // 3. جلب عدد الانحرافات العالية (>10%)
       const { count: varianceCount } = await supabase
@@ -201,10 +208,24 @@ const ManufacturingDashboard = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
-            {orders.map((order) => (
-              <tr key={order.order_id} className="hover:bg-gray-50">
-                <td className="p-4 font-mono font-bold text-blue-600">{order.order_number}</td>
-                <td className="p-4 font-bold">{order.product_name}</td>
+            {orders.map((order) => {
+              const isMerged = order.order_number?.startsWith('MFG-MERGED-');
+              const isAuto = order.order_number?.startsWith('MFG-AUTO-');
+              const isSalesLinked = isMerged || isAuto;
+
+              return (
+              <tr key={order.order_id} className={`hover:bg-gray-50 transition-colors ${isSalesLinked ? 'bg-indigo-50/30' : ''}`}>
+                <td className="p-4">
+                  <div className="flex flex-col">
+                    <span className="font-mono font-bold text-blue-600">{order.order_number}</span>
+                    {isMerged && <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded mt-1 w-fit font-bold">دفعة مجمعة</span>}
+                    {isAuto && <span className="text-[9px] bg-sky-100 text-sky-700 px-1.5 py-0.5 rounded mt-1 w-fit font-bold">طلب مبيعات</span>}
+                  </div>
+                </td>
+                <td className="p-4">
+                  <div className="font-bold text-slate-800">{order.product_name}</div>
+                  {order.batch_number && <div className="text-[10px] text-slate-400 mt-0.5">المرجع: {order.batch_number}</div>}
+                </td>
                 <td className="p-4 text-center">{order.quantity_to_produce}</td>
                 <td className="p-4 text-center">
                   <div className="w-24 bg-gray-100 h-2 rounded-full mx-auto overflow-hidden">
@@ -248,7 +269,7 @@ const ManufacturingDashboard = () => {
                   </div>
                 </td>
               </tr>
-            ))}
+            )})}
           </tbody>
         </table>
       </div>

@@ -89,16 +89,16 @@ const QuotationList = () => {
   const handleConvertClick = (id: string) => {
       setSelectedQuoteId(id);
       setConvertModalOpen(true);
-
-      // تطبيق منطق الاختيار التلقائي إذا كان هناك خيار واحد فقط متاح
-      if(warehouses.length === 1) setConvertData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
       
-      if (treasuryAccounts.length === 1) {
-          setConvertData(prev => ({ ...prev, treasuryId: treasuryAccounts[0].id }));
-      } else if (settings.defaultTreasuryId) {
-          const preferred = treasuryAccounts.find(a => a.id === settings.defaultTreasuryId);
-          if (preferred) setConvertData(prev => ({ ...prev, treasuryId: preferred.id }));
-      }
+      // تهيئة البيانات وضمان اختيار مستودع وخزينة افتراضية لتفادي بقاء القيم فارغة
+      const initialWh = settings.defaultWarehouseId || (warehouses.length > 0 ? warehouses[0].id : '');
+      const initialTreasury = settings.defaultTreasuryId || (treasuryAccounts.length > 0 ? treasuryAccounts[0].id : '');
+
+      setConvertData({ 
+          warehouseId: initialWh, 
+          treasuryId: initialTreasury, 
+          paidAmount: 0 
+      });
   };
 
   const confirmConvert = async () => {
@@ -611,7 +611,13 @@ const QuotationList = () => {
                           </div>
                       )}
                       <div className="pt-2">
-                        <button onClick={confirmConvert} className="w-full bg-purple-600 text-white py-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-md">تأكيد وإنشاء الفاتورة</button>
+                                              <button 
+                            onClick={confirmConvert} 
+                            disabled={!convertData.warehouseId || (convertData.paidAmount > 0 && !convertData.treasuryId)}
+                            className="w-full bg-purple-600 text-white py-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            تأكيد وإنشاء الفاتورة
+                        </button>
                         <button onClick={() => setConvertModalOpen(false)} className="w-full bg-slate-100 text-slate-600 py-2.5 rounded-lg mt-2 font-medium hover:bg-slate-200 transition-colors">إلغاء</button>
                       </div>
                   </div>

@@ -175,7 +175,7 @@ const PurchaseOrderForm = () => {
               <tr key={idx} className="border-b">
                 <td className="p-3">{item.name}</td>
                 <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td>
-                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} /></td> {/* Changed to unitPrice */}
+                <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} /></td>
                 <td className="p-3 font-bold">{(item.quantity * (item.unitPrice || 0)).toLocaleString()}</td>
                 <td className="p-3"><button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={18} /></button></td>
               </tr>
@@ -183,8 +183,9 @@ const PurchaseOrderForm = () => {
           </tbody>
           <tfoot className="font-bold text-lg">
             <tr className="bg-slate-50">
-              <td colSpan={3} className="p-4 text-left text-blue-600">الإجمالي التقديري:</td>
+              <td colSpan={3} className="p-4 text-left text-blue-600 font-black">الإجمالي التقديري (شامل الضريبة):</td>
               <td className="p-4 text-blue-600">{(calculateTotal() + (calculateTotal() * (settings.enableTax ? (settings.vatRate ? settings.vatRate / 100 : 0.15) : 0))).toLocaleString()}</td>
+              <td></td>
             </tr>
           </tfoot>
         </table>

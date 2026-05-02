@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 const StockTransfer = () => {
   const location = useLocation();
-  const { warehouses, products, addStockTransfer } = useAccounting();
+  const { warehouses, products, addStockTransfer, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   
@@ -79,6 +79,8 @@ const StockTransfer = () => {
         path: ["toWarehouseId"]
     });
 
+    const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
     const validationResult = transferSchema.safeParse({ ...formData, items });
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
@@ -89,6 +91,7 @@ const StockTransfer = () => {
     try {
         await addStockTransfer({
             ...formData,
+            organization_id: userOrgId,
             items
         });
         setFormData({ ...formData, notes: '' });

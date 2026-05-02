@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -298,10 +298,19 @@ const StockCard = () => {
                     });
                 }
             } else {
-                // إذا كان العرض "كل المستودعات"، التحويلات الداخلية لا تؤثر على الرصيد الإجمالي للشركة
-                // ولكن يمكن عرضها كمعلومة. هنا سنستبعدها من الحساب الإجمالي لتجنب الازدواجية في العرض
-                // أو يمكن عرضها كحركتين (واحدة وارد وواحدة صادر)
-                // للخيار الأبسط: لا نعرض التحويلات في العرض الإجمالي لأنها Net Zero
+                // عند عرض "كل المستودعات"، التحويل الداخلي لا يغير إجمالي رصيد الشركة.
+                // نعرض حركة واحدة "توثيقية" بكمية صفر لكي لا يتذبذب الرصيد التراكمي بشكل وهمي.
+                allTxns.push({
+                    id: `TRN-DOC-${t.id}-${item.product_id}`,
+                    date: t.transfer_date,
+                    type: 'IN',
+                    quantity: 0, // كمية 0 لعدم التأثير على الرصيد الإجمالي
+                    documentType: 'تحويل مخزني (داخلي)',
+                    documentNumber: t.transfer_number,
+                    warehouseName: `${getWName(t.from_warehouse_id)} ➔ ${getWName(t.to_warehouse_id)}`,
+                    createdAt: t.created_at,
+                    notes: `نقل كمية (${item.quantity}) - ${t.notes || ''}`
+                });
             }
         });
       }

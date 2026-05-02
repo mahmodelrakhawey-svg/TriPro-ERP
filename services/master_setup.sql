@@ -248,7 +248,8 @@ CREATE TABLE IF NOT EXISTS public.journal_entries (
     user_id uuid REFERENCES public.profiles(id),
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     related_document_id uuid,
-    related_document_type text
+    related_document_type text,
+    CONSTRAINT journal_entries_reference_org_unique UNIQUE (organization_id, reference)
 );
 
 CREATE TABLE IF NOT EXISTS public.journal_lines (
@@ -827,15 +828,4 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard WITH (security_invoker = t
 -- 🚀 ملف الماستر انتهى هيكلياً. الرصيد والدوال في deploy_all_functionss والسياسات في setup_rls.
 
 -- ================================================================
--- 4. مديول التصنيع الأساسي (MFG Core Tables Integration)
--- ================================================================
-CREATE TABLE IF NOT EXISTS public.mfg_production_orders (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    order_number text UNIQUE,
-    product_id uuid REFERENCES public.products(id),
-    quantity_to_produce numeric NOT NULL,
-    status text DEFAULT 'draft',
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
--- (بقية الجداول سيتم إنشاؤها بواسطة manufacturing_setup.sql للحفاظ على استقلالية المديول)
+-- 

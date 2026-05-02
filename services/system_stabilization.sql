@@ -220,7 +220,10 @@ WHERE vat_rate = 0.15 OR vat_rate = 15 OR vat_rate = 14;
 DO $$ 
 DECLARE 
     t text;
-    tables text[] := ARRAY['accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 'invoices', 'receipt_vouchers', 'payment_vouchers', 'work_order_material_usage'];
+    tables text[] := ARRAY[
+        'accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 'invoices', 'receipt_vouchers', 'payment_vouchers', 'work_order_material_usage',
+        'work_orders', 'bill_of_materials', 'stock_transfers', 'stock_transfer_items', 'stock_adjustments', 'stock_adjustment_items', 'inventory_counts', 'inventory_count_items'
+    ];
     v_count_before int;
 BEGIN 
     RAISE NOTICE '🛡️ جاري مراجعة وتأمين درع الحماية لجميع الجداول...';

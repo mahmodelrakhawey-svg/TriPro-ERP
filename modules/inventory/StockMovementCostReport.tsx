@@ -260,28 +260,22 @@ const StockMovementCostReport = () => {
           }
       });
 
-      // معالجة التحويلات (تؤثر فقط عند الفلترة بمستودع، لكن هنا التقرير عام، لذا سنضيفها للتوضيح إذا أردنا)
-      // بما أن هذا التقرير لا يحتوي حالياً على فلتر مستودع (يعرض الكل)، فالتحويلات لا تغير الرصيد الإجمالي.
-      // ولكن إذا أضفنا فلتر مستودع مستقبلاً، يجب تفعيل هذا المنطق.
-      // حالياً، سنضيفها فقط إذا كان هناك فلتر (غير موجود في الكود الحالي) أو نتجاهلها في العرض الكلي.
-      // *تحديث*: المستخدم طلب "شمولية إدراج جميع الحركات".
-      // التحويلات تؤثر على التكلفة في بعض الأنظمة (نقل تكلفة)، لكن هنا سنفترض ثبات التكلفة.
-      
-      // ملاحظة: بما أن التقرير الحالي "StockMovementCostReport" لا يحتوي على فلتر مستودع في الواجهة (حسب الكود السابق)،
-      // فإن التحويلات الداخلية (من مخزن أ لمخزن ب) لا تغير الكمية الإجمالية للشركة.
-      // ومع ذلك، لتوحيد المنطق، إذا تم إضافة فلتر مستودع لاحقاً، يجب استخدام نفس منطق ItemMovementReport.
-      
-      // سأضيف الكود تحسباً لوجود فلتر مستودع أو لإظهار الحركة
-      /* 
+      // معالجة التحويلات المخزنية (إظهارها كحركة توثيقية لضمان اكتمال سجل المراجعة)
       transfers?.forEach((item: any) => {
-          // Logic similar to ItemMovementReport would go here if warehouse filter exists
+          const t = item.stock_transfers;
+          const product = products.find(p => p.id === selectedProductId);
+          
+          allMovements.push({
+              date: t.transfer_date,
+              type: 'in',
+              quantity: 0, // تظهر بكمية 0 لأنها لا تغير إجمالي أرصدة الشركة في هذا التقرير العام
+              unitCost: Number((product as any)?.weighted_average_cost || product?.purchase_price || product?.cost || 0),
+              documentType: 'تحويل مخزني (داخلي)',
+              documentNumber: t.transfer_number,
+              warehouseName: `${getWName(t.from_warehouse_id)} ➔ ${getWName(t.to_warehouse_id)}`,
+              notes: `نقل كمية (${item.quantity})`
+          });
       });
-      */
-     
-     // بما أن التقرير يعرض "الرصيد" (Balance)، والرصيد هنا هو رصيد الشركة ككل (Global Stock)،
-     // فالتحويلات الداخلية = 0 تغيير.
-     // ولكن، إذا كان المستخدم يرى رصيداً مختلفاً، فغالباً هو يقارن برصيد مستودع محدد في كارت الصنف.
-     // *الحل*: هذا التقرير سليم طالما هو "Global".
 
       adjustments?.forEach((item: any) => {
           const qty = Number(item.quantity);
