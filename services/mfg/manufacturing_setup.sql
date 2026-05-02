@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_production_orders (
     end_date date,
     warehouse_id uuid REFERENCES public.warehouses(id), -- مستودع الإنتاج تحت التشغيل
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    notes text, -- عمود الملاحظات المفقود الذي سبب المشكلة
     created_at timestamptz DEFAULT now()
 );
 
@@ -241,7 +242,7 @@ WITH actual_costs AS (
         op.production_order_id,
         SUM(op.labor_cost_actual) as total_labor_cost,
         SUM(COALESCE((
-            SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, 0))
+            SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
             FROM public.mfg_actual_material_usage amu
             JOIN public.products p ON amu.raw_material_id = p.id
             WHERE amu.order_progress_id = op.id
@@ -254,14 +255,14 @@ SELECT
     po.order_number,
     p.name as product_name,
     po.quantity_to_produce as qty,
-    (po.quantity_to_produce * COALESCE(p.price, 0)) as sales_value,
+    ROUND(po.quantity_to_produce * COALESCE(NULLIF(p.sales_price, 0), NULLIF(p.price, 0), 0), 2) as sales_value,
     COALESCE(ac.total_labor_cost, 0) as actual_labor,
     COALESCE(ac.total_material_cost, 0) as actual_material,
     (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0)) as total_actual_cost,
-    (po.quantity_to_produce * COALESCE(p.price, 0)) - (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0)) as net_profit,
+    ROUND((po.quantity_to_produce * COALESCE(NULLIF(p.sales_price, 0), NULLIF(p.price, 0), 0)) - (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0)), 2) as net_profit,
     CASE 
-        WHEN (po.quantity_to_produce * COALESCE(p.price, 0)) > 0
-        THEN ROUND((((po.quantity_to_produce * COALESCE(p.price, 0)) - (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0))) / (po.quantity_to_produce * COALESCE(p.price, 0)) * 100), 2)
+        WHEN (po.quantity_to_produce * COALESCE(NULLIF(p.sales_price, 0), NULLIF(p.price, 0), 0)) > 0
+        THEN ROUND((((po.quantity_to_produce * COALESCE(NULLIF(p.sales_price, 0), NULLIF(p.price, 0), 0)) - (COALESCE(ac.total_labor_cost, 0) + COALESCE(ac.total_material_cost, 0))) / (po.quantity_to_produce * COALESCE(NULLIF(p.sales_price, 0), NULLIF(p.price, 0), 0)) * 100), 2)
         ELSE 0 
     END as margin_percentage,
     po.organization_id

@@ -30,7 +30,13 @@ BEGIN
     
     -- تحديث حالة التقدم بناءً على نتيجة الفحص
     UPDATE public.mfg_order_progress 
-    SET qc_verified = (p_status = 'pass')
+    SET 
+        qc_verified = CASE 
+            WHEN p_status = 'pass' THEN true 
+            WHEN p_status = 'rework' THEN NULL 
+            ELSE false 
+        END,
+        status = CASE WHEN p_status = 'rework' THEN 'active' ELSE status END
     WHERE id = p_progress_id;
 END; $$;
 

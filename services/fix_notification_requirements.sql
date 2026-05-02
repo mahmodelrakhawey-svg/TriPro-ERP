@@ -11,7 +11,7 @@ UPDATE public.invoices SET reference = invoice_number WHERE reference IS NULL;
 
 -- 2. إنشاء دالة لجلب العملاء الذين تجاوزوا حد الائتمان
 -- هذا يحل مشكلة الخطأ 400 (Bad Request)
-CREATE OR REPLACE FUNCTION get_over_limit_customers()
+CREATE OR REPLACE FUNCTION get_over_limit_customers(p_org_id uuid DEFAULT NULL)
 RETURNS TABLE (
   id uuid,
   name text,
@@ -31,7 +31,7 @@ BEGIN
       COALESCE(SUM(i.total_amount - COALESCE(i.paid_amount, 0)), 0) as current_debt
     FROM customers c
     LEFT JOIN invoices i ON c.id = i.customer_id AND i.status NOT IN ('draft', 'paid', 'cancelled')
-    WHERE c.deleted_at IS NULL
+    WHERE c.deleted_at IS NULL AND (p_org_id IS NULL OR c.organization_id = p_org_id)
     GROUP BY c.id
   )
   SELECT 

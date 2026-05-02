@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
@@ -203,7 +203,10 @@ const AccountList = () => {
       { code: '11', name: 'الأصول غير المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
       { code: '12', name: 'الأصول المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
       { code: '22', name: 'الخصوم المتداولة', type: 'LIABILITY', is_group: true, parent_code: '2' },
-      { code: '121', name: 'المخزون', type: 'ASSET', is_group: true, parent_code: '12' },
+      { code: '103', name: 'المخزون', type: 'ASSET', is_group: true, parent_code: '12' },
+      { code: '10301', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_code: '103' },
+      { code: '10302', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_code: '103' },
+      { code: '10303', name: 'مخزون إنتاج تحت التشغيل (WIP)', type: 'ASSET', is_group: false, parent_code: '103' },
       { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_code: '12' },
       { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_code: '12' },
       { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_code: '22' },

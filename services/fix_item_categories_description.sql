@@ -175,4 +175,4 @@ BEGIN
 END; $$;
 
 -- تحديث كاش النظام لضمان تعرف الـ API على العمود الجديد
-SELECT public.refresh_saas_schema();
+NOTIFY pgrst, 'reload config';

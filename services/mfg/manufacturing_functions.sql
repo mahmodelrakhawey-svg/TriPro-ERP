@@ -710,7 +710,8 @@ BEGIN
     IF v_cost_per_unit > 0 THEN
         -- تحديث سعر المنتج (التكلفة + 20% هامش ربح)
         UPDATE public.products 
-        SET price = ROUND(v_cost_per_unit * 1.20, 2)
+        SET price = ROUND(v_cost_per_unit * 1.20, 2),
+            sales_price = ROUND(v_cost_per_unit * 1.20, 2)
         WHERE id = v_order.product_id AND organization_id = v_order.organization_id;
     END IF;
 END; $$;

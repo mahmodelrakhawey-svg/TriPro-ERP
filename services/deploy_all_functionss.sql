@@ -1443,14 +1443,21 @@ BEGIN
                 -- الوارد: مشتريات + مرتجع مبيعات + إنتاج تام
                 COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status IN ('posted', 'paid') AND pi.organization_id = v_target_org), 0) +
                 COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sri.sales_return_id = sr.id WHERE sri.product_id = prod_record.id AND sr.warehouse_id = wh_record.id AND sr.status = 'posted' AND sr.organization_id = v_target_org), 0) +
-                COALESCE((SELECT SUM(quantity) FROM public.work_orders WHERE product_id = prod_record.id AND warehouse_id = wh_record.id AND status = 'completed' AND organization_id = v_target_org), 0) -
+                COALESCE((SELECT SUM(quantity_to_produce) FROM public.mfg_production_orders WHERE product_id = prod_record.id AND warehouse_id = wh_record.id AND status = 'completed' AND organization_id = v_target_org), 0) -
                 -- الصادر: مبيعات + مرتجع مشتريات + مبيعات مطعم + استهلاك مطعم (BOM) + استهلاك تصنيع (BOM)
                 COALESCE((SELECT SUM(ii.quantity) FROM public.invoice_items ii JOIN public.invoices i ON i.id = ii.invoice_id WHERE ii.product_id = prod_record.id AND i.warehouse_id = wh_record.id AND i.status IN ('posted', 'paid') AND i.organization_id = v_target_org), 0) -
                 COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id WHERE pri.product_id = prod_record.id AND pr.warehouse_id = wh_record.id AND pr.status = 'posted' AND pr.organization_id = v_target_org), 0) -
                 COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
                 COALESCE((SELECT SUM(oi.quantity * bom.quantity_required) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
-                COALESCE((SELECT SUM(wo.quantity * bom.quantity_required) FROM public.work_orders wo JOIN public.bill_of_materials bom ON wo.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND wo.warehouse_id = wh_record.id AND wo.status = 'completed' AND wo.organization_id = v_target_org), 0) +
-                -- التحويلات: وارد للمستودع الحالي (+)
+                -- ذكي: خصم المواد الخام سواء نجح الأمر أو رفضته الجودة (لأنها استهلكت بالفعل)
+                -- ذكي: خصم المواد الخام في كافة حالات انتهاء الأمر (نجاح، رفض، أو فشل جودة)
+                -- ملاحظة: لا نخصم في حالة 'rework' لأن الأمر سيعود لـ 'in_progress'
+                COALESCE((SELECT SUM(wo.quantity_to_produce * bom.quantity_required) 
+                          FROM public.mfg_production_orders wo 
+                          JOIN public.bill_of_materials bom ON wo.product_id = bom.product_id 
+                          WHERE bom.raw_material_id = prod_record.id AND wo.warehouse_id = wh_record.id 
+                          AND wo.status IN ('completed', 'rejected', 'qc_failed') 
+                          AND wo.organization_id = v_target_org), 0) +                -- التحويلات: وارد للمستودع الحالي (+)
                 COALESCE((SELECT SUM(quantity) FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod_record.id AND st.to_warehouse_id = wh_record.id AND st.status = 'posted' AND st.organization_id = v_target_org), 0) -
                 -- التحويلات: صادر من المستودع الحالي (-)
                 COALESCE((SELECT SUM(quantity) FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod_record.id AND st.from_warehouse_id = wh_record.id AND st.status = 'posted' AND st.organization_id = v_target_org), 0) +
@@ -1642,6 +1649,83 @@ BEGIN
 
     PERFORM public.recalculate_stock_rpc(v_org_id);
     RETURN v_adj_id;
+END;
+$$;
+
+-- 🛠️ دالة إغلاق وترحيل أمر التصنيع بذكاء (Handle QC Pass/Fail)
+-- هذه الدالة تحل مشكلة توقف ترحيل الأوامر المرفوضة من الجودة
+CREATE OR REPLACE FUNCTION public.mfg_finalize_order(p_order_id uuid, p_final_status text, p_qc_notes text DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_order record; v_org_id uuid; v_je_id uuid; v_mappings jsonb;
+    v_total_cost numeric := 0; v_mat_cost numeric := 0;
+    v_inv_finished_acc uuid; v_inv_raw_acc uuid; v_wastage_acc uuid;
+BEGIN
+    -- 1. جلب بيانات الأمر
+    SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'أمر التصنيع غير موجود'; END IF;
+    
+    -- ضمان عدم إعادة إغلاق أمر مغلق
+    IF v_order.status IN ('completed', 'rejected', 'qc_failed') AND p_final_status != 'rework' THEN 
+        RAISE EXCEPTION 'أمر التصنيع مغلق مسبقاً بحالة (%)', v_order.status; 
+    END IF;
+
+    v_org_id := v_order.organization_id;
+
+    -- 🛡️ خيار إعادة التشغيل (Rework): إعادة المنتج لخط الإنتاج بدلاً من إغلاقه
+    IF p_final_status = 'rework' THEN
+        UPDATE public.mfg_production_orders 
+        SET status = 'in_progress', 
+            notes = COALESCE(notes, '') || E'\n[إعادة تشغيل - ' || now()::date || E'] ' || COALESCE(p_qc_notes, 'يحتاج إصلاح')
+        WHERE id = p_order_id;
+        RETURN; -- نخرج هنا دون عمل قيود محاسبية لأن المنتج لم يكتمل بَعْد
+    END IF;
+
+    -- 2. حساب التكاليف المتراكمة (مواد من BOM + أجور ومصاريف من سجل التكاليف)
+    -- أ. تكلفة المواد الخام
+    SELECT COALESCE(SUM(bom.quantity_required * COALESCE(p_raw.weighted_average_cost, p_raw.cost, p_raw.purchase_price, 0)), 0) * v_order.quantity_to_produce
+    INTO v_mat_cost
+    FROM public.bill_of_materials bom
+    JOIN public.products p_raw ON bom.raw_material_id = p_raw.id
+    WHERE bom.product_id = v_order.product_id AND bom.organization_id = v_org_id;
+
+    -- ب. التكاليف الإضافية (إن وجدت)
+    -- هنا نفترض أن التكاليف مسجلة في سجل التقدم أو التكاليف المباشرة
+    -- v_total_cost := ...
+
+    v_total_cost := v_total_cost + v_mat_cost;
+
+    -- 3. جلب الحسابات من إعدادات الشركة
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_inv_finished_acc := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
+    v_inv_raw_acc := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
+    v_wastage_acc := COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1));
+
+    -- 4. إنشاء قيد اليومية (ترحيل التكلفة)
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+    VALUES (now()::date, 'إغلاق أمر تصنيع رقم ' || v_order.order_number || ' - ' || (CASE WHEN p_final_status = 'completed' THEN 'نجاح' ELSE 'رفض جودة' END), v_order.order_number, 'posted', v_org_id, true, p_order_id, 'work_order')
+    RETURNING id INTO v_je_id;
+
+    -- منطق "التوجيه المحاسبي الذكي":
+    IF p_final_status = 'completed' THEN
+        -- حالة النجاح: ترحيل للمنتج التام
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_inv_finished_acc, v_total_cost, 0, 'إثبات إنتاج منتج تام', v_org_id),
+               (v_je_id, v_inv_raw_acc, 0, v_total_cost, 'صرف مواد ومصاريف للتشغيل', v_org_id);
+    ELSE
+        -- حالة الرفض: ترحيل التكلفة بالكامل لخسائر الهالك
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_wastage_acc, v_total_cost, 0, 'خسارة هالك: رفض جودة - ' || COALESCE(p_qc_notes, 'تلف المرحلة'), v_org_id),
+               (v_je_id, v_inv_raw_acc, 0, v_total_cost, 'استهلاك مواد غير صالحة', v_org_id);
+    END IF;
+
+    -- 5. تحديث حالة الأمر النهائية
+    UPDATE public.mfg_production_orders 
+    SET status = p_final_status, notes = COALESCE(notes, '') || E'\n[QC Status: ' || p_final_status || E'] ' || COALESCE(p_qc_notes, '') 
+    WHERE id = p_order_id;
+
+    -- 6. إعادة احتساب المخزون (ليظهر الخصم فوراً)
+    PERFORM public.recalculate_stock_rpc(v_org_id);
 END;
 $$;
 
@@ -2758,11 +2842,8 @@ CREATE TRIGGER trg_auto_approve_invoice_items
     FOR EACH ROW
     EXECUTE FUNCTION public.fn_auto_approve_invoice_on_items_insert();
 
--- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
-SELECT public.refresh_saas_schema();
-
--- 3. إشعار النظام بالتحديثات
-COMMENT ON SCHEMA public IS 'System stabilized at ' || now();
+-- إعادة تحميل كاش المخطط لضمان تعرف الـ API على التغييرات فوراً
+NOTIFY pgrst, 'reload config';
 
 -- 🛠️ دالة تنظيف سجلات النسخ الاحتياطية اليتيمة
 CREATE OR REPLACE FUNCTION public.cleanup_orphaned_backups()
@@ -2950,11 +3031,9 @@ FOR EACH ROW EXECUTE FUNCTION public.trigger_handle_stock_on_order();
 
 -- 🧪 دالة اختبار عزل البيانات (SaaS Isolation Unit Test)
 -- الغرض: التأكد برمجياً من أن المدير في شركة ما لا يمكنه الوصول لبيانات شركة أخرى
--- تم إضافتها في نهاية الملف كما طلبت.
 
--- 🚀 تنشيط كاش النظام لضمان تعرف الـ API على الأعمدة الجديدة فوراً
-SELECT public.refresh_saas_schema();
-
+-- إعادة تحميل كاش المخطط لضمان تعرف الـ API على التغييرات فوراً
+NOTIFY pgrst, 'reload config';
 -- 🛠️ مراقب تحديث حالة طلبات المطبخ
 CREATE OR REPLACE FUNCTION public.trg_fn_update_kitchen_status_time()
 RETURNS TRIGGER AS $t$
@@ -3450,17 +3529,17 @@ END; $$;
 -- ج. جلب العملاء المتجاوزين لحد الائتمان (تحديث موحد)
 DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.get_over_limit_customers() CASCADE;
-CREATE OR REPLACE FUNCTION public.get_over_limit_customers(org_id uuid DEFAULT NULL)
-RETURNS TABLE (id UUID, name TEXT, total_debt NUMERIC, credit_limit NUMERIC)
+CREATE OR REPLACE FUNCTION public.get_over_limit_customers(p_org_id uuid DEFAULT NULL)
+RETURNS TABLE (id UUID, name TEXT, phone TEXT, total_debt NUMERIC, credit_limit NUMERIC)
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_target_org uuid;
 BEGIN
-    v_target_org := COALESCE(org_id, public.get_my_org());
-    RETURN QUERY SELECT c.id, c.name, COALESCE(c.balance, 0), COALESCE(c.credit_limit, 0)
+    v_target_org := COALESCE(p_org_id, public.get_my_org());
+    RETURN QUERY SELECT c.id, c.name, c.phone, COALESCE(c.balance, 0), COALESCE(c.credit_limit, 0)
     FROM public.customers c WHERE c.organization_id = v_target_org AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0);
 END; $$;
 
--- إعادة تحميل كاش المخطط لضمان تعرف الـ API على التغييرات فوراً
+-- تنشيط كاش النظام
 NOTIFY pgrst, 'reload config';
 
 -- نهاية ملف الدوال السيادية

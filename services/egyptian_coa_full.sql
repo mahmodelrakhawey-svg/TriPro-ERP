@@ -54,7 +54,8 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('103', 'المخزون', 'ASSET', true, (SELECT id FROM accounts WHERE code = '12')),
 ('10301', 'مخزون المواد الخام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103')),
-('10302', 'مخزون المنتج التام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103'));
+('10302', 'مخزون المنتج التام', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103')),
+('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '103'));
 
 -- 122 العملاء والمدينون
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES

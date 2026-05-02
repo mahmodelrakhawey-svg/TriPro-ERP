@@ -7,8 +7,8 @@ import {
   PieChart, Pie, Cell, LineChart, Line 
 } from 'recharts';
 import { 
-  Factory, Activity, AlertOctagon, ClipboardCheck, CheckCircle2,
-  TrendingUp, Package, Users, Clock, Loader2, ArrowRight, List
+  Factory, Activity, AlertOctagon, ClipboardCheck, CheckCircle2, RefreshCcw, Trash2,
+  TrendingUp, Package, Users, Clock, Loader2, ArrowRight, List, CheckCircle
 } from 'lucide-react';
 
 const ManufacturingDashboard = () => {
@@ -91,14 +91,37 @@ const ManufacturingDashboard = () => {
     fetchDashboardData();
   }, [orgId]);
 
-  const handleFinalize = async (id: string) => {
-    if (!window.confirm('هل أنت متأكد من إغلاق الأمر؟ سيتم ترحيل التكاليف من WIP إلى المخزن وتوليد قيد المحاسبة النهائي.')) return;
+  // دالة الإغلاق الذكية الجديدة
+  const handleFinalizeOrder = async (id: string, status: 'completed' | 'rework' | 'rejected') => {
+    const statusText = status === 'completed' ? 'اعتماد ونجاح' : status === 'rework' ? 'إعادة تشغيل' : 'رفض (هالك)';
+    const notes = status !== 'completed' ? window.prompt(`سبب الـ ${statusText}:`) : 'مطابق للمواصفات';
+    
+    if (status !== 'completed' && notes === null) return;
+
     setFinishingId(id);
-    const result = await finalizeProductionOrder(id);
-    if (result.success) {
+    try {
+      const { error } = await supabase.rpc('mfg_finalize_order', {
+        p_order_id: id,
+        p_final_status: status,
+        p_qc_notes: notes
+      });
+
+      if (error) throw error;
+
+      showToast(
+        status === 'completed' ? 'تم إغلاق الأمر وترحيله للمخزن التام' :
+        status === 'rework' ? 'تمت إعادة الأمر لخط الإنتاج للإصلاح' :
+        'تم إغلاق الأمر وترحيل التكلفة كخسارة هالك',
+        'success'
+      );
+
+      // تحديث القائمة بحذف الأمر المغلق
       setOrders(prev => prev.filter(o => o.order_id !== id));
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    } finally {
+      setFinishingId(null);
     }
-    setFinishingId(null);
   };
 
   const StatCard = ({ title, value, icon: Icon, color, suffix = "" }) => (
@@ -251,16 +274,33 @@ const ManufacturingDashboard = () => {
                         <List size={14} /> تتبع السيريالات
                       </button>
                     )}
-                    {order.can_finalize ? (
-                    <button
-                      onClick={() => handleFinalize(order.order_id)}
-                      disabled={finishingId === order.order_id}
-                      className="flex items-center gap-1 mx-auto bg-emerald-600 text-white px-3 py-1.5 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 transition-all shadow-sm"
-                      title="إغلاق محاسبي نهائي وتوليد السيريالات"
-                    >
-                      {finishingId === order.order_id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-                      إغلاق وترحيل
-                    </button>
+                    {order.can_finalize || order.status === 'in_progress' ? (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleFinalizeOrder(order.order_id, 'completed')}
+                          disabled={finishingId === order.order_id}
+                          className="flex items-center gap-1 bg-emerald-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-emerald-700 disabled:opacity-50"
+                          title="اعتماد نهائي"
+                        >
+                          {finishingId === order.order_id ? <Loader2 size={10} className="animate-spin" /> : <CheckCircle size={10} />} اعتماد
+                        </button>
+                        <button
+                          onClick={() => handleFinalizeOrder(order.order_id, 'rework')}
+                          disabled={finishingId === order.order_id}
+                          className="flex items-center gap-1 bg-amber-500 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-amber-600 disabled:opacity-50"
+                          title="إعادة للإنتاج"
+                        >
+                          <RefreshCcw size={10} /> إصلاح
+                        </button>
+                        <button
+                          onClick={() => handleFinalizeOrder(order.order_id, 'rejected')}
+                          disabled={finishingId === order.order_id}
+                          className="flex items-center gap-1 bg-red-600 text-white px-2 py-1 rounded text-[10px] font-bold hover:bg-red-700 disabled:opacity-50"
+                          title="إغلاق كهالك"
+                        >
+                          <Trash2 size={10} /> هالك
+                        </button>
+                      </div>
                     ) : !order.status.includes('completed') && (
                       <span className="text-[10px] text-gray-400 italic">
                         انتظار المراحل/QC

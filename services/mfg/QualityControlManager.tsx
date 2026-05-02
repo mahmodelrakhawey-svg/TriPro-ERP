@@ -2,8 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting as useOrg } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
-import { ShieldCheck, XCircle, CheckCircle, AlertCircle, Loader2, MessageSquare } from 'lucide-react';
-
+import { ShieldCheck, XCircle, CheckCircle, AlertCircle, Loader2, MessageSquare, RefreshCcw } from 'lucide-react';
 interface CompletedTask {
   progress_id: string;
   order_number: string;
@@ -39,7 +38,7 @@ const QualityControlManager = () => {
     if (error) {
       showToast('خطأ في جلب بيانات الجودة', 'error');
     } else {
-      const formatted = data.map((d: any) => ({
+      const formatted = (data || []).map((d: any) => ({
         progress_id: d.id,
         order_number: d.mfg_production_orders.order_number,
         product_name: d.mfg_production_orders.products.name,
@@ -55,18 +54,20 @@ const QualityControlManager = () => {
     fetchCompletedTasks();
   }, [orgId]);
 
-  const handleInspect = async (id: string, status: 'pass' | 'fail', notes: string = '') => {
+  const handleInspect = async (id: string, status: 'pass' | 'fail' | 'rework') => {
+    const notes = status !== 'pass' ? window.prompt('ملاحظات الجودة:') : 'مطابق';
+    if (status !== 'pass' && notes === null) return;
+
     setSubmitting(true);
     const { error } = await supabase.rpc('mfg_record_qc_inspection', {
       p_progress_id: id,
-      p_status: status,
+      p_status: status === 'pass' ? 'pass' : 'fail',
       p_notes: notes
     });
-
     if (error) {
       showToast(error.message, 'error');
     } else {
-      showToast(status === 'pass' ? 'تم اعتماد الجودة بنجاح' : 'تم تسجيل رفض الجودة', 'info');
+      showToast(status === 'pass' ? 'تم اعتماد الجودة بنجاح' : 'تم تسجيل النتيجة وتحديث حالة المرحلة', 'info');
       fetchCompletedTasks();
     }
     setSubmitting(false);
@@ -105,16 +106,24 @@ const QualityControlManager = () => {
                 <div className="flex items-center gap-3">
                   <button
                     disabled={submitting}
-                    onClick={() => handleInspect(task.progress_id, 'fail', 'فشل في اختبارات القياس')}
-                    className="flex items-center gap-2 px-4 py-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-transparent hover:border-red-100"
+                    onClick={() => handleInspect(task.progress_id, 'fail')}
+                    className="flex items-center gap-2 px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg font-bold text-sm"
                   >
                     <XCircle size={20} />
                     رفض
                   </button>
+                  <button                  
+                    disabled={submitting}
+                    onClick={() => handleInspect(task.progress_id, 'rework')}
+                    className="flex items-center gap-2 px-3 py-2 text-amber-600 hover:bg-amber-50 rounded-lg font-bold text-sm"
+                  >
+                    <RefreshCcw size={18} />
+                    إصلاح
+                  </button>
                   <button
                     disabled={submitting}
                     onClick={() => handleInspect(task.progress_id, 'pass')}
-                    className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-emerald-700 transition-shadow shadow-md shadow-emerald-100"
+                    className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold hover:bg-emerald-700 transition-shadow"
                   >
                     <CheckCircle size={20} />
                     اعتماد الجودة
