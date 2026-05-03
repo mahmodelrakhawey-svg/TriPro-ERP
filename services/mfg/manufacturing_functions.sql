@@ -142,8 +142,12 @@ BEGIN
 END; $$;
 
 -- 7. دالة الإغلاق النهائي لطلب الإنتاج (MFG Finalization)
--- تقوم بنقل التكلفة من الإنتاج تحت التشغيل (WIP) إلى المنتج التام (Finished Goods)
-CREATE OR REPLACE FUNCTION public.mfg_finalize_order(p_order_id uuid)
+-- تم التحديث لتدعم الحالة النهائية (مكتمل، إعادة تشغيل، مرفوض) وملاحظات الجودة
+CREATE OR REPLACE FUNCTION public.mfg_finalize_order(
+    p_order_id uuid,
+    p_final_status text DEFAULT 'completed',
+    p_qc_notes text DEFAULT NULL
+)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER 
 SET search_path = public AS $$
 DECLARE
@@ -152,6 +156,7 @@ DECLARE
     v_je_id uuid;
     v_wip_acc uuid;
     v_fg_acc uuid;
+    v_loss_acc uuid;
     v_org_id uuid;
     v_mappings jsonb;
 BEGIN
@@ -159,8 +164,20 @@ BEGIN
     SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
     IF v_order.status = 'completed' THEN RETURN; END IF;
+
+    -- [أمان] التحقق من وجود عمل فعلي أو صرف مواد قبل الإغلاق لمنع الأوامر الصفرية
+    IF NOT EXISTS (SELECT 1 FROM public.mfg_order_progress WHERE production_order_id = p_order_id AND status = 'completed') 
+       AND NOT EXISTS (SELECT 1 FROM public.mfg_material_requests WHERE production_order_id = p_order_id AND status = 'issued') THEN
+        RAISE EXCEPTION 'لا يمكن إغلاق أمر إنتاج لم يتم البدء فيه أو صرف مواد له. يرجى إكمال مراحل العمل أو صرف المواد أولاً.';
+    END IF;
     
     v_org_id := v_order.organization_id;
+
+    -- معالجة حالة "إعادة التشغيل" (Rework)
+    IF p_final_status = 'rework' THEN
+        UPDATE public.mfg_production_orders SET status = 'in_progress', notes = COALESCE(notes, '') || E'\nإعادة تشغيل: ' || p_qc_notes WHERE id = p_order_id;
+        RETURN;
+    END IF;
 
     -- 2. حساب إجمالي التكاليف المحملة على هذا الطلب (مواد + عمالة)
     -- أ. تكلفة العمالة من سجلات التقدم
@@ -186,13 +203,18 @@ BEGIN
     ), 0);
 
     -- 3. تحديث حالة الطلب وزيادة مخزون المنتج التام (Finished Goods)
-    UPDATE public.mfg_production_orders 
-    SET status = 'completed', end_date = now()::date 
-    WHERE id = p_order_id;
+    IF p_final_status = 'completed' THEN
+        UPDATE public.mfg_production_orders 
+        SET status = 'completed', end_date = now()::date, notes = COALESCE(notes, '') || E'\nملاحظات الجودة: ' || p_qc_notes
+        WHERE id = p_order_id;
 
-    UPDATE public.products 
-    SET stock = stock + v_order.quantity_to_produce 
-    WHERE id = v_order.product_id AND organization_id = v_org_id;
+        UPDATE public.products 
+        SET stock = stock + v_order.quantity_to_produce 
+        WHERE id = v_order.product_id AND organization_id = v_org_id;
+    ELSE
+        -- حالة الرفض (Rejected/Scrapped)
+        UPDATE public.mfg_production_orders SET status = 'cancelled', notes = 'مرفوض جودة: ' || p_qc_notes WHERE id = p_order_id;
+    END IF;
 
     -- 4. المحرك المحاسبي: قيد إغلاق WIP وتحويله لمنتج تام
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
@@ -202,18 +224,27 @@ BEGIN
         (SELECT id FROM public.accounts WHERE code = '103' AND organization_id = v_org_id LIMIT 1)
     );
     v_fg_acc := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE (code = '10302' OR code = '103') AND organization_id = v_org_id LIMIT 1));
+    v_loss_acc := COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1));
 
-    IF v_total_cost > 0 AND v_wip_acc IS NOT NULL AND v_fg_acc IS NOT NULL THEN
+    IF v_total_cost > 0 AND v_wip_acc IS NOT NULL THEN
         INSERT INTO public.journal_entries (
             transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type
         ) VALUES (
-            now()::date, 'إغلاق أمر إنتاج رقم: ' || v_order.order_number, 'MFG-FIN-' || v_order.order_number, 
+            now()::date, 
+            CASE WHEN p_final_status = 'completed' THEN 'إغلاق إنتاج: ' ELSE 'خسارة رفض إنتاج: ' END || v_order.order_number,
+            'MFG-FIN-' || v_order.order_number, 
             'posted', v_org_id, true, p_order_id, 'mfg_order'
         ) RETURNING id INTO v_je_id;
 
-        -- من ح/ مخزون المنتج التام (Finished Goods)
+        -- الجانب المدين (مخزون تام أو خسارة هالك)
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_fg_acc, v_total_cost, 0, 'تحويل تكلفة الإنتاج التام من WIP', v_org_id);
+        VALUES (
+            v_je_id, 
+            CASE WHEN p_final_status = 'completed' THEN v_fg_acc ELSE v_loss_acc END, 
+            v_total_cost, 0, 
+            CASE WHEN p_final_status = 'completed' THEN 'تحويل تكلفة الإنتاج التام من WIP' ELSE 'تحميل تكلفة الرفض على المصاريف' END, 
+            v_org_id
+        );
 
         -- إلى ح/ الإنتاج تحت التشغيل (WIP)
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
@@ -1037,26 +1068,33 @@ END; $$;
 DROP VIEW IF EXISTS public.v_mfg_bom_variance CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_bom_variance WITH (security_invoker = true) AS
 SELECT 
-    amu.id,
     po.order_number,
     p.name as product_name,
     rm.name as material_name,
-    amu.standard_quantity,
-    amu.actual_quantity,
-    (amu.actual_quantity - amu.standard_quantity) as variance_qty,
+    SUM(amu.standard_quantity) as standard_quantity,
+    SUM(amu.actual_quantity) as actual_quantity,
+    SUM(amu.actual_quantity - amu.standard_quantity) as variance_qty,
     CASE 
-        WHEN amu.standard_quantity > 0 
-        THEN ROUND(((amu.actual_quantity - amu.standard_quantity) / amu.standard_quantity) * 100, 2)
+        WHEN SUM(amu.standard_quantity) > 0 
+        THEN ROUND((SUM(amu.actual_quantity - amu.standard_quantity) / SUM(amu.standard_quantity) * 100), 2)
         ELSE 0 
     END as variance_percentage,
-    amu.organization_id,
-    po.id as production_order_id,
-    amu.created_at
+    po.organization_id
 FROM public.mfg_actual_material_usage amu
 JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
 JOIN public.mfg_production_orders po ON op.production_order_id = po.id
 JOIN public.products p ON po.product_id = p.id
-JOIN public.products rm ON amu.raw_material_id = rm.id;
+JOIN public.products rm ON amu.raw_material_id = rm.id
+GROUP BY po.id, po.order_number, p.name, rm.name, po.organization_id;
+
+-- إضافة اسم بديل للتوافق (Compatibility Alias)
+DROP VIEW IF EXISTS public.v_mfg_material_variance CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_material_variance WITH (security_invoker = true) AS 
+SELECT * FROM public.v_mfg_bom_variance;
+
+GRANT SELECT ON public.v_mfg_bom_variance TO authenticated;
+GRANT SELECT ON public.v_mfg_material_variance TO authenticated;
+NOTIFY pgrst, 'reload schema';
 
 -- 📊 22. عرض كفاءة مراكز العمل (Work Center Efficiency View)
 DROP VIEW IF EXISTS public.v_mfg_work_center_efficiency CASCADE;
@@ -1064,13 +1102,10 @@ CREATE OR REPLACE VIEW public.v_mfg_work_center_efficiency WITH (security_invoke
 SELECT 
     wc.id as work_center_id,
     wc.name as work_center_name,
+    COUNT(op.id) as tasks_completed,
     SUM(rs.standard_time_minutes * op.produced_qty) as total_standard_minutes,
-    SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time))/60) as total_actual_minutes,
-    CASE 
-        WHEN SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time))/60) > 0 
-        THEN ROUND((SUM(rs.standard_time_minutes * op.produced_qty) / SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time))/60)) * 100, 2)
-        ELSE 0 
-    END as efficiency_percentage,
+    GREATEST(SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60), 1) as total_actual_minutes,
+    ROUND((SUM(rs.standard_time_minutes * op.produced_qty) / GREATEST(SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60), 1) * 100), 2) as efficiency_percentage,
     wc.organization_id
 FROM public.mfg_work_centers wc
 JOIN public.mfg_routing_steps rs ON wc.id = rs.work_center_id
@@ -1255,17 +1290,27 @@ END; $$;
 -- 27. رؤية تقييم WIP
 DROP VIEW IF EXISTS public.v_mfg_wip_valuation CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_wip_valuation WITH (security_invoker = true) AS
+WITH request_costs AS (
+    SELECT mr.production_order_id,
+           SUM(mri.quantity_issued * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0)) as total_request
+    FROM public.mfg_material_request_items mri
+    JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
+    JOIN public.products p ON mri.raw_material_id = p.id
+    WHERE mr.status = 'issued'
+    GROUP BY mr.production_order_id
+)
 SELECT po.id AS production_order_id, po.order_number, p.name AS product_name, po.quantity_to_produce, po.status, po.organization_id,
        COALESCE(SUM(op.labor_cost_actual), 0) AS total_labor_cost_incurred,
-       COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS total_material_cost_incurred,
-       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_wip_value
+       (COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) + COALESCE(rc.total_request, 0)) AS total_material_cost_incurred,
+       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) + COALESCE(rc.total_request, 0)) AS total_wip_value
 FROM public.mfg_production_orders po
 JOIN public.products p ON po.product_id = p.id
 LEFT JOIN public.mfg_order_progress op ON po.id = op.production_order_id
 LEFT JOIN public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
 LEFT JOIN public.products rm ON amu.raw_material_id = rm.id
+LEFT JOIN request_costs rc ON po.id = rc.production_order_id
 WHERE po.status = 'in_progress'
-GROUP BY po.id, po.order_number, p.name, po.quantity_to_produce, po.status, po.organization_id;
+GROUP BY po.id, po.order_number, p.name, po.quantity_to_produce, po.status, po.organization_id, rc.total_request;
 
 -- 28. مشغل إنشاء طلب الصرف تلقائياً
 CREATE OR REPLACE FUNCTION public.fn_mfg_auto_create_material_request()
@@ -1335,29 +1380,48 @@ END; $$;
 -- هذه الرؤية ضرورية لعمل لوحة القيادة وحساب نسبة الإنجاز وصلاحية الإغلاق
 DROP VIEW IF EXISTS public.v_mfg_dashboard CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_dashboard WITH (security_invoker = true) AS
+WITH progress_stats AS (
+    SELECT 
+        production_order_id,
+        count(*) as total_steps,
+        count(*) FILTER (WHERE status = 'completed') as completed_steps,
+        count(*) FILTER (WHERE qc_verified = true) as qc_passed_steps,
+        SUM(labor_cost_actual) as total_labor_cost
+    FROM public.mfg_order_progress
+    GROUP BY production_order_id
+),
+serial_stats AS (
+    SELECT 
+        production_order_id,
+        count(*) as total_serials
+    FROM public.mfg_batch_serials
+    GROUP BY production_order_id
+)
 SELECT 
     po.id as order_id,
     po.order_number,
+    po.batch_number,
     p.name as product_name,
     po.quantity_to_produce,
     po.status,
-    po.organization_id,
+    po.start_date,
+    po.end_date,
     po.created_at,
-    -- حساب نسبة الإنجاز بناءً على المراحل المكتملة
-    ROUND(COALESCE(
-        (SELECT (COUNT(id) FILTER (WHERE status = 'completed')::numeric / NULLIF(COUNT(id), 0)) * 100 
-         FROM public.mfg_order_progress 
-         WHERE production_order_id = po.id), 
-        0
-    ), 0) as completion_percentage,
-    -- يمكن إغلاق الطلب فقط إذا كان جارياً وجميع مراحله مكتملة وفحص الجودة تم
-    (
-        po.status = 'in_progress' 
-        AND EXISTS (SELECT 1 FROM public.mfg_order_progress WHERE production_order_id = po.id)
-        AND NOT EXISTS (SELECT 1 FROM public.mfg_order_progress WHERE production_order_id = po.id AND status != 'completed')
-        AND NOT EXISTS (SELECT 1 FROM public.mfg_order_progress WHERE production_order_id = po.id AND qc_verified IS FALSE)
-    ) as can_finalize
+    ps.total_steps,
+    (po.status = 'in_progress' AND ps.total_steps > 0 AND ps.completed_steps = ps.total_steps) as can_finalize,
+    ps.completed_steps,
+    COALESCE(ps.qc_passed_steps, 0) as qc_passed_steps,
+    CASE WHEN ps.total_steps > 0 THEN ROUND((ps.completed_steps::numeric / ps.total_steps::numeric) * 100, 2) ELSE 0 END as completion_percentage,
+    COALESCE(ps.total_labor_cost, 0) as current_labor_cost,
+    po.organization_id,
+    pv.variance_amount,
+    pv.variance_percentage,
+    COALESCE(ss.total_serials, 0) as total_serials_generated,
+    p.requires_serial
 FROM public.mfg_production_orders po
-JOIN public.products p ON po.product_id = p.id;
+JOIN public.products p ON po.product_id = p.id
+LEFT JOIN progress_stats ps ON po.id = ps.production_order_id
+LEFT JOIN public.mfg_production_variances pv ON po.id = pv.production_order_id
+LEFT JOIN serial_stats ss ON po.id = ss.production_order_id;
 
 GRANT SELECT ON public.v_mfg_dashboard TO authenticated;

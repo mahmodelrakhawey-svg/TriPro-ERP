@@ -5,6 +5,17 @@ import { useToast } from '../../context/ToastContext';
 import { Package, Search, Printer, Loader2, Filter, Download, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+interface Product {
+  id: string;
+  name: string;
+  sku: string | null;
+  sales_price: number;
+  purchase_price: number;
+  cost?: number;
+  weighted_average_cost?: number;
+  stock: number;
+}
+
 type Movement = {
   id: string;
   date: string;
@@ -47,108 +58,104 @@ const StockMovementCostReport = () => {
 
     try {
       // 1. جلب حركات المبيعات (Sales Invoices) - صادر
-      const { data: salesItems } = await supabase
+      let querySales = supabase
         .from('invoice_items')
         .select('quantity, cost, invoice_id, invoices!inner(invoice_date, invoice_number, status)')
         .eq('product_id', selectedProductId)
         .neq('invoices.status', 'draft');
 
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
-      const { data: purchaseItems } = await supabase
+      let queryPurchases = supabase
         .from('purchase_invoice_items')
         .select('quantity, unit_price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status)')
         .eq('product_id', selectedProductId)
         .in('purchase_invoices.status', ['posted', 'paid']);
 
       // 3. جلب التسويات المخزنية (Stock Adjustments)
-      const { data: adjustments } = await supabase
+      let queryAdjustments = supabase
         .from('stock_adjustment_items')
         .select('quantity, stock_adjustments!inner(adjustment_date, adjustment_number, status)')
         .eq('product_id', selectedProductId)
         .neq('stock_adjustments.status', 'draft');
 
       // 4. مرتجعات مبيعات (Sales Returns) - وارد
-      const { data: salesReturns } = await supabase
+      let querySalesReturns = supabase
         .from('sales_return_items')
         .select('quantity, sales_returns!inner(return_date, return_number, status)')
         .eq('product_id', selectedProductId)
         .neq('sales_returns.status', 'draft');
 
       // 5. مرتجعات مشتريات (Purchase Returns) - صادر
-      const { data: purchaseReturns } = await supabase
+      let queryPurchaseReturns = supabase
         .from('purchase_return_items')
         .select('quantity, unit_price, purchase_return_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(return_date, return_number, status)')
         .eq('product_id', selectedProductId)
         .eq('purchase_returns.status', 'posted');
 
-      // 6. التصنيع (Manufacturing)
-      const { data: productionIn } = await supabase
-        .from('work_orders')
-        .select('id, order_number, end_date, quantity, status')
+      // 6. استعلامات مديول التصنيع (SaaS MFG)
+      let mfgInQuery = supabase
+        .from('mfg_production_orders')
+        .select('id, order_number, end_date, quantity_to_produce, status')
         .eq('product_id', selectedProductId)
         .eq('status', 'completed');
 
-      const { data: boms } = await supabase
-        .from('bill_of_materials')
-        .select('product_id, quantity_required')
-        .eq('raw_material_id', selectedProductId);
-      
-      let productionOut: any[] = [];
-      if (boms && boms.length > 0) {
-          const finishedProductIds = boms.map(b => b.product_id);
-          const { data: woData } = await supabase
-            .from('work_orders')
-            .select('id, order_number, end_date, quantity, product_id, status')
-            .in('product_id', finishedProductIds)
-            .eq('status', 'completed');
-            
-          if (woData) productionOut = woData;
-      }
+      let mfgOutQuery = supabase
+        .from('mfg_material_request_items')
+        .select('quantity_issued, mfg_material_requests!inner(request_number, issue_date, status, created_at)')
+        .eq('raw_material_id', selectedProductId)
+        .eq('mfg_material_requests.status', 'issued');
+
+      let mfgScrapQuery = supabase
+        .from('mfg_scrap_logs')
+        .select('quantity, reason, created_at')
+        .eq('product_id', selectedProductId);
 
       // 7. رصيد أول المدة (Opening Inventory) - الإضافة الجديدة
-      const { data: openingInventory } = await supabase
+      let queryOpening = supabase
         .from('opening_inventories')
         .select('quantity, cost, created_at, warehouse_id')
         .eq('product_id', selectedProductId);
 
       // 8. التحويلات المخزنية (Stock Transfers)
-      const { data: transfers } = await supabase
+      let queryTransfers = supabase
         .from('stock_transfer_items')
         .select('quantity, stock_transfers!inner(transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status)')
         .eq('product_id', selectedProductId)
         .eq('stock_transfers.status', 'posted');
 
       // 9. مبيعات واستهلاك المطاعم (Restaurant)
-      // أ. مباشر
-      const { data: restDirect } = await supabase
+      let queryRestDirect = supabase
         .from('order_items')
         .select('quantity, unit_cost, orders!inner(created_at, order_number, status)')
         .eq('product_id', selectedProductId)
         .eq('orders.status', 'COMPLETED');
 
-      // ب. استهلاك
       const { data: restBoms } = await supabase
         .from('bill_of_materials')
         .select('product_id, quantity_required')
         .eq('raw_material_id', selectedProductId);
       
-      let restConsumption: any[] = [];
+      let queryRestConsumption: any = null;
       if (restBoms && restBoms.length > 0) {
           const pIds = restBoms.map(b => b.product_id);
-          const { data: pOrders } = await supabase
+          queryRestConsumption = supabase
             .from('order_items')
             .select('quantity, product_id, orders!inner(created_at, order_number, status)')
             .in('product_id', pIds)
             .eq('orders.status', 'COMPLETED');
-          if (pOrders) restConsumption = pOrders;
       }
+
+      // تنفيذ الاستعلامات بالتوازي وجلب البيانات الفعلية بشكل منضبط
+      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption] = await Promise.all([
+        querySales, queryPurchases, queryAdjustments, querySalesReturns, queryPurchaseReturns, mfgInQuery, mfgOutQuery, mfgScrapQuery, queryOpening, queryTransfers, queryRestDirect, queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] })
+      ]);
 
       // تجميع الحركات
       let allMovements: any[] = [];
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
 
       // إضافة رصيد أول المدة
-      openingInventory?.forEach((item: any) => {
+      opening.data?.forEach((item: any) => {
           allMovements.push({
               date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
               type: 'in',
@@ -160,7 +167,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      salesItems?.forEach((item: any) => {
+      sales.data?.forEach((item: any) => {
           allMovements.push({
               date: item.invoices.invoice_date,
               type: 'out',
@@ -171,7 +178,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      purchaseItems?.forEach((item: any) => {
+      purchases.data?.forEach((item: any) => {
           allMovements.push({
               date: item.purchase_invoices.invoice_date,
               type: 'in',
@@ -182,8 +189,8 @@ const StockMovementCostReport = () => {
           });
       });
 
-      salesReturns?.forEach((item: any) => {
-          const product = products.find(p => p.id === selectedProductId);
+      sReturns.data?.forEach((item: any) => {
+          const product = products.find(p => p.id === selectedProductId) as Product | undefined;
           allMovements.push({
               date: item.sales_returns.return_date,
               type: 'in',
@@ -194,7 +201,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      purchaseReturns?.forEach((item: any) => {
+      pReturns.data?.forEach((item: any) => {
           allMovements.push({
               date: item.purchase_returns.return_date,
               type: 'out',
@@ -205,36 +212,48 @@ const StockMovementCostReport = () => {
           });
       });
 
-      productionIn?.forEach((item: any) => {
-          const product = products.find(p => p.id === selectedProductId);
-          allMovements.push({
-              date: item.end_date,
-              type: 'in',
-              quantity: Number(item.quantity),
-              unitCost: Number(product?.purchase_price || product?.cost || 0),
-              documentType: 'تصنيع (منتج تام)',
-              documentNumber: item.order_number
-          });
+      // معالجة التصنيع - منتج تام (وارد)
+      mfgIn.data?.forEach((item: any) => {
+        const product = products.find(p => p.id === selectedProductId) as Product | undefined;
+        allMovements.push({
+          date: item.end_date,
+          type: 'in',
+          quantity: Number(item.quantity_to_produce),
+          unitCost: Number(product?.weighted_average_cost || product?.cost || product?.purchase_price || 0),
+          documentType: 'تصنيع (منتج تام)',
+          documentNumber: item.order_number
+        });
       });
 
-      productionOut?.forEach((wo: any) => {
-          const bom = boms?.find(b => b.product_id === wo.product_id);
-          if (bom) {
-              const qtyUsed = wo.quantity * bom.quantity_required;
-              const product = products.find(p => p.id === selectedProductId);
-              allMovements.push({
-                  date: wo.end_date,
-                  type: 'out',
-                  quantity: qtyUsed,
-                  unitCost: Number(product?.purchase_price || product?.cost || 0),
-                  documentType: 'تصنيع (مادة خام)',
-                  documentNumber: wo.order_number
-              });
-          }
+      // معالجة التصنيع - خامات منصرفة (صادر)
+      mfgOut.data?.forEach((item: any) => {
+        const product = products.find(p => p.id === selectedProductId) as Product | undefined;
+        allMovements.push({
+          date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at.split('T')[0],
+          type: 'out',
+          quantity: Number(item.quantity_issued),
+          unitCost: Number(product?.weighted_average_cost || product?.cost || product?.purchase_price || 0),
+          documentType: 'تصنيع (صرف خامات)',
+          documentNumber: item.mfg_material_requests.request_number
+        });
+      });
+
+      // معالجة التصنيع - الهالك (صادر)
+      mfgScrap.data?.forEach((item: any) => {
+        const product = products.find(p => p.id === selectedProductId) as Product | undefined;
+        allMovements.push({
+          date: item.created_at.split('T')[0],
+          type: 'out',
+          quantity: Number(item.quantity),
+          unitCost: Number(product?.weighted_average_cost || product?.cost || product?.purchase_price || 0),
+          documentType: 'تصنيع (هالك)',
+          documentNumber: '-',
+          notes: item.reason
+        });
       });
 
       // إضافة حركات المطعم
-      restDirect?.forEach((item: any) => {
+      restDirect.data?.forEach((item: any) => {
           allMovements.push({
               date: item.orders.created_at,
               type: 'out',
@@ -245,10 +264,10 @@ const StockMovementCostReport = () => {
           });
       });
 
-      restConsumption?.forEach((po: any) => {
+      restConsumption.data?.forEach((po: any) => {
           const bom = restBoms?.find(b => b.product_id === po.product_id);
           if (bom) {
-              const product = products.find(p => p.id === selectedProductId); // Raw material
+              const product = products.find(p => p.id === selectedProductId) as Product | undefined; // Raw material
               allMovements.push({
                   date: po.orders.created_at,
                   type: 'out',
@@ -261,9 +280,9 @@ const StockMovementCostReport = () => {
       });
 
       // معالجة التحويلات المخزنية (إظهارها كحركة توثيقية لضمان اكتمال سجل المراجعة)
-      transfers?.forEach((item: any) => {
+      transfers.data?.forEach((item: any) => {
           const t = item.stock_transfers;
-          const product = products.find(p => p.id === selectedProductId);
+          const product = products.find(p => p.id === selectedProductId) as Product | undefined;
           
           allMovements.push({
               date: t.transfer_date,
@@ -277,9 +296,9 @@ const StockMovementCostReport = () => {
           });
       });
 
-      adjustments?.forEach((item: any) => {
+      adjustments.data?.forEach((item: any) => {
           const qty = Number(item.quantity);
-          const product = products.find(p => p.id === selectedProductId);
+          const product = products.find(p => p.id === selectedProductId) as Product | undefined;
           allMovements.push({
               date: item.stock_adjustments.adjustment_date,
               type: qty >= 0 ? 'in' : 'out',
@@ -300,7 +319,11 @@ const StockMovementCostReport = () => {
           if (b.documentType === 'رصيد افتتاحي') return 1;
           
           // ترتيب الوارد قبل الصادر في نفس اليوم لتجنب الرصيد السالب الوهمي
-          const typeOrder: any = { 'رصيد افتتاحي': 0, 'فاتورة مشتريات': 1, 'مرتجع مبيعات': 2, 'تصنيع (منتج تام)': 3, 'تسوية مخزنية': 4, 'فاتورة مبيعات': 5, 'مرتجع مشتريات': 6 };
+          const typeOrder: any = { 
+            'رصيد افتتاحي': 0, 'فاتورة مشتريات': 1, 'مرتجع مبيعات': 2, 'تصنيع (منتج تام)': 3, 
+            'تسوية مخزنية': 4, 'فاتورة مبيعات': 5, 'مرتجع مشتريات': 6, 'تصنيع (صرف خامات)': 7, 'تصنيع (هالك)': 8 
+          };
+          
           const orderA = typeOrder[a.documentType] ?? 99;
           const orderB = typeOrder[b.documentType] ?? 99;
           return orderA - orderB;

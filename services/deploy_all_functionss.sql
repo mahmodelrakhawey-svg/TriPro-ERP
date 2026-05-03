@@ -22,7 +22,7 @@ BEGIN
             'kitchen_orders', 'journal_entries', 'accounts', 'bill_of_materials', 
             'modifier_groups', 'payments', 'assets', 'menu_categories', 'item_categories',
             'purchase_invoice_items', 'invoice_items', 'stock_adjustment_items', 'shifts'
-            , 'stock_transfer_items', 'inventory_count_items'
+            , 'stock_transfer_items', 'inventory_count_items', 'mfg_production_orders', 'mfg_order_progress', 'mfg_material_requests'
         )
     ) LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', trig_record.trigger_name, trig_record.event_object_table);
@@ -31,71 +31,17 @@ BEGIN
     FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
     LOOP
         func_name := split_part(func_signature, '(', 1);
-        -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح
+        -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح. تم تحديث القائمة لتشمل دوال التصنيع الجديدة.
         IF REPLACE(func_name, 'public.', '') IN (
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher', 'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note', 'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin', 'get_products_without_bom', 'calculate_product_wac', 'get_customer_balance', 'update_single_supplier_balance', 'update_product_stock', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup', 'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access', 'get_or_create_qr_for_table', 'get_current_company_settings', 'fn_ensure_kitchen_order_org', 'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse', 'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger', 'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups', 'cleanup_storage_orphans_trigger', 'sync_role_permissions', 'create_new_client_v2', 'handle_new_user', 'check_user_limit', 'prevent_system_account_deletion', 'set_emergency_mode', 'get_saas_platform_metrics', 'repair_all_admin_permissions', 'clear_demo_data'
-            , 'get_admin_platform_metrics', 'fix_unbalanced_journal_entry', 'approve_stock_transfer', 'cancel_stock_transfer', 'post_inventory_count', 'mfg_finalize_order', 'trigger_handle_stock_on_order', 'mfg_deduct_stock_from_order'
-            , 'trg_fn_sync_product_costs_on_update'
+            , 'get_admin_platform_metrics', 'fix_unbalanced_journal_entry', 'approve_stock_transfer', 'cancel_stock_transfer', 'post_inventory_count', 'mfg_finalize_order', 'trigger_handle_stock_on_order', 'mfg_deduct_stock_from_order', 'trg_fn_sync_product_costs_on_update'
+            , 'mfg_start_step', 'mfg_complete_step', 'mfg_calculate_standard_cost', 'mfg_update_product_standard_cost', 'mfg_check_stock_availability', 'mfg_record_scrap', 'mfg_merge_sales_orders', 'mfg_generate_batch_serials', 'mfg_update_selling_price_from_cost', 'mfg_get_product_genealogy', 'mfg_create_orders_from_sales', 'mfg_get_shop_floor_tasks', 'mfg_process_scan', 'mfg_check_efficiency_alerts', 'mfg_check_production_readiness', 'mfg_get_pending_invoices', 'mfg_calculate_production_variance', 'mfg_reserve_stock_for_order', 'mfg_create_material_request', 'mfg_issue_material_request', 'fn_mfg_auto_create_material_request', 'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts', 'mfg_check_cost_overrun_alerts', 'mfg_check_missing_serials_alerts', 'get_account_balance_at_date', 'mfg_calculate_raw_material_turnover', 'fn_validate_journal_entry_balance', 'test_saas_isolation', 'test_wac_logic'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
     END LOOP;
 
 END $$;
-
--- 🛠️ إصلاح هيكل الجداول لضمان دعم نظام تعدد الشركات (SaaS)
--- نضمن أن حذف المنظمة يؤدي لمسح كافة بياناتها تلقائياً (حل ERROR 23503 للأبد)
-DO $$ 
-DECLARE 
-    r record;
-BEGIN
-    -- هذه الحلقة تبحث عن كافة قيود الربط بجدول المنظمات وتقوم بتحديثها لتدعم الحذف التلقائي
-    FOR r IN 
-        SELECT tc.table_name, tc.constraint_name
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-        WHERE kcu.column_name = 'organization_id' 
-        AND tc.constraint_type = 'FOREIGN KEY'
-        AND tc.table_schema = 'public'
-    LOOP
-        EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
-        EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE CASCADE', r.table_name, r.constraint_name);
-    END LOOP;
-
-    -- 🛡️ تفعيل الأقفال الحديدية برمجياً (SaaS Document Guard)
-    -- نستخدم هذه الطريقة لضمان تطبيق القيد حتى لو كانت الجداول موجودة مسبقاً
-    ALTER TABLE IF EXISTS public.receipt_vouchers DROP CONSTRAINT IF EXISTS receipt_vouchers_number_org_unique;
-    ALTER TABLE IF EXISTS public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
-    
-    ALTER TABLE IF EXISTS public.payment_vouchers DROP CONSTRAINT IF EXISTS payment_vouchers_number_org_unique;
-    ALTER TABLE IF EXISTS public.payment_vouchers ADD CONSTRAINT payment_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
-END $$;
-
--- 🛠️ تصحيح قيود الربط بالقيود المحاسبية (SET NULL) لمنع الخطأ 23503 للأبد
-DO $$ 
-DECLARE 
-    r record;
-BEGIN
-    FOR r IN 
-        SELECT tc.table_name, tc.constraint_name, kcu.column_name
-        FROM information_schema.table_constraints tc
-        JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name
-        WHERE kcu.column_name IN ('related_journal_entry_id')
-        AND tc.constraint_type = 'FOREIGN KEY'
-        AND tc.table_schema = 'public'
-    LOOP
-        EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', r.table_name, r.constraint_name);
-        EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I FOREIGN KEY (%I) REFERENCES public.journal_entries(id) ON DELETE SET NULL', r.table_name, r.constraint_name, r.column_name);
-    END LOOP;
-
-    -- 🛡️ فرض القيود الفريدة لمنع التكرار برمجياً (SaaS Integrity)
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'receipt_vouchers_number_org_unique') THEN
-        ALTER TABLE public.receipt_vouchers ADD CONSTRAINT receipt_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
-    END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'payment_vouchers_number_org_unique') THEN
-        ALTER TABLE public.payment_vouchers ADD CONSTRAINT payment_vouchers_number_org_unique UNIQUE (organization_id, voucher_number);
-    END IF;
-    END $$;
 
 -- 🛡️ دالة بدء الوردية (Start Shift) - النسخة الموحدة
 -- تم تحديث التوقيع ليتوافق مع نداء الواجهة الأمامية ويدعم السوبر أدمن والشركات المتعددة
@@ -222,15 +168,15 @@ BEGIN
     IF v_invoice.organization_id IS NULL THEN UPDATE public.invoices SET organization_id = v_org_id WHERE id = p_invoice_id; END IF;
 
     -- 2. جلب روابط الحسابات من إعدادات الشركة (Scoped by Org)
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
 
     -- 3. جلب الحسابات (الأولوية للربط المخصص Mapping ثم الكود الافتراضي)
     v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1));
     v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1));
     v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1));
-    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
-    v_discount_acc_id := COALESCE((v_mappings->>'SALES_DISCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '413' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
+    v_discount_acc_id := COALESCE((v_mappings->>'SALES_DISCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '413' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1)); -- Ensure this account exists
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
     IF v_sales_acc_id IS NULL OR v_customer_acc_id IS NULL OR v_cogs_acc_id IS NULL OR v_inventory_acc_id IS NULL THEN
@@ -238,15 +184,14 @@ BEGIN
     END IF;
 
     -- 4. تحديث المخزون وحساب تكلفة البضاعة المباعة (COGS)
-    FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
-        -- 🚀 محرك التكلفة الذكي: يحاول جلب المتوسط المرجح -> التكلفة اليدوية -> تكلفة الوصفة (للمطاعم) -> سعر الشراء
+    FOR v_item IN SELECT ii.*, p.product_type FROM public.invoice_items ii JOIN public.products p ON ii.product_id = p.id WHERE ii.invoice_id = p_invoice_id LOOP
+        -- 🚀 محرك التكلفة الذكي: يعطي الأولوية للتكلفة الشاملة (بما فيها التصنيع) من بطاقة الصنف
         SELECT COALESCE(
-            NULLIF(weighted_average_cost, 0), 
-            NULLIF(cost, 0), 
-            public.get_product_recipe_cost(v_item.product_id), 
+            p.cost, -- التكلفة الشاملة (مواد + عمالة + مصاريف غير مباشرة)
+            NULLIF(p.weighted_average_cost, 0),
             NULLIF(purchase_price, 0), 
             0
-        ) INTO v_item_cost 
+        ) INTO v_item_cost -- Use COALESCE for default 0
         FROM public.products 
         WHERE id = v_item.product_id AND organization_id = v_org_id;
         
@@ -255,7 +200,7 @@ BEGIN
         -- تحديث تكلفة البند في الفاتورة لضمان دقة التقارير لاحقاً
         UPDATE public.invoice_items SET cost = v_item_cost WHERE id = v_item.id;
 
-        -- تحديث المخزون مع معالجة حالة المستودع الفارغ
+        -- تحديث المخزون مع معالجة حالة المستودع الفارغ (Ensure warehouse_id is not NULL)
         UPDATE public.products SET stock = stock - v_item.quantity, 
         warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[COALESCE(v_invoice.warehouse_id::text, (SELECT id::text FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1))], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
     END LOOP;
@@ -267,7 +212,7 @@ BEGIN
     -- 6. إنشاء أسطر القيد (منطق القيد المزدوج الشفاف)
     
     -- أ. إثبات مديونية العميل بكامل قيمة الفاتورة
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) -- Ensure description is not NULL
     VALUES (v_journal_id, v_customer_acc_id, v_invoice.total_amount, 0, 'إجمالي قيمة الفاتورة رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id);
 
     -- ب. إثبات التحصيل النقدي الفوري (إذا وجد) لضمان دقة كشف الحساب
@@ -281,10 +226,10 @@ BEGIN
             (v_journal_id, v_customer_acc_id, 0, v_invoice.paid_amount, 'سداد فوري من العميل مع الفاتورة', v_org_id);
     END IF;
 
-    IF COALESCE(v_invoice.discount_amount, 0) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_discount_acc_id, COALESCE(v_invoice.discount_amount, 0), 0, 'خصم ممنوح', v_org_id); END IF;
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, v_invoice.subtotal, 'إيراد مبيعات', v_org_id);
-    IF COALESCE(v_invoice.tax_amount, 0) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, COALESCE(v_invoice.tax_amount, 0), 'ضريبة القيمة المضافة', v_org_id); END IF;
-    IF v_total_cost > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة مبيعات', v_org_id), (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون', v_org_id); END IF;
+    IF COALESCE(v_invoice.discount_amount, 0) > 0 AND v_discount_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_discount_acc_id, COALESCE(v_invoice.discount_amount, 0), 0, 'خصم ممنوح', v_org_id); END IF;
+    IF v_sales_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, v_invoice.subtotal, 'إيراد مبيعات', v_org_id); END IF;
+    IF COALESCE(v_invoice.tax_amount, 0) > 0 AND v_vat_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, COALESCE(v_invoice.tax_amount, 0), 'ضريبة القيمة المضافة', v_org_id); END IF;
+    IF v_total_cost > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة مبيعات', v_org_id), (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون', v_org_id); END IF;
 
     -- 7. تحديث حالة الفاتورة
     UPDATE public.invoices SET status = CASE WHEN (v_invoice.total_amount - COALESCE(v_invoice.paid_amount, 0)) <= 0 THEN 'paid' ELSE 'posted' END, related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
@@ -349,7 +294,7 @@ BEGIN
     v_exchange_rate := COALESCE(v_invoice.exchange_rate, 1);
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
-    -- 2. جلب روابط الحسابات المخصصة
+    -- 2. جلب روابط الحسابات المخصصة (Ensure company_settings exists)
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
     -- 3. جلب الحسابات
@@ -362,7 +307,7 @@ BEGIN
     -- 4. تحديث المخزون وحساب المتوسط المرجح
     FOR v_item IN SELECT * FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
         -- تحديث الكمية أولاً
-        UPDATE public.products SET stock = stock + v_item.quantity, 
+        UPDATE public.products SET stock = stock + v_item.quantity, -- Ensure warehouse_id is not NULL
         warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_invoice.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0) + v_item.quantity)) 
         WHERE id = v_item.product_id AND organization_id = v_org_id;
         
@@ -376,7 +321,7 @@ BEGIN
 
     -- 6. إنشاء قيد اليومية وأسطر القيد
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) VALUES (v_invoice.invoice_date, 'فاتورة مشتريات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'purchase_invoice', true) RETURNING id INTO v_journal_id;
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, v_net_amount_base, 0, 'مخزون - فاتورة مشتريات', v_org_id);
+    IF v_inventory_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, v_net_amount_base, 0, 'مخزون - فاتورة مشتريات', v_org_id); END IF;
     IF v_tax_amount_base > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, v_tax_amount_base, 0, 'ضريبة مدخلات', v_org_id); END IF;
     
     -- إثبات الالتزام للمورد بالكامل (إصلاح توازن المشتريات)
@@ -385,7 +330,7 @@ BEGIN
 
     -- إثبات السداد الفوري للمورد (إذا وجد)
     IF COALESCE(v_invoice.paid_amount, 0) > 0 THEN
-        IF v_invoice.treasury_account_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد حساب الخزينة للمبلغ المدفوع في المشتريات'; END IF;
+        IF v_invoice.treasury_account_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد حساب الخزينة للمبلغ المدفوع في المشتريات.'; END IF;
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
         VALUES 
             (v_journal_id, v_supplier_acc_id, (v_invoice.paid_amount * v_exchange_rate), 0, 'سداد نقدي مقدم مع فاتورة مشتريات', v_org_id),
@@ -434,10 +379,10 @@ BEGIN
     v_acc_inv := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
 
     -- 3. تحديث المخزون (زيادة) وحساب التكلفة المنعكسة
-    FOR v_item IN SELECT * FROM public.sales_return_items WHERE sales_return_id = p_return_id LOOP
+    FOR v_item IN SELECT * FROM public.sales_return_items WHERE sales_return_id = p_return_id LOOP -- Ensure warehouse_id is not NULL
         SELECT COALESCE(weighted_average_cost, cost, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id AND organization_id = v_org_id;
         v_total_cost := v_total_cost + (v_item_cost * v_item.quantity);
-        UPDATE public.products SET stock = stock + v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_return.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_return.warehouse_id::text)::numeric, 0) + v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
+        UPDATE public.products SET stock = stock + v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[COALESCE(v_return.warehouse_id::text, (SELECT id::text FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1))], to_jsonb(COALESCE((warehouse_stock->>v_return.warehouse_id::text)::numeric, 0) + v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
     END LOOP;
 
     -- 4. إنشاء قيد اليومية
@@ -445,10 +390,10 @@ BEGIN
     VALUES (v_return.return_date, 'مرتجع مبيعات رقم ' || v_return.return_number, v_return.return_number, 'posted', v_org_id, p_return_id, 'sales_return', true) RETURNING id INTO v_journal_id;
 
     -- 5. إنشاء أسطر القيد
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_sales_ret, (v_return.total_amount - COALESCE(v_return.tax_amount, 0)), 0, 'مردودات مبيعات', v_org_id);
-    IF COALESCE(v_return.tax_amount, 0) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_vat, v_return.tax_amount, 0, 'عكس ضريبة مخرجات', v_org_id); END IF;
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_cust, 0, v_return.total_amount, 'تخفيض مديونية عميل', v_org_id);
-    IF v_total_cost > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_inv, v_total_cost, 0, 'إعادة للمخزون', v_org_id), (v_journal_id, v_acc_cogs, 0, v_total_cost, 'عكس تكلفة مبيعات', v_org_id); END IF;
+    IF v_acc_sales_ret IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_sales_ret, (v_return.total_amount - COALESCE(v_return.tax_amount, 0)), 0, 'مردودات مبيعات', v_org_id); END IF;
+    IF COALESCE(v_return.tax_amount, 0) > 0 AND v_acc_vat IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_vat, v_return.tax_amount, 0, 'عكس ضريبة مخرجات', v_org_id); END IF;
+    IF v_acc_cust IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_cust, 0, v_return.total_amount, 'تخفيض مديونية عميل', v_org_id); END IF;
+    IF v_total_cost > 0 AND v_acc_inv IS NOT NULL AND v_acc_cogs IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_inv, v_total_cost, 0, 'إعادة للمخزون', v_org_id), (v_journal_id, v_acc_cogs, 0, v_total_cost, 'عكس تكلفة مبيعات', v_org_id); END IF;
 
     UPDATE public.sales_returns SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_return_id;
 
@@ -478,7 +423,7 @@ BEGIN
     v_acc_supp := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
 
     FOR v_item IN SELECT * FROM public.purchase_return_items WHERE purchase_return_id = p_return_id LOOP
-        UPDATE public.products SET stock = stock - v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[v_return.warehouse_id::text], to_jsonb(COALESCE((warehouse_stock->>v_return.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
+        UPDATE public.products SET stock = stock - v_item.quantity, warehouse_stock = jsonb_set(COALESCE(warehouse_stock, '{}'::jsonb), ARRAY[COALESCE(v_return.warehouse_id::text, (SELECT id::text FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1))], to_jsonb(COALESCE((warehouse_stock->>v_return.warehouse_id::text)::numeric, 0) - v_item.quantity)) WHERE id = v_item.product_id AND organization_id = v_org_id;
 
         -- 🚀 إعادة احتساب التكلفة المرجحة فوراً لتشمل الكميات العائدة
         UPDATE public.products SET weighted_average_cost = public.calculate_product_wac(id, organization_id), cost = public.calculate_product_wac(id, organization_id)
@@ -488,13 +433,13 @@ BEGIN
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_return.return_date, 'مرتجع مشتريات رقم ' || v_return.return_number, v_return.return_number, 'posted', v_org_id, p_return_id, 'purchase_return', true) RETURNING id INTO v_journal_id;
 
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, v_acc_supp, v_return.total_amount, 0, 'تخفيض استحقاق مورد', v_org_id);
+    IF v_acc_supp IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_journal_id, v_acc_supp, v_return.total_amount, 0, 'تخفيض استحقاق مورد', v_org_id); END IF;
     
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, v_acc_inv, 0, (v_return.total_amount - COALESCE(v_return.tax_amount, 0)), 'تخفيض مخزون بالمرتجع', v_org_id);
+    IF v_acc_inv IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_journal_id, v_acc_inv, 0, (v_return.total_amount - COALESCE(v_return.tax_amount, 0)), 'تخفيض مخزون بالمرتجع', v_org_id); END IF;
     
-    IF COALESCE(v_return.tax_amount, 0) > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_vat, 0, v_return.tax_amount, 'عكس ضريبة مدخلات', v_org_id); END IF;
+    IF COALESCE(v_return.tax_amount, 0) > 0 AND v_acc_vat IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_vat, 0, v_return.tax_amount, 'عكس ضريبة مدخلات', v_org_id); END IF;
 
     UPDATE public.purchase_returns SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_return_id;
 
@@ -516,8 +461,8 @@ BEGIN
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_note.note_date, 'إشعار مدين للمورد رقم ' || v_note.debit_note_number, v_note.debit_note_number, 'posted', v_org_id, p_note_id, 'debit_note', true) RETURNING id INTO v_journal_id;
 
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_supp, v_note.total_amount, 0, 'تخفيض حساب المورد', v_org_id);
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_cogs, 0, v_note.total_amount, 'تسوية تكلفة (خصم مكتسب)', v_org_id);
+    IF v_acc_supp IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_supp, v_note.total_amount, 0, 'تخفيض حساب المورد', v_org_id); END IF;
+    IF v_acc_cogs IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_cogs, 0, v_note.total_amount, 'تسوية تكلفة (خصم مكتسب)', v_org_id); END IF;
 
     UPDATE public.debit_notes SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_note_id;
 END; $$;
@@ -536,8 +481,8 @@ BEGIN
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_note.note_date, 'إشعار دائن للعميل رقم ' || v_note.credit_note_number, v_note.credit_note_number, 'posted', v_org_id, p_note_id, 'credit_note', true) RETURNING id INTO v_journal_id;
 
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id) 
-    VALUES (v_journal_id, v_acc_allowance, v_note.total_amount, 0, v_org_id), (v_journal_id, v_acc_cust, 0, v_note.total_amount, v_org_id);
+    IF v_acc_allowance IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_allowance, v_note.total_amount, 0, 'خصم مسموح به', v_org_id); END IF;
+    IF v_acc_cust IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_acc_cust, 0, v_note.total_amount, 'تخفيض مديونية عميل', v_org_id); END IF;
 
     UPDATE public.credit_notes SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_note_id;
 END; $$;
@@ -560,8 +505,8 @@ BEGIN
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.receipt_date, 'سند قبض رقم ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'receipt_voucher', true) RETURNING id INTO v_journal_id;
     
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id), (v_journal_id, p_credit_account_id, 0, v_voucher.amount, v_voucher.notes, v_org_id);
+    IF v_voucher.treasury_account_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id); END IF;
+    IF p_credit_account_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_credit_account_id, 0, v_voucher.amount, v_voucher.notes, v_org_id); END IF;
     
     UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
 
@@ -592,8 +537,8 @@ BEGIN
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_voucher.payment_date, 'سند صرف رقم ' || v_voucher.voucher_number, v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'payment_voucher', true) RETURNING id INTO v_journal_id;
     
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id), (v_journal_id, v_voucher.treasury_account_id, 0, v_voucher.amount, v_voucher.notes, v_org_id);
+    IF p_debit_account_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id); END IF;
+    IF v_voucher.treasury_account_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_voucher.treasury_account_id, 0, v_voucher.amount, v_voucher.notes, v_org_id); END IF;
 
     UPDATE public.payment_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
 
@@ -610,9 +555,10 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_customer_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL
     , p_delivery_info jsonb DEFAULT NULL -- إضافة معلومات التوصيل
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_unit_price numeric; v_qty numeric; v_final_wh_id uuid;
+DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_unit_price numeric; v_qty numeric; v_final_wh_id uuid; v_product_cost numeric;
 DECLARE v_org_id uuid;
 BEGIN
+    -- 🛡️ جلب معرف المنظمة من الجلسة الحالية
     v_org_id := public.get_my_org();
     
     -- 🏗️ تحديد المستودع: الأولوية للممرر، ثم الافتراضي في الإعدادات، ثم أول مستودع متاح
@@ -636,18 +582,20 @@ BEGIN
         v_unit_price := COALESCE(
             (v_item->>'unit_price')::numeric, 
             (v_item->>'unitPrice')::numeric, 
-            (v_item->>'price')::numeric, 
-            0
-        );
+            (v_item->>'price')::numeric
+        , 0); -- Default to 0 if price is not found
+        
+        -- 🚀 جلب التكلفة الشاملة للمنتج من بطاقة الصنف (بما في ذلك تكاليف التصنيع)
+        SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_product_cost FROM public.products WHERE id = COALESCE((v_item->>'product_id')::uuid, (v_item->>'productId')::uuid);
 
         INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id, modifiers)
         VALUES (
             v_order_id, 
             COALESCE((v_item->>'product_id')::uuid, (v_item->>'productId')::uuid), 
             v_qty, 
-            v_unit_price, 
+            v_unit_price,
             (v_qty * v_unit_price), 
-            COALESCE((v_item->>'unit_cost')::numeric, (v_item->>'unitCost')::numeric, 0), 
+            v_product_cost, -- استخدام التكلفة الشاملة من بطاقة الصنف
             v_item->>'notes', 
             v_org_id,
             COALESCE(v_item->'modifiers', '[]'::jsonb)
@@ -672,6 +620,7 @@ DECLARE
     v_table record;
     v_session_id uuid;
     v_order_id uuid;
+    v_product_cost numeric;
     v_item jsonb;
     v_order_num text;
     v_tax_rate numeric; v_qty numeric; v_unit_price numeric;
@@ -724,17 +673,21 @@ BEGIN
             (v_item->>'unit_price')::numeric, 
             (v_item->>'unitPrice')::numeric, 
             (v_item->>'price')::numeric, 
-            0
+            0 -- قيمة افتراضية إذا لم يتم تحديد سعر الوحدة (Ensure it's not NULL)
         );
+
+        -- 🚀 جلب التكلفة الشاملة للمنتج من بطاقة الصنف (بما في ذلك تكاليف التصنيع)
+        SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_product_cost FROM public.products WHERE id = (v_item->>'product_id')::uuid;
 
         INSERT INTO public.order_items (
             order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id, modifiers
         ) VALUES (
             v_order_id, (v_item->>'product_id')::uuid, 
-            v_qty, 
+            v_qty,
             v_unit_price, 
             (v_qty * v_unit_price),
-            COALESCE((v_item->>'unit_cost')::numeric, 0), v_item->>'notes', v_table.organization_id,
+            v_product_cost, -- استخدام التكلفة الشاملة من بطاقة الصنف
+            v_item->>'notes', v_table.organization_id,
             COALESCE(v_item->'modifiers', '[]'::jsonb)
         ) RETURNING id INTO v_order_item_id;
 
@@ -820,28 +773,13 @@ BEGIN
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
         COALESCE((SELECT SUM(delivery_fee) FROM public.delivery_orders WHERE order_id IN (SELECT id FROM shift_orders)), 0) as total_delivery_fees,
-        -- محرك التكلفة المطور: يجمع التكلفة الشاملة (مواد + عمالة + إضافات) من الوصفات أو التكلفة المباشرة
+        -- 🚀 محرك التكلفة المطور: يجمع التكلفة الشاملة (مواد + عمالة + إضافات) من بطاقة الصنف مباشرة
         COALESCE((
-            SELECT SUM(item_cost) FROM (
-                -- أ. حساب تكلفة الأصناف التي لها وصفات (مثل الوجبات) - نستخدم دالة التكلفة الشاملة
-                SELECT
-                    oi.quantity * public.get_product_recipe_cost(oi.product_id) as item_cost
-                FROM public.order_items oi
-                WHERE oi.order_id IN (SELECT id FROM shift_orders)
-                AND oi.organization_id = v_shift.organization_id
-                AND EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = oi.product_id)
-
-                UNION ALL
-
-                -- ب. حساب تكلفة الأصناف المخزنية المباشرة (مثل المشروبات) التي ليس لها وصفة
-                SELECT
-                    oi.quantity * COALESCE(prod.weighted_average_cost, prod.cost, prod.purchase_price, 0) as item_cost
-                FROM public.order_items oi
-                JOIN public.products prod ON oi.product_id = prod.id
-                WHERE oi.order_id IN (SELECT id FROM shift_orders)
-                AND oi.organization_id = v_shift.organization_id
-                AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = prod.id)
-            ) as cogs_sub
+            SELECT SUM(oi.quantity * COALESCE(prod.cost, prod.weighted_average_cost, prod.purchase_price, 0))
+            FROM public.order_items oi
+            JOIN public.products prod ON oi.product_id = prod.id
+            WHERE oi.order_id IN (SELECT id FROM shift_orders)
+            AND oi.organization_id = v_shift.organization_id
         ), 0) as cost_total,
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
@@ -870,7 +808,7 @@ BEGIN
     v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_shift.organization_id LIMIT 1));
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org()), true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
+    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org()), true, p_shift_id, 'shift') RETURNING id INTO v_je_id; -- Ensure organization_id is not NULL
     
     -- Credits
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
@@ -880,9 +818,9 @@ BEGIN
     IF v_credit_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_customer_acc_id, v_credit_sales, 0, 'مبيعات مطعم آجلة', v_shift.organization_id); END IF;
 
     IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
-    
+
     -- Debits
-    IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
+    IF v_actual_cash_collected > 0 AND v_cash_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
     IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
     
     IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية الوردية', v_shift.organization_id);
@@ -988,7 +926,7 @@ BEGIN
     v_payroll_tax_id := COALESCE((v_mappings->>'PAYROLL_TAX')::uuid, (SELECT id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1));
 
     IF v_salaries_acc_id IS NULL OR v_advances_acc_id IS NULL OR p_treasury_acc IS NULL THEN 
-        RAISE EXCEPTION 'فشل جلب إعدادات الحسابات المالية للرواتب، يرجى مراجعة Account Mappings في إعدادات الشركة.'; 
+        RAISE EXCEPTION 'فشل جلب إعدادات الحسابات المالية للرواتب، يرجى مراجعة Account Mappings في إعدادات الشركة.'; -- Ensure p_treasury_acc is not NULL
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE id = p_treasury_acc AND organization_id = v_org_id) THEN
@@ -1068,7 +1006,7 @@ BEGIN
     RAISE NOTICE 'Payroll JE created: ID=% for OrgID=%', v_je_id, v_org_id;
 
     IF v_total_gross > 0 AND v_salaries_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); END IF;
-    IF v_total_additions > 0 AND v_bonuses_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF;
+    IF v_total_additions > 0 AND v_bonuses_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF; -- Ensure v_bonuses_acc_id is not NULL
     IF v_total_advances > 0 AND v_advances_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_advances_acc_id, 0, v_total_advances, 'استرداد سلف', v_org_id); END IF;
     IF v_total_deductions > 0 AND v_deductions_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
     IF v_total_payroll_tax > 0 AND v_payroll_tax_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_payroll_tax_id, 0, v_total_payroll_tax, 'ضريبة كسب العمل', v_org_id); END IF;
@@ -1118,7 +1056,7 @@ BEGIN
     -- 3. ضمان تعيين دور admin إذا كان المستخدم هو أول من ينضم لمنظمة موجودة
     IF v_org_id IS NOT NULL AND v_role IS NULL THEN
         IF NOT EXISTS (SELECT 1 FROM public.profiles WHERE organization_id = v_org_id) THEN
-            v_role := 'admin';
+            v_role := 'admin'; -- Ensure role is set
         END IF;
     END IF;
 
@@ -1197,7 +1135,7 @@ BEGIN
     ('1243', 'مصروفات مدفوعة مقدماً', 'asset', true, '124'), ('124301', 'إيجار مقدم', 'asset', false, '1243'), ('124302', 'تأمين طبي مقدم', 'asset', false, '1243'), ('124303', 'اشتراكات برامج وسيرفرات مقدمة', 'asset', false, '1243'), ('124304', 'حملات إعلانية مقدمة', 'asset', false, '1243'), ('124305', 'عقود صيانة مقدمة', 'asset', false, '1243'),
     ('1244', 'إيرادات مستحقة', 'asset', true, '124'), ('124401', 'إيرادات خدمات مستحقة (غير مفوترة)', 'asset', false, '1244'), ('124402', 'فوائد بنكية مستحقة القبض', 'asset', false, '1244'), ('124403', 'إيجارات دائنة مستحقة', 'asset', false, '1244'), ('124404', 'إيرادات أوراق مالية مستحقة', 'asset', false, '1244'),
     ('211', 'قروض طويلة الأجل', 'liability', false, '21'), ('201', 'الموردين', 'liability', false, '22'), ('222', 'أوراق الدفع (شيكات صادرة)', 'liability', false, '22'),
-    ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '22'), ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'), ('2232', 'ضريبة الخصم والتحصيل (علينا)', 'liability', false, '223'), ('2233', 'ضريبة كسب العمل', 'liability', false, '223'), ('224', 'هيئة التأمينات الاجتماعية', 'liability', false, '22'),
+    ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '22'), ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'), ('2232', 'ضريبة الخصم والتحصيل (علينا)', 'liability', false, '223'), ('2233', 'ضريبة كسب العمل', 'liability', false, '223'), ('224', 'هيئة التأمينات الاجتماعية', 'liability', false, '22'), -- Ensure 224 is not NULL
     ('225', 'مصروفات مستحقة', 'liability', true, '22'), ('2251', 'رواتب وأجور مستحقة', 'liability', false, '225'), ('2252', 'إيجارات مستحقة', 'liability', false, '225'), ('2253', 'كهرباء ومياه وغاز مستحقة', 'liability', false, '225'), ('2254', 'أتعاب مهنية ومراجعة مستحقة', 'liability', false, '225'), ('2255', 'عمولات بيع مستحقة', 'liability', false, '225'), ('2256', 'فوائد بنكية مستحقة', 'liability', false, '225'), ('2257', 'اشتراكات وتراخيص مستحقة', 'liability', false, '225'), ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', false, '22'),
     ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
     ('411', 'إيراد المبيعات', 'revenue', false, '41'), ('412', 'مردودات المبيعات', 'revenue', false, '41'), ('413', 'خصم مسموح به', 'revenue', false, '41'),
@@ -1421,7 +1359,7 @@ BEGIN
     v_target_org := COALESCE(p_org_id, public.get_my_org());
     FOR prod_record IN SELECT id FROM products WHERE deleted_at IS NULL AND organization_id = v_target_org LOOP
         -- 1. حساب الرصيد الإجمالي للشركة (Global Total) - يتجاهل فلتر المستودع لضمان الدقة المطلقة
-        SELECT 
+    SELECT -- Ensure all subqueries have organization_id filter
             COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = prod_record.id AND organization_id = v_target_org), 0) +
             COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.status IN ('posted', 'paid') AND pi.organization_id = v_target_org), 0) +
             COALESCE((SELECT SUM(sri.quantity) FROM public.sales_return_items sri JOIN public.sales_returns sr ON sr.id = sri.sales_return_id WHERE sri.product_id = prod_record.id AND sr.status = 'posted' AND sr.organization_id = v_target_org), 0) +
@@ -1430,15 +1368,20 @@ BEGIN
             COALESCE((SELECT SUM(pri.quantity) FROM public.purchase_return_items pri JOIN public.purchase_returns pr ON pr.id = pri.purchase_return_id WHERE pri.product_id = prod_record.id AND pr.status = 'posted' AND pr.organization_id = v_target_org), 0) -
             COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = prod_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
             COALESCE((SELECT SUM(oi.quantity * bom.quantity_required) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
-            COALESCE((SELECT SUM(actual_quantity) FROM public.mfg_actual_material_usage amu JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id WHERE amu.raw_material_id = prod_record.id AND op.status = 'completed' AND amu.organization_id = v_target_org), 0) +
-            COALESCE((SELECT SUM(CASE WHEN type = 'in' THEN quantity WHEN type = 'out' THEN -quantity ELSE quantity END) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = prod_record.id AND sa.status = 'posted' AND sa.organization_id = v_target_org), 0)
+            -- التصنيع: خصم المواد المصروفة فعلياً (MR) والاستهلاك الفعلي المسجل في المراحل
+            COALESCE((SELECT SUM(mri.quantity_issued) FROM public.mfg_material_request_items mri JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id WHERE mri.raw_material_id = prod_record.id AND mr.status = 'issued' AND mr.organization_id = v_target_org), 0) -
+            COALESCE((SELECT SUM(amu.actual_quantity) FROM public.mfg_actual_material_usage amu JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id WHERE amu.raw_material_id = prod_record.id AND op.status = 'completed' AND amu.organization_id = v_target_org AND NOT EXISTS (SELECT 1 FROM public.mfg_material_requests mr WHERE mr.production_order_id = op.production_order_id AND mr.status = 'issued')), 0) +
+            -- إضافة الهالك من التصنيع (يقلل الرصيد)
+            COALESCE((SELECT SUM(quantity) FROM public.mfg_scrap_logs WHERE product_id = prod_record.id AND organization_id = v_target_org), 0) * -1 +
+            -- التسويات المخزنية (تشمل نتائج الجرد): الكميات مخزنة بإشارتها (موجب للزيادة وسالب للعجز)
+            COALESCE((SELECT SUM(quantity) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = prod_record.id AND sa.status = 'posted' AND sa.organization_id = v_target_org), 0)
         INTO total_qty;
 
         -- 2. حساب توزيع المخزون على المستودعات (Breakdown) لغرض العرض فقط
         wh_json := '{}'::jsonb;        FOR wh_record IN SELECT id FROM warehouses WHERE deleted_at IS NULL AND organization_id = v_target_org LOOP
             wh_qty := 0;
             -- تجميع كافة حركات الوارد والصادر في استعلام واحد متكامل لضمان الدقة والأداء
-            SELECT 
+            SELECT -- Ensure all subqueries have organization_id filter
                 COALESCE((SELECT SUM(quantity) FROM public.opening_inventories WHERE product_id = prod_record.id AND warehouse_id = wh_record.id AND organization_id = v_target_org), 0) +
                 -- الوارد: مشتريات + مرتجع مبيعات + إنتاج تام
                 COALESCE((SELECT SUM(pii.quantity) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pi.id = pii.purchase_invoice_id WHERE pii.product_id = prod_record.id AND pi.warehouse_id = wh_record.id AND pi.status IN ('posted', 'paid') AND pi.organization_id = v_target_org), 0) +
@@ -1450,19 +1393,15 @@ BEGIN
                 COALESCE((SELECT SUM(oi.quantity) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id WHERE oi.product_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
                 COALESCE((SELECT SUM(oi.quantity * bom.quantity_required) FROM public.order_items oi JOIN public.orders o ON o.id = oi.order_id JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id WHERE bom.raw_material_id = prod_record.id AND o.warehouse_id = wh_record.id AND o.status IN ('COMPLETED', 'PAID', 'posted') AND o.organization_id = v_target_org), 0) -
                 -- ذكي: خصم المواد الخام سواء نجح الأمر أو رفضته الجودة (لأنها استهلكت بالفعل)
-                -- ذكي: خصم المواد الخام في كافة حالات انتهاء الأمر (نجاح، رفض، أو فشل جودة)
-                -- ملاحظة: لا نخصم في حالة 'rework' لأن الأمر سيعود لـ 'in_progress'
-                COALESCE((SELECT SUM(wo.quantity_to_produce * bom.quantity_required) 
-                          FROM public.mfg_production_orders wo 
-                          JOIN public.bill_of_materials bom ON wo.product_id = bom.product_id 
-                          WHERE bom.raw_material_id = prod_record.id AND wo.warehouse_id = wh_record.id 
-                          AND wo.status IN ('completed', 'rejected', 'qc_failed') 
-                          AND wo.organization_id = v_target_org), 0) +                -- التحويلات: وارد للمستودع الحالي (+)
+                 -- مديول التصنيع (المواد الخام): استخدام الاستهلاك الفعلي المطابق لمنطق الإجمالي العام
+                COALESCE((SELECT SUM(mri.quantity_issued) FROM public.mfg_material_request_items mri JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id JOIN public.mfg_production_orders po ON mr.production_order_id = po.id WHERE mri.raw_material_id = prod_record.id AND po.warehouse_id = wh_record.id AND mr.status = 'issued' AND mr.organization_id = v_target_org), 0) -
+                COALESCE((SELECT SUM(amu.actual_quantity) FROM public.mfg_actual_material_usage amu JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id JOIN public.mfg_production_orders po ON op.production_order_id = po.id WHERE amu.raw_material_id = prod_record.id AND po.warehouse_id = wh_record.id AND op.status = 'completed' AND amu.organization_id = v_target_org AND NOT EXISTS (SELECT 1 FROM public.mfg_material_requests mr WHERE mr.production_order_id = op.production_order_id AND mr.status = 'issued')), 0) +
+                -- التحويلات: وارد للمستودع الحالي (+)            
                 COALESCE((SELECT SUM(quantity) FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod_record.id AND st.to_warehouse_id = wh_record.id AND st.status = 'posted' AND st.organization_id = v_target_org), 0) -
                 -- التحويلات: صادر من المستودع الحالي (-)
                 COALESCE((SELECT SUM(quantity) FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod_record.id AND st.from_warehouse_id = wh_record.id AND st.status = 'posted' AND st.organization_id = v_target_org), 0) +
                 -- التسويات: موجب أو سالب حسب نوع الحركة
-                COALESCE((SELECT SUM(CASE WHEN type = 'in' THEN quantity WHEN type = 'out' THEN -quantity ELSE quantity END) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = prod_record.id AND sa.warehouse_id = wh_record.id AND sa.status = 'posted' AND sa.organization_id = v_target_org), 0)
+                COALESCE((SELECT SUM(quantity) FROM public.stock_adjustment_items sai JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id WHERE sai.product_id = prod_record.id AND sa.warehouse_id = wh_record.id AND sa.status = 'posted' AND sa.organization_id = v_target_org), 0)
             INTO wh_qty;
             IF wh_qty <> 0 THEN wh_json := wh_json || jsonb_build_object(wh_record.id::text, wh_qty); END IF;
         END LOOP;
@@ -1599,7 +1538,7 @@ BEGIN
     v_adj_no := 'WST-' || to_char(p_date, 'YYYYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
 
     -- 3. إنشاء رأس التسوية المخزنية
-    INSERT INTO public.stock_adjustments (
+    INSERT INTO public.stock_adjustments ( -- Ensure organization_id is not NULL
         organization_id, warehouse_id, adjustment_date, adjustment_number,
         reason, status, created_by
     ) VALUES (
@@ -1613,7 +1552,7 @@ BEGIN
         SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) INTO v_item_cost 
         FROM public.products WHERE id = v_item."productId" AND organization_id = v_org_id;
         
-        v_total_cost := v_total_cost + (v_item_cost * ABS(v_item."quantity"));
+        v_total_cost := v_total_cost + (v_item_cost * ABS(v_item."quantity")); -- Ensure v_item_cost is not NULL
 
         INSERT INTO public.stock_adjustment_items (
             organization_id, stock_adjustment_id, product_id, quantity
@@ -1636,7 +1575,7 @@ BEGIN
         IF v_inventory_acc_id IS NOT NULL AND v_wastage_acc_id IS NOT NULL THEN
             INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
             VALUES (p_date, 'إثبات قيمة هالك مخزني - ' || COALESCE(p_notes, v_adj_no), v_adj_no, 'posted', v_org_id, true, v_adj_id, 'stock_adjustment')
-            RETURNING id INTO v_je_id;
+            RETURNING id INTO v_je_id; -- Ensure organization_id is not NULL
 
             INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
             VALUES 
@@ -1652,82 +1591,503 @@ BEGIN
 END;
 $$;
 
--- 🛠️ دالة إغلاق وترحيل أمر التصنيع بذكاء (Handle QC Pass/Fail)
--- هذه الدالة تحل مشكلة توقف ترحيل الأوامر المرفوضة من الجودة
-CREATE OR REPLACE FUNCTION public.mfg_finalize_order(p_order_id uuid, p_final_status text, p_qc_notes text DEFAULT NULL)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+-- 🛠️ دالة الإغلاق النهائي لطلب الإنتاج (MFG Finalization) - المزامنة الموحدة
+-- تم التحديث لتدعم الحالة النهائية (مكتمل، إعادة تشغيل، مرفوض) والتحكم المحاسبي الدقيق
+CREATE OR REPLACE FUNCTION public.mfg_finalize_order(
+    p_order_id uuid,
+    p_final_status text DEFAULT 'completed',
+    p_qc_notes text DEFAULT NULL
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
 DECLARE
-    v_order record; v_org_id uuid; v_je_id uuid; v_mappings jsonb;
-    v_total_cost numeric := 0; v_mat_cost numeric := 0;
-    v_inv_finished_acc uuid; v_inv_raw_acc uuid; v_wastage_acc uuid;
+    v_order record; v_total_cost numeric := 0; v_je_id uuid; v_wip_acc uuid;
+    v_fg_acc uuid; v_loss_acc uuid; v_org_id uuid; v_mappings jsonb;
 BEGIN
-    -- 1. جلب بيانات الأمر
+    -- 1. جلب بيانات الطلب والتحقق من حالته
     SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'أمر التصنيع غير موجود'; END IF;
-    
-    -- ضمان عدم إعادة إغلاق أمر مغلق
-    IF v_order.status IN ('completed', 'rejected', 'qc_failed') AND p_final_status != 'rework' THEN 
-        RAISE EXCEPTION 'أمر التصنيع مغلق مسبقاً بحالة (%)', v_order.status; 
-    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
+    IF v_order.status = 'completed' THEN RETURN; END IF;
 
+    -- [صمام أمان] منع إغلاق أوامر لم يبدأ العمل فيها فعلياً (لمنع التكلفة الصفرية)
+    IF NOT EXISTS (SELECT 1 FROM public.mfg_order_progress WHERE production_order_id = p_order_id AND status = 'completed') 
+       AND NOT EXISTS (SELECT 1 FROM public.mfg_material_requests WHERE production_order_id = p_order_id AND status = 'issued') THEN
+        RAISE EXCEPTION 'لا يمكن إغلاق أمر إنتاج لم يتم البدء فيه أو صرف مواد له. يرجى إكمال مراحل العمل أو صرف المواد أولاً.';
+    END IF;
+    
     v_org_id := v_order.organization_id;
 
-    -- 🛡️ خيار إعادة التشغيل (Rework): إعادة المنتج لخط الإنتاج بدلاً من إغلاقه
+    -- معالجة حالة "إعادة التشغيل"
     IF p_final_status = 'rework' THEN
-        UPDATE public.mfg_production_orders 
-        SET status = 'in_progress', 
-            notes = COALESCE(notes, '') || E'\n[إعادة تشغيل - ' || now()::date || E'] ' || COALESCE(p_qc_notes, 'يحتاج إصلاح')
-        WHERE id = p_order_id;
-        RETURN; -- نخرج هنا دون عمل قيود محاسبية لأن المنتج لم يكتمل بَعْد
+        UPDATE public.mfg_production_orders SET status = 'in_progress', notes = COALESCE(notes, '') || E'\nإعادة تشغيل: ' || p_qc_notes WHERE id = p_order_id;
+        RETURN;
     END IF;
 
-    -- 2. حساب التكاليف المتراكمة (مواد من BOM + أجور ومصاريف من سجل التكاليف)
-    -- أ. تكلفة المواد الخام
-    SELECT COALESCE(SUM(bom.quantity_required * COALESCE(p_raw.weighted_average_cost, p_raw.cost, p_raw.purchase_price, 0)), 0) * v_order.quantity_to_produce
-    INTO v_mat_cost
-    FROM public.bill_of_materials bom
-    JOIN public.products p_raw ON bom.raw_material_id = p_raw.id
-    WHERE bom.product_id = v_order.product_id AND bom.organization_id = v_org_id;
+    -- 2. حساب إجمالي التكاليف الفعلية
+    SELECT SUM(COALESCE(labor_cost_actual, 0)) INTO v_total_cost
+    FROM public.mfg_order_progress WHERE production_order_id = p_order_id;
 
-    -- ب. التكاليف الإضافية (إن وجدت)
-    -- هنا نفترض أن التكاليف مسجلة في سجل التقدم أو التكاليف المباشرة
-    -- v_total_cost := ...
+    v_total_cost := v_total_cost + COALESCE((
+        SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
+        FROM public.mfg_actual_material_usage amu
+        JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+        JOIN public.products p ON amu.raw_material_id = p.id
+        WHERE op.production_order_id = p_order_id
+    ), 0);
 
-    v_total_cost := v_total_cost + v_mat_cost;
+    v_total_cost := v_total_cost + COALESCE((
+        SELECT SUM(mri.quantity_issued * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
+        FROM public.mfg_material_request_items mri
+        JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
+        JOIN public.products p ON mri.raw_material_id = p.id
+        WHERE mr.production_order_id = p_order_id AND mr.status = 'issued'
+    ), 0);
 
-    -- 3. جلب الحسابات من إعدادات الشركة
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    v_inv_finished_acc := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
-    v_inv_raw_acc := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
-    v_wastage_acc := COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1));
-
-    -- 4. إنشاء قيد اليومية (ترحيل التكلفة)
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'إغلاق أمر تصنيع رقم ' || v_order.order_number || ' - ' || (CASE WHEN p_final_status = 'completed' THEN 'نجاح' ELSE 'رفض جودة' END), v_order.order_number, 'posted', v_org_id, true, p_order_id, 'work_order')
-    RETURNING id INTO v_je_id;
-
-    -- منطق "التوجيه المحاسبي الذكي":
+    -- 3. تحديث حالة الطلب وزيادة مخزون المنتج التام
     IF p_final_status = 'completed' THEN
-        -- حالة النجاح: ترحيل للمنتج التام
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_inv_finished_acc, v_total_cost, 0, 'إثبات إنتاج منتج تام', v_org_id),
-               (v_je_id, v_inv_raw_acc, 0, v_total_cost, 'صرف مواد ومصاريف للتشغيل', v_org_id);
+        UPDATE public.mfg_production_orders SET status = 'completed', end_date = now()::date, notes = COALESCE(notes, '') || E'\nملاحظات الجودة: ' || p_qc_notes WHERE id = p_order_id;
+        UPDATE public.products SET stock = stock + v_order.quantity_to_produce WHERE id = v_order.product_id AND organization_id = v_org_id;
     ELSE
-        -- حالة الرفض: ترحيل التكلفة بالكامل لخسائر الهالك
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_wastage_acc, v_total_cost, 0, 'خسارة هالك: رفض جودة - ' || COALESCE(p_qc_notes, 'تلف المرحلة'), v_org_id),
-               (v_je_id, v_inv_raw_acc, 0, v_total_cost, 'استهلاك مواد غير صالحة', v_org_id);
+        UPDATE public.mfg_production_orders SET status = 'cancelled', notes = 'مرفوض جودة: ' || p_qc_notes WHERE id = p_order_id;
     END IF;
 
-    -- 5. تحديث حالة الأمر النهائية
-    UPDATE public.mfg_production_orders 
-    SET status = p_final_status, notes = COALESCE(notes, '') || E'\n[QC Status: ' || p_final_status || E'] ' || COALESCE(p_qc_notes, '') 
-    WHERE id = p_order_id;
+    -- 4. المحرك المحاسبي
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_wip_acc := COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1), (SELECT id FROM public.accounts WHERE code = '103' AND organization_id = v_org_id LIMIT 1));
+    v_fg_acc := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
+    v_loss_acc := COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1));
 
-    -- 6. إعادة احتساب المخزون (ليظهر الخصم فوراً)
+    IF v_total_cost > 0 AND v_wip_acc IS NOT NULL THEN
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type) -- Ensure organization_id is not NULL
+        VALUES (now()::date, (CASE WHEN p_final_status = 'completed' THEN 'إغلاق إنتاج: ' ELSE 'خسارة رفض إنتاج: ' END) || v_order.order_number, 'MFG-FIN-' || v_order.order_number, 'posted', v_org_id, true, p_order_id, 'mfg_order') RETURNING id INTO v_je_id;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, CASE WHEN p_final_status = 'completed' THEN v_fg_acc ELSE v_loss_acc END, v_total_cost, 0, 'تحويل تكلفة الإنتاج من WIP', v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_wip_acc, 0, v_total_cost, 'إخلاء حساب الإنتاج تحت التشغيل', v_org_id);
+    END IF;
+
+    -- 5. العمليات التكميلية
+    BEGIN
+        PERFORM public.mfg_update_selling_price_from_cost(p_order_id);
+        PERFORM public.mfg_calculate_production_variance(p_order_id);
+        PERFORM public.mfg_generate_batch_serials(p_order_id);
+    EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'تنبيه: فشل تشغيل بعض العمليات المساعدة: %', SQLERRM;
+    END;
     PERFORM public.recalculate_stock_rpc(v_org_id);
-END;
-$$;
+END; $$;
+
+-- 🚀 منح الصلاحيات النهائية وتحديث الكاش لضمان رؤية كافة الدوال المدمجة
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
+NOTIFY pgrst, 'reload schema';
+
+-- 20. دالة فحص جاهزية المنتج للإنتاج (Production Readiness Check)
+DROP FUNCTION IF EXISTS public.mfg_check_production_readiness(uuid);
+CREATE OR REPLACE FUNCTION public.mfg_check_production_readiness(p_product_id uuid)
+RETURNS TABLE (
+    is_ready boolean,
+    missing_elements text[]
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_errors text[] := '{}';
+BEGIN
+    -- 1. فحص وجود BOM
+    IF NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = p_product_id) THEN
+        v_errors := array_append(v_errors, 'قائمة المواد (BOM) غير معرفة');
+    END IF;
+
+    -- 2. فحص وجود مسار إنتاج (Routing)
+    IF NOT EXISTS (SELECT 1 FROM public.mfg_routings WHERE product_id = p_product_id AND deleted_at IS NULL) THEN
+        v_errors := array_append(v_errors, 'مسار الإنتاج (Routing) غير معرف');
+    END IF;
+
+    -- 3. فحص وجود خطوات في المسار
+    IF EXISTS (SELECT 1 FROM public.mfg_routings WHERE product_id = p_product_id) AND 
+       NOT EXISTS (SELECT 1 FROM public.mfg_routing_steps rs 
+                   JOIN public.mfg_routings r ON rs.routing_id = r.id 
+                   WHERE r.product_id = p_product_id) THEN
+        v_errors := array_append(v_errors, 'مسار الإنتاج لا يحتوي على خطوات تنفيذية');
+    END IF;
+
+    RETURN QUERY SELECT 
+        (array_length(v_errors, 1) IS NULL) as is_ready,
+        v_errors;
+END; $$;
+
+-- دالة جلب الفواتير القابلة للتصنيع (Helper for BatchOrderManager)
+CREATE OR REPLACE FUNCTION public.mfg_get_pending_invoices(p_org_id uuid)
+RETURNS TABLE (
+    invoice_id uuid,
+    invoice_num text,
+    cust_name text,
+    order_date timestamptz,
+    total numeric,
+    invoice_status text
+) LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public 
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT i.id, i.invoice_number, c.name, i.created_at, COALESCE(i.total_amount, 0) as total
+    , i.status
+    FROM public.invoices i
+    JOIN public.customers c ON i.customer_id = c.id
+    WHERE i.organization_id = p_org_id
+    AND i.status != 'draft' -- جلب الفواتير المعتمدة فقط أو حسب سياق عملك
+    AND EXISTS (
+        SELECT 1 FROM public.invoice_items ii
+        JOIN public.mfg_routings r ON ii.product_id = r.product_id
+        WHERE ii.invoice_id = i.id
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM public.mfg_production_orders po 
+        -- استبعاد الفاتورة إذا كان رقمها موجوداً ضمن مرجع الدفعة أو حقل مخصص
+        WHERE po.batch_number LIKE '%' || i.invoice_number || '%'
+    )
+    ORDER BY i.created_at DESC;
+END; $$;
+
+-- 23. دالة حساب الانحراف المالي الفعلي بين التكلفة المعيارية والتكلفة الحقيقية بعد إغلاق أمر الإنتاج
+CREATE OR REPLACE FUNCTION public.mfg_calculate_production_variance(p_order_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_order record;
+    v_actual_cost numeric := 0;
+    v_standard_cost_per_unit numeric := 0;
+    v_standard_total_cost numeric := 0;
+    v_variance_amount numeric := 0;
+    v_variance_percentage numeric := 0;
+    v_org_id uuid;
+BEGIN
+    -- 1. جلب بيانات أمر الإنتاج
+    SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('error', 'أمر الإنتاج غير موجود');
+    END IF;
+    v_org_id := v_order.organization_id;
+
+    -- 2. جلب التكلفة الفعلية الإجمالية من رؤية ربحية أمر الإنتاج
+    SELECT total_actual_cost INTO v_actual_cost
+    FROM public.v_mfg_order_profitability
+    WHERE order_id = p_order_id AND organization_id = v_org_id;
+
+    -- 3. حساب التكلفة المعيارية الإجمالية (التكلفة المعيارية للوحدة * الكمية المنتجة)
+    v_standard_cost_per_unit := public.mfg_calculate_standard_cost(v_order.product_id);
+    v_standard_total_cost := v_standard_cost_per_unit * v_order.quantity_to_produce;
+
+    -- 4. حساب الانحراف (الفعلي - المعياري)
+    v_variance_amount := v_actual_cost - v_standard_total_cost;
+    IF v_standard_total_cost > 0 THEN
+        v_variance_percentage := ROUND((v_variance_amount / v_standard_total_cost) * 100, 2);
+    ELSE
+        v_variance_percentage := 0; -- تجنب القسمة على صفر إذا كانت التكلفة المعيارية صفر
+    END IF;
+
+    -- 5. تسجيل أو تحديث الانحراف في الجدول الجديد لضمان بقاء البيانات التاريخية
+    INSERT INTO public.mfg_production_variances (
+        production_order_id, actual_total_cost, standard_total_cost, 
+        variance_amount, variance_percentage, organization_id
+    ) VALUES (
+        p_order_id, v_actual_cost, v_standard_total_cost, 
+        v_variance_amount, v_variance_percentage, v_org_id
+    ) ON CONFLICT (production_order_id) DO UPDATE SET
+        actual_total_cost = EXCLUDED.actual_total_cost,
+        standard_total_cost = EXCLUDED.standard_total_cost,
+        variance_amount = EXCLUDED.variance_amount,
+        variance_percentage = EXCLUDED.variance_percentage;
+
+    RETURN jsonb_build_object(
+        'order_id', p_order_id, 'order_number', v_order.order_number, 'product_id', v_order.product_id,
+        'quantity_produced', v_order.quantity_to_produce, 'actual_total_cost', v_actual_cost,
+        'standard_total_cost', v_standard_total_cost, 'variance_amount', v_variance_amount,
+        'variance_percentage', v_variance_percentage
+    );
+END; $$;
+
+-- 24. دالة حجز المخزون لأمر الإنتاج (Stock Reservation)
+CREATE OR REPLACE FUNCTION public.mfg_reserve_stock_for_order(p_order_id uuid)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_shortage_exists boolean := false;
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.mfg_check_stock_availability(
+        (SELECT product_id FROM public.mfg_production_orders WHERE id = p_order_id),
+        (SELECT quantity_to_produce FROM public.mfg_production_orders WHERE id = p_order_id)
+    )) THEN
+        RETURN jsonb_build_object('success', false, 'message', 'يوجد نقص في الخامات، لا يمكن حجز المخزون');
+    END IF;
+
+    RETURN jsonb_build_object('success', true, 'message', 'تم التأكد من توفر كافة الخامات وتخصيصها للأمر');
+END; $$;
+
+-- 25. دالة إنشاء طلب صرف مواد لأمر إنتاج
+CREATE OR REPLACE FUNCTION public.mfg_create_material_request(p_production_order_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_order record;
+    v_request_id uuid;
+    v_request_number text;
+    v_org_id uuid;
+    v_material_item record;
+BEGIN
+    SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_production_order_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
+    v_org_id := v_order.organization_id;
+
+    IF EXISTS (SELECT 1 FROM public.mfg_material_requests WHERE production_order_id = p_production_order_id AND status IN ('pending', 'approved')) THEN
+        RAISE EXCEPTION 'يوجد بالفعل طلب صرف مواد مفتوح لأمر الإنتاج هذا.';
+    END IF;
+
+    v_request_number := 'MR-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+
+    INSERT INTO public.mfg_material_requests (
+        production_order_id, request_number, requested_by, organization_id, status
+    ) VALUES (
+        p_production_order_id, v_request_number, auth.uid(), v_org_id, 'pending'
+    ) RETURNING id INTO v_request_id;
+
+    FOR v_material_item IN
+        SELECT
+            sm.raw_material_id,
+            SUM(sm.quantity_required * v_order.quantity_to_produce) AS total_required_qty
+        FROM public.mfg_routings r
+        JOIN public.mfg_routing_steps rs ON r.id = rs.routing_id
+        JOIN public.mfg_step_materials sm ON rs.id = sm.step_id
+        WHERE r.product_id = v_order.product_id AND r.is_default = TRUE AND r.organization_id = v_org_id
+        GROUP BY sm.raw_material_id
+    LOOP
+        INSERT INTO public.mfg_material_request_items (
+            material_request_id, raw_material_id, quantity_requested, organization_id
+        ) VALUES (
+            v_request_id, v_material_item.raw_material_id, v_material_item.total_required_qty, v_org_id
+        );
+    END LOOP;
+
+    RETURN v_request_id;
+END; $$;
+
+-- 26. دالة صرف المواد من المخزون
+CREATE OR REPLACE FUNCTION public.mfg_issue_material_request(p_request_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public AS $$
+DECLARE
+    v_request record; v_item record; v_org_id uuid; v_journal_id uuid; v_mappings jsonb; v_current_stock numeric;
+    v_inv_raw_acc uuid; v_wip_acc uuid; v_total_issued_cost numeric := 0; v_product_cost numeric;
+BEGIN
+    SELECT * INTO v_request FROM public.mfg_material_requests WHERE id = p_request_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'طلب صرف المواد غير موجود'; END IF;
+    IF v_request.status = 'issued' THEN RETURN; END IF;
+    v_org_id := v_request.organization_id;
+
+    FOR v_item IN SELECT * FROM public.mfg_material_request_items WHERE material_request_id = p_request_id LOOP
+        SELECT COALESCE(stock, 0) INTO v_current_stock FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+        IF v_current_stock < v_item.quantity_requested THEN
+            RAISE EXCEPTION 'نقص في المخزون للمادة %', (SELECT name FROM public.products WHERE id = v_item.raw_material_id);
+        END IF;
+
+        UPDATE public.products SET stock = stock - v_item.quantity_requested 
+        WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+
+        SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_product_cost 
+        FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+        v_total_issued_cost := v_total_issued_cost + (v_item.quantity_requested * v_product_cost);
+        UPDATE public.mfg_material_request_items SET quantity_issued = v_item.quantity_requested WHERE id = v_item.id;
+    END LOOP;
+
+    UPDATE public.mfg_material_requests SET status = 'issued', issued_by = auth.uid(), issue_date = now() WHERE id = p_request_id;
+
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_inv_raw_acc := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
+    v_wip_acc := COALESCE(
+        (v_mappings->>'INVENTORY_WIP')::uuid, 
+        (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1),
+        (SELECT id FROM public.accounts WHERE code = '103' AND organization_id = v_org_id LIMIT 1)
+    );
+
+    -- إزالة شرط الصرامة على v_wip_acc لضمان إنشاء القيد حتى لو تم الترحيل لحساب المخزون الرئيسي
+    IF v_total_issued_cost > 0 AND v_inv_raw_acc IS NOT NULL THEN
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+        VALUES (now()::date, 'صرف مواد لأمر الإنتاج رقم: ' || (SELECT order_number FROM public.mfg_production_orders WHERE id = v_request.production_order_id), v_request.request_number, 'posted', v_org_id, true, p_request_id, 'mfg_material_request')
+        RETURNING id INTO v_je_id;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_wip_acc, v_total_issued_cost, 0, 'تحميل مواد خام على WIP', v_org_id), (v_je_id, v_inv_raw_acc, 0, v_total_issued_cost, 'صرف مواد خام من المخزن', v_org_id);
+    END IF;
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+END; $$;
+
+-- 28. مشغل إنشاء طلب الصرف تلقائياً
+CREATE OR REPLACE FUNCTION public.fn_mfg_auto_create_material_request()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.status = 'in_progress' AND (OLD.status IS NULL OR OLD.status = 'draft') THEN
+        PERFORM public.mfg_create_material_request(NEW.id);
+    END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 30. دوال GenealogyViewer
+DROP FUNCTION IF EXISTS public.mfg_get_serials_by_order(text);
+CREATE OR REPLACE FUNCTION public.mfg_get_serials_by_order(p_order_number text)
+RETURNS TABLE (serial_number text, product_name text, batch_number text) LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+BEGIN
+    RETURN QUERY
+    SELECT bs.serial_number, p.name, po.batch_number
+    FROM public.mfg_batch_serials bs
+    JOIN public.mfg_production_orders po ON bs.production_order_id = po.id
+    JOIN public.products p ON bs.product_id = p.id
+    WHERE po.order_number = p_order_number AND po.organization_id = public.get_my_org();
+END; $$;
+
+DROP FUNCTION IF EXISTS public.mfg_get_production_order_details_by_number(text);
+CREATE OR REPLACE FUNCTION public.mfg_get_production_order_details_by_number(p_order_number text)
+RETURNS TABLE (order_id uuid, order_number text, status text, product_name text, quantity numeric) LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+BEGIN
+    RETURN QUERY
+    SELECT po.id, po.order_number, po.status, p.name, po.quantity_to_produce
+    FROM public.mfg_production_orders po
+    JOIN public.products p ON po.product_id = p.id
+    WHERE po.order_number = p_order_number AND po.organization_id = public.get_my_org();
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.mfg_start_production_order(p_order_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+    UPDATE public.mfg_production_orders SET status = 'in_progress', start_date = now()::date WHERE id = p_order_id;
+END; $$;
+
+-- 🔔 نظام التنبيهات الذكية لانحرافات التصنيع
+CREATE OR REPLACE FUNCTION public.mfg_check_variance_alerts(p_threshold numeric DEFAULT 10)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_row record;
+    v_alert_count integer := 0;
+    v_admin_id uuid;
+    v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    -- جلب المسئولين في المنظمة
+    FOR v_admin_id IN SELECT id FROM public.profiles WHERE organization_id = v_org_id AND role IN ('admin', 'manager') LOOP
+        
+        -- البحث عن انحرافات تتجاوز العتبة المحددة (10%)
+        FOR v_row IN 
+            SELECT * FROM public.v_mfg_bom_variance 
+            WHERE ABS(variance_percentage) > p_threshold AND organization_id = v_org_id
+        LOOP
+            INSERT INTO public.notifications (
+                user_id, 
+                title, 
+                message, 
+                type,
+                priority, 
+                organization_id
+            ) VALUES (
+                v_admin_id,
+                'تنبيه: انحراف مواد خطير',
+                format('المادة (%s) في الطلب (%s) سجلت انحرافاً بنسبة %s%%', 
+                       v_row.material_name, v_row.order_number, v_row.variance_percentage),
+                'high_debt', -- نستخدم نوع متاح في نظام الإخطارات للأولوية
+                'high',
+                v_org_id
+            );
+            v_alert_count := v_alert_count + 1;
+        END LOOP;
+    END LOOP;
+    
+    RETURN v_alert_count;
+END; $$;
+
+-- 🔔 دالة تنبيهات تجاوز تكلفة الإنتاج المعيارية
+CREATE OR REPLACE FUNCTION public.mfg_check_cost_overrun_alerts(p_threshold_percentage numeric DEFAULT 5)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_row record;
+    v_alert_count integer := 0;
+    v_admin_id uuid;
+    v_org_id uuid;
+    v_standard_cost_per_unit numeric;
+    v_expected_total_standard_cost numeric;
+    v_cost_overrun_percentage numeric;
+BEGIN
+    v_org_id := public.get_my_org();
+
+    -- جلب المسئولين في المنظمة
+    FOR v_admin_id IN SELECT id FROM public.profiles WHERE organization_id = v_org_id AND role IN ('admin', 'manager') LOOP
+
+        -- البحث عن أوامر إنتاج مكتملة تجاوزت تكلفتها الفعلية التكلفة المعيارية بحد معين
+        FOR v_row IN 
+            SELECT 
+                vpop.order_id,
+                vpop.order_number,
+                vpop.product_name,
+                vpop.qty,
+                vpop.total_actual_cost,
+                po.product_id -- نحتاج معرف المنتج لحساب التكلفة المعيارية
+            FROM public.v_mfg_order_profitability vpop
+            JOIN public.mfg_production_orders po ON vpop.order_id = po.id
+            WHERE vpop.organization_id = v_org_id
+              AND po.status = 'completed' -- فقط الأوامر المكتملة
+        LOOP
+            -- حساب التكلفة المعيارية للمنتج الواحد باستخدام الدالة الموجودة
+            v_standard_cost_per_unit := public.mfg_calculate_standard_cost(v_row.product_id);
+            v_expected_total_standard_cost := v_standard_cost_per_unit * v_row.qty;
+
+            IF v_expected_total_standard_cost > 0 THEN
+                v_cost_overrun_percentage := ROUND(((v_row.total_actual_cost - v_expected_total_standard_cost) / v_expected_total_standard_cost) * 100, 2);
+            ELSE
+                v_cost_overrun_percentage := 0; -- تجنب القسمة على صفر إذا كانت التكلفة المعيارية صفر
+            END IF;
+
+            IF v_cost_overrun_percentage > p_threshold_percentage THEN
+                INSERT INTO public.notifications (user_id, title, message, type, priority, organization_id) 
+                VALUES (v_admin_id, 'تنبيه: تجاوز تكلفة الإنتاج المعيارية', 
+                        format('أمر الإنتاج (%s) للمنتج (%s) تجاوز التكلفة المعيارية بنسبة %s%%. التكلفة الفعلية: %s، المعيارية: %s',
+                               v_row.order_number, v_row.product_name, v_cost_overrun_percentage, v_row.total_actual_cost, v_expected_total_standard_cost),
+                        'cost_overrun', 'high', v_org_id);
+                v_alert_count := v_alert_count + 1;
+            END IF;
+        END LOOP;
+    END LOOP;
+    
+    RETURN v_alert_count;
+END; $$;
+
+-- 🔔 تنبيه نقص الأرقام التسلسلية عند الإغلاق
+CREATE OR REPLACE FUNCTION public.mfg_check_missing_serials_alerts()
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_row record;
+    v_alert_count integer := 0;
+    v_admin_id uuid;
+    v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    
+    FOR v_admin_id IN SELECT id FROM public.profiles WHERE organization_id = v_org_id AND role IN ('admin', 'manager') LOOP
+        FOR v_row IN 
+            SELECT order_number, product_name, quantity_to_produce, total_serials_generated
+            FROM public.v_mfg_dashboard
+            WHERE organization_id = v_org_id 
+              AND status = 'completed' 
+              AND requires_serial = true
+              AND total_serials_generated < quantity_to_produce
+        LOOP
+            INSERT INTO public.notifications (user_id, title, message, type, priority, organization_id)
+            VALUES (v_admin_id, 'تنبيه: نقص أرقام تسلسلية', 
+                    format('أمر الإنتاج (%s) للمنتج (%s) اكتمل بـ %s سيريال فقط من أصل %s مطلوب.',
+                           v_row.order_number, v_row.product_name, v_row.total_serials_generated, v_row.quantity_to_produce),
+                    'missing_serials', 'medium', v_org_id);
+            v_alert_count := v_alert_count + 1;
+        END LOOP;
+    END LOOP;
+    
+    RETURN v_alert_count;
+END; $$;
 
 -- ================================================================
 -- 5.3 محرك الإهلاك التلقائي (Automatic Depreciation Engine)
@@ -2299,7 +2659,21 @@ BEGIN
         END;
 
         -- 2. إعادة الجدولة: تشغيل يومي الساعة 3:00 صباحاً
+        -- 🕒 20. جدولة تنبيهات التصنيع (Manufacturing Alerts Automation)
+        -- يتم تشغيل هذه المهام عبر pg_cron لفحص الانحرافات والسيريالات المفقودة
+        BEGIN
+            EXECUTE 'SELECT cron.unschedule(''mfg-efficiency-check'')';
+            EXECUTE 'SELECT cron.unschedule(''mfg-variance-check'')';
+            EXECUTE 'SELECT cron.unschedule(''mfg-cost-overrun-check'')';
+            EXECUTE 'SELECT cron.unschedule(''mfg-missing-serials-check'')';
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
+
         PERFORM cron.schedule('daily-system-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');
+        PERFORM cron.schedule('mfg-efficiency-check', '0 * * * *', 'SELECT public.mfg_check_efficiency_alerts(75);');
+        PERFORM cron.schedule('mfg-variance-check', '0 2 * * *', 'SELECT public.mfg_check_variance_alerts();');
+        PERFORM cron.schedule('mfg-cost-overrun-check', '0 3 * * *', 'SELECT public.mfg_check_cost_overrun_alerts();');
+        PERFORM cron.schedule('mfg-missing-serials-check', '0 4 * * *', 'SELECT public.mfg_check_missing_serials_alerts();');
         RAISE NOTICE '✅ تم تفعيل جدولة النسخ الاحتياطي اليومي بنجاح.';
     ELSE
         RAISE WARNING '⚠️ تنبيه: ملحق pg_cron غير مفعل. لن يتم تفعيل الجدولة التلقائية. يمكنك تفعيله من Dashboard -> Database -> Extensions.';

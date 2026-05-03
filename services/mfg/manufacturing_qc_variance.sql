@@ -42,17 +42,17 @@ END; $$;
 
 -- 3. رؤية تحليل انحراف المواد (BOM Variance View)
 DROP VIEW IF EXISTS public.v_mfg_bom_variance CASCADE;
-CREATE VIEW public.v_mfg_bom_variance AS
+CREATE OR REPLACE VIEW public.v_mfg_bom_variance AS
 SELECT 
     po.order_number,
     p.name as product_name,
     rm.name as material_name,
-    amu.standard_quantity,
-    amu.actual_quantity,
-    (amu.actual_quantity - amu.standard_quantity) as variance_qty,
+    SUM(amu.standard_quantity) as standard_quantity,
+    SUM(amu.actual_quantity) as actual_quantity,
+    SUM(amu.actual_quantity - amu.standard_quantity) as variance_qty,
     CASE 
-        WHEN amu.standard_quantity > 0 
-        THEN ROUND(((amu.actual_quantity - amu.standard_quantity) / amu.standard_quantity) * 100, 2)
+        WHEN SUM(amu.standard_quantity) > 0 
+        THEN ROUND((SUM(amu.actual_quantity - amu.standard_quantity) / SUM(amu.standard_quantity) * 100), 2)
         ELSE 0 
     END as variance_percentage,
     po.organization_id
@@ -60,7 +60,8 @@ FROM public.mfg_actual_material_usage amu
 JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
 JOIN public.mfg_production_orders po ON op.production_order_id = po.id
 JOIN public.products p ON po.product_id = p.id
-JOIN public.products rm ON amu.raw_material_id = rm.id;
+JOIN public.products rm ON amu.raw_material_id = rm.id
+GROUP BY po.id, po.order_number, p.name, rm.name, po.organization_id;
 
 -- 4. تأمين البيانات (RLS)
 ALTER TABLE public.mfg_qc_inspections ENABLE ROW LEVEL SECURITY;

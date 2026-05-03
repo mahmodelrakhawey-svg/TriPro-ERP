@@ -352,16 +352,22 @@ CREATE TABLE IF NOT EXISTS public.products (
     sales_price numeric DEFAULT 0,
     purchase_price numeric DEFAULT 0,
     description text,
-    cost numeric DEFAULT 0,
-    manufacturing_cost numeric DEFAULT 0, -- عمود جديد
-    opening_balance numeric DEFAULT 0, -- الرصيد الافتتاحي (كمية)
-    weighted_average_cost numeric DEFAULT 0,
+    cost numeric(19,4) DEFAULT 0,
+    manufacturing_cost numeric(19,4) DEFAULT 0,
+    labor_cost numeric(19,4) DEFAULT 0,
+    overhead_cost numeric(19,4) DEFAULT 0,
+    is_overhead_percentage boolean DEFAULT false,
+    opening_balance numeric DEFAULT 0,
+    weighted_average_cost numeric(19,4) DEFAULT 0,
     stock numeric DEFAULT 0,
-    unit text, -- وحدة القياس (قطعة، كيلو، إلخ)
+    unit text,
     min_stock numeric DEFAULT 5,
     min_stock_level numeric DEFAULT 0,
     item_type text DEFAULT 'STOCK',
     product_type text DEFAULT 'STOCK', -- إضافة هذا العمود لتوافق الواجهة الأمامية
+    mfg_type text DEFAULT 'standard', -- raw, standard, intermediate
+    requires_serial boolean DEFAULT false,
+    price numeric DEFAULT 0,
     inventory_account_id uuid REFERENCES public.accounts(id),
     cogs_account_id uuid REFERENCES public.accounts(id),
     sales_account_id uuid REFERENCES public.accounts(id),
@@ -381,27 +387,162 @@ CREATE TABLE IF NOT EXISTS public.products (
     deleted_at timestamptz,
     deletion_reason text,
     is_active boolean DEFAULT true,
-    created_at timestamptz DEFAULT now() NOT NULL,
-    labor_cost numeric(19,4) DEFAULT 0,
-    overhead_cost numeric(19,4) DEFAULT 0,
-    is_overhead_percentage boolean DEFAULT false
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+-- ================================================================
+-- 1.7 جداول مديول التصنيع (MFG Module Tables)
+-- ================================================================
+
+CREATE TABLE IF NOT EXISTS public.mfg_work_centers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    description text,
+    hourly_rate numeric DEFAULT 0,
+    overhead_rate numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
 );
 
--- ================================================================
--- 1.6 تحديثات مديول التصنيع (MFG Updates)
--- ================================================================
--- نستخدم DO blocks لإضافة الأعمدة للجداول الموجودة مسبقاً لضمان عدم حدوث خطأ
-DO $$ 
-BEGIN
-    -- إضافة عمود تكلفة العمالة في مديول التصنيع لربط القيد المحاسبي
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='products' AND column_name='manufacturing_type') THEN
-        ALTER TABLE public.products ADD COLUMN manufacturing_type text DEFAULT 'STOCK';
-    END IF;
+CREATE TABLE IF NOT EXISTS public.mfg_routings (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    is_default boolean DEFAULT true,
+    deleted_at timestamptz
+);
 
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='journal_entries' AND column_name='mfg_process_id') THEN
-        ALTER TABLE public.journal_entries ADD COLUMN mfg_process_id uuid;
-    END IF;
-END $$;
+CREATE TABLE IF NOT EXISTS public.mfg_routing_steps (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    routing_id uuid REFERENCES public.mfg_routings(id) ON DELETE CASCADE,
+    step_order integer NOT NULL,
+    work_center_id uuid REFERENCES public.mfg_work_centers(id) ON DELETE SET NULL,
+    operation_name text NOT NULL,
+    standard_time_minutes numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_production_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_number text UNIQUE,
+    product_id uuid REFERENCES public.products(id),
+    quantity_to_produce numeric NOT NULL,
+    status text DEFAULT 'draft',
+    start_date date,
+    end_date date,
+    batch_number text,
+    warehouse_id uuid REFERENCES public.warehouses(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    notes text,
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_order_progress (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
+    step_id uuid REFERENCES public.mfg_routing_steps(id),
+    status text DEFAULT 'pending',
+    actual_start_time timestamptz,
+    actual_end_time timestamptz,
+    produced_qty numeric DEFAULT 0,
+    labor_cost_actual numeric DEFAULT 0,
+    qc_verified boolean DEFAULT NULL,
+    employee_id uuid REFERENCES public.employees(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_step_materials (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    step_id uuid REFERENCES public.mfg_routing_steps(id) ON DELETE CASCADE,
+    raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity_required numeric NOT NULL DEFAULT 1,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_actual_material_usage (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_progress_id uuid REFERENCES public.mfg_order_progress(id) ON DELETE CASCADE,
+    raw_material_id uuid REFERENCES public.products(id),
+    standard_quantity numeric NOT NULL,
+    actual_quantity numeric NOT NULL,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_scrap_logs (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_progress_id uuid REFERENCES public.mfg_order_progress(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id),
+    quantity numeric NOT NULL,
+    reason text,
+    scrap_type text DEFAULT 'material',
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_production_variances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
+    actual_total_cost numeric DEFAULT 0,
+    standard_total_cost numeric DEFAULT 0,
+    variance_amount numeric DEFAULT 0,
+    variance_percentage numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(production_order_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_batch_serials (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id),
+    serial_number text NOT NULL,
+    status text DEFAULT 'in_stock',
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_serial_per_org ON public.mfg_batch_serials (serial_number, organization_id);
+
+-- ================================================================
+-- 1.8 مديول الجودة وطلبات الصرف
+-- ==============================================
+
+CREATE TABLE IF NOT EXISTS public.mfg_qc_inspections (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    progress_id uuid REFERENCES public.mfg_order_progress(id) ON DELETE CASCADE,
+    inspector_id uuid REFERENCES auth.users(id),
+    status text CHECK (status IN ('pass', 'fail', 'rework')),
+    defect_type text,
+    notes text,
+    created_at timestamptz DEFAULT now(),
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_material_requests (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
+    request_number text UNIQUE NOT NULL,
+    request_date date DEFAULT now(),
+    status text DEFAULT 'pending',
+    requested_by uuid REFERENCES public.profiles(id),
+    issued_by uuid REFERENCES public.profiles(id),
+    issue_date timestamptz,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.mfg_material_request_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    material_request_id uuid REFERENCES public.mfg_material_requests(id) ON DELETE CASCADE,
+    raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity_requested numeric NOT NULL,
+    quantity_issued numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
 
 CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -801,7 +942,184 @@ CREATE TABLE IF NOT EXISTS public.notification_audit_log (
   organization_id UUID REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- 📊 21. عرض انحراف المواد (BOM Variance View)
+-- هذا العرض مطلوب للوحة التحكم الصناعية لمراقبة فروقات الاستهلاك
+DROP VIEW IF EXISTS public.v_mfg_bom_variance CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_bom_variance WITH (security_invoker = true) AS
+SELECT 
+    po.order_number,
+    p.name as product_name,
+    rm.name as material_name,
+    SUM(amu.standard_quantity) as standard_quantity,
+    SUM(amu.actual_quantity) as actual_quantity,
+    SUM(amu.actual_quantity - amu.standard_quantity) as variance_qty,
+    CASE 
+        WHEN SUM(amu.standard_quantity) > 0 
+        THEN ROUND((SUM(amu.actual_quantity - amu.standard_quantity) / SUM(amu.standard_quantity) * 100), 2)
+        ELSE 0 
+    END as variance_percentage,
+    po.organization_id
+FROM public.mfg_actual_material_usage amu
+JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+JOIN public.mfg_production_orders po ON op.production_order_id = po.id
+LEFT JOIN public.products p ON po.product_id = p.id -- Use LEFT JOIN for robustness
+LEFT JOIN public.products rm ON amu.raw_material_id = rm.id -- Use LEFT JOIN for robustness
+GROUP BY po.id, po.order_number, p.name, rm.name, po.organization_id;
+-- Ensure security_invoker is set for views
+-- إضافة اسم بديل للتوافق (Compatibility Alias)
+DROP VIEW IF EXISTS public.v_mfg_material_variance CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_material_variance WITH (security_invoker = true) AS 
+SELECT * FROM public.v_mfg_bom_variance;
 
+GRANT SELECT ON public.v_mfg_bom_variance TO authenticated;
+GRANT SELECT ON public.v_mfg_material_variance TO authenticated;
+
+-- 📊 22. عرض كفاءة مراكز العمل (Work Center Efficiency View)
+DROP VIEW IF EXISTS public.v_mfg_work_center_efficiency CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_work_center_efficiency WITH (security_invoker = true) AS
+SELECT 
+    wc.id as work_center_id,
+    wc.name as work_center_name,
+    COUNT(op.id) as tasks_completed,
+    SUM(rs.standard_time_minutes * op.produced_qty) as total_standard_minutes,
+    GREATEST(SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60), 1) as total_actual_minutes,
+    ROUND((SUM(rs.standard_time_minutes * op.produced_qty) / GREATEST(SUM(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60), 1) * 100), 2) as efficiency_percentage,
+    wc.organization_id
+FROM public.mfg_work_centers wc -- Use LEFT JOIN for robustness
+LEFT JOIN public.mfg_routing_steps rs ON wc.id = rs.work_center_id
+LEFT JOIN public.mfg_order_progress op ON rs.id = op.step_id
+WHERE op.status = 'completed' OR op.status IS NULL -- Include NULL status for robustness
+GROUP BY wc.id, wc.name, wc.organization_id;
+
+-- 📊 27. رؤية تقييم WIP
+DROP VIEW IF EXISTS public.v_mfg_wip_valuation CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_wip_valuation WITH (security_invoker = true) AS
+WITH request_costs AS (
+    SELECT mr.production_order_id,
+           SUM(mri.quantity_issued * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0)) as total_request
+    FROM public.mfg_material_request_items mri
+    JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
+    JOIN public.products p ON mri.raw_material_id = p.id
+    WHERE mr.status = 'issued' AND mr.organization_id = public.get_my_org() -- Add organization_id filter
+    GROUP BY mr.production_order_id
+)
+SELECT po.id AS production_order_id, po.order_number, p.name AS product_name, po.quantity_to_produce, po.status, po.organization_id,
+       COALESCE(SUM(op.labor_cost_actual), 0) AS total_labor_cost_incurred,
+       (COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) + COALESCE(rc.total_request, 0)) AS total_material_cost_incurred,
+       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) + COALESCE(rc.total_request, 0)) AS total_wip_value -- Ensure rc.total_request is included
+FROM public.mfg_production_orders po
+JOIN public.products p ON po.product_id = p.id
+LEFT JOIN public.mfg_order_progress op ON po.id = op.production_order_id
+LEFT JOIN public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
+LEFT JOIN public.products rm ON amu.raw_material_id = rm.id
+LEFT JOIN request_costs rc ON po.id = rc.production_order_id
+WHERE po.status = 'in_progress'
+GROUP BY po.id, po.order_number, p.name, po.quantity_to_produce, po.status, po.organization_id, rc.total_request; -- Group by rc.total_request
+
+-- 29. تقرير ملخص شهري WIP
+DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
+SELECT to_char(po.created_at, 'YYYY-MM') AS month, p.name AS product_name, wc.name AS work_center_name, po.organization_id,
+       COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
+       COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
+       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
+FROM public.mfg_production_orders po -- Use LEFT JOIN for robustness
+LEFT JOIN public.products p ON po.product_id = p.id
+LEFT JOIN public.mfg_order_progress op ON po.id = op.production_order_id
+LEFT JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
+LEFT JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
+LEFT JOIN public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
+LEFT JOIN public.products rm ON amu.raw_material_id = rm.id
+WHERE po.status = 'in_progress' OR po.status IS NULL -- Include NULL status for robustness
+GROUP BY 1, 2, 3, 4;
+
+-- 📊 31. رؤية لوحة التحكم الصناعية (Manufacturing Dashboard View)
+-- هذه الرؤية ضرورية لعمل لوحة القيادة وحساب نسبة الإنجاز وصلاحية الإغلاق
+DROP VIEW IF EXISTS public.v_mfg_dashboard CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_dashboard WITH (security_invoker = true) AS
+WITH progress_stats AS (
+    SELECT 
+        production_order_id,
+        count(*) as total_steps,
+        count(*) FILTER (WHERE status = 'completed') as completed_steps,
+        count(*) FILTER (WHERE qc_verified = true) as qc_passed_steps,
+        SUM(labor_cost_actual) as total_labor_cost
+    FROM public.mfg_order_progress
+    GROUP BY production_order_id
+),
+serial_stats AS (
+    SELECT 
+        production_order_id,
+        count(*) as total_serials
+    FROM public.mfg_batch_serials
+    GROUP BY production_order_id
+)
+SELECT 
+    po.id as order_id,
+    po.order_number,
+    po.batch_number,
+    p.name as product_name,
+    po.quantity_to_produce,
+    po.status,
+    po.start_date,
+    po.end_date,
+    po.created_at,
+    ps.total_steps,
+    (po.status = 'in_progress' AND COALESCE(ps.total_steps, 0) > 0 AND COALESCE(ps.completed_steps, 0) = COALESCE(ps.total_steps, 0)) as can_finalize, -- Handle NULLs
+    ps.completed_steps,
+    COALESCE(ps.qc_passed_steps, 0) as qc_passed_steps,
+    CASE WHEN ps.total_steps > 0 THEN ROUND((ps.completed_steps::numeric / ps.total_steps::numeric) * 100, 2) ELSE 0 END as completion_percentage,
+    COALESCE(ps.total_labor_cost, 0) as current_labor_cost,
+    po.organization_id,
+    pv.variance_amount,
+    pv.variance_percentage,
+    COALESCE(ss.total_serials, 0) as total_serials_generated,
+    COALESCE(p.requires_serial, false) as requires_serial -- Handle NULL for requires_serial
+FROM public.mfg_production_orders po -- Use LEFT JOIN for robustness
+JOIN public.products p ON po.product_id = p.id
+LEFT JOIN progress_stats ps ON po.id = ps.production_order_id
+LEFT JOIN public.mfg_production_variances pv ON po.id = pv.production_order_id
+LEFT JOIN serial_stats ss ON po.id = ss.production_order_id;
+
+GRANT SELECT ON public.v_mfg_dashboard TO authenticated;
+
+-- 1. إنشاء رؤية السيريالات المتاحة في المخازن
+DROP VIEW IF EXISTS public.v_mfg_available_serials CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_available_serials WITH (security_invoker = true) AS
+SELECT 
+    bs.id,
+    bs.serial_number,
+    p.name as product_name,
+    p.sku as product_code,
+    po.order_number,
+    po.batch_number,
+    bs.created_at as production_date,
+    bs.organization_id,
+    bs.status as serial_status
+FROM public.mfg_batch_serials bs -- Use LEFT JOIN for robustness
+LEFT JOIN public.products p ON bs.product_id = p.id
+LEFT JOIN public.mfg_production_orders po ON bs.production_order_id = po.id
+WHERE bs.status = 'in_stock';
+
+-- 2. رؤية التتبع الشاملة لكافة السيريالات وحالاتها (Traceability Master Table)
+-- مخصصة للمحاسب لتتبع حركة كل قطعة من الإنتاج حتى البيع النهائي
+DROP VIEW IF EXISTS public.v_mfg_serials_master_tracker CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_serials_master_tracker WITH (security_invoker = true) AS
+SELECT 
+    bs.serial_number,
+    p.name as product_name,
+    p.sku as product_sku,
+    po.order_number,
+    po.batch_number,
+    bs.status as serial_status,
+    bs.created_at as production_date,
+    bs.organization_id -- Use LEFT JOIN for robustness
+FROM public.mfg_batch_serials bs 
+JOIN public.products p ON bs.product_id = p.id
+JOIN public.mfg_production_orders po ON bs.production_order_id = po.id;
+
+GRANT SELECT ON public.v_mfg_serials_master_tracker TO authenticated;
+GRANT SELECT ON public.v_mfg_available_serials TO authenticated;
 -- ================================================================
 -- 2.5 التقارير واللوحات البرمجية (Views)
 -- ================================================================

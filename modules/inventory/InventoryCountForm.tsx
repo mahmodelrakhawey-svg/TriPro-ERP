@@ -19,6 +19,8 @@ const InventoryCountForm = () => {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
 
+  const orgId = (settings as any)?.organization_id || (currentUser as any)?.organization_id;
+
   const handleStartCount = async () => {
     if (!warehouseId) {
       showToast('الرجاء اختيار المستودع أولاً', 'warning');
@@ -30,7 +32,6 @@ const InventoryCountForm = () => {
         let productsSource = products;
 
         if (currentUser?.role !== 'demo') {
-            const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
             // جلب أحدث بيانات للأصناف لضمان دقة الرصيد مع الفلترة حسب المنظمة
             let query = supabase.from('products').select('*').is('deleted_at', null);
             if (orgId) query = query.eq('organization_id', orgId);
@@ -119,7 +120,7 @@ const InventoryCountForm = () => {
             count_number: countNumber,
             status: 'draft',
             notes: 'جرد يدوي من النظام',
-            organization_id: (currentUser as any)?.organization_id
+            organization_id: orgId
         }).select().single();
 
         if (countError) throw countError;
@@ -131,7 +132,7 @@ const InventoryCountForm = () => {
             system_qty: item.systemQty,
             actual_qty: item.actualQty,
             difference: item.difference,
-            organization_id: (currentUser as any)?.organization_id
+            organization_id: orgId
         }));
 
         const { error: itemsError } = await supabase.from('inventory_count_items').insert(countItems);

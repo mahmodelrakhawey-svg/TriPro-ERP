@@ -301,9 +301,9 @@ const ManufacturingDashboard = () => {
                           <Trash2 size={10} /> هالك
                         </button>
                       </div>
-                    ) : !order.status.includes('completed') && (
-                      <span className="text-[10px] text-gray-400 italic">
-                        انتظار المراحل/QC
+                    ) : (
+                      <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-2 py-1 rounded animate-pulse">
+                        بانتظار العمل/QC
                       </span>
                     )}
                   </div>

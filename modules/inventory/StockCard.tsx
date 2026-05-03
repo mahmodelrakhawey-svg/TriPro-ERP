@@ -127,6 +127,10 @@ const StockCard = () => {
       let queryTransfers = supabase.from('stock_transfer_items').select('quantity, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('stock_transfers.status', 'draft').neq('stock_transfers.status', 'cancelled');
       // إضافة استعلام الرصيد الافتتاحي
       let queryOpening = supabase.from('opening_inventories').select('id, quantity, warehouse_id, created_at').eq('product_id', selectedProductId);
+      // إضافة استعلامات مديول التصنيع
+      let queryMfgFinished = supabase.from('mfg_production_orders').select('id, order_number, end_date, quantity_to_produce, warehouse_id, created_at, status').eq('product_id', selectedProductId).eq('status', 'completed');
+      let queryMfgRaw = supabase.from('mfg_material_request_items').select('quantity_issued, mfg_material_requests!inner(request_number, issue_date, created_at, status)').eq('raw_material_id', selectedProductId).eq('mfg_material_requests.status', 'issued');
+      let queryMfgScrap = supabase.from('mfg_scrap_logs').select('id, quantity, reason, created_at').eq('product_id', selectedProductId);
 
       // --- حركات المطعم ---
       // 1. مبيعات المطعم (بيع مباشر للصنف)
@@ -164,10 +168,11 @@ const StockCard = () => {
       }
 
       // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption] = await Promise.all([
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap] = await Promise.all([
         querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
         queryRestDirect,
-        queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] })
+        queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
+        queryMfgFinished, queryMfgRaw, queryMfgScrap
       ]);
 
       const allTxns: Transaction[] = [];
@@ -215,6 +220,34 @@ const StockCard = () => {
           warehouseName: getWName(item.purchase_invoices.warehouse_id),
           createdAt: item.purchase_invoices.created_at,
           notes: item.purchase_invoices.notes
+        });
+      });
+
+      // معالجة التصنيع - منتج تام وارد
+      mfgFin.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `MFG-IN-${item.id}`,
+          date: item.end_date || item.created_at.split('T')[0],
+          type: 'IN',
+          quantity: item.quantity_to_produce,
+          documentType: 'إنتاج تام',
+          documentNumber: item.order_number,
+          warehouseName: getWName(item.warehouse_id),
+          notes: 'إغلاق أمر إنتاج'
+        });
+      });
+
+      // معالجة التصنيع - خامات منصرفة
+      mfgRaw.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `MFG-OUT-${item.mfg_material_requests.request_number}`,
+          date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at.split('T')[0],
+          type: 'OUT',
+          quantity: item.quantity_issued,
+          documentType: 'صرف خامات (إنتاج)',
+          documentNumber: item.mfg_material_requests.request_number,
+          warehouseName: getWName(item.mfg_material_requests.warehouse_id),
+          notes: 'استهلاك مواد أولية'
         });
       });
 
