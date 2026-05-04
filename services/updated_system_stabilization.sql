@@ -50,54 +50,22 @@ WITH duplicates AS (
 )
 UPDATE public.products SET sku = sku || '-DUP-' || id::text WHERE id IN (SELECT id FROM duplicates WHERE rn > 1);
 
--- 🛠️ تأمين جدول طلبات المطبخ (kitchen_orders) لبيئة الـ SaaS والمدراء (V14)
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kitchen_orders') THEN
-        ALTER TABLE public.kitchen_orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
-    END IF;
-END $$;
-
--- ترميم البيانات: ربط طلبات المطبخ "اليتيمة" بالمنظمة بناءً على الطلب الأصلي
-UPDATE public.kitchen_orders ko
-SET organization_id = oi.organization_id
-FROM public.order_items oi
-WHERE ko.order_item_id = oi.id AND ko.organization_id IS NULL;
-
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kitchen_orders') THEN
-        ALTER TABLE public.kitchen_orders ALTER COLUMN organization_id SET NOT NULL; -- ✅ فرض عدم السماح بقيم NULL
-        ALTER TABLE public.kitchen_orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org(); -- ✅ تعيين قيمة افتراضية
-    END IF;
-END $$;
 -- 🛠️ ترميم مديول التصنيع (MFG Data Integrity)
 -- ربط السجلات القديمة بالمنظمة الحالية لتمكين حذفها أو عزلها
 DO $$ 
 BEGIN
-    -- فحص وجود جداول التصنيع قبل محاولة الترميم (إصلاح الخطأ 42P01)
+    -- 1. ترميم جداول التصنيع
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_orders') THEN
         UPDATE public.mfg_production_orders SET organization_id = public.get_my_org() WHERE organization_id IS NULL;
-        
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_order_progress') THEN
-            UPDATE public.mfg_order_progress po SET organization_id = orders.organization_id 
-            FROM public.mfg_production_orders orders 
-            WHERE po.production_order_id = orders.id AND po.organization_id IS NULL;
-        END IF;
 
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_batch_serials') THEN
-            UPDATE public.mfg_batch_serials bs SET organization_id = orders.organization_id 
-            FROM public.mfg_production_orders orders 
-            WHERE bs.production_order_id = orders.id AND bs.organization_id IS NULL;
-        END IF;
+        UPDATE public.mfg_order_progress po SET organization_id = orders.organization_id 
+        FROM public.mfg_production_orders orders WHERE po.production_order_id = orders.id AND po.organization_id IS NULL;
 
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_actual_material_usage') THEN
-            UPDATE public.mfg_actual_material_usage amu SET organization_id = op.organization_id 
-            FROM public.mfg_order_progress op WHERE amu.order_progress_id = op.id AND amu.organization_id IS NULL;
-        END IF;
+        UPDATE public.mfg_batch_serials bs SET organization_id = orders.organization_id 
+        FROM public.mfg_production_orders orders WHERE bs.production_order_id = orders.id AND bs.organization_id IS NULL;
 
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_scrap_logs') THEN
-            UPDATE public.mfg_scrap_logs sl SET organization_id = op.organization_id 
-            FROM public.mfg_order_progress op WHERE sl.order_progress_id = op.id AND sl.organization_id IS NULL;
-        END IF;
+        UPDATE public.mfg_actual_material_usage amu SET organization_id = op.organization_id 
+        FROM public.mfg_order_progress op WHERE amu.order_progress_id = op.id AND amu.organization_id IS NULL;
 
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_material_requests') THEN
             UPDATE public.mfg_material_requests mr SET organization_id = po.organization_id 
@@ -116,13 +84,19 @@ BEGIN
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_material_request_items') THEN UPDATE public.mfg_material_request_items mri SET organization_id = mr.organization_id FROM public.mfg_material_requests mr WHERE mri.material_request_id = mr.id AND mri.organization_id IS NULL; END IF;
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_qc_inspections') THEN UPDATE public.mfg_qc_inspections qci SET organization_id = op.organization_id FROM public.mfg_order_progress op WHERE qci.progress_id = op.id AND qci.organization_id IS NULL; END IF;
 
-        
         -- 🏭 تصحيح حالات أوامر الإنتاج العالقة
         UPDATE public.mfg_production_orders SET status = 'in_progress' WHERE status IS NULL OR status = '';
-        
+
         -- ⚙️ التأكد من أن كافة منتجات التصنيع تتبع نظام المخزن
         UPDATE public.products SET product_type = 'STOCK' WHERE mfg_type IN ('standard', 'raw') AND product_type IS NULL;
+    END IF;
 
+    -- 2. ترميم مديول المطبخ (Kitchen Orders)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kitchen_orders') THEN
+        UPDATE public.kitchen_orders ko SET organization_id = oi.organization_id
+        FROM public.order_items oi WHERE ko.order_item_id = oi.id AND ko.organization_id IS NULL;
+        
+        ALTER TABLE public.kitchen_orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
     END IF;
 END $$;
 
@@ -173,13 +147,6 @@ DO $$ BEGIN
         WHERE oi.order_id = o.id AND oi.organization_id IS NULL;
     END IF;
 END $$;
-
--- 6. ترميم طلبات المطبخ النهائية
--- This update is already handled above, but ensuring it's robust.
-UPDATE public.kitchen_orders ko
-SET organization_id = oi.organization_id
-FROM public.order_items oi
-WHERE ko.order_item_id = oi.id AND ko.organization_id IS NULL;
 
 ALTER TABLE IF EXISTS public.bill_of_materials 
 DROP CONSTRAINT IF EXISTS bill_of_materials_raw_material_id_fkey,
@@ -380,9 +347,6 @@ END $$;
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0;
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
 
-
--- 2. دالة اعتماد فاتورة المشتريات مع دعم السداد الفوري (القيود الآلية)
-DROP FUNCTION IF EXISTS public.approve_purchase_invoice(uuid);
 -- ============================================================
 -- 2. إضافة أعمدة الـ SaaS والاشتراكات لجدول المنظمات
 -- ============================================================
