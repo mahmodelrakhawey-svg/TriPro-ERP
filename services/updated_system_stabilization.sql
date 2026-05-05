@@ -100,10 +100,43 @@ BEGIN
     END IF;
 END $$;
 
+-- ⚙️ تريجر مزامنة إجمالي الطلب التلقائي
+CREATE OR REPLACE FUNCTION public.sync_order_grand_total()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.grand_total := COALESCE(NEW.subtotal, 0) + COALESCE(NEW.total_tax, 0) + COALESCE(NEW.delivery_fee, 0);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_order_totals ON public.orders;
+CREATE TRIGGER trg_sync_order_totals
+BEFORE INSERT OR UPDATE ON public.orders
+FOR EACH ROW EXECUTE FUNCTION public.sync_order_grand_total();
+
 -- 1. جداول الطاولات والجلسات
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'restaurant_tables') THEN ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'table_sessions') THEN ALTER TABLE public.table_sessions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id); END IF;
+    -- تحصين مديول التصنيع
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_order_progress') THEN 
+        ALTER TABLE public.mfg_order_progress ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN 
+        ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
+        ALTER TABLE public.orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
+            -- 🛡️ توحيد مسميات الأعمدة لجدول الجلسات لتتوافق مع مديول المطاعم والوردات
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_at') THEN
+            ALTER TABLE public.table_sessions RENAME COLUMN opened_at TO start_time;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'closed_at') THEN
+            ALTER TABLE public.table_sessions RENAME COLUMN closed_at TO end_time;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_by') THEN
+            ALTER TABLE public.table_sessions RENAME COLUMN opened_by TO user_id;
+        END IF;
+        ALTER TABLE public.table_sessions ADD COLUMN IF NOT EXISTS start_time timestamptz DEFAULT now();    
+    END IF;    
 END $$;
 
 -- 2. تأمين عمود المنظمة في الجداول الأساسية ومنع القيم الفارغة
@@ -117,26 +150,45 @@ DO $$ BEGIN
     ALTER TABLE public.orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
 END $$;
 
--- 3. ترميم بيانات الطاولات والجلسات المفقودة (حالة الأدمن)
-UPDATE public.restaurant_tables SET organization_id = public.get_my_org() WHERE organization_id IS NULL;
+-- 3. محرك ترميم الهوية (Identity Repair)
 DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'table_sessions') THEN
-        UPDATE public.table_sessions ts
-        SET organization_id = rt.organization_id
-        FROM public.restaurant_tables rt
-        WHERE ts.table_id = rt.id AND ts.organization_id IS NULL;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'restaurant_tables') THEN
+        UPDATE public.restaurant_tables
+        SET organization_id = COALESCE(organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))
+        WHERE organization_id IS NULL;
     END IF;
 END $$;
 
--- 4. ترميم الروابط المفقودة في الطلبات (Orders) لضمان ظهورها في المطبخ
+
 UPDATE public.orders o
 SET organization_id = COALESCE(
+    o.organization_id,
     (SELECT organization_id FROM public.table_sessions ts WHERE ts.id = o.session_id),
-    p.organization_id
+    (SELECT organization_id FROM public.profiles p WHERE p.id = o.user_id),
+    public.get_my_org()
 )
-FROM public.profiles p
-WHERE o.user_id = p.id 
-AND o.organization_id IS NULL;
+WHERE o.organization_id IS NULL;
+
+UPDATE public.order_items oi
+SET organization_id = o.organization_id
+FROM public.orders o
+WHERE oi.order_id = o.id AND oi.organization_id IS NULL;
+
+-- 4. ترميم الروابط المفقودة في الطلبات لضمان ظهور المبالغ في تقارير الإغلاق (Fix for Super Admin)
+DO $$ BEGIN
+    UPDATE public.orders o
+    SET organization_id = COALESCE(
+        o.organization_id,
+        (SELECT organization_id FROM public.table_sessions ts WHERE ts.id = o.session_id),
+        (SELECT organization_id FROM public.profiles p WHERE p.id = o.user_id)
+    )
+    WHERE o.organization_id IS NULL;
+
+    UPDATE public.order_items oi
+    SET organization_id = o.organization_id
+    FROM public.orders o
+    WHERE oi.order_id = o.id AND oi.organization_id IS NULL;
+END $$;
 
 -- 5. ترميم بنود الطلبات (Order Items)
 DO $$ BEGIN
@@ -532,7 +584,7 @@ BEGIN
         WHERE c.table_schema = 'public' 
         AND c.column_name = 'organization_id'
         AND t.table_type = 'BASE TABLE'
-        AND c.table_name NOT IN ('spatial_ref_sys', 'organizations', 'organization_backups', 'profiles', 'permissions', 'roles', 'role_permissions')
+        AND c.table_name NOT IN ('spatial_ref_sys', 'organizations', 'organization_backups', 'profiles', 'permissions', 'roles', 'role_permissions', 'security_logs')
     );
 
     FOREACH t IN ARRAY tables_list LOOP
@@ -540,5 +592,18 @@ BEGIN
         EXECUTE format('CREATE TRIGGER trg_force_org_id 
                         BEFORE INSERT ON public.%I 
                         FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_on_insert()', t);
+-- ⚙️ تريجر مزامنة إجمالي الطلب التلقائي (الصافي + الضريبة + التوصيل)
+CREATE OR REPLACE FUNCTION public.sync_order_grand_total()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.grand_total := COALESCE(NEW.subtotal, 0) + COALESCE(NEW.total_tax, 0) + COALESCE(NEW.delivery_fee, 0);
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_order_totals ON public.orders;
+CREATE TRIGGER trg_sync_order_totals
+BEFORE INSERT OR UPDATE ON public.orders
+FOR EACH ROW EXECUTE FUNCTION public.sync_order_grand_total();
     END LOOP;
 END $$;

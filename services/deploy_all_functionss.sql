@@ -31,6 +31,11 @@ BEGIN
     FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
     LOOP
         func_name := split_part(func_signature, '(', 1);
+        -- 🛡️ صمام أمان إضافي: حذف كافة توقيعات دالة الطلبات العامة لمنع التعارض بين UUID و TEXT
+        IF REPLACE(func_name, 'public.', '') = 'create_public_order' THEN
+            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+        END IF;
+
         -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح. تم تحديث القائمة لتشمل دوال التصنيع الجديدة.
         IF REPLACE(func_name, 'public.', '') IN (
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher', 'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note', 'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa', 'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift', 'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin', 'get_products_without_bom', 'calculate_product_wac', 'get_customer_balance', 'update_single_supplier_balance', 'update_product_stock', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup', 'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access', 'get_or_create_qr_for_table', 'get_current_company_settings', 'fn_ensure_kitchen_order_org', 'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse', 'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger', 'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups', 'cleanup_storage_orphans_trigger', 'sync_role_permissions', 'create_new_client_v2', 'handle_new_user', 'check_user_limit', 'prevent_system_account_deletion', 'set_emergency_mode', 'get_saas_platform_metrics', 'repair_all_admin_permissions', 'clear_demo_data'
@@ -614,7 +619,7 @@ BEGIN
 END; $$;
 
 -- 📱 دالة استقبال طلبات الزبائن عبر رمز QR (Public Menu Orders)
-CREATE OR REPLACE FUNCTION public.create_public_order(p_qr_key uuid, p_items jsonb)
+CREATE OR REPLACE FUNCTION public.create_public_order(p_qr_key uuid, p_items jsonb) -- اعتماد UUID كمعيار وحيد
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_table record;
@@ -627,75 +632,72 @@ DECLARE
     v_subtotal numeric := 0;
     v_order_item_id uuid;
     v_warehouse_id uuid;
+    v_org_id uuid;
 BEGIN
-    -- 1. التحقق من صحة رمز الطاولة (الوصول عبر SECURITY DEFINER لتخطي RLS)
+    -- 1. التحقق من صحة رمز الطاولة وجلب المنظمة
     SELECT * INTO v_table FROM public.restaurant_tables WHERE qr_access_key = p_qr_key;
     IF NOT FOUND THEN RAISE EXCEPTION 'رمز الطاولة غير صالح أو منتهي الصلاحية'; END IF;
 
-    -- 2. إيجاد أو إنشاء جلسة (Session) للطاولة لربط الطلبات بها
+    -- ✅ إضافة فحص صريح لـ organization_id من الطاولة
+    IF v_table.organization_id IS NULL THEN
+        RAISE EXCEPTION 'فشل تحديد المنظمة للطاولة "%s". يرجى مراجعة بيانات الطاولة أو التواصل مع الدعم.', v_table.name;
+    END IF;
+
+    v_org_id := v_table.organization_id;
+
+    -- 2. إيجاد أو إنشاء جلسة (Session) للطاولة
     SELECT id INTO v_session_id FROM public.table_sessions 
-    WHERE table_id = v_table.id AND status = 'OPEN' LIMIT 1;
+    WHERE table_id = v_table.id AND status = 'OPEN' AND organization_id = v_org_id LIMIT 1;
 
     IF v_session_id IS NULL THEN
-        INSERT INTO public.table_sessions (table_id, organization_id, status)
-        VALUES (v_table.id, v_table.organization_id, 'OPEN')
+        INSERT INTO public.table_sessions (table_id, organization_id, status, start_time)
+        VALUES (v_table.id, v_org_id, 'OPEN', now())
         RETURNING id INTO v_session_id;
     END IF;
 
-    -- 🚀 تحديث حالة الطاولة لتظهر "مشغولة" في شاشة الكاشير فوراً (خارج الشرط لضمان التزامن)
-    UPDATE public.restaurant_tables SET status = 'OCCUPIED' WHERE id = v_table.id;
+    -- تحديث حالة الطاولة وربط وقت الجلسة
+    UPDATE public.restaurant_tables SET status = 'OCCUPIED', session_start = now() WHERE id = v_table.id;
 
-    -- 🏗️ جلب المستودع الافتراضي للمنظمة لضمان خصم المخزون بشكل صحيح
+    -- 🏗️ جلب المستودع الافتراضي
     v_warehouse_id := COALESCE(
-        (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = v_table.organization_id),
-        (SELECT id FROM public.warehouses WHERE organization_id = v_table.organization_id AND deleted_at IS NULL LIMIT 1)
+        (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = v_org_id),
+        (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1)
     );
 
-    -- 3. جلب نسبة الضريبة من إعدادات المطعم
-    SELECT vat_rate INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_table.organization_id;
+    -- 3. جلب نسبة الضريبة
+    SELECT vat_rate INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id;
     v_tax_rate := COALESCE(v_tax_rate, 0.14);
 
     -- 4. توليد رقم طلب مميز
-    v_order_num := 'QR-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+    v_order_num := 'QR-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(v_session_id::text, 1, 4));
 
-    -- 5. إنشاء الطلب الرئيسي
+    -- 5. إنشاء الطلب الرئيسي (تعديل النوع ليتوافق مع المطبخ DINE_IN)
     INSERT INTO public.orders (
         session_id, organization_id, order_number, order_type, status, subtotal, total_tax, grand_total, warehouse_id
     ) VALUES (
-        v_session_id, v_table.organization_id, v_order_num, 'DINEIN', 'CONFIRMED', 0, 0, 0, v_warehouse_id
+        v_session_id, v_org_id, v_order_num, 'DINE_IN', 'CONFIRMED', 0, 0, 0, v_warehouse_id
     ) RETURNING id INTO v_order_id;
 
     -- 6. إضافة الأصناف وتوليد طلبات المطبخ تلقائياً
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
-        -- 🛡️ استخراج القيم بشكل آمن لمنع خطأ الـ Not Null
-        v_qty := COALESCE((v_item->>'quantity')::numeric, (v_item->>'qty')::numeric, 1);
-        v_unit_price := COALESCE(
-            (v_item->>'unit_price')::numeric, 
-            (v_item->>'unitPrice')::numeric, 
-            (v_item->>'price')::numeric, 
-            0 -- قيمة افتراضية إذا لم يتم تحديد سعر الوحدة (Ensure it's not NULL)
-        );
+        v_qty := COALESCE((v_item->>'quantity')::numeric, 1);
+        v_unit_price := COALESCE((v_item->>'unit_price')::numeric, 0);
 
-        -- 🚀 جلب التكلفة الشاملة للمنتج من بطاقة الصنف (بما في ذلك تكاليف التصنيع)
-        SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_product_cost FROM public.products WHERE id = (v_item->>'product_id')::uuid;
+        SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_product_cost 
+        FROM public.products WHERE id = (v_item->>'product_id')::uuid;
 
         INSERT INTO public.order_items (
             order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id, modifiers
         ) VALUES (
-            v_order_id, (v_item->>'product_id')::uuid, 
-            v_qty,
-            v_unit_price, 
-            (v_qty * v_unit_price),
-            v_product_cost, -- استخدام التكلفة الشاملة من بطاقة الصنف
-            v_item->>'notes', v_table.organization_id,
-            COALESCE(v_item->'modifiers', '[]'::jsonb)
+            v_order_id, (v_item->>'product_id')::uuid, v_qty, v_unit_price, (v_qty * v_unit_price),
+            v_product_cost, v_item->>'notes', v_org_id, COALESCE(v_item->'modifiers', '[]'::jsonb)
         ) RETURNING id INTO v_order_item_id;
 
         v_subtotal := v_subtotal + (v_qty * v_unit_price);
 
-        -- إرسال تنبيه للمطبخ (KDS) فوراً
+        -- ✅ إرسال تنبيه للمطبخ (KDS) فوراً
         INSERT INTO public.kitchen_orders (order_item_id, status, organization_id)
-        VALUES (v_order_item_id, 'NEW', v_table.organization_id);
+        VALUES (v_order_item_id, 'NEW', v_org_id);
     END LOOP;
 
     -- 7. تحديث إجماليات الطلب النهائية
@@ -723,17 +725,19 @@ BEGIN
         SELECT id, subtotal, total_tax, grand_total
         FROM public.orders
         WHERE (user_id = v_shift.user_id OR user_id IS NULL)
-        AND organization_id = v_shift.organization_id
+        AND organization_id = COALESCE(v_shift.organization_id, public.get_my_org())
         AND created_at BETWEEN v_shift.start_time AND now()
-        AND status IN ('COMPLETED', 'PAID', 'posted')
+        AND (status::text IN ('COMPLETED', 'PAID', 'posted'))
     )
     SELECT 
         COALESCE(SUM(subtotal), 0) as total_subtotal,
         COALESCE(SUM(total_tax), 0) as total_tax,
         COALESCE(SUM(grand_total), 0) as total_sales,
-        -- حساب المبالغ من واقع المدفوعات الفعلية (دقة متناهية للمطاعم)
+        COALESCE((SELECT SUM(delivery_fee) FROM public.delivery_orders WHERE order_id IN (SELECT id FROM shift_orders)), 0) as total_delivery_fees,
+        -- حساب المبالغ من واقع المدفوعات الفعلية (دقة متناهية للمطاعم) لخصمها من الإجمالي والوصول للآجل
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_sales,
-        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_sales
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_sales,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND status = 'COMPLETED'), 0) as total_payments
     INTO v_summary
     FROM shift_orders;
 
@@ -741,8 +745,10 @@ BEGIN
         'opening_balance', COALESCE(v_shift.opening_balance, 0),
         'total_sales', COALESCE(v_summary.total_sales, 0),
         'total_tax', COALESCE(v_summary.total_tax, 0),
+        'delivery_fees', COALESCE(v_summary.total_delivery_fees, 0),
         'cash_sales', COALESCE(v_summary.cash_sales, 0),
         'card_sales', COALESCE(v_summary.card_sales, 0),
+        'credit_sales', (v_summary.total_sales + v_summary.total_delivery_fees) - v_summary.total_payments,
         'expected_cash', COALESCE(v_shift.opening_balance, 0) + COALESCE(v_summary.cash_sales, 0)
     );
 END; $$;
@@ -755,7 +761,7 @@ DECLARE
     v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
     v_cogs_acc_id uuid; v_inventory_acc_id uuid; v_customer_acc_id uuid;
     v_diff numeric := 0; v_actual_cash_collected numeric := 0;
-    v_credit_sales numeric := 0;
+    v_cust_order record;
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الوردية غير موجودة'; END IF;
@@ -764,9 +770,9 @@ BEGIN
     DELETE FROM public.journal_entries WHERE related_document_id = p_shift_id AND related_document_type = 'shift';
 
     WITH shift_orders AS (
-        SELECT id, subtotal, total_tax FROM public.orders
+        SELECT id, subtotal, total_tax, grand_total, customer_id, order_number FROM public.orders
         WHERE (user_id = v_shift.user_id OR user_id IS NULL)
-        AND status IN ('COMPLETED', 'PAID', 'posted') 
+        AND status NOT IN ('CANCELLED', 'DRAFT') 
         AND organization_id = v_shift.organization_id
         AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
     )
@@ -782,7 +788,8 @@ BEGIN
             AND oi.organization_id = v_shift.organization_id
         ), 0) as cost_total,
         COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CASH' AND status = 'COMPLETED'), 0) as cash_total,
-        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND payment_method = 'CARD' AND status = 'COMPLETED'), 0) as card_total,
+        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM shift_orders) AND status = 'COMPLETED'), 0) as total_payments
     INTO v_summary
     FROM shift_orders;
 
@@ -792,10 +799,6 @@ BEGIN
     -- حساب الفرق والمبيعات الآجلة (Credit Sales)
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
     v_actual_cash_collected := v_summary.cash_total + v_diff;
-    
-    -- المبيعات الآجلة = (الإجمالي شامل الضريبة والتوصيل) - (ما تم دفعه فعلياً كاش أو شبكة)
-    -- المبيعات الآجلة = (الإجمالي شامل الضريبة والتوصيل) - (ما تم دفعه فعلياً كاش أو شبكة)
-    v_credit_sales := (v_summary.subtotal + v_summary.tax + v_summary.total_delivery_fees) - (v_summary.cash_total + v_summary.card_total);
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_shift.organization_id;
 
@@ -808,23 +811,41 @@ BEGIN
     v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_shift.organization_id LIMIT 1));
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-    VALUES (now()::date, 'إغلاق وردية شامل - ID: ' || substring(p_shift_id::text, 1, 8), 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org()), true, p_shift_id, 'shift') RETURNING id INTO v_je_id; -- Ensure organization_id is not NULL
+    VALUES (now()::date, 'إغلاق وردية مطعم - مستخدم: ' || v_shift.user_id, 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', v_shift.organization_id, true, p_shift_id, 'shift') RETURNING id INTO v_je_id;
     
-    -- Credits
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيراد مبيعات الوردية', v_shift.organization_id);
-    IF v_summary.total_delivery_fees > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_sales_acc_id, 0, v_summary.total_delivery_fees, 'إيراد رسوم توصيل الوردية', v_shift.organization_id); END IF;
-
-    -- 🛡️ إثبات مديونية العملاء (تم النقل هنا لضمان وجود v_je_id)
-    IF v_credit_sales > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_customer_acc_id, v_credit_sales, 0, 'مبيعات مطعم آجلة', v_shift.organization_id); END IF;
-
+    -- 1. الإيرادات والضرائب (دائن)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal + v_summary.total_delivery_fees, 'إيرادات الوردية (شامل التوصيل)', v_shift.organization_id);
     IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_shift.organization_id); END IF;
 
-    -- Debits
-    IF v_actual_cash_collected > 0 AND v_cash_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'النقدية الفعلية', v_shift.organization_id); END IF;
+    -- 2. التحصيلات الفورية (مدين)
+    IF v_actual_cash_collected > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cash_acc_id, v_actual_cash_collected, 0, 'نقدية الوردية المحصلة', v_shift.organization_id); END IF;
     IF v_summary.card_total > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_card_acc_id, v_summary.card_total, 0, 'متحصلات شبكة', v_shift.organization_id); END IF;
     
-    IF v_diff < 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_shift.organization_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية الوردية', v_shift.organization_id);
-    ELSIF v_diff > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية الوردية', v_shift.organization_id); END IF;
+    -- 3. إثبات مديونية كل عميل بشكل منفصل ليظهر في كشف حسابه
+    FOR v_cust_order IN (
+        SELECT o.id, o.grand_total, c.name as cust_name
+        FROM public.orders o JOIN public.customers c ON o.customer_id = c.id
+        WHERE o.organization_id = v_shift.organization_id 
+        AND o.created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
+        AND o.status NOT IN ('CANCELLED', 'DRAFT')
+        AND NOT EXISTS (SELECT 1 FROM public.payments p WHERE p.order_id = o.id AND p.status = 'COMPLETED')
+    ) LOOP
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_customer_acc_id, v_cust_order.grand_total, 0, 'مديونية عميل مطعم: ' || v_cust_order.cust_name, v_shift.organization_id);
+    END LOOP;
+
+    -- 4. إغلاق كافة الطلبات وربطها بالقيد لكي تختفي من شاشة الـ POS وتظهر كحركات مرحلة
+    UPDATE public.orders SET status = 'posted', related_journal_entry_id = v_je_id
+    WHERE organization_id = v_shift.organization_id 
+    AND created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())
+    AND status NOT IN ('CANCELLED', 'DRAFT');
+
+    -- 5. معالجة فروقات الصندوق (عجز أو زيادة)
+    IF v_diff > 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية الوردية', v_shift.organization_id); 
+    END IF;
 
     IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN 
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
@@ -1114,11 +1135,10 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_pa
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
     v_labor_mfg_id uuid; v_wastage_id uuid; v_raw_id uuid; v_wip_id uuid;
+    v_overhead_mfg_id uuid; -- Declare v_overhead_mfg_id here
 BEGIN
     v_vat_rate := CASE WHEN p_activity_type = 'construction' THEN 0.05 WHEN p_activity_type = 'charity' THEN 0.00 ELSE 0.14 END;
-    DECLARE v_overhead_mfg_id uuid; -- Declare v_overhead_mfg_id here
     SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
-
     CREATE TEMPORARY TABLE coa_temp (code text PRIMARY KEY, name text NOT NULL, type text NOT NULL, is_group boolean NOT NULL, parent_code text) ON COMMIT DROP;
 
     INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
@@ -1171,7 +1191,7 @@ BEGIN
 
     -- 🚀 إنشاء دور المدير وحفظ معرفه في متغير لضمان السرعة والدقة
     INSERT INTO public.roles (organization_id, name, description)
-    VALUES (p_org_id, 'admin', 'مدير النظام')
+    VALUES (p_org_id, 'admin', 'مدير النظام - صلاحيات كاملة')
     ON CONFLICT (name, organization_id) 
     DO UPDATE SET description = EXCLUDED.description
     RETURNING id INTO v_role_id;
@@ -2243,7 +2263,7 @@ CREATE OR REPLACE FUNCTION public.mfg_issue_material_request(p_request_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
-    v_request record; v_item record; v_org_id uuid; v_journal_id uuid; v_mappings jsonb; v_current_stock numeric;
+    v_request record; v_item record; v_org_id uuid; v_je_id uuid; v_mappings jsonb; v_current_stock numeric;
     v_inv_raw_acc uuid; v_wip_acc uuid; v_total_issued_cost numeric := 0; v_product_cost numeric;
 BEGIN
     SELECT * INTO v_request FROM public.mfg_material_requests WHERE id = p_request_id;
@@ -2282,8 +2302,11 @@ BEGIN
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
         VALUES (now()::date, 'صرف مواد لأمر الإنتاج رقم: ' || (SELECT order_number FROM public.mfg_production_orders WHERE id = v_request.production_order_id), v_request.request_number, 'posted', v_org_id, true, p_request_id, 'mfg_material_request')
         RETURNING id INTO v_je_id;
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES 
+            (v_je_id, v_wip_acc, v_total_issued_cost, 0, 'تحميل مواد خام على WIP', v_org_id), 
+            (v_je_id, v_inv_raw_acc, 0, v_total_issued_cost, 'صرف مواد خام من المخزن', v_org_id);
     END IF;
     PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
@@ -4176,31 +4199,36 @@ END; $$;
 -- يضمن هذا المحرك أن أي صف يتم إنشاؤه سيأخذ رقم منظمة المستخدم الحالية تلقائياً
 CREATE OR REPLACE FUNCTION public.fn_force_org_id_on_insert()
 RETURNS TRIGGER AS $$
+DECLARE
+    v_current_org uuid;
 BEGIN
-    -- 🛡️ وضع الاستعادة: يسمح بمرور البيانات كما هي دون تعديل الهوية لضمان تماسك الروابط (FK Stability)
+    -- 🛡️ وضع الاستعادة
     IF current_setting('app.restore_mode', true) = 'on' THEN
         RETURN NEW;
     END IF;
 
-    -- إذا كان المستخدم سوبر أدمن، نسمح له بتحديد المنظمة يدوياً
-    IF public.get_my_role() = 'super_admin' THEN
-        NEW.organization_id := COALESCE(NEW.organization_id, public.get_my_org());
-    
-    -- 🛡️ تحسين: إذا كان المشغل يتم تنفيذه من خلال كود برمجي (مثل الاختبارات) ولم يتم تحديد منظمة للمستخدم بعد
-    ELSIF public.get_my_org() IS NULL AND NEW.organization_id IS NOT NULL THEN
-        -- نترك القيمة الممررة يدوياً كما هي (لأن اليوزر العالمي قد لا يكون له منظمة مرتبطة ببروفايله)
-        RETURN NEW;
-
-    ELSE
-        -- 🛡️ حماية SaaS: منع أي محاولة حقن بيانات في منظمة أخرى للمستخدمين العاديين
-        IF NEW.organization_id IS NOT NULL AND NEW.organization_id != public.get_my_org() THEN
-             RAISE EXCEPTION 'تحذير أمني: لا يمكنك إدراج بيانات في منظمة أخرى.';
-        END IF;
-
-        -- للآدمن وأي مستخدم آخر: نفرض منظمتهم الحقيقية من البروفايل
-        NEW.organization_id := public.get_my_org();
+    -- 🏗️ المرحلة 1: محرك الوراثة الذكي
+    IF TG_TABLE_NAME = 'bill_of_materials' AND NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id FROM public.products WHERE id = NEW.product_id;
+    ELSIF TG_TABLE_NAME = 'table_sessions' AND NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id FROM public.restaurant_tables WHERE id = NEW.table_id;
+    ELSIF TG_TABLE_NAME = 'orders' AND NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id FROM public.table_sessions WHERE id = NEW.session_id;
+    ELSIF TG_TABLE_NAME = 'order_items' AND NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id FROM public.orders WHERE id = NEW.order_id;
     END IF;
-    
+
+    -- 🏗️ المرحلة 2: تحديد المنظمة وفرضها
+    v_current_org := public.get_my_org();
+
+    IF public.get_my_role() = 'super_admin' THEN
+        NEW.organization_id := COALESCE(NEW.organization_id, v_current_org);
+    ELSE
+        NEW.organization_id := v_current_org;
+        IF NEW.organization_id IS NULL THEN
+             RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى تسجيل الدخول مجدداً.';
+        END IF;
+    END IF;
     
     RETURN NEW;
 END; $$ LANGUAGE plpgsql SECURITY DEFINER;

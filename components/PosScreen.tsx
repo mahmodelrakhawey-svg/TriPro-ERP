@@ -1048,6 +1048,7 @@ const PosScreen = () => {
       type: 'delivery',
       deliveryFee: DELIVERY_FEE
     });
+    setIsCustomerModalOpen(true); // فتح قائمة العملاء تلقائياً لضمان ربط الطلب بالعميل
   };
   const addItemToOrder = (product: Product) => {
     if (!activeOrder) {

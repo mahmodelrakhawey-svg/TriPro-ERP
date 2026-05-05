@@ -270,12 +270,14 @@ COMMENT ON TABLE public.delivery_orders IS 'Additional details for delivery orde
 
 -- جدول وصفات الأصناف (Bill of Materials)
 CREATE TABLE IF NOT EXISTS public.bill_of_materials (
+    organization_id UUID REFERENCES public.organizations(id),
     product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE, -- Menu Item ID
     raw_material_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE, -- Ingredient ID (Renamed for clarity)
     quantity_required NUMERIC(10, 3) NOT NULL,
     PRIMARY KEY (product_id, raw_material_id)
 );
 COMMENT ON TABLE public.bill_of_materials IS 'Defines the ingredients and quantities for each menu item (Recipe/BOM).';
+ALTER TABLE public.bill_of_materials ADD COLUMN IF NOT EXISTS organization_id UUID REFERENCES public.organizations(id);
 
 -- جدول حركات المخزون
 CREATE TABLE IF NOT EXISTS public.inventory_transactions (

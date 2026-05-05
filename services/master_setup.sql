@@ -54,8 +54,13 @@ CREATE TABLE IF NOT EXISTS public.organization_backups (
 CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _role text;
 BEGIN
+    -- 1. فحص التوكن أولاً (JWT Claims)
     _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', '');
+    IF _role IS NULL THEN
+        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '');
+    END IF;
     IF _role IS NOT NULL THEN RETURN _role; END IF;
+    -- 2. الرجوع للجدول (Fall-back)
     SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
     RETURN COALESCE(_role, 'viewer');
 END; $$;
@@ -63,11 +68,11 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _org_id uuid;
 BEGIN
-    -- 1. البحث في البروفايل أولاً (الحقيقة المطلقة للآدمن والعملاء)
+    -- 1. البحث في البروفايل (الأولوية القصوى للأدمن والمستخدمين)
     SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
 
-    -- 2. السوبر أدمن قد يحتاج التوكن للتنقل بين الشركات
+    -- 2. السوبر أدمن: البحث في التوكن للتنقل
     _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
     RETURN _org_id;
 END; $$;
@@ -448,7 +453,8 @@ CREATE TABLE IF NOT EXISTS public.mfg_order_progress (
     labor_cost_actual numeric DEFAULT 0,
     qc_verified boolean DEFAULT NULL,
     employee_id uuid REFERENCES public.employees(id),
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS public.mfg_step_materials (
@@ -633,6 +639,9 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoices (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now() NOT NULL,
     paid_amount numeric DEFAULT 0,
+    delivery_fee numeric DEFAULT 0,
+    order_type text DEFAULT 'DINE_IN',
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     treasury_account_id uuid REFERENCES public.accounts(id),
     CONSTRAINT purchase_invoices_number_org_unique UNIQUE (organization_id, invoice_number)
 );
@@ -693,9 +702,9 @@ CREATE TABLE IF NOT EXISTS public.restaurant_tables (
 CREATE TABLE IF NOT EXISTS public.table_sessions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     table_id uuid REFERENCES public.restaurant_tables(id) ON DELETE CASCADE,
-    opened_by uuid REFERENCES public.profiles(id),
-    opened_at timestamptz DEFAULT now(),
-    closed_at timestamptz,
+    user_id uuid REFERENCES public.profiles(id),
+    start_time timestamptz DEFAULT now(),
+    end_time timestamptz,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     status text DEFAULT 'OPEN'
 );
@@ -709,7 +718,10 @@ CREATE TABLE IF NOT EXISTS public.orders (
     subtotal numeric DEFAULT 0,
     total_tax numeric DEFAULT 0,
     grand_total numeric DEFAULT 0,
+    delivery_fee numeric DEFAULT 0,
+    order_type text DEFAULT 'DINE_IN',
     warehouse_id uuid REFERENCES public.warehouses(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     user_id uuid REFERENCES public.profiles(id),
     created_at timestamptz DEFAULT now()

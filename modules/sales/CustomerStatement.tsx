@@ -108,7 +108,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
         // 6. Fetch Restaurant Orders (Debit) - جلب طلبات المطعم (توصيل/سفري/محلي)
         const { data: restOrders } = await supabase.from('orders')
-            .select('id, order_number, created_at, subtotal, total_tax, order_type, related_journal_entry_id')
+            .select('id, order_number, created_at, grand_total, order_type, status, related_journal_entry_id')
             .match(filter) // Apply filter here
             .neq('status', 'CANCELLED');
             
@@ -123,12 +123,12 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
         // فلترة القيود يدوياً لضمان استبعاد COLL و TRF ومنع التداخل
         const filteredManual = manualEntries?.filter(je => {
-            const ref = (je.reference || '').toString().trim().toUpperCase();
-            const desc = (je.description || '').toLowerCase();
-            const custName = (selectedCustomer?.name || '').toLowerCase();
-            const isTarget = desc.includes(custName) || ref.includes('OB-');
-            const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-') || ref.includes('RV-') || ref.includes('SHIFT-') || je.related_document_type === 'shift'; 
-            return isTarget && !isForbidden;
+          const ref = (je.reference || '').toString().trim().toUpperCase();
+          const desc = (je.description || '').toLowerCase();
+          const custName = (selectedCustomer?.name || '').toLowerCase();
+          const isTarget = desc.includes(custName) || ref.includes('OB-');
+          const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-'); 
+          return isTarget && !isForbidden;
         }) || [];
 
         // 7. Fetch Restaurant Payments (Credit) - جلب مدفوعات المطعم المرتبطة
@@ -197,7 +197,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
         // إضافة حركات المطعم (مدين)
         restOrders?.forEach(ord => {
-            const total = (Number(ord.subtotal) || 0) + (Number(ord.total_tax) || 0);
+            const total = Number(ord.grand_total) || 0;
             if (total > 0) {
                 let typeLabel = 'طلب مطعم';
                 if (ord.order_type === 'DELIVERY') typeLabel = 'طلب توصيل 🛵';
@@ -206,7 +206,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
                 allTrans.push({
                     id: ord.id,
-                    date: ord.created_at,
+                    date: ord.created_at ? ord.created_at.split('T')[0] : '', 
                     type: 'pos_order',
                     ref: ord.order_number,
                     desc: typeLabel,

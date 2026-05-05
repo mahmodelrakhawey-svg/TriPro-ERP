@@ -13,7 +13,7 @@ interface Ingredient {
 }
 
 const RecipeManagement = ({ productId, productName, onClose }: { productId: string, productName: string, onClose: () => void }) => {
-  const { products, settings, updateProduct } = useAccounting();
+  const { products, settings, updateProduct, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -116,7 +116,8 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
         const toInsert = ingredients.map(i => ({
           product_id: productId,
           raw_material_id: i.raw_material_id,
-          quantity_required: i.quantity_required
+          quantity_required: i.quantity_required,
+          organization_id: currentUser?.organization_id
         }));
 
         const { error: insertError } = await supabase

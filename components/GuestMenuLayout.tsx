@@ -208,7 +208,7 @@ const updateItemNotes = (localId: string, newNotes: string) => {
         p_items: payloadItems
       });
       
-      if (error) throw error;
+      if (error) throw error; // ملاحظة للمطور: دالة 'create_public_order' في قاعدة البيانات هي المسؤولة عن إنشاء طلبات المطبخ (kitchen_orders)
 
       showToast('✅ تم إرسال طلبك بنجاح! سيصلك قريباً.', 'success');
       setCart([]);
