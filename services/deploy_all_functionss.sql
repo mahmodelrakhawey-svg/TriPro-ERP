@@ -191,8 +191,8 @@ BEGIN
     FOR v_item IN SELECT ii.*, p.product_type FROM public.invoice_items ii JOIN public.products p ON ii.product_id = p.id WHERE ii.invoice_id = p_invoice_id LOOP
         -- 🚀 محرك التكلفة الذكي: يعطي الأولوية للتكلفة الشاملة (بما فيها التصنيع) من بطاقة الصنف
         SELECT COALESCE(
-            p.cost, -- التكلفة الشاملة (مواد + عمالة + مصاريف غير مباشرة)
-            NULLIF(p.weighted_average_cost, 0),
+            cost, -- التكلفة الشاملة (مواد + عمالة + مصاريف غير مباشرة)
+            NULLIF(weighted_average_cost, 0),
             NULLIF(purchase_price, 0), 
             0
         ) INTO v_item_cost -- Use COALESCE for default 0
@@ -3050,54 +3050,66 @@ BEGIN
         status = CASE WHEN p_status = 'rework' THEN 'active' ELSE status END
     WHERE id = p_progress_id;
 END; $$;
--- 🚀 منح الصلاحيات النهائية وتحديث الكاش لضمان رؤية كافة الدوال المدمجة
+-- 🛠️ دالة مساعدة: Overload لـ mfg_record_qc_inspection لمطابقة استدعاء الواجهة الأمامية الخاطئ
+-- هذه الدالة تسمح للواجهة الأمامية باستدعاء الدالة بترتيب خاطئ للمعاملات (p_notes, p_progress_id, p_status)
+-- ثم تقوم بإعادة توجيه الاستدعاء إلى الدالة الأصلية بالترتيب الصحيح.
+CREATE OR REPLACE FUNCTION public.mfg_record_qc_inspection(
+    p_notes_client text,
+    p_progress_id_client uuid,
+    p_status_client text
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+BEGIN
+    -- استدعاء الدالة الأصلية بالترتيب الصحيح للمعاملات
+    PERFORM public.mfg_record_qc_inspection(p_progress_id_client, p_status_client, p_notes_client, NULL);
+END; $$;
 
 -- 📊 رؤية ربحية أمر الإنتاج (Manufacturing Order Profitability View)
 -- هذه الرؤية تجمع كافة التكاليف الفعلية لأمر إنتاج واحد
 DROP VIEW IF EXISTS public.v_mfg_order_profitability CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_order_profitability WITH (security_invoker = true) AS
-SELECT
-    po.id AS order_id,
-    po.order_number,
-    p.name AS product_name,
-    po.quantity_to_produce AS qty,
-    po.organization_id,
-    -- Sum of actual labor costs from all steps
-    COALESCE(SUM(op.labor_cost_actual), 0) AS total_labor_cost,
-    -- Sum of actual overhead costs from all steps (calculated based on standard time for actual quantity)
-    COALESCE(SUM((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate), 0) AS total_overhead_cost,
-    -- Sum of actual material usage costs (from mfg_actual_material_usage)
-    COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS total_actual_material_cost_from_usage,
-    -- Sum of material request items issued costs (from mfg_material_requests)
-    COALESCE(SUM(mri.quantity_issued * COALESCE(p_mri.weighted_average_cost, p_mri.cost, p_mri.purchase_price, 0)), 0) AS total_actual_material_cost_from_requests,
-    -- Total actual cost
-    (COALESCE(SUM(op.labor_cost_actual), 0) +
-     COALESCE(SUM((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate), 0) +
-     COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) +
-     COALESCE(SUM(mri.quantity_issued * COALESCE(p_mri.weighted_average_cost, p_mri.cost, p_mri.purchase_price, 0)), 0)
-    ) AS total_actual_cost
-FROM
-    public.mfg_production_orders po
-JOIN
-    public.products p ON po.product_id = p.id
-LEFT JOIN
-    public.mfg_order_progress op ON po.id = op.production_order_id
-LEFT JOIN
-    public.mfg_routing_steps rs ON op.step_id = rs.id
-LEFT JOIN
-    public.mfg_work_centers wc ON rs.work_center_id = wc.id
-LEFT JOIN
-    public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
-LEFT JOIN
-    public.products rm ON amu.raw_material_id = rm.id
-LEFT JOIN
-    public.mfg_material_requests mr ON po.id = mr.production_order_id AND mr.status = 'issued'
-LEFT JOIN
-    public.mfg_material_request_items mri ON mr.id = mri.material_request_id
-LEFT JOIN
-    public.products p_mri ON mri.raw_material_id = p_mri.id
-GROUP BY
-    po.id, po.order_number, p.name, po.quantity_to_produce, po.organization_id;
+WITH labor_summary AS (
+    SELECT 
+        op.production_order_id,
+        SUM(COALESCE(op.labor_cost_actual, 0)) as total_labor,
+        SUM(COALESCE((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate, 0)) as total_overhead
+    FROM public.mfg_order_progress op
+    JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
+    JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
+    GROUP BY op.production_order_id
+),
+material_summary AS (
+    SELECT po_id, SUM(cost) as total_material_cost
+    FROM (
+        SELECT op.production_order_id as po_id, SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)) as cost
+        FROM public.mfg_actual_material_usage amu
+        JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+        JOIN public.products rm ON amu.raw_material_id = rm.id
+        GROUP BY op.production_order_id
+        UNION ALL
+        SELECT mr.production_order_id as po_id, SUM(mri.quantity_issued * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0)) as cost
+        FROM public.mfg_material_request_items mri
+        JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
+        JOIN public.products p ON mri.raw_material_id = p.id
+        WHERE mr.status = 'issued'
+        GROUP BY mr.production_order_id
+    ) all_mats GROUP BY po_id
+)
+SELECT 
+    po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.organization_id,
+    (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) as sales_value,
+    (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0)) as actual_labor,
+    COALESCE(ms.total_material_cost, 0) as actual_material,
+    (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)) as total_actual_cost,
+    ((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0))) as net_profit,
+    CASE WHEN (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) > 0 
+         THEN ROUND((((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0))) / (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) * 100), 2)
+         ELSE 0 END as margin_percentage
+FROM public.mfg_production_orders po
+JOIN public.products p ON po.product_id = p.id
+LEFT JOIN labor_summary ls ON po.id = ls.production_order_id
+LEFT JOIN material_summary ms ON po.id = ms.po_id;
 
 GRANT SELECT ON public.v_mfg_order_profitability TO authenticated;
 
@@ -3276,44 +3288,6 @@ SELECT
 FROM public.mfg_batch_serials bs
 JOIN public.products p ON bs.product_id = p.id
 JOIN public.mfg_production_orders po ON bs.production_order_id = po.id;
-
-        'bill_of_materials', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.bill_of_materials t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'stock_adjustments', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.stock_adjustments t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'stock_adjustment_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.stock_adjustment_items t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'opening_inventories', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.opening_inventories t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'assets', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.assets t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'payrolls', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payrolls t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'payroll_items', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payroll_items t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'payroll_variables', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.payroll_variables t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'work_orders', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.work_orders t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'credit_notes', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.credit_notes t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'debit_notes', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.debit_notes t WHERE organization_id = p_org_id), '[]'::jsonb),
-        'notifications', COALESCE((SELECT jsonb_agg(to_jsonb(t)) FROM public.notifications t WHERE user_id IN (SELECT id FROM public.profiles WHERE organization_id = p_org_id)), '[]'::jsonb)
-    ) INTO v_final_json;
-
-    -- 🔒 توليد البصمة الرقمية (Checksum) وحقنها في الملف
-    v_final_json := v_final_json || jsonb_build_object('checksum', md5(v_final_json::text));
-
-    -- 🛡️ [اختياري] يمكن تشفير حقل معين أو الملف كاملاً باستخدام pgcrypto هنا في المرحلة القادمة
-    -- حالياً نعتمد على حماية الـ RLS والبصمة الرقمية لضمان النزاهة.
-
-    -- إدراج النسخة في جدول النسخ الاحتياطية
-    INSERT INTO public.organization_backups (
-        organization_id, 
-        backup_data, 
-        file_size_kb, 
-        created_by,
-        notes
-    ) VALUES (
-        p_org_id, 
-        v_final_json, 
-        pg_column_size(v_final_json) / 1024.0, 
-        auth.uid(),
-        'نسخة احتياطية تلقائية للنظام'
-    ) RETURNING id INTO v_backup_id;
-
-    RETURN v_backup_id;
-END; $$;
 
 -- 🛠️ دالة تشغيل النسخ الاحتياطي لكافة الشركات (Global Backup Runner)
 -- تُستخدم هذه الدالة بواسطة نظام الجدولة (Cron Job) لتشغيل النسخ الاحتياطي آلياً
