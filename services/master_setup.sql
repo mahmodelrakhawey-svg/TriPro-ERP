@@ -599,6 +599,29 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number)
 );
 
+-- أوامر البيع (Sales Orders) - المستند الوسيط للتصنيع
+CREATE TABLE IF NOT EXISTS public.sales_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_number text NOT NULL,
+    customer_id uuid REFERENCES public.customers(id) ON DELETE CASCADE,
+    order_date date DEFAULT now(),
+    status text DEFAULT 'draft', -- draft, confirmed, manufacturing, ready, invoiced
+    total_amount numeric DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    notes text,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    UNIQUE(organization_id, order_number)
+);
+
+CREATE TABLE IF NOT EXISTS public.sales_order_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    sales_order_id uuid REFERENCES public.sales_orders(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity numeric NOT NULL DEFAULT 1,
+    unit_price numeric DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
 -- 2. جداول المبيعات والمشتريات (Detailed Version)
 -- تم استبدال الكتل المبسطة والمكررة بهذه النسخة السيادية الموحدة
 

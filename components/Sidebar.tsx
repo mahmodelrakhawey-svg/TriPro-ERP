@@ -315,6 +315,12 @@ const Sidebar = () => {
                 <span>سجل العروض</span>
                 </Link>
                 )}
+                {canShow(['sales'], ['orders', 'read', 'view']) && (
+                <Link to="/sales-orders" className={getNavClass('/sales-orders')}>
+                <ShoppingCart size={18} />
+                <span>أوامر البيع (التصنيع)</span>
+                </Link>
+                )}
                 {canShow(['sales'], ['create']) && (
                 <Link to="/sales-invoice" className={getNavClass('/sales-invoice')}>
                 <Receipt size={18} />

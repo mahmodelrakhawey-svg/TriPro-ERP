@@ -76,6 +76,7 @@ import PayrollReport from './modules/hr/PayrollReport';
 import EmployeeStatement from './modules/hr/EmployeeStatement';
 import EmployeeReports from './modules/hr/EmployeeReports';
 import ManufacturingManager from './modules/manufacturing/ManufacturingManager'; // Keep for now if still used elsewhere or for migration
+import SalesOrders from './modules/sales/SalesOrders';
 import QuotationForm from './modules/sales/QuotationForm';
 import QuotationList from './modules/sales/QuotationList';
 import CreditNoteForm from './modules/sales/CreditNoteForm';
@@ -363,6 +364,7 @@ const MainLayout = () => {
                 <Route path="/customer-aging" element={<ModuleGuard module="sales"><CustomerAgingReport /></ModuleGuard>} />
                 <Route path="/quotations-new" element={<ModuleGuard module="sales"><QuotationForm /></ModuleGuard>} />
                 <Route path="/quotations-list" element={<ModuleGuard module="sales"><QuotationList /></ModuleGuard>} />
+                <Route path="/sales-orders" element={<ModuleGuard module="sales"><SalesOrders /></ModuleGuard>} />
                 <Route path="/credit-note" element={<ModuleGuard module="sales"><CreditNoteForm /></ModuleGuard>} />
                 <Route path="/credit-notes-list" element={<ModuleGuard module="sales"><CreditNoteList /></ModuleGuard>} />
                 <Route path="/debit-notes-list" element={<ModuleGuard module="purchases"><DebitNoteList /></ModuleGuard>} />

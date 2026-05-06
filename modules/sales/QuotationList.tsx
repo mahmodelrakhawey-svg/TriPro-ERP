@@ -1,7 +1,8 @@
+
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { ArrowRight, Printer, Filter, FileDown, Copy, ChevronLeft, ChevronRight, Loader2, FilePlus, Edit, X, Trash2 } from 'lucide-react';
+import { ArrowRight, Printer, Filter, FileDown, Copy, ChevronLeft, ChevronRight, Loader2, FilePlus, Edit, X, Trash2, Settings2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
 import { usePagination } from '../../components/usePagination';
@@ -99,6 +100,25 @@ const QuotationList = () => {
           treasuryId: initialTreasury, 
           paidAmount: 0 
       });
+  };
+
+  // دالة تحويل عرض السعر إلى أمر بيع (Sales Order) لبدء التصنيع
+  // دالة تحويل عرض السعر إلى أمر بيع (Sales Order) لبدء التصنيع
+  const handleConvertToSO = async (id: string) => {
+    if (!window.confirm('هل تريد تحويل هذا العرض إلى "أمر بيع" مؤكد لبدء عملية التصنيع؟')) return;
+    
+    try {
+      const { data, error } = await supabase.rpc('convert_quotation_to_so', {
+        p_quotation_id: id
+      });
+
+      if (error) throw error;
+
+      showToast('تم التحويل إلى أمر بيع بنجاح ✅ يمكنك الآن بدء الإنتاج من شاشة أوامر البيع.', 'success');
+      refresh();
+    } catch (error: any) {
+      showToast('خطأ في التحويل: ' + error.message, 'error');
+    }
   };
 
   const confirmConvert = async () => {
@@ -545,6 +565,14 @@ const QuotationList = () => {
                                     </button>
                                     {q.status !== 'accepted' && (
                                         <button onClick={() => handleUpdateStatus(q.id, 'accepted')} className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded text-xs hover:bg-emerald-100 font-medium">قبول</button>
+                                    )}
+                                    {q.status !== 'accepted' && q.status !== 'converted' && (
+                                        <button 
+                                            onClick={() => handleConvertToSO(q.id)}
+                                            className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs hover:bg-indigo-100 font-bold flex items-center gap-1"
+                                        >
+                                            <Settings2 size={12} /> تحويل لتصنيع
+                                        </button>
                                     )}
                                     <button onClick={() => handleConvertClick(q.id)} className="text-purple-600 bg-purple-50 px-2 py-1 rounded text-xs hover:bg-purple-100 flex items-center gap-1 font-medium">
                                         تحويل لفاتورة <ArrowRight size={10} />

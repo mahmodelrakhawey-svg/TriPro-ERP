@@ -211,6 +211,17 @@ BEGIN
         UPDATE public.products 
         SET stock = stock + v_order.quantity_to_produce 
         WHERE id = v_order.product_id AND organization_id = v_org_id;
+
+        -- 🚀 تحديث حالة أمر البيع المرتبط إلى "جاهز" (Ready) لتمكين الفوترة
+        UPDATE public.sales_orders 
+        SET status = 'ready' 
+        WHERE order_number = v_order.batch_number AND organization_id = v_org_id;
+
+        -- 🔔 إرسال إشعار لموظفي المبيعات والمديرين
+        INSERT INTO public.notifications (user_id, title, message, type, organization_id)
+        SELECT p.id, 'تنبيه: طلب جاهز للفوترة', 'أمر البيع رقم (' || v_order.batch_number || ') اكتمل تصنيعه وهو جاهز للإرسال الآن.', 'info', v_org_id
+        FROM public.profiles p 
+        WHERE p.organization_id = v_org_id AND p.role IN ('admin', 'sales', 'manager');
     ELSE
         -- حالة الرفض (Rejected/Scrapped)
         UPDATE public.mfg_production_orders SET status = 'cancelled', notes = 'مرفوض جودة: ' || p_qc_notes WHERE id = p_order_id;
@@ -477,13 +488,16 @@ BEGIN
     v_org_id := public.get_my_org();
     v_batch_ref := 'BATCH-' || to_char(now(), 'YYMMDDHH24MI') || '-' || substring(gen_random_uuid()::text, 1, 4);
 
-    -- 1. تجميع الكميات المطلوبة لكل منتج من الفواتير المحددة
+    -- تجميع الكميات المطلوبة لكل منتج من الفواتير وأوامر البيع المحددة
     FOR v_item IN 
-        SELECT ii.product_id, SUM(ii.quantity) as total_qty
-        FROM public.invoice_items ii
-        WHERE ii.invoice_id = ANY(p_invoice_ids)
-        AND EXISTS (SELECT 1 FROM public.mfg_routings r WHERE r.product_id = ii.product_id)
-        GROUP BY ii.product_id
+        SELECT combined.product_id, SUM(combined.quantity) as total_qty
+        FROM (
+            SELECT product_id, quantity FROM public.invoice_items WHERE invoice_id = ANY(p_invoice_ids)
+            UNION ALL
+            SELECT product_id, quantity FROM public.sales_order_items WHERE sales_order_id = ANY(p_invoice_ids)
+        ) combined
+        WHERE EXISTS (SELECT 1 FROM public.mfg_routings r WHERE r.product_id = combined.product_id)
+        GROUP BY combined.product_id
     LOOP
         -- 2. إنشاء أمر إنتاج موحد للكمية الكلية
         INSERT INTO public.mfg_production_orders (
@@ -1044,8 +1058,8 @@ SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
-    SELECT i.id, i.invoice_number, c.name, i.created_at, COALESCE(i.total_amount, 0) as total
-    , i.status
+    -- 1. جلب الفواتير التقليدية (للتوافق مع النظام القديم)
+    SELECT i.id, i.invoice_number as invoice_num, c.name as cust_name, i.created_at as order_date, COALESCE(i.total_amount, 0) as total, i.status as invoice_status
     FROM public.invoices i
     JOIN public.customers c ON i.customer_id = c.id
     WHERE i.organization_id = p_org_id
@@ -1060,7 +1074,18 @@ BEGIN
         -- استبعاد الفاتورة إذا كان رقمها موجوداً ضمن مرجع الدفعة أو حقل مخصص
         WHERE po.batch_number LIKE '%' || i.invoice_number || '%'
     )
-    ORDER BY i.created_at DESC;
+    UNION ALL
+    -- 2. جلب أوامر البيع الجديدة (Sales Orders) - هذا هو التحديث المطلوب
+    SELECT so.id, so.order_number, c.name, so.created_at, COALESCE(so.total_amount, 0), so.status
+    FROM public.sales_orders so
+    JOIN public.customers c ON so.customer_id = c.id
+    WHERE so.organization_id = p_org_id
+    AND so.status = 'confirmed' -- تظهر فقط الأوامر المؤكدة وغير المنتجة بعد
+    AND NOT EXISTS (
+        SELECT 1 FROM public.mfg_production_orders po 
+        WHERE po.batch_number = so.order_number
+    )
+    ORDER BY 4 DESC;
 END; $$;
 
 -- 📊 21. عرض انحراف المواد (BOM Variance View)

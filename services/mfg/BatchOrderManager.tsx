@@ -18,6 +18,7 @@ interface SalesInvoice {
   created_at: string;
   total_amount: number;
   invoice_status: string; // Added this line
+  type: 'invoice' | 'sales_order';
 }
 
 const BatchOrderManager = () => {
@@ -29,6 +30,7 @@ const BatchOrderManager = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
+  const [bulkStarting, setBulkStarting] = useState(false);
   const [shortages, setShortages] = useState<Shortage[]>([]);
 
   const fetchPendingInvoices = async () => {
@@ -51,6 +53,7 @@ const BatchOrderManager = () => {
         created_at: inv.order_date, // RPC returns order_date
         total_amount: inv.total, // RPC returns total (now guaranteed non-null)
         invoice_status: inv.invoice_status, // Added this line
+        type: inv.doc_type,
       }));
       setInvoices(formattedInvoices);
     }
@@ -74,10 +77,15 @@ const BatchOrderManager = () => {
     
     let allShortages: Shortage[] = [];
     
-    for (const invId of selectedIds) {
-      const invoice = invoices.find(i => i.id === invId);
-      // جلب الأصناف المرتبطة بالفاتورة والتي تحتاج تصنيع
-      const { data: items } = await supabase.from('invoice_items').select('product_id, quantity').eq('invoice_id', invId);
+    for (const id of selectedIds) {
+      // محاولة جلب الأصناف من الفواتير
+      let { data: items } = await supabase.from('invoice_items').select('product_id, quantity').eq('invoice_id', id);
+      
+      // إذا لم يجد شيئاً، يبحث في أوامر البيع
+      if (!items || items.length === 0) {
+        const { data: soItems } = await supabase.from('sales_order_items').select('product_id, quantity').eq('sales_order_id', id);
+        items = soItems;
+      }
       
       if (items) {
         for (const item of items) {
@@ -120,6 +128,26 @@ const BatchOrderManager = () => {
     setProcessing(false);
   };
 
+  const handleBulkStartProduction = async () => {
+    if (selectedIds.length === 0) return;
+
+    setBulkStarting(true);
+    try {
+      const { data, error } = await supabase.rpc('mfg_start_production_orders_batch', {
+        p_order_ids: selectedIds
+      });
+
+      if (error) {
+        showToast(error.message, 'error');
+      } else {
+        showToast(`تم بدء ${data} أمر إنتاج بنجاح`, 'success');
+        setSelectedIds([]);
+        fetchPendingInvoices();
+      }
+    } finally {
+      setBulkStarting(false);
+    }
+  };
   return (
     <div className="p-6 bg-gray-50 min-h-screen" dir="rtl">
       <div className="max-w-5xl mx-auto">
@@ -142,6 +170,16 @@ const BatchOrderManager = () => {
           >
             {processing ? <Loader2 className="animate-spin" /> : <Play size={20} />}
             إنشاء دفعة إنتاج مجمعة ({selectedIds.length})
+          </button>
+        </div>
+        <div className="flex justify-end items-center mb-6">
+          <button
+            onClick={handleBulkStartProduction}
+            disabled={selectedIds.length === 0 || bulkStarting}
+            className="flex items-center gap-2 bg-green-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 transition-all shadow-lg shadow-green-200"
+          >
+            {bulkStarting ? <Loader2 className="animate-spin" /> : <Play size={20} />}
+            بدء الإنتاج للأوامر المحددة ({selectedIds.length})
           </button>
         </div>
 
@@ -188,6 +226,7 @@ const BatchOrderManager = () => {
                       {selectedIds.length === invoices.length ? <CheckSquare className="text-purple-600" /> : <Square />}
                     </button>
                   </th>
+                  <th className="p-4">النوع</th>
                   <th className="p-4">رقم الفاتورة</th>
                   <th className="p-4">العميل</th>
                   <th className="p-4">التاريخ</th>
@@ -206,6 +245,13 @@ const BatchOrderManager = () => {
                         <CheckSquare size={20} className="text-purple-600" /> : 
                         <Square size={20} className="text-gray-300" />
                       }
+                    </td>
+                    <td className="p-4">
+                      {invoice.type === 'invoice' ? (
+                        <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-bold">فاتورة</span>
+                      ) : (
+                        <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded text-xs font-bold">أمر بيع</span>
+                      )}
                     </td>
                     <td className="p-4 font-mono font-bold text-gray-700">{invoice.invoice_number}</td>
                     <td className="p-4">

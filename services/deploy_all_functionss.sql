@@ -232,7 +232,12 @@ BEGIN
 
     IF COALESCE(v_invoice.discount_amount, 0) > 0 AND v_discount_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_discount_acc_id, COALESCE(v_invoice.discount_amount, 0), 0, 'خصم ممنوح', v_org_id); END IF;
     IF v_sales_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_sales_acc_id, 0, v_invoice.subtotal, 'إيراد مبيعات', v_org_id); END IF;
-    IF COALESCE(v_invoice.tax_amount, 0) > 0 AND v_vat_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, COALESCE(v_invoice.tax_amount, 0), 'ضريبة القيمة المضافة', v_org_id); END IF;
+    IF COALESCE(v_invoice.tax_amount, 0) > 0 THEN
+        IF v_vat_acc_id IS NULL THEN
+            RAISE EXCEPTION 'فشل الترحيل: حساب ضريبة القيمة المضافة (VAT) غير معرّف في إعدادات الربط لهذه المنظمة.';
+        END IF;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, COALESCE(v_invoice.tax_amount, 0), 'ضريبة القيمة المضافة', v_org_id);
+    END IF;
     IF v_total_cost > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة مبيعات', v_org_id), (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون', v_org_id); END IF;
 
     -- 7. تحديث حالة الفاتورة
@@ -646,10 +651,10 @@ BEGIN
 
     -- 2. إيجاد أو إنشاء جلسة (Session) للطاولة
     SELECT id INTO v_session_id FROM public.table_sessions 
-    WHERE table_id = v_table.id AND status = 'OPEN' AND organization_id = v_org_id LIMIT 1;
+    WHERE table_id = v_table.id AND status = 'OPEN' AND organization_id = v_org_id AND closed_at IS NULL LIMIT 1;
 
     IF v_session_id IS NULL THEN
-        INSERT INTO public.table_sessions (table_id, organization_id, status, start_time)
+        INSERT INTO public.table_sessions (table_id, organization_id, status, opened_at)
         VALUES (v_table.id, v_org_id, 'OPEN', now())
         RETURNING id INTO v_session_id;
     END IF;
@@ -1865,6 +1870,11 @@ BEGIN
     IF p_final_status = 'completed' THEN
         UPDATE public.mfg_production_orders SET status = 'completed', end_date = now()::date, notes = COALESCE(notes, '') || E'\nملاحظات الجودة: ' || p_qc_notes WHERE id = p_order_id;
         UPDATE public.products SET stock = stock + v_order.quantity_to_produce WHERE id = v_order.product_id AND organization_id = v_org_id;
+
+        -- 🚀 تحديث حالة أمر البيع المرتبط إلى "جاهز" (Ready) لتمكين الفوترة
+        UPDATE public.sales_orders 
+        SET status = 'ready' 
+        WHERE order_number = v_order.batch_number AND organization_id = v_org_id;
     ELSE
         UPDATE public.mfg_production_orders SET status = 'cancelled', notes = 'مرفوض جودة: ' || p_qc_notes WHERE id = p_order_id;
     END IF;
@@ -2465,12 +2475,22 @@ DECLARE
     v_prod_order_id uuid;
     v_routing_id uuid;
 BEGIN
-    v_org_id := public.get_my_org();
+    -- 🛡️ جلب المنظمة من أمر البيع لضمان الدقة
+    SELECT organization_id INTO v_org_id FROM public.sales_orders WHERE id = p_sales_order_id;
+    IF v_org_id IS NULL THEN v_org_id := public.get_my_org(); END IF;
 
-    -- 1. المرور على كافة بنود فاتورة المبيعات أو الطلب
-    -- نتحقق من وجود routing للمنتج كدليل على أنه منتج مصنع
+    -- 1. المرور على بنود أمر البيع (Sales Order) بدلاً من الفاتورة
     FOR v_item IN 
-        SELECT ii.product_id, ii.quantity, p.name, i.invoice_number
+        -- البحث في أوامر البيع أولاً
+        SELECT soi.product_id, soi.quantity, p.name, so.order_number as ref_number
+        FROM public.sales_order_items soi
+        JOIN public.sales_orders so ON soi.sales_order_id = so.id
+        JOIN public.products p ON soi.product_id = p.id
+        WHERE soi.sales_order_id = p_sales_order_id 
+        AND EXISTS (SELECT 1 FROM public.mfg_routings r WHERE r.product_id = soi.product_id)
+        UNION ALL
+        -- البقاء على دعم الفواتير كخيار احتياطي للنظام القديم
+        SELECT ii.product_id, ii.quantity, p.name, i.invoice_number as ref_number
         FROM public.invoice_items ii
         JOIN public.invoices i ON ii.invoice_id = i.id
         JOIN public.products p ON ii.product_id = p.id
@@ -2482,9 +2502,9 @@ BEGIN
             order_number, product_id, quantity_to_produce, status, 
             start_date, organization_id, batch_number
         ) VALUES (
-            'MFG-AUTO-' || v_item.invoice_number || '-' || substring(gen_random_uuid()::text, 1, 4),
+            'MFG-AUTO-' || v_item.ref_number || '-' || substring(gen_random_uuid()::text, 1, 4),
             v_item.product_id, v_item.quantity, 'draft', 
-            now()::date, v_org_id, v_item.invoice_number
+            now()::date, v_org_id, v_item.ref_number
         ) RETURNING id INTO v_prod_order_id;
 
         -- 3. توليد مراحل العمل تلقائياً بناءً على المسار الافتراضي
@@ -2502,6 +2522,57 @@ BEGIN
     END LOOP;
 
     RETURN v_order_count;
+END; $$;
+
+-- 🛠️ دالة تحويل عرض السعر إلى أمر بيع
+CREATE OR REPLACE FUNCTION public.convert_quotation_to_so(p_quotation_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_quote record; v_so_id uuid; v_so_no text; v_org_id uuid;
+BEGIN
+    SELECT * INTO v_quote FROM public.quotations WHERE id = p_quotation_id;
+    v_org_id := v_quote.organization_id;
+    v_so_no := 'SO-' || substring(v_quote.quotation_number, 5);
+
+    INSERT INTO public.sales_orders (order_number, customer_id, total_amount, organization_id, status)
+    VALUES (v_so_no, v_quote.customer_id, v_quote.total_amount, v_org_id, 'confirmed')
+    RETURNING id INTO v_so_id;
+
+    INSERT INTO public.sales_order_items (sales_order_id, product_id, quantity, unit_price, organization_id)
+    SELECT v_so_id, product_id, quantity, unit_price, v_org_id
+    FROM public.quotation_items WHERE quotation_id = p_quotation_id;
+
+    UPDATE public.quotations SET status = 'accepted' WHERE id = p_quotation_id;
+    RETURN v_so_id;
+END; $$;
+
+-- 🛠️ دالة تحويل أمر البيع إلى فاتورة (تُستدعى بعد توفر المخزون)
+CREATE OR REPLACE FUNCTION public.convert_so_to_invoice(p_so_id uuid, p_warehouse_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_so record; v_inv_id uuid; v_inv_no text; v_org_id uuid; v_tax_amount numeric;
+BEGIN
+    SELECT * INTO v_so FROM public.sales_orders WHERE id = p_so_id;
+    v_org_id := v_so.organization_id;
+    v_inv_no := 'INV-' || substring(v_so.order_number, 4);
+    
+    -- حساب الضريبة (افترض 14% أو اجلبها من الإعدادات)
+    v_tax_amount := v_so.total_amount * 0.14;
+
+    INSERT INTO public.invoices (
+        invoice_number, customer_id, invoice_date, total_amount, tax_amount, 
+        subtotal, status, warehouse_id, organization_id
+    ) VALUES (
+        v_inv_no, v_so.customer_id, now()::date, v_so.total_amount + v_tax_amount, 
+        v_tax_amount, v_so.total_amount, 'draft', p_warehouse_id, v_org_id
+    ) RETURNING id INTO v_inv_id;
+
+    INSERT INTO public.invoice_items (invoice_id, product_id, quantity, unit_price, organization_id)
+    SELECT v_inv_id, product_id, quantity, unit_price, v_org_id
+    FROM public.sales_order_items WHERE sales_order_id = p_so_id;
+
+    UPDATE public.sales_orders SET status = 'invoiced' WHERE id = p_so_id;
+    RETURN v_inv_id;
 END; $$;
 
 -- 16. دالة جلب مهام "أرضية المصنع" (Shop Floor Tasks)
@@ -2658,8 +2729,9 @@ SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
-    SELECT i.id, i.invoice_number, c.name, i.created_at, COALESCE(i.total_amount, 0) as total
-    , i.status
+    -- 1. جلب الفواتير
+    SELECT i.id, i.invoice_number as invoice_num, c.name as cust_name, i.created_at as order_date, COALESCE(i.total_amount, 0) as total, i.status as invoice_status
+
     FROM public.invoices i
     JOIN public.customers c ON i.customer_id = c.id
     WHERE i.organization_id = p_org_id
@@ -2671,10 +2743,26 @@ BEGIN
     )
     AND NOT EXISTS (
         SELECT 1 FROM public.mfg_production_orders po 
-        -- استبعاد الفاتورة إذا كان رقمها موجوداً ضمن مرجع الدفعة أو حقل مخصص
         WHERE po.batch_number LIKE '%' || i.invoice_number || '%'
     )
-    ORDER BY i.created_at DESC;
+        UNION ALL
+
+    -- 2. جلب أوامر البيع (Sales Orders)
+    SELECT so.id, so.order_number, c.name, so.created_at, COALESCE(so.total_amount, 0), so.status
+    FROM public.sales_orders so
+    JOIN public.customers c ON so.customer_id = c.id
+    WHERE so.organization_id = p_org_id
+    AND so.status = 'confirmed'
+    AND EXISTS (
+        SELECT 1 FROM public.sales_order_items soi
+        JOIN public.mfg_routings r ON soi.product_id = r.product_id
+        WHERE soi.sales_order_id = so.id
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM public.mfg_production_orders po 
+        WHERE po.batch_number LIKE '%' || so.order_number || '%'
+    )
+    ORDER BY 4 DESC;
 END; $$;
 
 -- 23. دالة حساب الانحراف المالي الفعلي بين التكلفة المعيارية والتكلفة الحقيقية بعد إغلاق أمر الإنتاج
@@ -2891,6 +2979,24 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
     UPDATE public.mfg_production_orders SET status = 'in_progress', start_date = now()::date WHERE id = p_order_id;
 END; $$;
+
+-- 🛠️ دالة بدء أوامر إنتاج متعددة دفعة واحدة
+CREATE OR REPLACE FUNCTION public.mfg_start_production_orders_batch(p_order_ids uuid[])
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_order_id uuid;
+    v_count integer := 0;
+BEGIN
+    FOR v_order_id IN SELECT unnest(p_order_ids) LOOP
+        UPDATE public.mfg_production_orders 
+        SET status = 'in_progress', start_date = now()::date 
+        WHERE id = v_order_id AND status = 'draft' AND organization_id = public.get_my_org();
+        
+        IF FOUND THEN v_count := v_count + 1; END IF;
+    END LOOP;
+    RETURN v_count;
+END; $$;
+
 
 -- 🔔 نظام التنبيهات الذكية لانحرافات التصنيع
 CREATE OR REPLACE FUNCTION public.mfg_check_variance_alerts(p_threshold numeric DEFAULT 10)
@@ -4339,7 +4445,11 @@ RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     r record;
 BEGIN
-    IF public.get_my_role() != 'super_admin' THEN RAISE EXCEPTION 'غير مصرح: للسوبر أدمن فقط.'; END IF;
+    -- السماح للسوبر أدمن أو لمدير قاعدة البيانات (postgres) بتشغيل الدالة
+    IF public.get_my_role() != 'super_admin' AND current_user != 'postgres' THEN 
+        RAISE EXCEPTION 'غير مصرح: للسوبر أدمن فقط.'; 
+    END IF;
+
     FOR r IN SELECT id FROM public.organizations LOOP
         -- منح كافة الصلاحيات لدور الآدمن في كل شركة لضمان تحكم العميل الكامل
         INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
@@ -4503,7 +4613,7 @@ BEGIN
     -- 🏗️ المرحلة 1: محرك الوراثة الذكي
     IF TG_TABLE_NAME = 'bill_of_materials' AND NEW.organization_id IS NULL THEN
         SELECT organization_id INTO NEW.organization_id FROM public.products WHERE id = NEW.product_id;
-    ELSIF TG_TABLE_NAME = 'table_sessions' AND NEW.organization_id IS NULL THEN
+    ELSIF (TG_TABLE_NAME = 'table_sessions') AND NEW.organization_id IS NULL THEN
         SELECT organization_id INTO NEW.organization_id FROM public.restaurant_tables WHERE id = NEW.table_id;
     ELSIF TG_TABLE_NAME = 'orders' AND NEW.organization_id IS NULL THEN
         SELECT organization_id INTO NEW.organization_id FROM public.table_sessions WHERE id = NEW.session_id;
@@ -4514,13 +4624,11 @@ BEGIN
     -- 🏗️ المرحلة 2: تحديد المنظمة وفرضها
     v_current_org := public.get_my_org();
 
-    IF public.get_my_role() = 'super_admin' THEN
-        NEW.organization_id := COALESCE(NEW.organization_id, v_current_org);
-    ELSE
-        NEW.organization_id := v_current_org;
-        IF NEW.organization_id IS NULL THEN
-             RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى تسجيل الدخول مجدداً.';
-        END IF;
+    -- 🚀 إصلاح: السماح باستخدام القيمة الممرة يدوياً (مهم للسكربتات والدوال الداخلية)
+    NEW.organization_id := COALESCE(NEW.organization_id, v_current_org);
+
+    IF NEW.organization_id IS NULL AND public.get_my_role() != 'super_admin' THEN
+         RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى تسجيل الدخول مجدداً.';
     END IF;
     
     RETURN NEW;
