@@ -125,17 +125,13 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN 
         ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
         ALTER TABLE public.orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-            -- 🛡️ توحيد مسميات الأعمدة لجدول الجلسات لتتوافق مع مديول المطاعم والوردات
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_at') THEN
-            ALTER TABLE public.table_sessions RENAME COLUMN opened_at TO start_time;
-        END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'closed_at') THEN
-            ALTER TABLE public.table_sessions RENAME COLUMN closed_at TO end_time;
-        END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_by') THEN
-            ALTER TABLE public.table_sessions RENAME COLUMN opened_by TO user_id;
-        END IF;
-        ALTER TABLE public.table_sessions ADD COLUMN IF NOT EXISTS start_time timestamptz DEFAULT now();    
+        
+        -- 🛡️ تصحيح آمن لجدول الجلسات: التحقق من الوجود قبل التغيير لتجنب الأخطاء عند إعادة التشغيل
+        DO $$ BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_at') THEN ALTER TABLE public.table_sessions RENAME COLUMN opened_at TO start_time; END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'closed_at') THEN ALTER TABLE public.table_sessions RENAME COLUMN closed_at TO end_time; END IF;
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_by') THEN ALTER TABLE public.table_sessions RENAME COLUMN opened_by TO user_id; END IF;
+        END $$;
     END IF;    
 END $$;
 

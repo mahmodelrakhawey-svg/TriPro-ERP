@@ -156,7 +156,7 @@ DECLARE
         'mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 'mfg_production_orders', 
         'mfg_order_progress', 'mfg_step_materials', 'mfg_actual_material_usage', 
         'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances', 
-        'mfg_material_requests', 'mfg_material_request_items', 'mfg_qc_inspections',
+        'mfg_material_requests', 'mfg_material_request_items', 'mfg_qc_inspections', -- تمت إضافة الجداول المفقودة
         'mfg_work_centers', 'mfg_routings', 'mfg_production_orders', 'mfg_material_requests',
         'mfg_batch_serials', 'mfg_qc_inspections'
     ];
