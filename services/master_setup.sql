@@ -74,6 +74,11 @@ BEGIN
 
     -- 2. السوبر أدمن: البحث في التوكن للتنقل
     _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+
+    -- 🛡️ صمام أمان: إذا كان المستخدم موثقاً ولم يتم تحديد منظمة، ارفع خطأ
+    IF _org_id IS NULL AND auth.uid() IS NOT NULL THEN
+        RAISE EXCEPTION 'فشل تحديد المنظمة للمستخدم الموثق. يرجى التأكد من ربط المستخدم بمنظمة.';
+    END IF;
     RETURN _org_id;
 END; $$;
 

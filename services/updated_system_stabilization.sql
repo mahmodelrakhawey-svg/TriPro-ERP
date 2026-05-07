@@ -121,6 +121,7 @@ DO $$ BEGIN
     -- تحصين مديول التصنيع
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_order_progress') THEN 
         ALTER TABLE public.mfg_order_progress ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+        ALTER TABLE public.mfg_order_progress ADD COLUMN IF NOT EXISTS employee_id uuid REFERENCES public.employees(id);
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN 
         ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
