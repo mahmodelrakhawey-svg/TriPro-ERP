@@ -26,7 +26,7 @@ BEGIN
           AND tc.table_schema = 'public'
           -- استثناء الجداول السيادية لـ Supabase
           AND ccu.table_name NOT IN ('users', 'audit_log')
-          -- استثناء الأعمدة المالية التي يفضل فيها الـ SET NULL منعاً للحذف التسلسلي الكارثي
+          -- استثناء الأعمدة المالية التي يفضل فيها الـ SET NULL منعاً للحذف التسلسلي الكارثي أو التي يتم تحديثها بواسطة دوال
           AND kcu.column_name NOT IN ('related_journal_entry_id')
     ) LOOP
         -- تحصين القيود: الحقول التي تسبب اعتناء متبادل نجعلها SET NULL دائماً لضمان نجاح الاستعادة
@@ -42,6 +42,84 @@ BEGIN
     END LOOP;
 END $$;
 
+-- ============================================================
+-- 🛡️ تحصين أعمدة المنظمة (SaaS Infrastructure)
+-- الوصف: إضافة عمود المنظمة للجداول المالية والمخزنية قبل بدء المعالجة
+-- ============================================================
+DO $$ 
+DECLARE 
+    t text;
+    tables_to_ensure text[] := ARRAY[
+        'journal_entries', 'journal_lines', 'journal_attachments',
+        'purchase_invoices', 'purchase_invoice_items', 'purchase_return_items',
+        'invoices', 'invoice_items', 'sales_return_items',
+        'customers', 'suppliers', 'products', 'accounts', 'warehouses', 
+        'item_categories', 'orders', 'order_items', 'company_settings',
+        'cost_centers', 'employees', 'payrolls', 'payroll_items', 
+        'employee_advances', 'profiles', 'shifts',
+        'receipt_vouchers', 'receipt_voucher_attachments', 
+        'payment_vouchers', 'payment_voucher_attachments', 
+        'cheques', 'cheque_attachments',
+        'stock_adjustments', 'stock_adjustment_items',
+        'inventory_counts', 'inventory_count_items',
+        'stock_transfers', 'stock_transfer_items',
+        'opening_inventories', 'credit_notes', 'debit_notes',
+        'work_orders', 'work_order_costs',
+        'mfg_work_centers', 'mfg_routings', 'mfg_routing_steps',
+        'mfg_production_orders', 'mfg_order_progress', 'mfg_step_materials',
+        'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials',
+        'mfg_production_variances', 'mfg_material_requests', 'mfg_material_request_items',
+        'kitchen_orders', 'restaurant_tables', 'table_sessions', 'menu_categories',
+        'modifier_groups', 'modifiers', 'organization_backups', 'invitations',
+        'roles', 'role_permissions', 'notifications', 'notification_preferences',
+        'assets', 'delivery_orders', 'payments'
+    ];
+BEGIN
+    FOREACH t IN ARRAY tables_to_ensure LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
+        END IF;
+    END LOOP;
+END $$;
+
+-- ============================================================
+-- 🛡️ تحصين هيكل الجداول المالية (Financial Schema Reinforcement)
+-- الوصف: إضافة الأعمدة اللازمة قبل بدء عمليات ترميم البيانات
+-- ============================================================
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS decimal_places integer DEFAULT 2;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN 
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); 
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0;
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
+        ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS due_date date; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS discount_amount numeric DEFAULT 0; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cheques') THEN 
+        ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); 
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN 
+        ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); 
+    END IF;
+END $$;
+
+-- Add currency to receipt_vouchers and payment_vouchers
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'receipt_vouchers') THEN ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP'; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_vouchers') THEN ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP'; END IF;
+END $$;
+
 -- 3. إصلاح تكرار SKU (لضمان استقرار المخزن)
 WITH duplicates AS (
     SELECT id, ROW_NUMBER() OVER (PARTITION BY sku, organization_id ORDER BY created_at DESC) as rn
@@ -50,48 +128,9 @@ WITH duplicates AS (
 )
 UPDATE public.products SET sku = sku || '-DUP-' || id::text WHERE id IN (SELECT id FROM duplicates WHERE rn > 1);
 
--- 🛠️ ترميم مديول التصنيع (MFG Data Integrity)
--- ربط السجلات القديمة بالمنظمة الحالية لتمكين حذفها أو عزلها
-DO $$ 
+-- 2. ترميم مديول المطبخ (Kitchen Orders)
+DO $$
 BEGIN
-    -- 1. ترميم جداول التصنيع
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_orders') THEN
-        UPDATE public.mfg_production_orders SET organization_id = public.get_my_org() WHERE organization_id IS NULL;
-
-        UPDATE public.mfg_order_progress po SET organization_id = orders.organization_id 
-        FROM public.mfg_production_orders orders WHERE po.production_order_id = orders.id AND po.organization_id IS NULL;
-
-        UPDATE public.mfg_batch_serials bs SET organization_id = orders.organization_id 
-        FROM public.mfg_production_orders orders WHERE bs.production_order_id = orders.id AND bs.organization_id IS NULL;
-
-        UPDATE public.mfg_actual_material_usage amu SET organization_id = op.organization_id 
-        FROM public.mfg_order_progress op WHERE amu.order_progress_id = op.id AND amu.organization_id IS NULL;
-
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_material_requests') THEN
-            UPDATE public.mfg_material_requests mr SET organization_id = po.organization_id 
-            FROM public.mfg_production_orders po WHERE mr.production_order_id = po.id AND mr.organization_id IS NULL;
-        END IF;
-
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_variances') THEN
-            UPDATE public.mfg_production_variances pv SET organization_id = po.organization_id 
-            FROM public.mfg_production_orders po WHERE pv.production_order_id = po.id AND pv.organization_id IS NULL;
-        END IF;
-
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_work_centers') THEN UPDATE public.mfg_work_centers SET organization_id = public.get_my_org() WHERE organization_id IS NULL; END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_routings') THEN UPDATE public.mfg_routings SET organization_id = public.get_my_org() WHERE organization_id IS NULL; END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_routing_steps') THEN UPDATE public.mfg_routing_steps rs SET organization_id = r.organization_id FROM public.mfg_routings r WHERE rs.routing_id = r.id AND rs.organization_id IS NULL; END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_step_materials') THEN UPDATE public.mfg_step_materials sm SET organization_id = rs.organization_id FROM public.mfg_routing_steps rs WHERE sm.step_id = rs.id AND sm.organization_id IS NULL; END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_material_request_items') THEN UPDATE public.mfg_material_request_items mri SET organization_id = mr.organization_id FROM public.mfg_material_requests mr WHERE mri.material_request_id = mr.id AND mri.organization_id IS NULL; END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_qc_inspections') THEN UPDATE public.mfg_qc_inspections qci SET organization_id = op.organization_id FROM public.mfg_order_progress op WHERE qci.progress_id = op.id AND qci.organization_id IS NULL; END IF;
-
-        -- 🏭 تصحيح حالات أوامر الإنتاج العالقة
-        UPDATE public.mfg_production_orders SET status = 'in_progress' WHERE status IS NULL OR status = '';
-
-        -- ⚙️ التأكد من أن كافة منتجات التصنيع تتبع نظام المخزن
-        UPDATE public.products SET product_type = 'STOCK' WHERE mfg_type IN ('standard', 'raw') AND product_type IS NULL;
-    END IF;
-
-    -- 2. ترميم مديول المطبخ (Kitchen Orders)
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kitchen_orders') THEN
         UPDATE public.kitchen_orders ko SET organization_id = oi.organization_id
         FROM public.order_items oi WHERE ko.order_item_id = oi.id AND ko.organization_id IS NULL;
@@ -119,20 +158,14 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'restaurant_tables') THEN ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'table_sessions') THEN ALTER TABLE public.table_sessions ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id); END IF;
     -- تحصين مديول التصنيع
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_order_progress') THEN 
-        ALTER TABLE public.mfg_order_progress ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
-        ALTER TABLE public.mfg_order_progress ADD COLUMN IF NOT EXISTS employee_id uuid REFERENCES public.employees(id);
-    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN 
         ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
         ALTER TABLE public.orders ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
         
         -- 🛡️ تصحيح آمن لجدول الجلسات: التحقق من الوجود قبل التغيير لتجنب الأخطاء عند إعادة التشغيل
-        DO $$ BEGIN
-            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_at') THEN ALTER TABLE public.table_sessions RENAME COLUMN opened_at TO start_time; END IF;
-            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'closed_at') THEN ALTER TABLE public.table_sessions RENAME COLUMN closed_at TO end_time; END IF;
-            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_by') THEN ALTER TABLE public.table_sessions RENAME COLUMN opened_by TO user_id; END IF;
-        END $$;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_at') THEN ALTER TABLE public.table_sessions RENAME COLUMN opened_at TO start_time; END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'closed_at') THEN ALTER TABLE public.table_sessions RENAME COLUMN closed_at TO end_time; END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'table_sessions' AND column_name = 'opened_by') THEN ALTER TABLE public.table_sessions RENAME COLUMN opened_by TO user_id; END IF;
     END IF;    
 END $$;
 
@@ -328,6 +361,8 @@ BEGIN
 
     -- ضمان عدم تكرار التصنيفات
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'item_categories_name_org_unique') THEN
+        ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
+        ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS display_order integer DEFAULT 0;
         ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
         ALTER TABLE public.item_categories ADD CONSTRAINT item_categories_name_org_unique UNIQUE (organization_id, name);
     END IF;
@@ -357,6 +392,23 @@ DO $$ BEGIN
             -- إذا كان كلاهما موجوداً، انقل البيانات للعمود الجديد واحذف القديم لتجنب التعارض
             UPDATE public.orders SET user_id = created_by WHERE user_id IS NULL;
             ALTER TABLE public.orders DROP COLUMN created_by;
+        END IF;
+    END IF;
+
+    -- تحديث جدول الفواتير (invoices) - إصلاح تقرير حركة الصنف
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
+        -- إضافة الأعمدة المالية الأساسية إذا فقدت
+        ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS due_date date;
+        ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='user_id') THEN
+            ALTER TABLE public.invoices RENAME COLUMN created_by TO user_id;
+        ELSE
+            -- إذا كان كلاهما موجوداً، انقل البيانات للعمود الجديد واحذف القديم لتجنب التعارض
+            UPDATE public.invoices SET user_id = created_by WHERE user_id IS NULL;
+            -- لا نحذف created_by حالياً لضمان توافق الواجهة الأمامية (Bad Request Fix)
         END IF;
     END IF;
 
@@ -415,7 +467,6 @@ END $$;
 -- ============================================================
 -- 3. تحديث إعدادات الشركة (Company Settings)
 -- ============================================================
-ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS decimal_places integer DEFAULT 2;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS max_cash_deficit_limit numeric DEFAULT 500;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS activity_type text;
 DO $$ BEGIN
@@ -430,17 +481,15 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'item_categories') THEN ALTER TABLE public.item_categories ADD COLUMN IF NOT EXISTS image_url text; END IF;
 END $$;
 -- ضمان القيد الفريد لجدول الإعدادات
-ALTER TABLE public.company_settings DROP CONSTRAINT IF EXISTS company_settings_organization_id_unique;
-ALTER TABLE public.company_settings ADD CONSTRAINT company_settings_organization_id_unique UNIQUE (organization_id);
+DO $$ BEGIN
+    ALTER TABLE public.company_settings DROP CONSTRAINT IF EXISTS company_settings_organization_id_unique;
+    ALTER TABLE public.company_settings ADD CONSTRAINT company_settings_organization_id_unique UNIQUE (organization_id);
+EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'Skipping settings unique constraint'; END $$;
 
 -- ============================================================
 -- 5. تحديثات الجداول المالية (Financial Linkage)
 -- ============================================================
-ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cheques') THEN ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_tax numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_discount numeric DEFAULT 0; END IF;
@@ -484,9 +533,11 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric DEFAULT 0; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock_level numeric DEFAULT 5; END IF; -- الحد الأدنى للتنبيه
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5; END IF; -- الحد الأدنى للتنبيه
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS vat_rate numeric DEFAULT 0.14; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS unit_cost numeric DEFAULT 0; END IF; -- تكلفة الوجبات
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoice_items') THEN ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS modifiers jsonb DEFAULT '[]'::jsonb; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS barcode text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK'; END IF;
@@ -554,16 +605,22 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ============================================================
+-- 🛡️ دالة فرض معرف المنظمة (Force Organization ID Function)
+-- الوصف: تضمن هذه الدالة تعيين organization_id تلقائياً عند الإدراج
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.fn_force_org_id_on_insert()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.organization_id IS NULL THEN
+        NEW.organization_id := public.get_my_org();
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 DROP TRIGGER IF EXISTS trg_ensure_invoice_warehouse ON public.invoices;
 CREATE TRIGGER trg_ensure_invoice_warehouse BEFORE INSERT ON public.invoices FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_document_warehouse();
-
--- ملاحظة: تم نقل تعريف الدوال البرمجية (Functions) إلى deploy_all_functionss.sql لضمان التجانس.
-
--- 🛠️ مشغل إنشاء طلب الصرف تلقائياً
-DROP TRIGGER IF EXISTS trg_mfg_auto_material_request ON public.mfg_production_orders;
-CREATE TRIGGER trg_mfg_auto_material_request
-AFTER UPDATE OF status ON public.mfg_production_orders
-FOR EACH ROW EXECUTE FUNCTION public.fn_mfg_auto_create_material_request();
 
 
 -- هنا نقوم فقط بتطبيق المشغلات (Triggers) لضمان استقرار البيئة.
@@ -589,18 +646,5 @@ BEGIN
         EXECUTE format('CREATE TRIGGER trg_force_org_id 
                         BEFORE INSERT ON public.%I 
                         FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_on_insert()', t);
--- ⚙️ تريجر مزامنة إجمالي الطلب التلقائي (الصافي + الضريبة + التوصيل)
-CREATE OR REPLACE FUNCTION public.sync_order_grand_total()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.grand_total := COALESCE(NEW.subtotal, 0) + COALESCE(NEW.total_tax, 0) + COALESCE(NEW.delivery_fee, 0);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-DROP TRIGGER IF EXISTS trg_sync_order_totals ON public.orders;
-CREATE TRIGGER trg_sync_order_totals
-BEFORE INSERT OR UPDATE ON public.orders
-FOR EACH ROW EXECUTE FUNCTION public.sync_order_grand_total();
     END LOOP;
 END $$;

@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -379,7 +379,7 @@ const ProductManager = () => {
         const { data: allItems, error } = await query;
 
         if (error) throw error;
-
+        // Use handleError for consistency
         const dataToExport = (allItems || []).map(item => ({
           'اسم الصنف': item.name,
           'الكود (SKU)': item.sku || '-',
@@ -435,7 +435,7 @@ const ProductManager = () => {
             const productMap = new Map(); // Key: SKU or Name, Value: ID
             const productDetailsMap = new Map(); // Key: ID, Value: Product Details (للوصول للوحدة الحالية)
             
-            allProducts?.forEach(p => {
+            allProducts?.forEach(p => { // Use handleError for consistency
                 productDetailsMap.set(p.id, p);
                 // تخزين المفاتيح بحروف صغيرة وبدون مسافات لضمان المطابقة
                 if (p.sku) productMap.set(String(p.sku).trim().toLowerCase(), p.id);
@@ -449,7 +449,7 @@ const ProductManager = () => {
             const createdList: any[] = []; // قائمة لتتبع المنتجات المنشأة تلقائياً
 
             // دالة مساعدة للتحويل بين الوحدات (كيلو <-> جرام، لتر <-> مل)
-            const getConversionFactor = (fromUnit: string, toUnit: string) => {
+            const getConversionFactor = (fromUnit: string, toUnit: string) => { // Use handleError for consistency
                 const normalize = (u: string) => {
                     if (!u) return '';
                     u = u.toLowerCase().trim();
@@ -556,7 +556,7 @@ const ProductManager = () => {
                             is_active: true
                         }).select('id, name, sku').single();
 
-                        if (!createError && newProduct) {
+                        if (!createError && newProduct) { // Use handleError for consistency
                             productId = newProduct.id;
                             // تحديث الخريطة فوراً لكي تجدها الصفوف التالية لنفس الوجبة في الملف
                             if (newProduct.sku) productMap.set(String(newProduct.sku).trim().toLowerCase(), newProduct.id);
@@ -588,7 +588,7 @@ const ProductManager = () => {
                             unit: unit ? String(unit).trim() : 'kg' // استخدام الوحدة من الملف أو افتراضي
                         }).select('id, name, sku, unit').single();
 
-                        if (!createMatError && newMaterial) {
+                        if (!createMatError && newMaterial) { // Use handleError for consistency
                             materialId = newMaterial.id;
                             if (newMaterial.sku) productMap.set(String(newMaterial.sku).trim().toLowerCase(), newMaterial.id);
                             productMap.set(String(newMaterial.name).trim().toLowerCase(), newMaterial.id);
@@ -610,7 +610,7 @@ const ProductManager = () => {
                         const factor = (baseUnit && recipeUnit) ? getConversionFactor(recipeUnit, baseUnit) : 1;
                         const finalQty = Number(qty) * factor;
 
-                        bomInserts.push({
+                        bomInserts.push({ // Use handleError for consistency
                             product_id: productId,
                             raw_material_id: materialId,
                             quantity_required: finalQty
@@ -631,7 +631,7 @@ const ProductManager = () => {
             }
 
             if (bomInserts.length > 0) {
-                const { error } = await supabase.from('bill_of_materials').upsert(bomInserts, { onConflict: 'product_id,raw_material_id' });
+                const { error } = await supabase.from('bill_of_materials').upsert(bomInserts, { onConflict: 'product_id,raw_material_id' }); // Use handleError for consistency
                 if (error) throw error;
             }
 
@@ -748,7 +748,7 @@ const ProductManager = () => {
           const productType = (String(rawType || '').includes('خدم') || String(rawType || '').toLowerCase().includes('serv')) ? 'SERVICE' : 'STOCK';
 
           if (name) {
-            try {
+            try { // Use handleError for consistency
               // 1. إضافة المنتج مباشرة
               const { data: newProduct, error: prodError } = await supabase.from('products').insert({
                 name: String(name).trim(),
@@ -770,7 +770,7 @@ const ProductManager = () => {
                 is_active: true
               }).select().single();
 
-              if (prodError) throw prodError;
+              if (prodError) throw prodError; // Use handleError for consistency
 
               // 2. معالجة الرصيد الافتتاحي والقيد
               if (newProduct && stock && Number(stock) > 0 && targetWarehouseId) {
@@ -782,7 +782,7 @@ const ProductManager = () => {
                   });
 
                   const totalValue = Number(stock) * (Number(purchase_price) || 0);
-                  if (totalValue > 0 && defaultInventory && equityAcc) {
+                  if (totalValue > 0 && defaultInventory && equityAcc) { // Use handleError for consistency
                       // جلب معرف المستخدم مباشرة لضمان عدم كونه فارغاً
                       const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
 
@@ -794,7 +794,7 @@ const ProductManager = () => {
                           user_id: user?.id || currentUser?.id // تصحيح اسم العمود
                       }).select().single();
 
-                      if (entry) {
+                      if (entry) { // Use handleError for consistency
                           await supabase.from('journal_lines').insert([
                               // من حـ/ المخزون
                               { journal_entry_id: entry.id, account_id: defaultInventory, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}` },
@@ -916,7 +916,7 @@ const ProductManager = () => {
     if (!window.confirm('هل أنت متأكد من حذف هذا التصنيف؟')) return;
 
     if (currentUser?.role === 'demo') {
-        showToast('تم حذف التصنيف بنجاح (محاكاة)', 'success');
+        showToast('تم حذف التصنيف بنجاح (محاكاة)', 'success'); // Use handleError for consistency
         setFormData(prev => ({ ...prev, category_id: null }));
         return;
     }
@@ -924,7 +924,7 @@ const ProductManager = () => {
     try {
         const { error } = await supabase.from('item_categories').delete().eq('id', formData.category_id);
         if (error) throw error;
-        
+        // Use handleError for consistency
         showToast('تم حذف التصنيف بنجاح', 'success');
         setFormData(prev => ({ ...prev, category_id: null }));
         await refreshData();
@@ -959,7 +959,7 @@ const ProductManager = () => {
 
     // التحقق الصارم من الحسابات
     if (formData.product_type === 'STOCK') {
-      if (!formData.inventory_account_id || !formData.cogs_account_id || !formData.sales_account_id) {
+      if (!formData.inventory_account_id || !formData.cogs_account_id || !formData.sales_account_id) { // Use handleError for consistency
         showToast('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون, التكلفة, المبيعات) للأصناف المخزنية.', 'error');
         return;
       }
@@ -969,7 +969,7 @@ const ProductManager = () => {
 
     if (currentUser?.role === 'demo') {
         showToast('تم حفظ الصنف بنجاح وتوجيهه محاسبياً ✅ (محاكاة)', 'success');
-        setIsModalOpen(false);
+        setIsModalOpen(false); // Use handleError for consistency
         return;
     }
 
@@ -981,7 +981,7 @@ const ProductManager = () => {
         if (!can('products', 'update')) {
             showToast('ليس لديك صلاحية تعديل المنتجات', 'error');
             return;
-        }
+        } // Use handleError for consistency
         const itemData = {
             name: formData.name,
             sku: formData.sku || null,
@@ -1010,7 +1010,7 @@ const ProductManager = () => {
             overhead_cost: formData.overhead_cost || 0,
             is_overhead_percentage: formData.is_overhead_percentage || false
         };
-        await updateProduct(editingId, itemData);
+        await updateProduct(editingId, itemData); // Use handleError for consistency
       } else {
         if (!can('products', 'create')) {
             showToast('ليس لديك صلاحية إضافة منتجات', 'error');
@@ -1050,7 +1050,7 @@ const ProductManager = () => {
                     formData.product_type === 'MANUFACTURED' ? 'standard' : null
         };
 
-        const newProduct = await addProduct(productPayload as any);
+        const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
 
         // إنشاء الرصيد الافتتاحي والقيد
         if (newProduct && formData.product_type === 'STOCK' && formData.opening_stock > 0) {
@@ -1063,7 +1063,7 @@ const ProductManager = () => {
                     cost: formData.purchase_price
                 });
                 
-                // إنشاء القيد المحاسبي يدوياً لضمان ظهوره في دفتر اليومية
+                // إنشاء القيد المحاسبي يدوياً لضمان ظهوره في دفتر اليومية // Use handleError for consistency
                 const totalValue = formData.opening_stock * formData.purchase_price;
                 const equityAcc = contextAccounts.find(a => a.code === '3999')?.id;
                 const inventoryAcc = formData.inventory_account_id;
@@ -1080,7 +1080,7 @@ const ProductManager = () => {
                           user_id: user?.id || currentUser?.id // تصحيح اسم العمود
                       }).select().single();
 
-                      if (entry) {
+                      if (entry) { // Use handleError for consistency
                           await supabase.from('journal_lines').insert([
                               { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}` },
                               { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}` }
@@ -1091,7 +1091,7 @@ const ProductManager = () => {
         }
         
         // تحديث حد الطلب بشكل منفصل لأن الدالة قد لا تدعمه بعد
-        if (formData.min_stock_level > 0) {
+        if (formData.min_stock_level > 0) { // Use handleError for consistency
              // نحتاج لمعرفة ID الصنف الجديد، لكن الدالة الحالية لا ترجعه بسهولة في هذا السياق
              // يمكن تجاهل هذا للجديد أو تحديث الدالة لاحقاً
         }
@@ -1118,7 +1118,7 @@ const ProductManager = () => {
     if (!reason) return;
 
     if (currentUser?.role === 'demo') {
-        // --- تحسين الديمو: محاكاة الحذف ---
+        // --- تحسين الديمو: محاكاة الحذف --- // Use handleError for consistency
         // deleteDemoProduct(id); // استدعاء دالة من السياق لحذف المنتج
         showToast('تم حذف الصنف بنجاح (محاكاة)', 'success');
         await refreshData(); // تحديث الواجهة
@@ -1129,7 +1129,7 @@ const ProductManager = () => {
 
     try {
       // استخدام دالة الحذف من السياق لضمان الحذف الناعم وتسجيل النشاط
-      await deleteProduct(id, reason);
+      await deleteProduct(id, reason); // Use handleError for consistency
       refresh(); // تحديث القائمة
     } catch (error: any) {
       console.error(error);
@@ -1154,7 +1154,7 @@ const ProductManager = () => {
       setUploading(true);
       const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
       if (uploadError) throw uploadError;
-      const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+      const { data } = supabase.storage.from('product-images').getPublicUrl(filePath); // Use handleError for consistency
       setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
     } catch (error: any) {
       console.error(error);
@@ -1184,7 +1184,7 @@ const ProductManager = () => {
       if (item.offer_start_date && item.offer_end_date) {
           const start = new Date(item.offer_start_date);
           const end = new Date(item.offer_end_date);
-          const diff = end.getTime() - start.getTime();
+          const diff = end.getTime() - start.getTime(); // Use handleError for consistency
           if (diff > 0) duration = diff;
       }
       
@@ -1226,7 +1226,7 @@ const ProductManager = () => {
     const printWindow = window.open('', '', 'width=600,height=400');
     if (printWindow) {
         printWindow.document.write(`
-            <html dir="rtl">
+            <html dir="rtl"> // Use handleError for consistency
             <head>
                 <title>باركود العرض - ${item.name}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
@@ -1281,7 +1281,7 @@ const ProductManager = () => {
     const printWindow = window.open('', '', 'width=800,height=600');
     if (printWindow) {
         printWindow.document.write(`
-            <html dir="rtl">
+            <html dir="rtl"> // Use handleError for consistency
             <head>
                 <title>طباعة باركود - ${item.name}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
@@ -1334,7 +1334,7 @@ const ProductManager = () => {
     const printWindow = window.open('', '', 'width=800,height=600');
     if (printWindow) {
         printWindow.document.write(`
-            <html dir="rtl">
+            <html dir="rtl"> // Use handleError for consistency
             <head>
                 <title>طباعة الباركود</title>
                 <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">

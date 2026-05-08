@@ -35,46 +35,6 @@ ALTER TABLE public.sales_returns ADD COLUMN IF NOT EXISTS original_invoice_id uu
 ALTER TABLE public.purchase_returns ADD COLUMN IF NOT EXISTS original_invoice_id uuid REFERENCES public.purchase_invoices(id);
 
 -- إضافة معرف المنظمة لجدول المدفوعات (ضروري لتقارير الورديات وحماية RLS)
-ALTER TABLE public.payments ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id);
-ALTER TABLE public.payments ALTER COLUMN organization_id SET DEFAULT public.get_my_org();
-
--- 🛠️ تصحيح البيانات القديمة: ربط المدفوعات بالشركة بناءً على الطلب الأصلي
-UPDATE public.payments p
-SET organization_id = o.organization_id
-FROM public.orders o
-WHERE p.order_id = o.id AND p.organization_id IS NULL;
-
--- ضمان تعبئة أي قيم NULL متبقية قبل فرض القيد (Fallback للمدفوعات اليتيمة)
-UPDATE public.payments SET organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1)) WHERE organization_id IS NULL;
-
--- إغلاق الثغرة: منع القيم الفارغة في المدفوعات مستقبلاً
-DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM public.payments WHERE organization_id IS NULL) THEN
-        ALTER TABLE public.payments ALTER COLUMN organization_id SET NOT NULL;
-    END IF;
-END $$;
-
--- التأكد من وجود معرف الشركة في جدول الورديات (Shifts) إذا وجد
-DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'shifts') THEN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'shifts' AND column_name = 'organization_id') THEN
-            ALTER TABLE public.shifts ADD COLUMN organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
-        END IF;
-        
-        UPDATE public.shifts SET organization_id = public.get_my_org() WHERE organization_id IS NULL;
-        
-        -- تفعيل الحماية لجدول الورديات لضمان عزل البيانات
-        EXECUTE 'ALTER TABLE public.shifts ENABLE ROW LEVEL SECURITY';
-        EXECUTE 'DROP POLICY IF EXISTS "Shifts isolation policy" ON public.shifts';
-        EXECUTE 'CREATE POLICY "Shifts isolation policy" ON public.shifts FOR ALL TO authenticated USING (organization_id = public.get_my_org())';
-    END IF;
-END $$;
-
--- تفعيل الحماية لجدول المدفوعات لضمان ظهوره في التقارير
-ALTER TABLE public.payments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Payments isolation policy" ON public.payments;
-CREATE POLICY "Payments isolation policy" ON public.payments FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
 -- إضافة الرقم الضريبي للموردين
 ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS tax_number text;
 
@@ -221,53 +181,60 @@ DO $$
 DECLARE 
     t text;
     tables text[] := ARRAY[
-        'accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'journal_lines', 'invoices', 'receipt_vouchers', 'payment_vouchers', 'work_order_material_usage',
-        'work_orders', 'bill_of_materials', 'stock_transfers', 'stock_transfer_items', 'stock_adjustments', 'stock_adjustment_items', 'inventory_counts', 'inventory_count_items'
+        'accounts', 'products', 'customers', 'suppliers', 'warehouses', 'cost_centers', 'item_categories', 
+        'company_settings', 'profiles', 'roles', 'role_permissions', 'orders', 'order_items', 'payments', 
+        'shifts', 'journal_entries', 'journal_lines', 'invoices', 'invoice_items', 'purchase_invoices', 
+        'purchase_invoice_items', 'sales_returns', 'sales_return_items', 'purchase_returns', 
+        'purchase_return_items', 'debit_notes', 'credit_notes', 'receipt_vouchers', 
+        'receipt_voucher_attachments', 'payment_vouchers', 'payment_voucher_attachments', 
+        'cheques', 'cheque_attachments', 'bill_of_materials', 'opening_inventories', 
+        'stock_transfers', 'stock_transfer_items', 'stock_adjustments', 'stock_adjustment_items', 
+        'inventory_counts', 'inventory_count_items', 'work_orders', 'work_order_material_usage', 
+        'mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 'mfg_production_orders', 
+        'mfg_order_progress', 'mfg_step_materials', 'mfg_actual_material_usage', 
+        'mfg_scrap_logs', 'mfg_production_variances', 'mfg_batch_serials', 
+        'mfg_qc_inspections', 'mfg_material_requests', 'mfg_material_request_items', 
+        'restaurant_tables', 'table_sessions', 'delivery_orders', 'kitchen_orders', 
+        'payrolls', 'payroll_items', 'employee_allowances', 'payroll_variables', 
+        'employee_advances', 'assets', 'notifications'        
     ];
     v_count_before int;
 BEGIN 
-    RAISE NOTICE '🛡️ جاري مراجعة وتأمين درع الحماية لجميع الجداول...';
+    RAISE NOTICE '🛡️ بدء تفعيل درع الحماية الآلي (Unified RLS Shield)...';
     FOREACH t IN ARRAY tables LOOP
-        -- 1. التأكد من وجود العمود وتعيين القيمة الافتراضية
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) AND t != 'accounts' THEN
-            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
+        -- 1. فحص وجود الجدول أولاً
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
+           EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
             
-            -- حساب السجلات التي تحتاج ربط قبل التحديث
+        
             EXECUTE format('SELECT count(*) FROM public.%I WHERE organization_id IS NULL', t) INTO v_count_before;
 
             -- 2. تعبئة البيانات المفقودة فوراً
-            EXECUTE format('UPDATE public.%I SET organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1)) WHERE organization_id IS NULL', t);
-            
             IF v_count_before > 0 THEN
-                RAISE NOTICE '✅ الجدول [%]: تم ربط % سجل مفقود بالمنظمة بنجاح.', t, v_count_before;
+                EXECUTE format('UPDATE public.%I SET organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1)) WHERE organization_id IS NULL', t);
+                RAISE NOTICE '✅ الجدول [%]: تم ربط % سجل يتيم.', t, v_count_before;
             END IF;
 
-            -- 3. تفعيل RLS (نظام العزل)
+            -- 4. تفعيل سياسة العزل (RLS Enforcement)
             EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
-            EXECUTE format('DROP POLICY IF EXISTS "Isolation_Policy_%I" ON public.%I', t, t);
+            EXECUTE format('DROP POLICY IF EXISTS "Isolation_Policy_%I" ON public.%I', t, t);            
+            -- السياسة الموحدة: تسمح بالوصول فقط للمنظمة النشطة للمستخدم
+
             EXECUTE format('CREATE POLICY "Isolation_Policy_%I" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org())', t, t);
 
-            -- 4. القفل النهائي: منع القيم الفارغة للأبد (Enforcement)
-            -- هذا سيضمن أن أي محاولة إدخال بيانات بدون معرف شركة ستفشل فوراً قبل وصولها للجداول
+            -- 5. صمام الأمان النهائي: منع القيم الفارغة مستقبلاً
             BEGIN
                 EXECUTE format('ALTER TABLE public.%I ALTER COLUMN organization_id SET NOT NULL', t);
             EXCEPTION WHEN OTHERS THEN
-                RAISE NOTICE '⚠️ ملاحظة: تعذر فرض NOT NULL على الجدول % (قد يحتاج لتنظيف يدوي)', t;
+                RAISE NOTICE '⚠️ الجدول [%]: تعذر فرض NOT NULL (قد توجد قيود تبعية).', t;
             END;
         END IF;
 
         -- معالجة خاصة لجدول الحسابات لضمان الأولوية
-        IF t = 'accounts' THEN
-            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'accounts' AND column_name = 'organization_id') THEN
-                ALTER TABLE public.accounts ADD COLUMN organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
-                UPDATE public.accounts SET organization_id = COALESCE(public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1)) WHERE organization_id IS NULL;
-                RAISE NOTICE '✅ تم إصلاح عمود المنظمة في جدول الحسابات.';
-            END IF;
-            ALTER TABLE public.accounts ENABLE ROW LEVEL SECURITY;
-            DROP POLICY IF EXISTS "Isolation_Policy_accounts" ON public.accounts;
-            CREATE POLICY "Isolation_Policy_accounts" ON public.accounts FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-        END IF;
+
     END LOOP;
+        RAISE NOTICE '✅ تم الانتهاء من تأمين كافة جداول النظام بنجاح.';
+
 END $$;
 
 -- 9. دالة التحقق من حالة الاشتراك لبروزة التنبيهات

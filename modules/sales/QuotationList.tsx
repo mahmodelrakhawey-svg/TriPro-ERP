@@ -1,7 +1,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/ToastContext'; // Ensure useToast is imported
 import { ArrowRight, Printer, Filter, FileDown, Copy, ChevronLeft, ChevronRight, Loader2, FilePlus, Edit, X, Trash2, Settings2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { v4 as uuidv4 } from 'uuid';
@@ -32,6 +32,7 @@ const QuotationList = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [convertData, setConvertData] = useState({ warehouseId: '', treasuryId: '', paidAmount: 0 });
+  const [processingId, setProcessingId] = useState<string | null>(null); // State to track which quotation is being processed
 
   // Filter State
   const [statusFilter, setStatusFilter] = useState('all');
@@ -100,25 +101,6 @@ const QuotationList = () => {
           treasuryId: initialTreasury, 
           paidAmount: 0 
       });
-  };
-
-  // دالة تحويل عرض السعر إلى أمر بيع (Sales Order) لبدء التصنيع
-  // دالة تحويل عرض السعر إلى أمر بيع (Sales Order) لبدء التصنيع
-  const handleConvertToSO = async (id: string) => {
-    if (!window.confirm('هل تريد تحويل هذا العرض إلى "أمر بيع" مؤكد لبدء عملية التصنيع؟')) return;
-    
-    try {
-      const { data, error } = await supabase.rpc('convert_quotation_to_so', {
-        p_quotation_id: id
-      });
-
-      if (error) throw error;
-
-      showToast('تم التحويل إلى أمر بيع بنجاح ✅ يمكنك الآن بدء الإنتاج من شاشة أوامر البيع.', 'success');
-      refresh();
-    } catch (error: any) {
-      showToast('خطأ في التحويل: ' + error.message, 'error');
-    }
   };
 
   const confirmConvert = async () => {
@@ -418,6 +400,85 @@ const QuotationList = () => {
     }
   };
 
+  const handleConvertToSO = async (quotationId: string) => {
+    if (currentUser?.role === 'demo') {
+      showToast('تحويل عروض الأسعار للتصنيع غير متاح في النسخة التجريبية', 'warning');
+      return;
+    }
+
+    if (!window.confirm('هل أنت متأكد من تحويل عرض السعر هذا إلى أمر بيع (لتصنيعه)؟ سيتم إنشاء أمر بيع جديد وربطه بعملية التصنيع.')) {
+      return;
+    }
+
+    try {
+      setProcessingId(quotationId);
+
+      // 1. Fetch quotation details and items
+      const { data: quote, error: quoteError } = await supabase
+        .from('quotations')
+        .select('*')
+        .eq('id', quotationId)
+        .single();
+
+      if (quoteError) throw quoteError;
+      if (!quote) throw new Error('عرض السعر غير موجود.');
+
+      const { data: quoteItems, error: itemsError } = await supabase
+        .from('quotation_items')
+        .select('*, products(cost, purchase_price)')
+        .eq('quotation_id', quotationId);
+
+      if (itemsError) throw itemsError;
+      if (!quoteItems || quoteItems.length === 0) throw new Error('لا توجد بنود في عرض السعر.');
+
+      // 2. Create a new Sales Order
+      const salesOrderNumber = `SO-${Date.now().toString().slice(-6)}`;
+      const { data: salesOrder, error: soError } = await supabase.from('sales_orders').insert({
+        organization_id: quote.organization_id,
+        order_number: salesOrderNumber,
+        customer_id: quote.customer_id,
+        order_date: new Date().toISOString().split('T')[0],
+        status: 'confirmed', // Set as confirmed to be picked up by manufacturing
+        total_amount: quote.total_amount,
+        notes: `تم التحويل من عرض سعر رقم ${quote.quotation_number}`,
+      }).select().single();
+
+      if (soError) throw soError;
+      if (!salesOrder) throw new Error('فشل إنشاء أمر البيع.');
+
+      // 3. Create Sales Order Items
+      const soItemsToInsert = quoteItems.map(item => ({
+        organization_id: quote.organization_id,
+        sales_order_id: salesOrder.id,
+        product_id: item.product_id,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+      }));
+
+      const { error: soItemsInsertError } = await supabase.from('sales_order_items').insert(soItemsToInsert);
+      if (soItemsInsertError) throw soItemsInsertError;
+
+      // 4. Trigger manufacturing order creation from the new Sales Order
+      const { error: mfgError } = await supabase.rpc('mfg_create_orders_from_sales', {
+        p_sales_order_id: salesOrder.id
+      });
+
+      if (mfgError) throw mfgError;
+
+      // 5. Update quotation status
+      await supabase.from('quotations').update({ status: 'converted_to_so' }).eq('id', quotationId);
+
+      showToast(`تم تحويل عرض السعر ${quote.quotation_number} إلى أمر بيع ${salesOrderNumber} وبدء عملية التصنيع بنجاح ✅`, 'success');
+      refresh();
+
+    } catch (error: any) {
+      console.error('Error converting quotation to sales order for manufacturing:', error);
+      showToast('فشل تحويل عرض السعر للتصنيع: ' + error.message, 'error');
+    } finally {
+      setProcessingId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <style>{`
@@ -568,10 +629,11 @@ const QuotationList = () => {
                                     )}
                                     {q.status !== 'accepted' && q.status !== 'converted' && (
                                         <button 
-                                            onClick={() => handleConvertToSO(q.id)}
+                                            onClick={() => handleConvertToSO(q.id)} // Corrected call
+                                            disabled={processingId === q.id}
                                             className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded text-xs hover:bg-indigo-100 font-bold flex items-center gap-1"
                                         >
-                                            <Settings2 size={12} /> تحويل لتصنيع
+                                            {processingId === q.id ? <Loader2 size={12} className="animate-spin" /> : <Settings2 size={12} />} تحويل لتصنيع
                                         </button>
                                     )}
                                     <button onClick={() => handleConvertClick(q.id)} className="text-purple-600 bg-purple-50 px-2 py-1 rounded text-xs hover:bg-purple-100 flex items-center gap-1 font-medium">

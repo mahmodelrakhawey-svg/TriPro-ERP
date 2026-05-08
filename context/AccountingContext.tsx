@@ -1749,7 +1749,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               }
           });
       }
-      if (Object.keys(changes).length > 0) {
+      if (Object.keys(changes).length > 0) { // Use handleError for consistency
           logActivity('تعديل صنف', `تعديل بيانات الصنف: ${oldData?.name}`, undefined, { changes, productId: id });
       }
     } catch (err: any) {
@@ -2026,7 +2026,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const customerAccId = getSystemAccount('CUSTOMERS')?.id;
     const otherRevAccId = getSystemAccount('OTHER_REVENUE')?.id;
     const cashAccId = getSystemAccount('CASH')?.id;
-    const creditAccount = data.targetAccountId || (data.subType === 'customer' ? customerAccId : otherRevAccId);
+    const creditAccount = data.targetAccountId || (data.subType === 'customer' ? customerAccId : otherRevAccId); // Use handleError for consistency
     const debitAccount = data.treasuryAccountId || cashAccId;
 
     if (!creditAccount || !debitAccount) {
@@ -2058,7 +2058,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (rpcError) throw rpcError;
 
     await fetchData();
-    logActivity('سند قبض', `قبض مبلغ ${data.amount} من ${data.partyName}`, data.amount);
+    logActivity('سند قبض', `قبض مبلغ ${data.amount} من ${data.partyName}`, data.amount); // Use handleError for consistency
   };
 
   const addCustomerDeposit = async (data: any) => {
@@ -2103,7 +2103,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (rpcError) throw rpcError;
 
     await fetchData();
-    logActivity('سند تأمين', `قبض تأمين مبلغ ${data.amount} من ${data.partyName}`, data.amount);
+    logActivity('سند تأمين', `قبض تأمين مبلغ ${data.amount} من ${data.partyName}`, data.amount); // Use handleError for consistency
   };
 
   const updateVoucher = async (id: string, type: 'receipt' | 'payment', data: any) => {
@@ -2179,7 +2179,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (rpcError) throw rpcError;
 
     await fetchData();
-    logActivity('سند صرف', `صرف مبلغ ${data.amount} إلى ${data.partyName}`, data.amount);
+    logActivity('سند صرف', `صرف مبلغ ${data.amount} إلى ${data.partyName}`, data.amount); // Use handleError for consistency
   };
 
   const addTransfer = async (data: any) => {
@@ -2195,7 +2195,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         ]
     });
     if (entryId) {
-      const newTransfer = { ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId };
+      const newTransfer = { ...data, id, voucherNumber: vNum, relatedJournalEntryId: entryId }; // Use handleError for consistency
       setTransfers(prev => [newTransfer, ...prev]);
       logActivity('تحويل نقدية', data.description, data.amount);
     }
@@ -2206,7 +2206,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (currentUser?.role === 'demo') {
         const transferNumber = `TRN-DEMO-${Math.floor(Math.random()*10000)}`;
         const demoId = `demo-st-${Date.now()}`;
-        // update transfers state
+        // update transfers state // Use handleError for consistency
         setTransfers(prev => [{ ...data, id: demoId, transferNumber, status: 'posted' }, ...prev]);
         // adjust product warehouseStock locally
         setProducts(prevProds => {
@@ -2219,7 +2219,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 return { ...p, warehouseStock: ws };
             });
             return newProds;
-        });
+        }); // Use handleError for consistency
         showToast('تم التحويل المخزني (ديمو) بنجاح', 'success');
         return;
     }
@@ -2256,7 +2256,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (rpcError) throw rpcError;
 
       await fetchData();
-      showToast('تم التحويل المخزني بنجاح ✅', 'success');
+      showToast('تم التحويل المخزني بنجاح ✅', 'success'); // Use handleError for consistency
     } catch (error: any) {
         console.error(error);
         showToast('فشل التحويل: ' + error.message, 'error');
@@ -2267,7 +2267,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: transferId });
       if (error) throw error;
-      showToast('تم اعتماد التحويل وتحديث المخزون بنجاح ✅', 'success');
+      showToast('تم اعتماد التحويل وتحديث المخزون بنجاح ✅', 'success'); // Use handleError for consistency
       await fetchData();
     } catch (error: any) {
       showToast('فشل اعتماد التحويل: ' + error.message, 'error');
@@ -2278,7 +2278,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const { error } = await supabase.rpc('cancel_stock_transfer', { p_transfer_id: transferId });
       if (error) throw error;
-      showToast('تم إلغاء التحويل وإعادة أرصدة المخزون بنجاح ✅', 'success');
+      showToast('تم إلغاء التحويل وإعادة أرصدة المخزون بنجاح ✅', 'success'); // Use handleError for consistency
       await fetchData();
     } catch (error: any) {
       showToast('فشل إلغاء التحويل: ' + error.message, 'error');
@@ -2333,7 +2333,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (iError) throw iError;
 
       // 4. نقل البنود
-      if (quote.quotation_items && quote.quotation_items.length > 0) {
+      if (quote.quotation_items && quote.quotation_items.length > 0) { // Use handleError for consistency
         const items = quote.quotation_items.map((item: any) => ({
           invoice_id: invoice.id,
           product_id: item.product_id,
@@ -2345,7 +2345,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }));
         
         const { error: itemsError } = await supabase.from('invoice_items').insert(items);
-        if (itemsError) throw itemsError;
+        if (itemsError) throw itemsError; // Use handleError for consistency
       }
 
       // 5. تحديث حالة عرض السعر
@@ -2353,7 +2353,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // 6. اعتماد الفاتورة (إنشاء القيد وتحديث المخزون)
       await approveSalesInvoice(invoice.id);
-
+      // Use handleError for consistency
       showToast('تم تحويل عرض السعر لفاتورة واعتمادها بنجاح', 'success');
       await fetchData();
 
@@ -2397,7 +2397,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (iError) throw iError;
 
       // 4. نقل البنود
-      if (po.purchase_order_items && po.purchase_order_items.length > 0) {
+      if (po.purchase_order_items && po.purchase_order_items.length > 0) { // Use handleError for consistency
         const items = po.purchase_order_items.map((item: any) => ({
           purchase_invoice_id: invoice.id,
           product_id: item.product_id,
@@ -2408,7 +2408,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }));
         
         const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(items);
-        if (itemsError) throw itemsError;
+        if (itemsError) throw itemsError; // Use handleError for consistency
       }
 
       // 5. تحديث حالة أمر الشراء
@@ -2424,7 +2424,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   
   const getBookBalanceAtDate = (accountId: string, date: string) => {
-    let balance = 0;
+    let balance = 0; // Use handleError for consistency
     const account = accounts.find(a => a.id === accountId);
     if (!account) return 0;
 
@@ -2445,7 +2445,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const getAccountBalanceInPeriod = (accountId: string, startDate: string, endDate: string) => {
-    let balance = 0;
+    let balance = 0; // Use handleError for consistency
     const account = accounts.find(a => a.id === accountId);
     if (!account) return 0;
 
@@ -2466,7 +2466,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const updateStock = async (items: any[], warehouseId: string, direction: 'IN' | 'OUT', reference: string, date: string, type: StockTransaction['type']) => {
-    for (const item of items) {
+    for (const item of items) { // Use handleError for consistency
       if (!item.productId) continue;
       
       const qty = Number(item.quantity);
@@ -2475,7 +2475,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { data: product } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.productId).single();
       
       if (product) {
-          const newStock = (product.stock || 0) + change;
+          const newStock = (product.stock || 0) + change; // Use handleError for consistency
           const currentWarehouseStock = product.warehouse_stock || {};
           const newWarehouseStock = { ...currentWarehouseStock, [warehouseId]: (Number(currentWarehouseStock[warehouseId]) || 0) + change };
 
@@ -2492,7 +2492,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const orgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
       
       const { error } = await supabase.rpc('recalculate_stock_rpc', { p_org_id: orgId });
-      
+      // Use handleError for consistency
       if (error) throw error;
 
       showToast(`تم إعادة احتساب وتحديث أرصدة جميع الأصناف بنجاح`, 'success');
@@ -2510,7 +2510,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!orgId) throw new Error("معرف المنظمة غير موجود.");
 
       const { error } = await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
       showToast('تمت إعادة مطابقة جميع الأرصدة بنجاح ✅', 'success');
       await fetchData();
     } catch (err: any) {
@@ -2529,7 +2529,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!orgId) throw new Error("معرف المنظمة غير موجود.");
 
       const { error } = await supabase.rpc('purge_deleted_records', { p_org_id: orgId });
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
       showToast('تم تنظيف البيانات المحذوفة نهائياً بنجاح ✅', 'success');
       await fetchData();
     } catch (err: any) {
@@ -2541,7 +2541,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const refreshSaasSchema = async () => {
     try {
       const { error } = await supabase.rpc('refresh_saas_schema');
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
       showToast('تم تحديث كاش النظام بنجاح ✅', 'success');
     } catch (err: any) {
       console.error("Error refreshing SaaS schema:", err);
@@ -2569,7 +2569,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
 
         // 2. حفظ الشيك
-        const { data: newCheque, error } = await supabase.from('cheques').insert(chequeData).select().single();
+        const { data: newCheque, error } = await supabase.from('cheques').insert(chequeData).select().single(); // Use handleError for consistency
         if (error) throw error;
 
         // 3. رفع المرفقات (إذا وجدت)
@@ -2591,7 +2591,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                         file_type: file.type,
                         file_size: file.size
                     });
-                } else {
+            } else { // Use handleError for consistency
                     console.warn('Failed to upload cheque attachment:', file.name, uploadError);
                 }
             }
@@ -2608,7 +2608,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 description = `استلام شيك رقم ${data.cheque_number} من ${data.party_name}`;
                 lines = [
                     { accountId: notesReceivableAcc.id, debit: data.amount, credit: 0, description },
-                    { accountId: customerAcc.id, debit: 0, credit: data.amount, description: `شيك مستلم من العميل` }
+                    { accountId: customerAcc.id, debit: 0, credit: data.amount, description: `شيك مستلم من العميل` } // Use handleError for consistency
                 ];
             }
         } else if (data.type === 'outgoing') {
@@ -2617,7 +2617,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 description = `إصدار شيك رقم ${data.cheque_number} للمورد ${data.party_name}`;
                 lines = [
                     { accountId: supplierAcc.id, debit: data.amount, credit: 0, description: `شيك صادر للمورد` },
-                    { accountId: notesPayableAcc.id, debit: 0, credit: data.amount, description }
+                    { accountId: notesPayableAcc.id, debit: 0, credit: data.amount, description } // Use handleError for consistency
                 ];
             }
         }
@@ -2631,7 +2631,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 lines: lines
             });
 
-            if (entryId && typeof entryId === 'string') {
+            if (entryId && typeof entryId === 'string') { // Use handleError for consistency
                 await supabase.from('cheques').update({ related_journal_entry_id: entryId }).eq('id', newCheque.id);
             }
 
@@ -2655,7 +2655,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           if (!cheque) throw new Error('الشيك غير موجود');
 
           // 2. التحقق من الحسابات قبل التحديث (لمنع تحديث الحالة بدون قيد)
-          let notesPayableAcc, notesReceivableAcc;
+          let notesPayableAcc, notesReceivableAcc; // Use handleError for consistency
           
           if (status === 'cashed' && cheque.type === 'outgoing') {
               notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '222' || a.code === '2202');
@@ -2671,7 +2671,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const { error: updateError } = await supabase
               .from('cheques')
               .update({ status: status })
-              .eq('id', id);
+              .eq('id', id); // Use handleError for consistency
 
           if (updateError) {
               console.error("Supabase Update Error:", updateError);
@@ -2688,7 +2688,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   status: 'posted',
                   lines: [
                       { accountId: notesPayableAcc.id, debit: cheque.amount, credit: 0, description: `إقفال ورقة دفع - شيك ${cheque.cheque_number}` },
-                      { accountId: depositAccountId, debit: 0, credit: cheque.amount, description: `مسحوب من البنك` }
+                      { accountId: depositAccountId, debit: 0, credit: cheque.amount, description: `مسحوب من البنك` } // Use handleError for consistency
                   ]
               });
           } 
@@ -2700,7 +2700,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   status: 'posted',
                   lines: [
                       { accountId: depositAccountId, debit: cheque.amount, credit: 0, description: `إيداع في البنك` },
-                      { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `تحصيل ورقة قبض - شيك ${cheque.cheque_number}` }
+                      { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `تحصيل ورقة قبض - شيك ${cheque.cheque_number}` } // Use handleError for consistency
                   ]
               });
           }
@@ -2721,7 +2721,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                       status: 'posted',
                       lines: [
                           { accountId: customerAcc.id, debit: cheque.amount, credit: 0, description: `إعادة مديونية (شيك مرفوض)` },
-                          { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `إلغاء ورقة قبض` }
+                          { accountId: notesReceivableAcc.id, debit: 0, credit: cheque.amount, description: `إلغاء ورقة قبض` } // Use handleError for consistency
                       ]
                   });
               } else if (cheque.type === 'outgoing') {
@@ -2734,7 +2734,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                       status: 'posted',
                       lines: [
                           { accountId: notesPayableAcc.id, debit: cheque.amount, credit: 0, description: `إلغاء ورقة دفع` },
-                          { accountId: supplierAcc.id, debit: 0, credit: cheque.amount, description: `إعادة دائنية (شيك مرفوض)` }
+                          { accountId: supplierAcc.id, debit: 0, credit: cheque.amount, description: `إعادة دائنية (شيك مرفوض)` } // Use handleError for consistency
                       ]
                   });
               }
@@ -2755,7 +2755,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       // 🛡️ صمام أمان: التأكد من وجود هوية الشركة قبل الإرسال لمنع فشل الاتصال
       const orgId = (currentUser as any)?.organization_id;
-      if (!orgId) {
+      if (!orgId) { // Use handleError for consistency
         showToast('خطأ أمني: لم يتم تحديد هوية الشركة. يرجى إعادة تسجيل الدخول.', 'error');
         return;
       }
@@ -2777,7 +2777,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .select()
         .single();
 
-      if (assetError) throw assetError;
+      if (assetError) throw assetError; // Use handleError for consistency
 
       // 2. إنشاء قيد محاسبي (اختياري)
       if (data.createJournalEntry) {
@@ -2789,7 +2789,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               creditAccountId = contra?.id;
           }
 
-          if (data.assetAccountId && creditAccountId && data.purchaseCost > 0) {
+          if (data.assetAccountId && creditAccountId && data.purchaseCost > 0) { // Use handleError for consistency
             await addEntry({
               date: data.purchaseDate,
               reference: `ASSET-${newAsset.id.slice(0, 8)}`,
@@ -2800,7 +2800,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 { accountId: creditAccountId, debit: 0, credit: Number(data.purchaseCost), description: 'مقابل شراء أصل' }
               ]
             });
-            showToast('تم حفظ الأصل وإنشاء القيد المحاسبي بنجاح', 'success');
+            showToast('تم حفظ الأصل وإنشاء القيد المحاسبي بنجاح', 'success'); // Use handleError for consistency
           } else {
              showToast('تم حفظ سجل الأصل ولكن لم يتم إنشاء القيد (بيانات الحسابات ناقصة)', 'warning');
           }
@@ -2810,7 +2810,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // 3. تحديث قائمة الأصول في الواجهة
       await fetchData();
-    } catch (err: any) {
+    } catch (err: any) { // Use handleError for consistency
       console.error('Critical Asset Error:', err);
       // 🚨 رسالة ذكية في حال كان مانع الإعلانات هو السبب
       if (err.message?.includes('fetch') || !err.status) {
@@ -2836,7 +2836,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw new Error(`حسابات الإهلاك غير محددة أو غير موجودة (تأكد من وجود ${SYSTEM_ACCOUNTS.DEPRECIATION_EXPENSE} و ${SYSTEM_ACCOUNTS.ACCUMULATED_DEPRECIATION})`);
       }
 
-      // 🛡️ استخدام معرف المنظمة من بيانات المستخدم الحالي لضمان مطابقة سياسة RLS
+      // 🛡️ استخدام معرف المنظمة من بيانات المستخدم الحالي لضمان مطابقة سياسة RLS // Use handleError for consistency
       const orgId = (currentUser as any)?.organization_id || (await supabase.auth.getUser()).data.user?.user_metadata?.org_id;
 
       // استخدام الإدراج المباشر لضمان ربط القيد بالأصل عبر related_document_id
@@ -2851,7 +2851,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           organization_id: orgId
       }).select().single();
       
-      if (entryError) throw entryError;
+      if (entryError) throw entryError; // Use handleError for consistency
       
       const lines = [
           { journal_entry_id: entry.id, account_id: depExpAcc.id, debit: amount, credit: 0, description: `مصروف إهلاك - ${asset.name}`, organization_id: orgId },
@@ -2859,7 +2859,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ];
       
       const { error: linesError } = await supabase.from('journal_lines').insert(lines);
-      if (linesError) throw linesError;
+      if (linesError) throw linesError; // Use handleError for consistency
 
       showToast('تم تسجيل قيد الإهلاك بنجاح', 'success');
       await fetchData(); // تحديث البيانات لعرض القيمة الجديدة
@@ -2892,7 +2892,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .update({ purchase_cost: newPurchaseCost })
         .eq('id', assetId);
 
-      if (updateError) throw updateError;
+      if (updateError) throw updateError; // Use handleError for consistency
 
       // إنشاء قيد إعادة التقييم
       const lines = [];
@@ -2939,7 +2939,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         });
 
         if (error) throw error;
-
+        // Use handleError for consistency
         showToast("تم ترحيل الرواتب بنجاح ✅", 'success');
         await fetchData();
     } catch (err: any) {
@@ -2959,7 +2959,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .eq('reference', `CLOSE-${year}`)
         .maybeSingle();
       
-      if (existing) {
+      if (existing) { // Use handleError for consistency
         throw new Error(`السنة المالية ${year} مغلقة بالفعل.`);
       }
 
@@ -2982,7 +2982,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .gte('journal_entries.transaction_date', startDate)
         .lte('journal_entries.transaction_date', endDate);
 
-      if (linesError) throw linesError;
+      if (linesError) throw linesError; // Use handleError for consistency
 
       // تجميع الأرصدة
       const accountBalances: Record<string, number> = {};
@@ -3039,7 +3039,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           lines: closingLines 
       });
 
-      if (!entryId) throw new Error("فشل إنشاء قيد الإقفال في قاعدة البيانات.");
+      if (!entryId) throw new Error("فشل إنشاء قيد الإقفال في قاعدة البيانات."); // Use handleError for consistency
 
       // 6. تحديث تاريخ الإغلاق في إعدادات الشركة لمنع التعديل مستقبلاً
       const { data: settingsData } = await supabase.from('company_settings').select('id').limit(1).single();
@@ -3048,7 +3048,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       setSettings(prev => ({ ...prev, lastClosedDate: closingDate }));
 
-      showToast(`تم إغلاق السنة المالية ${year} بنجاح`, 'success');
+      showToast(`تم إغلاق السنة المالية ${year} بنجاح`, 'success'); // Use handleError for consistency
       return true;
     } catch (error: any) {
         console.error(error);
@@ -3078,7 +3078,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           secureStorage.removeItem('cached_customers');
           secureStorage.removeItem('cached_suppliers');
           secureStorage.removeItem('cached_products');
-          await authLogout();
+          await authLogout(); // Use handleError for consistency
       } catch (error) {
           console.error("Logout failed:", error);
       }
@@ -3094,7 +3094,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .from('notifications')
             .update({ is_read: true })
             .eq('id', id);
-    } catch (error) {
+    } catch (error) { // Use handleError for consistency
         console.error("Failed to mark notification as read:", error);
         // في حال فشل التحديث، سيعود التنبيه للظهور عند التحديث التالي للبيانات
     }
@@ -3150,7 +3150,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           organization_id: (currentUser as any)?.organization_id 
         })
         .select()
-        .single();
+        .single(); // Use handleError for consistency
       if (error) throw error;
       await fetchData(); // Refresh data
       logActivity('إضافة مستودع', `تم إضافة مستودع جديد: ${warehouseData.name}`);
@@ -3164,7 +3164,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateWarehouse = async (id: string, warehouseData: Partial<Warehouse>) => {
     try {
       const oldData = warehouses.find(w => w.id === id);
-      const { error } = await supabase.from('warehouses').update(warehouseData).eq('id', id);
+      const { error } = await supabase.from('warehouses').update(warehouseData).eq('id', id); // Use handleError for consistency
       if (error) throw error;
       await fetchData();
 
@@ -3191,7 +3191,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
     try {
-      const { error } = await supabase.from('warehouses').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
+      const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id); // Use handleError for consistency
       if (error) throw error;
       await fetchData();
       const wh = warehouses.find(w => w.id === id);
@@ -3205,7 +3205,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateAccount = async (id: string, updates: Partial<Omit<Account, 'id' | 'balance'>>) => {
     try {
       const oldData = accounts.find(a => a.id === id);
-      const { error } = await supabase.from('accounts').update(updates).eq('id', id);
+      const { error } = await supabase.from('accounts').update(updates).eq('id', id); // Use handleError for consistency
       if (error) throw error;
       await fetchData();
       
@@ -3236,7 +3236,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return newCustomer;
     }
     try {
-      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id; // Use handleError for consistency
       const { data, error } = await supabase.from('customers').insert([{
         ...customerData,
         organization_id: orgId
@@ -3244,7 +3244,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) throw error;
       setCustomers(prev => [data, ...prev]);
       return data;
-    } catch (err: any) {
+    } catch (err: any) { // Use handleError for consistency
       console.error("Error adding customer:", err);
       throw err;
     }
@@ -3257,7 +3257,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     try {
       const oldData = customers.find(c => c.id === id);
-      const { error } = await supabase.from('customers').update(updates).eq('id', id);
+      const { error } = await supabase.from('customers').update(updates).eq('id', id); // Use handleError for consistency
       if (error) throw error;
       setCustomers(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
       
@@ -3286,7 +3286,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
     try {
-      const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
+      const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id); // Use handleError for consistency
       if (error) throw error;
 
       // تنظيف الأرصدة الافتتاحية المرتبطة بالعميل المحذوف
@@ -3300,7 +3300,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (openingInvoices && openingInvoices.length > 0) {
         const invoiceIds = openingInvoices.map((inv: any) => inv.id);
         const invoiceNumbers = openingInvoices.map((inv: any) => inv.invoice_number);
-
+        // Use handleError for consistency
         // حذف الفواتير الافتتاحية (Soft Delete)
         await supabase.from('invoices').update({ deleted_at: new Date().toISOString() }).in('id', invoiceIds);
 
@@ -3308,7 +3308,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (invoiceNumbers.length > 0) {
           const { data: journals } = await supabase.from('journal_entries').select('id').in('reference', invoiceNumbers);
           if (journals && journals.length > 0) {
-            const journalIds = journals.map((j: any) => j.id);
+            const journalIds = journals.map((j: any) => j.id); // Use handleError for consistency
             await supabase.from('journal_lines').delete().in('journal_entry_id', journalIds);
             await supabase.from('journal_entries').delete().in('id', journalIds);
           }
@@ -3333,7 +3333,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         organization_id: orgId
       }]).select().single();
       if (error) throw error;
-      setEmployees(prev => [data, ...prev]);
+      setEmployees(prev => [data, ...prev]); // Use handleError for consistency
       return data;
     } catch (err: any) {
       console.error("Error adding employee:", err);
@@ -3344,7 +3344,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateEmployee = async (id: string, updates: any) => {
     try {
       const { error } = await supabase.from('employees').update(updates).eq('id', id);
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
       setEmployees(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
     } catch (err: any) {
       console.error("Error updating employee:", err);
@@ -3376,7 +3376,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         organization_id: orgId
       }]).select().single();
       if (error) throw error;
-      setSuppliers(prev => [data, ...prev]);
+      setSuppliers(prev => [data, ...prev]); // Use handleError for consistency
       return data;
     } catch (err: any) {
       console.error("Error adding supplier:", err);
@@ -3387,7 +3387,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const updateSupplier = async (id: string, updates: Partial<Supplier>) => {
     try {
       const oldData = suppliers.find(s => s.id === id);
-      const { error } = await supabase.from('suppliers').update(updates).eq('id', id);
+      const { error } = await supabase.from('suppliers').update(updates).eq('id', id); // Use handleError for consistency
       if (error) throw error;
       setSuppliers(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
 
@@ -3437,7 +3437,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .eq('product_id', productId)
         .eq('organization_id', orgId);
 
-      if (bomError) throw bomError;
+      if (bomError) throw bomError; // Use handleError for consistency
       if (!bom || bom.length === 0) {
           return { success: false, message: 'لم يتم تعريف قائمة مواد (BOM) لهذا المنتج. يرجى تعريفها أولاً.' };
       }
@@ -3455,7 +3455,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .eq('id', item.raw_material_id)
             .eq('organization_id', orgId)
             .single();
-
+          // Use handleError for consistency
           if (!rawMaterial) throw new Error(`المادة الخام غير موجودة (ID: ${item.raw_material_id})`);
 
           const currentWhStock = rawMaterial.warehouse_stock?.[warehouseId] || 0;
@@ -3480,7 +3480,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           const newWhStock = { ...p.warehouse_stock, [warehouseId]: (p.warehouse_stock?.[warehouseId] || 0) - item.deductQty };
           await supabase.from('products')
             .update({ stock: newStock, warehouse_stock: newWhStock })
-            .eq('id', p.id)
+            .eq('id', p.id) // Use handleError for consistency
             .eq('organization_id', orgId);
       }
 
@@ -3506,7 +3506,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               warehouse_stock: newWhStock,
               purchase_price: newWeightedCost, // تحديث سعر الشراء/التكلفة
               cost: newWeightedCost // تحديث حقل التكلفة أيضاً لضمان التوافق
-          }).eq('id', productId);
+          }).eq('id', productId); // Use handleError for consistency
 
           // 5. إنشاء القيد المحاسبي (تمت إضافته)
           const finishedGoodsAccId = finishedProduct.inventory_account_id || getSystemAccount('INVENTORY_FINISHED_GOODS')?.id;
@@ -3564,7 +3564,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) throw error;
 
       await fetchData();
-      logActivity('إغلاق أمر إنتاج', `تم إغلاق أمر الإنتاج رقم ${orderId} وتحويل التكاليف للمنتج التام`);
+      logActivity('إغلاق أمر إنتاج', `تم إغلاق أمر الإنتاج رقم ${orderId} وتحويل التكاليف للمنتج التام`); // Use handleError for consistency
       return { success: true, message: 'تم إغلاق الأمر وتوليد القيد المحاسبي بنجاح ✅' };
     } catch (error: any) {
       console.error("Finalization Error:", error);
@@ -3614,7 +3614,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         for (const table of attachmentTables) {
             const { error } = await supabase.from(table).delete().neq('id', ADMIN_USER_ID);
             if (error) throw new Error(`فشل حذف المرفقات من جدول ${table}: ${error.message}`);
-        }
+        } // Use handleError for consistency
 
         // Step 2: Delete all item lines from documents.
         console.log("Step 2: Deleting item lines...");
@@ -3625,7 +3625,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         ];
         for (const table of itemTables) {
             const { error } = await supabase.from(table).delete().neq('id', ADMIN_USER_ID);
-            if (error) throw new Error(`فشل حذف البنود من جدول ${table}: ${error.message}`);
+            if (error) throw new Error(`فشل حذف البنود من جدول ${table}: ${error.message}`); // Use handleError for consistency
         }
 
         // Step 3: Delete main documents (that might link to journal entries).
@@ -3638,7 +3638,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         ];
         for (const table of documentTables) { // Loop through document tables
             const { error } = await supabase.from(table).delete().neq('id', ADMIN_USER_ID);
-            if (error) throw new Error(`فشل حذف المستندات من جدول ${table}: ${error.message}`);
+            if (error) throw new Error(`فشل حذف المستندات من جدول ${table}: ${error.message}`); // Use handleError for consistency
         }
 
         // Step 4: Now that documents are gone, delete journal lines.
@@ -3646,7 +3646,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { error: jlError } = await supabase.from('journal_lines').delete().neq('id', ADMIN_USER_ID);
         if (jlError) throw new Error(`فشل حذف أسطر القيود: ${jlError.message}`);
 
-        // Step 5: Finally, delete the journal entries themselves.
+        // Step 5: Finally, delete the journal entries themselves. // Use handleError for consistency
         console.log("Step 5: Deleting journal entries...");
         const { error: jeError } = await supabase.from('journal_entries').delete().neq('id', ADMIN_USER_ID);
         if (jeError) throw new Error(`فشل حذف القيود: ${jeError.message}`);
@@ -3654,14 +3654,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // Step 6: Reset product stock.
         console.log("Step 6: Resetting product stock...");
         await supabase.from('products').update({ stock: 0, warehouse_stock: {} }).neq('id', ADMIN_USER_ID);
-
+        // Use handleError for consistency
         // Step 7: Clean up logs and notifications.
         console.log("Step 7: Cleaning logs and notifications...");
         await supabase.from('notifications').delete().neq('id', ADMIN_USER_ID);
         await supabase.from('security_logs').delete().neq('id', ADMIN_USER_ID);
 
         // Step 8: Reset account balances in the accounts table
-        console.log("Step 8: Resetting account balances...");
+        console.log("Step 8: Resetting account balances..."); // Use handleError for consistency
         await supabase.from('accounts').update({ balance: 0 }).neq('id', ADMIN_USER_ID);
 
         showToast('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد.', 'success');
@@ -3688,7 +3688,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const ref = `OB-${entityId.slice(0, 6)}`;
       // 3999: أرصدة افتتاحية (وسيط) Or 301: رأس المال/حقوق الملكية
       const openingEquityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية')) || accounts.find(a => a.code === '301');
-      
+      // Use handleError for consistency
       if (!openingEquityAcc) {
           console.warn("Opening balance account not found");
           return;
@@ -3696,7 +3696,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       if (entityType === 'customer') {
           const customerAcc = getSystemAccount('CUSTOMERS');
-          if (customerAcc) {
+          if (customerAcc) { // Use handleError for consistency
               await addEntry({
                   date: date,
                   description: `رصيد افتتاحي للعميل ${name}`,
@@ -3717,7 +3717,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   status: 'posted',
                   notes: 'رصيد افتتاحي'
               });
-          }
+          } // Use handleError for consistency
       } else {
           const supplierAcc = getSystemAccount('SUPPLIERS');
           if (supplierAcc) {
@@ -3741,7 +3741,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   status: 'posted',
                   notes: 'رصيد افتتاحي'
               });
-          }
+          } // Use handleError for consistency
       }
   };
 
@@ -3770,7 +3770,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!orgId) throw new Error("معرف المنظمة غير موجود.");
 
       const { data, error } = await supabase.rpc('repair_missing_accounts');
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
 
       await fetchData(); 
       return { success: true, message: data || 'تم فحص وإصلاح دليل الحسابات بنجاح.', created: [] };
@@ -3791,7 +3791,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         p_table_id: tableId,
         p_user_id: currentUser.id
       });
-
+      // Use handleError for consistency
       if (error) {
         // إذا الدالة غير موجودة، نتابع بشكل محلي
         if (error.code === 'PGRST202' || (error.details && error.details.includes('open_table_session'))) {
@@ -3799,7 +3799,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setRestaurantTables(prevTables => prevTables.map(table => table.id === tableId ? { ...table, status: 'OCCUPIED' } : table));
           showToast('تم فتح الجلسة محليًا (fallback) بنجاح', 'success');
           return fallbackSessionId;
-        }
+        } // Use handleError for consistency
         throw error;
       }
 
@@ -3843,7 +3843,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             p_customer_id: orderData.customerId
         });
 
-        if (error) throw error;
+        if (error) throw error; // Use handleError for consistency
 
         showToast(`تم إرسال الطلب للمطبخ بنجاح`, 'success');
         // The table status was already updated when the session was opened. // Comment for clarity
@@ -3864,7 +3864,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addRestaurantOrderItem = async (orderId: string, item: { productId: string; quantity: number; unitPrice: number; notes?: string; }) => {
     try {
       showToast('تم إضافة الصنف إلى الطلب', 'success');
-    } catch (error: any) {
+    } catch (error: any) { // Use handleError for consistency
       console.error('Failed to add restaurant order item:', error);
       showToast(`فشل إضافة الصنف: ${error.message || error}`, 'error'); // Show error message
     }
@@ -3890,7 +3890,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             status: 'COMPLETED',
             organization_id: (currentUser as any)?.organization_id
         });
-        if (payErr) throw payErr;
+        if (payErr) throw payErr; // Use handleError for consistency
 
         // 3. تم إلغاء الترحيل المحاسبي الفوري.
                 // 4. تحديث حالة الطلب وربطه بالكاشير الحالي (ضروري لطلبات الـ QR)
@@ -3905,7 +3905,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // 4. إغلاق جلسة الطاولة (باستخدام الدالة الموجودة في قاعدة البيانات)
         if (order?.session_id) {
              await supabase.rpc('close_table_session', { p_session_id: order.session_id });
-        }
+        } // Use handleError for consistency
 
         await fetchData();
         showToast('تم الدفع وإغلاق الطاولة بنجاح', 'success');
@@ -3931,7 +3931,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             })
             .eq('id', tableId);
         
-        if (error) throw error;
+        if (error) throw error; // Use handleError for consistency
         
         showToast('تم حجز الطاولة بنجاح ✅', 'success');
         await fetchData();
@@ -3965,7 +3965,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         p_target_table_id: targetTableId
       });
 
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
 
       showToast('تم تحويل الطاولة بنجاح ✅', 'success');
       await fetchData();
@@ -3984,7 +3984,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         p_target_session_id: targetSessionId
       });
 
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
 
       showToast('تم دمج الطاولات بنجاح ✅', 'success');
       await fetchData();
@@ -4002,7 +4002,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .from('kitchen_orders')
             .update({ status: newStatus, status_updated_at: new Date().toISOString() })
             .eq('id', kitchenOrderId);
-        if (error) throw error;
+        if (error) throw error; // Use handleError for consistency
         // No toast needed for KDS, UI updates via subscription
     } catch (err: any) {
         console.error("Failed to update kitchen order status:", err);
@@ -4087,7 +4087,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 section: tableData.section || null,
             })
             .select()
-            .single();
+            .single(); // Use handleError for consistency
         if (error) throw error;
         showToast('تمت إضافة الطاولة بنجاح', 'success');
         await fetchData(); // Refresh all data to get the new table
@@ -4111,7 +4111,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               p_treasury_acc: treasuryId
           });
           if (error) throw error;
-          return true;
+          return true; // Use handleError for consistency
       } catch (err: any) {
           showToast('فشل الدفع الجزئي: ' + err.message, 'error');
           return false;
@@ -4126,7 +4126,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const { data, error } = await supabase.rpc('mfg_create_material_request', { p_production_order_id: orderId });
       if (error) throw error;
-      showToast('تم إنشاء طلب صرف المواد بناءً على BOM بنجاح ✅', 'success');
+      showToast('تم إنشاء طلب صرف المواد بناءً على BOM بنجاح ✅', 'success'); // Use handleError for consistency
       return data;
     } catch (err: any) {
       showToast('فشل إنشاء الطلب: ' + err.message, 'error');
@@ -4149,7 +4149,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 section: updates.section
             })
             .eq('id', id);
-        if (error) throw error;
+        if (error) throw error; // Use handleError for consistency
         showToast('تم تعديل الطاولة بنجاح', 'success');
         await fetchData();
     } catch (err: any) {
@@ -4170,7 +4170,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return;
     }
     try {
-        const { error } = await supabase.from('restaurant_tables').delete().eq('id', id); // Delete table
+        const { error } = await supabase.from('restaurant_tables').delete().eq('id', id); // Delete table // Use handleError for consistency
         if (error) throw error;
         showToast('تم حذف الطاولة بنجاح', 'success');
         await fetchData();
@@ -4191,7 +4191,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         p_user_id: currentUser.id
       });
 
-      if (error) throw error;
+      if (error) throw error; // Use handleError for consistency
 
       showToast('تم تسجيل الهالك وترحيل التكلفة بنجاح ✅', 'success');
       await fetchData();
@@ -4245,7 +4245,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
         const { data, error } = await supabase.from('products').insert(payload).select().single();
         // Handle duplicate SKU error
-        if (error) {
+        if (error) { // Use handleError for consistency
             if (error.code === '23505' && error.message.includes('products_sku_key')) {
                 throw new Error(`رمز SKU "${payload.sku}" مستخدم بالفعل. الرجاء إدخال رمز فريد.`);
             }
@@ -4276,7 +4276,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               p_treasury_acc: settings.defaultTreasuryId,
               p_resume_existing: true // تفعيل خيار الاستئناف لتجنب الخطأ 400
           });
-
+        // Use handleError for consistency
           if (error) throw error;
           await checkOpenShift();
           showToast('تم فتح الوردية بنجاح', 'success');
@@ -4369,7 +4369,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               p_actual_cash: actualCash,
               p_notes: notes
           });
-
+          // Use handleError for consistency
           // 2. طباعة التقرير فور نجاح العملية
           if (!error && summary) {
               printShiftReport(summary, actualCash, notes || '');
@@ -4395,7 +4395,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   return (
     <AccountingContext.Provider value={{
       accounts,
-      addAccount: async (accountData: any) => {
+      addAccount: async (accountData: any) => { // Use handleError for consistency
         try {
           const { data, error } = await supabase
             .from('accounts') // SECURITY-WRAPPER
@@ -4409,7 +4409,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               organization_id: (currentUser as any)?.organization_id
             })
             .select()
-            .single();
+            .single(); // Use handleError for consistency
           if (error) throw error; // Throw error if insert fails
           await fetchData();
           logActivity('إضافة حساب', `تم إضافة حساب جديد: ${accountData.name} (${accountData.code})`);

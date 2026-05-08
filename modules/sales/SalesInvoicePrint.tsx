@@ -77,8 +77,8 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
             {invoice.items?.map((item: any, index: number) => (
                 <tr key={index}>
                     <td className="py-3 px-4">{index + 1}</td>
-                    <td className="py-3 px-4 font-bold">{item.productName || item.products?.name}</td>
-                    <td className="py-3 px-4 text-center">{item.quantity}</td>
+                    <td className="py-3 px-4 font-bold">{item.productName || item.products?.name || 'N/A'}</td>
+                    <td className="py-3 px-4 text-center">{Number(item.quantity).toLocaleString()}</td>
                     <td className="py-3 px-4 text-center">{Number(item.unitPrice || item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className="py-3 px-4 text-center font-bold">{Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>

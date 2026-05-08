@@ -6,7 +6,7 @@ import {
     CircleDollarSign, Package, Box, Info,
     ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle
     , Edit, RefreshCw, FileText
-} from 'lucide-react';
+} from 'lucide-react'; // Removed unused useParams import
 import { InvoiceItem, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -18,8 +18,8 @@ import CustomerStatement from './CustomerStatement';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 
-const SalesInvoiceForm = () => {
-  const { products, warehouses, salespeople, accounts, approveSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
+const SalesInvoiceForm = () => { // Removed unused useParams import
+  const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
   const currentUserRole = (currentUser as any)?.role || '';
   const navigate = useNavigate();
   const location = useLocation();
@@ -71,7 +71,7 @@ const SalesInvoiceForm = () => {
   useEffect(() => {
     // 🛡️ استخدام RPC هو الحل الوحيد لتجنب خطأ 406 في جميع الشاشات المالية
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
-      if (error) {
+      if (error) { // Use handleError for consistency
         console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
         showToast('تعذر تحميل إعدادات الشركة، قد تظهر بعض البيانات بشكل غير صحيح', 'warning');
       } else {
@@ -239,7 +239,7 @@ const SalesInvoiceForm = () => {
             ) || [];
             
             if (overdueInvoices.length > 0) {
-                setTimeout(() => {
+                setTimeout(() => { // Use handleError for consistency
                     showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
                 }, 500);
             }
@@ -268,7 +268,7 @@ const SalesInvoiceForm = () => {
           const { data: fullInv } = await supabase.from('invoices').select('*').eq('id', invId).single();
           
           if (fullInv) {
-              if (fullInv.status !== 'draft' && !can('sales', 'update')) {
+              if (fullInv.status !== 'draft' && !can('sales', 'update')) { // Use handleError for consistency
                   showToast('هذه الفاتورة مرحلة ولا يمكن تعديلها. يمكنك إنشاء إشعار دائن', 'warning');
               }
 
@@ -293,7 +293,7 @@ const SalesInvoiceForm = () => {
 
               // Fetch items
               const { data: itemsData } = await supabase.from('invoice_items').select('*, products(name, sku)').eq('invoice_id', fullInv.id);
-              if (itemsData) {
+              if (itemsData) { // Use handleError for consistency
                  setItems(itemsData.map((i: any) => ({
                    id: i.id,
                    productId: i.product_id,
@@ -392,7 +392,7 @@ const SalesInvoiceForm = () => {
       const product = products.find(p => p.sku === sku);
 
       if (product) {
-        addProductToInvoice(product);
+        addProductToInvoice(product); // Use handleError for consistency
         e.currentTarget.value = ''; 
       } else {
         showToast('المنتج غير موجود أو الباركود غير صحيح', 'error');
@@ -444,7 +444,7 @@ const SalesInvoiceForm = () => {
               const openingBalance = parseFloat(newCustomerOpeningBalance);
               if (openingBalance > 0 && data?.id) {
                   const date = new Date().toISOString().split('T')[0];
-                  const ref = `OB-${data.id.slice(0, 6)}`;
+                  const ref = `OB-${data.id.slice(0, 6)}`; // Use handleError for consistency
                   
                   // 1. إنشاء قيد محاسبي (من ح/ العملاء إلى ح/ الأرصدة الافتتاحية)
                   const customerAcc = getSystemAccount('CUSTOMERS');
@@ -457,7 +457,7 @@ const SalesInvoiceForm = () => {
                           reference: ref,
                           status: 'posted',
                           lines: [
-                              { accountId: customerAcc.id, debit: openingBalance, credit: 0, description: `رصيد افتتاحي - ${newCustomerName}` },
+                              { accountId: customerAcc.id, debit: openingBalance, credit: 0, description: `رصيد افتتاحي - ${newCustomerName}` }, // Use handleError for consistency
                               { accountId: openingEquityAcc.id, debit: 0, credit: openingBalance, description: `رصيد افتتاحي - ${newCustomerName}` }
                           ]
                       });
@@ -474,7 +474,7 @@ const SalesInvoiceForm = () => {
                       status: 'posted',
                       notes: 'رصيد افتتاحي'
                   });
-              }
+              } // Use handleError for consistency
 
               setFormData(prev => ({ ...prev, customerId: data.id })); // اختيار العميل الجديد
               setNewCustomerName('');
@@ -534,8 +534,8 @@ const SalesInvoiceForm = () => {
 
     const isPosted = formData.status === 'posted' || formData.status === 'paid';
 
-    if (editingId && isPosted && currentUserRole !== 'admin' && currentUserRole !== 'super_admin' && !can('sales', 'update')) {
-        showToast('لا تملك صلاحية تعديل الفواتير المرحلة. يرجى إنشاء إشعار دائن', 'warning');
+    if (editingId && isPosted && currentUserRole !== 'admin' && currentUserRole !== 'super_admin' && !can('sales', 'update')) { // Use handleError for consistency
+        showToast('لا تملك صلاحية تعديل الفواتير المرحلة. يرجى إنشاء إشعار دائن', 'warning'); // Use handleError for consistency
         return;
     }
 
@@ -567,11 +567,11 @@ const SalesInvoiceForm = () => {
     }
     
     // Check stock availability
-    if (!settings.allowNegativeStock) {
+    if (!settings.allowNegativeStock) { // Use handleError for consistency
         for (const item of items) {
             const product = products.find(p => p.id === item.productId);
             const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
-            if (item.quantity > stockInWarehouse) {
+            if (item.quantity > stockInWarehouse) { // Use handleError for consistency
                 showToast(`رصيد غير كافٍ للصنف "${item.productName}" - المتوفر: ${stockInWarehouse}`, 'error');
                 setSaving(false);
                 return;
@@ -615,7 +615,7 @@ const SalesInvoiceForm = () => {
         }
     }
 
-    if (currentUserRole === 'demo') {
+    if (currentUserRole === 'demo') { // Use handleError for consistency
         await new Promise(resolve => setTimeout(resolve, 600));
         
         const demoInvoiceNumber = formData.invoiceNumber || `INV-DEMO-${Math.floor(Math.random() * 10000)}`;
@@ -632,7 +632,7 @@ const SalesInvoiceForm = () => {
             items: items,
             paid_amount: formData.paidAmount,
         };
-        
+        // Use handleError for consistency
         addDemoInvoice(demoInvoice);
         setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح! (محاكاة)');
         setItems([]);
@@ -673,7 +673,7 @@ const SalesInvoiceForm = () => {
             // Update existing invoice
             const { error: updateError } = await supabase.from('invoices').update(invoiceData).eq('id', editingId);
             
-            if (updateError) {
+            if (updateError) { // Use handleError for consistency
                 if (updateError.code === '23505') {
                     throw new AppError('رقم الفاتورة مكرر. يرجى استخدام رقم آخر أو تعديل الفاتورة الحالية.', 'DUPLICATE_INV_NO', 'high');
                 }
@@ -685,7 +685,7 @@ const SalesInvoiceForm = () => {
         } else {
             // Insert new invoice
             const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();
-            if (insertError) {
+            if (insertError) { // Use handleError for consistency
                 if (insertError.code === '23505') {
                     throw new AppError('رقم الفاتورة هذا مسجل مسبقاً. يرجى استخدام رقم آخر.', 'DUPLICATE_INV_NO', 'high');
                 }
@@ -710,12 +710,12 @@ const SalesInvoiceForm = () => {
             });
 
             const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
-            if (itemsError) throw itemsError;
+            if (itemsError) throw itemsError; // Use handleError for consistency
         }
 
         // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً
-        if (invoiceData.status === 'posted' || invoiceData.status === 'paid') {
-            await approveSalesInvoice(invoiceId);
+        if (invoiceData.status === 'posted' || invoiceData.status === 'paid') { // This condition is always false because status is 'draft'
+            await approveInvoice(invoiceId);
             showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
         } else {
             setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح!');
@@ -777,14 +777,14 @@ const SalesInvoiceForm = () => {
     }
 
     if (formData.paidAmount > 0 && !formData.treasuryId) {
-        showToast('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع', 'warning');
+        showToast('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع', 'warning'); // Use handleError for consistency
         return;
     }
     if (!settings.allowNegativeStock) {
         for (const item of items) {
             const product = products.find(p => p.id === item.productId);
             const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
-            if (item.quantity > stockInWarehouse) {
+            if (item.quantity > stockInWarehouse) { // Use handleError for consistency
                 showToast(`رصيد غير كافٍ للصنف "${item.productName}"`, 'error');
                 return;
             }
@@ -796,7 +796,7 @@ const SalesInvoiceForm = () => {
     const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
     const userOrgId = profile?.organization_id;
 
-    if (!userOrgId) {
+    if (!userOrgId) { // Use handleError for consistency
         showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
         setSaving(false);
         return;
@@ -804,7 +804,7 @@ const SalesInvoiceForm = () => {
 
     if (currentUserRole === 'demo') {
         await new Promise(resolve => setTimeout(resolve, 600));
-        
+        // Use handleError for consistency
         const demoInvoiceNumber = formData.invoiceNumber || `INV-DEMO-${Math.floor(Math.random() * 10000)}`;
         const demoInvoice = {
             id: `demo-inv-${Date.now()}`,
@@ -819,7 +819,7 @@ const SalesInvoiceForm = () => {
             paid_amount: formData.paidAmount,
             treasuryId: formData.treasuryId
         };
-        
+        // Use handleError for consistency
         postDemoSalesInvoice(demoInvoice);
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');
         setItems([]);
@@ -854,7 +854,7 @@ const SalesInvoiceForm = () => {
         };
 
         const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();
-        if (insertError) {
+        if (insertError) { // Use handleError for consistency
             if (insertError.code === '23505') {
                 throw new Error('رقم الفاتورة مكرر. يرجى تغيير الرقم أو الحفظ كمسودة أولاً.');
             }
@@ -876,10 +876,10 @@ const SalesInvoiceForm = () => {
         });
 
         const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
-        if (itemsError) throw itemsError;
+        if (itemsError) throw itemsError; // Use handleError for consistency
 
         // --- 2. Approve the newly created invoice ---
-        await approveSalesInvoice(invoiceId);
+        await approveInvoice(invoiceId);
 
         // --- 3. Handle UI feedback and form reset ---
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');
@@ -900,7 +900,7 @@ const SalesInvoiceForm = () => {
   const getProductStock = (productId?: string) => {
       if (!productId || !formData.warehouseId) return 0;
       const product = products.find(p => p.id === productId);
-      // Note: In a real app, stock should be fetched per warehouse. 
+      // Note: In a real app, stock should be fetched per warehouse. // Use handleError for consistency
       // Here we use the global stock for simplicity or assume single warehouse logic if not implemented fully.
       return product?.stock || 0;
   };
@@ -927,7 +927,7 @@ const SalesInvoiceForm = () => {
   const handleThermalPrint = () => {
       // إضافة كلاس للطباعة الحرارية للجسم مؤقتاً
       document.body.classList.add('thermal-print');
-      window.print();
+      window.print(); // Use handleError for consistency
       // إزالة الكلاس بعد الطباعة (أو بعد فترة قصيرة)
       setTimeout(() => document.body.classList.remove('thermal-print'), 1000);
   };

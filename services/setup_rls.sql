@@ -4,85 +4,57 @@
 -- النسخة V14 النهائية الموحدة - دعم اليوزر العالمي وإحصائيات ساس
 
 -- حذف الدوال القديمة لضمان التحديث
+-- =================================================================
+-- 🔓 منح الصلاحيات الأساسية (Critical Grants)
+-- =================================================================
+DO $$
+DECLARE
+    t text;
+BEGIN
+    FOR t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', t);
+    END LOOP;
+END $$;
+
+-- Existing grants
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT SELECT, INSERT, UPDATE ON public.profiles TO authenticated;
+GRANT SELECT ON public.organizations TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.notification_preferences TO authenticated;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
 
 -- =================================================================
 -- تفعيل RLS على الجداول (يمنع الوصول الافتراضي للجميع)
 -- =================================================================
-
-ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE organizations ENABLE ROW LEVEL SECURITY;
-ALTER TABLE company_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE security_logs ENABLE ROW LEVEL SECURITY;
-
--- الجداول الأساسية
-ALTER TABLE accounts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE suppliers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE warehouses ENABLE ROW LEVEL SECURITY;
-ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payrolls ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE shifts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE receipt_voucher_attachments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payment_voucher_attachments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE table_sessions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE restaurant_tables ENABLE ROW LEVEL SECURITY;
-ALTER TABLE menu_categories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE modifier_groups ENABLE ROW LEVEL SECURITY;
-ALTER TABLE modifiers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE organization_backups ENABLE ROW LEVEL SECURITY;
-ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE permissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE role_permissions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invitations ENABLE ROW LEVEL SECURITY;
-
--- جداول العمليات
-ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE invoice_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE purchase_invoices ENABLE ROW LEVEL SECURITY;
-ALTER TABLE purchase_invoice_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE journal_entries ENABLE ROW LEVEL SECURITY;
-ALTER TABLE journal_lines ENABLE ROW LEVEL SECURITY;
-ALTER TABLE receipt_vouchers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payment_vouchers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cheques ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_adjustments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_adjustment_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_counts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE inventory_count_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_transfers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_transfer_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE opening_inventories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE credit_notes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE debit_notes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE work_order_costs ENABLE ROW LEVEL SECURITY;
-
-ALTER TABLE inventory_count_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_transfers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_transfer_items ENABLE ROW LEVEL SECURITY;
-ALTER TABLE opening_inventories ENABLE ROW LEVEL SECURITY;
-ALTER TABLE credit_notes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE debit_notes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE work_order_costs ENABLE ROW LEVEL SECURITY;
-
--- جداول التصنيع
-ALTER TABLE public.mfg_work_centers ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_routings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_routing_steps ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_production_orders ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_order_progress ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_step_materials ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_actual_material_usage ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_scrap_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_batch_serials ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_production_variances ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_material_requests ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_material_request_items ENABLE ROW LEVEL SECURITY;
+DO $$ 
+DECLARE 
+    t text;
+    tables_to_rls text[] := ARRAY[
+        'products', 'customers', 'suppliers', 'warehouses', 'employees', 
+        'payrolls', 'payroll_items', 'shifts', 'receipt_voucher_attachments', 
+        'payment_voucher_attachments', 'journal_attachments', 'cheque_attachments',
+        'orders', 'order_items', 'table_sessions', 
+        'restaurant_tables', 'menu_categories', 'modifier_groups', 'modifiers', 
+        'organization_backups', 'roles', 'permissions', 'role_permissions', 'invitations',
+        'invoices', 'invoice_items', 'purchase_invoices', 'purchase_invoice_items', 
+        'journal_entries', 'journal_lines', 'receipt_vouchers', 'payment_vouchers', 
+        'cheques', 'stock_adjustments', 'stock_adjustment_items', 'inventory_counts', 
+        'inventory_count_items', 'stock_transfers', 'stock_transfer_items', 
+        'opening_inventories', 'credit_notes', 'debit_notes', 'work_orders', 
+        'work_order_costs', 'mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 
+        'mfg_production_orders', 'mfg_order_progress', 'mfg_step_materials', 
+        'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 
+        'mfg_production_variances', 'mfg_material_requests', 'mfg_material_request_items',
+        'kitchen_orders'
+    ];
+BEGIN
+    FOREACH t IN ARRAY tables_to_rls LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
+            EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
+        END IF;
+    END LOOP;
+END $$;
 
 -- =================================================================
 -- تعريف السياسات (Policies)
@@ -91,13 +63,27 @@ ALTER TABLE public.mfg_material_request_items ENABLE ROW LEVEL SECURITY;
 -- 1. جدول المستخدمين (Profiles)
 -- يمكن للجميع قراءة بيانات المستخدمين (لأغراض العرض في القوائم)
 -- تم التحديث: السوبر أدمن يرى الجميع، والأدمن العادي يرى مستخدمي شركته فقط، والمستخدم يرى نفسه
-DROP POLICY IF EXISTS "profiles_select_policy" ON profiles;
-CREATE POLICY "profiles_select_policy" ON profiles 
-FOR SELECT TO authenticated USING (
-    id = auth.uid() 
-    OR organization_id = public.get_my_org() 
-    OR public.get_my_role() = 'super_admin'
+-- 🛡️ إصلاح: استخدام سياسة غير استدعائية (Non-Recursive)
+DROP POLICY IF EXISTS "profiles_select_policy" ON public.profiles;
+CREATE POLICY "profiles_select_policy" ON public.profiles 
+FOR SELECT TO authenticated 
+USING (
+    id = auth.uid() -- يرى ملفه الخاص دائماً
+    OR (auth.jwt() ->> 'role' = 'super_admin') -- السوبر أدمن يرى الجميع (من التوكن مباشرة)
+    OR (organization_id IS NOT NULL AND (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid = organization_id) -- زملاء العمل
 );
+
+-- 1.1 إشعارات النظام (Notifications)
+-- تسمح للمستخدم برؤية إشعاراته الخاصة أو إشعارات شركته
+DROP POLICY IF EXISTS "notifications_access_policy" ON public.notifications;
+CREATE POLICY "notifications_access_policy" ON public.notifications 
+FOR ALL TO authenticated 
+USING (
+    user_id = auth.uid() 
+    OR (organization_id IS NOT NULL AND organization_id = public.get_my_org())
+    OR (auth.jwt() ->> 'role' = 'super_admin')
+)
+WITH CHECK (true);
 
 -- يمكن للمستخدم تعديل بياناته فقط
 DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
@@ -111,6 +97,27 @@ USING (
     public.get_my_role() = 'super_admin'
     OR (public.get_my_role() = 'admin' AND organization_id = public.get_my_org())
 );
+
+-- 1.2 سياسة عامة لجميع الجداول التي تحتوي على organization_id
+-- تسمح للمستخدمين المصادق عليهم بالوصول لبيانات منظمتهم
+DO $$
+DECLARE
+    t text;
+    tables_with_org_id text[] := ARRAY(
+        SELECT c.table_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t ON c.table_name = t.table_name AND c.table_schema = t.table_schema
+        WHERE c.table_schema = 'public' 
+        AND c.column_name = 'organization_id'
+        AND t.table_type = 'BASE TABLE' -- 🛡️ حماية: استهداف الجداول الأساسية فقط وتجاهل الـ Views
+        AND c.table_name NOT IN ('profiles', 'organizations', 'company_settings', 'notifications', 'payrolls', 'payroll_items') -- الجداول التي لها سياسات خاصة
+    );
+BEGIN
+    FOREACH t IN ARRAY tables_with_org_id LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "Org_Access_Policy_%I" ON public.%I;', t, t);
+        EXECUTE format('CREATE POLICY "Org_Access_Policy_%I" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org()) WITH CHECK (organization_id = public.get_my_org());', t, t);
+    END LOOP;
+END $$;
 
 -- سياسة السوبر أدمن على المنظمات
 DROP POLICY IF EXISTS "Org_SuperAdmin_Policy" ON organizations;
@@ -134,132 +141,78 @@ CREATE POLICY "settings_update_policy" ON company_settings FOR UPDATE TO authent
 
 -- 3. البيانات الأساسية (Products, Customers, Suppliers, Accounts)
 -- السوبر أدمن يرى الجميع، والمستخدم يرى بيانات منظمته فقط
-DO $$
-DECLARE
-    t text;
-    basic_tables text[] := ARRAY[
-        'products', 'customers', 'suppliers', 'warehouses', 'accounts', 'cost_centers',
-        'item_categories', 'menu_categories', 'bill_of_materials', 'assets', 'restaurant_tables',
-        'modifier_groups', 'modifiers', 'table_sessions', 'orders', 'order_items', 'kitchen_orders', 'order_item_modifiers',
-        'payments', 'delivery_orders', 'shifts', 'employees', 'payrolls', 'payroll_items',
-        'employee_advances', 'employee_allowances', 'payroll_variables', 'quotations', 'quotation_items',
-        'purchase_orders', 'purchase_order_items', 'stock_adjustments', 'stock_adjustment_items',
-        'stock_transfers', 'stock_transfer_items', 'inventory_counts', 'inventory_count_items',
-        'work_orders', 'work_order_costs', 'bank_reconciliations', 'notifications', 'notification_preferences',
-        'notification_audit_log', 'security_logs', 'system_error_logs', 'cash_closings', 'rejected_cash_closings',
-        'credit_notes', 'debit_notes', 'receipt_vouchers', 'payment_vouchers', 'cheques',
-        'receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments',
-        'sales_returns', 'sales_return_items', 'purchase_invoices', 'purchase_invoice_items', 'invoices', 'invoice_items',
-        'purchase_returns', 'purchase_return_items', 'opening_inventories', 'budgets',
-        'work_order_material_usage',
-        -- جداول التصنيع
-        'mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 'mfg_production_orders', 
-        'mfg_order_progress', 'mfg_step_materials', 'mfg_actual_material_usage', 
-        'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances', 
-        'mfg_material_requests', 'mfg_material_request_items', 'mfg_qc_inspections', -- تمت إضافة الجداول المفقودة
-        'mfg_work_centers', 'mfg_routings', 'mfg_production_orders', 'mfg_material_requests',
-        'mfg_batch_serials', 'mfg_qc_inspections'
-    ];
-BEGIN
-    FOREACH t IN ARRAY basic_tables LOOP
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t) THEN
-        EXECUTE format('DROP POLICY IF EXISTS "SaaS_Select_Policy_%I" ON public.%I;', t, t);
-        EXECUTE format('CREATE POLICY "SaaS_Select_Policy_%I" ON public.%I FOR SELECT TO authenticated USING (
-            (organization_id = public.get_my_org()) OR (public.get_my_role() = ''super_admin'')
-        );', t, t);
 
-        EXECUTE format('DROP POLICY IF EXISTS "SaaS_Modify_Policy_%I" ON public.%I;', t, t);
-        EXECUTE format('CREATE POLICY "SaaS_Modify_Policy_%I" ON public.%I FOR ALL TO authenticated 
-            USING ((organization_id = public.get_my_org()) OR (public.get_my_role() = ''super_admin''))
-            WITH CHECK ((organization_id = public.get_my_org()) OR (public.get_my_role() = ''super_admin''));', t, t);
-        END IF;
-    END LOOP;
-END $$;
 
 -- سياسة المرفقات الشاملة (ضمان رؤية مرفقات الشركة فقط لكافة أنواع السندات)
 DO $$ 
 DECLARE t text;
 BEGIN
-    FOREACH t IN ARRAY ARRAY['receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments'] LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "Attachments_SaaS_Policy" ON public.%I;', t);
-        EXECUTE format('CREATE POLICY "Attachments_SaaS_Policy" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t);
+    FOREACH t IN ARRAY ARRAY['receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments', 'organization_backups', 'notifications'] LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
+            -- التأكد من وجود العمود لتجنب الخطأ 42703 في حال تخطي الملف الرابع
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
+            
+            EXECUTE format('DROP POLICY IF EXISTS "Attachments_SaaS_Policy" ON public.%I;', t);
+            EXECUTE format('CREATE POLICY "Attachments_SaaS_Policy" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t);
+        END IF;
     END LOOP;
 END $$;
 
 -- إضافة سياسة إدارة المطبخ المفقودة
-DROP POLICY IF EXISTS "Staff can manage kitchen_orders" ON kitchen_orders;
-CREATE POLICY "Staff can manage kitchen_orders" ON kitchen_orders 
-FOR ALL TO authenticated 
-USING (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()))
-WITH CHECK (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()));
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kitchen_orders') THEN
+        DROP POLICY IF EXISTS "Staff can manage kitchen_orders" ON kitchen_orders;
+        CREATE POLICY "Staff can manage kitchen_orders" ON kitchen_orders 
+        FOR ALL TO authenticated 
+        USING (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()))
+        WITH CHECK (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()));
+    END IF;
+END $$;
 -- حماية القيود المحاسبية (ممنوع على الـ Viewer و البائعين)
 DROP POLICY IF EXISTS "Journal_Entries_Isolation" ON journal_entries;
-CREATE POLICY "Journal_Entries_Isolation" ON journal_entries 
+CREATE POLICY "Journal_Entries_Isolation" ON journal_entries
 FOR SELECT TO authenticated 
-USING ((organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') AND public.get_my_role() NOT IN ('viewer', 'demo', 'sales', 'chef'));
+USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
 -- 6. سياسة النسخ الاحتياطي (Backups)
 DROP POLICY IF EXISTS "Admins manage backups" ON organization_backups;
 CREATE POLICY "Admins manage backups" ON organization_backups 
 FOR ALL TO authenticated 
 USING (
-    public.get_my_role() = 'super_admin' 
-    OR (organization_id = public.get_my_org() AND is_admin())
+    public.get_my_role() = 'super_admin'
+    OR (organization_id = public.get_my_org() AND public.is_admin())
 );
 -- 5. حماية بيانات الموارد البشرية والرواتب (HR & Payroll Security)
 -- تمنع هذه السياسة المحاسبين والبائعين من رؤية تفاصيل الرواتب الحساسة
 -- إضافة حماية خاصة لجدول الرواتب تمنع السوبر أدمن إلا في حالة الطوارئ الموثقة
 
--- ثانياً: سياسة القراءة لجداول الرواتب (الموظف العادي لا يرى شيئاً، المدير يرى شركته، السوبر أدمن يحتاج وضع الطوارئ)
+-- ثانياً: سياسة القراءة لجداول الرواتب (الموظف العادي لا يرى شيئاً، المدير يرى شركته، السوبر أدمن يرى الجميع)
 DROP POLICY IF EXISTS "Restricted_Payrolls_Select" ON payrolls;
 CREATE POLICY "Restricted_Payrolls_Select" ON payrolls FOR SELECT TO authenticated 
 USING (
-    (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager')) 
-    OR 
-    (get_my_role() = 'super_admin' AND current_setting('app.emergency_mode', true) = 'on')
+    (organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager'))
+    OR
+    public.get_my_role() = 'super_admin'
 );
 
 DROP POLICY IF EXISTS "Restricted_Payroll_Items_Select" ON payroll_items;
 CREATE POLICY "Restricted_Payroll_Items_Select" ON payroll_items FOR SELECT TO authenticated 
 USING (
-    (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager')) 
-    OR 
-    (get_my_role() = 'super_admin' AND current_setting('app.emergency_mode', true) = 'on')
+    (organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager'))
+    OR
+    public.get_my_role() = 'super_admin'
 );
 
 -- ثالثاً: سياسة الإدارة (تعديل/حذف)
 DROP POLICY IF EXISTS "HR_Manage_Payrolls" ON payrolls;
 CREATE POLICY "HR_Manage_Payrolls" ON payrolls FOR ALL TO authenticated 
 USING (
-    (organization_id = get_my_org() AND get_my_role() IN ('admin', 'manager'))
+    (organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager'))
     OR
-    (get_my_role() = 'super_admin' AND current_setting('app.emergency_mode', true) = 'on')
+    public.get_my_role() = 'super_admin'
 );
 
 -- تفعيل حماية البيانات للرؤية لضمان عزل بيانات الساس
-ALTER VIEW public.v_mfg_work_center_efficiency SET (security_invoker = on);
 
-DO $$ 
-DECLARE t text;
-BEGIN
-    FOREACH t IN ARRAY ARRAY[
-        'mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 'mfg_production_orders', 
-        'mfg_order_progress', 'mfg_step_materials', 'mfg_actual_material_usage', 
-        'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances', 
-        'mfg_material_requests', 'mfg_material_request_items', 'mfg_qc_inspections'
-    ] LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "mfg_select_policy_%I" ON public.%I', t, t);
-        EXECUTE format('CREATE POLICY "mfg_select_policy_%I" ON public.%I FOR SELECT TO authenticated 
-            USING (organization_id = public.get_my_org() OR public.is_super_admin())', t, t);
-        EXECUTE format('DROP POLICY IF EXISTS "mfg_admin_policy_%I" ON public.%I', t, t);
-        EXECUTE format('CREATE POLICY "mfg_admin_policy_%I" ON public.%I FOR ALL TO authenticated 
-            USING ((organization_id = public.get_my_org() AND public.get_my_role() IN (''admin'', ''manager'')) OR public.is_super_admin())', t, t);
-    END LOOP;
-    
-    -- منح صلاحيات التنفيذ للدوال بشكل مجمع وآمن
-    EXECUTE 'GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;';
-END $$;
-
-NOTIFY pgrst, 'reload config';
 
 -- =================================================================
 -- 🚀 سياسة الوصول المطلق للسوبر أدمن (Super Admin Universal Bypass)
@@ -271,7 +224,7 @@ DECLARE
     tbl text;
     -- قائمة شاملة لكل جداول النظام لضمان الصلاحيات المطلقة للسوبر آدمن
     all_system_tables text[] := ARRAY(
-        SELECT tablename 
+        SELECT tablename
         FROM pg_tables 
         WHERE schemaname = 'public' 
         AND tablename NOT IN ('spatial_ref_sys') -- استثناء جداول النظام التقنية
@@ -281,18 +234,30 @@ BEGIN
         -- حذف أي نسخة قديمة من سياسة التجاوز
         EXECUTE format('DROP POLICY IF EXISTS "SuperAdmin_Universal_Access" ON public.%I;', tbl);
         
-        -- إذا كان الجدول يحتوي على عمود organization_id، نتأكد من السماح بالعمليات حتى لو كان فارغاً للسوبر آدمن
+        -- إذا كان الجدول يحتوي على عمود organization_id، نتأكد من السماح بالعمليات حتى لو كان فارغاً للسوبر آدمن (هذا الجزء لم يعد ضرورياً مع السياسة العامة)
         -- إنشاء السياسة الجديدة التي تسمح بكل العمليات للسوبر أدمن
         EXECUTE format('
             CREATE POLICY "SuperAdmin_Universal_Access" ON public.%I 
-            FOR ALL TO authenticated 
-            USING (public.get_my_role() = ''super_admin'' OR auth.jwt()->>''role'' = ''super_admin'')
-            WITH CHECK (public.get_my_role() = ''super_admin'' OR auth.jwt()->>''role'' = ''super_admin'');
+            FOR ALL TO authenticated
+            USING (public.get_my_role() = ''super_admin'')
+            WITH CHECK (public.get_my_role() = ''super_admin'');
         ', tbl);
     END LOOP;
 END $$;
 
--- تنشيط الكاش لضمان نفاذ السياسات فوراً
+-- =================================================================
+-- 🔄 دالة تحديث المخطط (Schema Refresh Utility)
+-- الوصف: تضمن وجود الدالة لمنع الخطأ 42883 وتنبيه النظام بالتغييرات
+-- =================================================================
+CREATE OR REPLACE FUNCTION public.refresh_saas_schema()
+RETURNS void AS $$
+BEGIN
+    -- إشعار داخلي في قاعدة البيانات
+    RAISE NOTICE 'SaaS Security Policies Refreshed Successfully';
+END;
+$$ LANGUAGE plpgsql;
+
+-- تنفيذ التنشيط
 SELECT public.refresh_saas_schema();
 
 -- =================================================================

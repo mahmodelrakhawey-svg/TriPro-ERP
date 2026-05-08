@@ -11,6 +11,93 @@ GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO public;
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 
+-- 🛡️ Schema Healing: التأكد من وجود الأعمدة الحساسة قبل البدء لتجنب خطأ 42703 (organization_id)
+-- يحدث هذا إذا كانت الجداول منشأة مسبقاً بنسخة قديمة من النظام وتفتقر لهيكل الـ SaaS
+DO $$ 
+DECLARE 
+    t text;
+    tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders'];
+BEGIN
+    -- 0. ترميم جدول المنظمات (SaaS Organizations Repair)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organizations' AND table_schema = 'public') THEN
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS email text;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS phone text;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS address text;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS vat_number text;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS logo_url text;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS footer_text text;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS allowed_modules text[] DEFAULT '{"accounting"}';
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS subscription_expiry date;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS max_users integer DEFAULT 5;
+        ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS activity_type text;
+    END IF;
+
+    -- 1. إضافة عمود المنظمة المفقود (Multi-tenancy Enforcer)
+    FOREACH t IN ARRAY tables_to_heal LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t AND table_schema = 'public') THEN
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE', t);
+        END IF;
+    END LOOP;
+
+    -- 🛡️ ترميم أعمدة التكلفة لجدول المنتجات (لضمان توافق مديول التصنيع)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products' AND table_schema = 'public') THEN
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
+    END IF;
+
+    -- 🛡️ ترميم جدول الحسابات (Accounts Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'accounts' AND table_schema = 'public') THEN
+        ALTER TABLE public.accounts ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+        ALTER TABLE public.accounts ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+        
+        -- 🛡️ حل شامل لمشكلة 42P10 و ON CONFLICT
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_code_key;
+
+        -- تنظيف البيانات المكررة لضمان نجاح إضافة القيد
+        DELETE FROM public.accounts a USING (
+            SELECT id, ROW_NUMBER() OVER (PARTITION BY organization_id, code ORDER BY created_at DESC) as rn
+            FROM public.accounts
+        ) b WHERE a.id = b.id AND b.rn > 1;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+    END IF;
+
+    -- 🛡️ ترميم جدول الأدوار (Roles Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'roles' AND table_schema = 'public') THEN
+        ALTER TABLE public.roles DROP CONSTRAINT IF EXISTS roles_name_key;
+        ALTER TABLE public.roles DROP CONSTRAINT IF EXISTS roles_name_organization_id_key;
+        ALTER TABLE public.roles ADD CONSTRAINT roles_name_organization_id_key UNIQUE (name, organization_id);
+    END IF;
+
+    -- 2. توحيد مسمى user_id (ترميم العمود المفقود الذي سبب الخطأ 42703)
+    -- نتحقق من الجداول التي قد تحتوي على المسمى القديم created_by ونقوم بتحويله إلى user_id
+    -- ثم نضمن وجود user_id في الجداول التي تتطلبه
+    DECLARE
+        -- قائمة بالجداول التي يجب أن تحتوي على user_id أو created_by
+        tables_with_user_id text[] := ARRAY['orders', 'journal_entries', 'shifts', 'table_sessions', 'cash_closings', 'organization_backups', 'notifications', 'receipt_vouchers', 'payment_vouchers'];
+        user_id_table text;
+    BEGIN
+        FOREACH user_id_table IN ARRAY tables_with_user_id LOOP
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+                -- Rename created_by to user_id if created_by exists and user_id does not
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'created_by') AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
+                    EXECUTE format('ALTER TABLE public.%I RENAME COLUMN created_by TO user_id', user_id_table);
+                END IF;
+                -- Add user_id if it's still missing (after potential rename) and it's a table that should have it
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
+                    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id)', user_id_table);
+                END IF;
+            END IF;
+        END LOOP;
+    END;
+    -- 3. إضافة عمود الوصف المفقود في جدول الصلاحيات
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'permissions' AND table_schema = 'public') THEN
+        ALTER TABLE public.permissions ADD COLUMN IF NOT EXISTS description text;
+    END IF;
+END $$;
+
 -- ================================================================
 -- 1. الجداول الأساسية (Core Tables)
 -- ================================================================
@@ -76,7 +163,8 @@ BEGIN
     _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
 
     -- 🛡️ صمام أمان: إذا كان المستخدم موثقاً ولم يتم تحديد منظمة، ارفع خطأ
-    IF _org_id IS NULL AND auth.uid() IS NOT NULL THEN
+    -- 🚀 تحديث: استثناء السوبر أدمن من هذا الشرط للسماح بالوصول العالمي
+    IF _org_id IS NULL AND auth.uid() IS NOT NULL AND public.get_my_role() != 'super_admin' THEN
         RAISE EXCEPTION 'فشل تحديد المنظمة للمستخدم الموثق. يرجى التأكد من ربط المستخدم بمنظمة.';
     END IF;
     RETURN _org_id;
@@ -108,6 +196,9 @@ CREATE TABLE IF NOT EXISTS public.permissions (
 );
 
 -- تعبئة الصلاحيات الأساسية للنظام لضمان منحها للأدمن تلقائياً عند إنشاء شركة جديدة
+-- 🛡️ صمام أمان: التأكد من وجود عمود الوصف في حال كان الجدول منشأ مسبقاً بدون هذا العمود
+ALTER TABLE public.permissions ADD COLUMN IF NOT EXISTS description text;
+
 INSERT INTO public.permissions (module, action, description) VALUES
 ('sales', 'view', 'عرض المبيعات'),
 ('sales', 'create', 'إنشاء فاتورة مبيعات'),
@@ -399,169 +490,6 @@ min_stock numeric DEFAULT 5,
     is_active boolean DEFAULT true,
     created_at timestamptz DEFAULT now() NOT NULL
 );
--- ================================================================
--- 1.7 جداول مديول التصنيع (MFG Module Tables)
--- ================================================================
-
-CREATE TABLE IF NOT EXISTS public.mfg_work_centers (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    name text NOT NULL,
-    description text,
-    hourly_rate numeric DEFAULT 0,
-    overhead_rate numeric DEFAULT 0,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_routings (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-    name text NOT NULL,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    is_default boolean DEFAULT true,
-    deleted_at timestamptz
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_routing_steps (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    routing_id uuid REFERENCES public.mfg_routings(id) ON DELETE CASCADE,
-    step_order integer NOT NULL,
-    work_center_id uuid REFERENCES public.mfg_work_centers(id) ON DELETE SET NULL,
-    operation_name text NOT NULL,
-    standard_time_minutes numeric DEFAULT 0,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_production_orders (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    order_number text UNIQUE,
-    product_id uuid REFERENCES public.products(id),
-    quantity_to_produce numeric NOT NULL,
-    status text DEFAULT 'draft',
-    start_date date,
-    end_date date,
-    batch_number text,
-    warehouse_id uuid REFERENCES public.warehouses(id),
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    notes text,
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_order_progress (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
-    step_id uuid REFERENCES public.mfg_routing_steps(id),
-    status text DEFAULT 'pending',
-    actual_start_time timestamptz,
-    actual_end_time timestamptz,
-    produced_qty numeric DEFAULT 0,
-    labor_cost_actual numeric DEFAULT 0,
-    qc_verified boolean DEFAULT NULL, -- NULL: pending, true: pass, false: fail
-    employee_id uuid REFERENCES public.employees(id),
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_step_materials (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    step_id uuid REFERENCES public.mfg_routing_steps(id) ON DELETE CASCADE,
-    raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-    quantity_required numeric NOT NULL DEFAULT 1,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_actual_material_usage (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    order_progress_id uuid REFERENCES public.mfg_order_progress(id) ON DELETE CASCADE,
-    raw_material_id uuid REFERENCES public.products(id),
-    standard_quantity numeric NOT NULL,
-    actual_quantity numeric NOT NULL,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_scrap_logs (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    order_progress_id uuid REFERENCES public.mfg_order_progress(id) ON DELETE CASCADE,
-    product_id uuid REFERENCES public.products(id),
-    quantity numeric NOT NULL,
-    reason text,
-    scrap_type text DEFAULT 'material',
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_production_variances (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
-    actual_total_cost numeric DEFAULT 0,
-    standard_total_cost numeric DEFAULT 0,
-    variance_amount numeric DEFAULT 0,
-    variance_percentage numeric DEFAULT 0,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now(),
-    UNIQUE(production_order_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_batch_serials (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
-    product_id uuid REFERENCES public.products(id),
-    serial_number text NOT NULL,
-    status text DEFAULT 'in_stock',
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_serial_per_org ON public.mfg_batch_serials (serial_number, organization_id);
-
--- ================================================================
--- 1.8 مديول الجودة وطلبات الصرف
--- ==============================================
-
-CREATE TABLE IF NOT EXISTS public.mfg_qc_inspections (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    progress_id uuid REFERENCES public.mfg_order_progress(id) ON DELETE CASCADE,
-    inspector_id uuid REFERENCES auth.users(id),
-    status text CHECK (status IN ('pass', 'fail', 'rework')),
-    defect_type text,
-    notes text,
-    created_at timestamptz DEFAULT now(),
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_material_requests (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    production_order_id uuid REFERENCES public.mfg_production_orders(id) ON DELETE CASCADE,
-    request_number text UNIQUE NOT NULL,
-    request_date date DEFAULT now(),
-    status text DEFAULT 'pending',
-    requested_by uuid REFERENCES public.profiles(id),
-    issued_by uuid REFERENCES public.profiles(id),
-    issue_date timestamptz,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS public.mfg_material_request_items (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    material_request_id uuid REFERENCES public.mfg_material_requests(id) ON DELETE CASCADE,
-    raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-    quantity_requested numeric NOT NULL,
-    quantity_issued numeric DEFAULT 0,
-    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
-);
-
-
-CREATE TABLE IF NOT EXISTS public.bill_of_materials (
-    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-    raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    quantity_required numeric NOT NULL DEFAULT 1
-);
 
 CREATE TABLE IF NOT EXISTS public.opening_inventories (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -833,6 +761,20 @@ CREATE TABLE IF NOT EXISTS public.payroll_variables (
     created_at timestamptz DEFAULT now()
 );
 
+-- سلف الموظفين (Employee Advances)
+CREATE TABLE IF NOT EXISTS public.employee_advances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    amount numeric NOT NULL DEFAULT 0,
+    advance_date date DEFAULT now(),
+    status text DEFAULT 'paid', -- paid, deducted, cancelled
+    payroll_item_id uuid,
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    notes text,
+    created_at timestamptz DEFAULT now()
+);
+
 -- ================================================================
 -- 3. جداول إضافية (مرفقات، إقفال، إشعارات)
 -- ================================================================
@@ -982,7 +924,6 @@ CREATE TABLE IF NOT EXISTS public.notification_audit_log (
   organization_id UUID REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
-CREATE INDEX IF NOT EXISTS idx_mfg_po_number ON public.mfg_production_orders(order_number);
 -- ================================================================
 -- 2.5 التقارير واللوحات البرمجية (Views)
 -- ================================================================

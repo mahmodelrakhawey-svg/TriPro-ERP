@@ -13,7 +13,19 @@ GRANT ALL ON SCHEMA public TO public;
 CREATE TABLE public.organizations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
-    created_at timestamptz DEFAULT now() NOT NULL
+    activity_type text,
+    vat_number text,
+    address text,
+    phone text,
+    email text,
+    logo_url text,
+    footer_text text,
+    allowed_modules text[] DEFAULT '{"accounting"}',
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    max_users integer DEFAULT 5,
+    subscription_expiry date,
+    total_collected numeric DEFAULT 0
 );
 
 -- إعدادات الشركة
@@ -37,8 +49,10 @@ CREATE TABLE public.company_settings (
 -- الأدوار والصلاحيات
 CREATE TABLE public.roles (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    name text NOT NULL UNIQUE,
-    description text
+    name text NOT NULL,
+    description text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    UNIQUE(name, organization_id)
 );
 
 CREATE TABLE public.permissions (
@@ -77,15 +91,18 @@ CREATE TABLE public.cost_centers (
 -- دليل الحسابات
 CREATE TABLE public.accounts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    code varchar(50) NOT NULL UNIQUE,
+    code varchar(50) NOT NULL,
     name varchar(255) NOT NULL,
     type varchar(50) NOT NULL,
     is_group boolean DEFAULT false NOT NULL,
     parent_id uuid REFERENCES public.accounts(id),
     organization_id uuid REFERENCES public.organizations(id),
     balance numeric DEFAULT 0,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamptz DEFAULT now() NOT NULL,
     deleted_at timestamptz,
-    deletion_reason text
+    deletion_reason text,
+    UNIQUE(organization_id, code)
 );
 
 -- القيود المحاسبية
@@ -218,7 +235,8 @@ CREATE TABLE public.invoice_items (
     quantity numeric,
     price numeric,
     total numeric,
-    cost numeric DEFAULT 0
+    cost numeric DEFAULT 0,
+    modifiers jsonb DEFAULT '[]'::jsonb
 );
 
 CREATE TABLE public.quotations (
@@ -421,6 +439,108 @@ CREATE TABLE public.payroll_items (
     net_salary numeric
 );
 
+-- مديول المطاعم ونقاط البيع (POS & Restaurant)
+CREATE TABLE public.restaurant_tables (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    capacity integer DEFAULT 4,
+    status text DEFAULT 'AVAILABLE',
+    qr_access_key uuid DEFAULT gen_random_uuid(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now(),
+    bill_requested boolean DEFAULT false
+);
+
+CREATE TABLE public.table_sessions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    table_id uuid REFERENCES public.restaurant_tables(id) ON DELETE CASCADE,
+    user_id uuid REFERENCES public.profiles(id),
+    start_time timestamptz DEFAULT now(),
+    end_time timestamptz,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    status text DEFAULT 'OPEN'
+);
+
+CREATE TABLE public.orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_number text,
+    session_id uuid REFERENCES public.table_sessions(id) ON DELETE SET NULL,
+    customer_id uuid REFERENCES public.customers(id),
+    status text DEFAULT 'PENDING',
+    subtotal numeric DEFAULT 0,
+    total_tax numeric DEFAULT 0,
+    grand_total numeric DEFAULT 0,
+    delivery_fee numeric DEFAULT 0,
+    order_type text DEFAULT 'DINE_IN',
+    warehouse_id uuid REFERENCES public.warehouses(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    user_id uuid REFERENCES public.profiles(id),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE public.order_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity numeric NOT NULL DEFAULT 1,
+    unit_price numeric NOT NULL DEFAULT 0,
+    total_price numeric DEFAULT 0,
+    unit_cost numeric DEFAULT 0,
+    modifiers jsonb DEFAULT '[]'::jsonb,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE public.kitchen_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_item_id uuid REFERENCES public.order_items(id) ON DELETE CASCADE,
+    status text DEFAULT 'NEW',
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    status_updated_at timestamptz DEFAULT now(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- الوردات (Shifts)
+CREATE TABLE public.shifts (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid REFERENCES public.profiles(id),
+    start_time timestamptz DEFAULT now(),
+    end_time timestamptz,
+    opening_balance numeric DEFAULT 0,
+    actual_cash numeric DEFAULT 0,
+    treasury_account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
+    status text DEFAULT 'OPEN',
+    notes text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE
+);
+
+-- طلبات التوصيل (Delivery Orders)
+CREATE TABLE public.delivery_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
+    customer_name text,
+    customer_phone text,
+    delivery_address text,
+    delivery_fee numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+-- سلف الموظفين (Employee Advances)
+CREATE TABLE public.employee_advances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    amount numeric NOT NULL DEFAULT 0,
+    advance_date date DEFAULT now(),
+    status text DEFAULT 'paid',
+    payroll_item_id uuid,
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    notes text,
+    created_at timestamptz DEFAULT now()
+);
+
 -- عمليات المخزون المتقدمة
 CREATE TABLE public.stock_transfers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -547,78 +667,8 @@ BEGIN
     RETURN new_entry_id;
 END;
 $$;
-
--- دالة إعادة احتساب أرصدة الشركاء (عملاء وموردين)
-CREATE OR REPLACE FUNCTION public.recalculate_partner_balances()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-DECLARE
-    partner RECORD;
-    v_balance numeric;
-BEGIN
-    -- أ) إعادة احتساب أرصدة العملاء
-    FOR partner IN SELECT id FROM public.customers LOOP
-        v_balance := 0;
-        
-        -- 1. الفواتير (مدين +) - (المبلغ المدفوع مقدماً فيها)
-        SELECT v_balance + COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) INTO v_balance
-        FROM public.invoices 
-        WHERE customer_id = partner.id AND status NOT IN ('draft', 'cancelled');
-
-        -- 2. سندات القبض (دائن -)
-        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
-        FROM public.receipt_vouchers 
-        WHERE customer_id = partner.id;
-
-        -- 3. مرتجعات المبيعات (دائن -)
-        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
-        FROM public.sales_returns 
-        WHERE customer_id = partner.id AND status = 'posted';
-
-        -- 4. الإشعارات الدائنة (دائن -)
-        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
-        FROM public.credit_notes 
-        WHERE customer_id = partner.id AND status = 'posted';
-
-        -- 5. الشيكات المحصلة (دائن -)
-        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
-        FROM public.cheques 
-        WHERE party_id = partner.id AND type = 'incoming' AND status = 'collected';
-
-        -- تحديث رصيد العميل
-        UPDATE public.customers SET balance = v_balance WHERE id = partner.id;
-    END LOOP;
-
-    -- ب) إعادة احتساب أرصدة الموردين
-    FOR partner IN SELECT id FROM public.suppliers LOOP
-        v_balance := 0;
-
-        -- 1. فواتير المشتريات (دائن +)
-        SELECT v_balance + COALESCE(SUM(total_amount), 0) INTO v_balance
-        FROM public.purchase_invoices 
-        WHERE supplier_id = partner.id AND status NOT IN ('draft', 'cancelled');
-
-        -- 2. سندات الصرف (مدين -)
-        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
-        FROM public.payment_vouchers 
-        WHERE supplier_id = partner.id;
-
-        -- 3. مرتجعات المشتريات (مدين -)
-        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
-        FROM public.purchase_returns 
-        WHERE supplier_id = partner.id AND status = 'posted';
-
-        -- 4. الإشعارات المدينة (مدين -)
-        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
-        FROM public.debit_notes 
-        WHERE supplier_id = partner.id AND status = 'posted';
-
-        -- تحديث رصيد المورد
-        UPDATE public.suppliers SET balance = v_balance WHERE id = partner.id;
-    END LOOP;
-END;
-$$;
+-- ملاحظة: تم نقل دوال recalculate_stock_rpc و recalculate_partner_balances 
+-- إلى ملف deploy_all_functionss.sql لتوحيد منطق الـ SaaS والتصنيع.
 
 -- ========= 3. البيانات الأولية (Seeding) =========
 
