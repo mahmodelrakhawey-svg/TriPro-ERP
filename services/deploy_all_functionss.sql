@@ -1232,7 +1232,10 @@ BEGIN
     END IF;
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
     SELECT p_org_id, code, name, type, is_group, true FROM coa_temp ORDER BY length(code), code
-    ON CONFLICT (organization_id, code) DO NOTHING;
+    -- 🛠️ إصلاح: تحديث حالة الحساب إذا كان موجوداً مسبقاً لضمان تحويله لـ Group
+    ON CONFLICT (organization_id, code) DO UPDATE 
+    SET is_group = EXCLUDED.is_group, 
+        type = EXCLUDED.type;
 
     UPDATE public.accounts a SET parent_id = p.id FROM coa_temp t JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
     WHERE a.organization_id = p_org_id AND a.code = t.code AND a.parent_id IS NULL;
@@ -1296,6 +1299,9 @@ BEGIN
     v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
     v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
+    v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
+    v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
+    v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
     v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
     v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1); -- Get overhead account ID
@@ -1309,7 +1315,11 @@ BEGIN
             'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
-            'RETAINED_EARNINGS', v_retained_id,
+            'RETAINED_EARNINGS', v_retained_id, 
+            'NOTES_RECEIVABLE', v_notes_rec_id,
+            'NOTES_PAYABLE', v_notes_pay_id, 
+            'CASH_SHORTAGE', v_cash_deficit_id,
+            
             'INVENTORY_RAW_MATERIALS', v_raw_id,
             'INVENTORY_WIP', v_wip_id,
             'LABOR_COST_ALLOCATED', v_labor_mfg_id, -- Ensure this is correct

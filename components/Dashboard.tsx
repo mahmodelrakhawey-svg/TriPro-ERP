@@ -60,7 +60,7 @@ const Dashboard = () => {
 
     // حساب المصروفات والتكاليف من دفتر الأستاذ (القيود)
     entries.filter(e => e.date >= startOfMonth && e.status === 'posted').forEach(entry => {
-      entry.lines.forEach(line => {
+      (entry.lines || []).forEach(line => {
         const acc = accounts.find(a => a.id === line.accountId);
         if (!acc) return;
         const code = String(acc.code);

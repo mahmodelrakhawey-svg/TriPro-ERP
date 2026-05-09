@@ -18,6 +18,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
     v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
+    v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid;
 BEGIN
     v_vat_rate := CASE 
         WHEN p_activity_type = 'construction' THEN 0.05 
@@ -193,7 +194,10 @@ BEGIN
     SELECT p_org_id, code, name, type, is_group, true
     FROM coa_temp
     ORDER BY length(code), code -- هذا الترتيب يضمن إدراج الآباء قبل الأبناء
-    ON CONFLICT (organization_id, code) DO NOTHING;
+    -- 🛠️ إصلاح: تحديث حالة الحساب إذا كان موجوداً مسبقاً لضمان تحويله لـ Group
+    ON CONFLICT (organization_id, code) DO UPDATE 
+    SET is_group = EXCLUDED.is_group, 
+        type = EXCLUDED.type;
 
     -- 4. تحديث روابط Parent_ID بشكل جماعي وذكي (بعد إدراج جميع الحسابات)
     UPDATE public.accounts a
@@ -247,10 +251,14 @@ BEGIN
     v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
+    v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
+    v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
+    v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
     v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
+    v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1);
     v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
 
-    -- 🚀 ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
+    -- ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
     INSERT INTO public.roles (organization_id, name, description)
     VALUES (p_org_id, 'admin', 'مدير النظام')
     ON CONFLICT (name, organization_id) DO NOTHING;
@@ -266,10 +274,14 @@ BEGIN
             'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
-            'RETAINED_EARNINGS', v_retained_id,
+            'RETAINED_EARNINGS', v_retained_id, 
+            'NOTES_RECEIVABLE', v_notes_rec_id,
+            'NOTES_PAYABLE', v_notes_pay_id,
+            'CASH_SHORTAGE', v_cash_deficit_id,
             'INVENTORY_RAW_MATERIALS', v_raw_id,
             'INVENTORY_WIP', v_wip_id,
             'LABOR_COST_ALLOCATED', v_labor_mfg_id,
+            'MANUFACTURING_OVERHEAD', v_overhead_mfg_id,
             'WASTAGE_EXPENSE', v_wastage_id
             -- أضف الربط الآلي هنا للحساب الجديد بنفس النمط
         

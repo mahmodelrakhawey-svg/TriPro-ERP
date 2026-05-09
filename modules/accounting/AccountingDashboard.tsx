@@ -143,7 +143,7 @@ export default function AccountingDashboard() {
           const date = new Date(entry.date);
           const monthKey = date.toLocaleString('en-US', { month: 'short' });
 
-          entry.lines.forEach(line => {
+          (entry.lines || []).forEach(line => {
               const account = accounts.find(a => a.id === line.accountId);
               if (!account) return;
 
@@ -222,7 +222,7 @@ export default function AccountingDashboard() {
           .map(a => a.id);
 
       const allCashTransactions = entries.flatMap(entry => 
-          entry.lines
+          (entry.lines || [])
               .filter(line => cashAccountIds.includes(line.accountId))
               .map(line => ({
                   date: new Date(entry.date),

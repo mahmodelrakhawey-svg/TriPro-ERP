@@ -404,14 +404,30 @@ DO $$ BEGIN
         ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0;
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by') THEN
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='user_id') THEN
-            ALTER TABLE public.invoices RENAME COLUMN created_by TO user_id;
-        ELSE
-            -- إذا كان كلاهما موجوداً، انقل البيانات للعمود الجديد واحذف القديم لتجنب التعارض
-            UPDATE public.invoices SET user_id = created_by WHERE user_id IS NULL;
-            -- لا نحذف created_by حالياً لضمان توافق الواجهة الأمامية (Bad Request Fix)
+    -- 1. ضمان وجود عمود user_id (المسمى الموحد الجديد) بشكل مستقل
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='user_id') THEN
+        ALTER TABLE public.invoices ADD COLUMN user_id uuid REFERENCES public.profiles(id);
+    END IF;
+
+    -- 2. نقل البيانات من created_by القديم إلى user_id وإعادة تسمية القديم للشفافية
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by' AND is_generated = 'NEVER') THEN
+        -- نقل البيانات
+        UPDATE public.invoices SET user_id = created_by WHERE user_id IS NULL;
+        
+        -- حذف القيود القديمة لإتاحة إعادة التسمية
+        IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE table_name = 'invoices' AND constraint_name LIKE '%created_by_fkey%') THEN
+            ALTER TABLE public.invoices DROP CONSTRAINT IF EXISTS invoices_created_by_fkey;
         END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='_deprecated_created_by') THEN
+            EXECUTE 'ALTER TABLE public.invoices RENAME COLUMN created_by TO _deprecated_created_by';
+        END IF;
+    END IF;
+
+    -- 3. إعادة إنشاء created_by كعمود "افتراضي" يعكس user_id دائماً لضمان عمل الواجهة الأمامية
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by') THEN
+        -- نستخدم EXECUTE لضمان أن المترجم يرى عمود user_id الجديد
+        EXECUTE 'ALTER TABLE public.invoices ADD COLUMN created_by uuid GENERATED ALWAYS AS (user_id) STORED';
     END IF;
 
     -- تحديث جدول أوامر التصنيع (work_orders) - إصلاح تقرير حركة الصنف
