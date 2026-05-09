@@ -24,7 +24,7 @@ export default function CashFlowReport() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const cashAccounts = useMemo(() => {
-    return accounts.filter(acc => 
+    return (accounts || []).filter(acc => 
       !acc.isGroup &&
       (String(acc.type).toLowerCase() === 'asset') &&
       (acc.code.startsWith('123') || acc.name.includes('صندوق') || acc.name.includes('بنك') || acc.name.includes('نقد'))
@@ -56,10 +56,10 @@ export default function CashFlowReport() {
     let openBal = 0;
     const periodTransactions: Transaction[] = [];
 
-    entries.forEach(entry => {
+    (entries || []).filter(Boolean).forEach(entry => {
       if (entry.status !== 'posted') return;
 
-      entry.lines.forEach((line, index) => {
+      (entry.lines || []).forEach((line, index) => {
         if (accountIds.includes(line.accountId)) {
           if (entry.date < startDate) {
             openBal += (line.debit - line.credit);

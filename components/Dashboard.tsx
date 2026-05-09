@@ -124,6 +124,9 @@ const Dashboard = () => {
               if (error.message.includes('function get_dashboard_stats() does not exist')) {
                   setRpcError("دالة `get_dashboard_stats()` غير موجودة. يرجى تنفيذ سكربت SQL لإنشائها.");
               }
+              else if (error.code === '42P01') {
+                  setRpcError("خطأ في قاعدة البيانات: الرؤية `journal_lines_view` مفقودة. يرجى تشغيل سكربت إنشاء الرؤية.");
+              }
               throw error;
           }
 
@@ -149,7 +152,7 @@ const Dashboard = () => {
               setRecentJournals(data.recentJournals || []);
               setTopCustomers(data.topCustomers || []);
               setTopProducts(data.topProducts || []);
-              setTopCustomersPieData(data.topCustomersPieData || []);
+              setTopCustomersPieData(Array.isArray(data.topCustomersPieData) ? data.topCustomersPieData : []);
               setLowStockItems(data.lowStockItems || []);
           }
         } catch (error) {

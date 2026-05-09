@@ -19,6 +19,10 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
     v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
     v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid;
+    v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid;
+    v_prepaid_exp_id uuid; v_accrued_exp_id uuid;
+    v_social_ins_id uuid; v_bank_main_id uuid; v_rev_other_id uuid; v_exp_gen_id uuid;
+    v_sal_allow_id uuid;
 BEGIN
     v_vat_rate := CASE 
         WHEN p_activity_type = 'construction' THEN 0.05 
@@ -197,7 +201,8 @@ BEGIN
     -- 🛠️ إصلاح: تحديث حالة الحساب إذا كان موجوداً مسبقاً لضمان تحويله لـ Group
     ON CONFLICT (organization_id, code) DO UPDATE 
     SET is_group = EXCLUDED.is_group, 
-        type = EXCLUDED.type;
+        type = EXCLUDED.type,
+        name = EXCLUDED.name; -- تحديث الاسم لضمان عدم ظهور مسميات قديمة
 
     -- 4. تحديث روابط Parent_ID بشكل جماعي وذكي (بعد إدراج جميع الحسابات)
     UPDATE public.accounts a
@@ -257,6 +262,20 @@ BEGIN
     v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
     v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1);
     v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
+    v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
+    v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
+    v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
+    v_dep_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '533' LIMIT 1);
+    v_acc_dep_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1119' LIMIT 1);
+    v_fixed_assets_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '111' LIMIT 1);
+    v_opening_bal_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '3999' LIMIT 1);
+    v_prepaid_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1243' LIMIT 1);
+    v_accrued_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '225' LIMIT 1);
+    v_social_ins_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '224' LIMIT 1);
+    v_bank_main_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123201' LIMIT 1);
+    v_rev_other_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '421' LIMIT 1);
+    v_exp_gen_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '53' LIMIT 1);
+    v_sal_allow_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '412' LIMIT 1);
 
     -- ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
     INSERT INTO public.roles (organization_id, name, description)
@@ -282,9 +301,19 @@ BEGIN
             'INVENTORY_WIP', v_wip_id,
             'LABOR_COST_ALLOCATED', v_labor_mfg_id,
             'MANUFACTURING_OVERHEAD', v_overhead_mfg_id,
-            'WASTAGE_EXPENSE', v_wastage_id
-            -- أضف الربط الآلي هنا للحساب الجديد بنفس النمط
-        
+            'WASTAGE_EXPENSE', v_wastage_id,
+            'DEPRECIATION_EXPENSE', v_dep_exp_id,
+            'ACCUMULATED_DEPRECIATION', v_acc_dep_id,
+            'ASSETS_FIXED', v_fixed_assets_id,
+            'OPENING_BALANCES', v_opening_bal_id,
+            'PREPAID_EXPENSES', v_prepaid_exp_id,
+            'ACCRUED_EXPENSES', v_accrued_exp_id,
+            'SOCIAL_INSURANCE', v_social_ins_id,
+            'BANK_MAIN', v_bank_main_id,
+            'REVENUE_OTHER', v_rev_other_id,
+            'EXPENSE_GENERAL', v_exp_gen_id,
+            'SALES_ALLOWANCES', v_sal_allow_id,
+            'REVENUE_MISC', v_rev_other_id -- الحساب رقم 36
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
 

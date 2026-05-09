@@ -8,6 +8,24 @@
 -- الوصف: يقوم هذا الجزء بتحويل كافة قيود الجداول لدعم الحذف التلقائي
 -- لمنع أخطاء (Foreign Key Violation) أثناء عمليات الاستعادة والحذف.
 -- ============================================================
+
+-- 🛠️ ضمان وجود الجداول التوافقية لتقارير حركة المخزون (حل خطأ 404)
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'work_orders') THEN
+        CREATE TABLE public.work_orders (
+            id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+            order_number text UNIQUE,
+            product_id uuid REFERENCES public.products(id),
+            quantity numeric DEFAULT 0,
+            warehouse_id uuid REFERENCES public.warehouses(id),
+            status text DEFAULT 'draft',
+            organization_id uuid REFERENCES public.organizations(id),
+            created_at timestamptz DEFAULT now(),
+            end_date date
+        );
+    END IF;
+END $$;
+
 DO $$ 
 DECLARE 
     r record;
@@ -52,9 +70,12 @@ DECLARE
     tables_to_ensure text[] := ARRAY[
         'journal_entries', 'journal_lines', 'journal_attachments',
         'purchase_invoices', 'purchase_invoice_items', 'purchase_return_items',
+        'purchase_orders', 'purchase_order_items', 'purchase_returns', 'purchase_return_items',
+        'sales_returns', 'sales_return_items',
         'invoices', 'invoice_items', 'sales_return_items',
-        'customers', 'suppliers', 'products', 'accounts', 'warehouses', 
-        'item_categories', 'orders', 'order_items', 'company_settings',
+        'customers', 'suppliers', 'products', 'accounts', 'warehouses',
+        'sales_orders', 'sales_order_items',
+        'item_categories', 'orders', 'order_items', 'work_orders', 'company_settings',
         'cost_centers', 'employees', 'payrolls', 'payroll_items', 
         'employee_advances', 'profiles', 'shifts',
         'receipt_vouchers', 'receipt_voucher_attachments', 
@@ -71,6 +92,7 @@ DECLARE
         'mfg_production_variances', 'mfg_material_requests', 'mfg_material_request_items',
         'kitchen_orders', 'restaurant_tables', 'table_sessions', 'menu_categories',
         'modifier_groups', 'modifiers', 'organization_backups', 'invitations',
+        'quotations', 'quotation_items',
         'roles', 'role_permissions', 'notifications', 'notification_preferences',
         'assets', 'delivery_orders', 'payments'
     ];
@@ -118,8 +140,16 @@ END $$;
 
 -- Add currency to receipt_vouchers and payment_vouchers
 DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'receipt_vouchers') THEN ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP'; END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_vouchers') THEN ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP'; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'receipt_vouchers') THEN 
+        ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+        ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS payment_method text DEFAULT 'cash';
+        ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS exchange_rate numeric DEFAULT 1;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_vouchers') THEN 
+        ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+        ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS payment_method text DEFAULT 'cash';
+        ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS exchange_rate numeric DEFAULT 1;
+    END IF;
 END $$;
 
 -- 3. إصلاح تكرار SKU (لضمان استقرار المخزن)
@@ -665,4 +695,32 @@ BEGIN
                         BEFORE INSERT ON public.%I 
                         FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_on_insert()', t);
     END LOOP;
+
+    -- 🛡️ ترميم بيانات عروض الأسعار اليتيمة (في حال وجدت)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quotations') THEN
+        UPDATE public.quotations 
+        SET organization_id = COALESCE(organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))
+        WHERE organization_id IS NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quotation_items') THEN
+        UPDATE public.quotation_items qi
+        SET organization_id = q.organization_id
+        FROM public.quotations q
+        WHERE qi.quotation_id = q.id AND qi.organization_id IS NULL;
+    END IF;
+
+    -- 🛡️ ترميم بيانات أوامر الشراء اليتيمة (في حال وجدت)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_orders') THEN
+        UPDATE public.purchase_orders 
+        SET organization_id = COALESCE(organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))
+        WHERE organization_id IS NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_order_items') THEN
+        UPDATE public.purchase_order_items poi
+        SET organization_id = po.organization_id
+        FROM public.purchase_orders po
+        WHERE poi.purchase_order_id = po.id AND poi.organization_id IS NULL;
+    END IF;
 END $$;

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -69,7 +69,7 @@ const FinancialRatios = () => {
     const periodAccountBalances: Record<string, number> = {};
     const cumulativeAccountBalances: Record<string, number> = {};
 
-    ledgerLines.forEach(line => {
+    (ledgerLines || []).filter(Boolean).forEach(line => {
         const accId = line.account_id;
         const amount = (line.debit - line.credit);
         const transDate = line.journal_entries?.transaction_date;
@@ -194,11 +194,11 @@ const FinancialRatios = () => {
         const start = `${year}-01-01`;
         const end = `${year}-12-31`;
 
-        entries.forEach(entry => {
+        (entries || []).forEach(entry => {
             // دعم مسمى التاريخ البرمجي وتاريخ المعاملة المحاسبي
             const entryDate = entry.transaction_date || entry.date;
             if (entry.status === 'posted' && entryDate >= start && entryDate <= end) {
-                entry.lines.forEach(line => {
+                entry.lines?.forEach(line => {
                     const acc = accounts.find(a => a.id === line.accountId);
                     if (!acc) return;
                     

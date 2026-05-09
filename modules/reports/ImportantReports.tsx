@@ -28,7 +28,7 @@ const ImportantReports = () => {
 
     (entries || []).forEach(entry => {
       if (entry.status !== 'posted') return;
-      entry.lines.forEach(line => {
+      entry.lines?.forEach(line => {
         const acc = (accounts || []).find(a => a.id === line.accountId);
         if (!acc) return;
         
@@ -61,7 +61,7 @@ const ImportantReports = () => {
         (entries || []).forEach(entry => {
             const entryDate = new Date(entry.transaction_date || entry.date);
             if (entry.status === 'posted' && entryDate.getFullYear() === d.getFullYear() && entryDate.getMonth() === d.getMonth()) {
-                entry.lines.forEach(line => {
+                entry.lines?.forEach(line => {
                     const acc = (accounts || []).find(a => a.id === line.accountId);
                     if (acc) {
                         if (acc.code === '411') monthWholesale += (line.credit - line.debit);

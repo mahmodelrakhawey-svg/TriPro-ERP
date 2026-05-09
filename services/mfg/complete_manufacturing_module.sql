@@ -102,6 +102,15 @@ CREATE TABLE IF NOT EXISTS public.mfg_routing_steps (
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
+CREATE TABLE IF NOT EXISTS public.mfg_step_attachments (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    step_id uuid REFERENCES public.mfg_routing_steps(id) ON DELETE CASCADE,
+    file_name text NOT NULL,
+    file_url text NOT NULL,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS public.mfg_production_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_number text UNIQUE,
@@ -270,6 +279,45 @@ END $$;
 -- ================================================================
 -- 2. رؤى مديول التصنيع (MFG Module Views)
 -- ================================================================
+
+-- 📊 رؤية محاسبية عامة (ضرورية للوحة التحكم والتقارير المالية)
+CREATE OR REPLACE VIEW public.journal_lines_view AS
+SELECT 
+    jl.id,
+    jl.journal_entry_id,
+    jl.account_id,
+    jl.debit,
+    jl.credit,
+    (jl.debit - jl.credit) as balance,
+    jl.description as line_description,
+    je.transaction_date,
+    je.reference,
+    je.description as entry_description,
+    je.status,
+    je.organization_id,
+    a.code as account_code,
+    a.name as account_name,
+    a.type as account_type
+FROM public.journal_lines jl
+JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+JOIN public.accounts a ON jl.account_id = a.id;
+
+-- 📊 رؤية انحراف المواد حسب المرحلة (Step-wise Material Variance)
+DROP VIEW IF EXISTS public.v_mfg_step_variance CASCADE;
+CREATE OR REPLACE VIEW public.v_mfg_step_variance WITH (security_invoker = true) AS
+SELECT
+    po.order_number,
+    rs.operation_name,
+    p.name as material_name,
+    amu.standard_quantity,
+    amu.actual_quantity,
+    (amu.actual_quantity - amu.standard_quantity) as variance_qty,
+    po.organization_id
+FROM public.mfg_actual_material_usage amu
+JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+JOIN public.mfg_production_orders po ON op.production_order_id = po.id
+JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
+JOIN public.products p ON amu.raw_material_id = p.id;
 
 -- 📊 رؤية تحليل انحراف المواد (BOM Variance View)
 DROP VIEW IF EXISTS public.v_mfg_bom_variance CASCADE;
@@ -788,11 +836,11 @@ BEGIN
 
                 -- تجنب القسمة على صفر إذا كان المخزون القديم والكمية المنتجة صفر
                 IF (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce) > 0 THEN
-                    v_new_wac := ((COALESCE(v_old_stock, 0) * COALESCE(v_old_wac, 0)) + v_total_cost) / (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce);
                     v_new_wac := ROUND(((COALESCE(v_old_stock, 0) * COALESCE(v_old_wac, 0)) + v_total_cost) / (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce), 4);
                     UPDATE public.products
                     SET weighted_average_cost = v_new_wac,
-                        cost = v_new_wac -- تحديث حقل التكلفة أيضاً ليعكس WAC
+                        cost = v_new_wac, -- تحديث حقل التكلفة الأساسي لتوحيد المرجعية
+                        purchase_price = CASE WHEN mfg_type = 'standard' THEN v_new_wac ELSE purchase_price END -- تحديث سعر الشراء للأصناف المصنعة
                     WHERE id = v_order.product_id AND organization_id = v_org_id;
                 END IF;
             END;
@@ -2082,6 +2130,7 @@ GRANT SELECT ON public.v_mfg_wip_monthly_summary TO authenticated;
 GRANT SELECT ON public.v_mfg_dashboard TO authenticated;
 GRANT SELECT ON public.v_mfg_available_serials TO authenticated;
 GRANT SELECT ON public.v_mfg_serials_master_tracker TO authenticated;
+GRANT SELECT ON public.v_mfg_step_variance TO authenticated;
 
 -- منح صلاحية تنفيذ الدوال للمستخدمين المصادق عليهم
 GRANT EXECUTE ON FUNCTION public.mfg_start_step(uuid, uuid) TO authenticated;

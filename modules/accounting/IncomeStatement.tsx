@@ -89,7 +89,7 @@ const IncomeStatement = () => {
              }
         });
     } else {
-        ledgerLines.forEach(line => {
+        (ledgerLines || []).filter(Boolean).forEach(line => {
           if (line.journal_entries?.reference?.startsWith('CLOSE-')) return;
           if (accountBalances[line.account_id] === undefined) accountBalances[line.account_id] = 0;
           accountBalances[line.account_id] += (line.debit - line.credit);

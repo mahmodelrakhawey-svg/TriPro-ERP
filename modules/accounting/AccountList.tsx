@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
@@ -280,7 +280,14 @@ const AccountList = () => {
 
     // 1. إنشاء خريطة لكل الحسابات
     accounts.forEach(acc => {
-      map[acc.id] = { ...acc, children: [] };
+      const normalizedAcc = { 
+        ...acc, 
+        children: [], 
+        isGroup: acc.isGroup || acc.is_group 
+      };
+      map[acc.id] = normalizedAcc;
+      // إضافة مرجع إضافي بالكود لضمان الربط في القيود التي تعتمد على الكود
+      if (acc.code) map[acc.code] = normalizedAcc;
     });
 
     // 2. ربط الأبناء بالآباء

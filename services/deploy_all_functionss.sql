@@ -40,7 +40,7 @@ BEGIN
         IF REPLACE(func_name, 'public.', '') IN ( -- Deduplicated and updated list
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
             'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
-            'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order',
+            'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'recalculate_all_balances',
             'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa',
             'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift',
             'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin',
@@ -57,8 +57,9 @@ BEGIN
             'fix_unbalanced_journal_entry', 'approve_stock_transfer', 'cancel_stock_transfer', 'post_inventory_count', 'check_account_is_not_group',
             'get_account_balance_at_date', 'fn_validate_journal_entry_balance', 'test_saas_isolation',
             'test_wac_logic', 'trigger_handle_stock_on_order', 'mfg_deduct_stock_from_order', 
-            'mfg_test_pos_integration', 'mfg_test_full_cycle', 'run_periodic_mfg_wac_tests',
-            'get_product_recipe_cost', 'trg_fn_sync_product_costs_on_update', 'get_admin_test_summary'
+            'mfg_test_pos_integration', 'mfg_test_full_cycle',
+            'get_product_recipe_cost', 'trg_fn_sync_product_costs_on_update',
+            'add_journal_entry'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
@@ -118,13 +119,19 @@ BEGIN
     RETURN v_new_shift;
 END; $$;
 
-CREATE OR REPLACE FUNCTION public.get_active_shift(p_user_id uuid)
+-- 🛠️ تحديث: جعل p_user_id اختيارياً ودعم فلترة المنظمة التلقائية من الواجهة لمنع خطأ 400
+CREATE OR REPLACE FUNCTION public.get_active_shift(
+    p_user_id uuid DEFAULT NULL,
+    p_org_id uuid DEFAULT NULL -- تغيير الاسم لمنع التعارض مع اسم العمود
+)
 RETURNS public.shifts 
 LANGUAGE plpgsql 
 SECURITY DEFINER AS $$
 BEGIN
     RETURN (SELECT * FROM public.shifts 
-            WHERE user_id = p_user_id AND end_time IS NULL AND organization_id = public.get_my_org() 
+            WHERE user_id = COALESCE(p_user_id, auth.uid())
+            AND end_time IS NULL 
+            AND organization_id = COALESCE(p_org_id, public.get_my_org()) 
             LIMIT 1);
 END; $$;
 
@@ -236,7 +243,68 @@ BEGIN
     -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة بعد أي تعديلات
     PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
+-- 🛠️ دالة إضافة قيد يومية يدوياً مع المرفقات
+-- تحل مشكلة الخطأ 404 وتدعم رفع الملفات مع القيد
+CREATE OR REPLACE FUNCTION public.add_journal_entry(
+    attachments jsonb DEFAULT '[]'::jsonb,
+    date date DEFAULT now(),
+    description text DEFAULT NULL,
+    lines jsonb DEFAULT '[]'::jsonb,
+    reference text DEFAULT NULL,
+    status text DEFAULT 'draft'
+) 
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+AS $$
+DECLARE
+    v_journal_id uuid;
+    v_line jsonb;
+    v_attachment jsonb;
+    v_org_id uuid;
+BEGIN
+    -- 🛡️ تحديد المنظمة (SaaS Protection)
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من تسجيل الدخول.';
+    END IF;
 
+    -- 1. إنشاء رأس القيد
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, user_id, is_posted)
+    VALUES (date, description, reference, status, v_org_id, auth.uid(), (status = 'posted'))
+    RETURNING id INTO v_journal_id;
+
+    -- 2. إدراج أسطر القيد (المدين والدائن)
+    FOR v_line IN SELECT * FROM jsonb_array_elements(COALESCE(lines, '[]'::jsonb)) LOOP
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id, cost_center_id)
+        VALUES (
+            v_journal_id, 
+            COALESCE((v_line->>'account_id')::uuid, (v_line->>'accountId')::uuid), -- 🛡️ دعم كلا المسميين لمنع JS Crash
+            COALESCE((v_line->>'debit')::numeric, 0), 
+            COALESCE((v_line->>'credit')::numeric, 0), 
+            COALESCE(v_line->>'description', description), 
+            v_org_id,
+            (v_line->>'cost_center_id')::uuid
+        );
+    END LOOP;
+
+    -- 3. إدراج المرفقات (إن وجدت)
+    IF attachments IS NOT NULL AND jsonb_array_length(attachments) > 0 THEN
+        FOR v_attachment IN SELECT * FROM jsonb_array_elements(attachments) LOOP
+            INSERT INTO public.journal_attachments (journal_entry_id, file_path, file_name, file_type, file_size, organization_id)
+            VALUES (
+                v_journal_id,
+                v_attachment->>'file_path',
+                v_attachment->>'file_name',
+                v_attachment->>'file_type',
+                (v_attachment->>'file_size')::numeric,
+                v_org_id
+            );
+        END LOOP;
+    END IF;
+
+    RETURN v_journal_id;
+END; $$;
 -- 🛡️ دالة إعادة احتساب المخزون الشاملة (Recalculate Stock RPC) - المحرك الموحد والكامل (Phase 3 Finalization)
 CREATE OR REPLACE FUNCTION public.recalculate_stock_rpc(p_org_id uuid DEFAULT NULL)
 RETURNS void
@@ -1182,11 +1250,17 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text; v_rec record; v_pa
     v_cash_id uuid; v_sales_id uuid; v_cust_id uuid; v_cogs_id uuid; v_inv_id uuid; v_vat_id uuid; v_supp_id uuid; v_vat_in_id uuid; v_disc_id uuid;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
-    v_labor_mfg_id uuid; v_wastage_id uuid; v_raw_id uuid; v_wip_id uuid;
+    v_labor_mfg_id uuid; v_wastage_id uuid; v_raw_id uuid; v_wip_id uuid; v_notes_pay_id uuid; v_notes_rec_id uuid;
+    v_cash_deficit_id uuid; v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid;
+    v_prepaid_exp_id uuid; v_accrued_exp_id uuid; v_social_ins_id uuid; v_bank_main_id uuid; v_rev_other_id uuid; 
+    v_exp_gen_id uuid; v_sal_allow_id uuid;
+    v_bank_nbe_id uuid; v_bank_misr_id uuid; v_bank_cib_id uuid; v_wallet_voda_id uuid;
+    v_exp_rent_id uuid; v_exp_util_id uuid; v_exp_bank_id uuid; v_exp_office_id uuid;
     v_overhead_mfg_id uuid; -- Declare v_overhead_mfg_id here
 BEGIN
     v_vat_rate := CASE WHEN p_activity_type = 'construction' THEN 0.05 WHEN p_activity_type = 'charity' THEN 0.00 ELSE 0.14 END;
     SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
+    
     CREATE TEMPORARY TABLE coa_temp (code text PRIMARY KEY, name text NOT NULL, type text NOT NULL, is_group boolean NOT NULL, parent_code text) ON COMMIT DROP;
 
     INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
@@ -1217,28 +1291,35 @@ BEGIN
     ('531', 'الرواتب والأجور', 'expense', false, '53'), ('5311', 'بدلات وانتقالات', 'expense', false, '53'), ('5312', 'مكافآت وحوافز', 'expense', false, '53'), ('532', 'إيجار مقرات إدارية', 'expense', false, '53'), ('533', 'إهلاك الأصول الثابتة', 'expense', false, '53'), ('534', 'رسوم ومصروفات بنكية', 'expense', false, '53'), ('535', 'كهرباء ومياه وغاز', 'expense', false, '53'), ('536', 'اتصالات وإنترنت', 'expense', false, '53'), ('537', 'صيانة وإصلاح', 'expense', false, '53'), ('538', 'أدوات مكتبية ومطبوعات', 'expense', false, '53'), ('539', 'ضيافة واستقبال', 'expense', false, '53'), ('541', 'تسوية عجز الصندوق', 'expense', false, '53'), ('542', 'إكراميات', 'expense', false, '53'), ('543', 'مصاريف نظافة', 'expense', false, '53');
     -- إضافات خاصة بنشاط المطاعم
     IF p_activity_type = 'restaurant' THEN
-        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES 
         ('4111', 'إيرادات مبيعات (صالة)', 'revenue', false, '41'),
         ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41');
     END IF;
 
     -- إضافات خاصة بنشاط التصنيع
     IF p_activity_type = 'manufacturing' THEN
-        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES 
         ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
         ('5141', 'إهلاك آلات ومعدات المصنع', 'expense', false, '514'),
         ('5142', 'صيانة وإصلاح المصنع', 'expense', false, '514'),
         ('5143', 'كهرباء وقوى محركة للمصنع', 'expense', false, '514');
     END IF;
+
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
     SELECT p_org_id, code, name, type, is_group, true FROM coa_temp ORDER BY length(code), code
-    -- 🛠️ إصلاح: تحديث حالة الحساب إذا كان موجوداً مسبقاً لضمان تحويله لـ Group
-    ON CONFLICT (organization_id, code) DO UPDATE 
-    SET is_group = EXCLUDED.is_group, 
-        type = EXCLUDED.type;
+    ON CONFLICT (organization_id, code) DO UPDATE SET 
+        is_group = EXCLUDED.is_group,
+        type = EXCLUDED.type,
+        name = EXCLUDED.name;
 
-    UPDATE public.accounts a SET parent_id = p.id FROM coa_temp t JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
-    WHERE a.organization_id = p_org_id AND a.code = t.code AND a.parent_id IS NULL;
+    UPDATE public.accounts a 
+    SET parent_id = p.id 
+    FROM coa_temp t 
+    JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
+    WHERE a.organization_id = p_org_id AND a.code = t.code;
+    -- 🛡️ تصحيح تلقائي إضافي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group)
+    UPDATE public.accounts SET is_group = true 
+    WHERE id IN (SELECT DISTINCT parent_id FROM public.accounts WHERE organization_id = p_org_id AND parent_id IS NOT NULL);
 
     -- 🚀 إنشاء دور المدير وحفظ معرفه في متغير لضمان السرعة والدقة
     INSERT INTO public.roles (organization_id, name, description)
@@ -1299,42 +1380,56 @@ BEGIN
     v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
     v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
-    v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
-    v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
-    v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
     v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
     v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1); -- Get overhead account ID
     v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
+    v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
+    v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
+    v_bank_nbe_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123201' LIMIT 1);
+    v_bank_misr_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123202' LIMIT 1);
+    v_bank_cib_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123203' LIMIT 1);
+    v_wallet_voda_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123301' LIMIT 1);
+    v_exp_rent_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '532' LIMIT 1);
+    v_exp_util_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '535' LIMIT 1);
+    v_exp_bank_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '534' LIMIT 1);
+    v_exp_office_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '538' LIMIT 1);
 
     -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
-    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id, production_warehouse_id, raw_material_warehouse_id)
+    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
         jsonb_build_object(
             'CASH', v_cash_id, 'SALES_REVENUE', v_sales_id, 'CUSTOMERS', v_cust_id, 'COGS', v_cogs_id, 'INVENTORY_FINISHED_GOODS', v_inv_id,
             'VAT', v_vat_id, 'SUPPLIERS', v_supp_id, 'SALES_RETURNS', v_sal_ret_id, 'VAT_INPUT', v_vat_in_id, 'SALES_DISCOUNT', v_disc_id,
             'WHT_PAYABLE', v_wht_pay_id, 'PAYROLL_TAX', v_payroll_tax_id, 'WHT_RECEIVABLE', v_wht_rec_id,
             'SALARIES_EXPENSE', v_sal_exp_id, 'EMPLOYEE_BONUSES', v_bonus_id, 'EMPLOYEE_DEDUCTIONS', v_ded_id, 'EMPLOYEE_ADVANCES', v_adv_id,
-            'RETAINED_EARNINGS', v_retained_id, 
-            'NOTES_RECEIVABLE', v_notes_rec_id,
-            'NOTES_PAYABLE', v_notes_pay_id, 
-            'CASH_SHORTAGE', v_cash_deficit_id,
-            
+            'RETAINED_EARNINGS', v_retained_id,
             'INVENTORY_RAW_MATERIALS', v_raw_id,
             'INVENTORY_WIP', v_wip_id,
-            'LABOR_COST_ALLOCATED', v_labor_mfg_id, -- Ensure this is correct
-            'MANUFACTURING_OVERHEAD', v_overhead_mfg_id, -- Add overhead mapping
-            'WASTAGE_EXPENSE', v_wastage_id
+            'LABOR_COST_ALLOCATED', v_labor_mfg_id,
+            'MANUFACTURING_OVERHEAD', v_overhead_mfg_id,
+            'WASTAGE_EXPENSE', v_wastage_id,
+            'NOTES_PAYABLE', v_notes_pay_id,
+            'NOTES_RECEIVABLE', v_notes_rec_id,
+            'CASH_SHORTAGE', v_cash_deficit_id,
+            'DEPRECIATION_EXPENSE', v_dep_exp_id,
+            'ACCUMULATED_DEPRECIATION', v_acc_dep_id,
+            'ASSETS_FIXED', v_fixed_assets_id,
+            'OPENING_BALANCES', v_opening_bal_id,
+            'PREPAID_EXPENSES', v_prepaid_exp_id,
+            'ACCRUED_EXPENSES', v_accrued_exp_id,
+            'SOCIAL_INSURANCE', v_social_ins_id,
+            'BANK_MAIN', v_bank_main_id,
+            'REVENUE_OTHER', v_rev_other_id,
+            'EXPENSE_GENERAL', v_exp_gen_id,
+            'SALES_ALLOWANCES', v_sal_allow_id,
+            'BANK_ACCOUNTS', v_bank_nbe_id,
+            'EXPENSE_RENT', v_exp_rent_id,
+            'EXPENSE_UTILITIES', v_exp_util_id
         ),
         v_warehouse_id,
-        v_cash_id,
-        v_warehouse_id,
-        v_warehouse_id
-    ) ON CONFLICT (organization_id) DO UPDATE SET 
-        activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings, 
-        default_warehouse_id = EXCLUDED.default_warehouse_id, default_treasury_id = EXCLUDED.default_treasury_id,
-        production_warehouse_id = EXCLUDED.production_warehouse_id,
-        raw_material_warehouse_id = EXCLUDED.raw_material_warehouse_id;
+        v_cash_id
+    ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings, default_warehouse_id = EXCLUDED.default_warehouse_id, default_treasury_id = EXCLUDED.default_treasury_id;
 
     -- تأسيس الأدوار الافتراضية للمنظمة لضمان ظهورها في شاشة الصلاحيات
     INSERT INTO public.roles (organization_id, name, description) VALUES
@@ -1646,19 +1741,12 @@ BEGIN
         END;
 
         -- 2. إعادة الجدولة: تشغيل يومي الساعة 3:00 صباحاً
-        BEGIN
-            EXECUTE 'SELECT cron.unschedule(''daily-mfg-wac-tests'')';
-        EXCEPTION WHEN OTHERS THEN NULL;
-        END;
         PERFORM cron.schedule('daily-system-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');
         RAISE NOTICE '✅ تم تفعيل جدولة النسخ الاحتياطي اليومي بنجاح.';
     ELSE
         RAISE WARNING '⚠️ تنبيه: ملحق pg_cron غير مفعل. لن يتم تفعيل الجدولة التلقائية. يمكنك تفعيله من Dashboard -> Database -> Extensions.';
     END IF;
 END $$;
-
--- منح صلاحية تنفيذ الدالة للمستخدمين المصادق عليهم
-GRANT EXECUTE ON FUNCTION public.run_periodic_mfg_wac_tests() TO authenticated;
 
 -- ================================================================
 -- 6.1 محرك استعادة البيانات (SaaS Restore Engine)
@@ -2453,28 +2541,8 @@ DECLARE
     v_top_selling_products jsonb;
     v_recent_invoices jsonb;
 BEGIN
-    -- تحديد المنظمة مع معالجة ذكية للسوبر أدمن
-    IF p_org_id IS NULL THEN
-        BEGIN
-            p_org_id := public.get_my_org();
-        EXCEPTION WHEN OTHERS THEN
-            IF public.get_my_role() = 'super_admin' THEN
-                p_org_id := (SELECT id FROM public.organizations WHERE is_active = true LIMIT 1);
-            ELSE
-                RETURN NULL;
-            END IF;
-        END;
-    END IF;
-
-    IF p_org_id IS NULL THEN
-        IF public.get_my_role() = 'super_admin' THEN
-            RETURN jsonb_build_object('total_sales', 0, 'total_purchases', 0, 'total_expenses', 0, 'total_revenue', 0, 'cash_balance', 0, 'bank_balance', 0, 'customers_count', 0, 'products_count', 0, 'top_selling_products', '[]'::jsonb, 'is_new_system', true);
-        END IF;
-        RETURN NULL;
-    END IF;
-
-    IF p_org_id IS NULL THEN RETURN NULL; END IF;
-
+    -- 1. إجمالي المبيعات
+    p_org_id := COALESCE(p_org_id, public.get_my_org()); 
     SELECT COALESCE(SUM(total_amount), 0) INTO v_total_sales
     FROM public.invoices
     WHERE organization_id = p_org_id AND status IN ('posted', 'paid');
@@ -2512,8 +2580,8 @@ BEGIN
     SELECT COUNT(*) INTO v_customers_count FROM public.customers WHERE organization_id = p_org_id AND deleted_at IS NULL;
     SELECT COUNT(*) INTO v_products_count FROM public.products WHERE organization_id = p_org_id AND deleted_at IS NULL;
 
-    -- 8. إصلاح خطأ nested aggregate (SUM داخل jsonb_agg)
-    SELECT jsonb_agg(t) INTO v_top_selling_products FROM (
+    -- 8. المنتجات الأكثر مبيعاً (أعلى 5)
+    WITH top_products AS (
         SELECT p.name as product_name, SUM(oi.quantity) as total_quantity
         FROM public.order_items oi
         JOIN public.products p ON oi.product_id = p.id
@@ -2522,7 +2590,10 @@ BEGIN
         GROUP BY p.name
         ORDER BY total_quantity DESC
         LIMIT 5
-    ) t;
+    )
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('product_name', product_name, 'total_quantity', total_quantity)), '[]'::jsonb)
+    INTO v_top_selling_products -- 🛡️ حماية من TypeError في الواجهة عند عدم وجود مبيعات
+    FROM top_products;
 
     RETURN jsonb_build_object(
         'total_sales', v_total_sales, 'total_purchases', v_total_purchases,
@@ -2547,6 +2618,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 BEGIN
+    p_org_id := COALESCE(p_org_id, public.get_my_org());
     RETURN QUERY
     SELECT
         a.id AS account_id,
@@ -2556,10 +2628,8 @@ BEGIN
         COALESCE(SUM(jl.debit - jl.credit), 0) AS balance
     FROM
         public.accounts a
-    LEFT JOIN
-        public.journal_lines jl ON a.id = jl.account_id AND jl.organization_id = p_org_id
-    LEFT JOIN
-        public.journal_entries je ON jl.journal_entry_id = je.id AND je.organization_id = p_org_id AND je.status = 'posted'
+    LEFT JOIN public.journal_lines jl ON a.id = jl.account_id AND jl.organization_id = a.organization_id
+    LEFT JOIN public.journal_entries je ON jl.journal_entry_id = je.id AND je.status = 'posted'
     WHERE
         a.organization_id = p_org_id
     GROUP BY
@@ -2924,162 +2994,6 @@ EXCEPTION WHEN OTHERS THEN
     RETURN NEXT;
 END; $$;
 
--- 🧪 دالة تشغيل اختبارات دورة التصنيع و WAC بشكل دوري
-CREATE OR REPLACE FUNCTION public.run_periodic_mfg_wac_tests()
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    test_record record;
-    v_test_suite_name text;
-    v_test_step_name text;
-    v_step_status text;
-    v_step_details text;
-BEGIN
-    RAISE NOTICE 'Starting periodic MFG and WAC tests...';
-
-    -- Test Suite 1: Full Manufacturing Cycle Test
-    v_test_suite_name := 'MFG Full Cycle Test';
-    BEGIN
-        RAISE NOTICE '--- Running % ---', v_test_suite_name;
-        FOR test_record IN SELECT * FROM public.mfg_test_full_cycle() LOOP
-            v_test_step_name := test_record.step_name;
-            v_step_status := test_record.result;
-            v_step_details := test_record.details;
-
-            IF v_step_status LIKE 'FAIL%' OR v_step_status LIKE 'ERROR%' THEN
-                INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
-                VALUES (
-                    format('Test Failed: %s - Step: %s', v_test_suite_name, v_test_step_name),
-                    'MFG_FULL_CYCLE_FAIL',
-                    jsonb_build_object('step_name', v_test_step_name, 'status', v_step_status, 'details', v_step_details),
-                    'run_periodic_mfg_wac_tests',
-                    NULL -- Test creates its own org, not tied to a specific production org
-                );
-                RAISE WARNING 'Test Failed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
-            ELSE
-                RAISE NOTICE 'Test Passed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
-            END IF;
-        END LOOP;
-        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
-        VALUES (
-            format('%s Completed Successfully', v_test_suite_name),
-            'MFG_FULL_CYCLE_SUCCESS',
-            jsonb_build_object('status', 'SUCCESS', 'message', 'All steps completed without critical errors.'),
-            'run_periodic_mfg_wac_tests',
-            NULL
-        );
-    EXCEPTION WHEN OTHERS THEN
-        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
-        VALUES (
-            format('Critical Error during %s: %s', v_test_suite_name, SQLERRM),
-            SQLSTATE,
-            jsonb_build_object('test_suite', v_test_suite_name, 'error_details', SQLERRM),
-            'run_periodic_mfg_wac_tests',
-            NULL
-        );
-        RAISE WARNING 'Critical Error during %s: %s', v_test_suite_name, SQLERRM;
-    END;
-
-    -- Test Suite 2: WAC Logic Test
-    v_test_suite_name := 'WAC Logic Test';
-    BEGIN
-        RAISE NOTICE '--- Running % ---', v_test_suite_name;
-        FOR test_record IN SELECT * FROM public.test_wac_logic() LOOP
-            v_test_step_name := test_record.step;
-            v_step_status := test_record.status;
-            v_step_details := format('Expected: %s, Actual: %s', test_record.expected, test_record.actual);
-
-            IF v_step_status LIKE 'FAIL%' OR v_step_status LIKE 'ERROR%' THEN
-                INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
-                VALUES (
-                    format('Test Failed: %s - Step: %s', v_test_suite_name, v_test_step_name),
-                    'WAC_LOGIC_FAIL',
-                    jsonb_build_object('step_name', v_test_step_name, 'status', v_step_status, 'details', v_step_details),
-                    'run_periodic_mfg_wac_tests',
-                    NULL
-                );
-                RAISE WARNING 'Test Failed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
-            ELSE
-                RAISE NOTICE 'Test Passed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
-            END IF;
-        END LOOP;
-        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
-        VALUES (
-            format('%s Completed Successfully', v_test_suite_name),
-            'WAC_LOGIC_SUCCESS',
-            jsonb_build_object('status', 'SUCCESS', 'message', 'All steps completed without critical errors.'),
-            'run_periodic_mfg_wac_tests',
-            NULL
-        );
-    EXCEPTION WHEN OTHERS THEN
-        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
-        VALUES (
-            format('Critical Error during %s: %s', v_test_suite_name, SQLERRM),
-            SQLSTATE,
-            jsonb_build_object('test_suite', v_test_suite_name, 'error_details', SQLERRM),
-            'run_periodic_mfg_wac_tests',
-            NULL
-        );
-        RAISE WARNING 'Critical Error during %s: %s', v_test_suite_name, SQLERRM;
-    END;
-
-    RAISE NOTICE 'Periodic MFG and WAC tests finished.';
-END;
-$$;
-
--- 📊 دالة جلب ملخص نتائج الاختبارات الدورية للسوبر أدمن
-CREATE OR REPLACE FUNCTION public.get_admin_test_summary(
-    p_limit int DEFAULT 20,
-    p_filter_test_type text DEFAULT NULL,
-    p_filter_status text DEFAULT NULL
-)
-RETURNS TABLE (
-    id uuid,
-    test_date timestamptz,
-    test_name text,
-    status text,
-    summary text,
-    details jsonb
-) 
-LANGUAGE plpgsql 
-SECURITY DEFINER 
-AS $$
-BEGIN
-    -- 🛡️ التحقق من الصلاحية العالمية
-    IF public.get_my_role() != 'super_admin' THEN
-        RAISE EXCEPTION 'غير مصرح: هذه البيانات مخصصة للمدير العام فقط.';
-    END IF;
-
-    RETURN QUERY
-    SELECT 
-        sel.id,
-        sel.created_at,
-        CASE 
-            WHEN sel.error_code LIKE 'MFG%' THEN 'دورة التصنيع الشاملة'
-            WHEN sel.error_code LIKE 'WAC%' THEN 'منطق تكلفة WAC'
-            ELSE 'اختبار صحة النظام'
-        END AS derived_test_name,
-        CASE 
-            WHEN sel.error_code LIKE '%SUCCESS' THEN 'SUCCESS'
-            ELSE 'FAILURE'
-        END AS derived_status,
-        sel.error_message,
-        sel.context
-    FROM public.system_error_logs sel
-    WHERE sel.function_name = 'run_periodic_mfg_wac_tests'
-      AND (p_filter_test_type IS NULL OR
-           (p_filter_test_type = 'MFG' AND sel.error_code LIKE 'MFG%') OR
-           (p_filter_test_type = 'WAC' AND sel.error_code LIKE 'WAC%') OR
-           (p_filter_test_type = 'OTHER' AND sel.error_code NOT LIKE 'MFG%' AND sel.error_code NOT LIKE 'WAC%'))
-      AND (p_filter_status IS NULL OR
-           (p_filter_status = 'SUCCESS' AND sel.error_code LIKE '%SUCCESS') OR
-           (p_filter_status = 'FAILURE' AND sel.error_code NOT LIKE '%SUCCESS'))
-    ORDER BY sel.created_at DESC
-    LIMIT p_limit;
-END; $$;
-
 -- ج. جلب العملاء المتجاوزين لحد الائتمان (تحديث موحد)
 DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.get_over_limit_customers() CASCADE;
@@ -3088,13 +3002,80 @@ RETURNS TABLE (id UUID, name TEXT, phone TEXT, total_debt NUMERIC, credit_limit 
 LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_target_org uuid;
 BEGIN
-    v_target_org := COALESCE(p_org_id, public.get_my_org());
+    v_target_org := COALESCE(p_org_id, public.get_my_org()); 
     RETURN QUERY SELECT c.id, c.name, c.phone, COALESCE(c.balance, 0), COALESCE(c.credit_limit, 0)
     FROM public.customers c WHERE c.organization_id = v_target_org AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0);
 END; $$;
 
--- منح صلاحية تنفيذ الدالة للسوبر أدمن
-GRANT EXECUTE ON FUNCTION public.get_admin_test_summary(int, text, text) TO authenticated;
+-- 🛠️ دالة مطابقة وإعادة احتساب الأرصدة (Recalculate All Balances)
+-- هذه الدالة تحل مشكلة الخطأ 404 وتضمن دقة الأرصدة في كافة مديولات النظام
+CREATE OR REPLACE FUNCTION public.recalculate_all_balances(p_org_id uuid DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid;
+BEGIN
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    IF v_org_id IS NULL THEN RETURN; END IF;
+
+    -- 1. تحديث أرصدة الحسابات بناءً على القيود المرحلة فقط (General Ledger)
+    UPDATE public.accounts a
+    SET balance = (
+        SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
+        FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE jl.account_id = a.id 
+          AND je.status = 'posted'
+          AND je.organization_id = v_org_id
+    )
+    WHERE a.organization_id = v_org_id;
+
+    -- 2. تحديث أرصدة العملاء
+    UPDATE public.customers c
+    SET balance = public.get_customer_balance(c.id, v_org_id)
+    WHERE c.organization_id = v_org_id;
+
+    -- 3. تحديث أرصدة الموردين (صافي الفواتير غير المدفوعة)
+    UPDATE public.suppliers s
+    SET balance = (
+        SELECT COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0)
+        FROM public.purchase_invoices
+        WHERE supplier_id = s.id 
+          AND status IN ('posted', 'paid')
+          AND organization_id = v_org_id
+    )
+    WHERE s.organization_id = v_org_id;
+    
+    -- 4. إعادة مزامنة المخزون الشاملة
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+END; $$;
+
+-- 🛠️ دالة ترميم روابط القيود المحاسبية (Surgical Link Repair) - نسخة مطورة
+CREATE OR REPLACE FUNCTION public.repair_orphaned_journal_lines(p_org_id uuid)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_count int := 0;
+BEGIN
+    -- 🛡️ [تحديث جراحي] ربط القيود اليتيمة بالحسابات الصحيحة بناءً على الأكواد المكتوبة في البيان
+    UPDATE public.journal_lines jl
+    SET account_id = a.id
+    FROM public.accounts a
+    WHERE jl.organization_id = p_org_id AND a.organization_id = p_org_id
+      -- الشرط: الحساب المربوط حالياً غير موجود في جدول الحسابات الفعلي
+      AND (jl.account_id IS NULL OR jl.account_id NOT IN (SELECT id FROM public.accounts WHERE organization_id = p_org_id))
+      -- البحث عن كود الحساب داخل وصف السطر أو وصف القيد (مثل "1" للأصول)
+      AND (jl.description ~ ('\y' || a.code || '\y') OR EXISTS (SELECT 1 FROM public.journal_entries je WHERE je.id = jl.journal_entry_id AND je.description ~ ('\y' || a.code || '\y')));
+    
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    RETURN v_count;
+END; $$;
+
+-- إنشاء اسم مستعار (Alias) للتوافق مع استدعاءات النظام الداخلية التي تستخدم المسمى الطويل
+CREATE OR REPLACE FUNCTION public.recalculate_all_system_balances(p_org_id uuid DEFAULT NULL)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN PERFORM public.recalculate_all_balances(p_org_id); END; $$;
+
+-- منح صلاحية التنفيذ للمستخدمين
+GRANT EXECUTE ON FUNCTION public.recalculate_all_balances(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.recalculate_all_system_balances(uuid) TO authenticated;
 
 -- تنشيط كاش النظام
 NOTIFY pgrst, 'reload config';

@@ -17,6 +17,9 @@ DO $$
 DECLARE 
     t text;
     tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders'];
+    dup record;
+    tables_with_user_id text[] := ARRAY['orders', 'journal_entries', 'shifts', 'table_sessions', 'cash_closings', 'organization_backups', 'notifications', 'receipt_vouchers', 'payment_vouchers'];
+    user_id_table text;
 BEGIN
     -- 0. ترميم جدول المنظمات (SaaS Organizations Repair)
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organizations' AND table_schema = 'public') THEN
@@ -66,14 +69,285 @@ BEGIN
         -- 🛡️ حل شامل لمشكلة 42P10 و ON CONFLICT
         ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_code_key;
 
-        -- تنظيف البيانات المكررة لضمان نجاح إضافة القيد
-        DELETE FROM public.accounts a USING (
-            SELECT id, ROW_NUMBER() OVER (PARTITION BY organization_id, code ORDER BY created_at DESC) as rn
+        -- 🦷 [العملية الجراحية] لدمج الحسابات المكررة وترميم الروابط المفقودة
+        FOR dup IN (
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
             FROM public.accounts
-        ) b WHERE a.id = b.id AND b.rn > 1;
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث ...
+            DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+        END LOOP;
 
         ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
         ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        FOR dup IN (e WHERE length(cod) <=2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            -- ترميم الروابط في كافة الجداول التابعة
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            -- ... بقية أوامر التحديث  ا.تي تتطلبه
+    FO.EACH user_id_table IN ARRAY tables_with_user_id LOO.
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM infor
+                DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+            END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        -- فرض صفة "رئيسي" على الحسابات الجذرية (المستوى الأول والثاني)
+        UPDATE public.accounts SET is_group = true WHERE length(code) <= 2;
+
+        -- 🛡️ تصحيح تلقائي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group) لمنع الترحيل المباشر عليه
+        UPDATE public.accounts SET is_group = true 
+        WHERE id IN (SELECT DISTINCT parent_id FROM public.accounts WHERE parent_id IS NOT NULL);
     END IF;
 
     -- 🛡️ ترميم جدول الأدوار (Roles Healing)
@@ -86,24 +360,19 @@ BEGIN
     -- 2. توحيد مسمى user_id (ترميم العمود المفقود الذي سبب الخطأ 42703)
     -- نتحقق من الجداول التي قد تحتوي على المسمى القديم created_by ونقوم بتحويله إلى user_id
     -- ثم نضمن وجود user_id في الجداول التي تتطلبه
-    DECLARE
-        -- قائمة بالجداول التي يجب أن تحتوي على user_id أو created_by
-        tables_with_user_id text[] := ARRAY['orders', 'journal_entries', 'shifts', 'table_sessions', 'cash_closings', 'organization_backups', 'notifications', 'receipt_vouchers', 'payment_vouchers'];
-        user_id_table text;
-    BEGIN
-        FOREACH user_id_table IN ARRAY tables_with_user_id LOOP
-            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
-                -- Rename created_by to user_id if created_by exists and user_id does not
-                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'created_by') AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
-                    EXECUTE format('ALTER TABLE public.%I RENAME COLUMN created_by TO user_id', user_id_table);
-                END IF;
-                -- Add user_id if it's still missing (after potential rename) and it's a table that should have it
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
-                    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id)', user_id_table);
-                END IF;
+    FOREACH user_id_table IN ARRAY tables_with_user_id LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            -- Rename created_by to user_id if created_by exists and user_id does not
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'created_by') AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
+                EXECUTE format('ALTER TABLE public.%I RENAME COLUMN created_by TO user_id', user_id_table);
             END IF;
-        END LOOP;
-    END;
+            -- Add user_id if it's still missing (after potential rename) and it's a table that should have it
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
+                EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id)', user_id_table);
+            END IF;
+        END IF;
+    END LOOP;
+
     -- 3. إضافة عمود الوصف المفقود في جدول الصلاحيات
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'permissions' AND table_schema = 'public') THEN
         ALTER TABLE public.permissions ADD COLUMN IF NOT EXISTS description text;
