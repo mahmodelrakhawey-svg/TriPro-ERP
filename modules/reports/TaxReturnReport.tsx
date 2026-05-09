@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Download, Printer, Calculator, ArrowRightLeft, Lock, Loader2 } from 'lucide-react';
@@ -11,31 +11,51 @@ const TaxReturnReport = () => {
     const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
     const [closing, setClosing] = useState(false);
+    const [loading, setLoading] = useState(false);
+    const [calculatedData, setCalculatedData] = useState<{
+        outputVatAmount: number;
+        inputVatAmount: number;
+        netVat: number;
+        outputVatAcc: any;
+        inputVatAcc: any;
+    } | null>(null);
 
-    const reportData = useMemo(() => {
-        // البحث عن حسابات الضريبة
-        // 2231: ضريبة المخرجات (التزام - دائن) - الدليل المصري
-        const outputVatAcc = accounts.find(a => a.code === '2231' || a.code === '2103');
-        // 1241: ضريبة المدخلات (أصل - مدين) - الدليل المصري
-        const inputVatAcc = accounts.find(a => a.code === '1241' || a.code === '1205');
+    useEffect(() => {
+        const calculate = async () => {
+            // البحث عن حسابات الضريبة
+            const outputVatAcc = accounts.find(a => a.code === '2231' || a.code === '2103');
+            const inputVatAcc = accounts.find(a => a.code === '1241' || a.code === '1205');
 
-        if (!outputVatAcc || !inputVatAcc) return null;
+            if (!outputVatAcc || !inputVatAcc) {
+                setCalculatedData(null);
+                return;
+            }
 
-        // حساب الحركات خلال الفترة
-        const outputVatAmount = getAccountBalanceInPeriod(outputVatAcc.id, startDate, endDate);
-        const inputVatAmount = getAccountBalanceInPeriod(inputVatAcc.id, startDate, endDate);
+            setLoading(true);
+            try {
+                // حساب الحركات خلال الفترة باستخدام await لضمان الحصول على أرقام
+                const outAmount = await getAccountBalanceInPeriod(outputVatAcc.id, startDate, endDate);
+                const inAmount = await getAccountBalanceInPeriod(inputVatAcc.id, startDate, endDate);
 
-        // صافي الضريبة المستحقة = المخرجات (المحصلة) - المدخلات (المدفوعة)
-        const netVat = outputVatAmount - inputVatAmount;
-
-        return {
-            outputVatAmount,
-            inputVatAmount,
-            netVat,
-            outputVatAcc,
-            inputVatAcc
+                setCalculatedData({
+                    outputVatAmount: outAmount,
+                    inputVatAmount: inAmount,
+                    netVat: outAmount - inAmount,
+                    outputVatAcc,
+                    inputVatAcc
+                });
+            } catch (err) {
+                console.error(err);
+                showToast('خطأ في حساب المبالغ الضريبية', 'error');
+            } finally {
+                setLoading(false);
+            }
         };
-    }, [accounts, startDate, endDate, getAccountBalanceInPeriod]);
+
+        calculate();
+    }, [accounts, startDate, endDate, getAccountBalanceInPeriod, showToast]);
+
+    const reportData = calculatedData;
 
     const handleExport = () => {
         if (!reportData) return;
@@ -168,7 +188,12 @@ const TaxReturnReport = () => {
                     </div>
                 </div>
             </div>
-            {reportData ? (
+            {loading ? (
+                <div className="p-12 text-center bg-white rounded-xl border border-slate-200">
+                    <Loader2 className="animate-spin mx-auto text-blue-600" size={32} />
+                    <p className="mt-2 text-slate-500 font-bold">جاري حساب البيانات الضريبية...</p>
+                </div>
+            ) : reportData ? (
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     <div className="p-6 border-b border-slate-100 bg-slate-50">
                         <h3 className="font-bold text-lg text-slate-800 text-center">ملخص الإقرار الضريبي</h3>

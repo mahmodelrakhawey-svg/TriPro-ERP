@@ -164,7 +164,8 @@ const EmployeeManager = () => {
         <div className="min-w-[150px]">
             <select value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)} className="w-full border rounded-lg p-2 focus:outline-none focus:border-blue-500 bg-white">
                 <option value="all">كل الأقسام</option>
-                {departments.map(dept => <option key={dept} value={dept}>{dept}</option>)}
+                {(departments as string[]).map((dept: string) => <option key={dept} value={dept}>{dept}</option>)}
+                {(departments as string[]).map((dept: string) => <option key={dept} value={dept}>{dept}</option>)}
             </select>
         </div>
       </div>

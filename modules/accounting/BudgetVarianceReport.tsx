@@ -1,4 +1,4 @@
-﻿﻿import React, { useMemo, useState } from 'react';
+﻿﻿import React, { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType } from '../../types';
 import { 
@@ -14,52 +14,65 @@ const BudgetVarianceReport = () => {
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [aiReport, setAiReport] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [calculatedItems, setCalculatedItems] = useState<any[]>([]);
+  const [isCalculating, setIsCalculating] = useState(false);
 
   const activeBudget = useMemo(() => {
       return budgets.find(b => b.year === year && b.month === month);
   }, [year, month, budgets]);
 
-  const reportData = useMemo(() => {
-      if (!activeBudget) return [];
+  useEffect(() => {
+    const calculateActuals = async () => {
+      if (!activeBudget) {
+        setCalculatedItems([]);
+        return;
+      }
+      setIsCalculating(true);
 
       const startDate = new Date(year, month - 1, 1).toISOString().split('T')[0];
       const endDate = new Date(year, month, 0).toISOString().split('T')[0];
-
-      // Need periodInvoices for non-account types (salesperson, customer, product)
       const periodInvoices = invoices.filter(inv => inv.date >= startDate && inv.date <= endDate && inv.status !== 'draft');
 
-      return activeBudget.items.map(item => {
-          let actual = 0;
-          
-          /* Fix: Calculate actuals based on the type of budget item (Account vs Sales/Product/Customer) and use targetId instead of non-existent accountId */
-          if (item.type === 'account') {
-              actual = Math.abs(getAccountBalanceInPeriod(item.targetId || item.target_id || '', startDate, endDate));
-          } else if (item.type === 'salesperson') {
-              actual = periodInvoices.filter(inv => inv.salespersonId === (item.targetId || item.target_id)).reduce((s, inv) => s + inv.totalAmount, 0);
-          } else if (item.type === 'customer') {
-              actual = periodInvoices.filter(inv => (inv.customerId || inv.customer_id) === (item.targetId || item.target_id)).reduce((s, inv) => s + inv.totalAmount, 0);
-          } else if (item.type === 'product') {
-              actual = periodInvoices.reduce((s, inv) => {
-                  const line = inv.items.find(i => i.productId === (item.targetId || item.target_id));
-                  return s + (line ? line.quantity : 0);
-              }, 0);
-          }
+      const promises = activeBudget.items.map(async (item: any) => {
+        let actual = 0;
+        const targetId = item.targetId || item.target_id || '';
 
-          const planned = item.plannedAmount || item.planned_amount || 0;
-          const variance = planned - actual;
-          const pct = planned > 0 ? (actual / planned) * 100 : 0;
-          
-          return {
-              ...item,
-              actual,
-              variance,
-              pct: Math.min(100, pct),
-              rawPct: pct,
-              status: pct > 100 ? 'danger' : pct > 85 ? 'warning' : 'success'
-          };
+        if (item.type === 'account') {
+          actual = Math.abs(await getAccountBalanceInPeriod(targetId, startDate, endDate));
+        } else if (item.type === 'salesperson') {
+          actual = periodInvoices.filter(inv => inv.salespersonId === targetId).reduce((s, inv) => s + inv.totalAmount, 0);
+        } else if (item.type === 'customer') {
+          actual = periodInvoices.filter(inv => (inv.customerId || inv.customer_id) === targetId).reduce((s, inv) => s + inv.totalAmount, 0);
+        } else if (item.type === 'product') {
+          actual = periodInvoices.reduce((s, inv) => {
+            const line = inv.items.find(i => i.productId === targetId);
+            return s + (line ? line.quantity : 0);
+          }, 0);
+        }
+
+        const planned = item.plannedAmount || item.planned_amount || 0;
+        const variance = planned - actual;
+        const pct = planned > 0 ? (actual / planned) * 100 : 0;
+
+        return {
+          ...item,
+          actual,
+          variance,
+          pct: Math.min(100, pct),
+          rawPct: pct,
+          status: pct > 100 ? 'danger' : pct > 85 ? 'warning' : 'success'
+        };
       });
+
+      const results = await Promise.all(promises);
+      setCalculatedItems(results);
+      setIsCalculating(false);
+    };
+
+    calculateActuals();
   }, [activeBudget, getAccountBalanceInPeriod, invoices, year, month]);
 
+  const reportData = calculatedItems;
   const handleAiVarianceAnalysis = async () => {
       if (reportData.length === 0) return;
       setIsAiLoading(true);

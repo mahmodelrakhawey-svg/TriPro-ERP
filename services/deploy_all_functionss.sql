@@ -57,8 +57,8 @@ BEGIN
             'fix_unbalanced_journal_entry', 'approve_stock_transfer', 'cancel_stock_transfer', 'post_inventory_count', 'check_account_is_not_group',
             'get_account_balance_at_date', 'fn_validate_journal_entry_balance', 'test_saas_isolation',
             'test_wac_logic', 'trigger_handle_stock_on_order', 'mfg_deduct_stock_from_order', 
-            'mfg_test_pos_integration', 'mfg_test_full_cycle',
-            'get_product_recipe_cost', 'trg_fn_sync_product_costs_on_update'
+            'mfg_test_pos_integration', 'mfg_test_full_cycle', 'run_periodic_mfg_wac_tests',
+            'get_product_recipe_cost', 'trg_fn_sync_product_costs_on_update', 'get_admin_test_summary'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
@@ -1302,7 +1302,7 @@ BEGIN
     v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
 
     -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
-    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id)
+    INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id, production_warehouse_id, raw_material_warehouse_id)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
         jsonb_build_object(
             'CASH', v_cash_id, 'SALES_REVENUE', v_sales_id, 'CUSTOMERS', v_cust_id, 'COGS', v_cogs_id, 'INVENTORY_FINISHED_GOODS', v_inv_id,
@@ -1317,8 +1317,14 @@ BEGIN
             'WASTAGE_EXPENSE', v_wastage_id
         ),
         v_warehouse_id,
-        v_cash_id
-    ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings, default_warehouse_id = EXCLUDED.default_warehouse_id, default_treasury_id = EXCLUDED.default_treasury_id;
+        v_cash_id,
+        v_warehouse_id,
+        v_warehouse_id
+    ) ON CONFLICT (organization_id) DO UPDATE SET 
+        activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings, 
+        default_warehouse_id = EXCLUDED.default_warehouse_id, default_treasury_id = EXCLUDED.default_treasury_id,
+        production_warehouse_id = EXCLUDED.production_warehouse_id,
+        raw_material_warehouse_id = EXCLUDED.raw_material_warehouse_id;
 
     -- تأسيس الأدوار الافتراضية للمنظمة لضمان ظهورها في شاشة الصلاحيات
     INSERT INTO public.roles (organization_id, name, description) VALUES
@@ -1630,12 +1636,19 @@ BEGIN
         END;
 
         -- 2. إعادة الجدولة: تشغيل يومي الساعة 3:00 صباحاً
+        BEGIN
+            EXECUTE 'SELECT cron.unschedule(''daily-mfg-wac-tests'')';
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
         PERFORM cron.schedule('daily-system-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');
         RAISE NOTICE '✅ تم تفعيل جدولة النسخ الاحتياطي اليومي بنجاح.';
     ELSE
         RAISE WARNING '⚠️ تنبيه: ملحق pg_cron غير مفعل. لن يتم تفعيل الجدولة التلقائية. يمكنك تفعيله من Dashboard -> Database -> Extensions.';
     END IF;
 END $$;
+
+-- منح صلاحية تنفيذ الدالة للمستخدمين المصادق عليهم
+GRANT EXECUTE ON FUNCTION public.run_periodic_mfg_wac_tests() TO authenticated;
 
 -- ================================================================
 -- 6.1 محرك استعادة البيانات (SaaS Restore Engine)
@@ -2430,8 +2443,28 @@ DECLARE
     v_top_selling_products jsonb;
     v_recent_invoices jsonb;
 BEGIN
-    -- 1. إجمالي المبيعات
-    p_org_id := COALESCE(p_org_id, public.get_my_org()); 
+    -- تحديد المنظمة مع معالجة ذكية للسوبر أدمن
+    IF p_org_id IS NULL THEN
+        BEGIN
+            p_org_id := public.get_my_org();
+        EXCEPTION WHEN OTHERS THEN
+            IF public.get_my_role() = 'super_admin' THEN
+                p_org_id := (SELECT id FROM public.organizations WHERE is_active = true LIMIT 1);
+            ELSE
+                RETURN NULL;
+            END IF;
+        END;
+    END IF;
+
+    IF p_org_id IS NULL THEN
+        IF public.get_my_role() = 'super_admin' THEN
+            RETURN jsonb_build_object('total_sales', 0, 'total_purchases', 0, 'total_expenses', 0, 'total_revenue', 0, 'cash_balance', 0, 'bank_balance', 0, 'customers_count', 0, 'products_count', 0, 'top_selling_products', '[]'::jsonb, 'is_new_system', true);
+        END IF;
+        RETURN NULL;
+    END IF;
+
+    IF p_org_id IS NULL THEN RETURN NULL; END IF;
+
     SELECT COALESCE(SUM(total_amount), 0) INTO v_total_sales
     FROM public.invoices
     WHERE organization_id = p_org_id AND status IN ('posted', 'paid');
@@ -2469,16 +2502,17 @@ BEGIN
     SELECT COUNT(*) INTO v_customers_count FROM public.customers WHERE organization_id = p_org_id AND deleted_at IS NULL;
     SELECT COUNT(*) INTO v_products_count FROM public.products WHERE organization_id = p_org_id AND deleted_at IS NULL;
 
-    -- 8. المنتجات الأكثر مبيعاً (أعلى 5)
-    SELECT jsonb_agg(jsonb_build_object('product_name', p.name, 'total_quantity', SUM(oi.quantity)))
-    INTO v_top_selling_products
-    FROM public.order_items oi
-    JOIN public.products p ON oi.product_id = p.id
-    JOIN public.orders o ON oi.order_id = o.id
-    WHERE o.organization_id = p_org_id AND o.status IN ('COMPLETED', 'PAID', 'posted')
-    GROUP BY p.name
-    ORDER BY SUM(oi.quantity) DESC
-    LIMIT 5;
+    -- 8. إصلاح خطأ nested aggregate (SUM داخل jsonb_agg)
+    SELECT jsonb_agg(t) INTO v_top_selling_products FROM (
+        SELECT p.name as product_name, SUM(oi.quantity) as total_quantity
+        FROM public.order_items oi
+        JOIN public.products p ON oi.product_id = p.id
+        JOIN public.orders o ON oi.order_id = o.id
+        WHERE o.organization_id = p_org_id AND o.status IN ('COMPLETED', 'PAID', 'posted')
+        GROUP BY p.name
+        ORDER BY total_quantity DESC
+        LIMIT 5
+    ) t;
 
     RETURN jsonb_build_object(
         'total_sales', v_total_sales, 'total_purchases', v_total_purchases,
@@ -2880,6 +2914,162 @@ EXCEPTION WHEN OTHERS THEN
     RETURN NEXT;
 END; $$;
 
+-- 🧪 دالة تشغيل اختبارات دورة التصنيع و WAC بشكل دوري
+CREATE OR REPLACE FUNCTION public.run_periodic_mfg_wac_tests()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    test_record record;
+    v_test_suite_name text;
+    v_test_step_name text;
+    v_step_status text;
+    v_step_details text;
+BEGIN
+    RAISE NOTICE 'Starting periodic MFG and WAC tests...';
+
+    -- Test Suite 1: Full Manufacturing Cycle Test
+    v_test_suite_name := 'MFG Full Cycle Test';
+    BEGIN
+        RAISE NOTICE '--- Running % ---', v_test_suite_name;
+        FOR test_record IN SELECT * FROM public.mfg_test_full_cycle() LOOP
+            v_test_step_name := test_record.step_name;
+            v_step_status := test_record.result;
+            v_step_details := test_record.details;
+
+            IF v_step_status LIKE 'FAIL%' OR v_step_status LIKE 'ERROR%' THEN
+                INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
+                VALUES (
+                    format('Test Failed: %s - Step: %s', v_test_suite_name, v_test_step_name),
+                    'MFG_FULL_CYCLE_FAIL',
+                    jsonb_build_object('step_name', v_test_step_name, 'status', v_step_status, 'details', v_step_details),
+                    'run_periodic_mfg_wac_tests',
+                    NULL -- Test creates its own org, not tied to a specific production org
+                );
+                RAISE WARNING 'Test Failed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
+            ELSE
+                RAISE NOTICE 'Test Passed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
+            END IF;
+        END LOOP;
+        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
+        VALUES (
+            format('%s Completed Successfully', v_test_suite_name),
+            'MFG_FULL_CYCLE_SUCCESS',
+            jsonb_build_object('status', 'SUCCESS', 'message', 'All steps completed without critical errors.'),
+            'run_periodic_mfg_wac_tests',
+            NULL
+        );
+    EXCEPTION WHEN OTHERS THEN
+        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
+        VALUES (
+            format('Critical Error during %s: %s', v_test_suite_name, SQLERRM),
+            SQLSTATE,
+            jsonb_build_object('test_suite', v_test_suite_name, 'error_details', SQLERRM),
+            'run_periodic_mfg_wac_tests',
+            NULL
+        );
+        RAISE WARNING 'Critical Error during %s: %s', v_test_suite_name, SQLERRM;
+    END;
+
+    -- Test Suite 2: WAC Logic Test
+    v_test_suite_name := 'WAC Logic Test';
+    BEGIN
+        RAISE NOTICE '--- Running % ---', v_test_suite_name;
+        FOR test_record IN SELECT * FROM public.test_wac_logic() LOOP
+            v_test_step_name := test_record.step;
+            v_step_status := test_record.status;
+            v_step_details := format('Expected: %s, Actual: %s', test_record.expected, test_record.actual);
+
+            IF v_step_status LIKE 'FAIL%' OR v_step_status LIKE 'ERROR%' THEN
+                INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
+                VALUES (
+                    format('Test Failed: %s - Step: %s', v_test_suite_name, v_test_step_name),
+                    'WAC_LOGIC_FAIL',
+                    jsonb_build_object('step_name', v_test_step_name, 'status', v_step_status, 'details', v_step_details),
+                    'run_periodic_mfg_wac_tests',
+                    NULL
+                );
+                RAISE WARNING 'Test Failed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
+            ELSE
+                RAISE NOTICE 'Test Passed: %s - Step: %s - Details: %s', v_test_suite_name, v_test_step_name, v_step_details;
+            END IF;
+        END LOOP;
+        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
+        VALUES (
+            format('%s Completed Successfully', v_test_suite_name),
+            'WAC_LOGIC_SUCCESS',
+            jsonb_build_object('status', 'SUCCESS', 'message', 'All steps completed without critical errors.'),
+            'run_periodic_mfg_wac_tests',
+            NULL
+        );
+    EXCEPTION WHEN OTHERS THEN
+        INSERT INTO public.system_error_logs (error_message, error_code, context, function_name, organization_id)
+        VALUES (
+            format('Critical Error during %s: %s', v_test_suite_name, SQLERRM),
+            SQLSTATE,
+            jsonb_build_object('test_suite', v_test_suite_name, 'error_details', SQLERRM),
+            'run_periodic_mfg_wac_tests',
+            NULL
+        );
+        RAISE WARNING 'Critical Error during %s: %s', v_test_suite_name, SQLERRM;
+    END;
+
+    RAISE NOTICE 'Periodic MFG and WAC tests finished.';
+END;
+$$;
+
+-- 📊 دالة جلب ملخص نتائج الاختبارات الدورية للسوبر أدمن
+CREATE OR REPLACE FUNCTION public.get_admin_test_summary(
+    p_limit int DEFAULT 20,
+    p_filter_test_type text DEFAULT NULL,
+    p_filter_status text DEFAULT NULL
+)
+RETURNS TABLE (
+    id uuid,
+    test_date timestamptz,
+    test_name text,
+    status text,
+    summary text,
+    details jsonb
+) 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+AS $$
+BEGIN
+    -- 🛡️ التحقق من الصلاحية العالمية
+    IF public.get_my_role() != 'super_admin' THEN
+        RAISE EXCEPTION 'غير مصرح: هذه البيانات مخصصة للمدير العام فقط.';
+    END IF;
+
+    RETURN QUERY
+    SELECT 
+        sel.id,
+        sel.created_at,
+        CASE 
+            WHEN sel.error_code LIKE 'MFG%' THEN 'دورة التصنيع الشاملة'
+            WHEN sel.error_code LIKE 'WAC%' THEN 'منطق تكلفة WAC'
+            ELSE 'اختبار صحة النظام'
+        END AS derived_test_name,
+        CASE 
+            WHEN sel.error_code LIKE '%SUCCESS' THEN 'SUCCESS'
+            ELSE 'FAILURE'
+        END AS derived_status,
+        sel.error_message,
+        sel.context
+    FROM public.system_error_logs sel
+    WHERE sel.function_name = 'run_periodic_mfg_wac_tests'
+      AND (p_filter_test_type IS NULL OR
+           (p_filter_test_type = 'MFG' AND sel.error_code LIKE 'MFG%') OR
+           (p_filter_test_type = 'WAC' AND sel.error_code LIKE 'WAC%') OR
+           (p_filter_test_type = 'OTHER' AND sel.error_code NOT LIKE 'MFG%' AND sel.error_code NOT LIKE 'WAC%'))
+      AND (p_filter_status IS NULL OR
+           (p_filter_status = 'SUCCESS' AND sel.error_code LIKE '%SUCCESS') OR
+           (p_filter_status = 'FAILURE' AND sel.error_code NOT LIKE '%SUCCESS'))
+    ORDER BY sel.created_at DESC
+    LIMIT p_limit;
+END; $$;
+
 -- ج. جلب العملاء المتجاوزين لحد الائتمان (تحديث موحد)
 DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid) CASCADE;
 DROP FUNCTION IF EXISTS public.get_over_limit_customers() CASCADE;
@@ -2892,6 +3082,9 @@ BEGIN
     RETURN QUERY SELECT c.id, c.name, c.phone, COALESCE(c.balance, 0), COALESCE(c.credit_limit, 0)
     FROM public.customers c WHERE c.organization_id = v_target_org AND COALESCE(c.balance, 0) > COALESCE(c.credit_limit, 0);
 END; $$;
+
+-- منح صلاحية تنفيذ الدالة للسوبر أدمن
+GRANT EXECUTE ON FUNCTION public.get_admin_test_summary(int, text, text) TO authenticated;
 
 -- تنشيط كاش النظام
 NOTIFY pgrst, 'reload config';

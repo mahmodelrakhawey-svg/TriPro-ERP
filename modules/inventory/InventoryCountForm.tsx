@@ -248,7 +248,7 @@ const InventoryCountForm = () => {
                             {loadingProducts ? <Loader2 className="animate-spin" size={20} /> : <RefreshCw size={20} />} 
                             {loadingProducts ? 'جاري التحضير...' : 'بدء جرد جديد'}
                         </button>
-                        <button onClick={recalculateStock} className="px-4 py-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 transition-colors" title="إعادة احتساب الأرصدة من العمليات السابقة">
+                           <button onClick={() => recalculateStock()} className="px-4 py-3 bg-slate-100 text-slate-600 rounded-2xl hover:bg-slate-200 transition-colors" title="إعادة احتساب الأرصدة من العمليات السابقة">
                             <RefreshCw size={20} className={loadingProducts ? "animate-spin" : ""} />
                         </button>
                       </>

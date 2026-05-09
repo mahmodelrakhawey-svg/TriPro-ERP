@@ -33,6 +33,18 @@ BEGIN
         ALTER TABLE public.organizations ADD COLUMN IF NOT EXISTS activity_type text;
     END IF;
 
+    -- 🛡️ ترميم جدول المستودعات (Warehouses Healing)
+    -- يضمن وجود عمود is_active في المستودعات لإصلاح خطأ 42703 عند تأسيس الشركات
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'warehouses' AND table_schema = 'public') THEN
+        ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+    END IF;
+
+    -- 🛡️ ترميم جدول إعدادات الشركة (Company Settings Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'company_settings' AND table_schema = 'public') THEN
+        ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS production_warehouse_id uuid;
+        ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS raw_material_warehouse_id uuid;
+    END IF;
+
     -- 1. إضافة عمود المنظمة المفقود (Multi-tenancy Enforcer)
     FOREACH t IN ARRAY tables_to_heal LOOP
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t AND table_schema = 'public') THEN
@@ -141,8 +153,12 @@ CREATE TABLE IF NOT EXISTS public.organization_backups (
 CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _role text;
 BEGIN
-    -- 1. فحص التوكن أولاً (JWT Claims)
-    _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', '');
+    -- 1. فحص التوكن أولاً (JWT Claims) - البحث في user_metadata و app_metadata لضمان التوافق
+    _role := COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', ''),
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', ''),
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'app_role', '')
+    );
     IF _role IS NULL THEN
         _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '');
     END IF;
@@ -154,18 +170,24 @@ END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _org_id uuid;
+DECLARE _role text;
 BEGIN
-    -- 1. البحث في البروفايل (الأولوية القصوى للأدمن والمستخدمين)
-    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    -- 1. جلب المنظمة والدور من البروفايل مباشرة (المصدر الأكثر ثقة)
+    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
 
-    -- 2. السوبر أدمن: البحث في التوكن للتنقل
+    -- 2. السوبر أدمن: البحث في التوكن (في حال كان يتنقل بين الشركات)
     _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
 
     -- 🛡️ صمام أمان: إذا كان المستخدم موثقاً ولم يتم تحديد منظمة، ارفع خطأ
-    -- 🚀 تحديث: استثناء السوبر أدمن من هذا الشرط للسماح بالوصول العالمي
-    IF _org_id IS NULL AND auth.uid() IS NOT NULL AND public.get_my_role() != 'super_admin' THEN
-        RAISE EXCEPTION 'فشل تحديد المنظمة للمستخدم الموثق. يرجى التأكد من ربط المستخدم بمنظمة.';
+    -- 🚀 تحديث: التحقق المزدوج من الدور لمنع الخطأ عند السوبر أدمن
+    IF _org_id IS NULL AND auth.uid() IS NOT NULL THEN
+        -- إذا لم نجد الدور في المتغير، نجلب الدور العام
+        _role := COALESCE(_role, public.get_my_role());
+        IF _role NOT IN ('super_admin', 'owner', 'demo') THEN
+            RAISE EXCEPTION 'فشل تحديد المنظمة للمستخدم الموثق. يرجى التأكد من ربط المستخدم بمنظمة.';
+        END IF;
     END IF;
     RETURN _org_id;
 END; $$;
@@ -294,6 +316,8 @@ CREATE TABLE IF NOT EXISTS public.company_settings (
     account_mappings jsonb DEFAULT '{}'::jsonb,
     default_warehouse_id uuid, -- عمود لربط المستودع الافتراضي
     default_treasury_id uuid,  -- عمود لربط الخزينة الافتراضية
+    production_warehouse_id uuid, -- عمود لمستودع الإنتاج
+    raw_material_warehouse_id uuid, -- عمود لمستودع المواد الخام
     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org() UNIQUE,
     updated_at timestamptz DEFAULT now()
 );
@@ -421,6 +445,7 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
     location text,
     manager text,
     phone text,
+    is_active boolean DEFAULT true, -- 🛡️ تم إضافة هذا العمود لإصلاح خطأ 42703 في دالة تأسيس الشركات
     type text DEFAULT 'warehouse',
      organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deleted_at timestamptz,

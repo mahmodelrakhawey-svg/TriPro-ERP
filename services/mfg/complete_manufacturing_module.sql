@@ -789,6 +789,7 @@ BEGIN
                 -- تجنب القسمة على صفر إذا كان المخزون القديم والكمية المنتجة صفر
                 IF (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce) > 0 THEN
                     v_new_wac := ((COALESCE(v_old_stock, 0) * COALESCE(v_old_wac, 0)) + v_total_cost) / (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce);
+                    v_new_wac := ROUND(((COALESCE(v_old_stock, 0) * COALESCE(v_old_wac, 0)) + v_total_cost) / (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce), 4);
                     UPDATE public.products
                     SET weighted_average_cost = v_new_wac,
                         cost = v_new_wac -- تحديث حقل التكلفة أيضاً ليعكس WAC

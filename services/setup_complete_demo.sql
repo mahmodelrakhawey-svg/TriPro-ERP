@@ -2,15 +2,16 @@
 -- يقوم بإنشاء جميع الجداول، الدوال، وإضافة بيانات أساسية.
 
 -- ========= 0. تنظيف قاعدة البيانات (Drop All) =========
-DROP SCHEMA public CASCADE;
-CREATE SCHEMA public;
+-- ⚠️ تحذير: تم تعطيل حذف المخطط (Schema) لضمان عدم ضياع هيكل النظام المطور.
+-- إذا كنت بحاجة لمسح شامل، فقم بتشغيل DROP SCHEMA public CASCADE يدوياً بحذر شديد.
+CREATE SCHEMA IF NOT EXISTS public;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO public;
 
 -- ========= 1. الجداول الأساسية (Core Tables) =========
 
 -- المنظمات
-CREATE TABLE public.organizations (
+CREATE TABLE IF NOT EXISTS public.organizations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     activity_type text,
@@ -29,7 +30,7 @@ CREATE TABLE public.organizations (
 );
 
 -- إعدادات الشركة
-CREATE TABLE public.company_settings (
+CREATE TABLE IF NOT EXISTS public.company_settings (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     company_name text,
     tax_number text,
@@ -47,7 +48,7 @@ CREATE TABLE public.company_settings (
 );
 
 -- الأدوار والصلاحيات
-CREATE TABLE public.roles (
+CREATE TABLE IF NOT EXISTS public.roles (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     description text,
@@ -55,14 +56,14 @@ CREATE TABLE public.roles (
     UNIQUE(name, organization_id)
 );
 
-CREATE TABLE public.permissions (
+CREATE TABLE IF NOT EXISTS public.permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     module text NOT NULL,
     action text NOT NULL,
     UNIQUE(module, action)
 );
 
-CREATE TABLE public.role_permissions (
+CREATE TABLE IF NOT EXISTS public.role_permissions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     role_id uuid REFERENCES public.roles(id) ON DELETE CASCADE,
     permission_id uuid REFERENCES public.permissions(id) ON DELETE CASCADE,
@@ -70,7 +71,7 @@ CREATE TABLE public.role_permissions (
 );
 
 -- المستخدمين (Profiles)
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
     id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
     full_name text,
     role text DEFAULT 'viewer',
@@ -80,7 +81,7 @@ CREATE TABLE public.profiles (
 );
 
 -- مراكز التكلفة
-CREATE TABLE public.cost_centers (
+CREATE TABLE IF NOT EXISTS public.cost_centers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     code text,
@@ -89,7 +90,7 @@ CREATE TABLE public.cost_centers (
 );
 
 -- دليل الحسابات
-CREATE TABLE public.accounts (
+CREATE TABLE IF NOT EXISTS public.accounts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     code varchar(50) NOT NULL,
     name varchar(255) NOT NULL,
@@ -106,7 +107,7 @@ CREATE TABLE public.accounts (
 );
 
 -- القيود المحاسبية
-CREATE TABLE public.journal_entries (
+CREATE TABLE IF NOT EXISTS public.journal_entries (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     transaction_date date NOT NULL,
     description text,
@@ -120,7 +121,7 @@ CREATE TABLE public.journal_entries (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.journal_lines (
+CREATE TABLE IF NOT EXISTS public.journal_lines (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
     account_id uuid REFERENCES public.accounts(id),
@@ -131,7 +132,7 @@ CREATE TABLE public.journal_lines (
     organization_id uuid REFERENCES public.organizations(id)
 );
 
-CREATE TABLE public.journal_attachments (
+CREATE TABLE IF NOT EXISTS public.journal_attachments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
     file_path text NOT NULL,
@@ -142,7 +143,7 @@ CREATE TABLE public.journal_attachments (
 );
 
 -- العملاء والموردين
-CREATE TABLE public.customers (
+CREATE TABLE IF NOT EXISTS public.customers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     phone text,
@@ -158,7 +159,7 @@ CREATE TABLE public.customers (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.suppliers (
+CREATE TABLE IF NOT EXISTS public.suppliers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     phone text,
@@ -174,7 +175,7 @@ CREATE TABLE public.suppliers (
 );
 
 -- المخزون والمنتجات
-CREATE TABLE public.warehouses (
+CREATE TABLE IF NOT EXISTS public.warehouses (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     location text,
@@ -183,7 +184,7 @@ CREATE TABLE public.warehouses (
     deletion_reason text
 );
 
-CREATE TABLE public.products (
+CREATE TABLE IF NOT EXISTS public.products (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     sku text,
@@ -202,7 +203,7 @@ CREATE TABLE public.products (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.bill_of_materials (
+CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     raw_material_id uuid REFERENCES public.products(id),
@@ -210,7 +211,7 @@ CREATE TABLE public.bill_of_materials (
 );
 
 -- المبيعات
-CREATE TABLE public.invoices (
+CREATE TABLE IF NOT EXISTS public.invoices (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_number text,
     customer_id uuid REFERENCES public.customers(id),
@@ -228,7 +229,7 @@ CREATE TABLE public.invoices (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.invoice_items (
+CREATE TABLE IF NOT EXISTS public.invoice_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_id uuid REFERENCES public.invoices(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -239,7 +240,7 @@ CREATE TABLE public.invoice_items (
     modifiers jsonb DEFAULT '[]'::jsonb
 );
 
-CREATE TABLE public.quotations (
+CREATE TABLE IF NOT EXISTS public.quotations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     quotation_number text,
     customer_id uuid REFERENCES public.customers(id),
@@ -252,7 +253,7 @@ CREATE TABLE public.quotations (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.quotation_items (
+CREATE TABLE IF NOT EXISTS public.quotation_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     quotation_id uuid REFERENCES public.quotations(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -261,7 +262,7 @@ CREATE TABLE public.quotation_items (
     total numeric
 );
 
-CREATE TABLE public.sales_returns (
+CREATE TABLE IF NOT EXISTS public.sales_returns (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     return_number text,
     original_invoice_id uuid REFERENCES public.invoices(id),
@@ -275,7 +276,7 @@ CREATE TABLE public.sales_returns (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.sales_return_items (
+CREATE TABLE IF NOT EXISTS public.sales_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     sales_return_id uuid REFERENCES public.sales_returns(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -285,7 +286,7 @@ CREATE TABLE public.sales_return_items (
 );
 
 -- المشتريات
-CREATE TABLE public.purchase_invoices (
+CREATE TABLE IF NOT EXISTS public.purchase_invoices (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     invoice_number text,
     supplier_id uuid REFERENCES public.suppliers(id),
@@ -297,7 +298,7 @@ CREATE TABLE public.purchase_invoices (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.purchase_invoice_items (
+CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     purchase_invoice_id uuid REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -306,7 +307,7 @@ CREATE TABLE public.purchase_invoice_items (
     total numeric
 );
 
-CREATE TABLE public.purchase_orders (
+CREATE TABLE IF NOT EXISTS public.purchase_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     po_number text,
     supplier_id uuid REFERENCES public.suppliers(id),
@@ -318,7 +319,7 @@ CREATE TABLE public.purchase_orders (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.purchase_order_items (
+CREATE TABLE IF NOT EXISTS public.purchase_order_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     purchase_order_id uuid REFERENCES public.purchase_orders(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -327,7 +328,7 @@ CREATE TABLE public.purchase_order_items (
     total numeric
 );
 
-CREATE TABLE public.purchase_returns (
+CREATE TABLE IF NOT EXISTS public.purchase_returns (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     return_number text,
     original_invoice_id uuid REFERENCES public.purchase_invoices(id),
@@ -341,7 +342,7 @@ CREATE TABLE public.purchase_returns (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.purchase_return_items (
+CREATE TABLE IF NOT EXISTS public.purchase_return_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     purchase_return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -351,7 +352,7 @@ CREATE TABLE public.purchase_return_items (
 );
 
 -- المالية (سندات وشيكات)
-CREATE TABLE public.receipt_vouchers (
+CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_number text,
     customer_id uuid REFERENCES public.customers(id),
@@ -362,7 +363,7 @@ CREATE TABLE public.receipt_vouchers (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.payment_vouchers (
+CREATE TABLE IF NOT EXISTS public.payment_vouchers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     voucher_number text,
     supplier_id uuid REFERENCES public.suppliers(id),
@@ -374,7 +375,7 @@ CREATE TABLE public.payment_vouchers (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.cheques (
+CREATE TABLE IF NOT EXISTS public.cheques (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     cheque_number text,
     bank_name text,
@@ -388,7 +389,7 @@ CREATE TABLE public.cheques (
 );
 
 -- الأصول الثابتة
-CREATE TABLE public.assets (
+CREATE TABLE IF NOT EXISTS public.assets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     purchase_date date,
@@ -404,7 +405,7 @@ CREATE TABLE public.assets (
 );
 
 -- الموارد البشرية
-CREATE TABLE public.employees (
+CREATE TABLE IF NOT EXISTS public.employees (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     position text,
@@ -416,7 +417,7 @@ CREATE TABLE public.employees (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.payrolls (
+CREATE TABLE IF NOT EXISTS public.payrolls (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     payroll_month integer,
     payroll_year integer,
@@ -428,7 +429,7 @@ CREATE TABLE public.payrolls (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.payroll_items (
+CREATE TABLE IF NOT EXISTS public.payroll_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     payroll_id uuid REFERENCES public.payrolls(id) ON DELETE CASCADE,
     employee_id uuid REFERENCES public.employees(id),
@@ -440,7 +441,7 @@ CREATE TABLE public.payroll_items (
 );
 
 -- مديول المطاعم ونقاط البيع (POS & Restaurant)
-CREATE TABLE public.restaurant_tables (
+CREATE TABLE IF NOT EXISTS public.restaurant_tables (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text NOT NULL,
     capacity integer DEFAULT 4,
@@ -451,7 +452,7 @@ CREATE TABLE public.restaurant_tables (
     bill_requested boolean DEFAULT false
 );
 
-CREATE TABLE public.table_sessions (
+CREATE TABLE IF NOT EXISTS public.table_sessions (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     table_id uuid REFERENCES public.restaurant_tables(id) ON DELETE CASCADE,
     user_id uuid REFERENCES public.profiles(id),
@@ -461,7 +462,7 @@ CREATE TABLE public.table_sessions (
     status text DEFAULT 'OPEN'
 );
 
-CREATE TABLE public.orders (
+CREATE TABLE IF NOT EXISTS public.orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_number text,
     session_id uuid REFERENCES public.table_sessions(id) ON DELETE SET NULL,
@@ -479,7 +480,7 @@ CREATE TABLE public.orders (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.order_items (
+CREATE TABLE IF NOT EXISTS public.order_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
@@ -492,7 +493,7 @@ CREATE TABLE public.order_items (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.kitchen_orders (
+CREATE TABLE IF NOT EXISTS public.kitchen_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_item_id uuid REFERENCES public.order_items(id) ON DELETE CASCADE,
     status text DEFAULT 'NEW',
@@ -502,7 +503,7 @@ CREATE TABLE public.kitchen_orders (
 );
 
 -- الوردات (Shifts)
-CREATE TABLE public.shifts (
+CREATE TABLE IF NOT EXISTS public.shifts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id uuid REFERENCES public.profiles(id),
     start_time timestamptz DEFAULT now(),
@@ -516,7 +517,7 @@ CREATE TABLE public.shifts (
 );
 
 -- طلبات التوصيل (Delivery Orders)
-CREATE TABLE public.delivery_orders (
+CREATE TABLE IF NOT EXISTS public.delivery_orders (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
     customer_name text,
@@ -528,7 +529,7 @@ CREATE TABLE public.delivery_orders (
 );
 
 -- سلف الموظفين (Employee Advances)
-CREATE TABLE public.employee_advances (
+CREATE TABLE IF NOT EXISTS public.employee_advances (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
     amount numeric NOT NULL DEFAULT 0,
@@ -542,7 +543,7 @@ CREATE TABLE public.employee_advances (
 );
 
 -- عمليات المخزون المتقدمة
-CREATE TABLE public.stock_transfers (
+CREATE TABLE IF NOT EXISTS public.stock_transfers (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     transfer_number text,
     from_warehouse_id uuid REFERENCES public.warehouses(id),
@@ -553,14 +554,14 @@ CREATE TABLE public.stock_transfers (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.stock_transfer_items (
+CREATE TABLE IF NOT EXISTS public.stock_transfer_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     stock_transfer_id uuid REFERENCES public.stock_transfers(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
     quantity numeric
 );
 
-CREATE TABLE public.stock_adjustments (
+CREATE TABLE IF NOT EXISTS public.stock_adjustments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     adjustment_number text,
     warehouse_id uuid REFERENCES public.warehouses(id),
@@ -570,7 +571,7 @@ CREATE TABLE public.stock_adjustments (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.stock_adjustment_items (
+CREATE TABLE IF NOT EXISTS public.stock_adjustment_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     stock_adjustment_id uuid REFERENCES public.stock_adjustments(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -578,7 +579,7 @@ CREATE TABLE public.stock_adjustment_items (
     type text -- increase / decrease
 );
 
-CREATE TABLE public.inventory_counts (
+CREATE TABLE IF NOT EXISTS public.inventory_counts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     count_number text,
     warehouse_id uuid REFERENCES public.warehouses(id),
@@ -588,7 +589,7 @@ CREATE TABLE public.inventory_counts (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.inventory_count_items (
+CREATE TABLE IF NOT EXISTS public.inventory_count_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     inventory_count_id uuid REFERENCES public.inventory_counts(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
@@ -598,7 +599,7 @@ CREATE TABLE public.inventory_count_items (
 );
 
 -- النظام (إشعارات وسجلات)
-CREATE TABLE public.notifications (
+CREATE TABLE IF NOT EXISTS public.notifications (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     title text,
     message text,
@@ -607,7 +608,7 @@ CREATE TABLE public.notifications (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.security_logs (
+CREATE TABLE IF NOT EXISTS public.security_logs (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     event_type text NOT NULL,
     description text,
@@ -617,7 +618,7 @@ CREATE TABLE public.security_logs (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.budgets (
+CREATE TABLE IF NOT EXISTS public.budgets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text,
     start_date date,

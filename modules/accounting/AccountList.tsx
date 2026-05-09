@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
@@ -117,9 +117,9 @@ const AccountList = () => {
     if (window.confirm(`هل أنت متأكد من حذف الحساب "${name}"؟ سيتم نقله إلى سلة المحذوفات. لا يمكن التراجع عن هذا الإجراء إذا كان الحساب مرتبطاً بقيود.`)) {
         const reason = prompt("الرجاء إدخال سبب الحذف (إلزامي):");
         if (reason) {
-            const result = await deleteAccount(id, reason);
-            if (!result.success) {
-                showToast(`فشل حذف الحساب: ${result.message}`, 'error');
+            const res = await deleteAccount(id, reason);
+            if (!res.success) {
+                showToast(`فشل حذف الحساب: ${res.message}`, 'error');
             }
         }
     }

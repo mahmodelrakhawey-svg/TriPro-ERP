@@ -9,6 +9,7 @@ import { ToastProvider } from './context/ToastContext';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import AdminTestDashboard from './services/AdminTestDashboard';
 import Dashboard from './components/Dashboard';
 import DraftJournalsList from './components/DraftJournalsList';
 import GeneralJournal from './modules/accounting/GeneralJournal';
@@ -413,6 +414,7 @@ const MainLayout = () => {
                 <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
                 <Route path="/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
+                <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />
                 <Route path="/payroll-report" element={<ModuleGuard module="hr"><PayrollReport /></ModuleGuard>} />
                 <Route path="/employee-statement" element={<ModuleGuard module="hr"><EmployeeStatement /></ModuleGuard>} />
@@ -452,6 +454,7 @@ const MainLayout = () => {
                 <Route path="/permissions" element={<PermissionsManager />} />
                 <Route path="/recycle-bin" element={<RecycleBin />} />
                 <Route path="/data-migration" element={<DataMigrationCenter />} />
+                <Route path="/admin/test-dashboard" element={<ModuleGuard module="admin"><AdminTestDashboard /></ModuleGuard>} />
                 <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} /> {/* <--- أضف هذا السطر */}
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />

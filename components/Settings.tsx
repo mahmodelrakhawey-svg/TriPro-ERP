@@ -1230,7 +1230,7 @@ const Settings = () => {
                                   <SearchableSelect
                                       label={
                                           <span className="flex items-center justify-between w-full">
-                                              <span>{ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} ({defaultCode})</span>
+                                              <span>{ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} ({String(defaultCode)})</span>
                                               {isUnmapped && (
                                                   <span className="text-amber-600 flex items-center gap-1 text-[10px] animate-pulse" title="هذا الحساب غير مربوط يدوياً - سيتم استخدام الكود الافتراضي">
                                                       <AlertTriangle size={12} />

@@ -88,6 +88,8 @@ END $$;
 -- ============================================================
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS decimal_places integer DEFAULT 2;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS production_warehouse_id uuid;
+ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS raw_material_warehouse_id uuid;
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN 

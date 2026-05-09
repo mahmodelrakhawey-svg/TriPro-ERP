@@ -1325,8 +1325,8 @@ const PosScreen = () => {
     };
 
     const sections = useMemo(() => {
-      const s = new Set(restaurantTables.map(t => t.section || 'عام'));
-      return Array.from(s);
+      const s = new Set<string>(restaurantTables.map(t => (t.section as string) || 'عام'));
+      return Array.from(s) as string[];
     }, [restaurantTables]);
 
     const handleStartShift = async (amount: number) => {
