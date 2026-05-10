@@ -1,3 +1,57 @@
+-- ================================================================
+-- 2. دوال حساب التكاليف (التعريف المبكر لمنع أخطاء التبعية)
+-- ================================================================
+
+-- 🛠️ دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)
+-- تقوم بحساب التكلفة المتوقعة للمنتج بناءً على الـ BOM والمسار الإنتاجي المعتمد
+CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_total_cost numeric := 0;
+    v_routing record;
+    v_step record;
+    v_org_id uuid;
+    v_labor_cost numeric;
+    v_material_cost numeric;
+    v_overhead_cost numeric;
+BEGIN
+    v_org_id := public.get_my_org();
+
+    -- 1. البحث عن المسار الافتراضي للمنتج
+    SELECT * INTO v_routing FROM public.mfg_routings 
+    WHERE product_id = p_product_id AND organization_id = v_org_id AND is_default = true 
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        SELECT * INTO v_routing FROM public.mfg_routings 
+        WHERE product_id = p_product_id AND organization_id = v_org_id 
+        LIMIT 1;
+    END IF;
+
+    IF v_routing.id IS NULL THEN RETURN 0; END IF;
+
+    -- 2. حساب التكاليف لكل مرحلة في المسار
+    FOR v_step IN 
+        SELECT rs.*, wc.hourly_rate, wc.overhead_rate 
+        FROM public.mfg_routing_steps rs
+        LEFT JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
+        WHERE rs.routing_id = v_routing.id
+    LOOP
+        v_labor_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.hourly_rate, 0);
+        v_overhead_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.overhead_rate, 0);
+        SELECT SUM(sm.quantity_required * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
+        INTO v_material_cost
+        FROM public.mfg_step_materials sm
+        JOIN public.products p ON sm.raw_material_id = p.id
+        WHERE sm.step_id = v_step.id;
+        v_total_cost := v_total_cost + v_labor_cost + v_overhead_cost + COALESCE(v_material_cost, 0);
+    END LOOP;
+
+    RETURN ROUND(v_total_cost, 4);
+END; $$;
+
+-- 📊 رؤى مديول التصنيع (MFG Module Views)
 --- 🏭 ملف مديول التصنيع الشامل (Complete Manufacturing Module)
 -- هذا الملف يجمع كافة الجداول، الرؤى، الدوال، والمشغلات الخاصة بمديول التصنيع
 -- مع معالجة المشاكل التي تم رصدها وتحسين الأداء والاتساق.
@@ -57,6 +111,59 @@ END $$;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
+
+-- ================================================================
+-- 0.5 دوال حساب التكاليف الأساسية (لضمان وجودها للرؤى بعد التنظيف)
+-- ================================================================
+
+-- 🛠️ دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)
+-- تقوم بحساب التكلفة المتوقعة للمنتج بناءً على الـ BOM والمسار الإنتاجي المعتمد
+CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
+DECLARE
+    v_total_cost numeric := 0;
+    v_routing record;
+    v_step record;
+    v_org_id uuid;
+    v_labor_cost numeric;
+    v_material_cost numeric;
+    v_overhead_cost numeric;
+BEGIN
+    v_org_id := public.get_my_org();
+
+    -- 1. البحث عن المسار الافتراضي للمنتج
+    SELECT * INTO v_routing FROM public.mfg_routings 
+    WHERE product_id = p_product_id AND organization_id = v_org_id AND is_default = true 
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+        SELECT * INTO v_routing FROM public.mfg_routings 
+        WHERE product_id = p_product_id AND organization_id = v_org_id 
+        LIMIT 1;
+    END IF;
+
+    IF v_routing.id IS NULL THEN RETURN 0; END IF;
+
+    -- 2. حساب التكاليف لكل مرحلة في المسار
+    FOR v_step IN 
+        SELECT rs.*, wc.hourly_rate, wc.overhead_rate 
+        FROM public.mfg_routing_steps rs
+        LEFT JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
+        WHERE rs.routing_id = v_routing.id
+    LOOP
+        v_labor_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.hourly_rate, 0);
+        v_overhead_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.overhead_rate, 0);
+        SELECT SUM(sm.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+        INTO v_material_cost
+        FROM public.mfg_step_materials sm
+        JOIN public.products p ON sm.raw_material_id = p.id
+        WHERE sm.step_id = v_step.id;
+        v_total_cost := v_total_cost + v_labor_cost + v_overhead_cost + COALESCE(v_material_cost, 0);
+    END LOOP;
+
+    RETURN ROUND(v_total_cost, 4);
+END; $$;
 
 -- ================================================================
 -- 1. جداول مديول التصنيع (MFG Module Tables)
@@ -367,7 +474,15 @@ GROUP BY wc.id, wc.name, wc.organization_id;
 -- 📊 رؤية ربحية أمر الإنتاج (Manufacturing Order Profitability View)
 DROP VIEW IF EXISTS public.v_mfg_order_profitability CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_order_profitability WITH (security_invoker = true) AS
-WITH labor_summary AS (
+WITH standard_costs AS (
+    -- حساب التكلفة التقديرية لكل منتج بناءً على الـ BOM والمسار
+    SELECT 
+        p.id as product_id,
+        public.mfg_calculate_standard_cost(p.id) as std_cost_per_unit
+    FROM public.products p
+    WHERE p.mfg_type = 'standard'
+),
+labor_summary AS (
     SELECT
         op.production_order_id,
         SUM(COALESCE(op.labor_cost_actual, 0)) as total_labor,
@@ -395,17 +510,25 @@ material_summary AS (
     ) all_mats GROUP BY po_id
 )
 SELECT
-    po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.organization_id,
+    po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.status, po.organization_id,
     (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) as sales_value,
-    (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0)) as actual_labor,
-    COALESCE(ms.total_material_cost, 0) as actual_material,
-    (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)) as total_actual_cost,
-    ((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0))) as net_profit,
+    -- تكاليف تقديرية للمقارنة
+    ROUND(po.quantity_to_produce * COALESCE(sc.std_cost_per_unit, 0), 2) as estimated_cost,
+    -- تكاليف فعلية (تظهر صفر إذا لم يبدأ الإنتاج)
+    ROUND((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0)), 2) as actual_labor,
+    ROUND(COALESCE(ms.total_material_cost, 0), 2) as actual_material,
+    ROUND((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 2) as total_actual_cost,
+    -- صافي الربح: يعتمد على التكلفة الفعلية للأوامر المنتهية، أو التقديرية للمسودات ليعطي فكرة عن الربحية المتوقعة
+    ROUND((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - 
+          COALESCE(NULLIF((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 0), po.quantity_to_produce * sc.std_cost_per_unit, 0), 2) as net_profit,
     CASE WHEN (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) > 0
-         THEN ROUND((((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - (COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0))) / (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) * 100), 2)
+         THEN ROUND((((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - 
+                    COALESCE(NULLIF((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 0), po.quantity_to_produce * sc.std_cost_per_unit, 0)) / 
+                    (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) * 100), 2)
          ELSE 0 END as margin_percentage
 FROM public.mfg_production_orders po
 JOIN public.products p ON po.product_id = p.id
+LEFT JOIN standard_costs sc ON p.id = sc.product_id
 LEFT JOIN labor_summary ls ON po.id = ls.production_order_id
 LEFT JOIN material_summary ms ON po.id = ms.po_id;
 
@@ -630,7 +753,7 @@ CREATE OR REPLACE FUNCTION public.mfg_start_step(p_progress_id uuid, p_employee_
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     UPDATE public.mfg_order_progress
-    SET status = 'in_progress',
+    SET status = 'active',
         actual_start_time = now(),
         employee_id = p_employee_id
     WHERE id = p_progress_id AND status = 'pending'; -- فقط إذا كانت المرحلة معلقة
@@ -682,7 +805,7 @@ BEGIN
         produced_qty = p_qty,
         labor_cost_actual = v_labor_cost,
         qc_verified = NULL -- ✅ يتم وضع علامة على المرحلة بأنها تحتاج لفحص جودة (NULL يعني قيد الانتظار)
-    WHERE id = p_progress_id AND status = 'in_progress'; -- تحديث فقط إذا كانت قيد التشغيل
+    WHERE id = p_progress_id AND status = 'active'; -- تحديث فقط إذا كانت قيد التشغيل
 
     -- 4. محرك الخصم المخزني الآلي (Stage-based BOM Deduction)
     FOR v_mat IN
@@ -954,7 +1077,7 @@ BEGIN
 END; $$;
 
 -- 🛠️ دالة دمج طلبات المبيعات في أوامر إنتاج موحدة (Batching/Merging Orders)
-CREATE OR REPLACE FUNCTION public.mfg_merge_sales_orders(p_sales_order_ids uuid[])
+CREATE OR REPLACE FUNCTION public.mfg_merge_sales_orders(p_invoice_ids uuid[])
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
@@ -970,11 +1093,14 @@ BEGIN
 
     -- تجميع الكميات المطلوبة لكل منتج من أوامر البيع المحددة
     FOR v_item IN
-        SELECT soi.product_id, SUM(soi.quantity) as total_qty
-        FROM public.sales_order_items soi
-        WHERE soi.sales_order_id = ANY(p_sales_order_ids)
-        AND EXISTS (SELECT 1 FROM public.mfg_routings r WHERE r.product_id = soi.product_id)
-        GROUP BY soi.product_id
+        SELECT combined.product_id, SUM(combined.quantity) as total_qty
+        FROM (
+            SELECT product_id, quantity FROM public.invoice_items WHERE invoice_id = ANY(p_invoice_ids)
+            UNION ALL
+            SELECT product_id, quantity FROM public.sales_order_items WHERE sales_order_id = ANY(p_invoice_ids)
+        ) combined
+        WHERE EXISTS (SELECT 1 FROM public.mfg_routings r WHERE r.product_id = combined.product_id)
+        GROUP BY combined.product_id
     LOOP
         -- 2. جلب المسار الافتراضي أو أول مسار متاح للمنتج
         SELECT id INTO v_routing_id FROM public.mfg_routings
@@ -1033,13 +1159,26 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.mfg_start_production_orders_batch(p_order_ids uuid[])
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
-    v_order_id uuid;
+    v_id uuid;
     v_count integer := 0;
 BEGIN
-    FOR v_order_id IN SELECT unnest(p_order_ids) LOOP
+    FOR v_id IN SELECT unnest(p_order_ids) LOOP
+        -- 1. محاولة تحديث أمر الإنتاج مباشرة إذا كان المعرف الممرر هو معرف أمر الإنتاج
         UPDATE public.mfg_production_orders
         SET status = 'in_progress', start_date = now()::date
-        WHERE id = v_order_id AND status = 'draft' AND organization_id = public.get_my_org();
+        WHERE id = v_id AND status = 'draft' AND organization_id = public.get_my_org();
+        
+        -- 2. إذا لم يتم التحديث، نبحث عن أمر الإنتاج "المسودة" المرتبط بطلب البيع أو الفاتورة
+        IF NOT FOUND THEN
+            UPDATE public.mfg_production_orders po
+            SET status = 'in_progress', start_date = now()::date
+            FROM (
+                SELECT order_number FROM public.sales_orders WHERE id = v_id
+                UNION ALL
+                SELECT invoice_number FROM public.invoices WHERE id = v_id
+            ) src
+            WHERE po.batch_number = src.order_number AND po.status = 'draft' AND po.organization_id = public.get_my_org();
+        END IF;
 
         IF FOUND THEN v_count := v_count + 1; END IF;
     END LOOP;
@@ -1047,61 +1186,6 @@ BEGIN
 END; $$;
 
 -- 3.3. دوال التخطيط والتحقق
-
--- 🛠️ دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)
-CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid)
-RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public AS $$
-DECLARE
-    v_total_cost numeric := 0;
-    v_routing record;
-    v_step record;
-    v_org_id uuid;
-    v_labor_cost numeric;
-    v_material_cost numeric;
-    v_overhead_cost numeric;
-BEGIN
-    v_org_id := public.get_my_org();
-
-    -- 1. البحث عن المسار الافتراضي للمنتج
-    SELECT * INTO v_routing FROM public.mfg_routings
-    WHERE product_id = p_product_id AND organization_id = v_org_id AND is_default = true
-    LIMIT 1;
-
-    -- إذا لم يوجد مسار افتراضي، نأخذ أول مسار متاح
-    IF NOT FOUND THEN
-        SELECT * INTO v_routing FROM public.mfg_routings
-        WHERE product_id = p_product_id AND organization_id = v_org_id
-        LIMIT 1;
-    END IF;
-
-    IF v_routing.id IS NULL THEN RETURN 0; END IF;
-
-    -- 2. حساب التكاليف لكل مرحلة في المسار
-    FOR v_step IN
-        SELECT rs.*, wc.hourly_rate, wc.overhead_rate
-        FROM public.mfg_routing_steps rs
-        LEFT JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
-        WHERE rs.routing_id = v_routing.id
-    LOOP
-        -- أ. تكلفة العمالة المعيارية للمرحلة (الوقت المعياري بالساعات * تكلفة الساعة)
-        v_labor_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.hourly_rate, 0);
-
-        -- ب. تكلفة المصاريف غير المباشرة المعيارية للمرحلة
-        v_overhead_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.overhead_rate, 0);
-
-        -- ج. تكلفة المواد الخام المعيارية لهذه المرحلة
-        SELECT SUM(sm.quantity_required * COALESCE(p.weighted_average_cost, p.purchase_price, 0))
-        INTO v_material_cost
-        FROM public.mfg_step_materials sm
-        JOIN public.products p ON sm.raw_material_id = p.id
-        WHERE sm.step_id = v_step.id;
-
-        v_total_cost := v_total_cost + v_labor_cost + v_overhead_cost + COALESCE(v_material_cost, 0);
-    END LOOP;
-
-    RETURN ROUND(v_total_cost, 4);
-END; $$;
 
 -- 🛠️ دالة تحديث تكلفة المنتج بناءً على الحسبة المعيارية
 CREATE OR REPLACE FUNCTION public.mfg_update_product_standard_cost(p_product_id uuid)
@@ -1217,14 +1301,15 @@ RETURNS TABLE (
     cust_name text,
     order_date timestamptz,
     total numeric,
-    invoice_status text
-) LANGUAGE plpgsql SECURITY DEFINER
+    invoice_status text,
+    doc_type text,
+    prod_order_id uuid) LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
     -- 1. جلب الفواتير التقليدية (للتوافق مع النظام القديم)
-    SELECT i.id, i.invoice_number as invoice_num, c.name as cust_name, i.created_at as order_date, COALESCE(i.total_amount, 0) as total, i.status as invoice_status
+    SELECT i.id, i.invoice_number as invoice_num, c.name as cust_name, i.created_at as order_date, COALESCE(i.total_amount, 0) as total, i.status as invoice_status, 'invoice'::text, (SELECT id FROM public.mfg_production_orders WHERE batch_number = i.invoice_number AND status = 'draft' LIMIT 1)
     FROM public.invoices i
     JOIN public.customers c ON i.customer_id = c.id
     WHERE i.organization_id = p_org_id
@@ -1237,19 +1322,19 @@ BEGIN
     AND NOT EXISTS (
         SELECT 1 FROM public.mfg_production_orders po
         -- استبعاد الفاتورة إذا كان رقمها موجوداً ضمن مرجع الدفعة أو حقل مخصص
-        WHERE po.batch_number LIKE '%' || i.invoice_number || '%'
-    )
+        -- تعديل: إظهار الطلب إذا كان أمر الإنتاج المرتبط لا يزال "مسودة" ليتمكن المستخدم من بدئه
+        WHERE po.batch_number = i.invoice_number AND po.status != 'draft'    )
     UNION ALL
     -- 2. جلب أوامر البيع الجديدة (Sales Orders)
-    SELECT so.id, so.order_number, c.name, so.created_at, COALESCE(so.total_amount, 0), so.status
+    SELECT so.id, so.order_number, c.name, so.created_at, COALESCE(so.total_amount, 0), so.status, 'sales_order'::text, (SELECT id FROM public.mfg_production_orders WHERE batch_number = so.order_number AND status = 'draft' LIMIT 1)
     FROM public.sales_orders so
     JOIN public.customers c ON so.customer_id = c.id
     WHERE so.organization_id = p_org_id
     AND so.status = 'confirmed' -- تظهر فقط الأوامر المؤكدة وغير المنتجة بعد
     AND NOT EXISTS (
         SELECT 1 FROM public.mfg_production_orders po
-        WHERE po.batch_number = so.order_number
-    )
+        -- تعديل: إظهار طلب البيع إذا كان أمر الإنتاج المرتبط لا يزال "مسودة"
+        WHERE po.batch_number = so.order_number AND po.status != 'draft'    )
     ORDER BY 4 DESC;
 END; $$;
 
@@ -1716,7 +1801,7 @@ BEGIN
     JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
     WHERE po.organization_id = public.get_my_org()
     AND po.status = 'in_progress'
-    AND op.status IN ('pending', 'in_progress') -- تم التعديل: عرض المهام المعلقة أو قيد التشغيل
+    AND op.status IN ('pending', 'active') -- تم التعديل: عرض المهام المعلقة أو النشطة
     AND (p_work_center_id IS NULL OR rs.work_center_id = p_work_center_id)
     ORDER BY rs.step_order ASC;
 END; $$;
@@ -1748,7 +1833,7 @@ BEGIN
     IF v_current_status = 'pending' THEN
         -- حاول بدء المرحلة فقط إذا كانت حالتها 'pending'
         UPDATE public.mfg_order_progress
-        SET status = 'in_progress',
+        SET status = 'active',
             actual_start_time = now()
         WHERE id = v_progress_id AND status = 'pending';
 
@@ -1758,8 +1843,8 @@ BEGIN
             -- إذا لم يتم التحديث، فهذا يعني أن الحالة تغيرت بالفعل (سباق زمني)
             RETURN jsonb_build_object('success', false, 'message', 'حالة المرحلة تغيرت بالفعل. يرجى تحديث الشاشة.');
         END IF;
-    ELSIF v_current_status = 'in_progress' THEN
-        -- حاول إكمال المرحلة فقط إذا كانت حالتها 'in_progress'
+    ELSIF v_current_status = 'active' THEN
+        -- حاول إكمال المرحلة فقط إذا كانت حالتها 'active'
         -- هنا يجب أن نستدعي mfg_complete_step لأنه يحتوي على منطق محاسبي واستهلاك مواد معقد
         PERFORM public.mfg_complete_step(v_progress_id, v_order_qty);
         -- mfg_complete_step ستقوم بالتحديث وتتحقق من الحالة بنفسها
