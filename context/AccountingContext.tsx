@@ -40,6 +40,9 @@ export const SYSTEM_ACCOUNTS = {
 interface AccountingContextType {
   organization: any;
   currentUser: UserProfile | null;
+  organizations: any[];
+  currentSelectedOrgId: string | null;
+  setCurrentSelectedOrgId: (id: string | null) => void;
   isLoading: boolean;
   settings: any;
   accounts: any[];
@@ -167,6 +170,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const { currentUser: authUser, can } = useAuth();
   const { showToast } = useToast();
   const [organization, setOrganization] = useState<any>(null);
+  const [organizations, setOrganizations] = useState<any[]>([]);
+  const [currentSelectedOrgId, setCurrentSelectedOrgId] = useState<string | null>(null); // New state for super admin's selected org
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -207,33 +212,60 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setOrganization(profile.organizations);
       }
 
+      // Determine the organization ID to use for fetching data
+      let fetchOrgId = profile.organization_id;
+
+      // If super admin, and no specific org is selected, try to use the profile's org
+      // or the first available org if the super admin has no default.
+      if (authUser.role === 'super_admin') {
+          if (currentSelectedOrgId) {
+              fetchOrgId = currentSelectedOrgId;
+          } else if (profile.organization_id) {
+              fetchOrgId = profile.organization_id;
+              setCurrentSelectedOrgId(profile.organization_id); // Set it for future consistency
+          } else {
+              // If super admin has no default org, and none is selected, we can't fetch data.
+              // A UI mechanism is needed to select an organization.
+              console.warn("Super admin needs to select an organization to view data.");
+              setIsLoading(false);
+              return;
+          }
+      }
+      if (!fetchOrgId) return; // If still no orgId, return.
+
+      // If super admin, fetch all organizations to populate the selector
+      if (authUser.role === 'super_admin') {
+        const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
+        setOrganizations(allOrgs || []);
+      }
+
       // جلب الإعدادات
-      const { data: sett } = await supabase.rpc('get_current_company_settings').maybeSingle();
+      const { data: sett } = await supabase.rpc('get_current_company_settings', { p_org_id: fetchOrgId }).maybeSingle();
       setSettings(sett || {});
 
       // جلب الحسابات والمستودعات
       const [accs, ents, vchs, ccs, emps, prods, trns, pinvs, invs, sps, cats, usrs, whs, rTables, mCats, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
-        supabase.from('accounts').select('*').order('code'),
-        supabase.from('journal_entries').select('*, journal_lines(*)').order('transaction_date', { ascending: false }),
-        supabase.from('vouchers').select('*').order('date', { ascending: false }),
-        supabase.from('cost_centers').select('*').order('name'),
-        supabase.from('employees').select('*').order('full_name'),
-        supabase.from('products').select('*').order('name'),
-        supabase.from('stock_transfers').select('*').order('transfer_date', { ascending: false }),
-        supabase.from('purchase_invoices').select('*').order('invoice_date', { ascending: false }),
-        supabase.from('invoices').select('*').order('invoice_date', { ascending: false }),
-        supabase.from('salespeople').select('*').order('name'),
-        supabase.from('product_categories').select('*').order('name'),
-        supabase.from('profiles').select('*').order('full_name'),
-        supabase.from('warehouses').select('*').eq('is_active', true),
-        supabase.from('restaurant_tables').select('*').order('name'),
-        supabase.from('menu_categories').select('*').order('display_order'),
-        supabase.from('customers').select('*').is('deleted_at', null),
-        supabase.from('suppliers').select('*').is('deleted_at', null),
-        supabase.from('cheques').select('*').order('due_date'),
-        supabase.rpc('get_active_shift'),
-        supabase.from('assets').select('*'),
-        supabase.from('budgets').select('*')
+      supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
+      supabase.from('journal_entries').select('*, journal_lines(*)').eq('organization_id', fetchOrgId).order('transaction_date', { ascending: false }),
+      supabase.from('vouchers').select('*').eq('organization_id', fetchOrgId).order('date', { ascending: false }),
+      supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
+      supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
+      supabase.from('products').select('*').eq('organization_id', fetchOrgId).order('name'),
+      supabase.from('stock_transfers').select('*').eq('organization_id', fetchOrgId).order('transfer_date', { ascending: false }),
+      supabase.from('purchase_invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
+      supabase.from('invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
+      supabase.from('salespeople').select('*').eq('organization_id', fetchOrgId).order('name'),
+      supabase.from('product_categories').select('*').eq('organization_id', fetchOrgId).order('name'),
+      supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
+      supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
+      supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
+      supabase.from('menu_categories').select('*').eq('organization_id', fetchOrgId).order('display_order'),
+      supabase.from('customers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
+      supabase.from('suppliers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
+      supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
+        supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
+      supabase.from('assets').select('*').eq('organization_id', fetchOrgId),
+      supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
       ]);
 
       setAccounts(accs.data || []);
@@ -264,7 +296,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       setIsLoading(false);
     }
-  }, [authUser]);
+  }, [authUser, currentSelectedOrgId]); // Add currentSelectedOrgId to dependencies
 
   useEffect(() => {
     refreshData();
@@ -272,7 +304,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // --- تنفيذ الدوال المطلوبة (RPC Wrappers) ---
   const clearCache = () => { window.location.reload(); };
-  const getFinancialSummary = async () => { const { data } = await supabase.rpc('get_financial_summary'); return data; };
+  const getFinancialSummary = async () => { const { data } = await supabase.rpc('get_financial_summary', { p_org_id: currentSelectedOrgId }); return data; };
   
   const addEntry = async (entry: any) => { const { error } = await supabase.rpc('add_journal_entry', entry); if (error) throw error; refreshData(); };
   const getSystemAccount = (key: string) => {
@@ -283,7 +315,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const updateVoucher = async (id: string, updates: any) => { const { error } = await supabase.from('vouchers').update(updates).eq('id', id); refreshData(); return !error; };
   const getAccountBalanceInPeriod = async (id: string, start: string, end: string) => { 
-    const { data } = await supabase.rpc('get_account_balance_in_period', { p_account_id: id, p_start_date: start, p_end_date: end });
+    const { data } = await supabase.rpc('get_account_balance_in_period', { p_account_id: id, p_start_date: start, p_end_date: end, p_org_id: currentSelectedOrgId });
     return data || 0;
   };
   const addAccount = async (acc: any) => { const { data, error } = await supabase.from('accounts').insert(acc).select().single(); refreshData(); return data; };
@@ -294,7 +326,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const saveBudget = async (budget: any) => { await supabase.from('budgets').upsert(budget); refreshData(); };
 
   // Inventory
-  const recalculateStock = async (productId?: string) => { await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null }); refreshData(); };
+  const recalculateStock = async (productId?: string) => { await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); refreshData(); };
   const addProduct = async (data: any) => { const { data: p, error } = await supabase.from('products').insert(data).select().single(); refreshData(); return p; };
   const updateProduct = async (id: string, data: any) => { await supabase.from('products').update(data).eq('id', id); refreshData(); };
   const deleteProduct = async (id: string, reason?: string) => { await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
@@ -324,7 +356,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addAsset = async (asset: any) => { await supabase.from('assets').insert(asset); refreshData(); };
   const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
   const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { await supabase.from('assets').update({ current_value: val }).eq('id', id); refreshData(); };
-  const addCheque = async (cheque: any) => { await supabase.from('cheques').insert(cheque); refreshData(); };
+  const addCheque = async (cheque: any) => { await supabase.from('cheques').insert({ ...cheque, organization_id: currentSelectedOrgId }); refreshData(); };
   const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => { await supabase.from('cheques').update({ status }).eq('id', id); refreshData(); };
   const addTransfer = async (transfer: any) => { await supabase.rpc('add_treasury_transfer', transfer); refreshData(); };
   const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
@@ -342,7 +374,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_year: year,
       p_payment_date: date,
       p_treasury_account_id: treasuryId,
-      p_items: data
+      p_items: data,
+      p_org_id: currentSelectedOrgId
     });
     refreshData();
   };
@@ -394,7 +427,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createRestaurantOrder = async (payload: any) => {
-    const { data, error } = await supabase.rpc('create_restaurant_order', payload);
+    const { data, error } = await supabase.rpc('create_restaurant_order', { ...payload, p_org_id: currentSelectedOrgId });
     if (error) throw error;
     return data;
   };
@@ -405,13 +438,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const completeRestaurantOrder = async (orderId: string, method: string, total: number, accountId: string | null) => {
-    const { error } = await supabase.rpc('complete_restaurant_order', { p_order_id: orderId, p_payment_method: method, p_amount: total, p_cash_account_id: accountId });
+    const { error } = await supabase.rpc('complete_restaurant_order', { p_order_id: orderId, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
     if (error) throw error;
     refreshData();
   };
 
   const processSplitPayment = async (orderId: string, items: any[], method: string, total: number, accountId: string) => {
-    const { error } = await supabase.rpc('process_split_payment', { p_order_id: orderId, p_items: items, p_payment_method: method, p_amount: total, p_cash_account_id: accountId });
+    const { error } = await supabase.rpc('process_split_payment', { p_order_id: orderId, p_items: items, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
     if (error) { showToast(error.message, 'error'); return false; }
     refreshData();
     return true;
@@ -425,9 +458,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await supabase.from('kitchen_orders').update({ status }).eq('id', id);
   };
 
-  const startShift = async (amount: number) => { await supabase.rpc('start_pos_shift', { p_opening_balance: amount }); refreshData(); };
-  const closeCurrentShift = async (actualCash: number, notes: string) => { await supabase.rpc('close_pos_shift', { p_actual_cash: actualCash, p_notes: notes }); refreshData(); };
-  const getCurrentShiftSummary = async () => { const { data } = await supabase.rpc('get_current_shift_summary'); return data; };
+  const startShift = async (amount: number) => { 
+    const { error } = await supabase.rpc('start_pos_shift', { 
+      p_opening_balance: Number(amount) || 0 
+    }); 
+    if (error) throw error;
+    await refreshData(); 
+  };
+  const closeCurrentShift = async (actualCash: number, notes: string) => { 
+    if (!currentShift?.id) return;
+    await supabase.rpc('close_shift', { p_shift_id: currentShift.id, p_actual_cash: actualCash, p_notes: notes }); 
+    refreshData(); 
+  };
+  const getCurrentShiftSummary = async () => { if (!currentShift?.id) return null; const { data } = await supabase.rpc('get_shift_summary', { p_shift_id: currentShift.id }); return data; };
 
   const createMissingSystemAccounts = async () => await supabase.rpc('create_missing_system_accounts');
   const recalculateAllBalances = async () => { await supabase.rpc('recalculate_all_balances'); showToast('تم تحديث الأرصدة', 'success'); };
@@ -440,7 +483,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const exportData = async () => { /* Logic to export JSON */ };
 
   const value = {
-    organization, currentUser, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
+    organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
     users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
     currentShift, activityLog, refreshData, isDemo, can, clearCache,

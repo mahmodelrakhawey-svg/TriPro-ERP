@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
@@ -53,7 +53,7 @@ const AccountList = () => {
     '2232', // ضريبة الخصم والتحصيل
     '224', // هيئة التأمينات الاجتماعية
     '226', // تأمينات العملاء
-    '31', // رأس المال المدفوع (group)
+    '311', // رأس المال المدفوع
     '32', // الأرباح (الخسائر) المرحبة
     '3999', // حساب الأرصدة الافتتاحية
     '411', // إيرادات المبيعات (صالة/تيك أوي) / مبيعات سلع ومنتجات
@@ -202,13 +202,16 @@ const AccountList = () => {
       { code: '5', name: 'المصروفات', type: 'EXPENSE', is_group: true, parent_code: null },
       { code: '11', name: 'الأصول غير المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
       { code: '12', name: 'الأصول المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
-      { code: '22', name: 'الخصوم المتداولة', type: 'LIABILITY', is_group: true, parent_code: '2' },
+      { code: '111', name: 'الأصول الثابتة', type: 'ASSET', is_group: true, parent_code: '11' },
       { code: '103', name: 'المخزون', type: 'ASSET', is_group: true, parent_code: '12' },
+      { code: '122', name: 'العملاء والمدينون', type: 'ASSET', is_group: true, parent_code: '12' },
+      { code: '123', name: 'النقدية وما في حكمها', type: 'ASSET', is_group: true, parent_code: '12' },
+      { code: '22', name: 'الخصوم المتداولة', type: 'LIABILITY', is_group: true, parent_code: '2' },
       { code: '10301', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_code: '103' },
       { code: '10302', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_code: '103' },
       { code: '10303', name: 'مخزون إنتاج تحت التشغيل (WIP)', type: 'ASSET', is_group: false, parent_code: '103' },
-      { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_code: '12' },
-      { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_code: '12' },
+      { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_code: '122' },
+      { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_code: '123' },
       { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_code: '22' },
       { code: '3999', name: 'الأرصدة الافتتاحية (حساب وسيط)', type: 'EQUITY', is_group: false, parent_code: '3' },
       { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_code: '4' },

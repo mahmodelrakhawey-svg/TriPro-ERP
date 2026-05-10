@@ -61,7 +61,7 @@ import {
 } from 'lucide-react';
 
 const Sidebar: React.FC = () => {
-  const { organization, currentUser } = useAccounting();
+  const { organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId } = useAccounting();
   const location = useLocation();
 
   const userRole = currentUser?.role;
@@ -276,6 +276,29 @@ const Sidebar: React.FC = () => {
           })}
         </ul>
       </nav>
+
+      {/* Super Admin Organization Selector */}
+      {isSuperAdmin && (
+        <div className="mt-4 pt-4 border-t border-gray-800 shrink-0">
+          <div className="px-2 mb-2">
+            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1 text-blue-400">
+              الشركة النشطة (تحكم عالمي)
+            </label>
+            <select
+              value={currentSelectedOrgId || ''}
+              onChange={(e) => setCurrentSelectedOrgId(e.target.value || null)}
+              className="w-full bg-gray-800 border border-gray-700 text-white text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+            >
+              <option value="">-- اختر شركة لعرض بياناتها --</option>
+              {organizations.map((org: any) => (
+                <option key={org.id} value={org.id}>
+                  {org.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* معلومات المستخدم في الأسفل */}
       <div className="mt-auto pt-4 border-t border-gray-800 shrink-0">

@@ -17,7 +17,7 @@ type BalanceRow = {
 };
 
 const BalanceSheet = () => {
-  const { accounts, currentUser } = useAccounting();
+  const { accounts, currentUser, currentSelectedOrgId } = useAccounting();
   const toast = useToastNotification();
   const [loading, setLoading] = useState(false);
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
@@ -28,11 +28,10 @@ const BalanceSheet = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
 
       if (!userOrgId) {
-        throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
+        return;
       }
 
       const { data, error } = await supabase

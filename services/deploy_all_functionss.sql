@@ -69,18 +69,18 @@ END $$;
 
 -- 🛡️ دالة بدء الوردية (Start Shift) - النسخة الموحدة
 -- تم تحديث التوقيع ليتوافق مع نداء الواجهة الأمامية ويدعم السوبر أدمن والشركات المتعددة
-DROP FUNCTION IF EXISTS public.start_shift(uuid, numeric, boolean);
-DROP FUNCTION IF EXISTS public.start_shift_v2(numeric, boolean, uuid, uuid);
+DROP FUNCTION IF EXISTS public.start_pos_shift CASCADE;
 
-CREATE OR REPLACE FUNCTION public.start_shift(
-    p_opening_balance numeric,
-    p_resume_existing boolean,
-    p_treasury_acc uuid,
-    p_user_id uuid
+CREATE OR REPLACE FUNCTION public.start_pos_shift(
+    p_opening_balance numeric DEFAULT 0, 
+    p_resume_existing boolean DEFAULT true, 
+    p_treasury_account_id uuid DEFAULT NULL, 
+    p_user_id uuid DEFAULT NULL
 )
 RETURNS public.shifts 
 LANGUAGE plpgsql 
 SECURITY DEFINER 
+SET search_path = public, auth
 AS $$
 DECLARE 
     v_existing_shift public.shifts; 
@@ -90,7 +90,7 @@ BEGIN
     -- جلب منظمة المستخدم (سواء من بروفايله أو من التوكن للسوبر أدمن)
     v_org_id := COALESCE(
         public.get_my_org(), 
-        (SELECT organization_id FROM public.profiles WHERE id = p_user_id)
+        (SELECT organization_id FROM public.profiles WHERE id = COALESCE(p_user_id, auth.uid()))
     );
     
     IF v_org_id IS NULL THEN
@@ -100,7 +100,7 @@ BEGIN
     -- البحث عن وردية مفتوحة
     SELECT * INTO v_existing_shift 
     FROM public.shifts 
-    WHERE user_id = p_user_id AND end_time IS NULL AND organization_id = v_org_id 
+    WHERE user_id = COALESCE(p_user_id, auth.uid()) AND end_time IS NULL AND organization_id = v_org_id 
     LIMIT 1;
 
     IF v_existing_shift.id IS NOT NULL AND p_resume_existing THEN 
@@ -113,25 +113,35 @@ BEGIN
 
     -- إنشاء الوردية الجديدة مع ربط الخزينة المختارة
     INSERT INTO public.shifts (user_id, start_time, opening_balance, treasury_account_id, organization_id, status)
-    VALUES (p_user_id, now(), p_opening_balance, p_treasury_acc, v_org_id, 'OPEN') 
+    VALUES (COALESCE(p_user_id, auth.uid()), now(), p_opening_balance, p_treasury_account_id, v_org_id, 'OPEN') 
     RETURNING * INTO v_new_shift;
 
     RETURN v_new_shift;
 END; $$;
 
--- 🛠️ تحديث: جعل p_user_id اختيارياً ودعم فلترة المنظمة التلقائية من الواجهة لمنع خطأ 400
+-- 🛠️ تحديث: دالة جلب الوردية النشطة مع دعم البارامترات الاختيارية
+DROP FUNCTION IF EXISTS public.get_active_shift CASCADE;
+
 CREATE OR REPLACE FUNCTION public.get_active_shift(
-    p_user_id uuid DEFAULT NULL,
-    p_org_id uuid DEFAULT NULL -- تغيير الاسم لمنع التعارض مع اسم العمود
+    p_user_id uuid DEFAULT NULL, 
+    p_org_id uuid DEFAULT NULL
 )
 RETURNS public.shifts 
-LANGUAGE plpgsql 
-SECURITY DEFINER AS $$
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_target_org uuid;
 BEGIN
-    RETURN (SELECT * FROM public.shifts 
+    -- 🛡️ تحديد المنظمة المستهدفة بذكاء لتجنب استثناءات 400
+    v_target_org := COALESCE(p_org_id, public.get_my_org());
+    
+    -- 🚀 تحسين: استخدام مستعار الجدول (s) لضمان إرجاع كائن سجل متوافق تماماً
+    RETURN (SELECT s FROM public.shifts s 
             WHERE user_id = COALESCE(p_user_id, auth.uid())
             AND end_time IS NULL 
-            AND organization_id = COALESCE(p_org_id, public.get_my_org()) 
+            AND organization_id = v_target_org
             LIMIT 1);
 END; $$;
 
@@ -158,7 +168,7 @@ BEGIN
 
     -- 🛡️ حماية من "سباق الزمن": لا تنشئ قيداً إذا لم تكن بنود الفاتورة قد وصلت بعد لقاعدة البيانات
     -- هذا يضمن عدم إنشاء قيد الإيراد بدون قيد التكلفة عند التحويل الآلي
-    IF NOT EXISTS (SELECT 1 FROM public.invoice_items WHERE invoice_id = p_invoice_id) THEN RETURN; END IF;
+    IF NOT EXISTS (SELECT 1 FROM public.invoice_items WHERE invoice_id = p_invoice_id) THEN RETURN; END IF; -- 🛡️ حماية من "سباق الزمن"
     
     -- 🛡️ تأمين معرف المنظمة (SaaS Protection) - حل مشكلة عروض الأسعار
     -- نعتمد على المنظمة المسجلة في الفاتورة، أو منظمة المستخدم، أو منظمة العميل كخيار أخير
@@ -247,11 +257,12 @@ END; $$;
 -- تحل مشكلة الخطأ 404 وتدعم رفع الملفات مع القيد
 CREATE OR REPLACE FUNCTION public.add_journal_entry(
     attachments jsonb DEFAULT '[]'::jsonb,
-    date date DEFAULT now(),
+    date date DEFAULT now(), -- 🛠️ تحديث: استخدام now() كقيمة افتراضية
     description text DEFAULT NULL,
     lines jsonb DEFAULT '[]'::jsonb,
     reference text DEFAULT NULL,
-    status text DEFAULT 'draft'
+    status text DEFAULT 'draft',
+    p_org_id uuid DEFAULT NULL
 ) 
 RETURNS uuid 
 LANGUAGE plpgsql 
@@ -264,7 +275,7 @@ DECLARE
     v_org_id uuid;
 BEGIN
     -- 🛡️ تحديد المنظمة (SaaS Protection)
-    v_org_id := public.get_my_org();
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
     IF v_org_id IS NULL THEN
         RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من تسجيل الدخول.';
     END IF;
@@ -670,14 +681,15 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.create_restaurant_order(
     p_session_id uuid, p_user_id uuid, p_order_type text, p_notes text, p_items jsonb,
     p_customer_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL
-    , p_delivery_info jsonb DEFAULT NULL -- إضافة معلومات التوصيل
+    , p_delivery_info jsonb DEFAULT NULL, -- إضافة معلومات التوصيل
+    p_org_id uuid DEFAULT NULL -- 🛠️ تحديث: إضافة p_org_id كمعامل
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_order_id uuid; v_item jsonb; v_order_num text; v_order_item_id uuid; v_tax_rate numeric; v_subtotal numeric := 0; v_unit_price numeric; v_qty numeric; v_final_wh_id uuid; v_product_cost numeric;
 DECLARE v_org_id uuid;
 BEGIN
     -- 🛡️ جلب معرف المنظمة من الجلسة الحالية
     -- 🚀 تحسين: استخدام المنظمة المرتبطة بالجلسة إذا تعذر جلبها من بروفايل المستخدم (مهم للاختبارات وطلبات QR)
-    v_org_id := COALESCE(
+    v_org_id := COALESCE(p_org_id,
         public.get_my_org(),
         (SELECT organization_id FROM public.table_sessions WHERE id = p_session_id)
     );
@@ -735,7 +747,7 @@ BEGIN
 END; $$;
 
 -- 📱 دالة استقبال طلبات الزبائن عبر رمز QR (Public Menu Orders)
-CREATE OR REPLACE FUNCTION public.create_public_order(p_qr_key uuid, p_items jsonb) -- اعتماد UUID كمعيار وحيد
+CREATE OR REPLACE FUNCTION public.create_public_order(p_qr_key uuid, p_items jsonb, p_org_id uuid DEFAULT NULL) -- اعتماد UUID كمعيار وحيد
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_table record;
@@ -759,7 +771,7 @@ BEGIN
         RAISE EXCEPTION 'فشل تحديد المنظمة للطاولة "%s". يرجى مراجعة بيانات الطاولة أو التواصل مع الدعم.', v_table.name;
     END IF;
 
-    v_org_id := v_table.organization_id;
+    v_org_id := COALESCE(p_org_id, v_table.organization_id);
 
     -- 2. إيجاد أو إنشاء جلسة (Session) للطاولة
     SELECT id INTO v_session_id FROM public.table_sessions 
@@ -827,7 +839,7 @@ BEGIN
 END; $$;
 
 -- منح صلاحية تنفيذ الدالة للزوار (الموبايل) والموظفين
-GRANT EXECUTE ON FUNCTION public.create_public_order(uuid, jsonb) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.create_public_order(uuid, jsonb, uuid) TO anon, authenticated;
 -- 🛠️ دالة جلب ملخص الوردية (التي تظهر للمحاسب قبل الإغلاق)
 CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
 RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -870,7 +882,7 @@ BEGIN
 END; $$;
 
 -- 🛠️ دالة إنشاء قيد الإغلاق المجمع (القلب المحاسبي للوردية)
-CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid)
+CREATE OR REPLACE FUNCTION public.generate_shift_closing_entry(p_shift_id uuid, p_org_id uuid DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb;
@@ -910,7 +922,7 @@ BEGIN
     FROM shift_orders;
 
     -- تحديد المنظمة بذكاء (الهوية الهيكلية الموحدة)
-    v_shift.organization_id := COALESCE(v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org());
+    v_shift.organization_id := COALESCE(p_org_id, v_shift.organization_id, (SELECT organization_id FROM public.profiles WHERE id = v_shift.user_id), public.get_my_org());
 
     -- حساب الفرق والمبيعات الآجلة (Credit Sales)
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
@@ -1016,7 +1028,12 @@ BEGIN
 END; $$;
 
 -- 🛠️ دالة إغلاق الوردية
-CREATE OR REPLACE FUNCTION public.close_shift(p_shift_id uuid, p_actual_cash numeric, p_notes text DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.close_shift(
+    p_shift_id uuid, 
+    p_actual_cash numeric, 
+    p_notes text DEFAULT NULL, 
+    p_org_id uuid DEFAULT NULL
+)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     -- 1. تحديث بيانات الوردية والمبلغ الفعلي أولاً (ضروري لصحة القيد)
@@ -1028,15 +1045,15 @@ BEGIN
     WHERE id = p_shift_id;
 
     -- 2. الآن نولد القيد المحاسبي بناءً على البيانات الفعلية
-    PERFORM public.generate_shift_closing_entry(p_shift_id);
+    PERFORM public.generate_shift_closing_entry(p_shift_id, p_org_id);
 END; $$;
 -- ================================================================
 -- 4. مديول الموارد البشرية (HR & Payroll)
 -- ================================================================
 
-CREATE OR REPLACE FUNCTION public.run_payroll_rpc(p_month integer, p_year integer, p_date date, p_treasury_acc uuid, p_items jsonb) 
+CREATE OR REPLACE FUNCTION public.run_payroll_rpc(p_month integer, p_year integer, p_date date, p_treasury_acc uuid, p_items jsonb, p_org_id uuid DEFAULT NULL) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE 
+DECLARE -- 🛠️ تحديث: إضافة p_org_id كمعامل
     v_org_id uuid; v_payroll_id uuid; v_total_gross numeric := 0; 
     v_total_additions numeric := 0; v_total_deductions numeric := 0; 
     v_total_advances numeric := 0; v_total_net numeric := 0; 
@@ -1045,8 +1062,8 @@ DECLARE
     v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
     v_fixed_allowances numeric := 0; v_monthly_additions numeric := 0; v_monthly_deductions numeric := 0; v_emp_net numeric := 0;
 BEGIN
-    -- 🛡️ جلب المنظمة من دالة الهوية الموحدة لضمان التوافق مع الأدمن والسوبر أدمن
-    v_org_id := public.get_my_org();
+    -- 🛡️ جلب المنظمة (الأولوية للممرر ثم السياق)
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
     IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة، يرجى إعادة تسجيل الدخول.'; END IF;
 
     -- 🛡️ حماية SaaS: منع تكرار صرف الرواتب لنفس الفترة داخل نفس الشركة
@@ -1361,6 +1378,7 @@ BEGIN
     FROM public.permissions 
     ON CONFLICT DO NOTHING;
 
+    -- 🚀 جلب معرفات الحسابات السيادية لربطها بالإعدادات
     v_cash_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1231' LIMIT 1);
     v_sales_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '411' LIMIT 1);
     v_cust_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1221' LIMIT 1);
@@ -1382,19 +1400,26 @@ BEGIN
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
     v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
-    v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1); -- Get overhead account ID
+    v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1);
     v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
     v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
     v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
+
+    v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
+    v_dep_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '533' LIMIT 1);
+    v_acc_dep_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1119' LIMIT 1);
+    v_fixed_assets_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '111' LIMIT 1);
+    v_opening_bal_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '3999' LIMIT 1);
+    v_prepaid_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1243' LIMIT 1);
+    v_accrued_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '225' LIMIT 1);
+    v_social_ins_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '224' LIMIT 1);
+    v_bank_main_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123201' LIMIT 1);
+    v_rev_other_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '421' LIMIT 1);
+    v_exp_gen_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '53' LIMIT 1);
+    v_sal_allow_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '412' LIMIT 1);
     v_bank_nbe_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123201' LIMIT 1);
-    v_bank_misr_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123202' LIMIT 1);
-    v_bank_cib_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123203' LIMIT 1);
-    v_wallet_voda_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '123301' LIMIT 1);
     v_exp_rent_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '532' LIMIT 1);
     v_exp_util_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '535' LIMIT 1);
-    v_exp_bank_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '534' LIMIT 1);
-    v_exp_office_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '538' LIMIT 1);
-
     -- 🚀 تأسيس سجل الإعدادات والربط المحاسبي فوراً لضمان اختفاء خطأ 406
     INSERT INTO public.company_settings (organization_id, activity_type, vat_rate, company_name, account_mappings, default_warehouse_id, default_treasury_id)
     VALUES (p_org_id, p_activity_type, v_vat_rate, v_org_name, 
@@ -2227,19 +2252,21 @@ BEGIN
 END; $$;
 
 -- 🛡️ دالة جلب الإعدادات الآمنة (تتخطى مشاكل التوكن العالق)
-CREATE OR REPLACE FUNCTION public.get_current_company_settings()
+DROP FUNCTION IF EXISTS public.get_current_company_settings CASCADE;
+
+CREATE OR REPLACE FUNCTION public.get_current_company_settings(
+    p_org_id uuid DEFAULT NULL
+)
 RETURNS SETOF public.company_settings
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, auth
 AS $$
-DECLARE
-    v_org_id uuid;
 BEGIN
-    -- جلب معرف المنظمة من البروفايل مباشرة (المصدر الأكثر ثقة)
-    SELECT organization_id INTO v_org_id FROM public.profiles WHERE id = auth.uid();
-    
-    RETURN QUERY SELECT * FROM public.company_settings WHERE organization_id = v_org_id;
+    -- استخدام محرك الهوية الموحد لضمان الوصول الصحيح للإعدادات (خاصة للسوبر أدمن)
+    -- مع استخدام SELECT * لضمان جلب كافة الأعمدة الجديدة (مثل المستودعات الافتراضية) تلقائياً
+    RETURN QUERY SELECT * FROM public.company_settings 
+    WHERE organization_id = COALESCE(p_org_id, public.get_my_org());
 END;
 $$;
 -- ================================================================
@@ -2511,7 +2538,7 @@ BEGIN
 END; $$;
 
 -- 🛡️ دالة تحديث رصيد مورد واحد (Single Supplier Balance Updater)
-CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id uuid, p_org_id uuid)
+CREATE OR REPLACE FUNCTION public.update_single_supplier_balance(p_supplier_id uuid, p_org_id uuid) -- 🛠️ تحديث: إضافة p_org_id كمعامل
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     UPDATE public.suppliers SET balance = (
@@ -2606,7 +2633,7 @@ END;
 $$;
 
 -- 📊 دالة جلب جميع أرصدة الحسابات (All Account Balances RPC)
-CREATE OR REPLACE FUNCTION public.get_all_account_balances(p_org_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.get_all_account_balances(p_org_id uuid DEFAULT NULL) -- 🛠️ تحديث: إضافة p_org_id كمعامل
 RETURNS TABLE (
     account_id uuid,
     account_code text,
@@ -2685,7 +2712,7 @@ BEGIN
 END; $$;
 
 -- 🚀 3. دالة تنظيف البيانات التجريبية (إصلاح تكرار المنظمة)
-CREATE OR REPLACE FUNCTION public.clear_demo_data(p_org_id uuid)
+CREATE OR REPLACE FUNCTION public.clear_demo_data(p_org_id uuid) -- 🛠️ تحديث: إضافة p_org_id كمعامل
 RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     IF NOT public.is_admin() THEN RAISE EXCEPTION 'صلاحيات غير كافية.'; END IF;
@@ -2774,7 +2801,7 @@ END; $$;
 -- الغرض: تستخدم لحساب الأرصدة الافتتاحية والختامية للفترات المحاسبية
 CREATE OR REPLACE FUNCTION public.get_account_balance_at_date(p_account_id uuid, p_date date, p_org_id uuid)
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
+DECLARE -- 🛠️ تحديث: إضافة p_org_id كمعامل
     v_balance numeric;
 BEGIN
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0)
@@ -2995,7 +3022,7 @@ EXCEPTION WHEN OTHERS THEN
 END; $$;
 
 -- ج. جلب العملاء المتجاوزين لحد الائتمان (تحديث موحد)
-DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid) CASCADE;
+DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid) CASCADE; -- 🛠️ تحديث: إضافة p_org_id كمعامل
 DROP FUNCTION IF EXISTS public.get_over_limit_customers() CASCADE;
 CREATE OR REPLACE FUNCTION public.get_over_limit_customers(p_org_id uuid DEFAULT NULL)
 RETURNS TABLE (id UUID, name TEXT, phone TEXT, total_debt NUMERIC, credit_limit NUMERIC)
@@ -3008,7 +3035,7 @@ BEGIN
 END; $$;
 
 -- 🛠️ دالة مطابقة وإعادة احتساب الأرصدة (Recalculate All Balances)
--- هذه الدالة تحل مشكلة الخطأ 404 وتضمن دقة الأرصدة في كافة مديولات النظام
+-- هذه الدالة تحل مشكلة الخطأ 404 وتضمن دقة الأرصدة في كافة مديولات النظام -- 🛠️ تحديث: إضافة p_org_id كمعامل
 CREATE OR REPLACE FUNCTION public.recalculate_all_balances(p_org_id uuid DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -3050,7 +3077,7 @@ BEGIN
 END; $$;
 
 -- 🛠️ دالة ترميم روابط القيود المحاسبية (Surgical Link Repair) - نسخة مطورة
-CREATE OR REPLACE FUNCTION public.repair_orphaned_journal_lines(p_org_id uuid)
+CREATE OR REPLACE FUNCTION public.repair_orphaned_journal_lines(p_org_id uuid) -- 🛠️ تحديث: إضافة p_org_id كمعامل
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_count int := 0;
 BEGIN
@@ -3074,8 +3101,19 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN PERFORM public.recalculate_all_balances(p_org_id); END; $$;
 
 -- منح صلاحية التنفيذ للمستخدمين
+-- 🔓 منح صلاحيات التنفيذ الشاملة (حل مشكلة 404)
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO authenticated;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon;
+
+-- منح صلاحيات محددة للدوال السيادية
 GRANT EXECUTE ON FUNCTION public.recalculate_all_balances(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.recalculate_all_system_balances(uuid) TO authenticated;
+-- تحديث الصلاحيات لتناسب التواقيع الموحدة
+GRANT EXECUTE ON FUNCTION public.start_pos_shift(numeric, boolean, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_current_company_settings(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_shift_summary(uuid) TO authenticated;
 
 -- تنشيط كاش النظام
 NOTIFY pgrst, 'reload config';

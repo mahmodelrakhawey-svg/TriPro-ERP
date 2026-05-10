@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -282,7 +282,7 @@ const ProductManager = () => {
     if (item) {
       // جلب تكلفة المكونات من قاعدة البيانات عند فتح الصنف للتعديل
       try {
-        const { data } = await supabase.rpc('get_product_recipe_cost', { p_product_id: item.id });
+        const { data } = await supabase.rpc('get_product_recipe_cost', { p_product_id: item.id, p_org_id: currentUser?.organization_id });
         setRecipeCost(Number(data) || 0);
       } catch (e) {
         setRecipeCost(0);
@@ -548,7 +548,8 @@ const ProductManager = () => {
                             sales_price: 0,
                             purchase_price: 0,
                             cost: 0,
-                            stock: 0,
+                          p_stock: 0, // This RPC needs to be updated to take orgId
+                          p_org_id: orgId,
                             organization_id: orgId,
                             inventory_account_id: defaultInventory,
                             cogs_account_id: defaultCogs,
@@ -579,7 +580,8 @@ const ProductManager = () => {
                             sales_price: 0,
                             purchase_price: 0,
                             cost: 0,
-                            stock: 0,
+                          p_stock: 0, // This RPC needs to be updated to take orgId
+                          p_org_id: orgId,
                             organization_id: orgId,
                             inventory_account_id: defaultInventory,
                             cogs_account_id: defaultCogs,

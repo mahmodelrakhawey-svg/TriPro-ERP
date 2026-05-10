@@ -72,7 +72,8 @@ const InventoryRevaluation = () => {
         p_product_id: selectedProductId,
         p_new_cost: parseFloat(newCost),
         p_revaluation_date: revaluationDate,
-        p_notes: notes || `إعادة تقييم يدوية`
+        p_notes: notes || `إعادة تقييم يدوية`,
+        p_org_id: currentUser?.organization_id // Pass currentSelectedOrgId
       });
 
       if (error) throw error;

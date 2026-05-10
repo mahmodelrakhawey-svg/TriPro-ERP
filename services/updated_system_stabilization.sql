@@ -61,6 +61,56 @@ BEGIN
 END $$;
 
 -- ============================================================
+-- 🦷 محرك تنظيف ودمج الحسابات المكررة (Deduplication Engine)
+-- الوصف: يدمج الحسابات المكررة داخل الشركة الواحدة ويفرض القيد الفريد
+-- ============================================================
+DO $$ 
+DECLARE 
+    dup record;
+BEGIN
+    -- 1. البحث عن الحسابات المكررة (نفس الكود ونفس الشركة)
+    FOR dup IN (
+        SELECT organization_id, code, 
+               (ARRAY_AGG(id ORDER BY created_at ASC))[1] as correct_id,
+               (ARRAY_AGG(id ORDER BY created_at ASC))[2:] as wrong_ids
+        FROM public.accounts 
+        WHERE deleted_at IS NULL
+        GROUP BY organization_id, code 
+        HAVING COUNT(*) > 1
+    ) LOOP
+        -- 2. تحويل كافة الروابط من الحسابات الخاطئة إلى الحساب الصحيح
+        UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+        UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+        UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+        UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+        UPDATE public.invoices SET treasury_account_id = dup.correct_id WHERE treasury_account_id = ANY(dup.wrong_ids);
+        UPDATE public.purchase_invoices SET treasury_account_id = dup.correct_id WHERE treasury_account_id = ANY(dup.wrong_ids);
+        UPDATE public.receipt_vouchers SET treasury_account_id = dup.correct_id WHERE treasury_account_id = ANY(dup.wrong_ids);
+        UPDATE public.payment_vouchers SET treasury_account_id = dup.correct_id WHERE treasury_account_id = ANY(dup.wrong_ids);
+        UPDATE public.shifts SET treasury_account_id = dup.correct_id WHERE treasury_account_id = ANY(dup.wrong_ids);
+        UPDATE public.employee_advances SET treasury_account_id = dup.correct_id WHERE treasury_account_id = ANY(dup.wrong_ids);
+        
+        -- 3. تصحيح علاقة الأب والابن في شجرة الحسابات
+        UPDATE public.accounts SET parent_id = dup.correct_id WHERE parent_id = ANY(dup.wrong_ids);
+
+        -- 4. حذف النسخ المكررة نهائياً
+        DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+    END LOOP;
+
+    -- 5. فرض القيد الفريد (Unique Constraint) لمنع المشكلة للأبد
+    -- نحذف القيود القديمة أولاً لضمان التحديث
+    ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_code_key;
+    ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+    
+    -- القيد الذهبي: لا يمكن تكرار الكود داخل نفس المنظمة
+    ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+    
+    RAISE NOTICE '✅ تمت عملية دمج الحسابات المكررة بنجاح وتم فرض القيد الفريد.';
+EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE '⚠️ تنبيه: تعذر فرض القيد الفريد، ربما لا تزال هناك بيانات مكررة تحتاج مراجعة يدوية: %', SQLERRM;
+END $$;
+
+-- ============================================================
 -- 🛡️ تحصين أعمدة المنظمة (SaaS Infrastructure)
 -- الوصف: إضافة عمود المنظمة للجداول المالية والمخزنية قبل بدء المعالجة
 -- ============================================================

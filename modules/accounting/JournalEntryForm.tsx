@@ -1,6 +1,5 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
-import { JournalEntryLine, Account } from '../../types';
 import { useAccounting } from '../../context/AccountingContext';
 import { analyzeTransactionText } from '../../services/geminiService';
 import SearchableSelect from '../../components/SearchableSelect';
@@ -8,8 +7,8 @@ import AddAccountModal from './AddAccountModal';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useToastNotification } from '../../utils/toastUtils';
+import { JournalEntryLine, Account } from '../../types';
 import { createJournalEntrySchema } from '../../utils/validationSchemas';
-
 const JournalEntryForm = () => {
   const { accounts, costCenters, addEntry, can } = useAccounting();
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -226,11 +225,11 @@ const JournalEntryForm = () => {
 
   const handleAccountAdded = (newAccount: Account) => {
     if (newAccount.is_group) return;
-    const emptyIndex = lines.findIndex(line => !line.account_id);
+    const emptyIndex = lines.findIndex(line => !line.account_id || line.account_id === '');
     if (emptyIndex >= 0) {
-        handleLineChange(emptyIndex, 'account_id', newAccount.id);
+        handleLineChange(emptyIndex, 'account_id' as any, newAccount.id);
     } else {
-        setLines([...lines, { account_id: newAccount.id, debit: 0, credit: 0, cost_center_id: '' }]);
+        setLines(prev => [...prev, { account_id: newAccount.id, debit: 0, credit: 0, cost_center_id: '' }]);
     }
   };
 

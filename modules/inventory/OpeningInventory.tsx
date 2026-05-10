@@ -86,8 +86,8 @@ export default function OpeningInventory() {
           p_sku: item.sku || null,
           p_sales_price: item.price,
           p_purchase_price: item.cost,
-          p_stock: item.quantity,
-          p_unit: item.unit, // Pass the unit
+          p_stock: item.quantity,  
+          p_unit: item.unit,
           p_org_id: orgId,
           p_item_type: 'STOCK',
           p_inventory_account_id: inventoryAcc.id,

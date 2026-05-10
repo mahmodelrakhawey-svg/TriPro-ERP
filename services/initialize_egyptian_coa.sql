@@ -193,25 +193,26 @@ BEGIN
     END IF;
 
     -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
-    -- يتم الإدراج بترتيب يضمن وجود الآباء قبل الأبناء (بناءً على طول الكود)
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
     SELECT p_org_id, code, name, type, is_group, true
     FROM coa_temp
-    ORDER BY length(code), code -- هذا الترتيب يضمن إدراج الآباء قبل الأبناء
-    -- 🛠️ إصلاح: تحديث حالة الحساب إذا كان موجوداً مسبقاً لضمان تحويله لـ Group
-    ON CONFLICT (organization_id, code) DO UPDATE 
-    SET is_group = EXCLUDED.is_group, 
+    ORDER BY length(code), code
+    ON CONFLICT (organization_id, code) 
+    DO UPDATE SET 
+        is_group = EXCLUDED.is_group,
         type = EXCLUDED.type,
-        name = EXCLUDED.name; -- تحديث الاسم لضمان عدم ظهور مسميات قديمة
+        name = EXCLUDED.name,
+        is_active = true;
 
     -- 4. تحديث روابط Parent_ID بشكل جماعي وذكي (بعد إدراج جميع الحسابات)
     UPDATE public.accounts a
     SET parent_id = p.id
     FROM coa_temp t
-    JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
+    JOIN public.accounts p ON p.organization_id = a.organization_id AND p.code = t.parent_code
     WHERE a.organization_id = p_org_id 
       AND a.code = t.code 
-      AND a.parent_id IS NULL;
+      -- تحديث الرابط دائماً لضمان الصحة حتى لو كان مربوطاً خطأ
+      AND (a.parent_id IS NULL OR a.parent_id != p.id);
 
     -- 🛡️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
     -- نتجنب auth.uid() هنا لأن المستدعي غالباً هو السوبر أدمن ولا نريد تغيير بياناته.
@@ -258,12 +259,6 @@ BEGIN
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
     v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
     v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
-    v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
-    v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
-    v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1);
-    v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
-    v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
-    v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
     v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
     v_dep_exp_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '533' LIMIT 1);
     v_acc_dep_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1119' LIMIT 1);
@@ -312,8 +307,7 @@ BEGIN
             'BANK_MAIN', v_bank_main_id,
             'REVENUE_OTHER', v_rev_other_id,
             'EXPENSE_GENERAL', v_exp_gen_id,
-            'SALES_ALLOWANCES', v_sal_allow_id,
-            'REVENUE_MISC', v_rev_other_id -- الحساب رقم 36
+            'SALES_ALLOWANCES', v_sal_allow_id
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
 
