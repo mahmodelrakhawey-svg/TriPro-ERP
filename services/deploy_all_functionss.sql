@@ -41,6 +41,7 @@ BEGIN
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
             'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
             'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'recalculate_all_balances',
+            'open_table_session', 
             'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa',
             'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift',
             'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin',
@@ -253,6 +254,93 @@ BEGIN
     -- 🚀 إعادة احتساب المخزون فوراً لضمان الدقة بعد أي تعديلات
     PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
+
+-- 🛠️ إضافة اسم مستعار لدالة المبيعات لتوافق الواجهة الأمامية (Fix 404 post_sales_invoice)
+CREATE OR REPLACE FUNCTION public.post_sales_invoice(p_invoice_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    PERFORM public.approve_invoice(p_invoice_id);
+END; $$;
+-- 🛠️ دالة ترحيل فاتورة المشتريات (Approve Purchase Invoice)
+-- تم إنشاؤها لحل خطأ 42883 وضمان ترحيل المخزون والموردين
+CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(p_invoice_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_invoice record; v_item record; v_org_id uuid; v_inventory_acc_id uuid; v_vat_in_id uuid; v_supplier_acc_id uuid;
+    v_journal_id uuid; v_mappings jsonb; v_treasury_acc_id uuid;
+BEGIN
+    -- 1. التحقق من الفاتورة
+    SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة'; END IF;
+
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار
+    DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice';
+
+    v_org_id := v_invoice.organization_id;
+
+    -- 2. جلب روابط الحسابات
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
+    v_vat_in_id := COALESCE((v_mappings->>'VAT_INPUT')::uuid, (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1));
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
+    v_treasury_acc_id := v_invoice.treasury_account_id;
+
+    IF v_inventory_acc_id IS NULL OR v_supplier_acc_id IS NULL THEN
+        RAISE EXCEPTION 'إعدادات الحسابات مفقودة لهذه المنظمة (المخزون أو الموردين).';
+    END IF;
+
+    -- 3. إنشاء رأس قيد اليومية
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
+    VALUES (v_invoice.invoice_date, 'فاتورة مشتريات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'purchase_invoice', true) RETURNING id INTO v_journal_id;
+
+    -- 4. إنشاء أسطر القيد
+    -- أ. من ح/ المخزون (بالصافي)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_journal_id, v_inventory_acc_id, v_invoice.subtotal, 0, 'إثبات قيمة المشتريات مخزنياً', v_org_id);
+
+    -- ب. من ح/ ضريبة القيمة المضافة (مدخلات)
+    IF COALESCE(v_invoice.tax_amount, 0) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_vat_in_id, v_invoice.tax_amount, 0, 'ضريبة مدخلات مشتريات', v_org_id);
+    END IF;
+
+    -- ج. إلى ح/ المورد (بكامل القيمة)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_journal_id, v_supplier_acc_id, 0, v_invoice.total_amount, 'استحقاق قيمة الفاتورة للمورد', v_org_id);
+
+    -- د. إثبات السداد الفوري (إن وجد)
+    IF COALESCE(v_invoice.paid_amount, 0) > 0 THEN
+        IF v_treasury_acc_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد الخزينة/البنك للمبلغ المدفوع فورياً.'; END IF;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES 
+            (v_journal_id, v_supplier_acc_id, v_invoice.paid_amount, 0, 'سداد جزء من الفاتورة للمورد', v_org_id),
+            (v_journal_id, v_treasury_acc_id, 0, v_invoice.paid_amount, 'نقدية خارجة مقابل مشتريات', v_org_id);
+    END IF;
+
+    -- 5. تحديث حالة الفاتورة وربطها بالقيد
+    UPDATE public.purchase_invoices SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
+
+    -- 6. تحديث الأرصدة والمخزون
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+    PERFORM public.update_single_supplier_balance(v_invoice.supplier_id, v_org_id);
+END; $$;
+
+-- 🛠️ إضافة اسم مستعار للدالة لتوافق الواجهة الأمامية (Fix 404 post_purchase_invoice)
+CREATE OR REPLACE FUNCTION public.post_purchase_invoice(p_invoice_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    PERFORM public.approve_purchase_invoice(p_invoice_id);
+END; $$;
+
+-- 🔓 منح صلاحية التنفيذ
+GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO anon;
+GRANT EXECUTE ON FUNCTION public.approve_invoice(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid) TO anon;
+
 -- 🛠️ دالة إضافة قيد يومية يدوياً مع المرفقات
 -- تحل مشكلة الخطأ 404 وتدعم رفع الملفات مع القيد
 CREATE OR REPLACE FUNCTION public.add_journal_entry(
@@ -775,10 +863,10 @@ BEGIN
 
     -- 2. إيجاد أو إنشاء جلسة (Session) للطاولة
     SELECT id INTO v_session_id FROM public.table_sessions 
-    WHERE table_id = v_table.id AND status = 'OPEN' AND organization_id = v_org_id AND closed_at IS NULL LIMIT 1;
+    WHERE table_id = v_table.id AND status = 'OPEN' AND organization_id = v_org_id AND end_time IS NULL LIMIT 1;
 
     IF v_session_id IS NULL THEN
-        INSERT INTO public.table_sessions (table_id, organization_id, status, opened_at)
+        INSERT INTO public.table_sessions (table_id, organization_id, status, start_time)
         VALUES (v_table.id, v_org_id, 'OPEN', now())
         RETURNING id INTO v_session_id;
     END IF;
@@ -838,8 +926,43 @@ BEGIN
     RETURN v_order_id;
 END; $$;
 
+-- 🛠️ دالة فتح جلسة طاولة (Open Table Session)
+-- تُستخدم لبدء إشغال طاولة وتجهيزها لاستقبال الطلبات
+CREATE OR REPLACE FUNCTION public.open_table_session(p_table_id uuid)
+RETURNS public.table_sessions
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_session public.table_sessions;
+    v_org_id uuid;
+BEGIN
+    -- 1. تحديد المنظمة من بيانات الطاولة
+    SELECT organization_id INTO v_org_id FROM public.restaurant_tables WHERE id = p_table_id;
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'الطاولة غير موجودة.'; END IF;
+
+    -- 2. البحث عن جلسة مفتوحة حالياً
+    SELECT * INTO v_session FROM public.table_sessions 
+    WHERE table_id = p_table_id AND status = 'OPEN' AND end_time IS NULL
+    LIMIT 1;
+
+    -- 3. إذا لم توجد جلسة، نفتح واحدة جديدة
+    IF v_session.id IS NULL THEN
+        INSERT INTO public.table_sessions (table_id, organization_id, status, start_time, user_id)
+        VALUES (p_table_id, v_org_id, 'OPEN', now(), auth.uid())
+        RETURNING * INTO v_session;
+
+        UPDATE public.restaurant_tables SET status = 'OCCUPIED', session_start = now() WHERE id = p_table_id;
+    END IF;
+
+    RETURN v_session;
+END; $$;
+
 -- منح صلاحية تنفيذ الدالة للزوار (الموبايل) والموظفين
 GRANT EXECUTE ON FUNCTION public.create_public_order(uuid, jsonb, uuid) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.open_table_session(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.open_table_session(uuid) TO anon;
 -- 🛠️ دالة جلب ملخص الوردية (التي تظهر للمحاسب قبل الإغلاق)
 CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
 RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -3113,6 +3236,7 @@ GRANT EXECUTE ON FUNCTION public.start_pos_shift(numeric, boolean, uuid, uuid) T
 GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_current_company_settings(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid) TO authenticated; -- 🛠️ إضافة صلاحية لدالة ترحيل المشتريات
 GRANT EXECUTE ON FUNCTION public.get_shift_summary(uuid) TO authenticated;
 
 -- تنشيط كاش النظام

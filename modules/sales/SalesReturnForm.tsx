@@ -174,7 +174,7 @@ const SalesReturnForm = () => {
         tax_amount: taxAmount,
         notes: formData.notes,
         status: 'draft',
-        created_by: currentUser?.id
+        user_id: currentUser?.id
       }).select().single();
 
       if (retError) throw retError;

@@ -318,7 +318,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const { data } = await supabase.rpc('get_account_balance_in_period', { p_account_id: id, p_start_date: start, p_end_date: end, p_org_id: currentSelectedOrgId });
     return data || 0;
   };
-  const addAccount = async (acc: any) => { const { data, error } = await supabase.from('accounts').insert(acc).select().single(); refreshData(); return data; };
+  const addAccount = async (acc: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data, error } = await supabase.from('accounts').insert({ ...acc, organization_id: targetOrgId }).select().single(); 
+    if (error) throw error;
+    await refreshData(); return data; 
+  };
   const updateAccount = async (id: string, updates: any) => { await supabase.from('accounts').update(updates).eq('id', id); refreshData(); };
   const deleteAccount = async (id: string, reason?: string) => { const { error } = await supabase.from('accounts').delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); refreshData(); };
@@ -327,36 +332,71 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // Inventory
   const recalculateStock = async (productId?: string) => { await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); refreshData(); };
-  const addProduct = async (data: any) => { const { data: p, error } = await supabase.from('products').insert(data).select().single(); refreshData(); return p; };
+  const addProduct = async (data: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data: p, error } = await supabase.from('products').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    if (error) throw error;
+    await refreshData(); return p; 
+  };
   const updateProduct = async (id: string, data: any) => { await supabase.from('products').update(data).eq('id', id); refreshData(); };
   const deleteProduct = async (id: string, reason?: string) => { await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
   const addStockTransfer = async (data: any) => { await supabase.from('stock_transfers').insert(data); refreshData(); };
   const approveStockTransfer = async (id: string) => { await supabase.rpc('approve_stock_transfer', { p_transfer_id: id }); refreshData(); };
   const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); refreshData(); };
-  const addWarehouse = async (data: any) => { await supabase.from('warehouses').insert(data); refreshData(); };
+  const addWarehouse = async (data: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('warehouses').insert({ ...data, organization_id: targetOrgId }); 
+    if (error) throw error;
+    await refreshData(); 
+  };
   const updateWarehouse = async (id: string, data: any) => { await supabase.from('warehouses').update(data).eq('id', id); refreshData(); };
   const deleteWarehouse = async (id: string) => { await supabase.from('warehouses').update({ is_active: false }).eq('id', id); refreshData(); };
   const addWastage = async (data: any) => { const { error } = await supabase.rpc('record_wastage', data); refreshData(); return !error; };
   const produceItem = async (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => { return await supabase.rpc('mfg_create_order_direct', { p_product_id: id, p_qty: qty, p_warehouse_id: whId, p_date: date, p_additional_cost: cost, p_reference: ref }); };
 
   // Sales & Purchases
-  const addCustomer = async (data: any) => { const { data: c, error } = await supabase.from('customers').insert(data).select().single(); refreshData(); return c; };
+  const addCustomer = async (data: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data: c, error } = await supabase.from('customers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    if (error) throw error;
+    await refreshData(); return c; 
+  };
   const updateCustomer = async (id: string, data: any) => { await supabase.from('customers').update(data).eq('id', id); refreshData(); };
   const deleteCustomer = async (id: string, reason?: string) => { await supabase.from('customers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
-  const addSupplier = async (data: any) => { const { data: s, error } = await supabase.from('suppliers').insert(data).select().single(); refreshData(); return s; };
+  const addSupplier = async (data: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data: s, error } = await supabase.from('suppliers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    if (error) throw error;
+    await refreshData(); return s; 
+  };
   const updateSupplier = async (id: string, data: any) => { await supabase.from('suppliers').update(data).eq('id', id); refreshData(); };
   const deleteSupplier = async (id: string, reason?: string) => { await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
   const approveInvoice = async (id: string) => { const { error } = await supabase.rpc('post_sales_invoice', { p_invoice_id: id }); refreshData(); return !error; };
   const approvePurchaseInvoice = async (id: string) => { await supabase.rpc('post_purchase_invoice', { p_invoice_id: id }); refreshData(); };
   const convertPoToInvoice = async (id: string, warehouseId?: string) => { await supabase.rpc('convert_po_to_invoice', { p_po_id: id, p_warehouse_id: warehouseId }); refreshData(); };
   const addOpeningBalanceTransaction = async (id: string, type: string, amount: number, date: string, name: string) => { await supabase.rpc('add_opening_balance', { p_id: id, p_type: type, p_amount: amount, p_date: date, p_name: name }); refreshData(); };
-  const addPaymentVoucher = async (data: any) => { await supabase.from('vouchers').insert({ ...data, type: 'payment' }); refreshData(); };
+  const addPaymentVoucher = async (data: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('vouchers').insert({ ...data, type: 'payment', organization_id: targetOrgId }); 
+    if (error) throw error;
+    await refreshData(); 
+  };
 
   // Assets & Cheques
-  const addAsset = async (asset: any) => { await supabase.from('assets').insert(asset); refreshData(); };
+  const addAsset = async (asset: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('assets').insert({ ...asset, organization_id: targetOrgId }); 
+    if (error) throw error;
+    await refreshData(); 
+  };
   const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
   const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { await supabase.from('assets').update({ current_value: val }).eq('id', id); refreshData(); };
-  const addCheque = async (cheque: any) => { await supabase.from('cheques').insert({ ...cheque, organization_id: currentSelectedOrgId }); refreshData(); };
+  const addCheque = async (cheque: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('cheques').insert({ ...cheque, organization_id: targetOrgId }); 
+    if (error) throw error;
+    await refreshData(); 
+  };
   const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => { await supabase.from('cheques').update({ status }).eq('id', id); refreshData(); };
   const addTransfer = async (transfer: any) => { await supabase.rpc('add_treasury_transfer', transfer); refreshData(); };
   const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
@@ -364,7 +404,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const exportJournalToCSV = () => { /* Logic */ };
 
   // HR
-  const addEmployee = async (data: any) => { await supabase.from('employees').insert(data); refreshData(); };
+  const addEmployee = async (data: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('employees').insert({ ...data, organization_id: targetOrgId }); 
+    if (error) throw error;
+    await refreshData(); 
+  };
   const updateEmployee = async (id: string, data: any) => { await supabase.from('employees').update(data).eq('id', id); refreshData(); };
   const deleteEmployee = async (id: string, reason?: string) => { await supabase.from('employees').update({ status: 'terminated', notes: reason }).eq('id', id); refreshData(); };
   const runPayroll = async (monthYear: string, date: string, treasuryId: string, data: any[]) => {
@@ -450,7 +495,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return true;
   };
 
-  const addRestaurantTable = async (data: any) => { await supabase.from('restaurant_tables').insert(data); refreshData(); };
+  const addRestaurantTable = async (data: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('restaurant_tables').insert({ ...data, organization_id: targetOrgId }); 
+    if (error) throw error;
+    await refreshData(); 
+  };
   const updateRestaurantTable = async (id: string, data: any) => { await supabase.from('restaurant_tables').update(data).eq('id', id); refreshData(); };
   const deleteRestaurantTable = async (id: string) => { await supabase.from('restaurant_tables').delete().eq('id', id); refreshData(); };
   

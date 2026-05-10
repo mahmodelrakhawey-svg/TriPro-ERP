@@ -477,6 +477,19 @@ DO $$ BEGIN
         END IF;
     END IF;
 
+    -- توحيد أعمدة فواتير المشتريات (purchase_invoices) لضمان التوافق مع الواجهة
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS due_date date;
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0;
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS notes text;
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS exchange_rate numeric DEFAULT 1;
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS delivery_fee numeric DEFAULT 0;
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id);
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_invoices' AND column_name='created_by') THEN
+            EXECUTE 'ALTER TABLE public.purchase_invoices ADD COLUMN created_by uuid GENERATED ALWAYS AS (user_id) STORED';
+        END IF;
+    END IF;
+
     -- تحديث جدول الفواتير (invoices) - إصلاح تقرير حركة الصنف
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
         -- إضافة الأعمدة المالية الأساسية إذا فقدت
@@ -606,8 +619,19 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'shifts') THEN ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS actual_cash numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'shifts') THEN ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS difference numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'modifiers') THEN ALTER TABLE public.modifiers ADD COLUMN IF NOT EXISTS cost numeric DEFAULT 0; END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5; END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN 
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5; 
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS available_modifiers jsonb DEFAULT '[]'::jsonb;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS requires_serial boolean DEFAULT false;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price numeric DEFAULT 0;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS expiry_date date;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_price numeric;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_start_date date;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_end_date date;
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_max_qty numeric;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'work_orders') THEN ALTER TABLE public.work_orders ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id); END IF;
 END $$;
 
@@ -626,7 +650,12 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'suppliers') THEN ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'suppliers') THEN ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS credit_limit numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0; END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'restaurant_tables') THEN ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS bill_requested boolean DEFAULT false; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'restaurant_tables') THEN 
+        ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS bill_requested boolean DEFAULT false; 
+        ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS session_start timestamptz;
+        ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS section text;
+        ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'customers') THEN ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid(); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text; END IF;
@@ -637,6 +666,12 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS unit_cost numeric DEFAULT 0; END IF; -- تكلفة الوجبات
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoice_items') THEN ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS modifiers jsonb DEFAULT '[]'::jsonb; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS barcode text; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'notifications') THEN 
+        ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS action_url text; 
+        ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS priority text DEFAULT 'info'; 
+        ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS related_id uuid; 
+    END IF; -- 🛠️ إصلاح شامل لأعمدة الإشعارات (PGRST204)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS expiry_date date; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK'; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text; END IF;
@@ -748,6 +783,9 @@ BEGIN
 
     -- 🛡️ ترميم بيانات عروض الأسعار اليتيمة (في حال وجدت)
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quotations') THEN
+        ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS expiry_date date;
+        ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0;
+        
         UPDATE public.quotations 
         SET organization_id = COALESCE(organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1))
         WHERE organization_id IS NULL;

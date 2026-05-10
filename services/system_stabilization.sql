@@ -66,6 +66,15 @@ CREATE TABLE IF NOT EXISTS public.item_categories (
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS manufacturing_cost numeric DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS category_id uuid REFERENCES public.item_categories(id);
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS barcode text;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS available_modifiers jsonb DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS requires_serial boolean DEFAULT false;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS price numeric DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS expiry_date date;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_price numeric;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_start_date date;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_end_date date;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS offer_max_qty numeric;
 
 -- إضافة أعمدة الوصف والارصدة والحد الأدنى
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS description text;
@@ -86,6 +95,14 @@ ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS reference text;
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS additional_expenses numeric DEFAULT 0;
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS approver_id uuid REFERENCES auth.users(id);
 ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS reference text;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS due_date date;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS exchange_rate numeric DEFAULT 1;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS delivery_fee numeric DEFAULT 0;
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS order_type text DEFAULT 'DINE_IN';
+ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id);
+DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_invoices' AND column_name='created_by') THEN ALTER TABLE public.purchase_invoices ADD COLUMN created_by uuid GENERATED ALWAYS AS (user_id) STORED; END IF; END $$;
 
 -- تحديث جدول الشيكات
 ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_voucher_id uuid;

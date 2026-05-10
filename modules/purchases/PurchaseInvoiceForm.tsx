@@ -270,7 +270,7 @@ const PurchaseInvoiceForm = () => {
         related_journal_entry_id: null, // تصفير المرجع القديم في الواجهة
         currency: formData.currency,
         exchange_rate: formData.exchangeRate,
-        created_by: currentUser?.id,
+        user_id: currentUser?.id,
         paid_amount: formData.paidAmount, // No change
         treasury_account_id: formData.treasuryAccountId || null
       };

@@ -152,6 +152,13 @@ BEGIN
             -- التأكد من وجود العمود لتجنب الخطأ 42703 في حال تخطي الملف الرابع
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
             
+            -- 🛡️ إضافة عمود priority المفقود لجدول الإشعارات لتجنب خطأ PGRST204
+            IF t = 'notifications' THEN
+                EXECUTE 'ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS priority text DEFAULT ''info''';
+                EXECUTE 'ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS action_url text';
+                EXECUTE 'ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS related_id uuid';
+            END IF;
+            
             EXECUTE format('DROP POLICY IF EXISTS "Attachments_SaaS_Policy" ON public.%I;', t);
             EXECUTE format('CREATE POLICY "Attachments_SaaS_Policy" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t);
         END IF;

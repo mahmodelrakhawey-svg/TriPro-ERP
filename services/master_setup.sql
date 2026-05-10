@@ -201,12 +201,12 @@ CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SEC
 DECLARE _org_id uuid;
 DECLARE _role text;
 BEGIN
-    -- 1. جلب المنظمة والدور من البروفايل مباشرة (المصدر الأكثر ثقة)
-    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    -- 1. البحث في التوكن أولاً (JWT Claims) - للسماح بالتنقل بين الشركات للسوبر أدمن والمديرين
+    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
 
-    -- 2. السوبر أدمن: البحث في التوكن (في حال كان يتنقل بين الشركات)
-    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    -- 2. الرجوع للملف الشخصي (Fall-back للمستخدمين العاديين)
+    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
 
     -- 🛡️ صمام أمان: إذا كان المستخدم موثقاً ولم يتم تحديد منظمة، ارفع خطأ
@@ -609,6 +609,34 @@ CREATE TABLE IF NOT EXISTS public.sales_order_items (
     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
+-- عروض الأسعار (Quotations)
+CREATE TABLE IF NOT EXISTS public.quotations (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    quotation_number text,
+    customer_id uuid REFERENCES public.customers(id) ON DELETE CASCADE,
+    salesperson_id uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+    quotation_date date DEFAULT now(),
+    expiry_date date,
+    subtotal numeric DEFAULT 0,
+    tax_amount numeric DEFAULT 0,
+    total_amount numeric DEFAULT 0,
+    status text DEFAULT 'draft', -- draft, sent, accepted, rejected, expired, invoiced
+    notes text,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT quotations_number_org_unique UNIQUE (organization_id, quotation_number)
+);
+
+CREATE TABLE IF NOT EXISTS public.quotation_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    quotation_id uuid REFERENCES public.quotations(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity numeric NOT NULL DEFAULT 1,
+    unit_price numeric NOT NULL DEFAULT 0,
+    total numeric(19,4) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
 -- 2. جداول المبيعات والمشتريات (Detailed Version)
 -- تم استبدال الكتل المبسطة والمكررة بهذه النسخة السيادية الموحدة
 
@@ -703,10 +731,14 @@ CREATE TABLE IF NOT EXISTS public.restaurant_tables (
     name text NOT NULL,
     capacity integer DEFAULT 4,
     status text DEFAULT 'AVAILABLE',
+    section text,
+    is_active boolean DEFAULT true,
     qr_access_key uuid DEFAULT gen_random_uuid(),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    session_start timestamptz,
     created_at timestamptz DEFAULT now(),
-    bill_requested boolean DEFAULT false
+    bill_requested boolean DEFAULT false,
+    CONSTRAINT restaurant_tables_name_org_unique UNIQUE (organization_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS public.table_sessions (
@@ -932,6 +964,7 @@ CREATE TABLE IF NOT EXISTS public.security_logs (
     target_user_id uuid REFERENCES public.profiles(id),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     metadata jsonb,
+    action_url text, -- 🛠️ إضافة عمود رابط الإجراء (لحل مشكلة PGRST204)
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
