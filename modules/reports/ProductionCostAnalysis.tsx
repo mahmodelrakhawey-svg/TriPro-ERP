@@ -46,12 +46,12 @@ const ProductionCostAnalysis = () => {
           productName: item.product_name,
           quantity: item.quantity,
           date: item.end_date,
-          standardCost: Number(item.standard_cost),
-          actualCost: Number(item.actual_cost),
-          materialVariance: Number(item.material_variance),
-          wastageQty: Number(item.wastage_qty),
-          variance: Number(item.variance),
-          variancePercent: Number(item.variance_percent),
+          standardCost: Number(item.standard_cost) || 0,
+          actualCost: Number(item.actual_cost) || 0,
+          materialVariance: Number(item.material_variance) || 0,
+          wastageQty: Number(item.wastage_qty) || 0,
+          variance: Number(item.variance) || 0,
+          variancePercent: Number(item.variance_percent) || 0,
           status: Math.abs(item.variance_percent) < 1 ? 'match' : (item.variance > 0 ? 'over' : 'under')
       }));
 
@@ -140,8 +140,8 @@ const ProductionCostAnalysis = () => {
                 {loading ? (
                     <tr><td colSpan={6} className="p-8 text-center"><Loader2 className="animate-spin mx-auto text-orange-600" /></td></tr>
                 ) : reportData.length > 0 ? (
-                    reportData.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50">
+                    reportData.map((item, idx) => (
+                        <tr key={item.id || `cost-row-${idx}`} className="hover:bg-slate-50">
                             <td className="p-4 font-mono text-slate-600">{item.orderNumber || '-'}</td>
                             <td className="p-4 font-bold text-slate-800">{item.productName} <span className="text-xs text-slate-400">({item.quantity})</span></td>
                             <td className="p-4 text-center font-mono text-blue-600">{item.standardCost.toLocaleString()}</td>

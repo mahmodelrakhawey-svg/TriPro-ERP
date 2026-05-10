@@ -48,7 +48,7 @@ BEGIN
             'get_products_without_bom', 'calculate_product_wac', 'update_single_supplier_balance', 'update_product_stock',
             'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup',
             'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access',
-            'get_or_create_qr_for_table', 'get_current_company_settings', 'fn_ensure_kitchen_order_org',
+        'get_or_create_qr_for_table', 'get_current_company_settings', 'get_historical_ratios', 'fn_ensure_kitchen_order_org',
             'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse',
             'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger',
             'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups',
@@ -324,6 +324,19 @@ BEGIN
     -- 6. تحديث الأرصدة والمخزون
     PERFORM public.recalculate_stock_rpc(v_org_id);
     PERFORM public.update_single_supplier_balance(v_invoice.supplier_id, v_org_id);
+
+    -- 🚀 تحديث متوسط التكلفة (WAC) للمنتجات المشتراة لضمان ظهورها في التصنيع
+    UPDATE public.products p
+    SET 
+        purchase_price = item.unit_price,
+        cost = item.unit_price,
+        weighted_average_cost = CASE 
+            WHEN (p.stock + item.quantity) > 0 
+            THEN ROUND(((COALESCE(p.stock, 0) * COALESCE(p.weighted_average_cost, p.cost, 0)) + (item.quantity * item.unit_price)) / (p.stock + item.quantity), 4)
+            ELSE item.unit_price 
+        END
+    FROM public.purchase_invoice_items item
+    WHERE item.purchase_invoice_id = p_invoice_id AND item.product_id = p.id;
 END; $$;
 
 -- 🛠️ إضافة اسم مستعار للدالة لتوافق الواجهة الأمامية (Fix 404 post_purchase_invoice)
@@ -3216,6 +3229,58 @@ BEGIN
     
     GET DIAGNOSTICS v_count = ROW_COUNT;
     RETURN v_count;
+END; $$;
+
+-- 📊 دالة جلب النسب المالية التاريخية (Financial Ratios Analytics)
+-- تقوم بحساب السيولة، الربحية، والرافعة المالية شهرياً بناءً على الأستاذ العام
+CREATE OR REPLACE FUNCTION public.get_historical_ratios(p_org_id uuid DEFAULT NULL)
+RETURNS TABLE (
+    period text,
+    current_ratio numeric,
+    net_profit_margin numeric,
+    debt_to_assets numeric,
+    return_on_assets numeric
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid;
+BEGIN
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
+
+    RETURN QUERY
+    WITH monthly_data AS (
+        SELECT
+            to_char(je.transaction_date, 'YYYY-MM') as month_period,
+            -- الأصول المتداولة (كود 12)
+            SUM(CASE WHEN a.code LIKE '12%' THEN (jl.debit - jl.credit) ELSE 0 END) as current_assets,
+            -- الخصوم المتداولة (كود 22)
+            SUM(CASE WHEN a.code LIKE '22%' THEN (jl.credit - jl.debit) ELSE 0 END) as current_liabilities,
+            -- إجمالي الإيرادات (كود 4)
+            SUM(CASE WHEN a.code LIKE '4%' THEN (jl.credit - jl.debit) ELSE 0 END) as revenue,
+            -- إجمالي المصروفات (كود 5)
+            SUM(CASE WHEN a.code LIKE '5%' THEN (jl.debit - jl.credit) ELSE 0 END) as expenses,
+            -- إجمالي الأصول (كود 1)
+            SUM(CASE WHEN a.code LIKE '1%' THEN (jl.debit - jl.credit) ELSE 0 END) as total_assets,
+            -- إجمالي الخصوم (كود 2)
+            SUM(CASE WHEN a.code LIKE '2%' THEN (jl.credit - jl.debit) ELSE 0 END) as total_liabilities
+        FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        JOIN public.accounts a ON jl.account_id = a.id
+        WHERE je.organization_id = v_org_id AND je.status = 'posted'
+        GROUP BY 1
+    )
+    SELECT
+        month_period,
+        -- نسبة السيولة (Current Assets / Current Liabilities)
+        CASE WHEN current_liabilities <> 0 THEN ROUND(current_assets / current_liabilities, 2) ELSE 0 END,
+        -- هامش صافي الربح ((Revenue - Expenses) / Revenue * 100)
+        CASE WHEN revenue <> 0 THEN ROUND((revenue - expenses) / revenue * 100, 2) ELSE 0 END,
+        -- نسبة الدين إلى الأصول (Total Liabilities / Total Assets)
+        CASE WHEN total_assets <> 0 THEN ROUND(total_liabilities / total_assets, 2) ELSE 0 END,
+        -- العائد على الأصول (Net Profit / Total Assets * 100)
+        CASE WHEN total_assets <> 0 THEN ROUND((revenue - expenses) / total_assets * 100, 2) ELSE 0 END
+    FROM monthly_data
+    ORDER BY month_period DESC
+    LIMIT 12;
 END; $$;
 
 -- إنشاء اسم مستعار (Alias) للتوافق مع استدعاءات النظام الداخلية التي تستخدم المسمى الطويل

@@ -79,7 +79,22 @@ const AssetManager = () => {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
-    await addAsset(formData);
+
+    // تحويل البيانات لتطابق مسميات أعمدة قاعدة البيانات (snake_case)
+    const assetData = {
+        name: formData.name,
+        purchase_date: formData.purchaseDate,
+        purchase_cost: formData.purchaseCost,
+        salvage_value: formData.salvageValue,
+        useful_life: formData.usefulLife,
+        asset_account_id: formData.assetAccountId,
+        accumulated_depreciation_account_id: formData.accumulatedDepreciationAccountId,
+        depreciation_expense_account_id: formData.depreciationExpenseAccountId,
+        create_journal_entry: formData.createJournalEntry,
+        credit_account_id: formData.creditAccountId
+    };
+
+    await addAsset(assetData);
     setIsModalOpen(false);
   };
 

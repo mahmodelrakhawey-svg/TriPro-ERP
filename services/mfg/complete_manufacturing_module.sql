@@ -816,7 +816,7 @@ BEGIN
         v_usage_qty := v_mat.quantity_required * p_qty;
 
         -- حساب تكلفة المواد المستهلكة (بناءً على المتوسط المرجح)
-        v_mat_total_cost := v_mat_total_cost + (v_usage_qty * COALESCE((SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) FROM public.products WHERE id = v_mat.raw_material_id), 0));
+        v_mat_total_cost := v_mat_total_cost + (v_usage_qty * COALESCE((SELECT NULLIF(weighted_average_cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT NULLIF(cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT purchase_price FROM public.products WHERE id = v_mat.raw_material_id), 0));
 
         -- ب. تسجيل الاستهلاك الفعلي (إضافة الكمية المعيارية + التالف الخاص بنفس المادة إن وجد)
         INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, organization_id)
@@ -2302,6 +2302,49 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- 🛠️ دالة ضمان توجيه حسابات المخزون (Account Enforcement)
+-- تمنع عودة الحساب إلى 10302 تلقائياً وتوجه الخامات لـ 10301
+CREATE OR REPLACE FUNCTION public.fn_ensure_product_accounts()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_mappings jsonb;
+    v_raw_acc uuid;
+    v_fg_acc uuid;
+BEGIN
+    -- 1. جلب إعدادات الربط المحاسبي للمنظمة
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = NEW.organization_id;
+    
+    IF v_mappings IS NOT NULL THEN
+        v_raw_acc := (v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid;
+        v_fg_acc := (v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid;
+
+        -- 🚀 منطق توجيه ذكي مطور (Bi-directional Routing)
+        -- أ. إذا تم اختيار حساب مخزون الخامات (10301) يدوياً، نثبت نوع الصنف كـ خامة
+        IF NEW.inventory_account_id = v_raw_acc THEN
+            NEW.mfg_type := 'raw';
+        -- ب. إذا تم اختيار حساب المنتج التام (10302) يدوياً، نثبت نوع الصنف كـ منتج تام
+        ELSIF NEW.inventory_account_id = v_fg_acc THEN
+            NEW.mfg_type := 'standard';
+        -- ج. إذا تم إرسال النوع ولم يتم اختيار حساب، نقوم بالربط الآلي
+        ELSIF NEW.mfg_type = 'raw' AND NEW.inventory_account_id IS NULL THEN
+            NEW.inventory_account_id := v_raw_acc;
+        ELSIF NEW.mfg_type = 'standard' AND NEW.inventory_account_id IS NULL THEN
+            NEW.inventory_account_id := v_fg_acc;
+        END IF;
+    END IF;
+
+    -- ضمان أن الصنف دائماً يتبع نظام المخزن إذا كان صناعياً
+    IF NEW.mfg_type IN ('standard', 'raw', 'intermediate') THEN NEW.product_type := 'STOCK'; END IF;
+
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ربط المشغل بجدول المنتجات
+DROP TRIGGER IF EXISTS trg_ensure_product_accounts ON public.products;
+CREATE TRIGGER trg_ensure_product_accounts
+BEFORE INSERT OR UPDATE ON public.products
+FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_product_accounts();
 
 -- Drop existing trigger if it was defined elsewhere or with a different name
 DROP TRIGGER IF EXISTS trg_ensure_order_org_on_update ON public.orders;

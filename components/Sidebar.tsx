@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { 
@@ -29,7 +29,8 @@ import {
   List,
   CreditCard,
   Coins,
-  MoveHorizontal,
+  ChevronLeft,
+  ChevronDown,
   Landmark,
   Banknote,
   ChefHat,
@@ -63,6 +64,7 @@ import {
 const Sidebar: React.FC = () => {
   const { organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId } = useAccounting();
   const location = useLocation();
+  const [openSection, setOpenSection] = useState<string | null>(null);
 
   const userRole = currentUser?.role;
   const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner';
@@ -235,19 +237,70 @@ const Sidebar: React.FC = () => {
     return nextItem && nextItem.type !== 'section';
   });
 
+  // تحويل القائمة المسطحة إلى هيكل شجري للموديولات لتسهيل عرضها كقوائم منسدلة
+  const groupedItems: any[] = [];
+  let currentSection: any = null;
+
+  visibleItems.forEach(item => {
+    if (item.type === 'section') {
+      currentSection = { ...item, children: [] };
+      groupedItems.push(currentSection);
+    } else if (currentSection) {
+      currentSection.children.push(item);
+    } else {
+      groupedItems.push(item); // العناصر التي تسبق أول قسم (مثل لوحة التحكم)
+    }
+  });
+
+  const toggleSection = (label: string) => {
+    setOpenSection(openSection === label ? null : label);
+  };
+
   return (
     <div className="w-64 bg-gray-900 text-white flex flex-col p-4 h-screen shadow-xl sticky top-0 overflow-y-auto custom-scrollbar shrink-0" dir="rtl">
       <div className="text-2xl font-black mb-8 px-2 tracking-tight text-blue-500 shrink-0">TriPro ERP</div>
       
       <nav className="flex-1">
         <ul className="space-y-1">
-          {visibleItems.map((item, index) => {
+          {groupedItems.map((item, index) => {
             if (item.type === 'section') {
+              const isOpen = openSection === item.label;
+              const hasActiveChild = item.children?.some((child: any) => location.pathname === child.to);
+              
               return (
-                <li key={`section-${index}`} className="pt-4 pb-1 px-3">
-                  <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest leading-none">
-                    {item.label}
-                  </span>
+                <li key={`section-${index}`} className="pt-2">
+                  <button 
+                    onClick={() => toggleSection(item.label)}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold hover:bg-gray-800 group ${isOpen || hasActiveChild ? 'bg-gray-800 text-blue-400' : 'text-gray-400'}`}
+                  >
+                    <span className="text-xs font-black uppercase tracking-widest leading-none">
+                      {item.label}
+                    </span>
+                    <ChevronLeft size={14} className={`transition-transform duration-300 ${isOpen ? '-rotate-90 text-blue-500' : 'opacity-50'}`} />
+                  </button>
+                  
+                  {(isOpen || hasActiveChild) && (
+                    <ul className="mt-1 mr-2 space-y-1 border-r border-gray-800 pr-3 animate-in slide-in-from-right-1 duration-200">
+                      {item.children.map((child: any) => {
+                        const isActive = location.pathname === child.to;
+                        return (
+                          <li key={child.to}>
+                            <Link 
+                              to={child.to} 
+                              className={`flex items-center gap-3 p-2 rounded-lg transition-all font-bold text-xs ${
+                                isActive 
+                                  ? 'bg-blue-600 text-white shadow-md' 
+                                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                              }`}
+                            >
+                              <child.icon size={14} className={isActive ? 'text-white' : child.color} />
+                              <span className="truncate">{child.label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </li>
               );
             }

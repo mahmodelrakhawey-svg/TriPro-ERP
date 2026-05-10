@@ -383,10 +383,57 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // Assets & Cheques
-  const addAsset = async (asset: any) => { 
+  const addAsset = async (assetData: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('assets').insert({ ...asset, organization_id: targetOrgId }); 
+    
+    // 1. فصل تعليمات القيد المحاسبي عن بيانات الجدول الفعلية لتجنب خطأ 400
+    const { create_journal_entry, credit_account_id, ...dbPayload } = assetData;
+
+    // 2. تنظيف البيانات (تحويل القيم الفارغة إلى null)
+    const cleanedPayload = { ...dbPayload };
+    ['accumulated_depreciation_account_id', 'depreciation_expense_account_id'].forEach(key => {
+      if (cleanedPayload[key] === '') cleanedPayload[key] = null;
+    });
+
+    // 3. إدراج الأصل في قاعدة البيانات
+    const { data: newAsset, error } = await supabase
+      .from('assets')
+      .insert({ ...cleanedPayload, organization_id: targetOrgId })
+      .select()
+      .single(); 
+      
     if (error) throw error;
+
+    // 4. إنشاء قيد اليومية آلياً إذا طلب المستخدم ذلك
+    if (create_journal_entry && newAsset) {
+      try {
+        await addEntry({
+          date: newAsset.purchase_date || new Date().toISOString().split('T')[0],
+          description: `إثبات شراء أصل ثابت: ${newAsset.name}`,
+          reference: `ASSET-${newAsset.id.split('-')[0].toUpperCase()}`,
+          status: 'posted',
+          p_org_id: targetOrgId,
+          lines: [
+            {
+              account_id: newAsset.asset_account_id,
+              debit: newAsset.purchase_cost,
+              credit: 0,
+              description: `قيمة الأصل المشتري: ${newAsset.name}`
+            },
+            {
+              account_id: credit_account_id || getSystemAccount('OPENING_BALANCES')?.id,
+              debit: 0,
+              credit: newAsset.purchase_cost,
+              description: `سداد قيمة الأصل: ${newAsset.name}`
+            }
+          ]
+        });
+      } catch (jeError) {
+        console.error("Failed to create asset journal entry:", jeError);
+        showToast('تمت إضافة الأصل ولكن فشل إنشاء القيد آلياً، يرجى إنشاؤه يدوياً.', 'warning');
+      }
+    }
+
     await refreshData(); 
   };
   const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
