@@ -23,7 +23,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   SUPPLIERS: 'الموردين',
   VAT: 'ضريبة القيمة المضافة (مخرجات)',
   VAT_INPUT: 'ضريبة القيمة المضافة (مدخلات)',
-  CUSTOMER_DEPOSITS: 'تأمينات العملاء',
+  SECURITY_DEPOSIT_ACCOUNT: 'تأمينات ودفعات مقدمة من العملاء (226)',
   NOTES_PAYABLE: 'أوراق الدفع (شيكات صادرة)',
   SALES_REVENUE: 'إيراد المبيعات',
   OTHER_REVENUE: 'إيرادات أخرى',

@@ -163,6 +163,13 @@ ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS currency text DEFAU
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS production_warehouse_id uuid;
 ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS raw_material_warehouse_id uuid;
 ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
+ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
+ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
+ALTER TABLE public.sales_returns ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
+ALTER TABLE public.purchase_returns ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
+ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS notes text;
+ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id);
+
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN 
         ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); 
@@ -185,6 +192,15 @@ DO $$ BEGIN
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN 
         ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id); 
+    END IF;
+    -- توحيد مسمى رقم الطلب في المشتريات لضمان عمل الواجهة
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_orders' AND column_name = 'po_number') THEN
+        ALTER TABLE public.purchase_orders RENAME COLUMN po_number TO order_number;
+    END IF;    
+
+    -- توحيد مسمى عمود الربط في بنود أوامر الشراء
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_order_items' AND column_name = 'purchase_order_id') THEN
+        ALTER TABLE public.purchase_order_items RENAME COLUMN purchase_order_id TO order_id;
     END IF;
 END $$;
 
@@ -321,7 +337,7 @@ DROP CONSTRAINT IF EXISTS quotation_items_product_id_fkey,
 ADD CONSTRAINT quotation_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
 
 ALTER TABLE IF EXISTS public.purchase_order_items 
-DROP CONSTRAINT IF EXISTS purchase_order_items_product_id_fkey, ADD CONSTRAINT purchase_order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+DROP CONSTRAINT IF EXISTS purchase_order_items_product_id_fkey, ADD CONSTRAINT purchase_order_items_product_id_fkey FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE; -- هذا السطر لم يعد يحتاج لتغيير اسم العمود هنا، فقط في master_setup
 
 ALTER TABLE IF EXISTS public.receipt_vouchers 
 DROP CONSTRAINT IF EXISTS receipt_vouchers_customer_id_fkey, ADD CONSTRAINT receipt_vouchers_customer_id_fkey FOREIGN KEY (customer_id) REFERENCES public.customers(id) ON DELETE CASCADE;
@@ -485,9 +501,12 @@ DO $$ BEGIN
         ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS exchange_rate numeric DEFAULT 1;
         ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS delivery_fee numeric DEFAULT 0;
         ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id);
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_invoices' AND column_name='created_by') THEN
-            EXECUTE 'ALTER TABLE public.purchase_invoices ADD COLUMN created_by uuid GENERATED ALWAYS AS (user_id) STORED';
+        
+        -- حل مشكلة created_by: نجعلها عموداً عادياً لمرونة الإدخال
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_invoices' AND column_name='created_by' AND is_generated = 'ALWAYS') THEN
+            ALTER TABLE public.purchase_invoices DROP COLUMN created_by;
         END IF;
+        ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS created_by uuid;
     END IF;
 
     -- تحديث جدول الفواتير (invoices) - إصلاح تقرير حركة الصنف
@@ -812,3 +831,6 @@ BEGIN
         WHERE poi.purchase_order_id = po.id AND poi.organization_id IS NULL;
     END IF;
 END $$;
+-- 🚀 تحديث ذاكرة المخطط لضمان تعرف الـ API على التغييرات فوراً
+NOTIFY pgrst, 'reload config';
+SELECT '✅ تم فحص وتثبيت هيكل قاعدة البيانات بنجاح وتحديث ذاكرة المخطط.' as status;

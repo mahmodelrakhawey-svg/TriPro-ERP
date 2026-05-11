@@ -429,7 +429,7 @@ BEGIN
 END; $$;
 
 -- 🛠️ دالة تحويل أمر الشراء إلى فاتورة (Convert PO to Invoice)
-CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_org_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_org_id uuid DEFAULT NULL, p_warehouse_id uuid DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_po record; v_invoice_id uuid; v_inv_num text; v_target_org_id uuid;
@@ -450,7 +450,7 @@ BEGIN
         v_inv_num, v_po.supplier_id, now()::date, COALESCE(v_po.total_amount, 0), COALESCE(v_po.tax_amount, 0),
         COALESCE(v_po.total_amount, 0) - COALESCE(v_po.tax_amount, 0),
         'draft',
-        COALESCE(v_po.warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id LIMIT 1)),
+        COALESCE(p_warehouse_id, v_po.warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id LIMIT 1)),
         v_target_org_id,
         'محولة من أمر شراء رقم: ' || COALESCE(v_po.order_number, 'بدون رقم'),
         'EGP', 1, auth.uid()
@@ -467,9 +467,8 @@ END; $$;
 -- 🔓 منح صلاحية التنفيذ
 GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO anon;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid, uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.approve_invoice(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid) TO authenticated;
