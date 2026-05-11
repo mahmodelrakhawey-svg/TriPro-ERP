@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../services/supabaseClient';
-import { useAuth } from './AuthContext';
-import { useToast } from './ToastContext';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 
 export interface UserProfile {
   id: string;
@@ -34,7 +34,8 @@ export const SYSTEM_ACCOUNTS = {
   INVENTORY_WIP: '10303',
   INVENTORY_FINISHED_GOODS: '10302',
   LABOR_COST_ALLOCATED: '513',
-  WASTAGE_EXPENSE: '5121'
+  WASTAGE_EXPENSE: '5121',
+  SECURITY_DEPOSIT_ACCOUNT: '226'
 };
 
 interface AccountingContextType {
