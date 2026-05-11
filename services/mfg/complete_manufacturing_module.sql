@@ -1,4 +1,47 @@
 -- ================================================================
+-- ================================================================
+-- 0. تنظيف شامل للدوال والمشغلات القديمة
+-- ================================================================
+DO $$
+DECLARE
+    func_signature text;
+    trig_record record;
+    func_name text;
+BEGIN
+    FOR trig_record IN (
+        SELECT trigger_name, event_object_table FROM information_schema.triggers WHERE trigger_schema = 'public'
+        AND event_object_table IN ('mfg_production_orders', 'mfg_order_progress', 'orders', 'products')
+    ) LOOP
+        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', trig_record.trigger_name, trig_record.event_object_table);
+    END LOOP;
+
+    FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
+    LOOP
+        func_name := split_part(func_signature, '(', 1);
+        IF REPLACE(func_name, 'public.', '') IN (
+            'mfg_start_step', 'mfg_complete_step', 'mfg_finalize_order', 'mfg_create_orders_from_sales',
+            'mfg_calculate_standard_cost', 'mfg_update_product_standard_cost', 'mfg_check_stock_availability',
+            'mfg_record_scrap', 'mfg_merge_sales_orders', 'mfg_generate_batch_serials',
+            'mfg_update_selling_price_from_cost', 'mfg_get_product_genealogy', 'mfg_get_shop_floor_tasks',
+            'mfg_process_scan', 'mfg_check_efficiency_alerts', 'mfg_check_production_readiness',
+            'mfg_get_pending_invoices', 'mfg_calculate_production_variance', 'mfg_reserve_stock_for_order',
+            'mfg_create_material_request', 'mfg_issue_material_request', 'fn_mfg_auto_create_material_request',
+            'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order',
+            'mfg_start_production_orders_batch', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts',
+            'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover',
+            'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis'
+        ) THEN
+            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+        END IF;
+    END LOOP;
+END $$;
+
+-- 🛡️ صمام أمان للأعمدة
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
+
+-- ================================================================
 -- 2. دوال حساب التكاليف (التعريف المبكر لمنع أخطاء التبعية)
 -- ================================================================
 
@@ -22,130 +65,18 @@ BEGIN
     SELECT * INTO v_routing FROM public.mfg_routings 
     WHERE product_id = p_product_id AND organization_id = v_org_id AND is_default = true 
     LIMIT 1;
-
     IF NOT FOUND THEN
         SELECT * INTO v_routing FROM public.mfg_routings 
         WHERE product_id = p_product_id AND organization_id = v_org_id 
         LIMIT 1;
     END IF;
 
-    IF v_routing.id IS NULL THEN RETURN 0; END IF;
-
-    -- 2. حساب التكاليف لكل مرحلة في المسار
-    FOR v_step IN 
-        SELECT rs.*, wc.hourly_rate, wc.overhead_rate 
-        FROM public.mfg_routing_steps rs
-        LEFT JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
-        WHERE rs.routing_id = v_routing.id
-    LOOP
-        v_labor_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.hourly_rate, 0);
-        v_overhead_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.overhead_rate, 0);
-        SELECT SUM(sm.quantity_required * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
-        INTO v_material_cost
-        FROM public.mfg_step_materials sm
-        JOIN public.products p ON sm.raw_material_id = p.id
-        WHERE sm.step_id = v_step.id;
-        v_total_cost := v_total_cost + v_labor_cost + v_overhead_cost + COALESCE(v_material_cost, 0);
-    END LOOP;
-
-    RETURN ROUND(v_total_cost, 4);
-END; $$;
-
--- 📊 رؤى مديول التصنيع (MFG Module Views)
---- 🏭 ملف مديول التصنيع الشامل (Complete Manufacturing Module)
--- هذا الملف يجمع كافة الجداول، الرؤى، الدوال، والمشغلات الخاصة بمديول التصنيع
--- مع معالجة المشاكل التي تم رصدها وتحسين الأداء والاتساق.
-
--- ================================================================
--- 0. تنظيف شامل للدوال والمشغلات القديمة (لضمان التحديث السلس)
--- ================================================================
-DO $$
-DECLARE
-    func_signature text;
-    trig_record record;
-    func_name text;
-BEGIN
-    RAISE NOTICE '--- بدء عملية تنظيف دوال ومشغلات التصنيع القديمة ---';
-
-    -- 🛡️ المرحلة 0.أ: تنظيف كافة المشغلات (Triggers) القديمة المتعلقة بالتصنيع
-    FOR trig_record IN (
-        SELECT trigger_name, event_object_table
-        FROM information_schema.triggers
-        WHERE trigger_schema = 'public'
-        AND event_object_table IN (
-            'mfg_production_orders', 'mfg_order_progress', 'mfg_material_requests', 'orders',
-            'bill_of_materials', 'products'
-        )
-    ) LOOP
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', trig_record.trigger_name, trig_record.event_object_table);
-        RAISE NOTICE 'تم حذف المشغل: % على الجدول: %', trig_record.trigger_name, trig_record.event_object_table;
-    END LOOP;
-
-    -- 🛡️ المرحلة 0.ب: تنظيف كافة الدوال (Functions) القديمة المتعلقة بالتصنيع
-    FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
-    LOOP
-        func_name := split_part(func_signature, '(', 1);
-        IF REPLACE(func_name, 'public.', '') IN (
-            'mfg_start_step', 'mfg_complete_step', 'mfg_finalize_order', 'mfg_create_orders_from_sales',
-            'mfg_calculate_standard_cost', 'mfg_update_product_standard_cost', 'mfg_check_stock_availability',
-            'mfg_record_scrap', 'mfg_merge_sales_orders', 'mfg_generate_batch_serials',
-            'mfg_update_selling_price_from_cost', 'mfg_get_product_genealogy', 'mfg_get_shop_floor_tasks', 'trigger_handle_stock_on_order', 'mfg_deduct_stock_from_order',
-            'mfg_process_scan', 'mfg_check_efficiency_alerts', 'mfg_check_production_readiness',
-            'mfg_get_pending_invoices', 'mfg_calculate_production_variance', 'mfg_reserve_stock_for_order',
-            'mfg_create_material_request', 'mfg_issue_material_request', 'fn_mfg_auto_create_material_request',
-            'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order',
-            'mfg_start_production_orders_batch', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts',
-            'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover',
-            'mfg_test_full_cycle', 'mfg_test_pos_integration',
-            'get_product_recipe_cost' -- Dependencies (only if not moved to deploy_all_functionss)
-        ) THEN
-            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
-            RAISE NOTICE 'تم حذف الدالة: %', func_signature;
-        END IF;
-    END LOOP;
-    RAISE NOTICE '--- انتهت عملية تنظيف دوال ومشغلات التصنيع القديمة ---';
-END $$;
-
--- 🛡️ صمام أمان: التأكد من وجود عمود product_type في جدول المنتجات
--- هذا يحل مشكلة "column product_type does not exist" إذا تم إنشاء الجدول بنسخة قديمة
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;
-ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
-
--- ================================================================
--- 0.5 دوال حساب التكاليف الأساسية (لضمان وجودها للرؤى بعد التنظيف)
--- ================================================================
-
--- 🛠️ دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)
--- تقوم بحساب التكلفة المتوقعة للمنتج بناءً على الـ BOM والمسار الإنتاجي المعتمد
-CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid)
-RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER 
-SET search_path = public AS $$
-DECLARE
-    v_total_cost numeric := 0;
-    v_routing record;
-    v_step record;
-    v_org_id uuid;
-    v_labor_cost numeric;
-    v_material_cost numeric;
-    v_overhead_cost numeric;
-BEGIN
-    v_org_id := public.get_my_org();
-
-    -- 1. البحث عن المسار الافتراضي للمنتج
-    SELECT * INTO v_routing FROM public.mfg_routings 
-    WHERE product_id = p_product_id AND organization_id = v_org_id AND is_default = true 
-    LIMIT 1;
-
-    IF NOT FOUND THEN
-        SELECT * INTO v_routing FROM public.mfg_routings 
-        WHERE product_id = p_product_id AND organization_id = v_org_id 
-        LIMIT 1;
+    -- 🛡️ تحديث محاسبي: إذا لم يوجد مسار إنتاج، نعتمد على تكلفة وصفة المواد (BOM) كحد أدنى
+    IF v_routing.id IS NULL THEN 
+        RETURN public.get_product_recipe_cost(p_product_id);
     END IF;
 
-    IF v_routing.id IS NULL THEN RETURN 0; END IF;
-
-    -- 2. حساب التكاليف لكل مرحلة في المسار
+    -- 2. حساب تكاليف المراحل (عمالة + مصاريف + مواد)
     FOR v_step IN 
         SELECT rs.*, wc.hourly_rate, wc.overhead_rate 
         FROM public.mfg_routing_steps rs
@@ -164,6 +95,11 @@ BEGIN
 
     RETURN ROUND(v_total_cost, 4);
 END; $$;
+
+-- ================================================================
+-- 0.5 دوال حساب التكاليف الأساسية (لضمان وجودها للرؤى بعد التنظيف)
+-- تم نقلها إلى قسم الدوال الرئيسي
+-- ================================================================
 
 -- ================================================================
 -- 1. جداول مديول التصنيع (MFG Module Tables)
@@ -495,13 +431,13 @@ labor_summary AS (
 material_summary AS (
     SELECT po_id, SUM(cost) as total_material_cost
     FROM (
-        SELECT op.production_order_id as po_id, SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)) as cost
+        SELECT op.production_order_id as po_id, SUM(amu.actual_quantity * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
         FROM public.mfg_actual_material_usage amu
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         JOIN public.products rm ON amu.raw_material_id = rm.id
         GROUP BY op.production_order_id
         UNION ALL
-        SELECT mr.production_order_id as po_id, SUM(mri.quantity_issued * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0)) as cost
+        SELECT mr.production_order_id as po_id, SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) as cost
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id
@@ -560,7 +496,7 @@ GROUP BY po.id, po.order_number, p.name, po.quantity_to_produce, po.status, po.o
 -- 📊 تقرير ملخص شهري WIP
 DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
-SELECT to_char(po.created_at, 'YYYY-MM') AS month, p.name AS product_name, wc.name AS work_center_name, po.organization_id,
+SELECT to_char(op.actual_end_time, 'YYYY-MM') AS month, p.name AS product_name, wc.name AS work_center_name, po.organization_id,
        COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
        COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
        (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
@@ -707,43 +643,73 @@ END; $$;
 
 -- 🛠️ دالة حساب معدل دوران المواد الخام (Raw Material Turnover)
 CREATE OR REPLACE FUNCTION public.mfg_calculate_raw_material_turnover(
-    p_product_id uuid,
+    p_org_id uuid,
     p_start_date date,
     p_end_date date
 )
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
-    v_usage numeric;
-    v_avg_stock numeric;
-    v_org_id uuid;
+    v_usage_val numeric;
+    v_stock_val numeric;
 BEGIN
-    SELECT organization_id INTO v_org_id FROM public.products WHERE id = p_product_id;
-    
-    -- إجمالي الاستهلاك الفعلي للمادة الخام في الفترة
-    SELECT COALESCE(SUM(amu.actual_quantity), 0) INTO v_usage
+    -- حساب إجمالي قيمة المواد الخام المستهلكة فعلياً في الفترة للمنظمة بالكامل
+    SELECT COALESCE(SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, 0)), 0) 
+    INTO v_usage_val
     FROM public.mfg_actual_material_usage amu
     JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
-    WHERE amu.raw_material_id = p_product_id AND op.organization_id = v_org_id
+    JOIN public.products p ON amu.raw_material_id = p.id
+    WHERE op.organization_id = p_org_id
       AND op.actual_end_time::date BETWEEN p_start_date AND p_end_date;
 
-    -- متوسط المخزون (لتبسيط الحساب، نستخدم المخزون الحالي)
-    SELECT COALESCE(stock, 0) INTO v_avg_stock FROM public.products WHERE id = p_product_id AND organization_id = v_org_id;
+    -- حساب إجمالي قيمة مخزون المواد الخام الحالي للمنظمة
+    SELECT COALESCE(SUM(stock * COALESCE(weighted_average_cost, cost, 0)), 0) 
+    INTO v_stock_val 
+    FROM public.products 
+    WHERE organization_id = p_org_id AND mfg_type = 'raw';
 
-    RETURN CASE WHEN v_avg_stock > 0 THEN ROUND(v_usage / v_avg_stock, 2) ELSE 0 END;
+    RETURN CASE WHEN v_stock_val > 0 THEN ROUND(v_usage_val / v_stock_val, 2) ELSE 0 END;
 END; $$;
 
--- 🛠️ دالة جلب تكلفة الوجبة بناءً على المكونات (BOM)
-CREATE OR REPLACE FUNCTION public.get_product_recipe_cost(p_product_id uuid)
-RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_cost numeric;
+-- 🛠️ دالة جلب تقرير تحليل تكاليف الإنتاج (Manufacturing Cost Analysis)
+CREATE OR REPLACE FUNCTION public.get_manufacturing_analysis(
+    p_org_id uuid,
+    p_start_date date,
+    p_end_date date
+)
+RETURNS TABLE (
+    id uuid,
+    order_number text,
+    product_name text,
+    quantity numeric,
+    end_date date,
+    standard_cost numeric,
+    actual_cost numeric,
+    material_variance numeric,
+    wastage_qty numeric,
+    variance numeric,
+    variance_percent numeric
+) LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public AS $$
 BEGIN
-    SELECT COALESCE(SUM(bom.quantity_required * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0)), 0)
-    INTO v_cost
-    FROM public.bill_of_materials bom
-    JOIN public.products p ON bom.raw_material_id = p.id
-    WHERE bom.product_id = p_product_id;
-    RETURN v_cost;
+    RETURN QUERY
+    SELECT 
+        po.id,
+        po.order_number,
+        p.name as product_name,
+        po.quantity_to_produce as quantity,
+        COALESCE(po.end_date, po.created_at::date) as end_date,
+        COALESCE(vpop.estimated_cost, 0) as standard_cost,
+        COALESCE(vpop.total_actual_cost, 0) as actual_cost,
+        COALESCE((SELECT SUM(vbv.variance_qty) FROM public.v_mfg_bom_variance vbv WHERE vbv.order_number = po.order_number AND vbv.organization_id = p_org_id), 0) as material_variance,
+        COALESCE((SELECT SUM(sl_inner.quantity) FROM public.mfg_scrap_logs sl_inner JOIN public.mfg_order_progress op_inner ON sl_inner.order_progress_id = op_inner.id WHERE op_inner.production_order_id = po.id), 0) as wastage_qty,
+        (COALESCE(vpop.total_actual_cost, 0) - COALESCE(vpop.estimated_cost, 0)) as variance,
+        CASE WHEN COALESCE(vpop.estimated_cost, 0) > 0 THEN ROUND(((COALESCE(vpop.total_actual_cost, 0) - COALESCE(vpop.estimated_cost, 0)) / vpop.estimated_cost * 100), 2) ELSE 0 END as variance_percent
+    FROM public.mfg_production_orders po
+    JOIN public.products p ON po.product_id = p.id
+    LEFT JOIN public.v_mfg_order_profitability vpop ON po.id = vpop.order_id
+    WHERE po.organization_id = p_org_id
+      AND (po.end_date BETWEEN p_start_date AND p_end_date OR po.created_at::date BETWEEN p_start_date AND p_end_date)
+    ORDER BY po.created_at DESC;
 END; $$;
 
 -- 3.2. دوال إدارة أوامر الإنتاج والمراحل
@@ -937,7 +903,7 @@ BEGIN
     ), 0);
 
     v_total_cost := v_total_cost + COALESCE((
-        SELECT SUM(mri.quantity_issued * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
+        SELECT SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id
@@ -1087,9 +1053,23 @@ DECLARE
     v_prod_order_id uuid;
     v_batch_ref text;
     v_routing_id uuid;
+    v_order_nums text[];
 BEGIN
     v_org_id := public.get_my_org();
     v_batch_ref := 'BATCH-' || to_char(now(), 'YYMMDDHH24MI') || '-' || substring(gen_random_uuid()::text, 1, 4);
+
+    -- 🛡️ جلب أرقام الطلبات/الفواتير المحددة لتنظيف المسودات القديمة
+    SELECT array_agg(num) INTO v_order_nums FROM (
+        SELECT order_number as num FROM public.sales_orders WHERE id = ANY(p_invoice_ids)
+        UNION ALL
+        SELECT invoice_number as num FROM public.invoices WHERE id = ANY(p_invoice_ids)
+    ) t;
+
+    -- 🗑️ تنظيف: حذف أي أوامر إنتاج "مسودة" قديمة مرتبطة بهذه الطلبات لتجنب التكرار في لوحة التحكم
+    DELETE FROM public.mfg_production_orders 
+    WHERE organization_id = v_org_id 
+    AND status = 'draft' 
+    AND (batch_number = ANY(v_order_nums) OR order_number = ANY(v_order_nums));
 
     -- تجميع الكميات المطلوبة لكل منتج من أوامر البيع المحددة
     FOR v_item IN
@@ -1619,7 +1599,7 @@ BEGIN
         UPDATE public.products SET stock = stock - v_item.quantity_requested
         WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
 
-        SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_product_cost
+        SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) INTO v_product_cost
         FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
         v_total_issued_cost := v_total_issued_cost + (v_item.quantity_requested * v_product_cost);
         UPDATE public.mfg_material_request_items SET quantity_issued = v_item.quantity_requested WHERE id = v_item.id;
@@ -2150,7 +2130,11 @@ FOR EACH ROW EXECUTE FUNCTION public.trigger_handle_stock_on_order();
 CREATE OR REPLACE FUNCTION public.fn_mfg_auto_create_material_request()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF NEW.status = 'in_progress' AND (OLD.status IS NULL OR OLD.status = 'draft') THEN
+    -- إذا تم التحديث من مسودة إلى قيد التنفيذ
+    IF (TG_OP = 'UPDATE' AND NEW.status = 'in_progress' AND (OLD.status IS NULL OR OLD.status = 'draft')) THEN
+        PERFORM public.mfg_create_material_request(NEW.id);
+    -- أو إذا تم الإدراج وحالته مباشرة 'in_progress' (كما في حالة الدمج)
+    ELSIF (TG_OP = 'INSERT' AND NEW.status = 'in_progress') THEN
         PERFORM public.mfg_create_material_request(NEW.id);
     END IF;
     RETURN NEW;
@@ -2158,7 +2142,7 @@ END; $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trg_mfg_auto_material_request ON public.mfg_production_orders;
 CREATE TRIGGER trg_mfg_auto_material_request
-AFTER UPDATE OF status ON public.mfg_production_orders
+AFTER INSERT OR UPDATE OF status ON public.mfg_production_orders
 FOR EACH ROW EXECUTE FUNCTION public.fn_mfg_auto_create_material_request();
 
 -- ================================================================
@@ -2250,8 +2234,7 @@ GRANT EXECUTE ON FUNCTION public.mfg_check_variance_alerts(numeric) TO authentic
 GRANT EXECUTE ON FUNCTION public.mfg_check_cost_overrun_alerts(numeric) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_check_missing_serials_alerts() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_calculate_raw_material_turnover(uuid, date, date) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid) TO authenticated; -- Added missing grant
-GRANT EXECUTE ON FUNCTION public.get_my_org() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_manufacturing_analysis(uuid, date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_super_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
@@ -2336,6 +2319,13 @@ BEGIN
 
     -- ضمان أن الصنف دائماً يتبع نظام المخزن إذا كان صناعياً
     IF NEW.mfg_type IN ('standard', 'raw', 'intermediate') THEN NEW.product_type := 'STOCK'; END IF;
+    IF NEW.mfg_type = 'raw' THEN
+        NEW.product_type := 'RAW_MATERIAL';
+    ELSIF NEW.mfg_type = 'standard' THEN
+        NEW.product_type := 'FINISHED_GOODS';
+    ELSIF NEW.mfg_type = 'intermediate' THEN
+        NEW.product_type := 'INTERMEDIATE_PRODUCT';
+    END IF;
 
     RETURN NEW;
 END; $$ LANGUAGE plpgsql SECURITY DEFINER;

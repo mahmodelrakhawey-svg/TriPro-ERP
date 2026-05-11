@@ -57,11 +57,14 @@ BEGIN
             'repair_all_admin_permissions', 'clear_demo_data', 'get_admin_platform_metrics',
             'fix_unbalanced_journal_entry', 'approve_stock_transfer', 'cancel_stock_transfer', 'post_inventory_count', 'check_account_is_not_group',
             'get_account_balance_at_date', 'fn_validate_journal_entry_balance', 'test_saas_isolation',
-            'test_wac_logic', 'trigger_handle_stock_on_order', 'mfg_deduct_stock_from_order', 
-            'mfg_test_pos_integration', 'mfg_test_full_cycle',
-            'get_product_recipe_cost', 'trg_fn_sync_product_costs_on_update',
-            'add_journal_entry'
+        'test_wac_logic', 'trigger_handle_stock_on_order', 'trg_fn_sync_product_costs_on_update'
         ) THEN
+            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+        END IF;
+
+        -- 🚀 تحسين: حذف ديناميكي لدوال التصنيع التي تبدأ بـ 'mfg_'
+        -- هذا يقلل من الحاجة لتحديث القائمة يدوياً ويضمن إزالة دوال التصنيع القديمة
+        IF REPLACE(func_name, 'public.', '') LIKE 'mfg\_%' THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
     END LOOP;
@@ -1161,6 +1164,20 @@ BEGIN
       AND p.deleted_at IS NULL
       AND p.product_type = 'STOCK'
       AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = p.id);
+END; $$;
+
+-- 🛠️ دالة جلب تكلفة الوجبة بناءً على المكونات (BOM)
+CREATE OR REPLACE FUNCTION public.get_product_recipe_cost(p_product_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_cost numeric;
+BEGIN
+    SELECT COALESCE(SUM(bom.quantity_required * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0)), 0)
+    INTO v_cost
+    FROM public.bill_of_materials bom
+    JOIN public.products p ON bom.raw_material_id = p.id
+    WHERE bom.product_id = p_product_id;
+    RETURN v_cost;
 END; $$;
 
 -- 🛠️ دالة إغلاق الوردية

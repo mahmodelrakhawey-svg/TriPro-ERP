@@ -7,14 +7,14 @@
 1. `services/master_setup.sql`
    - الأساس الهيكلي: يُنشئ الجداول الأساسية للنظام (الحسابات، المنظمات، العملاء، إلخ).
 
-2. `services/mfg/complete_manufacturing_module.sql`
-   - مديول التصنيع: يُنشئ جداول التصنيع (BOM، أوامر الإنتاج) والدوال الخاصة بها بشكل معزول.
-
-3. `services/system_stabilization.sql`
+2. `services/updated_system_stabilization.sql`
    - درع الحماية (The Shield): يوحد الأعمدة، ويقوم بترميم البيانات اليتيمة، ويفعل سياسة العزل الآلي (SaaS Isolation) لكافة جداول النظام.
 
-4. `services/deploy_all_functionss.sql`
+3. `services/deploy_all_functionss.sql`
    - المحرك الوظيفي: يُنشئ كافة الدوال البرمجية (RPCs) للدورة المستندية (مبيعات، مخزون، رواتب، مطعم).
+
+4. `services/mfg/complete_manufacturing_module.sql`
+   - مديول التصنيع: يُنشئ جداول التصنيع والدوال الخاصة بها (يجب تشغيله بعد ملف الدوال لضمان وجود دواله الخاصة).
 
 5. `services/setup_rls.sql`
    - السياسات الخاصة: يضبط صلاحيات "السوبر أدمن" (Bypass) والقيود الحساسة (مثل الرواتب).
