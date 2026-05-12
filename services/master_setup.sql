@@ -16,7 +16,7 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated;
 DO $$ 
 DECLARE 
     t text;
-    tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers'];
+    tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'sales_orders', 'sales_order_items', 'employees', 'employee_advances'];
     dup record;
     tables_with_user_id text[] := ARRAY['orders', 'journal_entries', 'shifts', 'table_sessions', 'cash_closings', 'organization_backups', 'notifications', 'receipt_vouchers', 'payment_vouchers'];
     user_id_table text;
@@ -47,6 +47,31 @@ BEGIN
         ALTER TABLE public.company_settings 
             ADD COLUMN IF NOT EXISTS production_warehouse_id uuid,
             ADD COLUMN IF NOT EXISTS raw_material_warehouse_id uuid;
+    END IF;
+
+    -- 🛡️ ترميم جداول أوامر البيع (Sales Orders Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_orders' AND table_schema = 'public') THEN
+        ALTER TABLE public.sales_orders 
+            ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT 0;
+    END IF;
+
+    -- 🛡️ ترميم جدول الموظفين (Employees Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees' AND table_schema = 'public') THEN
+        ALTER TABLE public.employees 
+            ADD COLUMN IF NOT EXISTS name text,
+            ADD COLUMN IF NOT EXISTS position text,
+            ADD COLUMN IF NOT EXISTS department text,
+            ADD COLUMN IF NOT EXISTS notes text,
+            ADD COLUMN IF NOT EXISTS status text DEFAULT 'active',
+            ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
+            ALTER COLUMN name DROP NOT NULL,
+            ALTER COLUMN full_name DROP NOT NULL;
+    END IF;
+
+    -- 🛡️ ترميم جدول الفواتير (Invoices Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices' AND table_schema = 'public') THEN
+        ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS exchange_rate numeric(19,4) DEFAULT 1;
     END IF;
 
     -- 1. إضافة عمود المنظمة المفقود (Multi-tenancy Enforcer)
@@ -497,7 +522,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     labor_cost numeric(19,4) DEFAULT 0,
     overhead_cost numeric(19,4) DEFAULT 0,
     is_overhead_percentage boolean DEFAULT false,
-    opening_balance numeric DEFAULT 0,
+    opening_balance numeric(19,4) DEFAULT 0,
     weighted_average_cost numeric(19,4) DEFAULT 0,
     stock numeric DEFAULT 0,
     unit text,
@@ -561,7 +586,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     cost_center_id uuid REFERENCES public.cost_centers(id),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     currency text DEFAULT 'EGP',
-    exchange_rate numeric DEFAULT 1,
+    exchange_rate numeric(19,4) DEFAULT 1,
     approver_id uuid REFERENCES auth.users(id), -- عمود جديد
     reference text, -- عمود جديد
     deleted_at timestamptz,
@@ -579,6 +604,8 @@ CREATE TABLE IF NOT EXISTS public.sales_orders (
     order_date date DEFAULT now(),
     status text DEFAULT 'draft', -- draft, confirmed, manufacturing, ready, invoiced
     total_amount numeric DEFAULT 0,
+    subtotal numeric DEFAULT 0,
+    tax_amount numeric DEFAULT 0,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     notes text,
     created_at timestamptz DEFAULT now() NOT NULL,
@@ -740,12 +767,19 @@ CREATE TABLE IF NOT EXISTS public.order_items (
 -- الموارد البشرية
 CREATE TABLE IF NOT EXISTS public.employees (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    full_name text NOT NULL,
+    full_name text, -- المسمى المعتمد في الكود الجديد (تم إلغاء NOT NULL للاستقرار)
+    name text,              -- للتوافق مع قواعد البيانات القديمة
+    position text,
+    phone text,
+    email text,
     salary numeric DEFAULT 0,
     hire_date date,
+    department text,
+    notes text,              -- 🛠️ الإصلاح المطلوب لخطأ السكيما
     status text DEFAULT 'active',
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
-    created_at timestamptz DEFAULT now()
+    created_at timestamptz DEFAULT now(),
+    deleted_at timestamptz
 );
 
 CREATE TABLE IF NOT EXISTS public.kitchen_orders (
@@ -807,11 +841,13 @@ CREATE TABLE IF NOT EXISTS public.employee_advances (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
     amount numeric NOT NULL DEFAULT 0,
+    request_date date DEFAULT now(),
     advance_date date DEFAULT now(),
     status text DEFAULT 'paid', -- paid, deducted, cancelled
     payroll_item_id uuid,
     treasury_account_id uuid REFERENCES public.accounts(id),
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    reference text,          -- 🛠️ إضافة عمود المرجع (Reference) المسبب للخطأ
     notes text,
     created_at timestamptz DEFAULT now()
 );

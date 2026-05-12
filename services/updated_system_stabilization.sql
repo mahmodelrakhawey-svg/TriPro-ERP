@@ -178,6 +178,8 @@ DO $$ BEGIN
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
         ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+        ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS exchange_rate numeric(19,4) DEFAULT 1;
+        ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS tax_rate numeric DEFAULT 0; -- 🛡️ إضافة عمود tax_rate لـ invoice_items
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS due_date date; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS discount_amount numeric DEFAULT 0; END IF;
@@ -701,10 +703,54 @@ END $$;
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees') THEN ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payrolls') THEN ALTER TABLE public.payrolls ADD COLUMN IF NOT EXISTS status text DEFAULT 'draft'; END IF;
+    -- 🛠️ تحصين جدول الموظفين وإصلاح قيود الأسماء (Stabilization Fix)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees') THEN 
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS department text;
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS notes text;
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS position text;
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS status text DEFAULT 'active';
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+        
+        -- إزالة قيود NOT NULL المسببة للأخطاء
+        ALTER TABLE public.employees ALTER COLUMN name DROP NOT NULL;
+        ALTER TABLE public.employees ALTER COLUMN full_name DROP NOT NULL;
+
+        -- مزامنة البيانات التاريخية
+        UPDATE public.employees SET full_name = name WHERE full_name IS NULL AND name IS NOT NULL;
+        UPDATE public.employees SET name = full_name WHERE name IS NULL AND full_name IS NOT NULL;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payroll_items') THEN ALTER TABLE public.payroll_items ADD COLUMN IF NOT EXISTS payroll_tax numeric DEFAULT 0; END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employee_advances') THEN ALTER TABLE public.employee_advances ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id); END IF;
+    -- 🛠️ تحصين جدول السلف وإصلاح خطأ ENCES (Stabilization Fix)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employee_advances') THEN 
+        ALTER TABLE public.employee_advances ADD COLUMN IF NOT EXISTS request_date date DEFAULT now();
+        ALTER TABLE public.employee_advances ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id);
+        ALTER TABLE public.employee_advances ADD COLUMN IF NOT EXISTS reference text;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'profiles') THEN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(); END IF;
 END $$;
+
+-- 🛠️ إصلاح أرصدة التصنيع اليتيمة (Fixing Orphaned Manufacturing Stock)
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_orders') THEN
+        UPDATE public.mfg_production_orders po
+        SET warehouse_id = (SELECT id FROM public.warehouses WHERE organization_id = po.organization_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
+        WHERE warehouse_id IS NULL AND status = 'completed';
+    END IF;
+END $$;
+
+-- ⚙️ تريجر مزامنة أسماء الموظفين (Double-Naming Guard)
+CREATE OR REPLACE FUNCTION public.fn_sync_employee_names()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.full_name := COALESCE(NEW.full_name, NEW.name);
+    NEW.name := COALESCE(NEW.name, NEW.full_name);
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_sync_emp_names ON public.employees;
+CREATE TRIGGER trg_sync_emp_names
+BEFORE INSERT OR UPDATE ON public.employees
+FOR EACH ROW EXECUTE FUNCTION public.fn_sync_employee_names();
 
 -- ============================================================
 -- 6. إصلاح نظام الإشعارات (Notifications Fix)
@@ -828,7 +874,7 @@ BEGIN
         UPDATE public.purchase_order_items poi
         SET organization_id = po.organization_id
         FROM public.purchase_orders po
-        WHERE poi.purchase_order_id = po.id AND poi.organization_id IS NULL;
+        WHERE poi.order_id = po.id AND poi.organization_id IS NULL;
     END IF;
 END $$;
 -- 🚀 تحديث ذاكرة المخطط لضمان تعرف الـ API على التغييرات فوراً

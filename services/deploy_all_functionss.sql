@@ -350,6 +350,81 @@ BEGIN
     PERFORM public.approve_purchase_invoice(p_invoice_id);
 END; $$;
 
+-- 🛠️ دالة تحويل أمر البيع إلى فاتورة (Convert Sales Order to Invoice)
+CREATE OR REPLACE FUNCTION public.convert_so_to_invoice(p_so_id uuid, p_warehouse_id uuid DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_so record;
+    v_invoice_id uuid;
+    v_inv_num text;
+    v_target_org_id uuid;
+    v_final_wh_id uuid;
+    v_customer_id uuid;
+    v_salesperson_id uuid;
+    v_calculated_subtotal numeric := 0;
+    v_calculated_tax_amount numeric := 0;
+    v_calculated_total_amount numeric := 0;
+    v_notes text;
+    v_currency text;
+    v_exchange_rate numeric := 1;
+    v_vat_rate numeric;
+BEGIN
+    -- 1. جلب تفاصيل أمر البيع
+    SELECT * INTO v_so FROM public.sales_orders WHERE id = p_so_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'أمر البيع غير موجود'; END IF;
+
+    -- 2. تحديد معرف المنظمة
+    v_target_org_id := COALESCE(v_so.organization_id, public.get_my_org());
+    IF v_target_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة لأمر البيع.'; END IF;
+
+    -- 3. جلب إعدادات الشركة لمعدل الضريبة والعملة والمستودع الافتراضي
+    SELECT vat_rate, currency, default_warehouse_id
+    INTO v_vat_rate, v_currency, v_final_wh_id
+    FROM public.company_settings
+    WHERE organization_id = v_target_org_id LIMIT 1;
+
+    v_vat_rate := COALESCE(v_vat_rate, 0.14); -- معدل ضريبة القيمة المضافة الافتراضي
+    v_currency := COALESCE(v_currency, 'EGP');
+
+    -- 4. تحديد المستودع النهائي
+    v_final_wh_id := COALESCE(p_warehouse_id, v_final_wh_id, (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id AND deleted_at IS NULL LIMIT 1));
+    IF v_final_wh_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المستودع للفاتورة.'; END IF;
+
+    -- 5. 🛡️ إصلاح الاستقرار: استخدام القيم المسجلة في الطلب أو حسابها بدقة
+    IF COALESCE(v_so.subtotal, 0) > 0 THEN
+        v_calculated_subtotal := v_so.subtotal;
+        v_calculated_tax_amount := v_so.tax_amount;
+        v_calculated_total_amount := v_so.total_amount;
+    ELSE
+        SELECT COALESCE(SUM(soi.quantity * soi.unit_price), 0), COALESCE(SUM(soi.quantity * soi.unit_price * v_vat_rate), 0)
+        INTO v_calculated_subtotal, v_calculated_tax_amount
+        FROM public.sales_order_items soi WHERE soi.sales_order_id = p_so_id;
+        v_calculated_total_amount := v_calculated_subtotal + v_calculated_tax_amount;
+    END IF;
+
+    -- 6. توليد رقم الفاتورة
+    v_inv_num := 'INV-SO-' || COALESCE(v_so.order_number, substring(p_so_id::text, 1, 8));
+
+    -- 7. إعداد تفاصيل الفاتورة
+    v_customer_id := v_so.customer_id;
+    v_salesperson_id := auth.uid(); -- المستخدم الحالي هو مندوب المبيعات
+    v_notes := 'محولة من أمر بيع رقم: ' || COALESCE(v_so.order_number, 'بدون رقم');
+    -- v_created_by is removed as 'created_by' is a GENERATED ALWAYS column
+
+    -- 8. إدراج الفاتورة في جدول public.invoices
+    INSERT INTO public.invoices (invoice_number, customer_id, salesperson_id, user_id, invoice_date, due_date, total_amount, tax_amount, subtotal, status, notes, warehouse_id, organization_id, currency, exchange_rate)
+    VALUES (v_inv_num, v_customer_id, v_salesperson_id, auth.uid(), now()::date, now()::date + interval '30 days', v_calculated_total_amount, v_calculated_tax_amount, v_calculated_subtotal, 'draft', v_notes, v_final_wh_id, v_target_org_id, v_currency, v_exchange_rate) RETURNING id INTO v_invoice_id;
+
+    -- 9. إدراج بنود الفاتورة في جدول public.invoice_items
+    INSERT INTO public.invoice_items (invoice_id, product_id, quantity, unit_price, cost, organization_id, tax_rate)
+    SELECT v_invoice_id, soi.product_id, soi.quantity, soi.unit_price, COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0), v_target_org_id, v_vat_rate * 100
+    FROM public.sales_order_items soi JOIN public.products p ON soi.product_id = p.id WHERE soi.sales_order_id = p_so_id;
+
+    -- 10. تحديث حالة أمر البيع
+    UPDATE public.sales_orders SET status = 'invoiced' WHERE id = p_so_id;
+
+    RETURN v_invoice_id;
+END; $$;
 -- 🛠️ دالة ترحيل مرتجع المشتريات (Approve Purchase Return)
 CREATE OR REPLACE FUNCTION public.approve_purchase_return(p_return_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -443,21 +518,28 @@ BEGIN
 
     v_inv_num := 'PI-FROM-' || COALESCE(v_po.order_number, substring(p_po_id::text, 1, 8));
 
+    -- 🛡️ إصلاح الاستقرار: ترتيب الأعمدة والقيم بدقة لمنع فشل إنشاء الدالة
     INSERT INTO public.purchase_invoices (
-        invoice_number, supplier_id, invoice_date, total_amount, tax_amount, subtotal,
-        status, warehouse_id, organization_id, notes, currency, exchange_rate, created_by
+        invoice_number, supplier_id, user_id, invoice_date, total_amount, tax_amount, subtotal,
+        status, warehouse_id, organization_id, notes, currency, exchange_rate
     ) VALUES (
-        v_inv_num, v_po.supplier_id, now()::date, COALESCE(v_po.total_amount, 0), COALESCE(v_po.tax_amount, 0),
+        v_inv_num, 
+        v_po.supplier_id, 
+        auth.uid(), -- user_id
+        now()::date, -- invoice_date
+        COALESCE(v_po.total_amount, 0), 
+        COALESCE(v_po.tax_amount, 0),
         COALESCE(v_po.total_amount, 0) - COALESCE(v_po.tax_amount, 0),
         'draft',
         COALESCE(v_po.warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id LIMIT 1)),
         v_target_org_id,
         'محولة من أمر شراء رقم: ' || COALESCE(v_po.order_number, 'بدون رقم'),
-        'EGP', 1, auth.uid()
+        'EGP', 
+        1
     ) RETURNING id INTO v_invoice_id;
 
     INSERT INTO public.purchase_invoice_items (purchase_invoice_id, product_id, quantity, unit_price, organization_id)
-    SELECT v_invoice_id, product_id, quantity, unit_price, v_org_id
+    SELECT v_invoice_id, product_id, quantity, unit_price, v_target_org_id
     FROM public.purchase_order_items WHERE order_id = p_po_id;
 
     UPDATE public.purchase_orders SET status = 'invoiced' WHERE id = p_po_id;
@@ -472,6 +554,8 @@ GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.approve_invoice(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.convert_so_to_invoice(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.convert_so_to_invoice(uuid, uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid) TO anon;
 
@@ -589,7 +673,12 @@ BEGIN
                 q_out := q_out + temp_val;
 
                 -- ح. الإنتاج المصنع (وارد للمنتج التام)
-                SELECT COALESCE(SUM(quantity_to_produce), 0) INTO temp_val FROM public.mfg_production_orders WHERE product_id = prod.id AND warehouse_id = wh_rec.id AND status = 'completed' AND organization_id = prod.organization_id;
+                -- 🚀 تحسين: احتساب الأوامر التي تنتمي لهذا المستودع أو الأوامر التي لا تمتلك مستودعاً (تُنسب لأول مستودع)
+                SELECT COALESCE(SUM(quantity_to_produce), 0) INTO temp_val 
+                FROM public.mfg_production_orders 
+                WHERE product_id = prod.id AND status = 'completed' AND organization_id = prod.organization_id
+                AND (warehouse_id = wh_rec.id OR (warehouse_id IS NULL AND wh_rec.id = (SELECT id FROM public.warehouses WHERE organization_id = prod.organization_id ORDER BY created_at ASC LIMIT 1)));
+                
                 q_in := q_in + temp_val;
 
                 -- ط. المواد المستهلكة في التصنيع (صادر للمواد الخام)
@@ -1179,11 +1268,10 @@ BEGIN
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, COALESCE(SUM(total_tax), 0) as tax,
         COALESCE((SELECT SUM(delivery_fee) FROM public.delivery_orders WHERE order_id IN (SELECT id FROM shift_orders)), 0) as total_delivery_fees,
-        -- 🚀 محرك التكلفة المطور: يجمع التكلفة الشاملة (مواد + عمالة + إضافات) من بطاقة الصنف مباشرة
+        -- 🛡️ إصلاح الاستقرار: الاعتماد على التكلفة المسجلة في بند الطلب وقت البيع لضمان الدقة التاريخية
         COALESCE((
-            SELECT SUM(oi.quantity * COALESCE(prod.cost, prod.weighted_average_cost, prod.purchase_price, 0))
+            SELECT SUM(oi.quantity * COALESCE(oi.unit_cost, 0))
             FROM public.order_items oi
-            JOIN public.products prod ON oi.product_id = prod.id
             WHERE oi.order_id IN (SELECT id FROM shift_orders)
             AND oi.organization_id = v_shift.organization_id
         ), 0) as cost_total,
@@ -3457,7 +3545,7 @@ GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authe
 GRANT EXECUTE ON FUNCTION public.approve_purchase_return(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid) TO authenticated; -- 🛠️ إضافة صلاحية لدالة ترحيل المشتريات
 GRANT EXECUTE ON FUNCTION public.get_shift_summary(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
 
 -- تنشيط كاش النظام
 NOTIFY pgrst, 'reload config';

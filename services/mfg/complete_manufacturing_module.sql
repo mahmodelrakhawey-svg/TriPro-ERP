@@ -29,7 +29,7 @@ BEGIN
             'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order',
             'mfg_start_production_orders_batch', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts',
             'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover',
-            'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis'
+            'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis', 'get_product_recipe_cost'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
@@ -44,6 +44,20 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 
 -- ================================================================
 -- 2. دوال حساب التكاليف (التعريف المبكر لمنع أخطاء التبعية)
 -- ================================================================
+
+-- 🛠️ دالة جلب تكلفة الوجبة بناءً على المكونات (BOM) - حجر زاوية مفقود تم إضافته
+CREATE OR REPLACE FUNCTION public.get_product_recipe_cost(p_product_id uuid)
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_cost numeric;
+BEGIN
+    SELECT COALESCE(SUM(bom.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)), 0)
+    INTO v_cost
+    FROM public.bill_of_materials bom
+    JOIN public.products p ON bom.raw_material_id = p.id
+    WHERE bom.product_id = p_product_id;
+    RETURN v_cost;
+END; $$;
 
 -- 🛠️ دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)
 -- تقوم بحساب التكلفة المتوقعة للمنتج بناءً على الـ BOM والمسار الإنتاجي المعتمد
@@ -875,6 +889,12 @@ BEGIN
 
     v_org_id := v_order.organization_id;
 
+    -- 🛡️ صمام أمان: ضمان وجود مستودع للأمر قبل الإغلاق لمنع تشتت المخزون
+    IF v_order.warehouse_id IS NULL THEN
+        v_order.warehouse_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1);
+        UPDATE public.mfg_production_orders SET warehouse_id = v_order.warehouse_id WHERE id = p_order_id;
+    END IF;
+
     -- معالجة حالة "إعادة التشغيل"
     IF p_final_status = 'rework' THEN
         UPDATE public.mfg_production_orders SET status = 'in_progress', notes = COALESCE(notes, '') || E'\nإعادة تشغيل: ' || p_qc_notes WHERE id = p_order_id;
@@ -922,6 +942,9 @@ BEGIN
                 SELECT stock, weighted_average_cost INTO v_old_stock, v_old_wac
                 FROM public.products
                 WHERE id = v_order.product_id AND organization_id = v_org_id;
+                
+                -- 🛡️ تصحيح منطق WAC: إذا كان المخزون الدفتري سالباً بسبب خطأ، نعتبره صفراً للحساب الجديد
+                v_old_stock := GREATEST(COALESCE(v_old_stock, 0), 0);
 
                 -- تجنب القسمة على صفر إذا كان المخزون القديم والكمية المنتجة صفر
                 IF (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce) > 0 THEN
@@ -2235,6 +2258,7 @@ GRANT EXECUTE ON FUNCTION public.mfg_check_cost_overrun_alerts(numeric) TO authe
 GRANT EXECUTE ON FUNCTION public.mfg_check_missing_serials_alerts() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_calculate_raw_material_turnover(uuid, date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_manufacturing_analysis(uuid, date, date) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_super_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
@@ -2303,28 +2327,37 @@ BEGIN
         v_fg_acc := (v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid;
 
         -- 🚀 منطق توجيه ذكي مطور (Bi-directional Routing)
-        -- أ. إذا تم اختيار حساب مخزون الخامات (10301) يدوياً، نثبت نوع الصنف كـ خامة
+        -- أ. التوجيه بناءً على الحساب المختار يدوياً
         IF NEW.inventory_account_id = v_raw_acc THEN
             NEW.mfg_type := 'raw';
-        -- ب. إذا تم اختيار حساب المنتج التام (10302) يدوياً، نثبت نوع الصنف كـ منتج تام
         ELSIF NEW.inventory_account_id = v_fg_acc THEN
             NEW.mfg_type := 'standard';
-        -- ج. إذا تم إرسال النوع ولم يتم اختيار حساب، نقوم بالربط الآلي
-        ELSIF NEW.mfg_type = 'raw' AND NEW.inventory_account_id IS NULL THEN
+        END IF;
+
+        -- ب. الربط الآلي للحساب بناءً على النوع المختار (معالجة عدم حساسية الحالة)
+        IF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('raw', 'raw_material') AND NEW.inventory_account_id IS NULL THEN
             NEW.inventory_account_id := v_raw_acc;
-        ELSIF NEW.mfg_type = 'standard' AND NEW.inventory_account_id IS NULL THEN
+        ELSIF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('standard', 'finished_goods', 'standard_product') AND NEW.inventory_account_id IS NULL THEN
             NEW.inventory_account_id := v_fg_acc;
         END IF;
     END IF;
 
-    -- ضمان أن الصنف دائماً يتبع نظام المخزن إذا كان صناعياً
-    IF NEW.mfg_type IN ('standard', 'raw', 'intermediate') THEN NEW.product_type := 'STOCK'; END IF;
-    IF NEW.mfg_type = 'raw' THEN
+    -- 🛠️ تثبيت الأنواع ومنع التحول التلقائي لـ STOCK (Stabilization Fix)
+    -- نستخدم COALESCE و LOWER لضمان عدم الفشل في مطابقة القيم
+    IF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('raw', 'raw_material') THEN
         NEW.product_type := 'RAW_MATERIAL';
-    ELSIF NEW.mfg_type = 'standard' THEN
+        NEW.item_type := 'STOCK';
+    ELSIF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('standard', 'finished_goods', 'standard_product') THEN
+    ELSIF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('standard', 'finished_goods', 'standard_product', 'finished', 'product') THEN
         NEW.product_type := 'FINISHED_GOODS';
-    ELSIF NEW.mfg_type = 'intermediate' THEN
+        NEW.item_type := 'STOCK';
+    ELSIF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('intermediate', 'intermediate_product') THEN
         NEW.product_type := 'INTERMEDIATE_PRODUCT';
+        NEW.item_type := 'STOCK';
+    ELSE
+        -- في حال لم يكن صنفاً صناعياً (مثل الخدمات أو الأصناف التجارية العادية)
+        NEW.item_type := COALESCE(NEW.item_type, 'STOCK');
+        NEW.product_type := COALESCE(NEW.product_type, NEW.item_type);
     END IF;
 
     RETURN NEW;

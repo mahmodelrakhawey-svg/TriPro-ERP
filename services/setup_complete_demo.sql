@@ -410,6 +410,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
     name text NOT NULL,
     position text,
     phone text,
+    department text, -- 🛠️ إضافة عمود القسم (Department)
     email text,
     salary numeric, -- basic salary
     hire_date date,
