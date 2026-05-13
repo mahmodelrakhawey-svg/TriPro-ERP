@@ -185,6 +185,7 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS discount_amount numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS treasury_account_id uuid REFERENCES public.accounts(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS cost_center_id uuid REFERENCES public.cost_centers(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN
         ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
     END IF;
@@ -538,10 +539,32 @@ DO $$ BEGIN
         END IF;
     END IF;
 
-    -- 3. إعادة إنشاء created_by كعمود "افتراضي" يعكس user_id دائماً لضمان عمل الواجهة الأمامية
+    -- 3. [تصحيح] تحويل created_by لعمود عادي لتمكين الإدخال المباشر من الواجهة
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by' AND is_generated = 'ALWAYS') THEN
+        ALTER TABLE public.invoices DROP COLUMN created_by;
+    END IF;
+
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by') THEN
-        -- نستخدم EXECUTE لضمان أن المترجم يرى عمود user_id الجديد
-        EXECUTE 'ALTER TABLE public.invoices ADD COLUMN created_by uuid GENERATED ALWAYS AS (user_id) STORED';
+        ALTER TABLE public.invoices ADD COLUMN created_by uuid REFERENCES public.profiles(id);
+    END IF;
+
+    -- 🛠️ تحديث جدول إقفال الصندوق (cash_closings) - حل مشكلة missing created_by
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'cash_closings') THEN
+        -- إضافة الأعمدة التقنية المفقودة لضمان استقرار العمليات
+        ALTER TABLE public.cash_closings ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+        
+        -- 1. ضمان وجود عمود user_id (المسمى المعتمد في الباك-إند)
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cash_closings' AND column_name='user_id') THEN
+            ALTER TABLE public.cash_closings ADD COLUMN user_id uuid REFERENCES public.profiles(id);
+        END IF;
+
+        -- 2. إنشاء created_by كعمود "افتراضي" يعكس user_id لضمان عمل الواجهة الأمامية
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cash_closings' AND column_name='created_by') THEN
+            -- نستخدم EXECUTE لضمان أن المترجم يرى عمود user_id 
+            EXECUTE 'ALTER TABLE public.cash_closings ADD COLUMN created_by uuid GENERATED ALWAYS AS (user_id) STORED';
+        END IF;
+        
+        RAISE NOTICE '✅ تم ترميم جدول إقفال الصندوق وتفعيل عمود created_by التوافقي.';
     END IF;
 
     -- تحديث جدول أوامر التصنيع (work_orders) - إصلاح تقرير حركة الصنف
@@ -728,13 +751,95 @@ DO $$ BEGIN
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'profiles') THEN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(); END IF;
 END $$;
-
--- 🛠️ إصلاح أرصدة التصنيع اليتيمة (Fixing Orphaned Manufacturing Stock)
-DO $$ BEGIN
+-- 🛠️ إصلاح أرصدة التصنيع والتكاليف المشوهة (MFG Data Repair)
+DO $$ 
+DECLARE
+    v_org_id uuid;
+    v_main_wh uuid;
+BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_orders') THEN
+        -- 1. إسناد المستودع الرئيسي لأوامر الإنتاج "اليتيمة" (التي ليس لها مستودع) لكي يراها محرك المخزون
         UPDATE public.mfg_production_orders po
         SET warehouse_id = (SELECT id FROM public.warehouses WHERE organization_id = po.organization_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
         WHERE warehouse_id IS NULL AND status = 'completed';
+
+        -- 2. تصحيح متوسط التكلفة (WAC) للأصناف التي تضررت بسبب الأرصدة السالبة أو الأخطاء الحسابية
+        IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'mfg_calculate_standard_cost' AND pronamespace = 'public'::regnamespace) THEN
+            EXECUTE 'UPDATE public.products p
+                     SET weighted_average_cost = public.mfg_calculate_standard_cost(id),
+                         cost = public.mfg_calculate_standard_cost(id)
+                     WHERE weighted_average_cost < 0 OR weighted_average_cost > 1000000';
+        END IF;
+    END IF;
+END $$;
+
+-- 🛠️ تحديث جدول إقفال الصندوق (cash_closings) - حل مشكلة missing created_by والناقص من الأعمدة
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'cash_closings') THEN
+        -- إضافة الأعمدة التقنية المفقودة لضمان استقرار العمليات
+        ALTER TABLE public.cash_closings ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
+        
+        -- 1. ضمان وجود عمود user_id (المسمى المعتمد في الباك-إند)
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cash_closings' AND column_name='user_id') THEN
+            ALTER TABLE public.cash_closings ADD COLUMN user_id uuid REFERENCES public.profiles(id);
+        END IF;
+
+        -- 2. [تصحيح حاسم] تحويل created_by لعمود عادي لتمكين الإدخال المباشر من الواجهة (حل خطأ 400)
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cash_closings' AND column_name='created_by' AND is_generated = 'ALWAYS') THEN
+            ALTER TABLE public.cash_closings DROP COLUMN created_by;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='cash_closings' AND column_name='created_by') THEN
+            ALTER TABLE public.cash_closings ADD COLUMN created_by uuid REFERENCES public.profiles(id);
+        END IF;
+
+        RAISE NOTICE '✅ تم ترميم جدول إقفال الصندوق وتفعيل عمود created_by التوافقي.';
+    END IF;
+
+    -- 🛠️ ضمان وجود جدول التسويات البنكية (bank_reconciliations) - حل خطأ PGRST205
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'bank_reconciliations') THEN
+        CREATE TABLE public.bank_reconciliations (
+            id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+            account_id uuid REFERENCES public.accounts(id) ON DELETE CASCADE,
+            statement_date date NOT NULL,
+            statement_balance numeric DEFAULT 0,
+            book_balance numeric DEFAULT 0,
+            opening_balance numeric DEFAULT 0,
+            total_deposits numeric DEFAULT 0,
+            total_payments numeric DEFAULT 0,
+            reconciled_ids jsonb DEFAULT '[]'::jsonb,
+            status text DEFAULT 'draft',
+            notes text,
+            organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+            created_at timestamptz DEFAULT now(),
+            updated_at timestamptz DEFAULT now()
+        );
+        ALTER TABLE public.bank_reconciliations ENABLE ROW LEVEL SECURITY;
+        RAISE NOTICE '✅ تم إنشاء جدول التسويات البنكية (bank_reconciliations).';
+    END IF;
+END $$;
+
+-- ============================================================
+-- 🛠️ دالة مشغل مزامنة هويات المستخدمين (User ID Compatibility Layer)
+-- الغرض: ضمان بقاء user_id و created_by متطابقين بغض النظر عما ترسله الواجهة
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.fn_sync_user_id_compatibility()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.user_id := COALESCE(NEW.user_id, NEW.created_by, auth.uid());
+    NEW.created_by := COALESCE(NEW.created_by, NEW.user_id, auth.uid());
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+-- تطبيق المشغلات على الجداول التي تعاني من ازدواجية المسميات
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
+        DROP TRIGGER IF EXISTS trg_sync_invoice_users ON public.invoices;
+        CREATE TRIGGER trg_sync_invoice_users BEFORE INSERT OR UPDATE ON public.invoices FOR EACH ROW EXECUTE FUNCTION public.fn_sync_user_id_compatibility();
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cash_closings') THEN
+        DROP TRIGGER IF EXISTS trg_sync_cash_users ON public.cash_closings;
+        CREATE TRIGGER trg_sync_cash_users BEFORE INSERT OR UPDATE ON public.cash_closings FOR EACH ROW EXECUTE FUNCTION public.fn_sync_user_id_compatibility();
     END IF;
 END $$;
 
@@ -757,6 +862,13 @@ FOR EACH ROW EXECUTE FUNCTION public.fn_sync_employee_names();
 -- ============================================================
 DO $$
 BEGIN
+    -- سياسة الوصول لجدول التسويات البنكية
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bank_reconciliations') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can manage their org bank reconciliations' AND tablename = 'bank_reconciliations') THEN
+            CREATE POLICY "Users can manage their org bank reconciliations" ON public.bank_reconciliations FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+        END IF;
+    END IF;
+
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'notifications') THEN
         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notifications' AND column_name = 'notification_type') THEN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notifications' AND column_name = 'type') THEN

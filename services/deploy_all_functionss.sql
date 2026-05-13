@@ -10,23 +10,27 @@ DECLARE
     trig_record record;
     func_name text;
 BEGIN
-    -- 🛡️ المرحلة 0.أ: تنظيف كافة المشغلات (Triggers) القديمة لضمان "بداية نظيفة" (Clean Slate)
-    -- هذا الجزء يمنع تعطل العمليات بسبب مشغلات قديمة تشير لدوال تم تغيير توقيعها أو حذفها
-    FOR trig_record IN (
-        SELECT trigger_name, event_object_table 
-        FROM information_schema.triggers 
-        WHERE trigger_schema = 'public'
-        -- نستهدف فقط الجداول التي يديرها النظام لضمان الأمان وعدم المساس بإضافات أخرى
-        AND event_object_table IN (
-            'products', 'invoices', 'purchase_invoices', 'orders', 'order_items',
-            'kitchen_orders', 'journal_entries', 'accounts', 'bill_of_materials', 
-            'modifier_groups', 'payments', 'assets', 'menu_categories', 'item_categories',
-            'purchase_invoice_items', 'invoice_items', 'stock_adjustment_items', 'shifts'
-            , 'stock_transfer_items', 'inventory_count_items', 'mfg_production_orders', 'mfg_order_progress', 'mfg_material_requests'
-        )
-    ) LOOP
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', trig_record.trigger_name, trig_record.event_object_table);
-    END LOOP;
+    -- 🛡️ المرحلة 0.أ: التطهير الجذري للمشغلات (Aggressive Trigger Purge)
+    -- نحذف كافة المشغلات التي قد تحتوي على منطق فحص مخزون قديم
+    DECLARE
+        v_target_tables text[] := ARRAY['products', 'invoices', 'invoice_items', 'orders', 'order_items', 'purchase_invoices', 'purchase_invoice_items', 'stock_adjustments'];
+        v_tbl text;
+        v_trg text;
+    BEGIN
+        FOREACH v_tbl IN ARRAY v_target_tables LOOP
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = v_tbl) THEN
+                FOR v_trg IN (SELECT tgname FROM pg_trigger JOIN pg_class ON pg_trigger.tgrelid = pg_class.oid WHERE relname = v_tbl AND NOT tgisinternal) 
+                LOOP
+                    BEGIN
+                        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', v_trg, v_tbl);
+                        RAISE NOTICE '✅ Removed trigger % from table %', v_trg, v_tbl;
+                    EXCEPTION WHEN OTHERS THEN
+                        RAISE WARNING '⚠️ Could not drop trigger %: %', v_trg, SQLERRM;
+                    END;
+                END LOOP;
+            END IF;
+        END LOOP;
+    END;
 
     FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
     LOOP
@@ -161,42 +165,81 @@ DECLARE
     v_invoice record; v_item record; v_org_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid; v_discount_acc_id uuid; v_treasury_acc_id uuid;
     v_customer_acc_id uuid; v_cogs_acc_id uuid; v_inventory_acc_id uuid; v_journal_id uuid;
     v_total_cost numeric := 0; v_item_cost numeric; v_mappings jsonb;
+    v_allow_negative_stock boolean; v_current_stock numeric; v_item_details record; v_final_org uuid; v_session_org uuid; v_wh_stock numeric;
 BEGIN
     -- 1. التحقق من الفاتورة
+     RAISE NOTICE 'DEBUG: Starting approve_invoice for invoice_id=%', p_invoice_id;
+   
     SELECT * INTO v_invoice FROM public.invoices WHERE id = p_invoice_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الفاتورة غير موجودة'; END IF;
+    IF v_invoice.status IN ('posted', 'paid') THEN RETURN; END IF; -- منع التكرار
 
-    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
-    DELETE FROM public.journal_entries WHERE related_document_id = p_invoice_id AND related_document_type = 'invoice';
+     -- 🛡️ محرك استنتاج الهوية المطور (Identity Resolution Engine)
+    v_session_org := public.get_my_org();
+    v_final_org := COALESCE(v_invoice.organization_id, v_session_org);
+   
+    IF v_final_org IS NULL THEN
+        SELECT p.organization_id INTO v_final_org 
+        FROM public.invoice_items ii JOIN public.products p ON ii.product_id = p.id 
+        WHERE ii.invoice_id = p_invoice_id LIMIT 1;
+    END IF;
+    RAISE NOTICE 'DEBUG: Session Org: %, Invoice Org: %, Final Org: %', v_session_org, v_invoice.organization_id, v_final_org;
 
-    -- تم إزالة شرط الـ RETURN للسماح بإعادة الترحيل وتحديث البيانات عند التعديل (Re-posting)
+   IF v_final_org IS NULL THEN 
+        RAISE EXCEPTION '❌ [خطأ هوية حرج]: لم يتم العثور على معرف منظمة للفاتورة أو الأصناف. (Session Org: %, Invoice Org: %)', v_session_org, v_invoice.organization_id; 
+    END IF;
+    RAISE NOTICE 'DEBUG: Using org_id: %', v_final_org;
 
-    -- 🛡️ حماية من "سباق الزمن": لا تنشئ قيداً إذا لم تكن بنود الفاتورة قد وصلت بعد لقاعدة البيانات
-    -- هذا يضمن عدم إنشاء قيد الإيراد بدون قيد التكلفة عند التحويل الآلي
+    v_org_id := v_final_org;
+    RAISE NOTICE 'DEBUG: Fetching company settings for org_id: %', v_org_id;
+    DELETE FROM public.journal_entries WHERE organization_id = v_org_id AND related_document_id = p_invoice_id AND related_document_type = 'invoice';
+    
     IF NOT EXISTS (SELECT 1 FROM public.invoice_items WHERE invoice_id = p_invoice_id) THEN RETURN; END IF; -- 🛡️ حماية من "سباق الزمن"
     
-    -- 🛡️ تأمين معرف المنظمة (SaaS Protection) - حل مشكلة عروض الأسعار
-    -- نعتمد على المنظمة المسجلة في الفاتورة، أو منظمة المستخدم، أو منظمة العميل كخيار أخير
-    v_org_id := COALESCE(v_invoice.organization_id, public.get_my_org(), (SELECT organization_id FROM public.customers WHERE id = v_invoice.customer_id));
-    IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من صلاحيات الوصول.'; END IF;
 
-    -- ترميم المنظمة في الفاتورة إذا كانت مفقودة لضمان تماسك البيانات
-    IF v_invoice.organization_id IS NULL THEN UPDATE public.invoices SET organization_id = v_org_id WHERE id = p_invoice_id; END IF;
 
     -- 2. جلب روابط الحسابات من إعدادات الشركة (Scoped by Org)
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
+    SELECT account_mappings, allow_negative_stock INTO v_mappings, v_allow_negative_stock FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1;
+    RAISE NOTICE 'DEBUG: Allow Negative Stock: %', v_allow_negative_stock;
 
-    -- 3. جلب الحسابات (الأولوية للربط المخصص Mapping ثم الكود الافتراضي)
-    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1));
-    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1));
-    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1));
-    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1));
-    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
-    v_discount_acc_id := COALESCE((v_mappings->>'SALES_DISCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '413' AND organization_id = v_org_id AND deleted_at IS NULL LIMIT 1)); -- Ensure this account exists
+    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code IN ('411', '4101') AND organization_id = v_org_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code IN ('2231', '2103') AND organization_id = v_org_id LIMIT 1));
+    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('1221', '1102') AND organization_id = v_org_id LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('511', '5101') AND organization_id = v_org_id LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10302', '1105') AND organization_id = v_org_id LIMIT 1));
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
     IF v_sales_acc_id IS NULL OR v_customer_acc_id IS NULL OR v_cogs_acc_id IS NULL OR v_inventory_acc_id IS NULL THEN
         RAISE EXCEPTION 'حسابات المبيعات أو المخزون غير معرّفة لهذه المنظمة.';
+    END IF;
+    RAISE NOTICE 'DEBUG: Accounts fetched: Sales=% Customer=% COGS=% Inventory=%', v_sales_acc_id, v_customer_acc_id, v_cogs_acc_id, v_inventory_acc_id;
+
+    -- 4. 🛡️ التحقق من توفر المخزون
+    
+    IF COALESCE(v_allow_negative_stock, false) = false THEN
+           RAISE NOTICE 'DEBUG: Checking stock availability for each item.';
+
+            FOR v_item_details IN 
+            SELECT p.id, p.name, p.stock, p.organization_id as prod_org, ii.quantity as req_qty, p.product_type, p.warehouse_stock
+            FROM public.invoice_items ii
+            JOIN public.products p ON ii.product_id = p.id -- Join with products to get product_type
+            WHERE ii.invoice_id = p_invoice_id
+        LOOP
+            IF v_item_details.product_type IN ('SERVICE', 'NON_STOCK') THEN CONTINUE; END IF;
+            RAISE NOTICE 'DEBUG: Item % (Prod Org: %) - Current Stock: %, Required: %', v_item_details.name, v_item_details.prod_org, v_item_details.stock, v_item_details.req_qty;
+
+            -- فحص الرصيد في المستودع المحدد للفاتورة حصراً
+            v_wh_stock := COALESCE((v_item_details.warehouse_stock->>v_invoice.warehouse_id::text)::numeric, 0);
+
+            -- إذا وجدنا أن الصنف يتبع شركة أخرى، نعطيك رسالة تفصيلية بدلاً من "رصيد غير كافٍ"
+            IF v_item_details.prod_org != v_org_id THEN
+                RAISE EXCEPTION '❌ [خطأ تضارب]: الصنف "%" يتبع شركة (%) بينما تحاول بيعه من شركة (%). يرجى توحيد المنظمة.', 
+                    v_item_details.name, (SELECT name FROM public.organizations WHERE id = v_item_details.prod_org), (SELECT name FROM public.organizations WHERE id = v_org_id);
+            ELSIF v_wh_stock < v_item_details.req_qty THEN
+                RAISE EXCEPTION '❌ [عجز مستودع]: الصنف "%" رصيده (%) في المستودع المختار، بينما المطلوب (%). (الرصيد الكلي في الشركة: %)', 
+                    v_item_details.name, v_wh_stock, v_item_details.req_qty, v_item_details.stock;
+            END IF;
+        END LOOP;
     END IF;
 
     -- 4. تحديث المخزون وحساب تكلفة البضاعة المباعة (COGS)
@@ -3548,6 +3591,10 @@ GRANT EXECUTE ON FUNCTION public.get_shift_summary(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
 
 -- تنشيط كاش النظام
+-- ملاحظة: تم وضع NOTIFY خارج كتلة PL/pgSQL لأنها أمر SQL مباشر
 NOTIFY pgrst, 'reload config';
 
--- نهاية ملف الدوال السيادية
+DO $$ 
+BEGIN
+    RAISE NOTICE '🚀 تم نشر وتحديث كافة الدوال بنجاح.';
+END $$;

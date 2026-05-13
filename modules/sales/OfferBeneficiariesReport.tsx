@@ -17,11 +17,11 @@ const OfferBeneficiariesReport = () => {
   const reportData = useMemo(() => {
     const data: any[] = [];
     
-    invoices.forEach(inv => {
+    invoices?.forEach(inv => {
       if (inv.status === 'draft' || inv.date < startDate || inv.date > endDate) return;
       if (selectedCustomerId !== 'all' && inv.customerId !== selectedCustomerId) return;
 
-      inv.items.forEach(item => {
+      inv.items?.forEach(item => {
         const product = products.find(p => p.id === item.productId);
         if (!product) return;
 
@@ -82,11 +82,11 @@ const OfferBeneficiariesReport = () => {
     let offerSalesTotal = 0;
     let regularSalesTotal = 0;
 
-    invoices.forEach(inv => {
+    invoices?.forEach(inv => {
       if (inv.status === 'draft' || inv.date < startDate || inv.date > endDate) return;
       if (selectedCustomerId !== 'all' && inv.customerId !== selectedCustomerId) return;
 
-      inv.items.forEach(item => {
+      inv.items?.forEach(item => {
         const product = products.find(p => p.id === item.productId);
         if (!product) return;
 

@@ -570,9 +570,12 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     if (!settings.allowNegativeStock) { // Use handleError for consistency
         for (const item of items) {
             const product = products.find(p => p.id === item.productId);
-            const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
+            const selectedWarehouse = warehouses.find(w => w.id === formData.warehouseId);
+            // 🛡️ إصلاح: الوصول للمخزون باستخدام الاسم الصحيح للعمود في قاعدة البيانات (warehouse_stock)
+            const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
+            const stockInWarehouse = Number(warehouseStock?.[formData.warehouseId] || 0);
             if (item.quantity > stockInWarehouse) { // Use handleError for consistency
-                showToast(`رصيد غير كافٍ للصنف "${item.productName}" - المتوفر: ${stockInWarehouse}`, 'error');
+                showToast(`❌ [عجز مخزني]: الصنف "${item.productName}" رصيده (${stockInWarehouse}) في مستودع "${selectedWarehouse?.name || 'المختار'}"، والمطلوب (${item.quantity}). يرجى اختيار المستودع الصحيح.`, 'error');
                 setSaving(false);
                 return;
             }
@@ -580,20 +583,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
 
     setSaving(true);
-
-    // 🔍 فحص وجود تكلفة للأصناف لضمان توليد قيد الصرف (إصلاح خطأ TS2339)
-    const itemsWithNoCost = items.filter(item => {
-        const p = products.find(prod => prod.id === item.productId) as any;
-        return (p?.weighted_average_cost || p?.cost || p?.purchase_price || 0) <= 0;
-    });
-
-    if (itemsWithNoCost.length > 0) {
-        const itemNames = itemsWithNoCost.map(i => i.productName).join('، ');
-        if (!window.confirm(`تنبيه: الأصناف التالية ليس لها تكلفة مسجلة: (${itemNames}). لن يتم إنشاء قيد صرف مخزون لها. هل تريد المتابعة على أي حال؟`)) {
-            setSaving(false);
-            return;
-        }
-    }
+    // ... (تم حذف الفحص المكرر والتنبيهات المزعجة لتبسيط الواجهة)
 
     try {
         const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
@@ -602,18 +592,6 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (!userOrgId) {
             throw new AppError('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'ORG_ID_MISSING', 'critical');
         }
-
-    if (!settings.allowNegativeStock) {
-        for (const item of items) {
-            const product = products.find(p => p.id === item.productId);
-            const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
-            if (item.quantity > stockInWarehouse) {
-                showToast(`رصيد غير كافٍ للصنف "${item.productName}"`, 'error');
-                setSaving(false);
-                return;
-            }
-        }
-    }
 
     if (currentUserRole === 'demo') { // Use handleError for consistency
         await new Promise(resolve => setTimeout(resolve, 600));
@@ -780,12 +758,15 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         showToast('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع', 'warning'); // Use handleError for consistency
         return;
     }
-    if (!settings.allowNegativeStock) {
+    if (!settings.allowNegativeStock) { // Use handleError for consistency
         for (const item of items) {
             const product = products.find(p => p.id === item.productId);
-            const stockInWarehouse = product?.warehouseStock?.[formData.warehouseId] || 0;
-            if (item.quantity > stockInWarehouse) { // Use handleError for consistency
-                showToast(`رصيد غير كافٍ للصنف "${item.productName}"`, 'error');
+            const selectedWarehouse = warehouses.find(w => w.id === formData.warehouseId);
+            // 🛡️ إصلاح: الوصول للمخزون باستخدام الاسم الصحيح للعمود في قاعدة البيانات (warehouse_stock)
+            const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
+            const stockInWarehouse = Number(warehouseStock?.[formData.warehouseId] || 0);
+            if (item.quantity > stockInWarehouse) { 
+                showToast(`❌ [عجز مخزني]: الصنف "${item.productName}" رصيده (${stockInWarehouse}) في مستودع "${selectedWarehouse?.name || 'المختار'}"، والمطلوب (${item.quantity}). يرجى اختيار المستودع الصحيح.`, 'error');
                 return;
             }
         }
@@ -900,9 +881,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const getProductStock = (productId?: string) => {
       if (!productId || !formData.warehouseId) return 0;
       const product = products.find(p => p.id === productId);
-      // Note: In a real app, stock should be fetched per warehouse. // Use handleError for consistency
-      // Here we use the global stock for simplicity or assume single warehouse logic if not implemented fully.
-      return product?.stock || 0;
+      // 🛡️ تصحيح: عرض المخزون الخاص بالمستودع المختار حصراً لمنع تضليل المستخدم
+      const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
+      return Number(warehouseStock?.[formData.warehouseId] || 0);
   };
 
   const handlePrint = () => {

@@ -10,6 +10,9 @@ CREATE TABLE IF NOT EXISTS public.cash_closings (
     difference numeric DEFAULT 0,
     notes text,
     status text DEFAULT 'closed',
-    created_by uuid REFERENCES auth.users(id),
-    created_at timestamptz DEFAULT now()
+    user_id uuid REFERENCES public.profiles(id),
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now()
 );
+-- ملاحظة: سيتم إضافة created_by كعمود افتراضي عبر سكربت updated_system_stabilization
