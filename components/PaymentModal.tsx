@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../../supabaseClient';
-import { useAccounting } from '../../context/AccountingContext';
-import { useToast } from '../../context/ToastContext';
+import { supabase } from '../services/supabaseClient';
+import { useAccounting } from '../context/AccountingContext';
+import { useToast } from '../context/ToastContext';
 import { X, CreditCard, Banknote, Wallet, CheckCircle2, Loader2, Receipt } from 'lucide-react';
 
 interface Props {
@@ -11,7 +11,7 @@ interface Props {
 }
 
 export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) => {
-  const { addEntry, getSystemAccount } = useAccounting();
+  const { completeRestaurantOrder, getSystemAccount, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -41,70 +41,23 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
   const handleProcessPayment = async () => {
     setSubmitting(true);
     try {
-      // 1. حساب الحسابات المتأثرة من الدليل المحاسبي
-      const salesAccount = getSystemAccount('SALES_REVENUE');
-      const vatAccount = getSystemAccount('VAT');
-
-      const paymentAccount = paymentMethod === 'CASH' 
+      // 1. تحديد حساب التحصيل (خزينة أو بنك)
+      const paymentAccount = paymentMethod === 'CASH'
         ? getSystemAccount('CASH') 
-        : getSystemAccount('BANK_ACCOUNTS'); // التأكد من استخدام المفتاح الصحيح بدلاً من BANKS
+        : getSystemAccount('BANK_ACCOUNTS');
 
-      if (!salesAccount || !vatAccount || !paymentAccount) {
-        throw new Error('يرجى التأكد من إعداد الحسابات النظامية في الدليل المحاسبي (CASH, BANK_ACCOUNTS, VAT, SALES_REVENUE)');
+      if (!paymentAccount) {
+        throw new Error('يرجى التأكد من إعداد حسابات التحصيل (CASH, BANK_ACCOUNTS) في الإعدادات');
       }
 
-      // 2. تحديث حالة الطلب
-      const { error: orderError } = await supabase
-        .from('orders')
-        .update({ status: 'COMPLETED', updated_at: new Date().toISOString() })
-        .eq('id', orderId);
-      if (orderError) throw orderError;
-
-      // 3. تسجيل الدفع
-      const { error: payError } = await supabase
-        .from('payments')
-        .insert([{
-          order_id: orderId,
-          payment_method: paymentMethod,
-          amount: order.grand_total,
-          status: 'COMPLETED'
-        }]);
-      if (payError) throw payError;
-
-      // 4. إنشاء قيد اليومية المحاسبي
-      const journalEntry = {
-        date: new Date().toISOString().split('T')[0],
-        reference: order.order_number,
-        description: `إيراد مبيعات مطعم - فاتورة رقم ${order.order_number}`,
-        status: 'posted' as const,
-        lines: [
-          {
-            accountId: paymentAccount.id,
-            debit: order.grand_total,
-            credit: 0,
-            description: `تحصيل مبيعات - ${paymentMethod === 'CASH' ? 'نقدي' : 'شبكة'}`
-          },
-          {
-            accountId: salesAccount.id,
-            debit: 0,
-            credit: order.subtotal,
-            description: `إيراد مبيعات أصناف الطلب ${order.order_number}`
-          },
-          {
-            accountId: vatAccount.id,
-            debit: 0,
-            credit: order.total_tax,
-            description: `ضريبة القيمة المضافة المحصلة 15%`
-          }
-        ]
-      };
-
-      await addEntry(journalEntry);
-
-      // 5. إذا كان الطلب من نوع Dine-In، نغلق جلسة الطاولة
-      if (order.session_id) {
-        await supabase.rpc('close_table_session', { p_session_id: order.session_id });
-      }
+      // 2. استخدام الدالة السيادية الموحدة (RPC) لإتمام العملية بالكامل في قاعدة البيانات
+      // هذا يضمن (تحديث الطلب + تسجيل الدفع + إنشاء القيد + إغلاق الطاولة) في خطوة واحدة آمنة
+      await completeRestaurantOrder(
+        orderId,
+        paymentMethod,
+        order.grand_total,
+        paymentAccount.id
+      );
 
       showToast('تمت عملية الدفع وترحيل القيد بنجاح', 'success');
       onSuccess();

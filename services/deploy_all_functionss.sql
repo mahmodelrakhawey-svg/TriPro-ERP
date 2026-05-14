@@ -39,13 +39,14 @@ BEGIN
         IF REPLACE(func_name, 'public.', '') = 'create_public_order' THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
+        IF REPLACE(func_name, 'public.', '') = 'post_cheque_journal_entry' THEN EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature); END IF; -- Keep this to drop old versions
 
         -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح. تم تحديث القائمة لتشمل دوال التصنيع الجديدة.
         IF REPLACE(func_name, 'public.', '') IN ( -- Deduplicated and updated list
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher', 'approve_purchase_return',
             'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher', 'convert_po_to_invoice',
             'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
-            'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'recalculate_all_balances',
+            'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'get_pending_payment_orders', 'recalculate_all_balances',
             'open_table_session', 
             'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa',
             'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift',
@@ -67,11 +68,12 @@ BEGIN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
 
-        -- 🚀 تحسين: حذف ديناميكي لدوال التصنيع التي تبدأ بـ 'mfg_'
-        -- هذا يقلل من الحاجة لتحديث القائمة يدوياً ويضمن إزالة دوال التصنيع القديمة
-        IF REPLACE(func_name, 'public.', '') LIKE 'mfg\_%' THEN
-            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
-        END IF;
+        -- 🛡️ تم إيقاف الحذف التلقائي لدوال التصنيع هنا لمنع تعطل المديول
+        -- عند تشغيل ملفات تثبيت النظام العامة. 
+        -- مديول التصنيع يدير تنظيف نفسه في ملفه الخاص.
+        -- IF REPLACE(func_name, 'public.', '') LIKE 'mfg\_%' THEN
+        --     EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+        -- END IF;
     END LOOP;
 
 END $$;
@@ -143,15 +145,86 @@ AS $$
 DECLARE
     v_target_org uuid;
 BEGIN
-    -- 🛡️ تحديد المنظمة المستهدفة بذكاء لتجنب استثناءات 400
     v_target_org := COALESCE(p_org_id, public.get_my_org());
     
-    -- 🚀 تحسين: استخدام مستعار الجدول (s) لضمان إرجاع كائن سجل متوافق تماماً
     RETURN (SELECT s FROM public.shifts s 
             WHERE user_id = COALESCE(p_user_id, auth.uid())
             AND end_time IS NULL 
+            -- حماية: الوردية تظل مفتوحة فقط لمدة 12 ساعة، بعدها يجب فتح واحدة جديدة يدوياً
+            AND start_time >= (now() - interval '12 hours')
             AND organization_id = v_target_org
             LIMIT 1);
+END; $$;
+
+-- 🛠️ دالة جلب الطلب النشط لطاولة (Fix 404 get_open_table_order)
+CREATE OR REPLACE FUNCTION public.get_open_table_order(p_table_id uuid)
+RETURNS json LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_session record;
+    v_order record;
+    v_items json;
+    v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+
+    -- 1. البحث عن جلسة مفتوحة لهذه الطاولة في هذه المنظمة
+    SELECT * INTO v_session FROM public.table_sessions 
+    WHERE table_id = p_table_id AND status = 'OPEN' AND end_time IS NULL AND organization_id = v_org_id
+    LIMIT 1;
+
+    IF v_session.id IS NULL THEN RETURN NULL; END IF;
+
+    -- 2. البحث عن الطلب المفتوح (CONFIRMED وغير مدفوع)
+    SELECT * INTO v_order FROM public.orders 
+    WHERE session_id = v_session.id AND status NOT IN ('CANCELLED', 'DRAFT', 'posted', 'paid', 'PAID', 'COMPLETED')
+    AND organization_id = v_org_id
+    ORDER BY created_at DESC LIMIT 1;
+
+    IF v_order.id IS NULL THEN
+        RETURN json_build_object('sessionId', v_session.id, 'orderId', NULL, 'items', '[]'::json);
+    END IF;
+
+    -- 3. جلب الأصناف بتنسيق متوافق مع واجهة ActiveOrder
+    SELECT json_agg(t) INTO v_items FROM (
+        SELECT 
+            oi.id,
+            oi.product_id as "productId",
+            p.name,
+            oi.quantity,
+            oi.unit_price as "unitPrice",
+            oi.unit_cost as "unitCost",
+            oi.notes,
+            oi.modifiers as "selectedModifiers",
+            oi.quantity as "savedQuantity"
+        FROM public.order_items oi
+        JOIN public.products p ON oi.product_id = p.id
+        WHERE oi.order_id = v_order.id
+    ) t;
+
+    RETURN json_build_object(
+        'sessionId', v_session.id,
+        'orderId', v_order.id,
+        'items', COALESCE(v_items, '[]'::json)
+    );
+END; $$;
+
+-- 🛠️ دالة حجز طاولة
+CREATE OR REPLACE FUNCTION public.reserve_table(p_table_id uuid, p_customer_name text, p_arrival_time text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    UPDATE public.restaurant_tables 
+    SET status = 'RESERVED',
+        reservation_info = jsonb_build_object('customerName', p_customer_name, 'arrivalTime', p_arrival_time)
+    WHERE id = p_table_id AND organization_id = public.get_my_org();
+    RETURN FOUND;
+END; $$;
+
+-- 🛠️ دالة إلغاء حجز
+CREATE OR REPLACE FUNCTION public.cancel_reservation(p_table_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    UPDATE public.restaurant_tables SET status = 'AVAILABLE', reservation_info = NULL 
+    WHERE id = p_table_id AND organization_id = public.get_my_org();
 END; $$;
 
 -- ================================================================
@@ -675,10 +748,24 @@ DECLARE
     total_qty numeric;
     wh_stock jsonb;
     wh_rec RECORD;
+    v_final_org uuid;
 BEGIN
+    -- 🛡️ محرك ذكي لتحديد النطاق (SaaS Scope Resolver)
+    -- إذا كان المستخدم "سوبر أدمن" وترك المعرف فارغاً، يتم إعادة الاحتساب لكافة الشركات (Global Sync)
+    -- أما المستخدم العادي، فيجبر على منظمته الحالية فقط حتى لو أرسل NULL
+    IF p_org_id IS NULL AND public.get_my_role() != 'super_admin' THEN
+        v_final_org := public.get_my_org();
+    ELSE
+        v_final_org := p_org_id;
+    END IF;
+
+    IF v_final_org IS NULL THEN
+        RAISE NOTICE '🚀 جاري بدء إعادة احتساب المخزون الشامل لكافة المنظمات بالنظام (Global User Power)...';
+    END IF;
+
     -- 🛡️ محرك إعادة احتساب المخزون الشامل (SaaS Multi-tenant Engine)
     FOR prod IN SELECT id, organization_id FROM public.products 
-               WHERE (p_org_id IS NULL OR organization_id = p_org_id) 
+               WHERE (v_final_org IS NULL OR organization_id = v_final_org) 
                  AND deleted_at IS NULL LOOP
         total_qty := 0;
         wh_stock := '{}'::jsonb;
@@ -770,7 +857,73 @@ BEGIN
     END LOOP;
 END;
 $$;
+-- 🛠️ دالة إتمام طلب المطعم (Complete Restaurant Order)
+CREATE OR REPLACE FUNCTION public.complete_restaurant_order(
+    p_amount numeric,
+    p_cash_account_id uuid,
+    p_order_id uuid,
+    p_payment_method text, -- Not directly used in accounting logic, but required by signature
+    p_org_id uuid DEFAULT NULL -- Make it optional as it might be passed or inferred
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_order record;
+    v_journal_id uuid;
+    v_customer_acc_id uuid;
+    v_sales_acc_id uuid;
+    v_vat_acc_id uuid;
+    v_cogs_acc_id uuid;
+    v_inventory_acc_id uuid;
+    v_mappings jsonb;
+    v_total_cost numeric := 0;
+    v_org_id_final uuid;
+BEGIN
+    SELECT * INTO v_order FROM public.orders WHERE id = p_order_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'الطلب غير موجود.'; END IF;
 
+    -- Determine the final organization ID, prioritizing passed p_org_id, then order's org_id, then current user's org.
+    v_org_id_final := COALESCE(p_org_id, v_order.organization_id, public.get_my_org());
+    IF v_org_id_final IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة للطلب.'; END IF;
+
+    -- 🛡️ Ensure Idempotency: Delete any previous journal entry linked to this order before creating a new one
+    DELETE FROM public.journal_entries WHERE related_document_id = p_order_id AND related_document_type = 'restaurant_order';
+
+    -- Fetch account mappings for the determined organization
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id_final;
+
+    -- Retrieve necessary account IDs using mappings or default codes
+    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id_final LIMIT 1));
+    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id_final LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id_final LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id_final LIMIT 1));
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id_final LIMIT 1));
+
+    -- Calculate total cost of goods sold for this order
+    SELECT COALESCE(SUM(oi.quantity * oi.unit_cost), 0) INTO v_total_cost
+    FROM public.order_items oi
+    WHERE oi.order_id = p_order_id;
+
+    -- Create Journal Entry header
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+    VALUES (now()::date, 'إتمام طلب مطعم رقم ' || v_order.order_number, v_order.order_number, 'posted', v_org_id_final, p_order_id, 'restaurant_order', true, auth.uid())
+    RETURNING id INTO v_journal_id;
+
+    -- Journal Lines
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_journal_id, p_cash_account_id, p_amount, 0, 'تحصيل طلب مطعم رقم ' || v_order.order_number || ' (' || p_payment_method || ')', v_org_id_final);
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_journal_id, v_sales_acc_id, 0, v_order.subtotal, 'إيراد مبيعات مطعم رقم ' || v_order.order_number, v_org_id_final);
+    IF v_order.total_tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, v_order.total_tax, 'ضريبة القيمة المضافة لطلب ' || v_order.order_number, v_org_id_final); END IF;
+    IF v_total_cost > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة بضاعة مباعة لطلب ' || v_order.order_number, v_org_id_final);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, 0, v_total_cost, 'صرف مخزون لطلب ' || v_order.order_number, v_org_id_final);
+    END IF;
+
+    -- Update order status and link to journal entry
+    UPDATE public.orders SET status = 'PAID', related_journal_entry_id = v_journal_id WHERE id = p_order_id;
+    IF v_order.session_id IS NOT NULL THEN UPDATE public.table_sessions SET end_time = now(), status = 'CLOSED' WHERE id = v_order.session_id; UPDATE public.restaurant_tables SET status = 'AVAILABLE', session_start = NULL, bill_requested = FALSE WHERE id = v_order.session_id; END IF;
+    PERFORM public.recalculate_all_system_balances(v_org_id_final);
+END; $$;
 -- 13.5 دالة اختبار تكامل مبيعات المطعم مع استهلاك المواد الخام
 -- تهدف للتأكد من أن بيع وجبة (صنف تام) يؤدي لخصم مكوناتها (خامات) آلياً
 CREATE OR REPLACE FUNCTION public.mfg_test_pos_integration()
@@ -1011,6 +1164,129 @@ BEGIN
     PERFORM public.recalculate_all_system_balances(v_org_id);
 END; $$;
 
+-- 🛠️ دالة ترحيل قيد يومية للشيكات (Post Cheque Journal Entry)
+-- تقوم بإنشاء قيد محاسبي عند تحصيل أو صرف أو ارتداد الشيك
+CREATE OR REPLACE FUNCTION public.post_cheque_journal_entry(p_cheque_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_cheque record;
+    v_org_id uuid;
+    v_journal_id uuid;
+    v_bank_acc_id uuid;
+    v_customer_acc_id uuid;
+    v_supplier_acc_id uuid;
+    v_mappings jsonb;
+    v_description text;
+BEGIN
+    -- 1. جلب تفاصيل الشيك
+    SELECT * INTO v_cheque FROM public.cheques WHERE id = p_cheque_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'الشيك غير موجود.'; END IF;
+    -- 🛡️ منع التكرار: إذا كان هناك قيد مرتبط بالفعل، لا تفعل شيئاً
+    IF v_cheque.related_journal_entry_id IS NOT NULL THEN RETURN; END IF;
+
+    v_org_id := v_cheque.organization_id; -- استخدام organization_id من الشيك مباشرة
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'معرف المنظمة للشيك غير محدد.'; END IF;
+
+    -- 2. جلب روابط الحسابات من إعدادات الشركة
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    -- 3. تحديد الحسابات ذات الصلة
+    v_bank_acc_id := v_cheque.current_account_id; -- حساب البنك المحدد في الشيك
+    IF v_bank_acc_id IS NULL THEN
+        -- Fallback إلى حساب البنك الافتراضي للمنظمة
+        v_bank_acc_id := COALESCE((v_mappings->>'BANK_MAIN')::uuid, (SELECT id FROM public.accounts WHERE code = '123201' AND organization_id = v_org_id LIMIT 1));
+    END IF;
+
+    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1));
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
+
+    IF v_bank_acc_id IS NULL THEN RAISE EXCEPTION 'حساب البنك غير معرف في الشيك أو إعدادات الشركة.'; END IF;
+
+    -- 4. إنشاء قيد اليومية بناءً على نوع الشيك وحالته
+    IF v_cheque.type = 'in' AND v_cheque.status = 'collected' THEN
+        v_description := 'تحصيل شيك وارد رقم ' || COALESCE(v_cheque.cheque_number, '-');
+        IF v_customer_acc_id IS NULL THEN RAISE EXCEPTION 'حساب العملاء غير معرف لتحصيل شيك وارد.'; END IF;
+
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
+        VALUES (now()::date, v_description, v_cheque.cheque_number, 'posted', v_org_id, p_cheque_id, 'cheque_collection', true)
+        RETURNING id INTO v_journal_id;
+
+        -- من ح/ البنك (مدين) إلى ح/ العميل (دائن)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_bank_acc_id, v_cheque.amount, 0, 'إيداع شيك رقم ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_customer_acc_id, 0, v_cheque.amount, 'تحصيل من عميل بشيك رقم ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+
+    ELSIF v_cheque.type = 'out' AND v_cheque.status = 'cashed' THEN
+        v_description := 'صرف شيك صادر رقم ' || COALESCE(v_cheque.cheque_number, '-');
+        IF v_supplier_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الموردين غير معرف لصرف شيك صادر.'; END IF;
+
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
+        VALUES (now()::date, v_description, v_cheque.cheque_number, 'posted', v_org_id, p_cheque_id, 'cheque_payment', true)
+        RETURNING id INTO v_journal_id;
+
+        -- من ح/ المورد (مدين) إلى ح/ البنك (دائن)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_supplier_acc_id, v_cheque.amount, 0, 'سداد لمورد بشيك رقم ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_bank_acc_id, 0, v_cheque.amount, 'صرف شيك رقم ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+
+    ELSIF v_cheque.status = 'bounced' THEN
+        -- 🛡️ نظام "استبدال القيد": حذف أي قيود سابقة لهذا الشيك قبل إنشاء قيد الارتداد
+        DELETE FROM public.journal_entries WHERE related_document_id = p_cheque_id AND related_document_type IN ('cheque_collection', 'cheque_payment');
+
+        v_description := 'ارتداد شيك رقم ' || COALESCE(v_cheque.cheque_number, '-');
+
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
+        VALUES (now()::date, v_description, v_cheque.cheque_number, 'posted', v_org_id, p_cheque_id, 'cheque_bounced', true) RETURNING id INTO v_journal_id;
+
+        IF v_cheque.type = 'in' THEN -- شيك وارد مرتد
+            IF v_customer_acc_id IS NULL THEN RAISE EXCEPTION 'حساب العملاء غير معرف لارتداد شيك وارد.'; END IF;
+            -- من ح/ العميل (مدين - إعادة مديونية) إلى ح/ البنك (دائن - خصم من البنك)
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_customer_acc_id, v_cheque.amount, 0, 'ارتداد شيك وارد - إعادة مديونية العميل ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_bank_acc_id, 0, v_cheque.amount, 'ارتداد شيك وارد - خصم من البنك ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+        ELSIF v_cheque.type = 'out' THEN -- شيك صادر مرتد
+            IF v_supplier_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الموردين غير معرف لارتداد شيك صادر.'; END IF;
+            -- من ح/ البنك (مدين - إعادة المبلغ للبنك) إلى ح/ المورد (دائن - إعادة استحقاق المورد)
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_bank_acc_id, v_cheque.amount, 0, 'ارتداد شيك صادر - إعادة المبلغ للبنك ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_supplier_acc_id, 0, v_cheque.amount, 'ارتداد شيك صادر - إعادة استحقاق المورد ' || COALESCE(v_cheque.cheque_number, '-'), v_org_id);
+        END IF;
+    ELSE
+        -- للحالات الأخرى مثل 'pending', 'issued', 'deposited' لا يتم إنشاء قيد مباشر
+        RETURN;
+    END IF;
+
+    -- 5. تحديث الشيك بمعرف القيد المرتبط
+    UPDATE public.cheques SET related_journal_entry_id = v_journal_id WHERE id = p_cheque_id;
+
+    -- 6. إعادة احتساب الأرصدة لضمان الدقة
+    PERFORM public.recalculate_all_system_balances(v_org_id);
+END;
+$$;
+
+-- 🛠️ مشغل آلي لترحيل قيود الشيكات عند تغيير الحالة
+CREATE OR REPLACE FUNCTION public.trg_post_cheque_journal_entry()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- نرحل القيد فقط عندما تتغير الحالة إلى 'collected', 'cashed', أو 'bounced'
+    IF NEW.status IN ('collected', 'cashed', 'bounced') AND NEW.status IS DISTINCT FROM OLD.status THEN
+        PERFORM public.post_cheque_journal_entry(NEW.id);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_post_cheque_journal_entry ON public.cheques;
+CREATE TRIGGER trg_post_cheque_journal_entry
+AFTER UPDATE OF status ON public.cheques
+FOR EACH ROW EXECUTE FUNCTION public.trg_post_cheque_journal_entry();
+
+-- 🔓 منح صلاحية التنفيذ للدالة للمستخدمين المصادق عليهم
+GRANT EXECUTE ON FUNCTION public.post_cheque_journal_entry(uuid) TO authenticated;
+
 -- و. اعتماد سند الصرف (Payment Voucher)
 CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_voucher_id uuid, p_debit_account_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -1090,13 +1366,12 @@ BEGIN
         -- 🚀 جلب التكلفة الشاملة للمنتج من بطاقة الصنف (بما في ذلك تكاليف التصنيع)
         SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_product_cost FROM public.products WHERE id = COALESCE((v_item->>'product_id')::uuid, (v_item->>'productId')::uuid);
 
-        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id, modifiers)
+        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, unit_cost, notes, organization_id, modifiers)
         VALUES (
             v_order_id, 
             COALESCE((v_item->>'product_id')::uuid, (v_item->>'productId')::uuid), 
             v_qty, 
             v_unit_price,
-            (v_qty * v_unit_price), 
             v_product_cost, -- استخدام التكلفة الشاملة من بطاقة الصنف
             v_item->>'notes', 
             v_org_id,
@@ -1113,6 +1388,39 @@ BEGIN
         VALUES (v_order_id, p_delivery_info->>'customer_name', p_delivery_info->>'customer_phone', p_delivery_info->>'delivery_address', COALESCE((p_delivery_info->>'delivery_fee')::numeric, 0), v_org_id);
     END IF;   
     RETURN v_order_id;
+END; $$;
+
+-- 🛠️ دالة جلب الطلبات المعلقة للسايد بار (SaaS Ready)
+-- تستخدم لإظهار طلبات السفري والتوصيل التي لم يتم سدادها بعد
+CREATE OR REPLACE FUNCTION public.get_pending_payment_orders(p_org_id uuid DEFAULT NULL)
+RETURNS TABLE (
+    id uuid,
+    order_number text,
+    order_type text,
+    grand_total numeric,
+    created_at timestamptz,
+    status text,
+    customer_phone text
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid;
+BEGIN
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    RETURN QUERY
+    SELECT 
+        o.id,
+        o.order_number,
+        o.order_type,
+        o.grand_total,
+        o.created_at,
+        o.status,
+        c.phone as customer_phone
+    FROM public.orders o
+    LEFT JOIN public.customers c ON o.customer_id = c.id
+    WHERE o.organization_id = v_org_id
+    AND o.status = 'CONFIRMED' -- جلب الطلبات المؤكدة وغير المدفوعة
+    AND o.order_type IN ('TAKEAWAY', 'DELIVERY')
+    ORDER BY o.created_at DESC;
 END; $$;
 
 -- 📱 دالة استقبال طلبات الزبائن عبر رمز QR (Public Menu Orders)
@@ -1184,9 +1492,9 @@ BEGIN
         FROM public.products WHERE id = (v_item->>'product_id')::uuid;
 
         INSERT INTO public.order_items (
-            order_id, product_id, quantity, unit_price, total_price, unit_cost, notes, organization_id, modifiers
+            order_id, product_id, quantity, unit_price, unit_cost, notes, organization_id, modifiers
         ) VALUES (
-            v_order_id, (v_item->>'product_id')::uuid, v_qty, v_unit_price, (v_qty * v_unit_price),
+            v_order_id, (v_item->>'product_id')::uuid, v_qty, v_unit_price,
             v_product_cost, v_item->>'notes', v_org_id, COALESCE(v_item->'modifiers', '[]'::jsonb)
         ) RETURNING id INTO v_order_item_id;
 
@@ -1293,6 +1601,7 @@ DECLARE
     v_cash_acc_id uuid; v_card_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid;
     v_cogs_acc_id uuid; v_inventory_acc_id uuid; v_customer_acc_id uuid;
     v_diff numeric := 0; v_actual_cash_collected numeric := 0;
+    v_item_cost_record record;
     v_cust_order record;
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
@@ -1378,11 +1687,27 @@ BEGIN
         VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '421' AND organization_id = v_shift.organization_id LIMIT 1), 0, v_diff, 'زيادة نقدية الوردية', v_shift.organization_id); 
     END IF;
 
-    IF v_summary.cost_total > 0 AND v_cogs_acc_id IS NOT NULL AND v_inventory_acc_id IS NOT NULL THEN 
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية', v_shift.organization_id), 
-               (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية', v_shift.organization_id); 
-    END IF;
+    
+    -- 🚀 محرك التكلفة الذكي: توجيه التكلفة لكل نوع مخزون بشكل صحيح (خامات vs منتج تام)
+    FOR v_item_cost_record IN (
+        SELECT 
+            p.inventory_account_id,
+            SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) as total_cost
+        FROM public.order_items oi
+        JOIN public.products p ON oi.product_id = p.id
+        WHERE oi.order_id IN (SELECT id FROM shift_orders)
+        GROUP BY p.inventory_account_id
+    ) LOOP
+        IF v_item_cost_record.total_cost > 0 THEN
+            -- من ح/ تكلفة البضاعة المباعة
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES (v_je_id, v_cogs_acc_id, v_item_cost_record.total_cost, 0, 'تكلفة مبيعات الوردية', v_shift.organization_id);
+            -- إلى ح/ المخزون (حسب نوع الصنف: خامات أو تام)
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES (v_je_id, COALESCE(v_item_cost_record.inventory_account_id, v_inventory_acc_id), 0, v_item_cost_record.total_cost, 'صرف مخزون الوردية', v_shift.organization_id);
+        END IF;
+    END LOOP;
+
     RETURN v_je_id;
 END; $$;
 
@@ -1490,11 +1815,18 @@ BEGIN
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
-    v_salaries_acc_id := COALESCE((v_mappings->>'SALARIES_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '531' AND organization_id = v_org_id LIMIT 1));
-    v_bonuses_acc_id := COALESCE((v_mappings->>'EMPLOYEE_BONUSES')::uuid, (SELECT id FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id LIMIT 1));
-    v_deductions_acc_id := COALESCE((v_mappings->>'EMPLOYEE_DEDUCTIONS')::uuid, (SELECT id FROM public.accounts WHERE code = '422' AND organization_id = v_org_id LIMIT 1));
-    v_advances_acc_id := COALESCE((v_mappings->>'EMPLOYEE_ADVANCES')::uuid, (SELECT id FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id LIMIT 1));
+    -- 🛡️ تحسين البحث عن الحسابات: استخدام الكود المباشر كـ Fallback لضمان ترحيل الرواتب
+    v_salaries_acc_id := COALESCE((v_mappings->>'SALARIES_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code IN ('531', '5201', '5311') AND organization_id = v_org_id LIMIT 1));
+    IF v_salaries_acc_id IS NULL THEN RAISE EXCEPTION 'حساب مصروف الرواتب (SALARIES_EXPENSE) غير معرف في إعدادات الشركة أو دليل الحسابات (أكواد 531, 5201).'; END IF;
+    v_bonuses_acc_id := COALESCE((v_mappings->>'EMPLOYEE_BONUSES')::uuid, (SELECT id FROM public.accounts WHERE code IN ('5312', '520102', '5313') AND organization_id = v_org_id LIMIT 1));
+    -- v_bonuses_acc_id يمكن أن يكون NULL إذا لم يكن هناك مكافآت
+    v_deductions_acc_id := COALESCE((v_mappings->>'EMPLOYEE_DEDUCTIONS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('422', '223301', '421') AND organization_id = v_org_id LIMIT 1));
+    -- v_deductions_acc_id يمكن أن يكون NULL إذا لم يكن هناك خصومات
+    v_advances_acc_id := COALESCE((v_mappings->>'EMPLOYEE_ADVANCES')::uuid, (SELECT id FROM public.accounts WHERE code IN ('1223', '1209') AND organization_id = v_org_id LIMIT 1));
+    IF v_advances_acc_id IS NULL THEN RAISE EXCEPTION 'حساب سلف الموظفين (EMPLOYEE_ADVANCES) غير معرف في إعدادات الشركة أو دليل الحسابات (أكواد 1223, 1209).'; END IF;
     v_payroll_tax_id := COALESCE((v_mappings->>'PAYROLL_TAX')::uuid, (SELECT id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1));
+    -- v_payroll_tax_id يمكن أن يكون NULL إذا لم يكن هناك ضرائب رواتب
+
 
     IF v_salaries_acc_id IS NULL OR v_advances_acc_id IS NULL OR p_treasury_acc IS NULL THEN 
         RAISE EXCEPTION 'فشل جلب إعدادات الحسابات المالية للرواتب، يرجى مراجعة Account Mappings في إعدادات الشركة.'; -- Ensure p_treasury_acc is not NULL
@@ -1503,6 +1835,10 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE id = p_treasury_acc AND organization_id = v_org_id) THEN
         RAISE EXCEPTION 'حساب الخزينة/البنك المختار غير صحيح أو لا ينتمي لهذه المنظمة.';
     END IF;
+    
+    -- 🛡️ ضمان Idempotency: حذف أي قيد رواتب سابق لنفس الفترة
+    DELETE FROM public.journal_entries WHERE related_document_type = 'payroll' AND organization_id = v_org_id
+    AND description LIKE 'مسير رواتب ' || p_month || '/' || p_year || '%';
 
     IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p_items)) THEN RAISE EXCEPTION 'لا توجد بيانات موظفين صالحة في المسير.'; END IF;
 
@@ -1525,7 +1861,7 @@ BEGIN
         -- حساب الصافي الحقيقي في السيرفر لضمان النزاهة المالية
         v_emp_net := (v_item->>'gross_salary')::numeric + v_fixed_allowances + (v_item->>'additions')::numeric + v_monthly_additions
                      - (COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions)
-                     - (v_item->>'advances_deducted')::numeric - COALESCE((v_item->>'payroll_tax')::numeric, 0);
+                     - (v_item->>'advancesn_deducted')::numeric - COALESCE((v_item->>'payroll_tax')::numeric, 0);
         v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric + v_fixed_allowances;
         v_total_additions := v_total_additions + (v_item->>'additions')::numeric + v_monthly_additions;
         v_total_deductions := v_total_deductions + COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions;
@@ -1571,8 +1907,8 @@ BEGIN
         END IF;
     END LOOP;
 
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type) 
-    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year, 'posted', v_org_id, true, v_payroll_id, 'payroll') RETURNING id INTO v_je_id;
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type, user_id) 
+    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year, 'posted', v_org_id, true, v_payroll_id, 'payroll', auth.uid()) RETURNING id INTO v_je_id;
 
     RAISE NOTICE 'Payroll JE created: ID=% for OrgID=%', v_je_id, v_org_id;
 
@@ -1583,11 +1919,89 @@ BEGIN
     IF v_total_payroll_tax > 0 AND v_payroll_tax_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_payroll_tax_id, 0, v_total_payroll_tax, 'ضريبة كسب العمل', v_org_id); END IF;
     IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_acc, 0, v_total_net, 'صرف صافي الرواتب', v_org_id); END IF;
 
-    -- 🛡️ التحقق النهائي من توازن القيد لضمان الترحيل الفعلي للدفتر العام
-        -- 🛡️ التحقق النهائي من توازن القيد لضمان الترحيل الفعلي للدفتر العام
+     -- 🛡️ موازنة القيد آلياً في حال وجود فروق كسور عشرية بسيطة
+    PERFORM public.fix_unbalanced_journal_entry(v_je_id);
+
     IF NOT EXISTS (SELECT 1 FROM public.journal_lines WHERE journal_entry_id = v_je_id) THEN RAISE EXCEPTION 'فشل إنشاء أسطر القيد المحاسبي للرواتب، القيد غير متوازن أو الحسابات مفقودة.'; END IF;
 END; $$;
 
+-- 🛠️ دالة ترحيل قيد يومية للشيكات (Post Cheque Journal Entry)
+CREATE OR REPLACE FUNCTION public.post_cheque_journal_entry(p_cheque_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_cheque record; v_org_id uuid; v_journal_id uuid; v_bank_acc_id uuid;
+    v_customer_acc_id uuid; v_supplier_acc_id uuid; v_mappings jsonb; v_description text;
+BEGIN
+    SELECT * INTO v_cheque FROM public.cheques WHERE id = p_cheque_id;  
+    IF NOT FOUND THEN RAISE EXCEPTION 'الشيك (ID: %) غير موجود.', p_cheque_id; END IF;
+    
+    -- 🛡️ ضمان Idempotency: حذف أي قيد سابق مرتبط بهذا الشيك قبل إنشاء قيد جديد
+    DELETE FROM public.journal_entries WHERE related_document_id = p_cheque_id AND related_document_type LIKE 'cheque%';
+
+    v_org_id := v_cheque.organization_id;
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    -- تحديد الحسابات
+    v_bank_acc_id := COALESCE(v_cheque.current_account_id, (v_mappings->>'BANK_MAIN')::uuid, (SELECT id FROM public.accounts WHERE code LIKE '1232%' AND organization_id = v_org_id LIMIT 1));
+    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1));
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('201', '2201') AND organization_id = v_org_id LIMIT 1));
+
+    IF v_bank_acc_id IS NULL THEN RAISE EXCEPTION 'حساب البنك غير معرف (لا يوجد حساب يبدأ بـ 1232 أو BANK_MAIN).'; END IF;
+
+    -- 1. تحصيل شيك وارد
+    IF v_cheque.type = 'incoming' AND v_cheque.status = 'collected' THEN
+        v_description := 'تحصيل شيك وارد رقم ' || COALESCE(v_cheque.cheque_number, '-');
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (now()::date, v_description, 'CHQ-' || v_cheque.cheque_number, 'posted', v_org_id, p_cheque_id, 'cheque', true, auth.uid()) RETURNING id INTO v_journal_id;
+        
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_bank_acc_id, v_cheque.amount, 0, v_description, v_org_id),
+               (v_journal_id, v_customer_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+
+    -- 2. صرف شيك صادر
+    ELSIF v_cheque.type = 'outgoing' AND v_cheque.status = 'cashed' THEN
+        v_description := 'صرف شيك صادر رقم ' || COALESCE(v_cheque.cheque_number, '-');
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (now()::date, v_description, 'CHQ-' || v_cheque.cheque_number, 'posted', v_org_id, p_cheque_id, 'cheque', true, auth.uid()) RETURNING id INTO v_journal_id;
+        
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_supplier_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_bank_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+    -- 3. ارتداد شيك
+    ELSIF v_cheque.status = 'bounced' THEN
+        v_description := 'ارتداد شيك رقم ' || COALESCE(v_cheque.cheque_number, '-');
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (now()::date, v_description, 'CHQ-' || v_cheque.cheque_number, 'posted', v_org_id, p_cheque_id, 'cheque', true, auth.uid()) RETURNING id INTO v_journal_id;
+        IF v_cheque.type = 'incoming' THEN
+
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_customer_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_bank_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+                
+        ELSE
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_bank_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_supplier_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+           
+        END IF;
+    END IF;
+
+    IF v_journal_id IS NOT NULL THEN
+        UPDATE public.cheques SET related_journal_entry_id = v_journal_id WHERE id = p_cheque_id;
+    END IF;
+    
+    PERFORM public.recalculate_all_system_balances(v_org_id);
+END; $$;
+
+-- 🛠️ مشغل ترحيل الشيكات التلقائي
+CREATE OR REPLACE FUNCTION public.trg_post_cheque_journal_entry()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (NEW.status IN ('collected', 'cashed', 'bounced') AND (OLD.status IS DISTINCT FROM NEW.status)) THEN
+        PERFORM public.post_cheque_journal_entry(NEW.id);
+    END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_cheque_posting ON public.cheques;
+CREATE TRIGGER trg_cheque_posting
+AFTER UPDATE OF status ON public.cheques
+FOR EACH ROW EXECUTE FUNCTION public.trg_post_cheque_journal_entry();
 
 -- ================================================================
 -- 5. تأسيس الشركات (Onboarding & SaaS Core)
@@ -3586,9 +4000,27 @@ GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_current_company_settings(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.approve_purchase_return(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_open_table_order(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reserve_table(uuid, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.cancel_reservation(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid) TO authenticated; -- 🛠️ إضافة صلاحية لدالة ترحيل المشتريات
 GRANT EXECUTE ON FUNCTION public.get_shift_summary(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.complete_restaurant_order(numeric, uuid, uuid, text, uuid) TO authenticated; -- 🛠️ إضافة صلاحية لدالة إتمام طلب المطعم
+
+-- 🛡️ ضمان منح الصلاحيات للجداول الجديدة بذكاء (تجنب خطأ 42P01)
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'modifier_groups') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.modifier_groups TO authenticated, anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'modifiers') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.modifiers TO authenticated, anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_item_modifiers') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.order_item_modifiers TO authenticated, anon';
+    END IF;
+END $$;
 
 -- تنشيط كاش النظام
 -- ملاحظة: تم وضع NOTIFY خارج كتلة PL/pgSQL لأنها أمر SQL مباشر

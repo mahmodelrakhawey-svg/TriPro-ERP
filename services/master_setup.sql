@@ -744,6 +744,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     grand_total numeric DEFAULT 0,
     delivery_fee numeric DEFAULT 0,
     order_type text DEFAULT 'DINE_IN',
+    notes text,
     warehouse_id uuid REFERENCES public.warehouses(id),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
@@ -759,8 +760,46 @@ CREATE TABLE IF NOT EXISTS public.order_items (
     unit_price numeric NOT NULL DEFAULT 0,
     total_price numeric GENERATED ALWAYS AS (quantity * unit_price) STORED,
     unit_cost numeric DEFAULT 0,
+    notes text,
     modifiers jsonb DEFAULT '[]'::jsonb,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- 🍕 خيارات الإضافات للمطعم (Modifiers Support)
+CREATE TABLE IF NOT EXISTS public.modifier_groups (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    description text,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    min_selection integer DEFAULT 0,
+    max_selection integer DEFAULT 1,
+    is_required boolean DEFAULT false,
+    display_order integer DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.modifiers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    modifier_group_id uuid REFERENCES public.modifier_groups(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    price numeric DEFAULT 0,
+    cost numeric DEFAULT 0,
+    is_available boolean DEFAULT true,
+    display_order integer DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.order_item_modifiers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_item_id uuid REFERENCES public.order_items(id) ON DELETE CASCADE,
+    modifier_id uuid REFERENCES public.modifiers(id) ON DELETE SET NULL,
+    name text,
+    unit_price numeric DEFAULT 0,
+    cost numeric DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
 

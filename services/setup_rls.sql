@@ -70,7 +70,7 @@ CREATE POLICY "profiles_select_policy" ON public.profiles
 FOR SELECT TO authenticated 
 USING (
     id = auth.uid() -- يرى ملفه الخاص دائماً
-    OR (auth.jwt() ->> 'role' = 'super_admin') -- السوبر أدمن يرى الجميع (من التوكن مباشرة)
+    OR (public.get_my_role() = 'super_admin') -- السوبر أدمن يرى الجميع عبر دالة الهوية الموحدة
     OR (organization_id IS NOT NULL AND (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid = organization_id) -- زملاء العمل
 );
 
@@ -82,7 +82,7 @@ FOR ALL TO authenticated
 USING (
     user_id = auth.uid() 
     OR (organization_id IS NOT NULL AND organization_id = public.get_my_org())
-    OR (auth.jwt() ->> 'role' = 'super_admin')
+    OR (public.get_my_role() = 'super_admin')
 )
 WITH CHECK (true);
 
@@ -116,7 +116,10 @@ DECLARE
 BEGIN
     FOREACH t IN ARRAY tables_with_org_id LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Org_Access_Policy_%I" ON public.%I;', t, t);
-        EXECUTE format('CREATE POLICY "Org_Access_Policy_%I" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org()) WITH CHECK (organization_id = public.get_my_org());', t, t);
+        EXECUTE format('CREATE POLICY "Org_Access_Policy_%I" ON public.%I FOR ALL TO authenticated 
+            USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') 
+            WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', 
+            t, t);
     END LOOP;
 END $$;
 
@@ -260,8 +263,20 @@ END $$;
 CREATE OR REPLACE FUNCTION public.refresh_saas_schema()
 RETURNS void AS $$
 BEGIN
-    -- إشعار داخلي في قاعدة البيانات
-    RAISE NOTICE 'SaaS Security Policies Refreshed Successfully';
+    -- 🛡️ ضمان منح الصلاحيات للجداول الجديدة (فقط إذا كانت موجودة)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'modifier_groups') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.modifier_groups TO authenticated, anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'modifiers') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.modifiers TO authenticated, anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_item_modifiers') THEN
+        EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.order_item_modifiers TO authenticated, anon';
+    END IF;
+
+    -- 🚀 إرسال إشارة تنبيه لمحرك PostgREST لإعادة بناء الكاش فوراً
+    NOTIFY pgrst, 'reload schema';
+    RAISE NOTICE '🚀 SaaS Schema & Cache Refreshed Successfully';
 END;
 $$ LANGUAGE plpgsql;
 

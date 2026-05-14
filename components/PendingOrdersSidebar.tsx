@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../../supabaseClient';
+import { supabase } from '../services/supabaseClient';
+import { useAccounting } from '../context/AccountingContext';
 import { Search, Phone, Hash } from 'lucide-react';
 
 interface PendingOrder {
@@ -18,13 +19,16 @@ interface Props {
 }
 
 export const PendingOrdersSidebar: React.FC<Props> = ({ onSelectOrder, refreshTrigger }) => {
+  const { currentSelectedOrgId } = useAccounting();
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
   const fetchOrders = async () => {
-    // استدعاء الدالة التي أنشأناها في SQL
-    const { data, error } = await supabase.rpc('get_pending_payment_orders');
+    // تمرير معرف المنظمة لضمان جلب طلبات الشركة المختارة فقط (لليوزر العالمي)
+    const { data, error } = await supabase.rpc('get_pending_payment_orders', {
+      p_org_id: currentSelectedOrgId
+    });
     if (!error) setOrders(data || []);
     setLoading(false);
   };
@@ -43,7 +47,7 @@ export const PendingOrdersSidebar: React.FC<Props> = ({ onSelectOrder, refreshTr
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [refreshTrigger]);
+  }, [refreshTrigger, currentSelectedOrgId]);
 
   // منطق التصفية
   const filteredOrders = orders.filter(order => {

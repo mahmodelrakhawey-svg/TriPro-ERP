@@ -648,6 +648,7 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_tax numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS total_discount numeric DEFAULT 0; END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS notes text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS grand_total numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cheques') THEN ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS current_account_id uuid REFERENCES public.accounts(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'inventory_count_items') THEN ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS notes text; END IF;
@@ -705,7 +706,9 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS unit text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock_level numeric DEFAULT 5; END IF; -- الحد الأدنى للتنبيه
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS notes text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN ALTER TABLE public.products ADD COLUMN IF NOT EXISTS min_stock numeric DEFAULT 5; END IF; -- الحد الأدنى للتنبيه
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'restaurant_tables') THEN ALTER TABLE public.restaurant_tables ADD COLUMN IF NOT EXISTS reservation_info jsonb; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS vat_rate numeric DEFAULT 0.14; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS unit_cost numeric DEFAULT 0; END IF; -- تكلفة الوجبات
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoice_items') THEN ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS modifiers jsonb DEFAULT '[]'::jsonb; END IF;

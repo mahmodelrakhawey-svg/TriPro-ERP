@@ -61,7 +61,7 @@ END; $$;
 
 -- 🛠️ دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)
 -- تقوم بحساب التكلفة المتوقعة للمنتج بناءً على الـ BOM والمسار الإنتاجي المعتمد
-CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid)
+CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid, p_org_id uuid DEFAULT NULL)
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER 
 SET search_path = public AS $$
 DECLARE
@@ -73,7 +73,7 @@ DECLARE
     v_material_cost numeric;
     v_overhead_cost numeric;
 BEGIN
-    v_org_id := public.get_my_org();
+    v_org_id := COALESCE(p_org_id, (SELECT organization_id FROM public.products WHERE id = p_product_id), public.get_my_org());
 
     -- 1. البحث عن المسار الافتراضي للمنتج
     SELECT * INTO v_routing FROM public.mfg_routings 
@@ -1982,7 +1982,7 @@ BEGIN
         LOOP
             v_order_product_id := v_row.order_product_id;
             -- حساب التكلفة المعيارية للمنتج الواحد باستخدام الدالة الموجودة
-            v_standard_cost_per_unit := public.mfg_calculate_standard_cost(v_order_product_id);
+    v_standard_cost_per_unit := public.mfg_calculate_standard_cost(v_order_product_id, v_org_id);
             v_expected_total_standard_cost := v_standard_cost_per_unit * v_row.qty;
 
             IF v_expected_total_standard_cost > 0 THEN

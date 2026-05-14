@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { supabase } from '../supabaseClient';
-import { useAuth } from '../context/AuthContext';
-import { useToast } from '../context/ToastContext';
 import { Download, Database, Loader2, ShieldCheck, FileJson } from 'lucide-react';
+import { SupabaseClient } from '@supabase/supabase-js';
 
-const ArchiveManager = () => {
-  const { currentUser } = useAuth();
-  const { showToast } = useToast();
+interface ArchiveManagerProps {
+  supabase: SupabaseClient;
+  showToast: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  currentUser: any;
+}
+
+const ArchiveManager: React.FC<ArchiveManagerProps> = ({ 
+  supabase, 
+  showToast, 
+  currentUser 
+}) => {
   const [isExporting, setIsExporting] = useState(false);
 
   // التحقق من الصلاحيات (فقط للمديرين)
@@ -26,7 +32,7 @@ const ArchiveManager = () => {
     try {
       // 1. استدعاء الدالة من قاعدة البيانات
       const { data, error } = await supabase.rpc('export_organization_data_json', {
-        p_org_id: (currentUser as any)?.organization_id
+        p_org_id: currentUser?.organization_id
       });
 
       if (error) throw error;

@@ -11,6 +11,8 @@ import { KitchenTicket } from './KitchenTicket';
 import { offlineService } from '../services/offlineService';
 import { OrderSummary, ActiveOrder } from './OrderSummary';
 import { ModifierSelectionModal } from './ModifierSelectionModal';
+import { PaymentModal } from './PaymentModal';
+import { PendingOrdersSidebar } from './PendingOrdersSidebar';
 import { QRCodeModal } from './QRCodeModal';
 import { BulkQRCodeModal } from './BulkQRCodeModal';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -441,163 +443,7 @@ const TransferTableModal = ({ isOpen, onClose, onConfirm, currentTableId, tables
   );
 };
 
-// --- Payment Modal Component ---
-const PaymentModal = ({ isOpen, onClose, onConfirmPayment, activeOrder, settings }: { isOpen: boolean, onClose: () => void, onConfirmPayment: (paidItems: OrderItem[], method: 'CASH' | 'CARD') => void, activeOrder: ActiveOrder | null, settings: any }) => {
-  const { showToast } = useToast();
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD'>('CASH');
-  const [splitMode, setSplitMode] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<OrderItem[]>([]);
 
-  useEffect(() => {
-    if (isOpen && activeOrder) {
-      // عند فتح المودال، ننسخ الأصناف لتتبع التغييرات في وضع التقسيم، مع تصفير الكمية
-      setSelectedItems(activeOrder.items.map(item => ({ ...item })));
-      setSplitMode(false); // نبدأ دائماً بوضع الدفع الكامل
-    }
-  }, [isOpen, activeOrder]);
-
-  const calculateTotals = (itemsToCalculate: OrderItem[]) => {
-    const subtotal = itemsToCalculate.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
-    const tax = subtotal * ((settings.vatRate || 15) / 100);
-    const total = subtotal + tax;
-    return { subtotal, tax, total };
-  };
-
-  const currentTotals = useMemo(() => {
-    return calculateTotals(splitMode ? selectedItems.filter(item => item.quantity > 0) : (activeOrder?.items || []));
-  }, [splitMode, selectedItems, activeOrder, settings.vatRate]);
-
-  const handleItemQuantityChange = (productId: string, change: number) => {
-    setSelectedItems(prev => prev.map(item => {
-      if (item.productId === productId) {
-        // البحث عن الكمية الأصلية في الطلب لمنع تجاوزها أثناء التقسيم
-        const originalItem = activeOrder?.items.find(i => i.productId === productId);
-        const maxAvailable = originalItem ? originalItem.quantity : 0;
-        
-        const newQty = Math.max(0, Math.min(maxAvailable, item.quantity + change));
-        return { ...item, quantity: newQty };
-      }
-      return item;
-    }));
-  };
-
-  const handleConfirm = () => {
-    if (splitMode) {
-      const itemsToPay = selectedItems.filter(item => item.quantity > 0);
-      if (itemsToPay.length === 0) {
-        showToast('الرجاء اختيار صنف واحد على الأقل للدفع.', 'warning');
-        return;
-      }
-      onConfirmPayment(itemsToPay, paymentMethod);
-    } else {
-      onConfirmPayment([], paymentMethod); // قائمة فارغة تعني دفع كامل
-    }
-    onClose();
-  };
-
-  const handleSelectAll = () => {
-    if (!activeOrder) return;
-    setSelectedItems(activeOrder.items?.map(item => ({ ...item })) || []);
-  };
-
-  const handleClearAll = () => {
-    setSelectedItems(prev => prev.map(item => ({ ...item, quantity: 0 })));
-  };
-
-  if (!isOpen || !activeOrder) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95">
-        <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-          <h3 className="font-bold text-lg text-slate-800">الدفع وإغلاق الجلسة</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={20} /></button>
-        </div>
-        <div className="p-6 space-y-4">
-          <div className="flex justify-center gap-2 mb-4">
-            <button 
-              onClick={() => setSplitMode(false)} 
-              className={`px-4 py-2 rounded-lg font-bold text-sm ${!splitMode ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-            >
-              دفع كامل
-            </button>
-            <button 
-              onClick={() => setSplitMode(true)} 
-              className={`px-4 py-2 rounded-lg font-bold text-sm ${splitMode ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
-            >
-              تقسيم الفاتورة
-            </button>
-          </div>
-
-          {splitMode && (
-            <div className="max-h-60 overflow-y-auto space-y-2 border p-2 rounded-lg bg-slate-50">
-              <div className="flex justify-between items-center px-1 mb-2 sticky top-0 bg-slate-50 z-10 py-1 border-b border-slate-200">
-                <button type="button" onClick={handleSelectAll} className="text-xs font-black text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-1">
-                  <Plus size={12} /> اختيار الكل
-                </button>
-                <button type="button" onClick={handleClearAll} className="text-xs font-black text-red-600 hover:text-red-800 transition-colors flex items-center gap-1">
-                  <X size={12} /> إلغاء الكل
-                </button>
-              </div>
-              {activeOrder.items?.map(originalItem => {
-                const item = selectedItems.find(si => si.productId === originalItem.productId) || originalItem;
-                return (
-                  <div key={item.productId} className="flex justify-between items-center bg-white p-2 rounded-lg shadow-sm">
-                    <div className="flex-1">
-                      <div className="font-semibold text-sm">{item.name}</div>
-                      {item.selectedModifiers && item.selectedModifiers.length > 0 && (
-                        <div className="text-[10px] text-blue-600 font-medium">
-                          {item.selectedModifiers.map(m => m.name).join(', ')}
-                        </div>
-                      )}
-                      <div className="text-xs text-slate-500">{(item.unitPrice).toFixed(2)}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => handleItemQuantityChange(item.productId, -1)} className="p-1 rounded-full bg-red-100 text-red-600"><Minus size={12} /></button>
-                      <span className="font-bold w-6 text-center">{item.quantity}</span>
-                      <button onClick={() => handleItemQuantityChange(item.productId, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full"><Plus size={12} /></button>
-                    </div>
-                    <div className="font-bold w-20 text-left">{(item.unitPrice * item.quantity).toFixed(2)}</div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div>
-            <p className="text-slate-500 mb-1 text-center">المبلغ المستحق للدفع</p>
-            <p className="text-4xl font-black text-emerald-600 text-center">{currentTotals.total.toFixed(2)} <span className="text-sm text-slate-400">SAR</span></p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4 mt-4">
-            <button 
-              onClick={() => setPaymentMethod('CASH')}
-              className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50 transition-all group"
-            >
-              <div className="text-emerald-600 group-hover:scale-110 transition-transform text-2xl">💵</div>
-              <span className="font-bold text-slate-700">نقدًا (Cash)</span>
-            </button>
-            <button 
-              onClick={() => setPaymentMethod('CARD')}
-              className="flex flex-col items-center justify-center gap-2 p-4 border-2 border-slate-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
-            >
-              <div className="text-blue-600 group-hover:scale-110 transition-transform text-2xl">💳</div>
-              <span className="font-bold text-slate-700">بطاقة (Card)</span>
-            </button>
-          </div>
-          <button 
-            onClick={handleConfirm}
-            className="w-full bg-blue-600 text-white font-bold py-3 rounded-lg hover:bg-blue-700 mt-4"
-          >
-            تأكيد الدفع
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// --- Shift Management Modals ---
 
 const StartShiftModal = ({ isOpen, onConfirm }: { isOpen: boolean, onConfirm: (amount: number) => void }) => {
   const [amount, setAmount] = useState(0);
@@ -923,17 +769,29 @@ const PosScreen = () => {
   }, [searchTerm, allProducts]);
 
   const menuItems = useMemo(() => {
-    return products.filter(p => p.product_type === 'MANUFACTURED' && (p.category_id === activeCategory));
+    return products.filter(p => {
+      // عرض المنتجات الجاهزة والوجبات المصنعة فقط (استبعاد الخامات RAW_MATERIAL)
+      const isSellable = ['MANUFACTURED', 'STOCK', 'FINISHED_GOODS'].includes(p.product_type);
+      const isActive = p.is_active !== false;
+      const matchesSearch = searchTerm.trim() === '' || p.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = searchTerm.trim() !== '' || p.category_id === activeCategory;
+
+      return isSellable && isActive && matchesSearch && matchesCategory;
+    });
   }, [products, activeCategory, searchTerm]);
 
   const handleTableClick = async (table: RestaurantTable) => {
     if (table.status === 'AVAILABLE') {
       if (window.confirm(`هل تريد فتح جلسة جديدة على طاولة ${table.name}؟`)) {
-        const newSessionId = await openTableSession(table.id);
-        if (newSessionId) {
+        const result = await openTableSession(table.id);
+        if (!result) return;
+        // التأكد من الحصول على الـ ID فقط سواء عاد سجل كامل أو نص
+        const sessionId = (typeof result === 'object' && result !== null) ? (result as any).id : (result as string);
+        
+        if (sessionId && typeof sessionId === 'string') {
           setActiveOrder({
             tableId: table.id,
-            sessionId: newSessionId,
+            sessionId: sessionId,
             tableName: table.name,
             items: [],
             type: 'dine-in'
@@ -943,9 +801,10 @@ const PosScreen = () => {
     } else if (table.status === 'RESERVED') {
       const info = (table as any).reservation_info;
       if (window.confirm(`الطاولة محجوزة لـ ${info?.customerName || 'عميل'} الساعة ${info?.arrivalTime || '--:--'}. هل تريد بدء الجلسة الآن؟`)) {
-        const newSessionId = await openTableSession(table.id);
-        if (newSessionId) {
-          setActiveOrder({ tableId: table.id, sessionId: newSessionId, tableName: table.name, items: [], type: 'dine-in' });
+        const sessionData = await openTableSession(table.id);
+        const sessionId = (sessionData as any)?.id || sessionData;
+        if (sessionId) {
+          setActiveOrder({ tableId: table.id, sessionId: sessionId, tableName: table.name, items: [], type: 'dine-in' });
         }
       } else if (window.confirm('هل تريد إلغاء هذا الحجز وتفريغ الطاولة؟')) {
         await cancelReservation(table.id);
@@ -1242,7 +1101,6 @@ const PosScreen = () => {
       
       setOrderToPrint(orderToFinalize);
       setLastOrder(orderToFinalize);
-
       setIsSubmitting(true); // تعطيل الأزرار لمنع النقرات المزدوجة
       try {
       // تحديد حساب الخزينة
@@ -1267,7 +1125,9 @@ const PosScreen = () => {
               }
           }
       } else {
-          await completeRestaurantOrder(activeOrder.orderId, method, total, cashAccount.id);
+      // التزام بـ 4 معاملات كما يتوقع الـ Context: طلب، طريقة، مبلغ، خزينة
+      await completeRestaurantOrder(activeOrder.orderId, method, total, cashAccount.id);
+
           
           // تصفير حالة طلب الحساب عند إتمام الدفع
           if (activeOrder.type === 'dine-in' && activeOrder.tableId) {
@@ -1418,8 +1278,13 @@ const PosScreen = () => {
       setOrderToPrint(activeOrder);
       setLastOrder(activeOrder);
 
-      // استخدام 'as any' لتجاوز فحص الأنواع الصارم للدفع الآجل
-      await completeRestaurantOrder(activeOrder.orderId, 'CREDIT' as any, total, null);
+      // التزام بـ 4 معاملات كما يتوقع الـ Context: طلب، طريقة، مبلغ، خزينة (null للآجل)
+      await completeRestaurantOrder(
+        activeOrder.orderId,
+        'CREDIT',
+        total,
+        null
+      );
 
       showToast('تم تسجيل الفاتورة كذمة على العميل بنجاح ✅', 'success');
       setActiveOrder(null);
@@ -1643,13 +1508,18 @@ const PosScreen = () => {
         table={editingTable}
         sections={sections}
       />
-      <PaymentModal 
-        isOpen={isPaymentModalOpen}
-        onClose={() => setIsPaymentModalOpen(false)}
-        onConfirmPayment={handleConfirmPayment}
-        activeOrder={activeOrder}
-        settings={settings}
-      />
+      {isPaymentModalOpen && activeOrder?.orderId && (
+        <PaymentModal 
+          orderId={activeOrder.orderId}
+          onClose={() => setIsPaymentModalOpen(false)}
+          onSuccess={async () => {
+            setOrderToPrint(activeOrder);
+            setLastOrder(activeOrder);
+            setActiveOrder(null);
+            await refreshData();
+          }}
+        />
+      )}
       
       <StartShiftModal 
         isOpen={!currentShift} 

@@ -983,7 +983,7 @@ const Settings = () => {
 
                       {/* قسم أرشفة البيانات القانونية */}
                       <div className="mt-8">
-                          <ArchiveManager />
+                          <ArchiveManager supabase={supabase} showToast={showToast} currentUser={currentUser} />
                       </div>
 
                       {/* أدوات الصيانة والربط (SaaS Maintenance) - تم نقله هنا لسهولة الوصول */}
