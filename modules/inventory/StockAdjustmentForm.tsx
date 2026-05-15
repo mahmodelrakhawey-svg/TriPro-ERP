@@ -1,11 +1,11 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/ToastContext'; // Removed z import
 import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package, Upload, Download, Barcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { z } from 'zod';
+import { createStockAdjustmentSchema } from '../../utils/validationSchemas';
 
 interface AdjustmentItem {
   productId: string;
@@ -224,17 +224,7 @@ const StockAdjustmentForm = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const adjustmentSchema = z.object({
-        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
-        date: z.string().min(1, 'التاريخ مطلوب'),
-        reason: z.string().min(1, 'السبب مطلوب'),
-        items: z.array(z.object({
-            productId: z.string().min(1),
-            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0')
-        })).min(1, 'الرجاء إضافة أصناف للقائمة أولاً')
-    });
-
-    const validationResult = adjustmentSchema.safeParse({ warehouseId, date, reason, items });
+    const validationResult = createStockAdjustmentSchema.safeParse({ warehouseId, date, reason, items });
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;

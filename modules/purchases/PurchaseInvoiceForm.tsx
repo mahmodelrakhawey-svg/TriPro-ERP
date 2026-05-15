@@ -8,7 +8,7 @@ import {
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { z } from 'zod';
+import { createPurchaseInvoiceSchema } from '../../utils/validationSchemas';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
@@ -200,20 +200,18 @@ const PurchaseInvoiceForm = () => {
   const handleSave = async (e: React.FormEvent, post: boolean = false) => {
     e.preventDefault();
     
-    const purchaseInvoiceSchema = z.object({
-        supplierId: z.string().min(1, 'الرجاء اختيار المورد'),
-        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
-        date: z.string().min(1, 'التاريخ مطلوب'),
-        items: z.array(z.object({
-            productId: z.string().min(1, 'الرجاء اختيار المنتج'),
-            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
-            unitPrice: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
-        })).min(1, 'يجب إضافة بند واحد على الأقل')
+    const validationResult = createPurchaseInvoiceSchema.safeParse({ 
+        ...formData, 
+        items: items.map(i => ({
+            productId: i.productId,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice
+        }))
     });
 
-    const validationResult = purchaseInvoiceSchema.safeParse({ ...formData, items });
     if (!validationResult.success) {
-        showToast(validationResult.error.issues[0].message, 'warning');
+        const firstError = validationResult.error.issues[0];
+        showToast(firstError.message, 'warning');
         return;
     }
 

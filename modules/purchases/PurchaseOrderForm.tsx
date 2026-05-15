@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { FileCheck, Save, Trash2, Loader2, Search } from 'lucide-react';
+import { FileCheck, Save, Trash2, Loader2, Search } from 'lucide-react'; // Removed z import
 import { createPurchaseOrderSchema } from '../../utils/validationSchemas';
 
 const PurchaseOrderForm = () => {

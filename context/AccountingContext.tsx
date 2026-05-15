@@ -289,12 +289,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCustomers(custs.data || []);
       setSuppliers(sups.data || []);
       setCheques(chqs.data || []);
-      setCurrentShift(shift.data);
+      
+      // تتبع بيانات الوردية القادمة من قاعدة البيانات
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Raw Shift Data from RPC:', shift.data);
+      }
+
+      setCurrentShift(Array.isArray(shift.data) ? shift.data[0] : shift.data);
       setLastUpdated(new Date());
 
     } catch (error) {
-      console.error('Error refreshing accounting data:', error);
-    } finally {
+      if (process.env.NODE_ENV === 'development') console.error('Error refreshing accounting data:', error);
+      showToast('فشل تحديث البيانات، يرجى التحقق من اتصال الإنترنت', 'error');    } finally {
       setIsLoading(false);
     }
   }, [authUser, currentSelectedOrgId]); // Add currentSelectedOrgId to dependencies
@@ -329,30 +335,78 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deleteAccount = async (id: string, reason?: string) => { const { error } = await supabase.from('accounts').delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); refreshData(); };
   const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); refreshData(); };
-  const saveBudget = async (budget: any) => { await supabase.from('budgets').upsert(budget); refreshData(); };
-
+  const saveBudget = async (budget: any) => { 
+    const { error } = await supabase.from('budgets').upsert(budget); 
+    if (error) {
+      showToast('فشل حفظ الموازنة: ' + error.message, 'error');
+    } else {
+      showToast('تم حفظ الموازنة بنجاح ✅', 'success');
+      refreshData(); 
+    }
+  };
   // Inventory
-  const recalculateStock = async (productId?: string) => { await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); refreshData(); };
-  const addProduct = async (data: any) => { 
+  const recalculateStock = async (productId?: string) => { 
+    const { error } = await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); 
+    if (error) {
+      showToast('فشل إعادة حساب المخزون: ' + error.message, 'error');
+    } else {
+      showToast('تم تحديث المخزون بنجاح ✅', 'success');
+      refreshData(); 
+    }
+  };  const addProduct = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: p, error } = await supabase.from('products').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    const { data: p, error } = await supabase.from('products').insert({ ...data, organization_id: targetOrgId }).select().single();
     if (error) throw error;
     await refreshData(); return p; 
   };
-  const updateProduct = async (id: string, data: any) => { await supabase.from('products').update(data).eq('id', id); refreshData(); };
-  const deleteProduct = async (id: string, reason?: string) => { await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
-  const addStockTransfer = async (data: any) => { await supabase.from('stock_transfers').insert(data); refreshData(); };
-  const approveStockTransfer = async (id: string) => { await supabase.rpc('approve_stock_transfer', { p_transfer_id: id }); refreshData(); };
-  const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); refreshData(); };
+   const updateProduct = async (id: string, data: any) => { 
+    const { error } = await supabase.from('products').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteProduct = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    if (error) throw error;
+    showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
+    refreshData(); 
+  };
+  const addStockTransfer = async (data: any) => { 
+    const { error } = await supabase.from('stock_transfers').insert(data);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const approveStockTransfer = async (id: string) => { 
+    const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
+    if (error) throw error;
+    refreshData(); 
+  };
+  const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); showToast('تم إلغاء طلب التحويل', 'info'); refreshData(); };
   const addWarehouse = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('warehouses').insert({ ...data, organization_id: targetOrgId }); 
     if (error) throw error;
     await refreshData(); 
   };
-  const updateWarehouse = async (id: string, data: any) => { await supabase.from('warehouses').update(data).eq('id', id); refreshData(); };
-  const deleteWarehouse = async (id: string) => { await supabase.from('warehouses').update({ is_active: false }).eq('id', id); refreshData(); };
-  const addWastage = async (data: any) => { const { error } = await supabase.rpc('record_wastage', data); refreshData(); return !error; };
+   const updateWarehouse = async (id: string, data: any) => { 
+    const { error } = await supabase.from('warehouses').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteWarehouse = async (id: string) => { 
+    const { error } = await supabase.from('warehouses').update({ is_active: false }).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const addWastage = async (data: any) => { 
+    const { error } = await supabase.rpc('record_wastage', data); 
+    if (error) {
+      showToast('فشل تسجيل الهالك: ' + error.message, 'error');
+    } else {
+      showToast('تم تسجيل الهالك وتحديث المخزن ✅', 'success');
+      refreshData();
+    }
+    return !error; 
+  };
   const produceItem = async (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => { return await supabase.rpc('mfg_create_order_direct', { p_product_id: id, p_qty: qty, p_warehouse_id: whId, p_date: date, p_additional_cost: cost, p_reference: ref }); };
 
   // Sales & Purchases
@@ -362,19 +416,56 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     await refreshData(); return c; 
   };
-  const updateCustomer = async (id: string, data: any) => { await supabase.from('customers').update(data).eq('id', id); refreshData(); };
-  const deleteCustomer = async (id: string, reason?: string) => { await supabase.from('customers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
+  const updateCustomer = async (id: string, data: any) => { 
+    const { error } = await supabase.from('customers').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteCustomer = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
   const addSupplier = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { data: s, error } = await supabase.from('suppliers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
-    if (error) throw error;
-    await refreshData(); return s; 
+    if (error) {
+      showToast('فشل إضافة المورد: ' + error.message, 'error');
+      throw error;
+    }
+    showToast('تم إضافة المورد بنجاح ✅', 'success');
+    await refreshData();
+    return s; 
   };
-  const updateSupplier = async (id: string, data: any) => { await supabase.from('suppliers').update(data).eq('id', id); refreshData(); };
-  const deleteSupplier = async (id: string, reason?: string) => { await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
+    const updateSupplier = async (id: string, data: any) => { 
+    const { error } = await supabase.from('suppliers').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteSupplier = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
   const approveInvoice = async (id: string) => { const { error } = await supabase.rpc('post_sales_invoice', { p_invoice_id: id }); refreshData(); return !error; };
-  const approvePurchaseInvoice = async (id: string) => { await supabase.rpc('post_purchase_invoice', { p_invoice_id: id }); refreshData(); };
-  const convertPoToInvoice = async (id: string, warehouseId?: string) => { await supabase.rpc('convert_po_to_invoice', { p_po_id: id, p_warehouse_id: warehouseId }); refreshData(); };
+  const approvePurchaseInvoice = async (id: string) => { 
+    const { error } = await supabase.rpc('post_purchase_invoice', { p_invoice_id: id }); 
+    if (error) {
+      showToast('فشل اعتماد الفاتورة: ' + error.message, 'error');
+    } else {
+      showToast('تم اعتماد فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
+      refreshData();
+    }
+  };
+  const convertPoToInvoice = async (id: string, warehouseId?: string) => { 
+    const { error } = await supabase.rpc('convert_po_to_invoice', { p_po_id: id, p_warehouse_id: warehouseId }); 
+    if (error) {
+      showToast('فشل تحويل أمر الشراء: ' + error.message, 'error');
+    } else {
+      showToast('تم تحويل أمر الشراء إلى فاتورة بنجاح ✅', 'success');
+      refreshData();
+    }
+  };
   const addOpeningBalanceTransaction = async (id: string, type: string, amount: number, date: string, name: string) => { await supabase.rpc('add_opening_balance', { p_id: id, p_type: type, p_amount: amount, p_date: date, p_name: name }); refreshData(); };
   const addPaymentVoucher = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -564,18 +655,38 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData(); 
   };
   const closeCurrentShift = async (actualCash: number, notes: string) => { 
-    if (!currentShift?.id) return;
-    await supabase.rpc('close_shift', { p_shift_id: currentShift.id, p_actual_cash: actualCash, p_notes: notes }); 
-    refreshData(); 
+    if (!currentShift?.id) {
+      throw new Error('لا توجد وردية مفتوحة حالياً ليتم إغلاقها');
+    }
+    const { error } = await supabase.rpc('close_shift', { 
+      p_shift_id: currentShift.id, 
+      p_actual_cash: actualCash, 
+      p_notes: notes 
+    }); 
+    if (error) throw error;
+    await refreshData(); 
   };
-  const getCurrentShiftSummary = async () => { if (!currentShift?.id) return null; const { data } = await supabase.rpc('get_shift_summary', { p_shift_id: currentShift.id }); return data; };
+  const getCurrentShiftSummary = async () => { 
+    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
+    if (!shiftId) return null; 
+    const { data, error } = await supabase.rpc('get_shift_summary', { p_shift_id: shiftId }); 
+    if (error) throw error;
+    return data; 
+  };
 
   const createMissingSystemAccounts = async () => await supabase.rpc('create_missing_system_accounts');
   const recalculateAllBalances = async () => { await supabase.rpc('recalculate_all_balances'); showToast('تم تحديث الأرصدة', 'success'); };
-  const purgeDeletedRecords = async () => { await supabase.rpc('purge_deleted_records'); refreshData(); };
-  const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); window.location.reload(); };
+    const purgeDeletedRecords = async () => { 
+    const { error } = await supabase.rpc('purge_deleted_records'); 
+    if (error) { showToast('فشل تنظيف السجلات: ' + error.message, 'error'); return; }
+    showToast('تم تنظيف السجلات المحذوفة بنجاح ✅', 'success');
+    refreshData(); 
+  };
+  const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); showToast('جاري تحديث هيكل النظام...', 'info'); setTimeout(() => window.location.reload(), 1500); };
   const closeFinancialYear = async (year: number, date: string) => {
-    const { data } = await supabase.rpc('close_financial_year', { p_year: year, p_closing_date: date });
+    const { data, error } = await supabase.rpc('close_financial_year', { p_year: year, p_closing_date: date });
+        if (error) { showToast('فشل إقفال السنة: ' + error.message, 'error'); return false; }
+    showToast(`تم إقفال السنة المالية ${year} بنجاح ✅`, 'success');
     return !!data;
   };
   const exportData = async () => { /* Logic to export JSON */ };

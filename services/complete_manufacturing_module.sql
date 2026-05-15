@@ -28,8 +28,7 @@ BEGIN
             'mfg_create_material_request', 'mfg_issue_material_request', 'fn_mfg_auto_create_material_request',
             'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order',
             'mfg_start_production_orders_batch', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts',
-            'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover',
-            'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis', 'get_product_recipe_cost'
+            'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover', 'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis'
         ) THEN
             EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
         END IF;
@@ -40,80 +39,6 @@ END $$;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
-
--- ================================================================
--- 2. دوال حساب التكاليف (التعريف المبكر لمنع أخطاء التبعية)
--- ================================================================
-
--- 🛠️ دالة جلب تكلفة الوجبة بناءً على المكونات (BOM) - حجر زاوية مفقود تم إضافته
-CREATE OR REPLACE FUNCTION public.get_product_recipe_cost(p_product_id uuid)
-RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_cost numeric;
-BEGIN
-    SELECT COALESCE(SUM(bom.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)), 0)
-    INTO v_cost
-    FROM public.bill_of_materials bom
-    JOIN public.products p ON bom.raw_material_id = p.id
-    WHERE bom.product_id = p_product_id;
-    RETURN v_cost;
-END; $$;
-
--- 🛠️ دالة حساب التكلفة المعيارية التقديرية (Standard Cost Calculation)
--- تقوم بحساب التكلفة المتوقعة للمنتج بناءً على الـ BOM والمسار الإنتاجي المعتمد
-CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid, p_org_id uuid DEFAULT NULL)
-RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER 
-SET search_path = public AS $$
-DECLARE
-    v_total_cost numeric := 0;
-    v_routing record;
-    v_step record;
-    v_org_id uuid;
-    v_labor_cost numeric;
-    v_material_cost numeric;
-    v_overhead_cost numeric;
-BEGIN
-    v_org_id := COALESCE(p_org_id, (SELECT organization_id FROM public.products WHERE id = p_product_id), public.get_my_org());
-
-    -- 1. البحث عن المسار الافتراضي للمنتج
-    SELECT * INTO v_routing FROM public.mfg_routings 
-    WHERE product_id = p_product_id AND organization_id = v_org_id AND is_default = true 
-    LIMIT 1;
-    IF NOT FOUND THEN
-        SELECT * INTO v_routing FROM public.mfg_routings 
-        WHERE product_id = p_product_id AND organization_id = v_org_id 
-        LIMIT 1;
-    END IF;
-
-    -- 🛡️ تحديث محاسبي: إذا لم يوجد مسار إنتاج، نعتمد على تكلفة وصفة المواد (BOM) كحد أدنى
-    IF v_routing.id IS NULL THEN 
-        RETURN public.get_product_recipe_cost(p_product_id);
-    END IF;
-
-    -- 2. حساب تكاليف المراحل (عمالة + مصاريف + مواد)
-    FOR v_step IN 
-        SELECT rs.*, wc.hourly_rate, wc.overhead_rate 
-        FROM public.mfg_routing_steps rs
-        LEFT JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
-        WHERE rs.routing_id = v_routing.id
-    LOOP
-        v_labor_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.hourly_rate, 0);
-        v_overhead_cost := (COALESCE(v_step.standard_time_minutes, 0) / 60.0) * COALESCE(v_step.overhead_rate, 0);
-        SELECT SUM(sm.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
-        INTO v_material_cost
-        FROM public.mfg_step_materials sm
-        JOIN public.products p ON sm.raw_material_id = p.id
-        WHERE sm.step_id = v_step.id;
-        v_total_cost := v_total_cost + v_labor_cost + v_overhead_cost + COALESCE(v_material_cost, 0);
-    END LOOP;
-
-    RETURN ROUND(v_total_cost, 4);
-END; $$;
-
--- ================================================================
--- 0.5 دوال حساب التكاليف الأساسية (لضمان وجودها للرؤى بعد التنظيف)
--- تم نقلها إلى قسم الدوال الرئيسي
--- ================================================================
 
 -- ================================================================
 -- 1. جداول مديول التصنيع (MFG Module Tables)
@@ -334,6 +259,45 @@ BEGIN
 END $$;
 
 -- ================================================================
+-- 1.6. دوال التأسيس (Core Manufacturing Calculation Functions)
+-- ================================================================
+
+-- 🛠️ دالة حساب التكلفة المعيارية للمنتج (Standard Cost Calculation)
+-- النسخة الموحدة بتوقيع (uuid, uuid) لضمان عزل البيانات ودعم التوقيع الجديد
+CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid, p_org_id uuid DEFAULT public.get_my_org())
+RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_material_cost numeric := 0;
+    v_labor_cost numeric := 0;
+    v_overhead_cost numeric := 0;
+    v_routing_id uuid;
+BEGIN
+    -- 1. حساب تكلفة المواد المباشرة من قائمة المواد (BOM)
+    SELECT SUM(bom.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+    INTO v_material_cost
+    FROM public.bill_of_materials bom
+    JOIN public.products p ON bom.raw_material_id = p.id
+    WHERE bom.product_id = p_product_id AND bom.organization_id = p_org_id;
+
+    -- 2. جلب المسار الإنتاجي الافتراضي
+    SELECT id INTO v_routing_id FROM public.mfg_routings 
+    WHERE product_id = p_product_id AND organization_id = p_org_id AND is_default = true AND deleted_at IS NULL LIMIT 1;
+
+    -- 3. حساب تكاليف العمالة والمصاريف غير المباشرة من خطوات الإنتاج
+    IF v_routing_id IS NOT NULL THEN
+        SELECT 
+            SUM((rs.standard_time_minutes / 60.0) * COALESCE(wc.hourly_rate, 0)),
+            SUM((rs.standard_time_minutes / 60.0) * COALESCE(wc.overhead_rate, 0))
+        INTO v_labor_cost, v_overhead_cost
+        FROM public.mfg_routing_steps rs
+        JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
+        WHERE rs.routing_id = v_routing_id;
+    END IF;
+
+    RETURN ROUND(COALESCE(v_material_cost, 0) + COALESCE(v_labor_cost, 0) + COALESCE(v_overhead_cost, 0), 4);
+END; $$;
+
+-- ================================================================
 -- 2. رؤى مديول التصنيع (MFG Module Views)
 -- ================================================================
 
@@ -428,7 +392,7 @@ WITH standard_costs AS (
     -- حساب التكلفة التقديرية لكل منتج بناءً على الـ BOM والمسار
     SELECT 
         p.id as product_id,
-        public.mfg_calculate_standard_cost(p.id) as std_cost_per_unit
+        public.mfg_calculate_standard_cost(p.id, p.organization_id) as std_cost_per_unit
     FROM public.products p
     WHERE p.mfg_type = 'standard'
 ),
@@ -1195,9 +1159,10 @@ CREATE OR REPLACE FUNCTION public.mfg_update_product_standard_cost(p_product_id 
 RETURNS numeric LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
-    v_std_cost numeric;
+    v_std_cost numeric; v_org_id uuid;
 BEGIN
-    v_std_cost := public.mfg_calculate_standard_cost(p_product_id);
+    SELECT organization_id INTO v_org_id FROM public.products WHERE id = p_product_id;
+    v_std_cost := public.mfg_calculate_standard_cost(p_product_id, v_org_id);
 
     IF v_std_cost > 0 THEN
         UPDATE public.products
@@ -1490,12 +1455,12 @@ BEGIN
     v_org_id := v_order.organization_id;
 
     -- 2. جلب التكلفة الفعلية الإجمالية من رؤية ربحية أمر الإنتاج
-    SELECT total_actual_cost INTO v_actual_cost
+    SELECT COALESCE(total_actual_cost, 0) INTO v_actual_cost
     FROM public.v_mfg_order_profitability
     WHERE order_id = p_order_id AND organization_id = v_org_id;
 
     -- 3. حساب التكلفة المعيارية الإجمالية (التكلفة المعيارية للوحدة * الكمية المنتجة)
-    v_standard_cost_per_unit := public.mfg_calculate_standard_cost(v_order.product_id);
+    v_standard_cost_per_unit := public.mfg_calculate_standard_cost(v_order.product_id, v_org_id);
     v_standard_total_cost := v_standard_cost_per_unit * v_order.quantity_to_produce;
 
     -- 4. حساب الانحراف (الفعلي - المعياري)
@@ -1509,7 +1474,7 @@ BEGIN
     -- 5. تسجيل أو تحديث الانحراف في الجدول الجديد لضمان بقاء البيانات التاريخية
     INSERT INTO public.mfg_production_variances (
         production_order_id, actual_total_cost, standard_total_cost,
-        variance_amount, variance_percentage, organization_id
+        variance_amount, variance_percentage, organization_id, created_at
     ) VALUES (
         p_order_id, v_actual_cost, v_standard_total_cost,
         v_variance_amount, v_variance_percentage, v_org_id
@@ -1517,7 +1482,8 @@ BEGIN
         actual_total_cost = EXCLUDED.actual_total_cost,
         standard_total_cost = EXCLUDED.standard_total_cost,
         variance_amount = EXCLUDED.variance_amount,
-        variance_percentage = EXCLUDED.variance_percentage;
+        variance_percentage = EXCLUDED.variance_percentage,
+        created_at = now();
 
     RETURN jsonb_build_object(
         'order_id', p_order_id, 'order_number', v_order.order_number, 'product_id', v_order.product_id,
@@ -2232,7 +2198,7 @@ GRANT EXECUTE ON FUNCTION public.mfg_create_orders_from_sales(uuid) TO authentic
 GRANT EXECUTE ON FUNCTION public.mfg_merge_sales_orders(uuid[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_start_production_order(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_start_production_orders_batch(uuid[]) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.mfg_calculate_standard_cost(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.mfg_calculate_standard_cost(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_update_product_standard_cost(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_check_stock_availability(uuid, numeric) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_check_production_readiness(uuid) TO authenticated;
@@ -2264,8 +2230,24 @@ GRANT EXECUTE ON FUNCTION public.is_super_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
 
 -- إعادة تحميل كاش المخطط لضمان تعرف الـ API على التغييرات فوراً وتأكيد النشر
-DO $$
+-- ================================================================
+-- 8. إصلاح البيانات المتأخر (Post-Execution Data Repair)
+-- ================================================================
+DO $$ 
 BEGIN
+    -- 1. إسناد المستودع الرئيسي لأوامر الإنتاج "اليتيمة" (التي ليس لها مستودع) لكي يراها محرك المخزون
+    UPDATE public.mfg_production_orders po
+    SET warehouse_id = (SELECT id FROM public.warehouses WHERE organization_id = po.organization_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
+    WHERE warehouse_id IS NULL AND status = 'completed';
+
+    -- 2. تصحيح متوسط التكلفة (WAC) للأصناف التي تضررت بسبب الأرصدة السالبة أو الأخطاء الحسابية
+    -- نستخدم التوقيع الجديد (uuid, uuid) ونمرر organization_id صراحة
+    UPDATE public.products p
+    SET weighted_average_cost = public.mfg_calculate_standard_cost(p.id, p.organization_id),
+        cost = public.mfg_calculate_standard_cost(p.id, p.organization_id)
+    WHERE p.mfg_type = 'standard' 
+      AND (weighted_average_cost <= 0 OR weighted_average_cost > 1000000);
+
     NOTIFY pgrst, 'reload config';
     RAISE NOTICE '✅ تم نشر موديول التصنيع الشامل بنجاح.';
 END $$;
@@ -2347,7 +2329,6 @@ BEGIN
     IF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('raw', 'raw_material') THEN
         NEW.product_type := 'RAW_MATERIAL';
         NEW.item_type := 'STOCK';
-    ELSIF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('standard', 'finished_goods', 'standard_product') THEN
     ELSIF LOWER(TRIM(COALESCE(NEW.mfg_type, ''))) IN ('standard', 'finished_goods', 'standard_product', 'finished', 'product') THEN
         NEW.product_type := 'FINISHED_GOODS';
         NEW.item_type := 'STOCK';

@@ -830,6 +830,20 @@ CREATE TABLE IF NOT EXISTS public.kitchen_orders (
     created_at timestamptz DEFAULT now()
 );
 
+-- 3. جداول المدفوعات (Payments Table)
+CREATE TABLE IF NOT EXISTS public.payments (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
+    amount numeric NOT NULL,
+    payment_method text NOT NULL, -- cash, card, credit, etc.
+    status text DEFAULT 'PENDING', -- PENDING, COMPLETED, FAILED, REFUNDED
+    transaction_id text, -- معرف العملية من بوابة الدفع
+    cash_account_id uuid REFERENCES public.accounts(id), -- الحساب النقدي أو البنكي الذي تم التحصيل فيه
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now()
+);
+
 -- جداول الروابط والوردات (Missing in Master Setup)
 CREATE TABLE IF NOT EXISTS public.shifts (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,

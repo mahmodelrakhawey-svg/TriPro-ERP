@@ -3,7 +3,8 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Banknote, Play, Loader2, Save, User, Wallet } from 'lucide-react';
-import { z } from 'zod';
+import { payrollRunSchema, payrollItemSchema } from '../../utils/validationSchemas';
+import { z } from 'zod'; // استيراد z مباشرة من zod
 
 type PayrollItem = {
   employee_id: string;
@@ -122,18 +123,28 @@ const PayrollRun = () => {
   };
 
   const handleRunPayroll = async () => {
-    const payrollSchema = z.object({
-        treasuryId: z.string().min(1, 'يرجى اختيار حساب الصرف (الخزينة/البنك)'),
-        hasData: z.boolean().refine(val => val === true, 'لا يوجد بيانات في المسير')
-    });
-
-    const validationResult = payrollSchema.safeParse({
+    // 1. التحقق من بيانات المسير العامة
+    const generalValidationResult = payrollRunSchema.safeParse({
         treasuryId,
         hasData: payrollData.length > 0
     });
 
-    if (!validationResult.success) {
-        showToast(validationResult.error.issues[0].message, 'warning');
+    if (!generalValidationResult.success) {
+        showToast(generalValidationResult.error.issues[0].message, 'warning');
+        return;
+    }
+
+    // 2. التحقق من بيانات كل موظف في المسير
+    for (const item of payrollData) {
+        const itemValidationResult = payrollItemSchema.safeParse(item);
+        if (!itemValidationResult.success) {
+            showToast(`خطأ في بيانات الموظف ${item.full_name}: ${itemValidationResult.error.issues[0].message}`, 'warning');
+            return;
+        }
+    }
+
+    if (payrollData.length === 0) {
+        showToast('لا يوجد موظفون في المسير لتشغيله.', 'warning');
         return;
     }
 

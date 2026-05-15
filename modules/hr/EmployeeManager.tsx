@@ -2,8 +2,8 @@
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, Briefcase, Calendar, DollarSign, Loader2, Filter } from 'lucide-react';
-import { z } from 'zod';
+import { Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, Briefcase, Calendar, DollarSign, Loader2, Filter } from 'lucide-react'; // Removed z import
+import { createEmployeeSchema } from '../../utils/validationSchemas';
 
 const EmployeeManager = () => {
   const { employees, addEmployee, updateEmployee, deleteEmployee, currentUser } = useAccounting();
@@ -67,19 +67,17 @@ const EmployeeManager = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    const employeeSchema = z.object({
-        full_name: z.string().min(1, 'يرجى إدخال اسم الموظف'),
-        position: z.string().optional(),
-        department: z.string().optional(),
-        salary: z.number().min(0, 'الراتب يجب أن يكون 0 أو أكثر'),
-        hire_date: z.string().min(1, 'تاريخ التعيين مطلوب'),
-        phone: z.string().optional(),
-        email: z.string().email('البريد الإلكتروني غير صحيح').optional().or(z.literal('')),
-        status: z.string(),
+
+    // استخدام المخطط المركزي
+    const validationResult = createEmployeeSchema.safeParse({ // تم توحيد هذا المتغير
+        full_name: formData.full_name,
+        role: 'viewer', // دور افتراضي للموظف ليتوافق مع السكيما (يمكن إضافة اختيار الدور للنموذج لاحقاً)
+        basic_salary: formData.salary,
+        hire_date: formData.hire_date,
+        is_active: formData.status === 'active',
+        // الحقول الأخرى مثل phone, email, position, department يمكن إضافتها إلى السكيما إذا كانت مطلوبة للتحقق
     });
 
-    const validationResult = employeeSchema.safeParse(formData);
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;
@@ -109,6 +107,7 @@ const EmployeeManager = () => {
 
     try {
       await deleteEmployee(id, reason);
+      showToast('تم حذف الموظف بنجاح ✅', 'success');
       // The context will refetch the data, no need to manually update state
     } catch (error: any) {
       showToast('فشل حذف الموظف: ' + error.message, 'error');
@@ -164,7 +163,6 @@ const EmployeeManager = () => {
         <div className="min-w-[150px]">
             <select value={departmentFilter} onChange={e => setDepartmentFilter(e.target.value)} className="w-full border rounded-lg p-2 focus:outline-none focus:border-blue-500 bg-white">
                 <option value="all">كل الأقسام</option>
-                {(departments as string[]).map((dept: string) => <option key={dept} value={dept}>{dept}</option>)}
                 {(departments as string[]).map((dept: string) => <option key={dept} value={dept}>{dept}</option>)}
             </select>
         </div>

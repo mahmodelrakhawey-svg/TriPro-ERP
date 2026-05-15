@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Plus, Trash2, Save, Loader2, PackageOpen, AlertTriangle } from 'lucide-react';
 import { z } from 'zod';
+import { Plus, Trash2, Save, Loader2, PackageOpen, AlertTriangle } from 'lucide-react'; // Removed z import
+import { createOpeningInventoryItemSchema } from '../../utils/validationSchemas';
 
 type NewProduct = {
   id: string; // Temporary ID for UI
@@ -39,13 +40,7 @@ export default function OpeningInventory() {
 
   const handleSave = async () => {
     // التحقق من البيانات
-    const openingInventorySchema = z.array(z.object({
-        name: z.string().min(1, 'اسم الصنف مطلوب'),
-        quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
-        cost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر')
-    })).min(1, 'يجب إضافة صنف واحد على الأقل');
-
-    const validationResult = openingInventorySchema.safeParse(items);
+    const validationResult = z.array(createOpeningInventoryItemSchema).min(1, 'يجب إضافة صنف واحد على الأقل').safeParse(items);
     if (!validationResult.success) {
         const error = validationResult.error.issues[0];
         showToast(`خطأ في السطر ${Number(error.path[0]) + 1}: ${error.message}`, 'warning');

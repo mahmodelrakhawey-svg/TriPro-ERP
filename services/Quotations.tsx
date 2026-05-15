@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+import { useToast } from '../context/ToastContext';
 
 // تعريف واجهة البيانات لعروض الأسعار
 interface Quotation {
@@ -15,6 +16,7 @@ interface Quotation {
 const Quotations: React.FC = () => {
   const [quotations, setQuotations] = useState<Quotation[]>([]);
   const [loading, setLoading] = useState(true);
+  const { showToast } = useToast();
 
   useEffect(() => {
     fetchQuotations();
@@ -46,10 +48,10 @@ const Quotations: React.FC = () => {
 
       if (error) throw error;
 
-      alert('تم تحويل عرض السعر إلى أمر بيع بنجاح ✅');
+      showToast('تم تحويل عرض السعر إلى أمر بيع بنجاح ✅', 'success');
       fetchQuotations(); // تحديث القائمة لرؤية الحالة الجديدة (accepted)
     } catch (error: any) {
-      alert('خطأ أثناء التحويل: ' + error.message);
+      showToast('خطأ أثناء التحويل: ' + error.message, 'error');
     }
   };
 

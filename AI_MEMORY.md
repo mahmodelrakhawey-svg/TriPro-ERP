@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٤‏/٥‏/٢٠٢٦، ١١:٤١:٤٥ م
+📅 تاريخ التحديث: ١٥‏/٥‏/٢٠٢٦، ٣:٥٦:٠٣ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -25,7 +25,6 @@
     📄 JournalEntriesExport.tsx
     📄 JournalEntryForm.tsx
     📄 JournalEntryView.tsx
-    📄 ReportHeader.tsx
     📄 Reports.tsx
     📄 TrialBalance.tsx
     📄 TrialBalanceAdvanced.tsx
@@ -180,7 +179,6 @@
   📄 ModifierManagement.tsx
   📄 ModifierSelectionModal.tsx
   📄 NotificationCenter.tsx
-  📄 offlineService.ts
   📄 OfflineSyncProvider.tsx
   📄 OrderSummary.tsx
   📄 PaymentModal.tsx
@@ -207,7 +205,6 @@
   📁 mfg/
     📄 BatchOrderManager.tsx
     📄 BOMVarianceReport.tsx
-    📄 complete_manufacturing_module.sql
     📄 GenealogyViewer.tsx
     📄 manufacturing_alerts.sql
     📄 manufacturing_functions.sql
@@ -226,6 +223,71 @@
     📄 WIPMonthlySummaryReport.tsx
     📄 WorkCenterEfficiencyTable.tsx
   📁 migrations/
+    📁 archive/
+      📄 admin_platform_stats.sql
+      📄 check_missing_rls.sql
+      📄 check_user_status.sql
+      📄 client_backup.sql
+      📄 comprehensive_fix_403.sql
+      📄 comprehensive_fix.sql
+      📄 create_fix_schema_function.sql
+      📄 debug_rls_permissions.sql
+      📄 diagnostic_auth_debug.sql
+      📄 diagnostic_invoice_journal.sql
+      📄 disable_all_rls.sql
+      📄 ensure_returns_columns.sql
+      📄 export_org_data.sql
+      📄 factory_reset_complete.sql
+      📄 final_fix_42501.sql
+      📄 financial_rls_updates.sql
+      📄 fix_all_rls_policies.sql
+      📄 fix_auth_profiles.sql
+      📄 fix_comprehensive_all_tables.sql
+      📄 fix_customer_balance_mismatch.sql sql
+      📄 fix_deficit_relationship.sql
+      📄 fix_final_20_tables_rls.sql
+      📄 fix_invoices_schema.sql
+      📄 fix_item_categories_description.sql
+      📄 fix_missing_rls.sql
+      📄 fix_notification_requirements.sql
+      📄 fix_notification_schema.sql
+      📄 fix_null_warehouse_returns.sql
+      📄 fix_opening_inventory_schema.sql
+      📄 fix_orphaned_stock.sql
+      📄 fix_payroll_account.sql
+      📄 fix_remaining_rls_tables.sql
+      📄 fix_rls_permissions.sql
+      📄 fix_schema_inconsistencies.sql
+      📄 fix_user_creation.sql
+      📄 invoice_items_queries.sql
+      📄 link_returns_to_invoices.sql
+      📄 populate_demo_activity.sql
+      📄 quick_diagnostic.sql
+      📄 recalculate_stock_rpc.sql
+      📄 recalculate_stock_v3.sql
+      📄 reset_database_clean.sql
+      📄 restore_from_backup.sql
+      📄 secure_tables.sql
+      📄 setup_client_admin.sql
+      📄 setup_complete_demo.sql
+      📄 setup_demo_environment.sql
+      📄 setup_demo_protection.sql
+      📄 setup_new_client_db.sql
+      📄 simple_debug.sql
+      📄 test_approve_invoice.sql
+      📄 test_clear_demo_data.sql
+      📄 test_payment_voucher.sql
+      📄 test_receipt_voucher_logic.sql
+      📄 test_receipt_voucher_v2.sql
+      📄 ultimate_data_repair.sql
+      📄 verify_and_fix_returns_schema.sql
+      📄 verify_closing.sql
+      📄 verify_demo_security.sql
+      📄 verify_frontend_integration.sql
+      📄 verify_functions.sql
+      📄 verify_reset.sql
+      📄 verify_rls_status.sql
+      📄 verify_system_health.sql
     📄 2026-01-25_create_restaurant_module.sql
     📄 2026-01-26_restaurant_functions.sql
     📄 2026-01-27_restaurant_accounting_functions.sql
@@ -237,6 +299,8 @@
     📄 2026-03-16_update_product_type_constraint.sql
     📄 2026-03-17_inventory_consumption.sql
     📄 2026-03-18_shift_management.sql
+    📄 2026-03-22_advanced_modifiers.sql
+    📄 2026-03-22_products_view.sql
     📄 2026-03-25_realtime_inventory_deduction.sql
     📄 2026-03-26_wastage_management.sql
     📄 2026-03-27_wastage_analysis_report.sql
@@ -247,79 +311,51 @@
     📄 2026-04-05_auto_assign_qr_orders.sql
     📄 2026-04-06_fix_sales_account_missing.sql
     📄 2026-04-10_fix_sync_role_permissions.sql
-  📄 2026-03-22_advanced_modifiers.sql
-  📄 2026-03-22_products_view.sql
-  📄 2026-03-25_realtime_inventory_deduction.sql
+    📄 add_account_mappings.sql
+    📄 add_created_by_columns.sql
+    📄 add_currency_to_vouchers.sql
+    📄 add_decimal_places_column.sql
+    📄 add_max_deficit_column.sql
+    📄 add_original_invoice_column.sql
+    📄 add_payment_method_column.sql
+    📄 approve_credit_note_rpc.sql
+    📄 approve_debit_note_rpc.sql
+    📄 approve_payment_voucher_rpc.sql
+    📄 approve_purchase_invoice_rpc.sql
+    📄 approve_purchase_return_rpc.sql
+    📄 approve_receipt_voucher_rpc.sql
+    📄 approve_sales_return_rpc.sql
+    📄 cash_closing_setup.sql
+    📄 create_missing_tables.sql
+    📄 database_updates_2026-04-05.sql
+    📄 egyptian_coa_full.sql
+    📄 fix_missing_accounts.sql
+    📄 increase_user_limit.sql
+    📄 inventory_costing_setup.sql
+    📄 optimize_database_performance.sql
+    📄 recalculate_stock_v4.sql
+    📄 rejected_closings_setup.sql
+    📄 reports_functions.sql
+    📄 run_period_depreciation_rpc.sql
+    📄 schema.sql
+    📄 setup_notifications.sql
+    📄 sync_missing_accounts.sql
+    📄 system_stabilization.sql
+    📄 update_products_schema_v2.sql
+    📄 voucher_attachments_setup.sql
   📄 accountService.ts
-  📄 add_account_mappings.sql
-  📄 add_created_by_columns.sql
-  📄 add_currency_to_vouchers.sql
-  📄 add_decimal_places_column.sql
-  📄 add_max_deficit_column.sql
-  📄 add_original_invoice_column.sql
-  📄 add_payment_method_column.sql
-  📄 admin_platform_stats.sql
   📄 AdminTestDashboard.tsx
-  📄 approve_credit_note_rpc.sql
-  📄 approve_debit_note_rpc.sql
-  📄 approve_payment_voucher_rpc.sql
-  📄 approve_purchase_invoice_rpc.sql
-  📄 approve_purchase_return_rpc.sql
-  📄 approve_receipt_voucher_rpc.sql
-  📄 approve_sales_return_rpc.sql
   📄 ArchiveManager.tsx
   📄 backup_script.sh
   📄 BackupRestoreManager.tsx
-  📄 cash_closing_setup.sql
-  📄 check_missing_rls.sql
-  📄 check_user_status.sql
-  📄 client_backup.sql
-  📄 comprehensive_fix_403.sql
-  📄 comprehensive_fix.sql
-  📄 create_fix_schema_function.sql
-  📄 create_missing_tables.sql
+  📄 complete_manufacturing_module.sql
   📄 create-client.ts
-  📄 database_updates_2026-04-05.sql
-  📄 debug_rls_permissions.sql
   📄 deploy_all_functionss.sql
-  📄 diagnostic_auth_debug.sql
-  📄 diagnostic_invoice_journal.sql
-  📄 disable_all_rls.sql
-  📄 egyptian_coa_full.sql
-  📄 ensure_returns_columns.sql
-  📄 export_org_data.sql
-  📄 factory_reset_complete.sql
-  📄 final_fix_42501.sql
-  📄 financial_rls_updates.sql
-  📄 fix_all_rls_policies.sql
-  📄 fix_auth_profiles.sql
-  📄 fix_comprehensive_all_tables.sql
-  📄 fix_customer_balance_mismatch.sql sql
-  📄 fix_deficit_relationship.sql
-  📄 fix_final_20_tables_rls.sql
-  📄 fix_invoices_schema.sql
-  📄 fix_item_categories_description.sql
-  📄 fix_missing_accounts.sql
-  📄 fix_missing_rls.sql
-  📄 fix_notification_requirements.sql
-  📄 fix_notification_schema.sql
-  📄 fix_null_warehouse_returns.sql
-  📄 fix_opening_inventory_schema.sql
-  📄 fix_orphaned_stock.sql
-  📄 fix_payroll_account.sql
-  📄 fix_remaining_rls_tables.sql
-  📄 fix_rls_permissions.sql
-  📄 fix_schema_inconsistencies.sql
-  📄 fix_user_creation.sql
   📄 geminiService.ts
-  📄 increase_user_limit.sql
   📄 index.ts
   📄 initialize_egyptian_coa.sql
   📄 IntegrityCheckScreen.tsx
-  📄 inventory_costing_setup.sql
-  📄 invoice_items_queries.sql
   📄 invoiceItems.ts
-  📄 link_returns_to_invoices.sql
   📄 master_setup.sql
   📄 modifierService.ts
   📄 NEXT_PHASE_ROADMAP.md
@@ -327,51 +363,12 @@
   📄 notificationService.ts
   📄 notificationTestUtils.ts
   📄 offlineService.ts
-  📄 OfflineSyncProvider.tsx
-  📄 optimize_database_performance.sql
-  📄 populate_demo_activity.sql
-  📄 quick_diagnostic.sql
   📄 Quotations.tsx
   📄 RawMaterialsTurnover.tsx
-  📄 recalculate_stock_rpc.sql
-  📄 recalculate_stock_v3.sql
-  📄 recalculate_stock_v4.sql
-  📄 rejected_closings_setup.sql
-  📄 reports_functions.sql
-  📄 reset_database_clean.sql
-  📄 restore_from_backup.sql
-  📄 run_period_depreciation_rpc.sql
-  📄 schema.sql
-  📄 secure_tables.sql
-  📄 setup_client_admin.sql
-  📄 setup_complete_demo.sql
-  📄 setup_demo_environment.sql
-  📄 setup_demo_protection.sql
-  📄 setup_new_client_db.sql
-  📄 setup_notifications.sql
   📄 setup_rls.sql
-  📄 simple_debug.sql
   📄 supabaseClient.ts
-  📄 sync_missing_accounts.sql
-  📄 system_stabilization.sql
-  📄 test_approve_invoice.sql
-  📄 test_clear_demo_data.sql
-  📄 test_payment_voucher.sql
-  📄 test_receipt_voucher_logic.sql
-  📄 test_receipt_voucher_v2.sql
-  📄 ultimate_data_repair.sql
-  📄 update_products_schema_v2.sql
   📄 updated_system_stabilization.sql
   📄 UserManagement.tsx
-  📄 verify_and_fix_returns_schema.sql
-  📄 verify_closing.sql
-  📄 verify_demo_security.sql
-  📄 verify_frontend_integration.sql
-  📄 verify_functions.sql
-  📄 verify_reset.sql
-  📄 verify_rls_status.sql
-  📄 verify_system_health.sql
-  📄 voucher_attachments_setup.sql
   📄 WhatsAppButton.tsx
 📁 context/
   📄 AccountingContext.tsx
@@ -528,7 +525,6 @@ import EmployeeAdvances from './modules/hr/EmployeeAdvances';
 import PayrollReport from './modules/hr/PayrollReport';
 import EmployeeStatement from './modules/hr/EmployeeStatement';
 import EmployeeReports from './modules/hr/EmployeeReports';
-import ManufacturingManager from './modules/manufacturing/ManufacturingManager'; // Keep for now if still used elsewhere or for migration
 import SalesOrders from './modules/sales/SalesOrders';
 import QuotationForm from './modules/sales/QuotationForm';
 import QuotationList from './modules/sales/QuotationList';
@@ -569,7 +565,6 @@ import QualityControlManager from './services/mfg/QualityControlManager';
 import BOMVarianceReport from './services/mfg/BOMVarianceReport';
 import GenealogyViewer from './services/mfg/GenealogyViewer';
 import ProductionProfitabilityReport from './services/mfg/ProductionProfitabilityReport';
-import WorkOrderManager from './modules/manufacturing/WorkOrderManager'; // Keep for now if still used elsewhere or for migration
 import RoutingBOMManager from './services/mfg/RoutingBOMManager'; // New import
 import MaterialRequestsList from './services/mfg/MaterialRequestsList'; // New import for Material Requests
 import { RawMaterialsTurnover } from './services/RawMaterialsTurnover'; // New import for Raw Materials Turnover
@@ -849,8 +844,7 @@ const MainLayout = () => {
                 <Route path="/detailed-stock-movement" element={<ModuleGuard module="inventory"><DetailedStockMovementReport /></ModuleGuard>} />
                 <Route path="/stock-movement-cost" element={<ModuleGuard module="inventory"><StockMovementCostReport /></ModuleGuard>} />
                 <Route path="/opening-inventory" element={<ModuleGuard module="inventory"><OpeningInventory /></ModuleGuard>} />
-                {/* <Route path="/manufacturing" element={<ModuleGuard module="manufacturing"><ManufacturingManager /></ModuleGuard>} /> */} {/* Removed old manufacturing route */}
-                <Route path="/manufacturing" element={<ModuleGuard module="manufacturing"><ManufacturingManager /></ModuleGuard>} />
+                {/* المديول الجديد للتصنيع موجود في مسارات /mfg/ أدناه */}
                 <Route path="/mfg/dashboard" element={<ModuleGuard module="manufacturing"><ManufacturingDashboard /></ModuleGuard>} />
                 <Route path="/mfg/batch-orders" element={<ModuleGuard module="manufacturing"><BatchOrderManager /></ModuleGuard>} />
                 <Route path="/mfg/shop-floor" element={<ModuleGuard module="manufacturing"><ShopFloorManager /></ModuleGuard>} />
@@ -862,8 +856,6 @@ const MainLayout = () => {
                 <Route path="/mfg/material-requests" element={<ModuleGuard module="manufacturing"><MaterialRequestsList /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/raw-materials-turnover" element={<ModuleGuard module="manufacturing"><RawMaterialsTurnover /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/wip-monthly-summary" element={<ModuleGuard module="manufacturing"><WIPMonthlySummaryReport /></ModuleGuard>} /> {/* New Route */}
-                {/* <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} /> */} {/* Removed old work orders route */}
-                <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
                 <Route path="/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
@@ -1294,8 +1286,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setLastUpdated(new Date());
 
     } catch (error) {
-      console.error('Error refreshing accounting data:', error);
-    } finally {
+      if (process.env.NODE_ENV === 'development') console.error('Error refreshing accounting data:', error);
+      showToast('فشل تحديث البيانات، يرجى التحقق من اتصال الإنترنت', 'error');    } finally {
       setIsLoading(false);
     }
   }, [authUser, currentSelectedOrgId]); // Add currentSelectedOrgId to dependencies
@@ -1330,30 +1322,78 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deleteAccount = async (id: string, reason?: string) => { const { error } = await supabase.from('accounts').delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); refreshData(); };
   const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); refreshData(); };
-  const saveBudget = async (budget: any) => { await supabase.from('budgets').upsert(budget); refreshData(); };
-
+  const saveBudget = async (budget: any) => { 
+    const { error } = await supabase.from('budgets').upsert(budget); 
+    if (error) {
+      showToast('فشل حفظ الموازنة: ' + error.message, 'error');
+    } else {
+      showToast('تم حفظ الموازنة بنجاح ✅', 'success');
+      refreshData(); 
+    }
+  };
   // Inventory
-  const recalculateStock = async (productId?: string) => { await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); refreshData(); };
-  const addProduct = async (data: any) => { 
+  const recalculateStock = async (productId?: string) => { 
+    const { error } = await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); 
+    if (error) {
+      showToast('فشل إعادة حساب المخزون: ' + error.message, 'error');
+    } else {
+      showToast('تم تحديث المخزون بنجاح ✅', 'success');
+      refreshData(); 
+    }
+  };  const addProduct = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: p, error } = await supabase.from('products').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    const { data: p, error } = await supabase.from('products').insert({ ...data, organization_id: targetOrgId }).select().single();
     if (error) throw error;
     await refreshData(); return p; 
   };
-  const updateProduct = async (id: string, data: any) => { await supabase.from('products').update(data).eq('id', id); refreshData(); };
-  const deleteProduct = async (id: string, reason?: string) => { await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
-  const addStockTransfer = async (data: any) => { await supabase.from('stock_transfers').insert(data); refreshData(); };
-  const approveStockTransfer = async (id: string) => { await supabase.rpc('approve_stock_transfer', { p_transfer_id: id }); refreshData(); };
-  const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); refreshData(); };
+   const updateProduct = async (id: string, data: any) => { 
+    const { error } = await supabase.from('products').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteProduct = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    if (error) throw error;
+    showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
+    refreshData(); 
+  };
+  const addStockTransfer = async (data: any) => { 
+    const { error } = await supabase.from('stock_transfers').insert(data);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const approveStockTransfer = async (id: string) => { 
+    const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
+    if (error) throw error;
+    refreshData(); 
+  };
+  const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); showToast('تم إلغاء طلب التحويل', 'info'); refreshData(); };
   const addWarehouse = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('warehouses').insert({ ...data, organization_id: targetOrgId }); 
     if (error) throw error;
     await refreshData(); 
   };
-  const updateWarehouse = async (id: string, data: any) => { await supabase.from('warehouses').update(data).eq('id', id); refreshData(); };
-  const deleteWarehouse = async (id: string) => { await supabase.from('warehouses').update({ is_active: false }).eq('id', id); refreshData(); };
-  const addWastage = async (data: any) => { const { error } = await supabase.rpc('record_wastage', data); refreshData(); return !error; };
+   const updateWarehouse = async (id: string, data: any) => { 
+    const { error } = await supabase.from('warehouses').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteWarehouse = async (id: string) => { 
+    const { error } = await supabase.from('warehouses').update({ is_active: false }).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const addWastage = async (data: any) => { 
+    const { error } = await supabase.rpc('record_wastage', data); 
+    if (error) {
+      showToast('فشل تسجيل الهالك: ' + error.message, 'error');
+    } else {
+      showToast('تم تسجيل الهالك وتحديث المخزن ✅', 'success');
+      refreshData();
+    }
+    return !error; 
+  };
   const produceItem = async (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => { return await supabase.rpc('mfg_create_order_direct', { p_product_id: id, p_qty: qty, p_warehouse_id: whId, p_date: date, p_additional_cost: cost, p_reference: ref }); };
 
   // Sales & Purchases
@@ -1363,19 +1403,56 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     await refreshData(); return c; 
   };
-  const updateCustomer = async (id: string, data: any) => { await supabase.from('customers').update(data).eq('id', id); refreshData(); };
-  const deleteCustomer = async (id: string, reason?: string) => { await supabase.from('customers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
+  const updateCustomer = async (id: string, data: any) => { 
+    const { error } = await supabase.from('customers').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteCustomer = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
   const addSupplier = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { data: s, error } = await supabase.from('suppliers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
-    if (error) throw error;
-    await refreshData(); return s; 
+    if (error) {
+      showToast('فشل إضافة المورد: ' + error.message, 'error');
+      throw error;
+    }
+    showToast('تم إضافة المورد بنجاح ✅', 'success');
+    await refreshData();
+    return s; 
   };
-  const updateSupplier = async (id: string, data: any) => { await supabase.from('suppliers').update(data).eq('id', id); refreshData(); };
-  const deleteSupplier = async (id: string, reason?: string) => { await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id); refreshData(); };
+    const updateSupplier = async (id: string, data: any) => { 
+    const { error } = await supabase.from('suppliers').update(data).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
+  const deleteSupplier = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    if (error) throw error;
+    refreshData(); 
+  };
   const approveInvoice = async (id: string) => { const { error } = await supabase.rpc('post_sales_invoice', { p_invoice_id: id }); refreshData(); return !error; };
-  const approvePurchaseInvoice = async (id: string) => { await supabase.rpc('post_purchase_invoice', { p_invoice_id: id }); refreshData(); };
-  const convertPoToInvoice = async (id: string, warehouseId?: string) => { await supabase.rpc('convert_po_to_invoice', { p_po_id: id, p_warehouse_id: warehouseId }); refreshData(); };
+  const approvePurchaseInvoice = async (id: string) => { 
+    const { error } = await supabase.rpc('post_purchase_invoice', { p_invoice_id: id }); 
+    if (error) {
+      showToast('فشل اعتماد الفاتورة: ' + error.message, 'error');
+    } else {
+      showToast('تم اعتماد فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
+      refreshData();
+    }
+  };
+  const convertPoToInvoice = async (id: string, warehouseId?: string) => { 
+    const { error } = await supabase.rpc('convert_po_to_invoice', { p_po_id: id, p_warehouse_id: warehouseId }); 
+    if (error) {
+      showToast('فشل تحويل أمر الشراء: ' + error.message, 'error');
+    } else {
+      showToast('تم تحويل أمر الشراء إلى فاتورة بنجاح ✅', 'success');
+      refreshData();
+    }
+  };
   const addOpeningBalanceTransaction = async (id: string, type: string, amount: number, date: string, name: string) => { await supabase.rpc('add_opening_balance', { p_id: id, p_type: type, p_amount: amount, p_date: date, p_name: name }); refreshData(); };
   const addPaymentVoucher = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -1573,10 +1650,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const createMissingSystemAccounts = async () => await supabase.rpc('create_missing_system_accounts');
   const recalculateAllBalances = async () => { await supabase.rpc('recalculate_all_balances'); showToast('تم تحديث الأرصدة', 'success'); };
-  const purgeDeletedRecords = async () => { await supabase.rpc('purge_deleted_records'); refreshData(); };
-  const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); window.location.reload(); };
+    const purgeDeletedRecords = async () => { 
+    const { error } = await supabase.rpc('purge_deleted_records'); 
+    if (error) { showToast('فشل تنظيف السجلات: ' + error.message, 'error'); return; }
+    showToast('تم تنظيف السجلات المحذوفة بنجاح ✅', 'success');
+    refreshData(); 
+  };
+  const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); showToast('جاري تحديث هيكل النظام...', 'info'); setTimeout(() => window.location.reload(), 1500); };
   const closeFinancialYear = async (year: number, date: string) => {
-    const { data } = await supabase.rpc('close_financial_year', { p_year: year, p_closing_date: date });
+    const { data, error } = await supabase.rpc('close_financial_year', { p_year: year, p_closing_date: date });
+        if (error) { showToast('فشل إقفال السنة: ' + error.message, 'error'); return false; }
+    showToast(`تم إقفال السنة المالية ${year} بنجاح ✅`, 'success');
     return !!data;
   };
   const exportData = async () => { /* Logic to export JSON */ };

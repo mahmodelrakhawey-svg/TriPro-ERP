@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { User, Mail, Lock, Save, Loader2, Shield, Eye, EyeOff, Activity, Clock, Upload } from 'lucide-react';
-import { useAccounting } from '../context/AccountingContext';
+import { useAccounting } from '../context/AccountingContext'; // Removed z import
 import { useToast } from '../context/ToastContext';
-import { z } from 'zod';
+import { updateUserProfileSchema } from '../utils/validationSchemas';
 
 const UserProfile = () => {
   const { activityLog } = useAccounting();
@@ -88,16 +88,7 @@ const UserProfile = () => {
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const profileSchema = z.object({
-        fullName: z.string().min(1, 'الاسم الكامل مطلوب'),
-        password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل').optional().or(z.literal('')),
-        confirmPassword: z.string().optional().or(z.literal(''))
-    }).refine((data) => !data.password || data.password === data.confirmPassword, {
-        message: "كلمة المرور غير متطابقة",
-        path: ["confirmPassword"],
-    });
-
-    const validationResult = profileSchema.safeParse(formData);
+    const validationResult = updateUserProfileSchema.safeParse(formData);
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;

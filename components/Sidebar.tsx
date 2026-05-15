@@ -148,7 +148,7 @@ const Sidebar: React.FC = () => {
     { to: '/mfg/genealogy', label: 'تتبع أصل المنتج (SN)', icon: History, color: 'text-indigo-400', module: 'manufacturing' },
     { to: '/mfg/raw-materials-turnover', label: 'دوران المواد الخام', icon: RefreshCw, color: 'text-indigo-400', module: 'manufacturing' },
     { to: '/mfg/wip-monthly-summary', label: 'ملخص الإنتاج تحت التشغيل', icon: PieChart, color: 'text-indigo-400', module: 'manufacturing' },
-    { to: '/production-cost-analysis', label: 'تحليل تكاليف الإنتاج', icon: Calculator, color: 'text-indigo-400', module: 'manufacturing' },
+    { to: '/mfg/production-cost-analysis', label: 'تحليل تكاليف الإنتاج', icon: Calculator, color: 'text-indigo-400', module: 'manufacturing' },
 
     // الخزينة والبنوك
     { type: 'section', label: 'الخزينة والبنوك' },

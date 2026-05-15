@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Truck, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2, Upload, Download, Wallet, TrendingUp, RefreshCw, Scale, Mail, FileSpreadsheet, ArrowUp, ArrowDown, Printer } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
-import { z } from 'zod';
+import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Download, RefreshCw, Scale, FileSpreadsheet, ArrowUp, ArrowDown, Printer } from 'lucide-react'; // Removed z import
+import { createSupplierSchema, updateSupplierSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
 
 type Supplier = {
@@ -161,15 +161,7 @@ const SupplierManager = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const supplierSchema = z.object({
-        name: z.string().min(3, 'اسم المورد يجب أن يكون 3 أحرف على الأقل'),
-        phone: z.string().optional(),
-        email: z.string().email('بريد إلكتروني غير صالح').optional().or(z.literal('')),
-        tax_number: z.string().optional(),
-        address: z.string().optional(),
-        credit_limit: z.number().optional()
-    });
-    const validationResult = supplierSchema.safeParse(formData);
+    const validationResult = (formData.id ? updateSupplierSchema : createSupplierSchema).safeParse(formData);
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;

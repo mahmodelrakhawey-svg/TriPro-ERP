@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { RotateCcw, Save, Loader2, Plus, Trash2, AlertCircle } from 'lucide-react';
-import { z } from 'zod';
+import { RotateCcw, Save, Loader2, Plus, Trash2, AlertCircle } from 'lucide-react'; // Removed z import
+import { createPurchaseReturnSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
 
 const PurchaseReturnForm = () => {
@@ -79,18 +79,7 @@ const PurchaseReturnForm = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const purchaseReturnSchema = z.object({
-        supplierId: z.string().min(1, 'الرجاء اختيار المورد'),
-        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
-        date: z.string().min(1, 'التاريخ مطلوب'),
-        items: z.array(z.object({
-            productId: z.string().min(1, 'الرجاء اختيار المنتج'),
-            quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
-            price: z.number().min(0, 'السعر يجب أن يكون 0 أو أكثر')
-        })).min(1, 'يجب إضافة بند واحد على الأقل')
-    });
-
-    const validationResult = purchaseReturnSchema.safeParse({ ...formData, items });
+    const validationResult = createPurchaseReturnSchema.safeParse({ ...formData, items });
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;

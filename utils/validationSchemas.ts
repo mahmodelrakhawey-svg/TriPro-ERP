@@ -55,16 +55,20 @@ const baseProductSchema = z.object({
   name: nameSchema,
   sku: z.string().max(50).optional(),
   unit: z.string().max(50).optional().default('piece'), // إضافة وحدة القياس
-  item_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL']),
+  product_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL', 'MANUFACTURED']),
   purchase_price: amountSchema,
   sales_price: amountSchema,
   inventory_account_id: idSchema.optional(),
   cogs_account_id: idSchema.optional(),
   sales_account_id: idSchema.optional(),
+  labor_cost: amountSchema.optional().default(0),
+  overhead_cost: amountSchema.optional().default(0),
+  requires_serial: z.boolean().optional().default(false),
+  available_modifiers: z.array(z.any()).optional().default([]),
 });
 
 export const createProductSchema = baseProductSchema.refine(
-  (data) => data.sales_price >= data.purchase_price || data.item_type === 'SERVICE',
+  (data) => data.sales_price >= data.purchase_price || data.product_type === 'SERVICE',
   {
     message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر الشراء',
     path: ['sales_price'],
@@ -140,13 +144,15 @@ export const journalLineSchema = z.object({
   }
 );
 
-export const createJournalEntrySchema = z.object({
+const baseJournalEntrySchema = z.object({
   date: dateSchema,
   reference: z.string().min(1, 'المرجع مطلوب').max(50),
   description: z.string().min(1, 'الوصف مطلوب').max(500),
   lines: z.array(journalLineSchema).min(2, 'يجب إضافة سطرين على الأقل'),
   notes: textSchema.optional(),
-}).refine(
+});
+
+export const createJournalEntrySchema = baseJournalEntrySchema.refine(
   (data) => {
     const totalDebit = data.lines.reduce((sum, line) => sum + line.debit, 0);
     const totalCredit = data.lines.reduce((sum, line) => sum + line.credit, 0);
@@ -158,7 +164,35 @@ export const createJournalEntrySchema = z.object({
   }
 );
 
+export const updateJournalEntrySchema = baseJournalEntrySchema.partial();
+
 export type CreateJournalEntry = z.infer<typeof createJournalEntrySchema>;
+export const closeShiftSchema = z.object({
+  actualCash: z.preprocess((val) => Number(val), amountSchema.min(0, 'المبلغ الفعلي لا يمكن أن يكون سالباً')),
+  closingBalance: z.preprocess((val) => Number(val), amountSchema),
+  notes: textSchema.optional(),
+}).refine(data => data.actualCash >= 0, {
+  message: "يرجى التأكد من إدخال المبلغ النقدي بشكل صحيح",
+  path: ["actualCash"]
+});
+
+export type CloseShift = z.infer<typeof closeShiftSchema>;
+// ============== BULK OPERATIONS SCHEMAS ==============
+
+export const bulkOfferSchema = z.object({
+  strategy: z.enum(['percentage', 'fixed']),
+  value: z.number().min(0.01, 'القيمة يجب أن تكون أكبر من 0'),
+  startDate: dateSchema,
+  endDate: dateSchema,
+  maxQty: z.number().min(0).optional().default(0),
+}).refine(data => data.endDate >= data.startDate, {
+  message: 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية',
+  path: ['endDate']
+});
+
+export const bulkPriceUpdateSchema = z.object({
+  percentage: z.number().min(-100, 'لا يمكن خفض السعر بأكثر من 100%').max(1000, 'الزيادة مبالغ فيها'),
+});
 
 // ============== PURCHASE ORDER SCHEMAS ==============
 
@@ -179,7 +213,217 @@ export const createPurchaseOrderSchema = z.object({
 
 export type CreatePurchaseOrder = z.infer<typeof createPurchaseOrderSchema>;
 
-// ============== UTILITY FUNCTIONS ==============
+// ============== PURCHASE INVOICE SCHEMAS ==============
+
+export const purchaseInvoiceItemSchema = z.object({
+  productId: idSchema,
+  quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+  unitPrice: amountSchema,
+});
+
+export const createPurchaseInvoiceSchema = z.object({
+  supplierId: idSchema,
+  warehouseId: idSchema,
+  date: dateSchema,
+  items: z.array(purchaseInvoiceItemSchema).min(1, 'يجب إضافة بند واحد على الأقل'),
+  paidAmount: amountSchema.optional().default(0),
+  treasuryAccountId: idSchema.optional().nullable(),
+}).refine(data => data.paidAmount <= 0 || (data.paidAmount > 0 && data.treasuryAccountId), {
+  message: 'يرجى اختيار الخزينة أو البنك لسداد المبلغ المدفوع',
+  path: ['treasuryAccountId']
+});
+
+// ============== HR SCHEMAS ==============
+
+const baseEmployeeSchema = z.object({
+  full_name: nameSchema,
+  role: z.enum(['super_admin', 'admin', 'manager', 'accountant', 'viewer', 'demo', 'chef', 'owner']),
+  basic_salary: amountSchema, // هنا نستخدم amountSchema بدون قيد .positive()
+  hire_date: dateSchema,
+  organization_id: idSchema.optional(),
+  is_active: z.boolean().default(true),
+});
+
+export const createEmployeeSchema = baseEmployeeSchema.extend({
+  basic_salary: amountSchema.positive('الراتب يجب أن يكون أكبر من 0'), // هنا نضيف قيد .positive()
+});
+
+export const updateEmployeeSchema = baseEmployeeSchema.partial(); // وهنا نستخدم .partial() على المخطط الأساسي
+
+export const createEmployeeAdvanceSchema = z.object({
+  employee_id: idSchema,
+  amount: amountSchema.positive('مبلغ السلفة يجب أن يكون أكبر من 0'),
+  advance_date: dateSchema,
+  notes: textSchema.optional(),
+});
+
+// ============== USER MANAGEMENT SCHEMAS ==============
+
+
+export const payrollRunSchema = z.object({
+  monthYear: z.string().regex(/^\d{4}-\d{2}$/, 'صيغة الشهر والسنة غير صحيحة (YYYY-MM)'),
+  paymentDate: dateSchema,
+  treasuryId: idSchema,
+});
+
+export const payrollItemSchema = z.object({
+  employee_id: idSchema,
+  full_name: nameSchema,
+  gross_salary: amountSchema,
+  additions: amountSchema,
+  advances_deducted: amountSchema,
+  payroll_tax: amountSchema,
+  other_deductions: amountSchema,
+  net_salary: z.number(), // Calculated field, just ensure it's a number
+  advances_ids: z.array(idSchema).optional(),
+});
+
+// ============== INVENTORY SCHEMAS ==============
+
+export const createWarehouseSchema = z.object({
+  name: z.string().min(1, 'اسم المستودع مطلوب'),
+  location: z.string().optional(),
+  manager: z.string().optional(),
+  phone: z.string().optional()
+});
+
+export const revaluationSchema = z.object({
+  productId: idSchema,
+  newCost: amountSchema.nonnegative('التكلفة يجب أن تكون 0 أو أكثر'),
+  revaluationDate: dateSchema
+});
+
+export const stockTransferItemSchema = z.object({
+  productId: idSchema,
+  quantity: quantitySchema
+});
+
+export const createStockTransferSchema = z.object({
+  date: dateSchema,
+  fromWarehouseId: idSchema,
+  toWarehouseId: idSchema,
+  items: z.array(stockTransferItemSchema).min(1, 'يجب إضافة أصناف للتحويل'),
+  notes: textSchema.optional()
+}).refine(data => data.fromWarehouseId !== data.toWarehouseId, {
+  message: "لا يمكن التحويل لنفس المستودع",
+  path: ["toWarehouseId"]
+});
+
+export const inventoryCountItemSchema = z.object({
+  productId: idSchema,
+  systemQty: z.number(),
+  actualQty: z.number(),
+  difference: z.number(),
+  notes: z.string().optional()
+});
+
+export const createInventoryCountSchema = z.object({
+  warehouseId: idSchema,
+  date: dateSchema,
+  items: z.array(inventoryCountItemSchema).min(1, 'لا توجد أصناف للجرد')
+});
+
+export const createOpeningInventoryItemSchema = z.object({
+  name: z.string().min(1, 'اسم الصنف مطلوب'),
+  sku: z.string().optional(),
+  quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+  cost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر'),
+  price: z.number().min(0, 'سعر البيع يجب أن يكون 0 أو أكثر'),
+  unit: z.string().min(1, 'الوحدة مطلوبة')
+});
+
+export const stockAdjustmentItemSchema = z.object({
+  productId: idSchema,
+  quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+  type: z.enum(['in', 'out'])
+});
+
+export const createStockAdjustmentSchema = z.object({
+  warehouseId: idSchema,
+  date: dateSchema,
+  reason: z.string().min(1, 'السبب مطلوب'),
+  items: z.array(stockAdjustmentItemSchema).min(1, 'الرجاء إضافة أصناف للقائمة أولاً')
+});
+
+export const stockCardProductUpdateSchema = z.object({
+  name: nameSchema,
+  sales_price: amountSchema,
+  purchase_price: amountSchema,
+}).refine(data => data.sales_price >= data.purchase_price, {
+  message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
+  path: ['sales_price']
+});
+
+export const stockCardOpeningBalanceUpdateSchema = z.object({
+  warehouseId: idSchema,
+  quantity: z.number().min(0, 'الكمية يجب أن تكون 0 أو أكثر'),
+  cost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر')
+});
+
+// ============== SALES SCHEMAS ==============
+
+export const createQuotationSchema = z.object({
+  customerId: idSchema,
+  date: dateSchema,
+  expiryDate: dateSchema,
+  items: z.array(invoiceItemSchema).min(1, 'يجب إضافة بند واحد على الأقل')
+});
+
+export const createCreditNoteSchema = z.object({
+  customerId: idSchema,
+  date: dateSchema,
+  amount: amountSchema.min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+});
+
+
+
+// ============== USER PROFILE SCHEMAS ==============
+export const updateUserProfileSchema = z.object({
+  fullName: nameSchema,
+  password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل').optional().or(z.literal('')),
+  confirmPassword: z.string().optional().or(z.literal(''))
+}).refine((data) => !data.password || data.password === data.confirmPassword, {
+  message: "كلمة المرور غير متطابقة",
+  path: ["confirmPassword"],
+});
+
+// ============== DEBIT NOTE SCHEMAS ==============
+export const createDebitNoteSchema = z.object({
+  supplierId: idSchema,
+  date: dateSchema,
+  amount: amountSchema.min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+});
+
+// ============== PURCHASE RETURN SCHEMAS ==============
+export const purchaseReturnItemSchema = z.object({
+  productId: idSchema,
+  quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
+  price: amountSchema
+});
+
+export const createPurchaseReturnSchema = z.object({
+  supplierId: idSchema,
+  warehouseId: idSchema,
+  date: dateSchema,
+  items: z.array(purchaseReturnItemSchema).min(1, 'يجب إضافة بند واحد على الأقل')
+});
+
+
+// ============== USER MANAGER SCHEMAS ==============
+export const createUserManagerUserSchema = z.object({
+  email: emailSchema,
+  password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
+  fullName: nameSchema,
+  role: z.enum(['super_admin', 'admin', 'manager', 'accountant', 'viewer', 'demo', 'chef']),
+});
+
+export const resetPasswordSchema = z.object({
+  userId: idSchema,
+  newPassword: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
+});
+
+
+// ============== UTILITY FUNCTIONS (KEEP AS IS) ==============
 
 /**
  * Safely parse and validate data

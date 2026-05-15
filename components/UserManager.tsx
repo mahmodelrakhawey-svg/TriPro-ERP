@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
-import { useToast } from '../context/ToastContext';
+import { useToast } from '../context/ToastContext'; // Removed z import
 import { Shield, User, CheckCircle, XCircle, AlertTriangle, PenTool, Plus, X, Save, Loader2, KeyRound, Trash2, Clock } from 'lucide-react';
 import { DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
+import { createUserManagerUserSchema, resetPasswordSchema } from '../utils/validationSchemas';
 
 // تعريف أنواع البيانات
 type UserProfile = {
@@ -179,6 +180,13 @@ const UserManager = () => {
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
+    
+    const validationResult = createUserManagerUserSchema.safeParse(newUserData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        setCreating(false);
+        return;
+    }
 
     if (currentUserRole === 'demo') {
         setTimeout(() => {
@@ -260,11 +268,14 @@ const UserManager = () => {
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resetPasswordData.newPassword || resetPasswordData.newPassword.length < 6) {
-        showToast('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'warning');
+    
+    const validationResult = resetPasswordSchema.safeParse(resetPasswordData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
-    if (currentUserRole === 'demo') {
+
+    if (currentUserRole === 'demo') { // Use handleError for consistency
         showToast('تم إعادة تعيين كلمة المرور بنجاح ✅ (محاكاة)', 'success');
         setIsResetPasswordModalOpen(false);
         setResetPasswordData({ userId: '', newPassword: '' });

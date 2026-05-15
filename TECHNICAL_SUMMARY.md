@@ -26,6 +26,7 @@
 ├─ قسم المبيعات:                    6 files (38 alerts)
 ├─ قسم المشتريات:                   8 files (45 alerts)
 ├─ الإدارة والأساسي:                4 files (25 alerts)
+├─ قسم المخازن:                     5 files (15 alerts)
 ├─ التقارير:                        5 files (6 alerts)
 └─ أخرى:                            2 files (6 alerts)
 
@@ -621,4 +622,3 @@ Runtime Performance:
 *هذا التقرير التقني يوفر نظرة شاملة على جميع التحسينات والميزات المضافة إلى TriPro ERP.*
 
 *The Technical Summary provides a comprehensive overview of all improvements and features added to TriPro ERP.*
-

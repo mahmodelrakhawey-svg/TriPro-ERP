@@ -10,25 +10,7 @@ import SearchableSelect from '../../components/SearchableSelect'; // Import the 
 import { ModifierManagement } from '../../components/ModifierManagement';
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
-
-// تعريف السكيما محلياً لإصلاح خطأ التحقق
-const createProductSchema = z.object({
-    name: z.string().min(1, 'اسم الصنف مطلوب'),
-    sku: z.string().optional(),
-    unit: z.string().optional(),
-    product_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL', 'MANUFACTURED']),
-    purchase_price: z.number().min(0, 'سعر الشراء يجب أن يكون 0 أو أكثر'),
-    sales_price: z.number().min(0, 'سعر البيع يجب أن يكون 0 أو أكثر'),
-    inventory_account_id: z.string().uuid('حساب المخزون غير صحيح').optional(),
-    cogs_account_id: z.string().uuid('حساب التكلفة غير صحيح').optional(),
-    sales_account_id: z.string().uuid('حساب المبيعات غير صحيح').optional(),
-    labor_cost: z.number().optional(),
-    overhead_cost: z.number().optional(),
-    requires_serial: z.boolean().optional(),
-}).refine(data => data.sales_price >= data.purchase_price, {
-    message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
-    path: ['sales_price']
-});
+import { createProductSchema, bulkOfferSchema, bulkPriceUpdateSchema } from '../../utils/validationSchemas';
 
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
@@ -1414,12 +1396,6 @@ const ProductManager = () => {
   const handleBulkOfferSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const bulkOfferSchema = z.object({
-        value: z.number().min(0.01, 'القيمة يجب أن تكون أكبر من 0'),
-        startDate: z.string().min(1, 'تاريخ البداية مطلوب'),
-        endDate: z.string().min(1, 'تاريخ النهاية مطلوب'),
-    });
-
     const validationResult = bulkOfferSchema.safeParse(bulkOfferData);
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
@@ -1485,6 +1461,12 @@ const ProductManager = () => {
   const handleBulkPriceUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (selectedIds.size === 0) return;
+
+    const validationResult = bulkPriceUpdateSchema.safeParse({ percentage: bulkPricePercentage });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
     
     if (!can('products', 'update')) {
         showToast('ليس لديك صلاحية تعديل المنتجات', 'error');

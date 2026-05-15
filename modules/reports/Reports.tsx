@@ -1,8 +1,8 @@
-﻿import React from 'react';
+﻿﻿import React from 'react';
 import { Link } from 'react-router-dom';
 import { 
     PieChart, TrendingUp, Landmark, Scale, Banknote, 
-    FileText, BarChartBig, ArrowRight, ArrowRightLeft
+    FileText, BarChartBig, ArrowRight, ArrowRightLeft, Calculator
 } from 'lucide-react';
 
 const Reports = () => {
@@ -62,6 +62,13 @@ const Reports = () => {
       icon: <ArrowRightLeft size={32} className="text-cyan-600" />,
       path: '/detailed-stock-movement',
       color: 'bg-cyan-50 border-cyan-100'
+    },
+    {
+      title: 'تحليل تكاليف الإنتاج',
+      description: 'مراقبة تكاليف المواد الخام والعمالة والمصاريف غير المباشرة',
+      icon: <Calculator size={32} className="text-indigo-600" />,
+      path: '/mfg/production-cost-analysis',
+      color: 'bg-indigo-50 border-indigo-100'
     }
   ];
 

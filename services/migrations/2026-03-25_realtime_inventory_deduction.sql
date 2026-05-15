@@ -12,6 +12,7 @@ AS $$
 DECLARE
     v_item RECORD;
     v_recipe RECORD;
+    v_has_recipe BOOLEAN;
 BEGIN
     -- العمل فقط عند تحويل الحالة إلى COMPLETED
     IF NEW.status = 'COMPLETED' AND (OLD.status IS DISTINCT FROM 'COMPLETED') THEN
@@ -19,23 +20,22 @@ BEGIN
         -- 1. المرور على كل صنف في الطلب
         FOR v_item IN SELECT * FROM public.order_items WHERE order_id = NEW.id LOOP
             
-            -- 2. البحث عن وصفة الصنف (Recipes/BOM)
-            -- إذا كان المنتج يباع كما هو (Direct Product) أو له مكونات
-            FOR v_recipe IN SELECT * FROM public.recipes WHERE product_id = v_item.product_id LOOP
-                
-                -- 3. خصم كمية المادة الخام من المخزون
-                -- المعادلة: المخزون الحالي - (كمية المكون في الوصفة * كمية الصنف في الطلب)
-                UPDATE public.products 
-                SET stock = stock - (v_recipe.quantity_required * v_item.quantity)
-                WHERE id = v_recipe.ingredient_id;
-                
-            END LOOP;
+            -- 2. التحقق هل الصنف له وصفة تصنيع؟
+            SELECT EXISTS(SELECT 1 FROM public.recipes WHERE product_id = v_item.product_id) INTO v_has_recipe;
 
-            -- (اختياري) إذا كان المنتج نفسه مخزونياً وليس له وصفة (مثل علبة كولا)
-            IF NOT EXISTS (SELECT 1 FROM public.recipes WHERE product_id = v_item.product_id) THEN
-                 UPDATE public.products 
-                 SET stock = stock - v_item.quantity
-                 WHERE id = v_item.product_id AND item_type = 'STOCK';
+            IF v_has_recipe THEN
+                -- الحالة أ: المنتج له وصفة (مثل البرجر) -> خصم المكونات
+                FOR v_recipe IN SELECT * FROM public.recipes WHERE product_id = v_item.product_id LOOP
+                    UPDATE public.products 
+                    SET stock = stock - (v_recipe.quantity_required * v_item.quantity)
+                    WHERE id = v_recipe.ingredient_id;
+                END LOOP;
+            ELSE
+                -- الحالة ب: المنتج جاهز وليس له وصفة (مثل المشروبات الغازية) -> خصم المنتج نفسه
+                -- شرط مهم: يجب أن يكون نوع المنتج STOCK لضمان أنه منتج مخزني وليس خدمة
+                UPDATE public.products 
+                SET stock = stock - v_item.quantity
+                WHERE id = v_item.product_id AND item_type IN ('STOCK', 'RAW_MATERIAL');
             END IF;
 
         END LOOP;

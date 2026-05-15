@@ -76,7 +76,6 @@ import EmployeeAdvances from './modules/hr/EmployeeAdvances';
 import PayrollReport from './modules/hr/PayrollReport';
 import EmployeeStatement from './modules/hr/EmployeeStatement';
 import EmployeeReports from './modules/hr/EmployeeReports';
-import ManufacturingManager from './modules/manufacturing/ManufacturingManager'; // Keep for now if still used elsewhere or for migration
 import SalesOrders from './modules/sales/SalesOrders';
 import QuotationForm from './modules/sales/QuotationForm';
 import QuotationList from './modules/sales/QuotationList';
@@ -103,7 +102,7 @@ import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
 import RecycleBin from './modules/admin/RecycleBin';
-import SaasAdmin from './components/SaasAdmin';
+import SaasAdmin from './modules/admin/SaaSAdmin';
 import DataMigrationCenter from './modules/admin/DataMigrationCenter';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement'; // Re-add this import
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
@@ -117,7 +116,6 @@ import QualityControlManager from './services/mfg/QualityControlManager';
 import BOMVarianceReport from './services/mfg/BOMVarianceReport';
 import GenealogyViewer from './services/mfg/GenealogyViewer';
 import ProductionProfitabilityReport from './services/mfg/ProductionProfitabilityReport';
-import WorkOrderManager from './modules/manufacturing/WorkOrderManager'; // Keep for now if still used elsewhere or for migration
 import RoutingBOMManager from './services/mfg/RoutingBOMManager'; // New import
 import MaterialRequestsList from './services/mfg/MaterialRequestsList'; // New import for Material Requests
 import { RawMaterialsTurnover } from './services/RawMaterialsTurnover'; // New import for Raw Materials Turnover
@@ -397,8 +395,7 @@ const MainLayout = () => {
                 <Route path="/detailed-stock-movement" element={<ModuleGuard module="inventory"><DetailedStockMovementReport /></ModuleGuard>} />
                 <Route path="/stock-movement-cost" element={<ModuleGuard module="inventory"><StockMovementCostReport /></ModuleGuard>} />
                 <Route path="/opening-inventory" element={<ModuleGuard module="inventory"><OpeningInventory /></ModuleGuard>} />
-                {/* <Route path="/manufacturing" element={<ModuleGuard module="manufacturing"><ManufacturingManager /></ModuleGuard>} /> */} {/* Removed old manufacturing route */}
-                <Route path="/manufacturing" element={<ModuleGuard module="manufacturing"><ManufacturingManager /></ModuleGuard>} />
+                {/* المديول الجديد للتصنيع موجود في مسارات /mfg/ أدناه */}
                 <Route path="/mfg/dashboard" element={<ModuleGuard module="manufacturing"><ManufacturingDashboard /></ModuleGuard>} />
                 <Route path="/mfg/batch-orders" element={<ModuleGuard module="manufacturing"><BatchOrderManager /></ModuleGuard>} />
                 <Route path="/mfg/shop-floor" element={<ModuleGuard module="manufacturing"><ShopFloorManager /></ModuleGuard>} />
@@ -410,9 +407,7 @@ const MainLayout = () => {
                 <Route path="/mfg/material-requests" element={<ModuleGuard module="manufacturing"><MaterialRequestsList /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/raw-materials-turnover" element={<ModuleGuard module="manufacturing"><RawMaterialsTurnover /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/wip-monthly-summary" element={<ModuleGuard module="manufacturing"><WIPMonthlySummaryReport /></ModuleGuard>} /> {/* New Route */}
-                {/* <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} /> */} {/* Removed old work orders route */}
-                <Route path="/work-orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
-                <Route path="/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
+                <Route path="/mfg/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />

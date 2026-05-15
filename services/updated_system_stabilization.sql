@@ -754,27 +754,6 @@ DO $$ BEGIN
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'profiles') THEN ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(); END IF;
 END $$;
--- 🛠️ إصلاح أرصدة التصنيع والتكاليف المشوهة (MFG Data Repair)
-DO $$ 
-DECLARE
-    v_org_id uuid;
-    v_main_wh uuid;
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_production_orders') THEN
-        -- 1. إسناد المستودع الرئيسي لأوامر الإنتاج "اليتيمة" (التي ليس لها مستودع) لكي يراها محرك المخزون
-        UPDATE public.mfg_production_orders po
-        SET warehouse_id = (SELECT id FROM public.warehouses WHERE organization_id = po.organization_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
-        WHERE warehouse_id IS NULL AND status = 'completed';
-
-        -- 2. تصحيح متوسط التكلفة (WAC) للأصناف التي تضررت بسبب الأرصدة السالبة أو الأخطاء الحسابية
-        IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'mfg_calculate_standard_cost' AND pronamespace = 'public'::regnamespace) THEN
-            EXECUTE 'UPDATE public.products p
-                     SET weighted_average_cost = public.mfg_calculate_standard_cost(id),
-                         cost = public.mfg_calculate_standard_cost(id)
-                     WHERE weighted_average_cost < 0 OR weighted_average_cost > 1000000';
-        END IF;
-    END IF;
-END $$;
 
 -- 🛠️ تحديث جدول إقفال الصندوق (cash_closings) - حل مشكلة missing created_by والناقص من الأعمدة
 DO $$ BEGIN
@@ -985,13 +964,20 @@ BEGIN
         WHERE organization_id IS NULL;
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_order_items') THEN
+     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_order_items') THEN
         UPDATE public.purchase_order_items poi
         SET organization_id = po.organization_id
         FROM public.purchase_orders po
         WHERE poi.order_id = po.id AND poi.organization_id IS NULL;
     END IF;
-END $$;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'profiles') THEN 
+        ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(); 
+    END IF;
+END $$;   
+-- 🛠️ إصلاح أرصدة التصنيع والتكاليف المشوهة (MFG Data Repair)
+
+
 -- 🚀 تحديث ذاكرة المخطط لضمان تعرف الـ API على التغييرات فوراً
 NOTIFY pgrst, 'reload config';
 SELECT '✅ تم فحص وتثبيت هيكل قاعدة البيانات بنجاح وتحديث ذاكرة المخطط.' as status;

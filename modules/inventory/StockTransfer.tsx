@@ -2,8 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { ArrowRightLeft, Save, Plus, Trash2, Search, Package, Loader2 } from 'lucide-react';
-import { z } from 'zod';
+import { ArrowRightLeft, Save, Plus, Trash2, Package, Loader2 } from 'lucide-react';
+import { createStockTransferSchema } from '../../utils/validationSchemas'; // Removed z import
 
 const StockTransfer = () => {
   const location = useLocation();
@@ -66,22 +66,9 @@ const StockTransfer = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const transferSchema = z.object({
-        date: z.string().min(1, 'التاريخ مطلوب'),
-        fromWarehouseId: z.string().min(1, 'المستودع المصدر مطلوب'),
-        toWarehouseId: z.string().min(1, 'المستودع المستلم مطلوب'),
-        items: z.array(z.object({
-            productId: z.string().min(1),
-            quantity: z.number().min(0.01)
-        })).min(1, 'يجب إضافة أصناف للتحويل')
-    }).refine(data => data.fromWarehouseId !== data.toWarehouseId, {
-        message: "لا يمكن التحويل لنفس المستودع",
-        path: ["toWarehouseId"]
-    });
-
     const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
-    const validationResult = transferSchema.safeParse({ ...formData, items });
+    const validationResult = createStockTransferSchema.safeParse({ ...formData, items });
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;
@@ -98,6 +85,7 @@ const StockTransfer = () => {
         setItems([]);
     } catch (error) {
         console.error(error);
+        showToast('حدث خطأ أثناء معالجة التحويل المخزني', 'error');
     } finally {
         setLoading(false);
     }

@@ -1,11 +1,11 @@
-﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/ToastContext'; // Removed z import
 import { Calculator, RefreshCw, Save, Search, CheckCircle2, AlertTriangle, Loader2, Scan, RotateCcw } from 'lucide-react';
 import { PhysicalStockItem } from '../../types';
-import { z } from 'zod';
+import { createInventoryCountSchema } from '../../utils/validationSchemas';
 
 const InventoryCountForm = () => {
   const navigate = useNavigate();
@@ -97,13 +97,7 @@ const InventoryCountForm = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const countSchema = z.object({
-        warehouseId: z.string().min(1, 'الرجاء اختيار المستودع'),
-        date: z.string().min(1, 'التاريخ مطلوب'),
-        items: z.array(z.any()).min(1, 'لا توجد أصناف للجرد')
-    });
-
-    const validationResult = countSchema.safeParse({ warehouseId, date, items });
+    const validationResult = createInventoryCountSchema.safeParse({ warehouseId, date, items });
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;

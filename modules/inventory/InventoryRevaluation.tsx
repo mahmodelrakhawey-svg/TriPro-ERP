@@ -5,8 +5,8 @@ import { useProducts } from '../hooks/usePermissions';
 import { useToast } from '../../context/ToastContext';
 // import { useDialog } from '../../context/DialogContext'; // افترض وجود هذا السياق
 // import { useClickOutside } from '../hooks/useClickOutside'; // افترض وجود هذا الهوك
-import { Loader2, Save, Search, X, CircleDollarSign } from 'lucide-react';
-import { z } from 'zod';
+import { Loader2, Save, Search, X, CircleDollarSign } from 'lucide-react'; // Removed z import
+import { revaluationSchema } from '../../utils/validationSchemas';
 
 interface Product {
   id: string;
@@ -96,11 +96,6 @@ const InventoryRevaluation = () => {
     e.preventDefault();
     
     const newCostValue = parseFloat(newCost);
-    const revaluationSchema = z.object({
-        productId: z.string().uuid('يرجى اختيار صنف صحيح'),
-        newCost: z.number().nonnegative('التكلفة يجب أن تكون 0 أو أكثر'),
-        revaluationDate: z.string().min(1, 'تاريخ التقييم مطلوب')
-    });
 
     const validationResult = revaluationSchema.safeParse({ productId: selectedProductId, newCost: newCostValue, revaluationDate });
     if (!validationResult.success) {

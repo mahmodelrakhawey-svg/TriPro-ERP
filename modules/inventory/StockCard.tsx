@@ -1,13 +1,13 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { useToast } from '../../context/ToastContext';
+import { useToast } from '../../context/ToastContext'; // Removed z import
 import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2, Tag, Percent, ImageIcon, UtensilsCrossed } from 'lucide-react';
 import SearchableSelect from '../../components/SearchableSelect';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { z } from 'zod';
+import { stockCardProductUpdateSchema, stockCardOpeningBalanceUpdateSchema } from '../../utils/validationSchemas';
 
 interface Product {
   id: string;
@@ -541,16 +541,7 @@ const StockCard = () => {
       e.preventDefault();
       if (!selectedProductId) return;
 
-      const productSchema = z.object({
-          name: z.string().min(1, 'اسم الصنف مطلوب'),
-          sales_price: z.number().min(0, 'سعر البيع يجب أن يكون 0 أو أكثر'),
-          purchase_price: z.number().min(0, 'سعر التكلفة يجب أن يكون 0 أو أكثر')
-      }).refine(data => data.sales_price >= data.purchase_price, {
-          message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
-          path: ['sales_price']
-      });
-
-      const productValidation = productSchema.safeParse(editFormData);
+      const productValidation = stockCardProductUpdateSchema.safeParse(editFormData); // Corrected line
       if (!productValidation.success) {
           showToast(productValidation.error.issues[0].message, 'warning');
           return;
@@ -673,13 +664,7 @@ const StockCard = () => {
       e.preventDefault();
       if (!selectedProductId || !openingFormData.warehouseId) return;
 
-      const openingSchema = z.object({
-          warehouseId: z.string().min(1, 'المستودع مطلوب'),
-          quantity: z.number().min(0, 'الكمية يجب أن تكون 0 أو أكثر'),
-          cost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر')
-      });
-
-      const openingValidation = openingSchema.safeParse(openingFormData);
+      const openingValidation = stockCardOpeningBalanceUpdateSchema.safeParse(openingFormData); // Corrected line
       if (!openingValidation.success) {
           showToast(openingValidation.error.issues[0].message, 'warning');
           return;

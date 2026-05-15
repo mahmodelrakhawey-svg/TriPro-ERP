@@ -1,8 +1,8 @@
-﻿﻿import React, { useState } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Warehouse, Plus, MapPin, Trash2, Edit2, Save, X, User, Phone } from 'lucide-react';
-import { z } from 'zod';
+import { createWarehouseSchema } from '../../utils/validationSchemas'; // Removed z import
 
 const WarehouseManager = () => {
   const { warehouses, addWarehouse, updateWarehouse, deleteWarehouse, currentUser } = useAccounting();
@@ -25,14 +25,7 @@ const WarehouseManager = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    const warehouseSchema = z.object({
-        name: z.string().min(1, 'اسم المستودع مطلوب'),
-        location: z.string().optional(),
-        manager: z.string().optional(),
-        phone: z.string().optional()
-    });
-
-    const validationResult = warehouseSchema.safeParse(formData);
+    const validationResult = createWarehouseSchema.safeParse(formData);
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;
@@ -44,9 +37,13 @@ const WarehouseManager = () => {
         return;
     }
     if (editingId) {
-      updateWarehouse(editingId, formData);
+      updateWarehouse(editingId, formData)
+        .then(() => showToast('تم تحديث بيانات المستودع بنجاح', 'success'))
+        .catch(err => showToast('فشل تحديث المستودع: ' + err.message, 'error'));
     } else {
-      addWarehouse(formData);
+      addWarehouse(formData)
+        .then(() => showToast('تم إضافة المستودع بنجاح ✅', 'success'))
+        .catch(err => showToast('فشل إضافة المستودع: ' + err.message, 'error'));
     }
     setIsModalOpen(false);
   };

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useToast } from '../../context/ToastContext';
 
 // تعريف واجهة البيانات لطلب البيع
 interface SalesOrder {
@@ -17,6 +18,7 @@ const SalesOrders: React.FC = () => {
   const [warehouses, setWarehouses] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const { showToast } = useToast();
 
   // جلب البيانات عند تحميل المكون
   useEffect(() => {
@@ -47,13 +49,13 @@ const SalesOrders: React.FC = () => {
   // إجراء: الانتقال لشاشة التخطيط لتوحيد المسار (Batching)
   const handleGoToPlanning = () => {
     // توجيه المستخدم لشاشة إدارة أوامر التشغيل المجمعة حيث تظهر كافة الطلبات المؤكدة
-    window.location.href = '/manufacturing/batching';
+    window.location.href = '/mfg/batch-orders';
   };
 
   // إجراء: تحويل الطلب إلى فاتورة مبيعات نهائية
   const handleConvertToInvoice = async (orderId: string) => {
     if (warehouses.length === 0) {
-      alert('لا توجد مستودعات معرّفة في النظام!');
+      showToast('لا توجد مستودعات معرّفة في النظام!', 'error');
       return;
     }
 
@@ -72,10 +74,10 @@ const SalesOrders: React.FC = () => {
       });
 
       if (error) throw error;
-      alert('تم تحويل طلب البيع إلى فاتورة مبيعات بنجاح ✅');
+      showToast('تم تحويل طلب البيع إلى فاتورة مبيعات بنجاح ✅', 'success');
       fetchOrders();
     } catch (error: any) {
-      alert('خطأ أثناء تحويل الطلب: ' + error.message);
+      showToast('خطأ أثناء تحويل الطلب: ' + error.message, 'error');
     } finally {
       setProcessingId(null);
     }

@@ -4,7 +4,7 @@ import { useToast } from '../context/ToastContext';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import type { RestaurantTable, Product, OrderItem, SelectedModifier } from '../types';
-import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode, Clock, Users, DollarSign } from 'lucide-react';
+import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode, Clock, Users, DollarSign, Loader2 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from './PrintableInvoice';
 import { KitchenTicket } from './KitchenTicket';
@@ -14,6 +14,7 @@ import { ModifierSelectionModal } from './ModifierSelectionModal';
 import { PaymentModal } from './PaymentModal';
 import { PendingOrdersSidebar } from './PendingOrdersSidebar';
 import { QRCodeModal } from './QRCodeModal';
+import { closeShiftSchema, validateData } from '../utils/validationSchemas';
 import { BulkQRCodeModal } from './BulkQRCodeModal';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -484,7 +485,7 @@ const StartShiftModal = ({ isOpen, onConfirm }: { isOpen: boolean, onConfirm: (a
   );
 };
 
-const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary }: { isOpen: boolean, onClose: () => void, onConfirm: (amount: number, notes: string) => void, summary: any }) => {
+const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary, isLoading }: { isOpen: boolean, onClose: () => void, onConfirm: (amount: number, notes: string) => void, summary: any, isLoading: boolean }) => {
   const [actualCash, setActualCash] = useState(0);
   const [notes, setNotes] = useState('');
   
@@ -542,10 +543,11 @@ const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary }: { isOpen: bool
           </div>
 
           <button 
+            disabled={isLoading}
             onClick={() => onConfirm(actualCash, notes)} 
-            className="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 shadow-lg shadow-red-100 transition-all"
+            className="w-full bg-red-600 text-white font-bold py-3 rounded-lg hover:bg-red-700 shadow-lg shadow-red-100 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
-            تأكيد إغلاق الوردية وترحيل المبيعات
+            {isLoading ? <Loader2 className="animate-spin" size={20} /> : <Lock size={20} />} تأكيد إغلاق الوردية وترحيل المبيعات
           </button>
         </div>
       </div>
@@ -576,6 +578,7 @@ const PosScreen = () => {
   const [kitchenOrderToPrint, setKitchenOrderToPrint] = useState<{ tableName: string; items: any[] } | null>(null);
   const [modifierTarget, setModifierTarget] = useState<Product | null>(null);
   const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
+  const [isClosingShift, setIsClosingShift] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [shiftSummary, setShiftSummary] = useState<any>(null);
   const [lastOrder, setLastOrder] = useState<ActiveOrder | null>(null);
@@ -1194,16 +1197,46 @@ const PosScreen = () => {
     };
 
     const handleOpenCloseShiftModal = async () => {
-      const summary = await getCurrentShiftSummary();
-      if (summary) {
-        setShiftSummary(summary);
-        setIsCloseShiftModalOpen(true);
+      try {
+        await refreshData(); // تحديث حالة الوردية من الخادم لضمان دقة البيانات
+        const summary = await getCurrentShiftSummary();
+        if (summary) {
+          setShiftSummary(summary);
+          setIsCloseShiftModalOpen(true);
+        } else {
+          showToast('لا توجد وردية نشطة حالياً ليتم إغلاقها', 'warning');
+        }
+      } catch (err) {
+        showToast('حدث خطأ أثناء جلب بيانات الوردية', 'error');
       }
     };
 
     const handleConfirmCloseShift = async (actualCash: number, notes: string) => {
-      await closeCurrentShift(actualCash, notes);
-      setIsCloseShiftModalOpen(false);
+      setIsClosingShift(true);
+      try {
+        // 1. التحقق من البيانات باستخدام المخطط الجديد
+        const { success, errors } = await validateData(closeShiftSchema, {
+          actualCash,
+          closingBalance: shiftSummary?.expected_cash || 0,
+          notes
+        });
+
+        if (!success) {
+          const firstError = Object.values(errors || {})[0];
+          showToast(firstError || 'يرجى مراجعة البيانات المدخلة', 'warning');
+          setIsClosingShift(false);
+          return;
+        }
+
+        // 2. تنفيذ الإغلاق
+        await closeCurrentShift(actualCash, notes);
+        setIsCloseShiftModalOpen(false);
+        showToast('تم إغلاق الوردية وتوليد القيود المحاسبية بنجاح ✅', 'success');
+      } catch (error: any) {
+        showToast('فشل إغلاق الوردية: ' + (error.message || 'خطأ في قاعدة البيانات'), 'error');
+      } finally {
+        setIsClosingShift(false);
+      }
     };
 
   const handleRedeemPoints = () => {
@@ -1530,6 +1563,7 @@ const PosScreen = () => {
         onClose={() => setIsCloseShiftModalOpen(false)} 
         onConfirm={handleConfirmCloseShift}
         summary={shiftSummary}
+        isLoading={isClosingShift}
       />
       <CustomerModal
         isOpen={isCustomerModalOpen}
