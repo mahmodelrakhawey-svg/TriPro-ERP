@@ -962,7 +962,7 @@ BEGIN
 
     -- 4. محاكاة عملية بيع مطعم (POS)
     -- إنشاء جلسة
-    INSERT INTO public.table_sessions (opened_at, status, organization_id) 
+    INSERT INTO public.table_sessions (start_time, status, organization_id) 
     VALUES (now(), 'OPEN', v_org_id) RETURNING id INTO v_session_id;
 
     -- بناء بنود الطلب (طلب 5 وجبات برجر)
@@ -1005,13 +1005,27 @@ BEGIN
 
     -- تنظيف بيانات الاختبار (لتجنب تراكم المنتجات الوهمية)
     DELETE FROM public.order_items WHERE order_id = v_order_id;
+    UPDATE public.orders SET related_journal_entry_id = NULL WHERE id = v_order_id;
     DELETE FROM public.orders WHERE id = v_order_id;
     DELETE FROM public.table_sessions WHERE id = v_session_id;
     DELETE FROM public.bill_of_materials WHERE product_id = v_meal_id;
-    DELETE FROM public.products WHERE organization_id = v_org_id AND name LIKE '%تجريبي%';
+    DELETE FROM public.products WHERE organization_id = v_org_id AND id IN (v_meat_id, v_bread_id, v_meal_id);
 
+    -- تنظيف شامل لجداول التصنيع التي تم إنشاؤها في الاختبار
+    DELETE FROM public.mfg_batch_serials WHERE production_order_id IN (SELECT id FROM public.mfg_production_orders WHERE organization_id = v_org_id);
+    DELETE FROM public.mfg_actual_material_usage WHERE order_progress_id IN (SELECT id FROM public.mfg_order_progress WHERE organization_id = v_org_id);
+    DELETE FROM public.mfg_scrap_logs WHERE order_progress_id IN (SELECT id FROM public.mfg_order_progress WHERE organization_id = v_org_id);
+    DELETE FROM public.mfg_order_progress WHERE organization_id = v_org_id;
+    DELETE FROM public.mfg_production_orders WHERE organization_id = v_org_id;
+    DELETE FROM public.mfg_routing_steps WHERE organization_id = v_org_id;
+    DELETE FROM public.mfg_routings WHERE organization_id = v_org_id;
+    DELETE FROM public.mfg_work_centers WHERE organization_id = v_org_id;
+    DELETE FROM public.opening_inventories WHERE organization_id = v_org_id;
+    DELETE FROM public.warehouses WHERE id = v_wh_id;
 EXCEPTION WHEN OTHERS THEN
     step_name := 'CRITICAL ERROR'; result := 'ERROR 🛑'; details := SQLERRM;
+        -- تنظيف شركة الاختبار حتى في حالة الخطأ
+    DELETE FROM public.organizations WHERE id = v_org_id;
     RETURN NEXT;
 END; $$;
 
@@ -1725,6 +1739,8 @@ DECLARE
     v_prod_id uuid; v_session_id uuid; v_order_id uuid;
     v_je_id uuid; v_cash_acc uuid; v_items jsonb;
 BEGIN
+    -- 🛡️ تنظيف أي بيانات اختبار سابقة قد تكون عالقة
+    DELETE FROM public.products WHERE name = 'منتج تجريبي للوردية';
     -- 1. تهيئة بيئة الاختبار
     v_org_id := public.get_my_org();
     IF v_org_id IS NULL THEN SELECT id INTO v_org_id FROM public.organizations LIMIT 1; END IF;
@@ -1759,6 +1775,7 @@ BEGIN
     -- 5. إغلاق الوردية
     -- المتوقع: 1000 + 228 = 1228. سنغلق بـ 1200 لمحاكاة عجز 28
     PERFORM public.close_shift(v_shift_id, 1200, 'اختبار إغلاق مع عجز', v_org_id);
+    UPDATE public.orders SET related_journal_entry_id = NULL WHERE id = v_order_id; -- ⚠️ حل مشكلة المفتاح الخارجي
     
     SELECT related_journal_entry_id INTO v_je_id FROM public.orders WHERE id = v_order_id;
     IF v_je_id IS NULL THEN 
@@ -1776,16 +1793,15 @@ BEGIN
     RETURN NEXT;
 
     -- تنظيف بيانات الاختبار
-    DELETE FROM public.journal_lines WHERE journal_entry_id = v_je_id;
-    DELETE FROM public.journal_entries WHERE id = v_je_id;
     DELETE FROM public.payments WHERE order_id = v_order_id;
     DELETE FROM public.order_items WHERE order_id = v_order_id;
+    UPDATE public.orders SET related_journal_entry_id = NULL WHERE id = v_order_id;
     DELETE FROM public.orders WHERE id = v_order_id;
     DELETE FROM public.table_sessions WHERE id = v_session_id;
     DELETE FROM public.shifts WHERE id = v_shift_id;
     DELETE FROM public.products WHERE id = v_prod_id;
-    DELETE FROM public.journal_lines WHERE journal_entry_id = v_je_id;
-    DELETE FROM public.journal_entries WHERE id = v_je_id;
+    DELETE FROM public.journal_lines WHERE journal_entry_id = v_je_id; -- يجب أن يتم حذفها بعد حذف الطلبات
+    DELETE FROM public.journal_entries WHERE id = v_je_id; -- يجب أن يتم حذفها بعد حذف الطلبات
 
 EXCEPTION WHEN OTHERS THEN
     step_name := 'CRITICAL ERROR'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
@@ -3009,6 +3025,7 @@ DECLARE
     v_initial_stock numeric;
     v_final_stock numeric;
     v_wh_id uuid;
+    v_user_id uuid;
     v_prod_id uuid;
 BEGIN
     -- 🚀 1. إنشاء شركة اختبارية (SaaS Sandbox)

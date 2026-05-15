@@ -44,8 +44,6 @@ BEGIN
           AND tc.table_schema = 'public'
           -- استثناء الجداول السيادية لـ Supabase
           AND ccu.table_name NOT IN ('users', 'audit_log')
-          -- استثناء الأعمدة المالية التي يفضل فيها الـ SET NULL منعاً للحذف التسلسلي الكارثي أو التي يتم تحديثها بواسطة دوال
-          AND kcu.column_name NOT IN ('related_journal_entry_id')
     ) LOOP
         -- تحصين القيود: الحقول التي تسبب اعتناء متبادل نجعلها SET NULL دائماً لضمان نجاح الاستعادة
         IF r.column_name IN ('default_treasury_id', 'default_warehouse_id', 'parent_id', 'approver_id', 'category_id', 'related_journal_entry_id', 'original_invoice_id', 'original_order_id', 'treasury_account_id', 'warehouse_id', 'responsible_user_id', 'category_id') THEN

@@ -746,7 +746,7 @@ CREATE TABLE IF NOT EXISTS public.orders (
     order_type text DEFAULT 'DINE_IN',
     notes text,
     warehouse_id uuid REFERENCES public.warehouses(id),
-    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
     user_id uuid REFERENCES public.profiles(id),
     created_at timestamptz DEFAULT now()
