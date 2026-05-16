@@ -199,6 +199,14 @@ DO $$ BEGIN
         ALTER TABLE public.purchase_orders RENAME COLUMN po_number TO order_number;
     END IF;    
 
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_orders') THEN
+        ALTER TABLE public.purchase_orders ADD COLUMN IF NOT EXISTS warehouse_id uuid REFERENCES public.warehouses(id);
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'warehouses') THEN
+        ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+    END IF;
+
     -- توحيد مسمى عمود الربط في بنود أوامر الشراء
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_order_items' AND column_name = 'purchase_order_id') THEN
         ALTER TABLE public.purchase_order_items RENAME COLUMN purchase_order_id TO order_id;

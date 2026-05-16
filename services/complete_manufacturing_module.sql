@@ -15,24 +15,25 @@ BEGIN
         EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', trig_record.trigger_name, trig_record.event_object_table);
     END LOOP;
 
-    FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
-    LOOP
-        func_name := split_part(func_signature, '(', 1);
-        IF REPLACE(func_name, 'public.', '') IN (
-            'mfg_start_step', 'mfg_complete_step', 'mfg_finalize_order', 'mfg_create_orders_from_sales',
-            'mfg_calculate_standard_cost', 'mfg_update_product_standard_cost', 'mfg_check_stock_availability',
-            'mfg_record_scrap', 'mfg_merge_sales_orders', 'mfg_generate_batch_serials',
-            'mfg_update_selling_price_from_cost', 'mfg_get_product_genealogy', 'mfg_get_shop_floor_tasks',
-            'mfg_process_scan', 'mfg_check_efficiency_alerts', 'mfg_check_production_readiness',
-            'mfg_get_pending_invoices', 'mfg_calculate_production_variance', 'mfg_reserve_stock_for_order',
-            'mfg_create_material_request', 'mfg_issue_material_request', 'fn_mfg_auto_create_material_request',
-            'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order',
-            'mfg_start_production_orders_batch', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts',
-            'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover', 'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis'
-        ) THEN
-            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
-        END IF;
-    END LOOP;
+    -- 🛑 تم إيقاف الحذف التلقائي لدوال التصنيع لمنع ضياع الإصلاحات أثناء التحديث
+    -- FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
+    -- LOOP
+    --     func_name := split_part(func_signature, '(', 1);
+    --     IF REPLACE(func_name, 'public.', '') IN (
+    --         'mfg_start_step', 'mfg_complete_step', 'mfg_finalize_order', 'mfg_complete_production_order',
+    --         'mfg_calculate_standard_cost', 'mfg_update_product_standard_cost', 'mfg_check_stock_availability',
+    --         'mfg_record_scrap', 'mfg_merge_sales_orders', 'mfg_generate_batch_serials',
+    --         'mfg_update_selling_price_from_cost', 'mfg_get_product_genealogy', 'mfg_get_shop_floor_tasks',
+    --         'mfg_process_scan', 'mfg_check_efficiency_alerts', 'mfg_check_production_readiness',
+    --         'mfg_get_pending_invoices', 'mfg_calculate_production_variance', 'mfg_reserve_stock_for_order',
+    --         'mfg_create_material_request', 'mfg_issue_material_request', 'fn_mfg_auto_create_material_request',
+    --         'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order',
+    --         'mfg_start_production_orders_batch', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts',
+    --         'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover', 'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis'
+    --     ) THEN
+    --         EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+    --     END IF;
+    -- END LOOP;
 END $$;
 
 -- 🛡️ صمام أمان للأعمدة
@@ -836,7 +837,8 @@ BEGIN
 
     -- معالجة حالة "إعادة التشغيل"
     IF p_final_status = 'rework' THEN
-        UPDATE public.mfg_production_orders SET status = 'in_progress', notes = COALESCE(notes, '') || E'\nإعادة تشغيل: ' || p_qc_notes WHERE id = p_order_id;
+        UPDATE public.mfg_production_orders SET status = 'in_progress', notes = COALESCE(notes, '') || E'\nإعادة تشغيل جودة: ' || p_qc_notes WHERE id = p_order_id;
+        PERFORM public.recalculate_stock_rpc(v_org_id);
         RETURN;
     END IF;
 
@@ -896,7 +898,7 @@ BEGIN
                 END IF;
             END;
         END IF;
-        UPDATE public.mfg_production_orders SET status = 'completed', end_date = now()::date, notes = COALESCE(notes, '') || E'\nملاحظات الجودة: ' || p_qc_notes WHERE id = p_order_id;
+        UPDATE public.mfg_production_orders SET status = 'completed', end_date = now()::date, notes = COALESCE(notes, '') || E'\nاعتماد جودة نهائي: ' || p_qc_notes WHERE id = p_order_id;
         -- ❌ تم إزالة التحديث المباشر للمخزون هنا، حيث أن recalculate_stock_rpc ستتولى الأمر بشكل شامل.
 
         -- 🚀 تحديث حالة أمر البيع المرتبط إلى "جاهز" (Ready) لتمكين الفوترة
@@ -922,9 +924,9 @@ BEGIN
 
     -- 5. العمليات التكميلية
     BEGIN
-        PERFORM public.mfg_update_selling_price_from_cost(p_order_id);
         PERFORM public.mfg_calculate_production_variance(p_order_id);
         PERFORM public.mfg_generate_batch_serials(p_order_id);
+        PERFORM public.mfg_update_selling_price_from_cost(p_order_id);
     EXCEPTION WHEN OTHERS THEN
         -- ⚠️ تسجيل الخطأ في سجل الأخطاء بدلاً من RAISE NOTICE لضمان التتبع
         INSERT INTO public.system_error_logs (error_message, context, function_name, organization_id, user_id)

@@ -32,48 +32,49 @@ BEGIN
         END LOOP;
     END;
 
-    FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
-    LOOP
-        func_name := split_part(func_signature, '(', 1);
-        -- 🛡️ صمام أمان إضافي: حذف كافة توقيعات دالة الطلبات العامة لمنع التعارض بين UUID و TEXT
-        IF REPLACE(func_name, 'public.', '') = 'create_public_order' THEN
-            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
-        END IF;
+    -- 🛑 تم إيقاف الحذف التلقائي للدوال لضمان استقرار النظام والاعتماد على OR REPLACE فقط
+    -- FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
+    -- LOOP
+    --     func_name := split_part(func_signature, '(', 1);
+    --     -- 🛡️ صمام أمان إضافي: حذف كافة توقيعات دالة الطلبات العامة لمنع التعارض بين UUID و TEXT
+    --     IF REPLACE(func_name, 'public.', '') = 'create_public_order' THEN
+    --         EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+    --     END IF;
 
-        -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح. تم تحديث القائمة لتشمل دوال التصنيع الجديدة.
-        IF REPLACE(func_name, 'public.', '') IN ( -- Deduplicated and updated list
-            'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
-            'approve_purchase_return', 'convert_po_to_invoice',
-            'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
-            'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'get_pending_payment_orders', 'recalculate_all_balances', 'complete_restaurant_order', 'mfg_calculate_standard_cost', 'get_product_recipe_cost',
-            'open_table_session', 
-            'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa',
-            'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift',
-            'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin',
-            'get_products_without_bom', 'calculate_product_wac', 'update_single_supplier_balance', 'update_product_stock',
-            'get_admin_test_summary', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup',
-            'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access', 'post_cheque_journal_entry',
-        'get_or_create_qr_for_table', 'get_current_company_settings', 'get_historical_ratios', 'fn_ensure_kitchen_order_org',
-            'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse',
-            'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger',
-            'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups',
-            'cleanup_storage_orphans_trigger', 'sync_role_permissions', 'create_new_client_v2', 'handle_new_user',
-            'check_user_limit', 'prevent_system_account_deletion', 'set_emergency_mode', 'get_saas_platform_metrics',
-            'repair_all_admin_permissions', 'clear_demo_data', 'get_admin_platform_metrics',
-            'fix_unbalanced_journal_entry', 'approve_stock_transfer', 'cancel_stock_transfer', 'post_inventory_count', 'check_account_is_not_group',
-            'get_account_balance_at_date', 'fn_validate_journal_entry_balance', 'test_saas_isolation',
-        'test_wac_logic', 'trigger_handle_stock_on_order', 'trg_fn_sync_product_costs_on_update', 'test_restaurant_shift_lifecycle'
-        ) THEN
-            EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
-        END IF;
+    --     -- نزيل بادئة "public." إذا وجدت لضمان مطابقة الاسم بشكل صحيح. تم تحديث القائمة لتشمل دوال التصنيع الجديدة.
+    --     IF REPLACE(func_name, 'public.', '') IN ( -- Deduplicated and updated list
+    --         'approve_invoice', 'approve_purchase_invoice', 'approve_receipt_voucher', 'approve_payment_voucher',
+    --         'approve_purchase_return', 'convert_po_to_invoice',
+    --         'approve_sales_return', 'approve_purchase_return', 'approve_debit_note', 'approve_credit_note',
+    --         'start_shift', 'get_dashboard_stats', 'create_restaurant_order', 'create_public_order', 'get_pending_payment_orders', 'recalculate_all_balances', 'complete_restaurant_order', 'mfg_calculate_standard_cost', 'get_product_recipe_cost',
+    --         'open_table_session', 
+    --         'run_payroll_rpc', 'recalculate_stock_rpc', 'recalculate_all_system_balances', 'initialize_egyptian_coa',
+    --         'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift',
+    --         'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin',
+    --         'get_products_without_bom', 'calculate_product_wac', 'update_single_supplier_balance', 'update_product_stock',
+    --         'get_admin_test_summary', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup',
+    --         'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access', 'post_cheque_journal_entry',
+    --     'get_or_create_qr_for_table', 'get_current_company_settings', 'get_historical_ratios', 'fn_ensure_kitchen_order_org',
+    --         'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse',
+    --         'trg_fn_update_kitchen_status_time', 'trg_fn_sync_meal_cost', 'sync_customer_balance_trigger',
+    --         'fn_auto_approve_invoice_on_insert', 'fn_auto_approve_invoice_on_items_insert', 'cleanup_orphaned_backups',
+    --         'cleanup_storage_orphans_trigger', 'sync_role_permissions', 'create_new_client_v2', 'handle_new_user',
+    --         'check_user_limit', 'prevent_system_account_deletion', 'set_emergency_mode', 'get_saas_platform_metrics',
+    --         'repair_all_admin_permissions', 'clear_demo_data', 'get_admin_platform_metrics',
+    --         'fix_unbalanced_journal_entry', 'approve_stock_transfer', 'cancel_stock_transfer', 'post_inventory_count', 'check_account_is_not_group',
+    --         'get_account_balance_at_date', 'fn_validate_journal_entry_balance', 'test_saas_isolation',
+    --     'test_wac_logic', 'trigger_handle_stock_on_order', 'trg_fn_sync_product_costs_on_update', 'test_restaurant_shift_lifecycle'
+    --     ) THEN
+    --         EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+    --     END IF;
 
-        -- 🛡️ تم إيقاف الحذف التلقائي لدوال التصنيع هنا لمنع تعطل المديول
-        -- عند تشغيل ملفات تثبيت النظام العامة. 
-        -- مديول التصنيع يدير تنظيف نفسه في ملفه الخاص.
-        -- IF REPLACE(func_name, 'public.', '') LIKE 'mfg\_%' THEN
-        --     EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
-        -- END IF;
-    END LOOP;
+    --     -- 🛡️ تم إيقاف الحذف التلقائي لدوال التصنيع هنا لمنع تعطل المديول
+    --     -- عند تشغيل ملفات تثبيت النظام العامة. 
+    --     -- مديول التصنيع يدير تنظيف نفسه في ملفه الخاص.
+    --     -- IF REPLACE(func_name, 'public.', '') LIKE 'mfg\_%' THEN
+    --     --     EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
+    --     -- END IF;
+    -- END LOOP;
 
 END $$;
 
@@ -400,9 +401,11 @@ BEGIN
     -- 2. جلب روابط الحسابات
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
-    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
-    v_vat_in_id := COALESCE((v_mappings->>'VAT_INPUT')::uuid, (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1));
-    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
+    -- 🛡️ محرك الربط الذكي: التحقق من صحة المعرف قبل التحويل لمنع خطأ "معرف غير صالح" في قاعدة البيانات
+    v_inventory_acc_id := CASE WHEN (v_mappings->>'INVENTORY_RAW_MATERIALS') ~ '^[0-9a-fA-F-]{36}$' THEN (v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid ELSE (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1) END;
+    v_vat_in_id := CASE WHEN (v_mappings->>'VAT_INPUT') ~ '^[0-9a-fA-F-]{36}$' THEN (v_mappings->>'VAT_INPUT')::uuid ELSE (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1) END;
+    v_supplier_acc_id := CASE WHEN (v_mappings->>'SUPPLIERS') ~ '^[0-9a-fA-F-]{36}$' THEN (v_mappings->>'SUPPLIERS')::uuid ELSE (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1) END;
+    
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
     IF v_inventory_acc_id IS NULL OR v_supplier_acc_id IS NULL THEN
@@ -619,7 +622,7 @@ BEGIN
 END; $$;
 
 -- 🛠️ دالة تحويل أمر الشراء إلى فاتورة (Convert PO to Invoice)
-CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_org_id uuid DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_warehouse_id uuid DEFAULT NULL, p_org_id uuid DEFAULT NULL)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_po record; v_invoice_id uuid; v_inv_num text; v_target_org_id uuid;
@@ -646,7 +649,7 @@ BEGIN
         COALESCE(v_po.tax_amount, 0),
         COALESCE(v_po.total_amount, 0) - COALESCE(v_po.tax_amount, 0),
         'draft',
-        COALESCE(v_po.warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id LIMIT 1)),
+        COALESCE(p_warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id AND deleted_at IS NULL ORDER BY name ASC LIMIT 1)),
         v_target_org_id,
         'محولة من أمر شراء رقم: ' || COALESCE(v_po.order_number, 'بدون رقم'),
         'EGP', 
@@ -664,9 +667,7 @@ END; $$;
 -- 🔓 منح صلاحية التنفيذ
 GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO anon;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.approve_invoice(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.convert_so_to_invoice(uuid, uuid) TO authenticated;
@@ -747,6 +748,7 @@ DECLARE
     total_qty numeric;
     wh_stock jsonb;
     wh_rec RECORD;
+    v_is_test_prod boolean;
     v_final_org uuid;
 BEGIN
     -- 🛡️ محرك ذكي لتحديد النطاق (SaaS Scope Resolver)
@@ -769,6 +771,9 @@ BEGIN
         total_qty := 0;
         wh_stock := '{}'::jsonb;
 
+        -- تحديد ما إذا كان الصنف الحالي هو أحد أصناف الاختبار لتقليل الضجيج في الـ Logs
+        v_is_test_prod := prod.id IN (SELECT id FROM public.products WHERE name LIKE '%اختبار%' OR name LIKE '%تجريبي%');
+
         -- 1. حساب رصيد كل مستودع يخص المنظمة
         FOR wh_rec IN SELECT id FROM public.warehouses 
                      WHERE (organization_id = prod.organization_id) LOOP
@@ -784,7 +789,7 @@ BEGIN
                 -- ب. المشتريات (وارد)
                 SELECT COALESCE(SUM(pii.quantity), 0) INTO temp_val FROM public.purchase_invoice_items pii
                 JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id
-                WHERE pii.product_id = prod.id AND pi.warehouse_id = wh_rec.id 
+                WHERE pii.product_id = prod.id AND pi.warehouse_id = wh_rec.id
                   AND pi.status NOT IN ('draft', 'cancelled') AND pi.organization_id = prod.organization_id;
                 q_in := q_in + temp_val;
 
@@ -794,16 +799,36 @@ BEGIN
                 q_out := q_out + temp_val;
 
                 -- 🚀 إضافة خصم طلبات المطعم (Direct Order Stock)
-                SELECT COALESCE(SUM(oi.quantity), 0) INTO temp_val FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id WHERE oi.product_id = prod.id AND o.warehouse_id = wh_rec.id AND o.status IN ('PAID', 'COMPLETED', 'posted') AND o.organization_id = prod.organization_id AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = oi.product_id);
+                SELECT COALESCE(SUM(oi.quantity), 0) INTO temp_val 
+                FROM public.order_items oi 
+                JOIN public.orders o ON oi.order_id = o.id 
+                WHERE oi.product_id = prod.id AND o.warehouse_id = wh_rec.id 
+                  AND (UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED')) 
+                  AND o.organization_id = prod.organization_id 
+                  AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = oi.product_id);
                 q_out := q_out + temp_val;
+
+                IF v_is_test_prod AND temp_val > 0 THEN 
+                    RAISE NOTICE 'DEBUG-POS: Direct deduction for %: % units', prod.id, temp_val;
+                END IF;
 
                 -- 2. خصم مكونات الـ BOM للأصناف المجمعة المباعة
                 SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
 
                 -- 🚀 إضافة خصم مكونات BOM للطلبات (Order BOM)
-                SELECT COALESCE(SUM(oi.quantity * bom.quantity_required), 0) INTO temp_val FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id WHERE bom.raw_material_id = prod.id AND o.warehouse_id = wh_rec.id AND o.status IN ('PAID', 'COMPLETED', 'posted') AND o.organization_id = prod.organization_id;
+                SELECT COALESCE(SUM(oi.quantity * bom.quantity_required), 0) INTO temp_val 
+                FROM public.order_items oi 
+                JOIN public.orders o ON oi.order_id = o.id 
+                JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id 
+                WHERE bom.raw_material_id = prod.id AND o.warehouse_id = wh_rec.id 
+                  AND (UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED')) 
+                  AND o.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
+
+                IF v_is_test_prod AND temp_val > 0 THEN 
+                    RAISE NOTICE 'DEBUG-POS: BOM deduction for Raw Material %: % units', prod.id, temp_val;
+                END IF;
 
                 -- 3. خصم مكونات الـ BOM للإضافات (Modifiers) لضمان دقة استهلاك المطاعم
                 SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ii.modifiers, '[]'::jsonb)) AS m JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id;
@@ -4158,7 +4183,7 @@ GRANT EXECUTE ON FUNCTION public.reserve_table(uuid, text, text) TO authenticate
 GRANT EXECUTE ON FUNCTION public.cancel_reservation(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid) TO authenticated; -- 🛠️ إضافة صلاحية لدالة ترحيل المشتريات
 GRANT EXECUTE ON FUNCTION public.get_shift_summary(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.convert_po_to_invoice(uuid, uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.complete_restaurant_order(uuid, text, numeric, uuid, uuid) TO authenticated; -- 🛠️ إضافة صلاحية لدالة إتمام طلب المطعم
 
 -- 🛡️ ضمان منح الصلاحيات للجداول الجديدة بذكاء (تجنب خطأ 42P01)

@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 // ============== COMMON VALIDATORS ==============
 
-export const idSchema = z.string().uuid('معرف غير صالح');
+export const idSchema = z.string().min(1, 'هذا الحقل مطلوب').uuid('معرف غير صالح');
 export const emailSchema = z.string().email('بريد إلكتروني غير صالح');
 export const phoneSchema = z.string().regex(/^\+?[\d\s\-()]{10,}$/, 'رقم هاتف غير صالح');
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'صيغة التاريخ غير صحيحة (YYYY-MM-DD)');
@@ -227,7 +227,7 @@ export const createPurchaseInvoiceSchema = z.object({
   date: dateSchema,
   items: z.array(purchaseInvoiceItemSchema).min(1, 'يجب إضافة بند واحد على الأقل'),
   paidAmount: amountSchema.optional().default(0),
-  treasuryAccountId: idSchema.optional().nullable(),
+  treasuryAccountId: z.string().uuid('معرف غير صالح').optional().nullable().or(z.literal('')),
 }).refine(data => data.paidAmount <= 0 || (data.paidAmount > 0 && data.treasuryAccountId), {
   message: 'يرجى اختيار الخزينة أو البنك لسداد المبلغ المدفوع',
   path: ['treasuryAccountId']

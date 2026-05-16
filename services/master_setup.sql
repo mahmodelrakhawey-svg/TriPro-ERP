@@ -16,7 +16,7 @@ GRANT USAGE ON SCHEMA public TO anon, authenticated;
 DO $$ 
 DECLARE 
     t text;
-    tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'sales_orders', 'sales_order_items', 'employees', 'employee_advances'];
+    tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders', 'purchase_orders', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'sales_orders', 'sales_order_items', 'employees', 'employee_advances'];
     dup record;
     tables_with_user_id text[] := ARRAY['orders', 'journal_entries', 'shifts', 'table_sessions', 'cash_closings', 'organization_backups', 'notifications', 'receipt_vouchers', 'payment_vouchers'];
     user_id_table text;
@@ -39,7 +39,8 @@ BEGIN
 
     -- 🛡️ ترميم جدول المستودعات (Warehouses Healing)
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'warehouses' AND table_schema = 'public') THEN
-        ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true;
+        ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true,
+                                      ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
     END IF;
 
     -- 🛡️ ترميم جدول إعدادات الشركة (Company Settings Healing)
@@ -54,6 +55,12 @@ BEGIN
         ALTER TABLE public.sales_orders 
             ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0,
             ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT 0;
+    END IF;
+
+    -- 🛡️ ترميم جداول أوامر الشراء (Purchase Orders Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_orders' AND table_schema = 'public') THEN
+        ALTER TABLE public.purchase_orders 
+            ADD COLUMN IF NOT EXISTS warehouse_id uuid REFERENCES public.warehouses(id);
     END IF;
 
     -- 🛡️ ترميم جدول الموظفين (Employees Healing)
