@@ -51,7 +51,7 @@ BEGIN
             'get_restaurant_sales_report', 'process_wastage', 'get_item_profit_report', 'get_active_shift',
             'get_shift_summary', 'generate_shift_closing_entry', 'close_shift', 'force_provision_admin',
             'get_products_without_bom', 'calculate_product_wac', 'update_single_supplier_balance', 'update_product_stock',
-            'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup',
+            'get_admin_test_summary', 'add_product_with_opening_balance', 'run_period_depreciation', 'create_organization_backup',
             'run_daily_backups_all_orgs', 'restore_organization_backup', 'force_grant_admin_access', 'post_cheque_journal_entry',
         'get_or_create_qr_for_table', 'get_current_company_settings', 'get_historical_ratios', 'fn_ensure_kitchen_order_org',
             'fn_ensure_document_warehouse', 'fn_assign_cashier_to_qr_order', 'fn_ensure_order_warehouse',
@@ -2394,6 +2394,11 @@ BEGIN
     (p_org_id, 'chef', 'شيف / مطبخ')
     ON CONFLICT (name, organization_id) DO NOTHING;
 
+    -- 🚀 تفعيل كافة الموديولات في جدول المنظمات لضمان ظهورها فوراً في القائمة الجانبية
+    UPDATE public.organizations 
+    SET allowed_modules = '{"accounting", "inventory", "sales", "purchases", "hr", "manufacturing", "restaurant"}'::text[]
+    WHERE id = p_org_id;
+
     RETURN '✅ تم تأسيس الدليل المحاسبي وربط الحسابات السيادية بنجاح.';
 
 EXCEPTION WHEN OTHERS THEN
@@ -3640,6 +3645,37 @@ BEGIN
         (SELECT COALESCE(SUM(total_amount), 0) FROM public.invoices WHERE status IN ('posted', 'paid')) as total_transactions_value,
         (SELECT COALESCE(SUM(file_size_kb), 0) FROM public.organization_backups) as total_storage_used_kb,
         (SELECT count(*) FROM public.organizations WHERE subscription_expiry BETWEEN now() AND now() + interval '7 days') as orgs_expiring_soon;
+END; $$;
+
+-- 📊 2.5 دالة ملخص اختبارات صحة النظام (System Health Test Summary)
+-- الغرض: جلب سجلات الأخطاء والأمان الأخيرة لعرضها في لوحة تحكم مراقبة النظام
+CREATE OR REPLACE FUNCTION public.get_admin_test_summary(p_limit integer DEFAULT 50)
+RETURNS TABLE (
+    id uuid,
+    test_name text,
+    result text,
+    details text,
+    created_at timestamptz
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        e.id,
+        e.function_name as test_name,
+        'FAILED'::text as result,
+        e.error_message as details,
+        e.created_at
+    FROM public.system_error_logs e
+    UNION ALL
+    SELECT 
+        s.id,
+        s.event_type as test_name,
+        'INFO'::text as result,
+        s.description as details,
+        s.created_at
+    FROM public.security_logs s
+    ORDER BY created_at DESC
+    LIMIT p_limit;
 END; $$;
 
 -- 🚀 3. دالة تنظيف البيانات التجريبية (إصلاح تكرار المنظمة)

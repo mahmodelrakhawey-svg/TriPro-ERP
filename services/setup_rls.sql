@@ -47,8 +47,11 @@ DECLARE
         'mfg_production_orders', 'mfg_order_progress', 'mfg_step_materials', 
         'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 
         'mfg_production_variances', 'mfg_material_requests', 'mfg_material_request_items',
-        'kitchen_orders', 'mfg_qc_inspections', 'mfg_step_attachments'
-    FOREACH t IN ARRAY tables_to_rls LOOP
+        'kitchen_orders', 'mfg_qc_inspections', 'mfg_step_attachments', 'bank_reconciliations'
+    ];
+    BEGIN
+
+        FOREACH t IN ARRAY tables_to_rls LOOP
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
             EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
         END IF;
