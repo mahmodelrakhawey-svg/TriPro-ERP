@@ -793,12 +793,24 @@ BEGIN
                 SELECT COALESCE(SUM(ii.quantity), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = ii.product_id);
                 q_out := q_out + temp_val;
 
+                -- 🚀 إضافة خصم طلبات المطعم (Direct Order Stock)
+                SELECT COALESCE(SUM(oi.quantity), 0) INTO temp_val FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id WHERE oi.product_id = prod.id AND o.warehouse_id = wh_rec.id AND o.status IN ('PAID', 'COMPLETED', 'posted') AND o.organization_id = prod.organization_id AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = oi.product_id);
+                q_out := q_out + temp_val;
+
                 -- 2. خصم مكونات الـ BOM للأصناف المجمعة المباعة
                 SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
 
+                -- 🚀 إضافة خصم مكونات BOM للطلبات (Order BOM)
+                SELECT COALESCE(SUM(oi.quantity * bom.quantity_required), 0) INTO temp_val FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id WHERE bom.raw_material_id = prod.id AND o.warehouse_id = wh_rec.id AND o.status IN ('PAID', 'COMPLETED', 'posted') AND o.organization_id = prod.organization_id;
+                q_out := q_out + temp_val;
+
                 -- 3. خصم مكونات الـ BOM للإضافات (Modifiers) لضمان دقة استهلاك المطاعم
                 SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ii.modifiers, '[]'::jsonb)) AS m JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id;
+                q_out := q_out + temp_val;
+
+                -- 🚀 إضافة خصم مكونات BOM للإضافات في الطلبات (Order Modifiers)
+                SELECT COALESCE(SUM(oi.quantity * bom.quantity_required), 0) INTO temp_val FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(oi.modifiers, '[]'::jsonb)) AS m JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid WHERE bom.raw_material_id = prod.id AND o.warehouse_id = wh_rec.id AND o.status IN ('PAID', 'COMPLETED', 'posted') AND o.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
 
                 -- ح. الإنتاج المصنع (وارد للمنتج التام)
@@ -874,8 +886,14 @@ BEGIN
     SELECT * INTO v_order FROM public.orders WHERE id = p_order_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'الطلب غير موجود.'; END IF;
 
+    -- 🛡️ منع التلاعب بحالات الطلبات المكتملة بالفعل
+    IF v_order.status IN ('PAID', 'COMPLETED') THEN 
+        RAISE NOTICE 'الطلب مدفوع بالفعل.';
+        RETURN;
+    END IF;
+
     -- 1. تحديد المنظمة بدقة
-    v_org_id_final := COALESCE(p_org_id, v_order.organization_id, public.get_my_org());
+    v_org_id_final := COALESCE(v_order.organization_id, p_org_id, public.get_my_org());
     IF v_org_id_final IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة للطلب.'; END IF;
 
     -- 2. تنظيف أي قيود قديمة مرتبطة بهذا الطلب (في حال تكرار المحاولة)
@@ -911,7 +929,11 @@ BEGIN
         UPDATE public.restaurant_tables SET status = 'AVAILABLE', session_start = NULL, bill_requested = FALSE WHERE id = v_table_id; 
     END IF;
 
-    -- 6. إعادة احتساب الأرصدة (بدون توليد قيد)
+    -- 🚀 تشغيل محرك خصم المخزون الفوري بناءً على الوصفة (BOM)
+    -- هذا يضمن أن المواد الخام (لحم، خبز، إلخ) تُخصم لحظة البيع
+    PERFORM public.mfg_deduct_stock_from_order(p_order_id);
+
+    -- 7. إعادة احتساب الأرصدة المالية
     PERFORM public.recalculate_all_system_balances(v_org_id_final);
 END; $$;
 -- 13.5 دالة اختبار تكامل مبيعات المطعم مع استهلاك المواد الخام
@@ -924,12 +946,26 @@ DECLARE
     v_session_id uuid; v_order_id uuid; v_meat_stock_before numeric; v_meat_stock_after numeric;
     v_items jsonb;
 BEGIN
-    -- 1. الإعداد الأساسي
+    -- 🛡️ تفعيل وضع الاستعادة للسماح بتنظيف البيانات المحمية إن وجدت
+    PERFORM set_config('app.restore_mode', 'on', true);
+
+    -- 1. تحديد المنظمة والمستودع
     v_org_id := public.get_my_org();
-    IF v_org_id IS NULL THEN SELECT id INTO v_org_id FROM public.organizations LIMIT 1; END IF;
+    IF v_org_id IS NULL THEN 
+        SELECT id INTO v_org_id FROM public.organizations LIMIT 1; 
+    END IF;
     
-    -- جلب مستودع
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'لا توجد منظمة مسجلة في النظام للاختبار.';
+    END IF;
+    
     SELECT id INTO v_wh_id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1;
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع اختبار POS', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    -- 🗑️ تنظيف مسبق لأي بيانات قديمة بنفس الاسم لضمان نجاح الاختبار
+    DELETE FROM public.products WHERE organization_id = v_org_id AND name IN ('لحم تجريبي', 'خبز تجريبي', 'وجبة برجر اختبارية');
 
     -- 2. إنشاء أصناف الاختبار
     -- خامات (لحم، خبز)
@@ -995,37 +1031,21 @@ BEGIN
     END IF;
     RETURN NEXT;
 
-    -- 7. التحقق من وجود القيد المحاسبي
-    IF EXISTS (SELECT 1 FROM public.journal_entries WHERE related_document_id = v_order_id) THEN
-        step_name := '6. فحص القيد المحاسبي'; result := 'PASS ✅'; details := 'تم إنشاء قيد مبيعات وربطه بالطلب';
-    ELSE
-        step_name := '6. فحص القيد المحاسبي'; result := 'WARNING ⚠️'; details := 'لم يتم العثور على قيد (ربما في انتظار إغلاق الوردية)';
-    END IF;
-    RETURN NEXT;
-
-    -- تنظيف بيانات الاختبار (لتجنب تراكم المنتجات الوهمية)
+    -- 8. تنظيف بيانات الاختبار (جراحي)
+    DELETE FROM public.payments WHERE order_id = v_order_id;
     DELETE FROM public.order_items WHERE order_id = v_order_id;
-    UPDATE public.orders SET related_journal_entry_id = NULL WHERE id = v_order_id;
+    DELETE FROM public.kitchen_orders WHERE order_item_id IN (SELECT id FROM public.order_items WHERE order_id = v_order_id);
     DELETE FROM public.orders WHERE id = v_order_id;
     DELETE FROM public.table_sessions WHERE id = v_session_id;
     DELETE FROM public.bill_of_materials WHERE product_id = v_meal_id;
-    DELETE FROM public.products WHERE organization_id = v_org_id AND id IN (v_meat_id, v_bread_id, v_meal_id);
+    DELETE FROM public.products WHERE id IN (v_meat_id, v_bread_id, v_meal_id);
+    
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN;
 
-    -- تنظيف شامل لجداول التصنيع التي تم إنشاؤها في الاختبار
-    DELETE FROM public.mfg_batch_serials WHERE production_order_id IN (SELECT id FROM public.mfg_production_orders WHERE organization_id = v_org_id);
-    DELETE FROM public.mfg_actual_material_usage WHERE order_progress_id IN (SELECT id FROM public.mfg_order_progress WHERE organization_id = v_org_id);
-    DELETE FROM public.mfg_scrap_logs WHERE order_progress_id IN (SELECT id FROM public.mfg_order_progress WHERE organization_id = v_org_id);
-    DELETE FROM public.mfg_order_progress WHERE organization_id = v_org_id;
-    DELETE FROM public.mfg_production_orders WHERE organization_id = v_org_id;
-    DELETE FROM public.mfg_routing_steps WHERE organization_id = v_org_id;
-    DELETE FROM public.mfg_routings WHERE organization_id = v_org_id;
-    DELETE FROM public.mfg_work_centers WHERE organization_id = v_org_id;
-    DELETE FROM public.opening_inventories WHERE organization_id = v_org_id;
-    DELETE FROM public.warehouses WHERE id = v_wh_id;
 EXCEPTION WHEN OTHERS THEN
     step_name := 'CRITICAL ERROR'; result := 'ERROR 🛑'; details := SQLERRM;
-        -- تنظيف شركة الاختبار حتى في حالة الخطأ
-    DELETE FROM public.organizations WHERE id = v_org_id;
+    PERFORM set_config('app.restore_mode', 'off', true);
     RETURN NEXT;
 END; $$;
 

@@ -365,8 +365,7 @@ CREATE TABLE IF NOT EXISTS public.company_settings (
     last_closed_date date,
     decimal_places integer DEFAULT 2,
     max_cash_deficit_limit numeric DEFAULT 500,
-    account_mappings jsonb DEFAULT '{}'::jsonb,
-    default_warehouse_id uuid, -- عمود لربط المستودع الافتراضي
+    account_mappings jsonb DEFAULT '{}'::jsonb NOT NULL,
     default_treasury_id uuid,  -- عمود لربط الخزينة الافتراضية
     production_warehouse_id uuid, -- عمود لمستودع الإنتاج
     raw_material_warehouse_id uuid, -- عمود لمستودع المواد الخام

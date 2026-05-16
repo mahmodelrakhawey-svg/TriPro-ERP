@@ -902,6 +902,11 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION public.fn_force_org_id_on_insert()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- 🏗️ محرك الوراثة الذكي: إذا كان السجل تابعاً لطلب أو جلسة، يرث منظمتها تلقائياً
+    IF TG_TABLE_NAME = 'order_items' AND NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id FROM public.orders WHERE id = NEW.order_id;
+    END IF;
+
     IF NEW.organization_id IS NULL THEN
         NEW.organization_id := public.get_my_org();
     END IF;

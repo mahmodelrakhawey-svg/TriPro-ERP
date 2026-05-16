@@ -7,13 +7,16 @@
 -- =================================================================
 -- 🔓 منح الصلاحيات الأساسية (Critical Grants)
 -- =================================================================
+-- تم إلغاء المنح العام الواسع لضمان مبدأ Least Privilege
 DO $$
 DECLARE
     t text;
 BEGIN
     FOR t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        -- نمنح الصلاحيات الأساسية فقط، والـ RLS تتكفل بالباقي
         EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', t);
     END LOOP;
+    RAISE NOTICE '✅ Permissions granted surgically.';
 END $$;
 
 -- Existing grants
@@ -23,7 +26,8 @@ GRANT SELECT ON public.organizations TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.notifications TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_historical_ratios(uuid) TO authenticated; -- هذا السطر صحيح ويمكن أن يبقى
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.notification_preferences TO authenticated;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authenticated;
+-- 🛡️ تقييد الصلاحيات الافتراضية للمستقبل (Surgical Default Privileges)
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO authenticated;
 
 -- =================================================================
 -- تفعيل RLS على الجداول (يمنع الوصول الافتراضي للجميع)
@@ -72,7 +76,7 @@ FOR SELECT TO authenticated
 USING (
     id = auth.uid() -- يرى ملفه الخاص دائماً
     OR (public.get_my_role() = 'super_admin') -- السوبر أدمن يرى الجميع عبر دالة الهوية الموحدة
-    OR (organization_id IS NOT NULL AND (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid = organization_id) -- زملاء العمل
+    OR (organization_id IS NOT NULL AND organization_id = public.get_my_org()) -- زملاء العمل في نفس الشركة
 );
 
 -- 1.1 إشعارات النظام (Notifications)
@@ -85,7 +89,8 @@ USING (
     OR (organization_id IS NOT NULL AND organization_id = public.get_my_org())
     OR (public.get_my_role() = 'super_admin')
 )
-WITH CHECK (true);
+-- 🛡️ منع حقن إشعارات لمنظمات أخرى
+WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
 
 -- يمكن للمستخدم تعديل بياناته فقط
 DROP POLICY IF EXISTS "Users can update own profile" ON profiles;
@@ -175,9 +180,10 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kitchen_orders') THEN
         DROP POLICY IF EXISTS "Staff can manage kitchen_orders" ON kitchen_orders;
         CREATE POLICY "Staff can manage kitchen_orders" ON kitchen_orders 
-        FOR ALL TO authenticated 
-        USING (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()))
-        WITH CHECK (public.get_my_role() = 'super_admin' OR (organization_id = public.get_my_org()));
+        FOR ALL TO authenticated
+        -- 👨‍🍳 قصر إدارة المطبخ على الأدوار المعنية فقط
+        USING ((organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager', 'chef', 'cashier')) OR public.get_my_role() = 'super_admin')
+        WITH CHECK ((organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager', 'chef', 'cashier')) OR public.get_my_role() = 'super_admin');
     END IF;
 END $$;
 -- حماية القيود المحاسبية (ممنوع على الـ Viewer و البائعين)

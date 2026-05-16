@@ -589,33 +589,8 @@ BEGIN
         RAISE EXCEPTION 'لا يمكن خصم المخزون: المستودع غير محدد للطلب %', p_order_id;
     END IF;
 
-    FOR v_order_item IN SELECT * FROM public.order_items WHERE order_id = p_order_id LOOP
-        SELECT * INTO v_product FROM public.products WHERE id = v_order_item.product_id;
-
-        IF v_product.mfg_type = 'standard' THEN -- إذا كان المنتج تاما (مصنع)
-            -- خصم مكونات BOM
-            FOR v_bom_item IN SELECT * FROM public.bill_of_materials WHERE product_id = v_order_item.product_id LOOP
-                UPDATE public.products
-                SET stock = stock - (v_order_item.quantity * v_bom_item.quantity_required),
-                    warehouse_stock = jsonb_set(
-                        COALESCE(warehouse_stock, '{}'::jsonb),
-                        ARRAY[v_order_warehouse_id::text],
-                        to_jsonb(COALESCE((warehouse_stock->>v_order_warehouse_id::text)::numeric, 0) - (v_order_item.quantity * v_bom_item.quantity_required))
-                    )
-                WHERE id = v_bom_item.raw_material_id AND organization_id = v_org_id;
-            END LOOP;
-        ELSE -- إذا كان المنتج خام أو غير مصنع
-            -- خصم المنتج نفسه
-            UPDATE public.products
-            SET stock = stock - v_order_item.quantity,
-                warehouse_stock = jsonb_set(
-                    COALESCE(warehouse_stock, '{}'::jsonb),
-                    ARRAY[v_order_warehouse_id::text],
-                    to_jsonb(COALESCE((warehouse_stock->>v_order_warehouse_id::text)::numeric, 0) - v_order_item.quantity)
-                )
-            WHERE id = v_order_item.product_id AND organization_id = v_org_id;
-        END IF;
-    END LOOP;
+    -- 🚀 نعتمد بالكامل على المحرك المركزي الجديد (Recalculate) لضمان الدقة
+    -- المحرك الآن أصبح يدعم استهلاك الطلبات (Order Items) تلقائياً
     PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
 
@@ -2021,6 +1996,9 @@ DECLARE
     v_prog_id uuid;
     v_wh_id uuid; -- تم إضافة تعريف المستودع
 BEGIN
+    -- 🛡️ تفعيل وضع الاستعادة للسماح بتنظيف البيانات المحمية إن وجدت
+    PERFORM set_config('app.restore_mode', 'on', true);
+
     -- 1. الإعداد
     v_org_id := public.get_my_org();
 
@@ -2042,6 +2020,9 @@ BEGIN
         step_name := '0.5 تهيئة المستودع'; result := 'INFO'; details := 'تم إنشاء مستودع اختبار مؤقت'; RETURN NEXT;
     END IF;
 
+    -- 🗑️ تنظيف مسبق لبيانات الاختبار بنفس الأسماء لضمان دقة الأرقام
+    DELETE FROM public.products WHERE organization_id = v_org_id AND name IN ('منتج اختباري نهائي', 'خامة اختبارية');
+
     -- إنشاء منتج تام ومادة خام للاختبار
     INSERT INTO public.products (name, mfg_type, requires_serial, organization_id)
     VALUES ('منتج اختباري نهائي', 'standard', true, v_org_id) RETURNING id INTO v_prod_id;
@@ -2049,6 +2030,9 @@ BEGIN
     INSERT INTO public.products (name, mfg_type, stock, weighted_average_cost, organization_id)
     VALUES ('خامة اختبارية', 'raw', 100, 10, v_org_id) RETURNING id INTO v_raw_id;
 
+    -- 📥 تسجيل رصيد افتتاحي لكي يراه المحرك
+    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
+    VALUES (v_raw_id, v_wh_id, 100, 10, v_org_id);
     step_name := '1. تهيئة البيانات'; result := 'PASS ✅'; details := 'تم إنشاء المنتج والخامة'; RETURN NEXT;
 
     -- 2. إنشاء مركز عمل ومسار
@@ -2092,6 +2076,25 @@ BEGIN
     END IF;
     RETURN NEXT;
 
+    -- 6. تنظيف بيانات الاختبار (جراحي)
+    DELETE FROM public.mfg_batch_serials WHERE production_order_id = v_order_id;
+    DELETE FROM public.mfg_actual_material_usage WHERE order_progress_id = v_prog_id;
+    DELETE FROM public.mfg_order_progress WHERE production_order_id = v_order_id;
+    DELETE FROM public.mfg_production_orders WHERE id = v_order_id;
+    DELETE FROM public.mfg_routing_steps WHERE id = v_step_id;
+    DELETE FROM public.mfg_routings WHERE id = v_routing_id;
+    DELETE FROM public.mfg_work_centers WHERE id = v_wc_id;
+    DELETE FROM public.bill_of_materials WHERE product_id = v_prod_id;
+    DELETE FROM public.opening_inventories WHERE product_id IN (v_prod_id, v_raw_id);
+    DELETE FROM public.products WHERE id IN (v_prod_id, v_raw_id);
+    
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN;
+
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'CRITICAL ERROR'; result := 'ERROR 🛑'; details := SQLERRM;
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN NEXT;
 END; $$;
 
 
