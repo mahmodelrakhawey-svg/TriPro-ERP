@@ -56,7 +56,8 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
         orderId,
         paymentMethod,
         order.grand_total,
-        paymentAccount.id
+        paymentAccount.id,
+        order.warehouse_id
       );
 
       showToast('تمت عملية الدفع وترحيل القيد بنجاح', 'success');

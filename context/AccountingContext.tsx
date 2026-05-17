@@ -106,9 +106,9 @@ interface AccountingContextType {
   addSupplier: (supplier: any) => Promise<any>;
   updateSupplier: (id: string, updates: any) => Promise<void>;
   deleteSupplier: (id: string, reason?: string) => Promise<void>;
-  approveInvoice: (id: string) => Promise<boolean>;
-  approvePurchaseInvoice: (id: string) => Promise<void>;
-  convertPoToInvoice: (poId: string, warehouseId?: string) => Promise<void>;
+  approveInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>;
+  approvePurchaseInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<void>;
+  convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
   addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
   addPaymentVoucher: (voucher: any) => Promise<void>;
   // --- دوال الأصول والشيكات ---
@@ -135,7 +135,7 @@ interface AccountingContextType {
   mergeTableSessions: (sourceId: string, targetId: string) => Promise<boolean>;
   createRestaurantOrder: (payload: any) => Promise<string>;
   getOpenTableOrder: (tableId: string) => Promise<any>;
-  completeRestaurantOrder: (orderId: string, method: string, total: number, accountId: string | null) => Promise<void>;
+  completeRestaurantOrder: (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => Promise<void>;
   processSplitPayment: (orderId: string, items: any[], method: string, total: number, accountId: string) => Promise<boolean>;
   addRestaurantTable: (data: any) => Promise<void>;
   updateRestaurantTable: (id: string, data: any) => Promise<void>;
@@ -447,9 +447,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     refreshData(); 
   };
-  const approveInvoice = async (id: string) => { const { error } = await supabase.rpc('post_sales_invoice', { p_invoice_id: id }); refreshData(); return !error; };
-  const approvePurchaseInvoice = async (id: string) => { 
-    const { error } = await supabase.rpc('post_purchase_invoice', { p_invoice_id: id }); 
+  const approveInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
+    const { error } = await supabase.rpc('post_sales_invoice', { 
+      p_invoice_id: id,
+      p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id || null,
+      p_warehouse_id: warehouseId
+    }); 
+    refreshData(); 
+    return !error; 
+  };
+   const approvePurchaseInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
+    const { error } = await supabase.rpc('post_purchase_invoice', { 
+      p_invoice_id: id,
+      p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id,
+      p_warehouse_id: warehouseId
+    }); 
     if (error) {
       showToast('فشل اعتماد الفاتورة: ' + error.message, 'error');
     } else {
@@ -457,8 +469,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       refreshData();
     }
   };
-  const convertPoToInvoice = async (id: string, warehouseId?: string) => { 
-    const { error } = await supabase.rpc('convert_po_to_invoice', { p_po_id: id, p_warehouse_id: warehouseId }); 
+  const convertPoToInvoice = async (id: string, warehouseId?: string, orgId?: string) => { 
+    const { error } = await supabase.rpc('convert_po_to_invoice', { 
+      p_po_id: id, 
+      p_warehouse_id: warehouseId,
+      p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id
+    }); 
     if (error) {
       showToast('فشل تحويل أمر الشراء: ' + error.message, 'error');
     } else {
@@ -611,7 +627,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createRestaurantOrder = async (payload: any) => {
-    const { data, error } = await supabase.rpc('create_restaurant_order', { ...payload, p_org_id: currentSelectedOrgId });
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data, error } = await supabase.rpc('create_restaurant_order', { 
+      ...payload, 
+      p_warehouse_id: payload.p_warehouse_id || settings?.default_warehouse_id,
+      p_org_id: targetOrgId 
+    });
     if (error) throw error;
     return data;
   };
@@ -621,8 +642,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return data;
   };
 
-  const completeRestaurantOrder = async (orderId: string, method: string, total: number, accountId: string | null) => {
-    const { error } = await supabase.rpc('complete_restaurant_order', { p_order_id: orderId, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
+  const completeRestaurantOrder = async (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => {
+    const { error } = await supabase.rpc('complete_restaurant_order', { 
+      p_order_id: orderId, 
+      p_payment_method: method, 
+      p_amount: total, 
+      p_cash_account_id: accountId, 
+      p_org_id: currentSelectedOrgId || currentUser?.organization_id,
+      p_warehouse_id: warehouseId
+    });
     if (error) throw error;
     refreshData();
   };
@@ -648,20 +676,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const startShift = async (amount: number) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const treasuryAcc = getSystemAccount('CASH');
     const { error } = await supabase.rpc('start_pos_shift', { 
-      p_opening_balance: Number(amount) || 0 
+      p_opening_balance: Number(amount) || 0,
+      p_resume_existing: true,
+      p_treasury_account_id: treasuryAcc?.id || null,
+      p_user_id: currentUser?.id,
+      p_org_id: targetOrgId
     }); 
     if (error) throw error;
     await refreshData(); 
   };
   const closeCurrentShift = async (actualCash: number, notes: string) => { 
-    if (!currentShift?.id) {
+    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
+    if (!shiftId) {
       throw new Error('لا توجد وردية مفتوحة حالياً ليتم إغلاقها');
     }
     const { error } = await supabase.rpc('close_shift', { 
-      p_shift_id: currentShift.id, 
+      p_shift_id: shiftId, 
       p_actual_cash: actualCash, 
-      p_notes: notes 
+      p_notes: notes,
+      p_org_id: currentSelectedOrgId || currentUser?.organization_id
     }); 
     if (error) throw error;
     await refreshData(); 

@@ -9,6 +9,7 @@ export interface ActiveOrder {
   tableId: string;
   sessionId: string | null;
   orderId?: string;
+  warehouseId?: string;
   tableName: string;
   items: OrderItem[];
   type: 'dine-in' | 'takeaway' | 'delivery';

@@ -820,6 +820,7 @@ const PosScreen = () => {
               tableId: table.id,
               sessionId: orderData.sessionId,
               orderId: orderData.orderId,
+              warehouseId: orderData.warehouseId,
               tableName: table.name,
               items: orderData.items,
               type: 'dine-in'
@@ -878,6 +879,7 @@ const PosScreen = () => {
             tableId: order.order_type === 'TAKEAWAY' ? `takeaway-${order.id}` : `delivery-${order.id}`,
             sessionId: order.session_id,
             orderId: order.id,
+            warehouseId: order.warehouse_id,
             tableName: order.order_type === 'TAKEAWAY' ? 'سفري' : 'توصيل',
             items: items,
             type: order.order_type.toLowerCase() as 'takeaway' | 'delivery',
@@ -1012,11 +1014,12 @@ const PosScreen = () => {
          p_customer_id: activeOrder.customer?.id || null,
          p_user_id: currentUser?.id || null,
          p_notes: null,
+         p_warehouse_id: activeOrder.warehouseId || settings.defaultWarehouseId
+     
        };
  
-       // تنفيذ أمر الطباعة وتوليد الطلب في قاعدة البيانات والتقاط المعرف الجديد
-       const { data: newOrderId, error } = await supabase.rpc('create_restaurant_order', payload);
-       if (error) throw error;
+       // 🚀 استخدام الدالة المركزية لضمان تمرير p_org_id تلقائياً
+       const newOrderId = await createRestaurantOrder(payload);
        showToast('تم إرسال الطلب للمطبخ بنجاح ✅', 'success');
  
        // Optimistic UI Update
@@ -1316,7 +1319,8 @@ const PosScreen = () => {
         activeOrder.orderId,
         'CREDIT',
         total,
-        null
+        null,
+        activeOrder.warehouseId
       );
 
       showToast('تم تسجيل الفاتورة كذمة على العميل بنجاح ✅', 'success');

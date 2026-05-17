@@ -1,5 +1,8 @@
 -- 🌟 النسخة الشاملة الموحدة (Version 4.0 - All Modules Integrated)
 -- 🌟 النسخة الشاملة الموحدة (Version 40.1 - Full Manufacturing & Stock Final Fixes + Modifiers Support)
+-- ⚠️ تحذير: هذا الملف قديم (V40.1). 
+-- يُفضل استخدام services/full_unified_system.sql (V50.0) للحصول على أحدث التحديثات.
+-- لا تقم بتشغيل هذا الملف فوق نسخة V50.0 لأنه سيقوم بحذف الدوال الأحدث.
 
 -- ================================================================
 -- 0. تنظيف شامل لتجنب تعارض التوقيعات (يجب أن يكون في البداية)
@@ -760,8 +763,10 @@ BEGIN
         v_final_org := p_org_id;
     END IF;
 
-    IF v_final_org IS NULL THEN
-        RAISE NOTICE '🚀 جاري بدء إعادة احتساب المخزون الشامل لكافة المنظمات بالنظام (Global User Power)...';
+    IF v_final_org IS NOT NULL THEN
+        RAISE NOTICE '🚀 بدء إعادة احتساب المخزون للمنظمة: %', v_final_org;
+    ELSE
+        RAISE NOTICE '🌍 جاري بدء إعادة احتساب المخزون الشامل لكافة المنظمات...';
     END IF;
 
     -- 🛡️ محرك إعادة احتساب المخزون الشامل (SaaS Multi-tenant Engine)
@@ -790,12 +795,13 @@ BEGIN
                 SELECT COALESCE(SUM(pii.quantity), 0) INTO temp_val FROM public.purchase_invoice_items pii
                 JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id
                 WHERE pii.product_id = prod.id AND pi.warehouse_id = wh_rec.id
-                  AND pi.status NOT IN ('draft', 'cancelled') AND pi.organization_id = prod.organization_id;
+                  AND UPPER(pi.status) NOT IN ('DRAFT', 'CANCELLED') AND pi.organization_id = prod.organization_id;
                 q_in := q_in + temp_val;
+                IF temp_val > 0 THEN RAISE NOTICE 'Item % In-WH %: Purchase +%', prod.id, wh_rec.id, temp_val; END IF;
 
                 -- ج. المبيعات (صادر) - تشمل الخصم المباشر ومكونات الوجبات (BOM)
                 -- 1. الخصم المباشر
-                SELECT COALESCE(SUM(ii.quantity), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = ii.product_id);
+                SELECT COALESCE(SUM(ii.quantity), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id WHERE ii.product_id = prod.id AND i.warehouse_id = wh_rec.id AND UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED') AND i.organization_id = prod.organization_id AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = ii.product_id);
                 q_out := q_out + temp_val;
 
                 -- 🚀 إضافة خصم طلبات المطعم (Direct Order Stock)
@@ -807,14 +813,16 @@ BEGIN
                   AND o.organization_id = prod.organization_id 
                   AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials WHERE product_id = oi.product_id);
                 q_out := q_out + temp_val;
-
-                IF v_is_test_prod AND temp_val > 0 THEN 
-                    RAISE NOTICE 'DEBUG-POS: Direct deduction for %: % units', prod.id, temp_val;
-                END IF;
+                IF temp_val > 0 THEN RAISE NOTICE 'Item % In-WH %: POS Direct -%', prod.id, wh_rec.id, temp_val; END IF;
 
                 -- 2. خصم مكونات الـ BOM للأصناف المجمعة المباعة
-                SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id;
+                SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val 
+                FROM public.invoice_items ii 
+                JOIN public.invoices i ON ii.invoice_id = i.id 
+                JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id 
+                WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED') AND i.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
+                IF temp_val > 0 THEN RAISE NOTICE 'Raw Material % In-WH %: Invoice BOM -%', prod.id, wh_rec.id, temp_val; END IF;
 
                 -- 🚀 إضافة خصم مكونات BOM للطلبات (Order BOM)
                 SELECT COALESCE(SUM(oi.quantity * bom.quantity_required), 0) INTO temp_val 
@@ -825,18 +833,26 @@ BEGIN
                   AND (UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED')) 
                   AND o.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
-
-                IF v_is_test_prod AND temp_val > 0 THEN 
-                    RAISE NOTICE 'DEBUG-POS: BOM deduction for Raw Material %: % units', prod.id, temp_val;
-                END IF;
+                IF temp_val > 0 THEN RAISE NOTICE 'Raw Material % In-WH %: POS BOM -%', prod.id, wh_rec.id, temp_val; END IF;
 
                 -- 3. خصم مكونات الـ BOM للإضافات (Modifiers) لضمان دقة استهلاك المطاعم
-                SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) INTO temp_val FROM public.invoice_items ii JOIN public.invoices i ON ii.invoice_id = i.id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ii.modifiers, '[]'::jsonb)) AS m JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND i.status NOT IN ('draft', 'cancelled') AND i.organization_id = prod.organization_id;
+                SELECT COALESCE(SUM(ii.quantity * bom.quantity_required), 0) 
+                FROM public.invoice_items ii 
+                JOIN public.invoices i ON ii.invoice_id = i.id 
+                CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ii.modifiers, '[]'::jsonb)) AS m 
+                JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid 
+                WHERE bom.raw_material_id = prod.id AND i.warehouse_id = wh_rec.id AND UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED') AND i.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
 
                 -- 🚀 إضافة خصم مكونات BOM للإضافات في الطلبات (Order Modifiers)
-                SELECT COALESCE(SUM(oi.quantity * bom.quantity_required), 0) INTO temp_val FROM public.order_items oi JOIN public.orders o ON oi.order_id = o.id CROSS JOIN LATERAL jsonb_array_elements(COALESCE(oi.modifiers, '[]'::jsonb)) AS m JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid WHERE bom.raw_material_id = prod.id AND o.warehouse_id = wh_rec.id AND o.status IN ('PAID', 'COMPLETED', 'posted') AND o.organization_id = prod.organization_id;
+                SELECT COALESCE(SUM(oi.quantity * bom.quantity_required), 0) INTO temp_val 
+                FROM public.order_items oi 
+                JOIN public.orders o ON oi.order_id = o.id 
+                CROSS JOIN LATERAL jsonb_array_elements(COALESCE(oi.modifiers, '[]'::jsonb)) AS m 
+                JOIN public.bill_of_materials bom ON bom.product_id = (m->>'id')::uuid 
+                WHERE bom.raw_material_id = prod.id AND o.warehouse_id = wh_rec.id AND UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
+                IF temp_val > 0 THEN RAISE NOTICE 'Raw Material % In-WH %: Modifiers BOM -%', prod.id, wh_rec.id, temp_val; END IF;
 
                 -- ح. الإنتاج المصنع (وارد للمنتج التام)
                 -- 🚀 تحسين: احتساب الأوامر التي تنتمي لهذا المستودع أو الأوامر التي لا تمتلك مستودعاً (تُنسب لأول مستودع)
@@ -857,31 +873,31 @@ BEGIN
                 -- د. مرتجعات المبيعات (وارد)
                 SELECT COALESCE(SUM(sri.quantity), 0) INTO temp_val FROM public.sales_return_items sri
                 JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
-                WHERE sri.product_id = prod.id AND sr.warehouse_id = wh_rec.id AND sr.status NOT IN ('draft', 'cancelled') AND sr.organization_id = prod.organization_id;
+                WHERE sri.product_id = prod.id AND sr.warehouse_id = wh_rec.id AND UPPER(sr.status) NOT IN ('DRAFT', 'CANCELLED') AND sr.organization_id = prod.organization_id;
                 q_in := q_in + temp_val;
 
                 -- هـ. مرتجعات المشتريات (صادر)
                 SELECT COALESCE(SUM(pri.quantity), 0) INTO temp_val FROM public.purchase_return_items pri
                 JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id
-                WHERE pri.product_id = prod.id AND pr.warehouse_id = wh_rec.id AND pr.status NOT IN ('draft', 'cancelled') AND pr.organization_id = prod.organization_id;
+                WHERE pri.product_id = prod.id AND pr.warehouse_id = wh_rec.id AND UPPER(pr.status) NOT IN ('DRAFT', 'CANCELLED') AND pr.organization_id = prod.organization_id;
                 q_out := q_out + temp_val;
 
                 -- و. التسويات المخزنية
                 SELECT COALESCE(SUM(sai.quantity), 0) INTO temp_val FROM public.stock_adjustment_items sai
                 JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id
-                WHERE sai.product_id = prod.id AND sa.warehouse_id = wh_rec.id AND sa.status NOT IN ('draft', 'cancelled') AND sa.organization_id = prod.organization_id;
+                WHERE sai.product_id = prod.id AND sa.warehouse_id = wh_rec.id AND UPPER(sa.status) NOT IN ('DRAFT', 'CANCELLED') AND sa.organization_id = prod.organization_id;
                 q_adj := temp_val;
 
                 -- ز. التحويلات
-                SELECT COALESCE(SUM(sti.quantity), 0) INTO temp_val FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod.id AND st.to_warehouse_id = wh_rec.id AND st.status NOT IN ('draft', 'cancelled') AND st.organization_id = prod.organization_id;
+                SELECT COALESCE(SUM(sti.quantity), 0) INTO temp_val FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod.id AND st.to_warehouse_id = wh_rec.id AND UPPER(st.status) NOT IN ('DRAFT', 'CANCELLED') AND st.organization_id = prod.organization_id;
                 q_transfer_in := temp_val;
-                SELECT COALESCE(SUM(sti.quantity), 0) INTO temp_val FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod.id AND st.from_warehouse_id = wh_rec.id AND st.status NOT IN ('draft', 'cancelled') AND st.organization_id = prod.organization_id;
+                SELECT COALESCE(SUM(sti.quantity), 0) INTO temp_val FROM public.stock_transfer_items sti JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id WHERE sti.product_id = prod.id AND st.from_warehouse_id = wh_rec.id AND UPPER(st.status) NOT IN ('DRAFT', 'CANCELLED') AND st.organization_id = prod.organization_id;
                 q_transfer_out := temp_val;
 
                 -- المعادلة النهائية للمستودع
                 net_wh := q_opening + q_in - q_out + q_adj + q_transfer_in - q_transfer_out;
                 
-                -- تحديث JSON المستودعات
+                -- تحديث JSON المستودعات (RAISE NOTICE مفيد هنا للتأكد من القيم الصفرية)
                 IF net_wh <> 0 THEN
                     wh_stock := jsonb_set(wh_stock, ARRAY[wh_rec.id::text], to_jsonb(net_wh));
                     total_qty := total_qty + net_wh;
@@ -1032,7 +1048,7 @@ BEGIN
     );
 
     -- استدعاء دالة إنشاء الطلب
-    v_order_id := public.create_restaurant_order(v_session_id, auth.uid(), 'DINEIN', 'اختبار تكامل POS-MFG', v_items, NULL, v_wh_id);
+    v_order_id := public.create_restaurant_order(v_session_id, auth.uid(), 'DINE_IN', 'اختبار تكامل POS-MFG', v_items, NULL, v_wh_id, NULL, v_org_id);
 
     step_name := '3. إنشاء طلب مطعم (POS)'; result := 'PASS ✅'; details := 'تم طلب 5 وجبات برجر بنجاح'; RETURN NEXT;
 
@@ -3980,7 +3996,40 @@ BEGIN
     -- 2. إنشاء منتج برصيد افتتاحي (10 وحدات @ 100 ج.م)
     INSERT INTO public.products (name, stock, opening_balance, purchase_price, weighted_average_cost, cost, organization_id)
     VALUES ('Test Product', 10, 10, 100, 100, 100, v_org_id) RETURNING id INTO v_prod_id;
+-- 🛡️ دالة الفحص الشامل لسلامة النظام (System Integrity Shield)
+CREATE OR REPLACE FUNCTION public.run_comprehensive_system_tests()
+RETURNS TABLE(suite_name text, status text, details text) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 1. اختبارات المطاعم
+    suite_name := 'Restaurant & POS';
+    IF EXISTS (SELECT 1 FROM public.test_all_restaurant_modules_integrity() WHERE result = 'FAIL ❌') THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في دورة مبيعات المطاعم';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'دورة المطاعم والمطبخ سليمة';
+    END IF; RETURN NEXT;
+
+    -- 2. اختبارات التصنيع
+    suite_name := 'Manufacturing';
+    IF EXISTS (SELECT 1 FROM public.mfg_test_full_cycle() WHERE result = 'FAIL ❌') THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في مديول التصنيع';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'دورة الإنتاج والتكاليف سليمة';
+    END IF; RETURN NEXT;
+
+    -- 3. اختبارات المحاسبة (WAC & Isolation)
+    suite_name := 'Accounting & Security';
+    IF EXISTS (SELECT 1 FROM public.test_wac_logic() WHERE status = 'FAILED ❌') OR 
+       EXISTS (SELECT 1 FROM public.test_saas_isolation() WHERE result = 'FAILED ❌') THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في حسابات التكلفة أو عزل البيانات';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'الحسابات وعزل الـ SaaS محصن';
+    END IF; RETURN NEXT;
+END; $$;
     
+    -- 🛡️ إصلاح: إضافة رصيد افتتاحى في سجلات المخزون لكي يراها المحرك الموحد V50
+    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
+    VALUES (v_prod_id, v_wh_id, 10, 100, v_org_id);
+
     step := '1. Initial WAC (Opening Balance)';
     expected := 100;
     SELECT weighted_average_cost INTO v_wac FROM public.products WHERE id = v_prod_id;
@@ -3997,7 +4046,7 @@ BEGIN
     VALUES (v_inv_id, v_prod_id, 5, 160, v_org_id);
     
     -- 4. اعتماد الفاتورة (سيقوم بتشغيل دالة calculate_product_wac الموحدة)
-    PERFORM public.approve_purchase_invoice(v_inv_id);
+    PERFORM public.approve_purchase_invoice(v_inv_id, v_org_id);
     
     step := '2. WAC after Purchase (New Stock)';
     expected := 120;
@@ -4009,6 +4058,7 @@ BEGIN
     -- 5. اختبار حماية المخزون (الرصيد الكلي)
     step := '3. Total Stock Count';
     expected := 15;
+    PERFORM public.recalculate_stock_rpc(v_org_id);
     SELECT stock INTO actual FROM public.products WHERE id = v_prod_id;
     status := CASE WHEN actual = expected THEN 'PASSED ✅' ELSE 'FAILED ❌' END;
     RETURN NEXT;

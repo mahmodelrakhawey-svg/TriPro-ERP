@@ -304,7 +304,8 @@ const PurchaseInvoiceForm = () => {
 
       // 🚀 إذا كانت الفاتورة مرحلة أو تم النقر على "حفظ وترحيل"، نستخدم الـ RPC فوراً
       if (post || invoiceData.status === 'posted') {
-        await approvePurchaseInvoice(invoiceId!);
+        // تحديث: تمرير المنظمة والمستودع لضمان توافق المحرك الموحد ودقة أرصدة المخازن
+        await approvePurchaseInvoice(invoiceId!, userOrgId, formData.warehouseId);
       } else {
         setSuccessMessage(editingId ? 'تم تحديث فاتورة المشتريات بنجاح!' : 'تم حفظ فاتورة المشتريات كمسودة بنجاح!');
       }

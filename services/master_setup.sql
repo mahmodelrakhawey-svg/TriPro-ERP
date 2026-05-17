@@ -11,6 +11,10 @@ GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO public;
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 
+-- 🛡️ تفعيل وضع الاستعادة لتجاوز صمامات أمان المنظمة أثناء الترميم (Restore Mode)
+-- هذا يمنع خطأ "يجب تحديد المنظمة" عند وجود مشغلات قديمة نشطة
+SET app.restore_mode = 'on';
+
 -- 🛡️ Schema Healing: التأكد من وجود الأعمدة الحساسة قبل البدء لتجنب خطأ 42703 (organization_id)
 -- يحدث هذا إذا كانت الجداول منشأة مسبقاً بنسخة قديمة من النظام وتفتقر لهيكل الـ SaaS
 DO $$ 
@@ -54,13 +58,16 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_orders' AND table_schema = 'public') THEN
         ALTER TABLE public.sales_orders 
             ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT 0;
+            ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS warehouse_id uuid REFERENCES public.warehouses(id),
+            ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
     END IF;
 
     -- 🛡️ ترميم جداول أوامر الشراء (Purchase Orders Healing)
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_orders' AND table_schema = 'public') THEN
         ALTER TABLE public.purchase_orders 
-            ADD COLUMN IF NOT EXISTS warehouse_id uuid REFERENCES public.warehouses(id);
+            ADD COLUMN IF NOT EXISTS warehouse_id uuid REFERENCES public.warehouses(id),
+            ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
     END IF;
 
     -- 🛡️ ترميم جدول الموظفين (Employees Healing)
@@ -1097,6 +1104,9 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard WITH (security_invoker = t
 -- ملاحظة: استخدام security_invoker يضمن أن الـ View يحترم سياسات RLS الخاصة بالجداول الأصلية
 
 -- 🚀 ملف الماستر انتهى هيكلياً. الرصيد والدوال في deploy_all_functionss والسياسات في setup_rls.
+
+-- إيقاف وضع الاستعادة لعودة عمل نظام الحماية الطبيعي
+SET app.restore_mode = 'off';
 
 -- ================================================================
 -- 

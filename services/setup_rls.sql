@@ -75,8 +75,8 @@ CREATE POLICY "profiles_select_policy" ON public.profiles
 FOR SELECT TO authenticated 
 USING (
     id = auth.uid() -- يرى ملفه الخاص دائماً
-    OR (public.get_my_role() = 'super_admin') -- السوبر أدمن يرى الجميع عبر دالة الهوية الموحدة
-    OR (organization_id IS NOT NULL AND organization_id = public.get_my_org()) -- زملاء العمل في نفس الشركة
+    OR (COALESCE(auth.jwt() -> 'user_metadata' ->> 'role', auth.jwt() -> 'app_metadata' ->> 'role') = 'super_admin')
+    OR (organization_id IS NOT NULL AND organization_id = (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid)
 );
 
 -- 1.1 إشعارات النظام (Notifications)

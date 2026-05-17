@@ -693,7 +693,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
         // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً
         if (invoiceData.status === 'posted' || invoiceData.status === 'paid') { // This condition is always false because status is 'draft'
-            await approveInvoice(invoiceId);
+            // تحديث: تمرير المنظمة والمستودع لضمان توافق المحرك الموحد V50
+            await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
             showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
         } else {
             setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح!');
@@ -860,7 +861,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (itemsError) throw itemsError; // Use handleError for consistency
 
         // --- 2. Approve the newly created invoice ---
-        await approveInvoice(invoiceId);
+        // تحديث: تمرير المعاملات الجديدة p_org_id و p_warehouse_id لتجنب أخطاء التواقيع المفقودة
+        await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
 
         // --- 3. Handle UI feedback and form reset ---
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');

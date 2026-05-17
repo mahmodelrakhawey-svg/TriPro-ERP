@@ -116,10 +116,9 @@ const PurchaseOrderList = () => {
 
   const openConvertModal = (order: any) => {
     setSelectedOrder(order);
-    // Set default warehouse
-    if (warehouses.length > 0) {
-      setSelectedWarehouseId(warehouses[0].id);
-    }
+    // تحديث: استخدام المستودع الافتراضي من الإعدادات لضمان الدقة
+    const initialWh = settings.defaultWarehouseId || (warehouses.length > 0 ? warehouses[0].id : '');
+    setSelectedWarehouseId(initialWh);
     setIsModalOpen(true);
   };
 
@@ -128,7 +127,8 @@ const PurchaseOrderList = () => {
       showToast('يرجى اختيار المستودع.', 'warning');
       return;
     }
-    await convertPoToInvoice(selectedOrder.id, selectedWarehouseId);
+    // تحديث: تمرير معرف المنظمة لضمان عزل البيانات (SaaS) والتوافق مع المحرك V50
+    await convertPoToInvoice(selectedOrder.id, selectedWarehouseId, selectedOrder.organization_id);
     setIsModalOpen(false);
     setSelectedOrder(null);
     fetchOrders();

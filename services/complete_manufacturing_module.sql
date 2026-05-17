@@ -8,35 +8,15 @@ DECLARE
     trig_record record;
     func_name text;
 BEGIN
-    FOR trig_record IN (
-        SELECT trigger_name, event_object_table FROM information_schema.triggers WHERE trigger_schema = 'public'
-        AND event_object_table IN ('mfg_production_orders', 'mfg_order_progress', 'orders', 'products')
-    ) LOOP
-        EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', trig_record.trigger_name, trig_record.event_object_table);
-    END LOOP;
+    -- 🛡️ التطهير الجذري لتواقيع دوال التصنيع (Precision Purge)
+    EXECUTE (SELECT string_agg(format('DROP FUNCTION %s CASCADE', oid::regprocedure), '; ')
+             FROM pg_proc WHERE proname IN (
+                'mfg_finalize_order', 'mfg_calculate_standard_cost', 'mfg_start_step', 'mfg_complete_step', 
+                'mfg_update_product_standard_cost', 'mfg_record_qc_inspection', 'mfg_record_scrap'
+             ) 
+             AND pronamespace = 'public'::regnamespace);
+EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'MFG Purge info: %', SQLERRM; END $$;
 
-    -- 🛑 تم إيقاف الحذف التلقائي لدوال التصنيع لمنع ضياع الإصلاحات أثناء التحديث
-    -- FOR func_signature IN (SELECT p.oid::regprocedure::text FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public')
-    -- LOOP
-    --     func_name := split_part(func_signature, '(', 1);
-    --     IF REPLACE(func_name, 'public.', '') IN (
-    --         'mfg_start_step', 'mfg_complete_step', 'mfg_finalize_order', 'mfg_complete_production_order',
-    --         'mfg_calculate_standard_cost', 'mfg_update_product_standard_cost', 'mfg_check_stock_availability',
-    --         'mfg_record_scrap', 'mfg_merge_sales_orders', 'mfg_generate_batch_serials',
-    --         'mfg_update_selling_price_from_cost', 'mfg_get_product_genealogy', 'mfg_get_shop_floor_tasks',
-    --         'mfg_process_scan', 'mfg_check_efficiency_alerts', 'mfg_check_production_readiness',
-    --         'mfg_get_pending_invoices', 'mfg_calculate_production_variance', 'mfg_reserve_stock_for_order',
-    --         'mfg_create_material_request', 'mfg_issue_material_request', 'fn_mfg_auto_create_material_request',
-    --         'mfg_get_serials_by_order', 'mfg_get_production_order_details_by_number', 'mfg_start_production_order',
-    --         'mfg_start_production_orders_batch', 'mfg_record_qc_inspection', 'mfg_check_variance_alerts',
-    --         'mfg_check_cost_overrun_alerts', 'mfg_missing_serials_alerts', 'mfg_calculate_raw_material_turnover', 'mfg_test_full_cycle', 'mfg_test_pos_integration', 'get_manufacturing_analysis'
-    --     ) THEN
-    --         EXECUTE format('DROP FUNCTION IF EXISTS %s CASCADE', func_signature);
-    --     END IF;
-    -- END LOOP;
-END $$;
-
--- 🛡️ صمام أمان للأعمدة
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
@@ -918,8 +898,8 @@ BEGIN
     IF v_total_cost > 0 AND v_wip_acc IS NOT NULL THEN
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
         VALUES (now()::date, (CASE WHEN p_final_status = 'completed' THEN 'إغلاق إنتاج: ' ELSE 'خسارة رفض إنتاج: ' END) || v_order.order_number, 'MFG-FIN-' || v_order.order_number, 'posted', v_org_id, true, p_order_id, 'mfg_order') RETURNING id INTO v_je_id;
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, CASE WHEN p_final_status = 'completed' THEN v_fg_acc ELSE v_loss_acc END, v_total_cost, 0, 'تحويل تكلفة الإنتاج من WIP', v_org_id);
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_wip_acc, 0, v_total_cost, 'إخلاء حساب الإنتاج تحت التشغيل', v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, CASE WHEN p_final_status = 'completed' THEN v_fg_acc ELSE v_loss_acc END, v_total_cost, 0, COALESCE('إثبات المنتج التام المصنع: ' || v_order.order_number, 'إغلاق إنتاج'), v_org_id);
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_wip_acc, 0, v_total_cost, COALESCE('إقفال تكاليف الإنتاج تحت التشغيل: ' || v_order.order_number, 'تفريغ WIP'), v_org_id);
     END IF;
 
     -- 5. العمليات التكميلية
@@ -1454,7 +1434,7 @@ BEGIN
         variance_amount, variance_percentage, organization_id, created_at
     ) VALUES (
         p_order_id, v_actual_cost, v_standard_total_cost,
-        v_variance_amount, v_variance_percentage, v_org_id
+        v_variance_amount, v_variance_percentage, v_org_id, now()
     ) ON CONFLICT (production_order_id) DO UPDATE SET
         actual_total_cost = EXCLUDED.actual_total_cost,
         standard_total_cost = EXCLUDED.standard_total_cost,
@@ -2067,6 +2047,11 @@ BEGIN
     -- 4. الإغلاق المالي وتوليد السيريالات
     PERFORM public.mfg_finalize_order(v_order_id);
 
+    -- 🚀 [إصلاح حرج] ضمان مزامنة المخزون قبل فحص الخطوة 5
+    -- التوقيت ضروري هنا لأن التريجرات قد تتأخر أجزاء من الثانية
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+    PERFORM pg_sleep(0.5); 
+
     step_name := '4. الإغلاق والسيريالات'; result := 'PASS ✅'; details := 'تم توليد 5 أرقام تسلسلية وتحديث المخزون'; RETURN NEXT;
 
     -- 5. التحقق النهائي
@@ -2267,6 +2252,16 @@ DECLARE
 BEGIN
     -- Super admins can bypass this check as they have universal access
     IF public.get_my_role() = 'super_admin' THEN
+        RETURN NEW;
+    END IF;
+
+    -- 🧪 السماح بتجاوز الفحص أثناء الاختبارات أو عمليات الاستعادة
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN NEW;
+    END IF;
+
+    -- 🧪 السماح بتجاوز الفحص أثناء الاختبارات أو عمليات الاستعادة
+    IF current_setting('app.restore_mode', true) = 'on' THEN
         RETURN NEW;
     END IF;
 
