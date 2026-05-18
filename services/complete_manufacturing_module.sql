@@ -308,9 +308,9 @@ JOIN public.accounts a ON jl.account_id = a.id;
 DROP VIEW IF EXISTS public.v_mfg_step_variance CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_step_variance WITH (security_invoker = true) AS
 SELECT
-    po.order_number,
-    rs.operation_name,
-    p.name as material_name,
+    COALESCE(po.order_number, '') as order_number,
+    COALESCE(rs.operation_name, '') as operation_name,
+    COALESCE(p.name, '') as material_name,
     amu.standard_quantity,
     amu.actual_quantity,
     (amu.actual_quantity - amu.standard_quantity) as variance_qty,
@@ -325,9 +325,9 @@ JOIN public.products p ON amu.raw_material_id = p.id;
 DROP VIEW IF EXISTS public.v_mfg_bom_variance CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_bom_variance WITH (security_invoker = true) AS
 SELECT
-    po.order_number,
-    p.name as product_name,
-    rm.name as material_name,
+    COALESCE(po.order_number, '') as order_number,
+    COALESCE(p.name, '') as product_name,
+    COALESCE(rm.name, '') as material_name,
     SUM(amu.standard_quantity) as standard_quantity,
     SUM(amu.actual_quantity) as actual_quantity,
     SUM(amu.actual_quantity - amu.standard_quantity) as variance_qty,
@@ -491,9 +491,9 @@ serial_stats AS (
 )
 SELECT
     po.id as order_id,
-    po.order_number,
-    po.batch_number,
-    p.name as product_name,
+    COALESCE(po.order_number, '') as order_number,
+    COALESCE(po.batch_number, '') as batch_number,
+    COALESCE(p.name, '') as product_name,
     po.quantity_to_produce,
     po.status,
     po.start_date,
@@ -1717,7 +1717,7 @@ BEGIN
         op.step_id,
         po.order_number,
         p.name,
-        rs.operation_name,
+        COALESCE(rs.operation_name, '') as operation_name, -- Ensure operation_name is never NULL
         op.status,
         po.quantity_to_produce
     FROM public.mfg_order_progress op
@@ -2213,7 +2213,7 @@ GRANT EXECUTE ON FUNCTION public.mfg_check_cost_overrun_alerts(numeric) TO authe
 GRANT EXECUTE ON FUNCTION public.mfg_check_missing_serials_alerts() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_calculate_raw_material_turnover(uuid, date, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_manufacturing_analysis(uuid, date, date) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_my_role() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_super_admin() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
