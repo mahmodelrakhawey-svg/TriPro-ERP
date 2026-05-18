@@ -15,27 +15,22 @@ CREATE OR REPLACE FUNCTION public.mfg_complete_step(p_progress_id uuid, p_qty nu
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER 
 SET search_path = public AS $$
 DECLARE
-    v_step record;
-    v_order record;
-    v_wc record;
-    v_routing_step record;
-    v_mat record;
-    v_usage_qty numeric;
-    v_mat_total_cost numeric := 0;
-    v_labor_cost numeric := 0;
-    v_je_id uuid;
-    v_mappings jsonb;
-    v_wip_acc uuid;
-    v_inv_acc uuid;
-    v_labor_acc uuid;
-    v_org_id uuid;
-    v_scrap_qty numeric := 0;
+    v_step record; v_routing_step record; v_mat record;
+    v_usage_qty numeric; v_mat_total_cost numeric := 0; v_labor_cost numeric := 0;
+    v_je_id uuid; v_mappings jsonb; v_wip_acc uuid; v_inv_acc uuid; v_labor_acc uuid;
+    v_org_id uuid; v_scrap_qty numeric := 0; v_wip_debit_amount numeric := 0; v_has_mr boolean;
 BEGIN
     -- 1. جلب بيانات التقدم والتحقق من الصلاحية
     SELECT * INTO v_step FROM public.mfg_order_progress WHERE id = p_progress_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سجل تقدم المرحلة غير موجود'; END IF;
     IF v_step.status = 'completed' THEN RETURN; END IF; -- منع التكرار
     v_org_id := v_step.organization_id;
+
+    -- التحقق هل يوجد طلب صرف مواد (MR) مسبق لهذا الأمر
+    SELECT EXISTS (
+        SELECT 1 FROM public.mfg_material_requests 
+        WHERE production_order_id = v_step.production_order_id AND status = 'issued'
+    ) INTO v_has_mr;
 
     -- [جديد] جلب إجمالي التالف المسجل لهذه المرحلة لزيادة الاستهلاك الفعلي
     SELECT COALESCE(SUM(quantity), 0) INTO v_scrap_qty 
@@ -106,7 +101,12 @@ BEGIN
     v_labor_acc := COALESCE((v_mappings->>'LABOR_COST_ALLOCATED')::uuid, 
                            (SELECT id FROM public.accounts WHERE (code = '513' OR code = '511') AND organization_id = v_org_id LIMIT 1));
 
-    IF v_wip_acc IS NOT NULL AND (v_mat_total_cost > 0 OR v_labor_cost > 0) THEN
+    v_wip_debit_amount := v_labor_cost;
+    IF NOT v_has_mr THEN
+        v_wip_debit_amount := v_wip_debit_amount + v_mat_total_cost;
+    END IF;
+
+    IF v_wip_acc IS NOT NULL AND v_wip_debit_amount > 0 THEN
         -- إنشاء رأس القيد
         INSERT INTO public.journal_entries (
             transaction_date, description, reference, status, organization_id, is_posted, 
@@ -121,14 +121,10 @@ BEGIN
         -- أسطر القيد
         -- 1. من ح/ الإنتاج تحت التشغيل (إجمالي المواد + العمالة)
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_wip_acc, (v_mat_total_cost + v_labor_cost), 0, 'إجمالي تكلفة المرحلة الإنتاجية', v_org_id);
+        VALUES (v_je_id, v_wip_acc, v_wip_debit_amount, 0, 'تكلفة قيمة مضافة للمرحلة', v_org_id);
 
         -- 2. إلى ح/ مخزون المواد الخام (فقط للمواد التي لم تُصرف مسبقاً بطلب صرف)
-        IF v_mat_total_cost > 0 AND v_inv_acc IS NOT NULL AND NOT EXISTS (
-            SELECT 1 FROM public.mfg_material_request_items mri 
-            JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id 
-            WHERE mr.production_order_id = v_step.production_order_id AND mr.status = 'issued'
-        ) THEN
+        IF NOT v_has_mr AND v_mat_total_cost > 0 AND v_inv_acc IS NOT NULL THEN
             INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
             VALUES (v_je_id, v_inv_acc, 0, v_mat_total_cost, 'صرف مواد خام للمرحلة الإنتاجية', v_org_id);
         END IF;

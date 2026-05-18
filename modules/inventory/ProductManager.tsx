@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -157,13 +157,14 @@ const ProductManager = () => {
   // تصفية الحسابات من السياق العام لضمان التوافق
   const accounts = {
     assets: contextAccounts.filter(a => 
-      !a.isGroup && (String(a.type).toLowerCase() === 'asset')
+      // السماح بظهور الحسابات حتى لو كانت Groups لسهولة البحث، مع منع الترحيل لاحقاً
+      (String(a.type).toLowerCase() === 'asset')
     ),
     expenses: contextAccounts.filter(a => 
-      !a.isGroup && (String(a.type).toLowerCase() === 'expense')
+      (String(a.type).toLowerCase() === 'expense')
     ),
     revenue: contextAccounts.filter(a => 
-      !a.isGroup && (String(a.type).toLowerCase() === 'revenue')
+      (String(a.type).toLowerCase() === 'revenue')
     ),
   };
 
@@ -252,7 +253,10 @@ const ProductManager = () => {
       
       // 🎯 دمج تكلفة المكونات المجلوبة مع تكاليف التصنيع
       const finalCost = recipeCost + totalAdditional;
-      setFormData(prev => ({ ...prev, purchase_price: Number(finalCost.toFixed(2)) }));
+      // 🛡️ صمام أمان: لا نحدث التكلفة إلى 0 إذا كان هناك تكلفة سابقة والوصفة/العمالة لم تُدخل بعد
+      if (finalCost > 0) {
+        setFormData(prev => ({ ...prev, purchase_price: Number(finalCost.toFixed(2)) }));
+      }
     }
   }, [formData.labor_cost, formData.overhead_cost, formData.is_overhead_percentage, formData.product_type, recipeCost]);
 
