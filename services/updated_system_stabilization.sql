@@ -146,7 +146,7 @@ DECLARE
     ];
 BEGIN
     FOREACH t IN ARRAY tables_to_ensure LOOP
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t AND table_type = 'BASE TABLE') THEN
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
         END IF;
     END LOOP;
@@ -456,7 +456,8 @@ DECLARE
 BEGIN
     -- توحيد مسمى سعر الوحدة في جميع جداول النظام
     FOREACH t IN ARRAY tables_to_fix LOOP
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'price') THEN
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t AND table_type = 'BASE TABLE') 
+           AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'price') THEN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'unit_price') THEN
                 EXECUTE format('ALTER TABLE public.%I RENAME COLUMN price TO unit_price', t);
             ELSE
@@ -491,14 +492,14 @@ END $$;
 -- 1.5 توحيد أعمدة نقاط البيع والمطاعم (POS Schema Sync)
 -- ============================================================
 DO $$ BEGIN
-    -- تحديث جدول الطلبات (orders)
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='created_by') THEN
+    -- تحديث جدول الطلبات (orders) - التأكد أنه جدول وليس رؤية
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders' AND table_type = 'BASE TABLE') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='created_by') THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='orders' AND column_name='user_id') THEN
             ALTER TABLE public.orders RENAME COLUMN created_by TO user_id;
         ELSE
             -- إذا كان كلاهما موجوداً، انقل البيانات للعمود الجديد واحذف القديم لتجنب التعارض
             UPDATE public.orders SET user_id = created_by WHERE user_id IS NULL;
-            ALTER TABLE public.orders DROP COLUMN created_by;
+            EXECUTE 'ALTER TABLE public.orders DROP COLUMN created_by';
         END IF;
     END IF;
 
@@ -513,13 +514,13 @@ DO $$ BEGIN
         
         -- حل مشكلة created_by: نجعلها عموداً عادياً لمرونة الإدخال
         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='purchase_invoices' AND column_name='created_by' AND is_generated = 'ALWAYS') THEN
-            ALTER TABLE public.purchase_invoices DROP COLUMN created_by;
+            EXECUTE 'ALTER TABLE public.purchase_invoices DROP COLUMN created_by';
         END IF;
         ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS created_by uuid;
     END IF;
 
     -- تحديث جدول الفواتير (invoices) - إصلاح تقرير حركة الصنف
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices' AND table_type = 'BASE TABLE') THEN
         -- إضافة الأعمدة المالية الأساسية إذا فقدت
         ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS due_date date;
         ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0;
@@ -547,7 +548,7 @@ DO $$ BEGIN
 
     -- 3. [تصحيح] تحويل created_by لعمود عادي لتمكين الإدخال المباشر من الواجهة
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by' AND is_generated = 'ALWAYS') THEN
-        ALTER TABLE public.invoices DROP COLUMN created_by;
+        EXECUTE 'ALTER TABLE public.invoices DROP COLUMN created_by';
     END IF;
 
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='invoices' AND column_name='created_by') THEN
@@ -573,32 +574,32 @@ DO $$ BEGIN
         RAISE NOTICE '✅ تم ترميم جدول إقفال الصندوق وتفعيل عمود created_by التوافقي.';
     END IF;
 
-    -- تحديث جدول أوامر التصنيع (work_orders) - إصلاح تقرير حركة الصنف
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='work_orders' AND column_name='created_by') THEN
+    -- تحديث جدول أوامر التصنيع (work_orders)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'work_orders' AND table_type = 'BASE TABLE') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='work_orders' AND column_name='created_by') THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='work_orders' AND column_name='user_id') THEN
             ALTER TABLE public.work_orders RENAME COLUMN created_by TO user_id;
         ELSE
             UPDATE public.work_orders SET user_id = created_by WHERE user_id IS NULL;
-            ALTER TABLE public.work_orders DROP COLUMN created_by;
+            EXECUTE 'ALTER TABLE public.work_orders DROP COLUMN created_by';
         END IF;
     END IF;
 
     -- تحديث جدول بنود الطلبات (order_items)
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='price') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items' AND table_type = 'BASE TABLE') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='price') THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='unit_price') THEN
             ALTER TABLE public.order_items RENAME COLUMN price TO unit_price;
         ELSE
             UPDATE public.order_items SET unit_price = price WHERE unit_price IS NULL;
-            ALTER TABLE public.order_items DROP COLUMN price;
+            EXECUTE 'ALTER TABLE public.order_items DROP COLUMN price';
         END IF;
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='total') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items' AND table_type = 'BASE TABLE') AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='total') THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='order_items' AND column_name='total_price') THEN
             ALTER TABLE public.order_items RENAME COLUMN total TO total_price;
         ELSE
             UPDATE public.order_items SET total_price = total WHERE total_price IS NULL;
-            ALTER TABLE public.order_items DROP COLUMN total;
+            EXECUTE 'ALTER TABLE public.order_items DROP COLUMN total';
         END IF;
     END IF;
     

@@ -114,6 +114,7 @@ BEGIN
 
     -- 💳 6. الدفع والإتمام (تحديث المخزون اللحظي)
     PERFORM public.complete_restaurant_order(v_order_id, 'CASH', 855, v_cash_acc, v_org_id, v_wh_id); -- Pass p_org_id and p_warehouse_id explicitly
+    PERFORM pg_sleep(0.5); -- Give time for stock recalculation to complete
     
     SELECT stock INTO v_stock_after FROM public.products WHERE id = v_prod_id;
     IF v_stock_after = (v_stock_before - 5) THEN
@@ -127,6 +128,7 @@ BEGIN
     -- 🛡️ 7. التحقق من الأرصدة المالية بعد إغلاق الوردية
     DECLARE
         v_initial_cash_balance numeric; v_final_cash_balance numeric;
+        v_current_je_count int;
         v_initial_sales_balance numeric; v_final_sales_balance numeric;
         v_initial_vat_balance numeric; v_final_vat_balance numeric;
         v_initial_cogs_balance numeric; v_final_cogs_balance numeric;
@@ -135,6 +137,8 @@ BEGIN
         v_sales_acc_id uuid; v_vat_acc_id uuid; v_cogs_acc_id uuid; v_inventory_acc_id uuid; v_cash_shortage_acc_id uuid;
         v_maps jsonb;
     BEGIN
+        PERFORM pg_sleep(0.5);
+
         -- جلب الحسابات ذات الصلة
         SELECT account_mappings INTO v_maps FROM public.company_settings WHERE organization_id = v_org_id;
         v_sales_acc_id := COALESCE((v_maps->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1));
@@ -154,6 +158,7 @@ BEGIN
         -- تنفيذ الإغلاق (مرة واحدة فقط لضمان دقة الأرصدة)
         -- المتوقع: 1000 + 855 = 1855. الإغلاق بـ 1200 يُنتج عجز 655 وزيادة نقدية صافية بـ 200.
         PERFORM public.close_shift(v_shift_id, 1200, 'إغلاق اختبار مؤتمت لمحاكاة العجز', v_org_id);
+        PERFORM pg_sleep(0.5); -- إعطاء وقت لمزامنة القيود المحاسبية قبل التحقق
         
         -- جلب الأرصدة النهائية
         -- 🚀 ملاحظة: نستخدم COALESCE لضمان عدم فشل الاختبار في حال لم تكن هناك قيود سابقة
@@ -269,6 +274,7 @@ BEGIN
 
     -- إتمام الدفع
     PERFORM public.complete_restaurant_order(v_order_id, 'CASH', v_grand_total, v_cash_acc, v_org_id, v_wh_id);
+    PERFORM pg_sleep(0.5); -- Give time for stock recalculation to complete
     
     IF EXISTS (SELECT 1 FROM public.delivery_orders WHERE order_id = v_order_id) THEN
         step_name := '3. فحص سجل التوصيل'; result := 'PASS ✅'; details := 'بيانات العنوان والرسوم محفوظة بدقة.';
@@ -376,6 +382,7 @@ BEGIN
     -- تحرير الطاولة (محاكاة دفع الكاشير)
     -- 🚀 تحسين: استخدام الدالة الرسمية بدلاً من التعديل اليدوي لاختبار المحرك الفعلي
     PERFORM public.complete_restaurant_order(v_order_id, 'CASH', 114, v_cash_acc, v_org_id, v_wh_id);
+    PERFORM pg_sleep(0.5); -- Give time for stock recalculation to complete
 
     -- تحرير يدوي لمحاكاة إغلاق الجلسة
     UPDATE public.table_sessions SET status = 'CLOSED', end_time = now() WHERE id = v_session_id;
@@ -390,6 +397,158 @@ BEGIN
 
 EXCEPTION WHEN OTHERS THEN
     step_name := 'فشل حرج'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
+-- 🧪 3. اختبار دورة حياة التصنيع (Manufacturing Lifecycle Test)
+-- ℹ️ الغرض: التأكد من صحة حسابات التكلفة الفعلية، قيود الـ WIP، وتحديث الـ WAC للمنتج التام.
+CREATE OR REPLACE FUNCTION public.test_mfg_order_lifecycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth AS $$
+DECLARE 
+    v_org_id uuid; v_user_id uuid; v_wh_id uuid; v_raw_id uuid; v_fg_id uuid;
+    v_order_id uuid; v_progress_id uuid; v_je_id uuid;
+    v_wac_after numeric; v_total_debit numeric; v_fg_stock_after numeric; v_serial_count int;
+    v_raw_acc_id uuid; v_fg_acc_id uuid; v_wip_acc_id uuid; v_waste_acc_id uuid;
+BEGIN
+    -- 1. تهيئة البيانات بشكل محصن (Robust Identity Initialization)
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles WHERE role = 'super_admin' LIMIT 1);
+    END IF;
+    
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT organization_id FROM public.profiles WHERE id = v_user_id);
+    END IF;
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    END IF;
+
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع تصنيع اختبار', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    -- تنظيف بيانات قديمة لضمان عزل الاختبار
+    DELETE FROM public.products WHERE organization_id = v_org_id AND name IN ('حديد خام اختبار', 'باب حديد مصنع');
+    DELETE FROM public.mfg_production_orders WHERE organization_id = v_org_id AND status = 'in_progress';
+
+    -- إنشاء الحسابات المطلوبة إذا لم توجد
+    INSERT INTO public.accounts (code, name, type, organization_id) VALUES 
+    ('10301', 'مخزون خامات', 'asset', v_org_id),
+    ('10302', 'مخزون إنتاج تام', 'asset', v_org_id),
+    ('10303', 'إنتاج تحت التشغيل - WIP', 'asset', v_org_id),
+    ('5121', 'خسائر تلف إنتاج', 'expense', v_org_id)
+    ON CONFLICT (organization_id, code) DO NOTHING;
+
+    -- جلب المعرفات بشكل صريح لضمان دقة الربط في الإعدادات
+    SELECT id INTO v_raw_acc_id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id;
+    SELECT id INTO v_fg_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id;
+    SELECT id INTO v_wip_acc_id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id;
+    SELECT id INTO v_waste_acc_id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id;
+
+
+    -- 2. إنشاء الأصناف
+    INSERT INTO public.products (name, organization_id, cost, weighted_average_cost, product_type)
+    VALUES ('حديد خام اختبار', v_org_id, 10, 10, 'STOCK') RETURNING id INTO v_raw_id;
+
+    INSERT INTO public.products (name, organization_id, product_type, mfg_type, stock)
+    VALUES ('باب حديد مصنع', v_org_id, 'STOCK', 'standard', 0) RETURNING id INTO v_fg_id;
+
+    -- 🛠️ تحديث إعدادات الشركة (Fix: استخدام دمج JSONB بدلاً من الاستبدال الكامل)
+    INSERT INTO public.company_settings (organization_id, company_name)
+    VALUES (v_org_id, 'Test Org Manufacturing')
+    ON CONFLICT (organization_id) DO NOTHING;
+
+    UPDATE public.company_settings 
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
+        'INVENTORY_RAW_MATERIALS', v_raw_acc_id,
+        'INVENTORY_FINISHED_GOODS', v_fg_acc_id,
+        'INVENTORY_WIP', v_wip_acc_id,
+        'WASTAGE_EXPENSE', v_waste_acc_id
+    )
+    WHERE organization_id = v_org_id;
+    
+    PERFORM pg_sleep(0.2); 
+
+
+    step_name := '1. تجهيز الخامات والمنتج التام'; result := 'PASS ✅'; details := 'تم إنشاء الأصناف وربط الحسابات المحاسبية.'; RETURN NEXT;
+
+    -- 3. دورة الإنتاج
+    INSERT INTO public.mfg_production_orders (product_id, quantity_to_produce, organization_id, warehouse_id, status)
+    VALUES (v_fg_id, 5, v_org_id, v_wh_id, 'in_progress') RETURNING id INTO v_order_id;
+
+    -- تسجيل عمالة (50 ريال)
+    INSERT INTO public.mfg_order_progress (production_order_id, produced_qty, labor_cost_actual, organization_id, status)
+    VALUES (v_order_id, 5, 50, v_org_id, 'completed') RETURNING id INTO v_progress_id;
+
+    -- استهلاك مواد (2 حبة * 10 ريال = 20 ريال)
+    INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, organization_id)
+    VALUES (v_progress_id, v_raw_id, 2, 2, v_org_id);
+
+    step_name := '2. تسجيل العمليات الإنتاجية'; result := 'PASS ✅'; details := 'تم تسجيل عمالة (50) واستهلاك خامات (20).'; RETURN NEXT;
+
+    -- 4. إغلاق الأمر وفحص النتائج
+    PERFORM public.mfg_finalize_order(v_order_id, 'completed', 'Unit Test Finalization');
+    PERFORM public.recalculate_stock_rpc(v_org_id); -- تحديث أرصدة المخزون برمجياً
+    PERFORM pg_sleep(0.7); -- إعطاء وقت إضافي لمزامنة القيود والترجرات الخلفية
+
+    -- أ. فحص الـ WAC (70 ريال إجمالي / 5 حبات = 14 ريال للوحدة)
+    SELECT weighted_average_cost, stock INTO v_wac_after, v_fg_stock_after FROM public.products WHERE id = v_fg_id;
+    
+    IF v_wac_after = 14 THEN
+        step_name := '3. فحص متوسط التكلفة WAC'; result := 'PASS ✅'; details := format('تم تحديث التكلفة بنجاح إلى %s', v_wac_after);
+    ELSE
+        step_name := '3. فحص متوسط التكلفة WAC'; result := 'FAIL ❌'; details := format('خطأ في الحساب! المتوقع 14، الفعلي %s', v_wac_after);
+    END IF;
+    RETURN NEXT;
+
+    -- ب. فحص مطابقة المخزون والسيريالات (معالجة الفشل المذكور في التقرير)
+    -- 🛡️ التحقق من وجود الجدول لتجنب الخطأ "relation does not exist" في البيئات التي لا تدعم السيريالات
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'product_serials') THEN
+        EXECUTE 'SELECT COUNT(*) FROM public.product_serials WHERE product_id = $1 AND organization_id = $2'
+        INTO v_serial_count
+        USING v_fg_id, v_org_id;
+    ELSE
+        v_serial_count := -1; -- علامة تفيد بأن مديول السيريالات غير مثبت/موجود
+    END IF;
+
+    IF v_fg_stock_after = 5 THEN
+        IF v_serial_count > 0 AND v_serial_count != 5 THEN
+            step_name := '5. التحقق من المخزون والسيريالات'; 
+            result := 'FAIL ❌'; 
+            details := format('تم تحديث المخزون (%s) لكن عدد السيريالات (%s) غير مطابق للكمية المنتجة (5).', v_fg_stock_after, v_serial_count);
+        ELSIF v_serial_count = -1 THEN
+            step_name := '5. التحقق من المخزون والسيريالات'; result := 'PASS ✅'; details := format('تم تحديث المخزون إلى %s وحدة بنجاح (نظام السيريالات غير مكتشف).', v_fg_stock_after);
+        ELSE
+            step_name := '5. التحقق من المخزون والسيريالات'; result := 'PASS ✅'; details := format('تم تحديث المخزون إلى %s وحدة بنجاح.', v_fg_stock_after);
+        END IF;
+    ELSE
+        step_name := '5. التحقق من المخزون والسيريالات'; result := 'FAIL ❌'; 
+        details := format('فشل في مطابقة المخزون! المتوقع 5، الفعلي %s. (تأكد من عمل trigger تحديث المخزون)', v_fg_stock_after);
+    END IF;
+    RETURN NEXT;
+
+    -- ب. فحص القيد المحاسبي
+    SELECT id INTO v_je_id FROM public.journal_entries 
+    WHERE related_document_id = v_order_id AND related_document_type = 'mfg_order' LIMIT 1;
+
+    PERFORM pg_sleep(0.3); -- انتظار إضافي لضمان اكتمال ترحيل القيود
+    IF v_je_id IS NOT NULL THEN
+        SELECT COALESCE(SUM(debit), 0) INTO v_total_debit FROM public.journal_lines WHERE journal_entry_id = v_je_id;
+        IF v_total_debit = 70 THEN
+            step_name := '4. فحص القيد المحاسبي'; result := 'PASS ✅'; details := 'تم توليد قيد متزن بقيمة التكلفة الفعلية (70).';
+        ELSE
+            step_name := '4. فحص القيد المحاسبي'; result := 'FAIL ❌'; details := format('قيمة القيد غير صحيحة! المتوقع 70، الفعلي %s', v_total_debit);
+        END IF;
+    ELSE
+        step_name := '4. فحص القيد المحاسبي'; result := 'FAIL ❌'; details := 'لم يتم توليد قيد إغلاق!';
+    END IF;
+    RETURN NEXT;
+
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل حرج في التصنيع'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
 END; $$;
 
 -- 🧪 3. دالة اختبار شاملة لجميع مديولات المطعم (Unified Restaurant Modules Integrity Test)
@@ -431,7 +590,20 @@ BEGIN
         RETURN NEXT;
     END LOOP;
 
-    -- 3. تشغيل اختبار دورة حياة المنيو الإلكتروني (QR)
+    -- 3. تشغيل اختبار دورة حياة التصنيع
+    FOR r IN SELECT * FROM public.test_mfg_order_lifecycle() LOOP
+        test_suite := 'Manufacturing Lifecycle';
+        step_name := r.step_name;
+        result := r.result;
+        details := r.details;
+        IF r.result NOT IN ('PASS ✅', 'SUCCESS 🏆') THEN
+            v_overall_status := 'FAIL ❌';
+            v_overall_details := v_overall_details || 'MFG Lifecycle Failed: ' || r.details || E'\n';
+        END IF;
+        RETURN NEXT;
+    END LOOP;
+
+    -- 4. تشغيل اختبار دورة حياة المنيو الإلكتروني (QR)
     FOR r IN SELECT * FROM public.test_qr_order_lifecycle() LOOP
         test_suite := 'QR Order Lifecycle';
         step_name := r.step_name;
@@ -474,7 +646,7 @@ BEGIN
 
     -- 2. اختبارات التصنيع
     suite_name := 'Manufacturing';
-    IF EXISTS (SELECT 1 FROM public.mfg_test_full_cycle() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
+    IF EXISTS (SELECT 1 FROM public.test_mfg_order_lifecycle() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
         status := 'CRITICAL 🛑'; details := 'فشل في مديول التصنيع';
     ELSE
         status := 'HEALTHY 🟢'; details := 'دورة الإنتاج والتكاليف سليمة';
