@@ -138,9 +138,24 @@ BEGIN
             WHERE UPPER(status) = 'COMPLETED' AND warehouse_id IS NOT NULL AND product_id IS NOT NULL AND organization_id = v_final_org
             UNION ALL
             -- استهلاك خامات (-)
-            SELECT amu.raw_material_id, po.warehouse_id, -amu.actual_quantity FROM public.mfg_actual_material_usage amu 
-            JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id JOIN public.mfg_production_orders po ON op.production_order_id = po.id 
+            SELECT amu.raw_material_id, po.warehouse_id, -amu.actual_quantity 
+            FROM public.mfg_actual_material_usage amu 
+            JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id 
+            JOIN public.mfg_production_orders po ON op.production_order_id = po.id 
             WHERE po.warehouse_id IS NOT NULL AND amu.raw_material_id IS NOT NULL AND po.organization_id = v_final_org
+            
+            UNION ALL
+            -- 🛡️ استهلاك خامات بطلبات صرف (MR) - (فقط للأصناف غير الموجودة في AMU لنفس الطلب لضمان عدم الخصم مرتين)
+            SELECT mri.raw_material_id, po.warehouse_id, -mri.quantity_issued
+            FROM public.mfg_material_request_items mri
+            JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
+            JOIN public.mfg_production_orders po ON mr.production_order_id = po.id
+            WHERE mr.status = 'issued' AND po.warehouse_id IS NOT NULL AND po.organization_id = v_final_org
+            AND NOT EXISTS (
+                SELECT 1 FROM public.mfg_order_progress op_sub
+                JOIN public.mfg_actual_material_usage amu_sub ON op_sub.id = amu_sub.order_progress_id
+                WHERE op_sub.production_order_id = po.id AND amu_sub.raw_material_id = mri.raw_material_id
+            )
         ) movements
         WHERE product_id IS NOT NULL AND warehouse_id IS NOT NULL
         GROUP BY product_id, warehouse_id
@@ -592,21 +607,26 @@ WITH labor_summary AS (
     GROUP BY op.production_order_id
 ),
 material_summary AS (
-    SELECT po_id, SUM(cost) as total_material_cost
-    FROM (
+    -- 🛡️ منع الازدواجية في المحرك الموحد: نجمع الاستهلاك الفعلي مع طلبات الصرف المستقلة فقط
+    SELECT po_id, SUM(cost) as total_material_cost FROM (
         SELECT op.production_order_id as po_id, SUM(amu.actual_quantity * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
         FROM public.mfg_actual_material_usage amu
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         JOIN public.products rm ON amu.raw_material_id = rm.id
-        GROUP BY op.production_order_id
+        GROUP BY op.production_order_id, amu.raw_material_id
         UNION ALL
         SELECT mr.production_order_id as po_id, SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) as cost
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id
         WHERE mr.status = 'issued'
-        GROUP BY mr.production_order_id
-    ) all_mats GROUP BY po_id
+        AND NOT EXISTS (
+            SELECT 1 FROM public.mfg_order_progress op2 
+            JOIN public.mfg_actual_material_usage amu2 ON op2.id = amu2.order_progress_id
+            WHERE op2.production_order_id = mr.production_order_id AND amu2.raw_material_id = mri.raw_material_id
+        )
+        GROUP BY mr.production_order_id, mri.raw_material_id
+    ) safe_mats GROUP BY po_id
 )
 SELECT
     po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.status, po.organization_id,
@@ -717,12 +737,18 @@ BEGIN
     ), 0);
 
     -- د. إضافة تكلفة المواد المصروفة بطلبات صرف (Material Requests)
+    -- د. إضافة تكلفة المواد المصروفة بطلبات صرف (MR) - للأصناف المستقلة فقط (V50.2)
     v_total_cost := v_total_cost + COALESCE((
-        SELECT SUM(mri.quantity_issued * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
+        SELECT SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id
         WHERE mr.production_order_id = p_order_id AND mr.status = 'issued'
+        AND NOT EXISTS (
+            SELECT 1 FROM public.mfg_order_progress op2 
+            JOIN public.mfg_actual_material_usage amu2 ON op2.id = amu2.order_progress_id
+            WHERE op2.production_order_id = p_order_id AND amu2.raw_material_id = mri.raw_material_id
+        )
     ), 0);
 
 

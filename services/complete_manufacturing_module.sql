@@ -253,7 +253,7 @@ DECLARE
     v_overhead_cost numeric := 0;
     v_routing_id uuid;
 BEGIN
-    -- 1. حساب تكلفة المواد المباشرة من قائمة المواد (BOM)
+    -- 1. حساب تكلفة المواد المباشرة من قائمة المواد (BOM) العامة
     SELECT SUM(bom.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
     INTO v_material_cost
     FROM public.bill_of_materials bom
@@ -264,8 +264,18 @@ BEGIN
     SELECT id INTO v_routing_id FROM public.mfg_routings 
     WHERE product_id = p_product_id AND organization_id = p_org_id AND is_default = true AND deleted_at IS NULL LIMIT 1;
 
-    -- 3. حساب تكاليف العمالة والمصاريف غير المباشرة من خطوات الإنتاج
+    -- 3. حساب تكاليف العمالة والمواد والمصاريف من خطوات الإنتاج (Routing Steps)
     IF v_routing_id IS NOT NULL THEN
+        -- أ. إضافة تكلفة المواد المعرفة داخل المراحل (في حال عدم وجودها في BOM العام)
+        v_material_cost := COALESCE(v_material_cost, 0) + COALESCE((
+            SELECT SUM(sm.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+            FROM public.mfg_routing_steps rs
+            JOIN public.mfg_step_materials sm ON rs.id = sm.step_id
+            JOIN public.products p ON sm.raw_material_id = p.id
+            WHERE rs.routing_id = v_routing_id
+        ), 0);
+
+        -- ب. تكاليف العمالة والمصاريف
         SELECT 
             SUM((rs.standard_time_minutes / 60.0) * COALESCE(wc.hourly_rate, 0)),
             SUM((rs.standard_time_minutes / 60.0) * COALESCE(wc.overhead_rate, 0))
@@ -388,21 +398,27 @@ labor_summary AS (
     GROUP BY op.production_order_id
 ),
 material_summary AS (
-    SELECT po_id, SUM(cost) as total_material_cost
-    FROM (
+
+    -- 🛡️ منع الازدواجية في التقارير: نجمع AMU مع MR المستقلة فقط
+    SELECT po_id, SUM(cost) as total_material_cost FROM (
         SELECT op.production_order_id as po_id, SUM(amu.actual_quantity * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
         FROM public.mfg_actual_material_usage amu
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         JOIN public.products rm ON amu.raw_material_id = rm.id
-        GROUP BY op.production_order_id
+        GROUP BY op.production_order_id, amu.raw_material_id
         UNION ALL
         SELECT mr.production_order_id as po_id, SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) as cost
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id
         WHERE mr.status = 'issued'
-        GROUP BY mr.production_order_id
-    ) all_mats GROUP BY po_id
+        AND NOT EXISTS (
+            SELECT 1 FROM public.mfg_order_progress op2 
+            JOIN public.mfg_actual_material_usage amu2 ON op2.id = amu2.order_progress_id
+            WHERE op2.production_order_id = mr.production_order_id AND amu2.raw_material_id = mri.raw_material_id
+        )
+        GROUP BY mr.production_order_id, mri.raw_material_id
+    ) safe_mats GROUP BY po_id
 )
 SELECT
     po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.status, po.organization_id,
@@ -824,7 +840,8 @@ BEGIN
     -- 2. حساب إجمالي التكاليف الفعلية
     SELECT SUM(COALESCE(labor_cost_actual, 0)) INTO v_total_cost
     FROM public.mfg_order_progress WHERE production_order_id = p_order_id;
-    -- ب. إضافة تكلفة المصاريف غير المباشرة من سجلات التقدم
+    
+    -- ب. إضافة تكلفة المصاريف غير المباشرة من سجلات التقدم (Overhead)
     v_total_cost := v_total_cost + COALESCE((
         SELECT SUM((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate)
         FROM public.mfg_order_progress op
@@ -833,21 +850,28 @@ BEGIN
         WHERE op.production_order_id = p_order_id
     ), 0);
 
-    -- ب. إضافة تكلفة المواد الفعلية المستهلكة
+    -- ج. إضافة تكلفة المواد الفعلية المستهلكة (AMU) - تحسين الربط لضمان الدقة (V50.2)
     v_total_cost := v_total_cost + COALESCE((
-        SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, p.purchase_price, 0))
-        FROM public.mfg_actual_material_usage amu
-        JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+        SELECT SUM(amu.actual_quantity * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+        FROM public.mfg_actual_material_usage amu 
         JOIN public.products p ON amu.raw_material_id = p.id
+        JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         WHERE op.production_order_id = p_order_id
     ), 0);
 
+    -- ج. إضافة تكلفة المواد المصروفة بطلبات صرف (MR) - للأصناف المستقلة فقط لضمان دقة القيد الختامي
+    -- د. إضافة تكلفة المواد المصروفة بطلبات صرف (MR) - للأصناف المستقلة فقط (V50.2)
     v_total_cost := v_total_cost + COALESCE((
         SELECT SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id
         WHERE mr.production_order_id = p_order_id AND mr.status = 'issued'
+        AND NOT EXISTS (
+            SELECT 1 FROM public.mfg_order_progress op2 
+            JOIN public.mfg_actual_material_usage amu2 ON op2.id = amu2.order_progress_id
+            WHERE op2.production_order_id = p_order_id AND amu2.raw_material_id = mri.raw_material_id
+        )
     ), 0);
 
     -- 3. تحديث حالة الطلب وزيادة مخزون المنتج التام
@@ -1404,6 +1428,7 @@ DECLARE
     v_org_id uuid;
 BEGIN
     -- 1. جلب بيانات أمر الإنتاج
+    -- 🛡️ ملاحظة: تعتمد هذه الدالة على دقة رؤية v_mfg_order_profitability لحساب التكلفة الفعلية الإجمالية، والتي تم إصلاحها لمنع تكرار التكاليف.
     SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('error', 'أمر الإنتاج غير موجود');
