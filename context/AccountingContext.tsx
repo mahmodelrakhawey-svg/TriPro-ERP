@@ -29,13 +29,27 @@ export const SYSTEM_ACCOUNTS = {
   EMPLOYEE_BONUSES: '5312',
   EMPLOYEE_DEDUCTIONS: '422',
   PAYROLL_TAX: '2233',
-  CASH_SHORTAGE: '541',
+  CASH_SHORTAGE: '541', // تسوية عجز الصندوق
+  BANK_ACCOUNTS: '123201', // حساب البنك الرئيسي (الأهلي المصري افتراضياً)
   INVENTORY_RAW_MATERIALS: '10301',
   INVENTORY_WIP: '10303',
   INVENTORY_FINISHED_GOODS: '10302',
   LABOR_COST_ALLOCATED: '513',
   WASTAGE_EXPENSE: '5121',
-  SECURITY_DEPOSIT_ACCOUNT: '226'
+  SECURITY_DEPOSIT_ACCOUNT: '226',
+  WHT_PAYABLE: '2232', // ضريبة الخصم والتحصيل - علينا
+  WHT_RECEIVABLE: '1242', // ضريبة الخصم والتحصيل - لنا
+  SALES_RETURNS: '412', // مردودات المبيعات
+  SALES_DISCOUNT: '413', // الخصم المسموح به
+  ASSETS_FIXED: '111', // الأصول الثابتة
+  ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
+  DEPRECIATION_EXPENSE: '533', // مصروف الإهلاك
+  OPENING_BALANCES: '3999', // الأرصدة الافتتاحية
+  PREPAID_EXPENSES: '1243', // مصروفات مقدمة
+  ACCRUED_EXPENSES: '225', // مصروفات مستحقة
+  REVENUE_OTHER: '421', // إيرادات أخرى
+  EXPENSE_GENERAL: '53', // مصروفات إدارية وعمومية
+  SOCIAL_INSURANCE: '224' // هيئة التأمينات الاجتماعية
 };
 
 interface AccountingContextType {
@@ -295,7 +309,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         console.log('Raw Shift Data from RPC:', shift.data);
       }
 
-      setCurrentShift(Array.isArray(shift.data) ? shift.data[0] : shift.data);
+      // 🛡️ تصحيح جذري: التحقق من وجود ID حقيقي للوردية لمنع الوردية "الوهمية"
+      const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
+      setCurrentShift(activeShiftData && activeShiftData.id ? activeShiftData : null);
       setLastUpdated(new Date());
 
     } catch (error) {
@@ -552,7 +568,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     await refreshData(); 
   };
-  const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => { await supabase.from('cheques').update({ status }).eq('id', id); refreshData(); };
+  const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => {
+    const updatePayload: { status: string; current_account_id?: string | null } = { status };
+    if (bankId !== undefined) { // تضمين bankId فقط إذا تم تمريره صراحةً، مما يسمح بمسحه إذا كان null
+      updatePayload.current_account_id = bankId;
+    }
+    await supabase.from('cheques').update(updatePayload).eq('id', id); 
+    refreshData(); 
+  };     
   const addTransfer = async (transfer: any) => { await supabase.rpc('add_treasury_transfer', transfer); refreshData(); };
   const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const permanentDeleteItem = async (table: string, id: string) => { const { error } = await supabase.from(table).delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
@@ -680,7 +703,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const treasuryAcc = getSystemAccount('CASH');
     const { error } = await supabase.rpc('start_pos_shift', { 
       p_opening_balance: Number(amount) || 0,
-      p_resume_existing: true,
+      p_resume_existing: false, // 🛡️ تصحيح: عند الضغط على زر "بدء" نريد إنشاء وردية جديدة فعلاً وليس مجرد استئناف
       p_treasury_account_id: treasuryAcc?.id || null,
       p_user_id: currentUser?.id,
       p_org_id: targetOrgId

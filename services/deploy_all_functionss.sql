@@ -143,20 +143,21 @@ CREATE OR REPLACE FUNCTION public.get_active_shift(
 RETURNS public.shifts 
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, auth
+SET search_path = public
 AS $$
 DECLARE
     v_target_org uuid;
+    v_shift public.shifts;
 BEGIN
     v_target_org := COALESCE(p_org_id, public.get_my_org());
     
-    RETURN (SELECT s FROM public.shifts s 
-            WHERE user_id = COALESCE(p_user_id, auth.uid())
-            AND end_time IS NULL 
-            -- حماية: الوردية تظل مفتوحة فقط لمدة 12 ساعة، بعدها يجب فتح واحدة جديدة يدوياً
-            AND start_time >= (now() - interval '12 hours')
-            AND organization_id = v_target_org
-            LIMIT 1);
+    SELECT * INTO v_shift FROM public.shifts 
+    WHERE user_id = COALESCE(p_user_id, auth.uid())
+      AND end_time IS NULL 
+      AND organization_id = v_target_org
+    ORDER BY start_time DESC LIMIT 1;
+
+    RETURN v_shift;
 END; $$;
 
 -- 🛠️ دالة جلب الطلب النشط لطاولة (Fix 404 get_open_table_order)
@@ -2318,11 +2319,11 @@ BEGIN
         type = EXCLUDED.type,
         name = EXCLUDED.name;
 
-    UPDATE public.accounts a 
+    UPDATE public.accounts
     SET parent_id = p.id 
     FROM coa_temp t 
     JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
-    WHERE a.organization_id = p_org_id AND a.code = t.code;
+    WHERE public.accounts.organization_id = p_org_id AND public.accounts.code = t.code;
     -- 🛡️ تصحيح تلقائي إضافي: أي حساب له أبناء يجب أن يكون "رئيسي" (Group)
     UPDATE public.accounts SET is_group = true 
     WHERE id IN (SELECT DISTINCT parent_id FROM public.accounts WHERE organization_id = p_org_id AND parent_id IS NOT NULL);

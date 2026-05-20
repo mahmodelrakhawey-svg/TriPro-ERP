@@ -41,6 +41,17 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'delivery_orders' AND table_schema = 'public' AND table_type = 'BASE TABLE') THEN
         ALTER TABLE public.delivery_orders ADD COLUMN IF NOT EXISTS driver_id uuid REFERENCES public.employees(id);
     END IF;
+
+    -- 🛡️ ترميم جداول السندات (Treasury Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'receipt_vouchers' AND table_schema = 'public') THEN
+        ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS voucher_type text DEFAULT 'standard';
+        ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payment_vouchers' AND table_schema = 'public') THEN
+        ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS voucher_type text DEFAULT 'standard';
+        ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL;
+    END IF;
 END $$;
 
 -- ================================================================
@@ -198,6 +209,32 @@ DO $$ BEGIN
 EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'Purge info: %', SQLERRM; END $$;
 
 -- 🛠️ دالة بدء الوردية
+CREATE OR REPLACE FUNCTION public.get_active_shift(
+    p_user_id uuid DEFAULT NULL, 
+    p_org_id uuid DEFAULT NULL
+) RETURNS public.shifts LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE 
+    v_org_id uuid;
+    v_shift public.shifts;
+BEGIN
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    
+    IF v_org_id IS NULL THEN RETURN NULL::public.shifts; END IF;
+
+    SELECT * INTO v_shift FROM public.shifts
+    WHERE user_id = COALESCE(p_user_id, auth.uid()) 
+      AND end_time IS NULL 
+      AND organization_id = v_org_id
+    ORDER BY start_time DESC LIMIT 1;
+
+    -- 🛡️ تصحيح V50.3: ضمان إعادة NULL صريح لتجنب الكائن الوهمي {id: null}
+    IF v_shift.id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    RETURN v_shift;
+END; $$;
+
 CREATE OR REPLACE FUNCTION public.start_pos_shift(
     p_opening_balance numeric DEFAULT 0, 
     p_resume_existing boolean DEFAULT true, 
@@ -210,14 +247,22 @@ DECLARE
     v_new_shift public.shifts;
     v_org_id uuid;
 BEGIN
-    v_org_id := COALESCE(p_org_id, (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid, public.get_my_org());
-    IF v_org_id IS NULL AND current_setting('app.restore_mode', true) != 'on' THEN RAISE EXCEPTION 'فشل تحديد المنظمة.'; END IF;
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    IF v_org_id IS NULL AND current_setting('app.restore_mode', true) != 'on' THEN RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من ربط حسابك بشركة.'; END IF;
 
     SELECT * INTO v_existing_shift FROM public.shifts 
-    WHERE user_id = COALESCE(p_user_id, auth.uid()) AND end_time IS NULL AND (v_org_id IS NULL OR organization_id = v_org_id) LIMIT 1;
+    WHERE user_id = COALESCE(p_user_id, auth.uid()) AND end_time IS NULL AND organization_id = v_org_id 
+    ORDER BY start_time DESC LIMIT 1;
 
-    IF v_existing_shift.id IS NOT NULL AND p_resume_existing THEN RETURN v_existing_shift; END IF;
-    IF v_existing_shift.id IS NOT NULL THEN RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل.'; END IF;
+    -- 🛡️ إذا طلب المستخدم الاستئناف ووجدنا وردية، نعيدها
+    IF p_resume_existing AND v_existing_shift.id IS NOT NULL THEN 
+        RETURN v_existing_shift; 
+    END IF;
+
+    -- 🛡️ إذا طلب المستخدم الاستئناف ولم نجد، نعيد NULL للتوقف هنا
+    IF p_resume_existing THEN RETURN NULL; END IF;
+
+    IF v_existing_shift.id IS NOT NULL THEN RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم في هذه الشركة. يرجى إغلاقها أولاً.'; END IF;
 
     INSERT INTO public.shifts (user_id, start_time, opening_balance, treasury_account_id, organization_id, status)
     VALUES (COALESCE(p_user_id, auth.uid()), now(), p_opening_balance, p_treasury_account_id, v_org_id, 'OPEN') 
@@ -388,17 +433,42 @@ DECLARE
     v_cash_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid; v_cogs_acc_id uuid; v_inventory_acc_id uuid;
     v_diff numeric := 0; v_item_cost_record record;
 BEGIN
+    -- 🛡️ التأكد من أن المعرّف الممرر ليس فارغاً
+    IF p_shift_id IS NULL THEN RAISE EXCEPTION 'خطأ: لم يتم تحديد وردية للإغلاق.'; END IF;
+
+    -- 🛡️ استخدام NOT FOUND لرفع استثناء حقيقي بدلاً من التعامل مع حقول فارغة
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
-    v_org_id := COALESCE(p_org_id, v_shift.organization_id);
+    
+    IF NOT FOUND THEN 
+        RAISE EXCEPTION 'عذراً، لم يتم العثور على سجل وردية حقيقي في النظام للرقم (%).', p_shift_id; 
+    END IF;
+
+    v_org_id := COALESCE(p_org_id, v_shift.organization_id, public.get_my_org());
     DELETE FROM public.journal_entries WHERE related_document_id = p_shift_id AND related_document_type = 'shift';
 
     -- تجميع مبيعات وتكاليف الوردية
     SELECT 
-        COALESCE(SUM(o.subtotal), 0) as subtotal, COALESCE(SUM(o.total_tax), 0) as tax,
-        COALESCE((SELECT SUM(amount) FROM public.payments WHERE order_id IN (SELECT id FROM public.orders WHERE organization_id = v_org_id AND created_at >= v_shift.start_time - interval '1 second') AND UPPER(payment_method) = 'CASH'), 0) as cash_total,
-        COALESCE((SELECT SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) FROM public.order_items oi WHERE oi.order_id IN (SELECT id FROM public.orders WHERE organization_id = v_org_id AND created_at >= v_shift.start_time - interval '1 second')), 0) as cost_total
+        COALESCE(SUM(o.subtotal), 0) as subtotal, 
+        COALESCE(SUM(o.total_tax), 0) as tax,
+        COALESCE((
+            SELECT SUM(p.amount) FROM public.payments p
+            JOIN public.orders o2 ON p.order_id = o2.id
+            WHERE o2.organization_id = v_org_id 
+              AND o2.created_at BETWEEN v_shift.start_time - interval '1 second' AND COALESCE(v_shift.end_time, now()) + interval '1 second'
+              AND UPPER(p.payment_method) = 'CASH'
+              AND p.status = 'COMPLETED'
+        ), 0) as cash_total,
+        COALESCE((
+            SELECT SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) FROM public.order_items oi
+            JOIN public.orders o3 ON oi.order_id = o3.id
+            WHERE o3.organization_id = v_org_id 
+              AND o3.created_at BETWEEN v_shift.start_time - interval '1 second' AND COALESCE(v_shift.end_time, now()) + interval '1 second'
+              AND o3.status IN ('PAID', 'COMPLETED', 'posted')
+        ), 0) as cost_total
     INTO v_summary
-    FROM public.orders o WHERE o.organization_id = v_org_id AND o.created_at >= v_shift.start_time - interval '1 second'
+    FROM public.orders o 
+    WHERE o.organization_id = v_org_id 
+    AND o.created_at BETWEEN v_shift.start_time - interval '1 second' AND COALESCE(v_shift.end_time, now()) + interval '1 second'
     AND o.status IN ('PAID', 'COMPLETED', 'posted'); -- 🛡️ تشمل الطلبات المرحلة لضمان Idempotency
 
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
@@ -412,7 +482,7 @@ BEGIN
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type, user_id)
-    VALUES (now()::date, 'إغلاق وردية مطعم', 'SHIFT-' || to_char(now(), 'YYMMDD'), 'posted', v_org_id, true, p_shift_id, 'shift', v_shift.user_id) RETURNING id INTO v_je_id;
+    VALUES (now()::date, 'إغلاق وردية مطعم', 'SHIFT-' || to_char(now(), 'YYMMDD') || '-' || substring(p_shift_id::text, 1, 4), 'posted', v_org_id, true, p_shift_id, 'shift', v_shift.user_id) RETURNING id INTO v_je_id;
     
     -- 1. الإيرادات والضرائب (دائن)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
@@ -453,6 +523,172 @@ BEGIN
     PERFORM public.generate_shift_closing_entry(p_shift_id, p_org_id);
 END; $$;
 
+-- 🛠️ دالة اعتماد سند القبض محاسبياً (Receipt Voucher Approval)
+CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_voucher_id uuid, p_credit_account_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_voucher record; v_journal_id uuid; v_org_id uuid; v_final_credit_acc_id uuid; v_mappings jsonb;
+BEGIN
+    v_org_id := public.get_my_org();
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    
+    SELECT * INTO v_voucher FROM public.receipt_vouchers WHERE id = p_voucher_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'سند القبض غير موجود.'; END IF;
+
+    -- تنظيف أي قيود قديمة مرتبطة
+    DELETE FROM public.journal_entries 
+    WHERE organization_id = v_org_id 
+    AND (related_document_id = p_voucher_id OR reference = v_voucher.voucher_number)
+    AND related_document_type = 'receipt_voucher';
+
+    -- تحديد الحساب الدائن (تأمين أو عميل)
+    IF v_voucher.voucher_type = 'security_deposit' THEN
+        v_final_credit_acc_id := COALESCE(
+            (v_mappings->>'SECURITY_DEPOSIT_ACCOUNT')::uuid,
+            (SELECT id FROM public.accounts WHERE code = '226' AND organization_id = v_org_id LIMIT 1)
+        );
+    ELSE
+        v_final_credit_acc_id := p_credit_account_id;
+    END IF;
+
+    IF v_final_credit_acc_id IS NULL THEN RAISE EXCEPTION 'الحساب الدائن غير محدد لسند القبض.'; END IF;
+
+    -- إنشاء القيد المحاسبي
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id) 
+    VALUES (v_voucher.receipt_date, COALESCE(v_voucher.notes, 'سند قبض'), v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'receipt_voucher', true, auth.uid()) 
+    RETURNING id INTO v_journal_id;
+    
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_journal_id, v_voucher.treasury_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id);
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_journal_id, v_final_credit_acc_id, 0, v_voucher.amount, v_voucher.notes, v_org_id);
+    
+    UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
+    PERFORM public.recalculate_all_system_balances(v_org_id);
+END; $$;
+-- 🛠️ دالة اعتماد سند الصرف محاسبياً (Payment Voucher Approval)
+CREATE OR REPLACE FUNCTION public.approve_payment_voucher(p_voucher_id uuid, p_debit_account_id uuid) 
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_voucher record; v_journal_id uuid; v_org_id uuid;
+BEGIN
+    v_org_id := public.get_my_org();
+    SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود.'; END IF;
+
+    DELETE FROM public.journal_entries 
+    WHERE organization_id = v_org_id 
+    AND (related_document_id = p_voucher_id OR reference = v_voucher.voucher_number)
+    AND related_document_type = 'payment_voucher';
+
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id) 
+    VALUES (v_voucher.payment_date, COALESCE(v_voucher.notes, 'سند صرف'), v_voucher.voucher_number, 'posted', v_org_id, p_voucher_id, 'payment_voucher', true, auth.uid()) 
+    RETURNING id INTO v_journal_id;
+    
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_journal_id, p_debit_account_id, v_voucher.amount, 0, v_voucher.notes, v_org_id);
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_journal_id, v_voucher.treasury_account_id, 0, v_voucher.amount, v_voucher.notes, v_org_id);
+    
+    UPDATE public.payment_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
+    PERFORM public.recalculate_all_system_balances(v_org_id);
+END; $$;
+
+-- 🛠️ دالة ترحيل قيد يومية للشيكات (Cheque Journal Entry Engine)
+CREATE OR REPLACE FUNCTION public.post_cheque_journal_entry(p_cheque_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_cheque record; v_org_id uuid; v_journal_id uuid; v_bank_acc_id uuid;
+    v_customer_acc_id uuid; v_supplier_acc_id uuid; v_notes_pay_acc_id uuid; 
+    v_notes_rec_acc_id uuid; v_mappings jsonb; v_description text; v_ref text;
+    v_current_stage_type text;
+BEGIN
+    SELECT * INTO v_cheque FROM public.cheques WHERE id = p_cheque_id;  
+    IF NOT FOUND THEN RAISE EXCEPTION 'الشيك غير موجود.'; END IF;
+    
+    -- 🚀 تحديد نوع القيد بناءً على المرحلة لضمان عدم حذف المراحل السابقة
+    v_current_stage_type := CASE 
+        WHEN v_cheque.status IN ('issued', 'received') THEN (CASE WHEN v_cheque.type IN ('outgoing', 'out') THEN 'cheque_issuance' ELSE 'cheque_receipt' END)
+        WHEN v_cheque.status IN ('collected', 'cashed') THEN (CASE WHEN v_cheque.type IN ('incoming', 'in') THEN 'cheque_collection' ELSE 'cheque_payment' END)
+        WHEN v_cheque.status = 'bounced' THEN 'cheque_bounced'
+        ELSE 'cheque_other'
+    END;
+
+    -- نحذف فقط قيد المرحلة الحالية إذا كان موجوداً لإعادة توليده بدقة
+    DELETE FROM public.journal_entries 
+    WHERE organization_id = v_cheque.organization_id 
+    AND related_document_id = p_cheque_id 
+    AND related_document_type = v_current_stage_type;
+
+    v_org_id := v_cheque.organization_id;
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    -- تحديد الحسابات (دعم لكافة أنواع الربط المتاحة)
+    v_bank_acc_id := COALESCE(
+        v_cheque.current_account_id, 
+        (v_mappings->>'BANK_ACCOUNTS')::uuid, 
+        (v_mappings->>'BANK_MAIN')::uuid,
+        (SELECT id FROM public.accounts WHERE code LIKE '1232%' AND organization_id = v_org_id LIMIT 1)
+    );
+    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1));
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('201', '221') AND organization_id = v_org_id LIMIT 1));
+    v_notes_pay_acc_id := COALESCE((v_mappings->>'NOTES_PAYABLE')::uuid, (SELECT id FROM public.accounts WHERE code = '222' AND organization_id = v_org_id LIMIT 1));
+    v_notes_rec_acc_id := COALESCE((v_mappings->>'NOTES_RECEIVABLE')::uuid, (SELECT id FROM public.accounts WHERE code = '1222' AND organization_id = v_org_id LIMIT 1));
+
+    v_ref := 'CHQ-' || COALESCE(v_cheque.cheque_number, substring(p_cheque_id::text, 1, 8));
+
+    -- 1. 🟢 مرحلة الإصدار/الاستلام (أوراق القبض والدفع)
+    IF v_cheque.status IN ('issued', 'received') THEN
+        IF v_cheque.type IN ('outgoing', 'out') THEN
+            v_description := 'إصدار شيك صادر رقم ' || v_cheque.cheque_number || ' للمورد ' || v_cheque.party_name;
+            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+            VALUES (v_cheque.created_at::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_issuance', true, auth.uid()) RETURNING id INTO v_journal_id;
+            -- من ح/ المورد إلى ح/ أوراق الدفع
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES (v_journal_id, v_supplier_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_notes_pay_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        ELSE
+            v_description := 'استلام شيك وارد رقم ' || v_cheque.cheque_number || ' من العميل ' || v_cheque.party_name;
+            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+            VALUES (v_cheque.created_at::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_receipt', true, auth.uid()) RETURNING id INTO v_journal_id;
+            -- من ح/ أوراق القبض إلى ح/ العميل
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES (v_journal_id, v_notes_rec_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_customer_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        END IF;
+
+    -- 2. 🔵 مرحلة التحصيل/الصرف (إقفال الأوراق الوسيطة في البنك)
+    ELSIF v_cheque.type IN ('incoming', 'in') AND v_cheque.status = 'collected' THEN
+        IF v_bank_acc_id IS NULL THEN RAISE EXCEPTION 'حساب البنك غير معرف لهذه المنظمة.'; END IF;
+        v_description := 'تحصيل شيك وارد رقم ' || v_cheque.cheque_number;
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (now()::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_collection', true, auth.uid()) RETURNING id INTO v_journal_id;
+        -- من ح/ البنك إلى ح/ أوراق القبض
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (v_journal_id, v_bank_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_notes_rec_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+
+    ELSIF v_cheque.type IN ('outgoing', 'out') AND v_cheque.status = 'cashed' THEN
+        IF v_bank_acc_id IS NULL THEN RAISE EXCEPTION 'حساب البنك غير معرف لهذه المنظمة.'; END IF;
+        v_description := 'صرف شيك صادر رقم ' || v_cheque.cheque_number;
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (now()::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_payment', true, auth.uid()) RETURNING id INTO v_journal_id;
+        -- من ح/ أوراق الدفع إلى ح/ البنك
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (v_journal_id, v_notes_pay_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_bank_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+
+    -- 3. 🔴 مرحلة الارتداد (عكس القيود المفتوحة)
+    ELSIF v_cheque.status = 'bounced' THEN
+        v_description := 'ارتداد شيك رقم ' || v_cheque.cheque_number;
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (now()::date, v_description, 'REV-' || v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_bounced', true, auth.uid()) RETURNING id INTO v_journal_id;
+        IF v_cheque.type IN ('incoming', 'in') THEN
+            -- إعادة المديونية للعميل وإلغاء ورقة القبض
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_customer_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_notes_rec_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        ELSE
+            -- إعادة الدائنية للمورد وإلغاء ورقة الدفع
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_notes_pay_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_supplier_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        END IF;
+    END IF;
+
+    IF v_journal_id IS NOT NULL THEN UPDATE public.cheques SET related_journal_entry_id = v_journal_id WHERE id = p_cheque_id; END IF;
+    PERFORM public.recalculate_all_system_balances(v_org_id);
+END; $$;
 -- 🛠️ مشغل تلقائي لتعيين المستودع الافتراضي
 CREATE OR REPLACE FUNCTION public.fn_ensure_warehouse() RETURNS TRIGGER AS $$
 BEGIN
@@ -461,6 +697,56 @@ BEGIN
     END IF;
     RETURN NEW;
 END; $$ LANGUAGE plpgsql;
+
+-- 🛠️ مشغل ترحيل الشيكات التلقائي
+CREATE OR REPLACE FUNCTION public.trg_post_cheque_journal_entry() RETURNS TRIGGER AS $$
+BEGIN
+    -- 🚀 التحديث (V50.6): الترحيل عند الإنشاء (INSERT) أو عند تغيير الحالة (UPDATE)
+    IF (TG_OP = 'INSERT') OR (NEW.status IS DISTINCT FROM OLD.status) THEN
+        PERFORM public.post_cheque_journal_entry(NEW.id);
+    END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_cheque_posting ON public.cheques;
+CREATE TRIGGER trg_cheque_posting AFTER INSERT OR UPDATE OF status ON public.cheques FOR EACH ROW EXECUTE FUNCTION public.trg_post_cheque_journal_entry();
+
+-- 🛠️ دالة جلب تقرير الورديات الشهرية
+-- تظهر جميع الورديات التي فُتحت وأُغلقت خلال شهر محدد
+CREATE OR REPLACE FUNCTION public.get_monthly_shift_report(
+    p_org_id uuid DEFAULT NULL,
+    p_month integer DEFAULT NULL,
+    p_year integer DEFAULT NULL
+)
+RETURNS TABLE (
+    shift_id uuid,
+    user_full_name text,
+    start_time timestamptz,
+    end_time timestamptz,
+    opening_balance numeric,
+    actual_cash numeric,
+    difference numeric,
+    status text,
+    notes text
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_target_org_id uuid := COALESCE(p_org_id, public.get_my_org());
+    v_target_month integer := COALESCE(p_month, EXTRACT(MONTH FROM now()));
+    v_target_year integer := COALESCE(p_year, EXTRACT(YEAR FROM now()));
+BEGIN
+    RETURN QUERY
+    SELECT s.id, p.full_name, s.start_time, s.end_time, s.opening_balance, s.actual_cash, s.difference, s.status, s.notes
+    FROM public.shifts s
+    LEFT JOIN public.profiles p ON s.user_id = p.id
+    WHERE s.organization_id = v_target_org_id
+      AND EXTRACT(MONTH FROM s.start_time) = v_target_month
+      AND EXTRACT(YEAR FROM s.start_time) = v_target_year
+    ORDER BY s.start_time DESC;
+END; $$;
+
 -- ================================================================
 -- 5. مديول المبيعات والمشتريات الموحد (Unified Sales & Purchases)
 -- ================================================================
@@ -880,6 +1166,7 @@ GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid, uuid) TO authenticated, anon;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_monthly_shift_report(uuid, integer, integer) TO authenticated;
 
 -- 🚀 تنشيط ذاكرة المخطط فوراً لضمان ظهور الدوال في الـ API (حل مشكلة 404)
 NOTIFY pgrst, 'reload config';

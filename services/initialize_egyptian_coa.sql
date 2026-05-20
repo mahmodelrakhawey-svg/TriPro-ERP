@@ -205,14 +205,14 @@ BEGIN
         is_active = true;
 
     -- 4. تحديث روابط Parent_ID بشكل جماعي وذكي (بعد إدراج جميع الحسابات)
-    UPDATE public.accounts a
+    UPDATE public.accounts
     SET parent_id = p.id
     FROM coa_temp t
-    JOIN public.accounts p ON p.organization_id = a.organization_id AND p.code = t.parent_code
-    WHERE a.organization_id = p_org_id 
-      AND a.code = t.code 
+    JOIN public.accounts p ON p.organization_id = p_org_id AND p.code = t.parent_code
+    WHERE public.accounts.organization_id = p_org_id 
+      AND public.accounts.code = t.code 
       -- تحديث الرابط دائماً لضمان الصحة حتى لو كان مربوطاً خطأ
-      AND (a.parent_id IS NULL OR a.parent_id != p.id);
+      AND (public.accounts.parent_id IS NULL OR public.accounts.parent_id != p.id);
 
     -- 🛡️ إصلاح أمني: نستخدم المعرف الممرر فقط لتعيين المدير.
     -- نتجنب auth.uid() هنا لأن المستدعي غالباً هو السوبر أدمن ولا نريد تغيير بياناته.
@@ -308,8 +308,9 @@ BEGIN
             'BANK_MAIN', v_bank_main_id,
             'REVENUE_OTHER', v_rev_other_id,
             'EXPENSE_GENERAL', v_exp_gen_id,
-            'SECURITY_DEPOSIT_ACCOUNT', v_security_deposit_id,
-            'SALES_ALLOWANCES', v_sal_allow_id
+            'SALES_ALLOWANCES', v_sal_allow_id,
+            'SECURITY_DEPOSIT_ACCOUNT', v_security_deposit_id,        
+            'BANK_ACCOUNTS', v_bank_main_id -- ربط حساب البنك الرئيسي
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
 
