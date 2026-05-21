@@ -153,8 +153,8 @@ const DetailedStockMovementReport = () => {
       // 5. التصنيع (Manufacturing)
       // أ. المنتج التام (IN)
       let productionInQuery = supabase
-        .from('work_orders')
-        .select('id, order_number, end_date, quantity, product_id, warehouse_id, products(name), warehouses(name), notes')
+        .from('mfg_production_orders')
+        .select('id, order_number, end_date, quantity_to_produce, product_id, warehouse_id, products(name), warehouses(name), notes')
         .eq('organization_id', userOrgId)
         .eq('status', 'completed')
         .gte('end_date', startDate)
@@ -172,7 +172,7 @@ const DetailedStockMovementReport = () => {
           docType: 'تصنيع (منتج تام)',
           docNumber: item.order_number,
           productName: item.products?.name,
-          quantity: item.quantity,
+          quantity: item.quantity_to_produce,
           warehouseName: item.warehouses?.name,
           notes: item.notes
         });
@@ -180,8 +180,8 @@ const DetailedStockMovementReport = () => {
 
       // ب. المواد الخام (OUT)
       let productionOutQuery = supabase
-        .from('work_orders')
-        .select('id, order_number, end_date, quantity, product_id, warehouse_id, warehouses(name), notes')
+        .from('mfg_production_orders')
+        .select('id, order_number, end_date, quantity_to_produce, product_id, warehouse_id, warehouses(name), notes')
         .eq('organization_id', userOrgId)
         .eq('status', 'completed')
         .gte('end_date', startDate)
@@ -205,7 +205,7 @@ const DetailedStockMovementReport = () => {
                   productBoms.forEach((bom: any) => {
                       if (selectedProduct && bom.raw_material_id !== selectedProduct) return;
                       
-                      const consumedQty = wo.quantity * bom.quantity_required;
+                      const consumedQty = wo.quantity_to_produce * bom.quantity_required;
                       allMovements.push({
                           id: `MFG-OUT-${wo.id}-${bom.raw_material_id}`,
                           date: wo.end_date,

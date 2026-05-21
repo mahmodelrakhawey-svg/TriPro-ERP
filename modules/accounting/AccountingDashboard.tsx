@@ -15,7 +15,8 @@ import {
   PieChart as PieChartIcon,
   Percent,
   RefreshCw,
-  Trash2
+  Trash2,
+  Calendar
 } from 'lucide-react';
 import { 
   XAxis, 
@@ -108,6 +109,7 @@ export default function AccountingDashboard() {
   const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   useEffect(() => {
     const load = async () => {
@@ -119,9 +121,21 @@ export default function AccountingDashboard() {
   }, []);
 
   const { metrics, monthlyData, expenseData, revenueData, weeklyCashData, recentEntries } = useMemo(() => {
-      const currentYear = new Date().getFullYear();
-      const startDate = `${currentYear}-01-01`;
-      const endDate = `${currentYear}-12-31`;
+      // Debugging: Check if data is loaded
+      console.log('useMemo running for selectedYear:', selectedYear);
+      console.log('Entries length:', entries.length);
+      console.log('Accounts length:', accounts.length);
+
+      // Return default empty data if accounts or entries are not yet loaded
+      if (!accounts || accounts.length === 0 || !entries) { // entries can be empty, but not null/undefined
+          return {
+              metrics: { totalRevenue: 0, totalExpenses: 0, netProfit: 0, cashBalance: 0, profitMargin: 0, totalTax: 0 },
+              monthlyData: [], expenseData: [], revenueData: [], weeklyCashData: [], recentEntries: []
+          };
+      }
+
+      const startDate = `${selectedYear}-01-01`;
+      const endDate = `${selectedYear}-12-31`;
 
       let revenue = 0;
       let expenses = 0;
@@ -134,24 +148,34 @@ export default function AccountingDashboard() {
       monthsOrder.forEach(m => monthlyStats[m] = { revenue: 0, expense: 0 });
 
       const yearEntries = entries.filter(e => 
-          e.status === 'posted' && 
-          e.date >= startDate && 
-          e.date <= endDate
+          e.status === 'posted' &&
+          String(e.transaction_date || e.date || e.created_at || '').startsWith(String(selectedYear))
       );
+      // Debugging: Check filtered entries
+      // console.log('Filtered yearEntries for', selectedYear, ':', yearEntries);
 
       yearEntries.forEach(entry => {
-          const date = new Date(entry.date);
+          const dateValue = entry.transaction_date || entry.date;
+          // Debugging: Check date value
+          // console.log(`Processing entry ${entry.id}: dateValue=${dateValue}`);
+          if (!dateValue) return;
+          const date = new Date(dateValue);
+          if (isNaN(date.getTime())) return;
+
           const monthKey = date.toLocaleString('en-US', { month: 'short' });
 
-          (entry.lines || []).forEach(line => {
-              const account = accounts.find(a => a.id === line.accountId);
+          (entry.journal_lines || []).forEach(line => {
+              const account = accounts.find(a => a.id === line.account_id);
               if (!account) return;
+              // Debugging: Check account details
+              console.log(`  Processing line for account ${account.name} (ID: ${account.id}, Type: ${account.type}, Code: ${account.code})`);
 
-              const type = String(account.type).toLowerCase();
+              const type = String(account.type || '').toLowerCase();
+              const code = String(account.code || ''); // Ensure code is always a string
               const debit = Number(line.debit || 0);
               const credit = Number(line.credit || 0);
 
-              if (type.includes('revenue') || type.includes('إيراد') || type.includes('income') || account.code.startsWith('4')) {
+              if (type.includes('revenue') || type.includes('إيراد') || type.includes('income') || code.startsWith('4')) {
                   const amount = credit - debit; 
                   revenue += amount;
                   if (monthlyStats[monthKey]) monthlyStats[monthKey].revenue += amount;
@@ -159,8 +183,9 @@ export default function AccountingDashboard() {
                   if (amount !== 0) {
                       revenueMap[account.name] = (revenueMap[account.name] || 0) + amount;
                   }
+                  // console.log(`    -> Revenue detected: ${account.name}, Amount: ${amount}`);
               } 
-              else if (type.includes('expense') || type.includes('مصروف') || type.includes('cost') || account.code.startsWith('5')) {
+              else if (type.includes('expense') || type.includes('مصروف') || type.includes('cost') || code.startsWith('5')) {
                   const amount = debit - credit;
                   expenses += amount;
                   if (monthlyStats[monthKey]) monthlyStats[monthKey].expense += amount;
@@ -169,9 +194,10 @@ export default function AccountingDashboard() {
                   if (amount > 0) {
                       expenseMap[accName] = (expenseMap[accName] || 0) + amount;
                   }
+                  // console.log(`    -> Expense detected: ${account.name}, Amount: ${amount}`);
               }
               // تتبع الضرائب (حسابات تبدأ بـ 223 أو تحتوي على كلمة ضريبة)
-              if (account.code.startsWith('223') || account.name.includes('ضريبة') || account.name.toLowerCase().includes('tax')) {
+              if (code.startsWith('223') || String(account.name || '').includes('ضريبة') || String(account.name || '').toLowerCase().includes('tax')) {
                   totalTax += (credit - debit);
               }
           });
@@ -181,12 +207,12 @@ export default function AccountingDashboard() {
           .filter(a => !a.isGroup && (
               // التأكد من أن الحساب أصل (يبدأ بـ 1) لاستبعاد حسابات المصروفات مثل "عجز الصندوق"
               (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
-              (a.code.startsWith('123') || 
-              a.code.startsWith('1101') || 
-              a.name.includes('صندوق') || 
-              a.name.includes('خزينة') || 
-              a.name.includes('بنك') ||
-              a.name.includes('نقد'))
+              (String(a.code || '').startsWith('123') ||
+              String(a.code || '').startsWith('1101') ||
+              String(a.name || '').includes('صندوق') ||
+              String(a.name || '').includes('خزينة') ||
+              String(a.name || '').includes('بنك') ||
+              String(a.name || '').includes('نقد'))
           ))
           .reduce((sum, a) => sum + (a.balance || 0), 0);
 
@@ -212,30 +238,30 @@ export default function AccountingDashboard() {
       const cashAccountIds = accounts
           .filter(a => !a.isGroup && (
               (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
-              (a.code.startsWith('123') || 
-              a.code.startsWith('1101') || 
-              a.name.includes('صندوق') || 
-              a.name.includes('خزينة') || 
-              a.name.includes('بنك') ||
-              a.name.includes('نقد'))
+              (String(a.code || '').startsWith('123') ||
+              String(a.code || '').startsWith('1101') ||
+              String(a.name || '').includes('صندوق') ||
+              String(a.name || '').includes('خزينة') ||
+              String(a.name || '').includes('بنك') ||
+              String(a.name || '').includes('نقد'))
           ))
           .map(a => a.id);
 
       const allCashTransactions = entries.flatMap(entry => 
-          (entry.lines || [])
-              .filter(line => cashAccountIds.includes(line.accountId))
+          (entry.journal_lines || [])
+              .filter(line => cashAccountIds.includes(line.account_id))
               .map(line => ({
-                  date: new Date(entry.date),
+                  date: new Date(entry.transaction_date || entry.date || ''),
                   amount: (line.debit || 0) - (line.credit || 0)
               }))
-      );
+      ).filter(t => !isNaN(t.date.getTime()));
 
       const openingCashBalanceForYear = allCashTransactions
           .filter(t => t.date < new Date(startDate))
           .reduce((sum, t) => sum + t.amount, 0);
 
       const getWeekOfYear = (date: Date) => {
-          const start = new Date(date.getFullYear(), 0, 1);
+          const start = new Date(date.getUTCFullYear(), 0, 1);
           const diff = (date.getTime() - start.getTime() + ((start.getTimezoneOffset() - date.getTimezoneOffset()) * 60 * 1000));
           const oneDay = 1000 * 60 * 60 * 24;
           const day = Math.floor(diff / oneDay);
@@ -259,7 +285,7 @@ export default function AccountingDashboard() {
 
       const recent = entries.slice(0, 5).map(e => ({
           id: e.id,
-          transaction_date: e.date,
+          transaction_date: e.transaction_date || e.date || e.created_at,
           reference: e.reference,
           description: e.description,
           status: e.status
@@ -281,7 +307,7 @@ export default function AccountingDashboard() {
           recentEntries: recent
       };
 
-  }, [accounts, entries]);
+  }, [accounts, entries, selectedYear]);
 
   if (loading && entries.length === 0) {
     return <div className="flex justify-center items-center h-96"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
@@ -510,9 +536,19 @@ export default function AccountingDashboard() {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">لوحة التحكم المحاسبية</h1>
-          <p className="text-slate-500">نظرة عامة على الأداء المالي للسنة الحالية</p>
+          <p className="text-slate-500">نظرة عامة على الأداء المالي لسنة {selectedYear}</p>
         </div>
         <div className="flex gap-2">
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1 shadow-sm">
+                <Calendar size={16} className="text-slate-400" />
+                <select 
+                    value={selectedYear} 
+                    onChange={(e) => setSelectedYear(Number(e.target.value))}
+                    className="bg-transparent border-none text-sm font-bold focus:ring-0 outline-none cursor-pointer text-blue-600"
+                >
+                    {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+            </div>
             {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'demo') && (
                 <>
                     <button 
@@ -661,7 +697,7 @@ export default function AccountingDashboard() {
                     <p className="text-sm font-bold text-slate-800 truncate">{entry.description || 'قيد بدون وصف'}</p>
                     <div className="flex justify-between items-center mt-1">
                       <span className="text-xs text-slate-500 font-mono">{entry.reference}</span>
-                      <span className="text-xs text-slate-400">{new Date(entry.transaction_date).toLocaleDateString()}</span>
+                      <span className="text-xs text-slate-400">{entry.transaction_date && !isNaN(new Date(entry.transaction_date).getTime()) ? new Date(entry.transaction_date).toLocaleDateString('ar-EG') : '---'}</span>
                     </div>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-﻿﻿import { useMemo } from 'react';
+﻿﻿﻿﻿import { useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Link } from 'react-router-dom';
 import { 
@@ -28,23 +28,23 @@ const ImportantReports = () => {
 
     (entries || []).forEach(entry => {
       if (entry.status !== 'posted') return;
-      entry.lines?.forEach(line => {
-        const acc = (accounts || []).find(a => a.id === line.accountId);
+      (entry.journal_lines || []).forEach(line => {
+        const acc = (accounts || []).find(a => a.id === line.account_id);
         if (!acc) return;
         
-        // حساب مبيعات الجملة (411)
-        if (acc.code === '411') {
-          wholesaleSales += (line.credit - line.debit);
-        } 
-        // حسابات مبيعات المطعم (4111 صالة و 4112 توصيل)
-        else if (acc.code.startsWith('4111') || acc.code.startsWith('4112')) {
+        // حسابات مبيعات المطعم (4111 و 4112)
+        if (acc.code?.startsWith('4111') || acc.code?.startsWith('4112')) {
           restaurantSales += (line.credit - line.debit);
+        }
+        // مبيعات الجملة (باقي حسابات الـ 411)
+        else if (acc.code?.startsWith('411')) {
+          wholesaleSales += (line.credit - line.debit);
         }
       });
     });
 
     const totalSales = wholesaleSales + restaurantSales;
-    const totalPurchases = (purchaseInvoices || []).reduce((sum, inv) => sum + inv.totalAmount, 0);
+    const totalPurchases = (purchaseInvoices || []).reduce((sum, inv) => sum + (Number(inv.total_amount) || 0), 0);
     
     // Calculate Inventory Value
     const inventoryValue = (products || []).reduce((sum, p) => sum + ((p.stock || 0) * (p.purchase_price || 0)), 0);
@@ -59,10 +59,10 @@ const ImportantReports = () => {
         let monthRestaurant = 0;
 
         (entries || []).forEach(entry => {
-            const entryDate = new Date(entry.transaction_date || entry.date);
+            const entryDate = new Date(entry.transaction_date || entry.date || entry.created_at);
             if (entry.status === 'posted' && entryDate.getFullYear() === d.getFullYear() && entryDate.getMonth() === d.getMonth()) {
-                entry.lines?.forEach(line => {
-                    const acc = (accounts || []).find(a => a.id === line.accountId);
+                (entry.journal_lines || []).forEach(line => {
+                    const acc = (accounts || []).find(a => a.id === line.account_id);
                     if (acc) {
                         if (acc.code === '411') monthWholesale += (line.credit - line.debit);
                         else if (acc.code.startsWith('4111') || acc.code.startsWith('4112')) monthRestaurant += (line.credit - line.debit);
@@ -73,10 +73,10 @@ const ImportantReports = () => {
 
         const monthPurchases = (purchaseInvoices || [])
             .filter(inv => {
-                const invDate = new Date(inv.date);
+                const invDate = new Date(inv.invoice_date || inv.date);
                 return invDate.getFullYear() === d.getFullYear() && invDate.getMonth() === d.getMonth();
             })
-            .reduce((sum, inv) => sum + inv.totalAmount, 0);
+            .reduce((sum, inv) => sum + (inv.total_amount || 0), 0);
 
         monthlyTrends.push({ 
             name: monthName, 
@@ -89,8 +89,8 @@ const ImportantReports = () => {
     // 3. Top Customers (by Sales Volume)
     const customerSales: Record<string, number> = {};
     (invoices || []).forEach(inv => {
-        const cName = (customers || []).find(c => c.id === inv.customerId)?.name || 'Unknown';
-        customerSales[cName] = (customerSales[cName] || 0) + inv.totalAmount;
+        const cName = (customers || []).find(c => c.id === inv.customer_id)?.name || 'عميل نقدي';
+        customerSales[cName] = (customerSales[cName] || 0) + (inv.total_amount || 0);
     });
     const topCustomers = Object.entries(customerSales)
         .map(([name, value]) => ({ name, value }))

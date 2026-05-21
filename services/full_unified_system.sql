@@ -10,7 +10,7 @@
 DO $$ 
 DECLARE 
     t text;
-    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments'];
+    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments', 'payrolls', 'payroll_items'];
 BEGIN
     -- ضمان وجود عمود organization_id في كافة الجداول الأساسية
     FOREACH t IN ARRAY tables_to_heal LOOP
@@ -52,6 +52,11 @@ BEGIN
         ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS voucher_type text DEFAULT 'standard';
         ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL;
     END IF;
+
+    -- 🛡️ ترميم جدول الرواتب (Payroll Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payrolls' AND table_schema = 'public') THEN
+        ALTER TABLE public.payrolls ADD COLUMN IF NOT EXISTS payment_date date;
+    END IF;
 END $$;
 
 -- ================================================================
@@ -85,15 +90,21 @@ END; $$;
 -- ================================================================
 -- 3. محرك المخزون الشامل (The Master Stock Engine)
 -- ================================================================
--- تم تحسين الأداء وإضافة قيود عدم الفراغ لضمان استقرار عمليات التجميع (V50.1)
-CREATE OR REPLACE FUNCTION public.recalculate_stock_rpc(p_org_id uuid DEFAULT NULL)
+-- 🛡️ تحديث V50.5: ضمان تصفير الأصناف التي ليس لها حركات عند إعادة الاحتساب الجزئي
+-- 🛡️ تحديث V50.4: إضافة p_product_id لدعم إعادة الاحتساب لصنف محدد وحل خطأ 404
+DROP FUNCTION IF EXISTS public.recalculate_stock_rpc(uuid);
+DROP FUNCTION IF EXISTS public.recalculate_stock_rpc(uuid, uuid);
+
+CREATE OR REPLACE FUNCTION public.recalculate_stock_rpc(p_org_id uuid DEFAULT NULL, p_product_id uuid DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_final_org uuid;
 BEGIN
     v_final_org := COALESCE(p_org_id, public.get_my_org());
     
-    -- 🚀 تحويل المنطق إلى استعلام مجموعة (Set-based) بدلاً من الحلقات (Row-by-row) لمنع الـ Timeout
+    -- 🚀 استخدام جدول مؤقت لحل مشكلة نطاق الـ CTE وضمان الدقة في عمليتي التحديث (V50.6)
+    DROP TABLE IF EXISTS product_summary_temp;
+    CREATE TEMP TABLE product_summary_temp AS
     WITH warehouse_movement AS (
         -- تجميع كافة حركات الداخل والخارج في استعلام واحد
         SELECT 
@@ -169,23 +180,30 @@ BEGIN
             )
         ) movements
         WHERE product_id IS NOT NULL AND warehouse_id IS NOT NULL
+        AND (p_product_id IS NULL OR product_id = p_product_id)
         GROUP BY product_id, warehouse_id
-    ),
-    product_summary AS (
-        SELECT 
-            product_id, 
-            SUM(net_qty) as total_stock,
-            jsonb_object_agg(warehouse_id::text, net_qty) as wh_json
-        FROM warehouse_movement
-        GROUP BY product_id
     )
+    SELECT 
+        product_id, 
+        SUM(net_qty) as total_stock,
+        jsonb_object_agg(warehouse_id::text, net_qty) as wh_json
+    FROM warehouse_movement
+    GROUP BY product_id;
+
+    -- 🛡️ 1. تحديث الأصناف التي لها حركات فعلاً
     UPDATE public.products p
     SET 
         stock = COALESCE(s.total_stock, 0),
         warehouse_stock = COALESCE(s.wh_json, '{}'::jsonb)
-    FROM product_summary s
-    WHERE p.id = s.product_id 
-      AND (v_final_org IS NULL OR p.organization_id = v_final_org);
+    FROM product_summary_temp s
+    WHERE p.id = s.product_id;
+
+    -- 🛡️ 2. تصفير الأصناف التي لا تمتلك حركات (لضمان مطابقة الواقع)
+    UPDATE public.products p
+    SET stock = 0, warehouse_stock = '{}'::jsonb
+    WHERE (v_final_org IS NULL OR p.organization_id = v_final_org)
+      AND (p_product_id IS NULL OR p.id = p_product_id)
+      AND NOT EXISTS (SELECT 1 FROM product_summary_temp s WHERE s.product_id = p.id);
       
         -- 🔔 نظام التنبيهات اللحظي (Real-time Alerts)
     INSERT INTO public.notifications (user_id, title, message, priority, organization_id, type)
@@ -446,30 +464,29 @@ BEGIN
     v_org_id := COALESCE(p_org_id, v_shift.organization_id, public.get_my_org());
     DELETE FROM public.journal_entries WHERE related_document_id = p_shift_id AND related_document_type = 'shift';
 
-    -- تجميع مبيعات وتكاليف الوردية
-    SELECT 
-        COALESCE(SUM(o.subtotal), 0) as subtotal, 
-        COALESCE(SUM(o.total_tax), 0) as tax,
-        COALESCE((
-            SELECT SUM(p.amount) FROM public.payments p
-            JOIN public.orders o2 ON p.order_id = o2.id
-            WHERE o2.organization_id = v_org_id 
-              AND o2.created_at BETWEEN v_shift.start_time - interval '1 second' AND COALESCE(v_shift.end_time, now()) + interval '1 second'
-              AND UPPER(p.payment_method) = 'CASH'
-              AND p.status = 'COMPLETED'
-        ), 0) as cash_total,
-        COALESCE((
-            SELECT SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) FROM public.order_items oi
-            JOIN public.orders o3 ON oi.order_id = o3.id
-            WHERE o3.organization_id = v_org_id 
-              AND o3.created_at BETWEEN v_shift.start_time - interval '1 second' AND COALESCE(v_shift.end_time, now()) + interval '1 second'
-              AND o3.status IN ('PAID', 'COMPLETED', 'posted')
-        ), 0) as cost_total
-    INTO v_summary
+    -- 🚀 استخدام جدول مؤقت لتجنب مشاكل النطاق وتحسين الأداء (V50.7)
+    DROP TABLE IF EXISTS temp_shift_orders;
+    CREATE TEMP TABLE temp_shift_orders AS
+    SELECT o.id, o.subtotal, o.total_tax, o.grand_total, o.user_id
     FROM public.orders o 
     WHERE o.organization_id = v_org_id 
     AND o.created_at BETWEEN v_shift.start_time - interval '1 second' AND COALESCE(v_shift.end_time, now()) + interval '1 second'
-    AND o.status IN ('PAID', 'COMPLETED', 'posted'); -- 🛡️ تشمل الطلبات المرحلة لضمان Idempotency
+    AND o.status IN ('PAID', 'COMPLETED', 'posted');
+
+    SELECT 
+        COALESCE(SUM(subtotal), 0) as subtotal, 
+        COALESCE(SUM(total_tax), 0) as tax,
+        COALESCE((
+            SELECT SUM(p.amount) FROM public.payments p
+            WHERE p.order_id IN (SELECT id FROM temp_shift_orders)
+              AND UPPER(p.payment_method) = 'CASH' AND p.status = 'COMPLETED'
+        ), 0) as cash_total,
+        COALESCE((
+            SELECT SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) FROM public.order_items oi
+            WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
+        ), 0) as cost_total
+    INTO v_summary
+    FROM temp_shift_orders;
 
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
@@ -495,10 +512,19 @@ BEGIN
 
     -- 3. التكاليف والمخزون
     IF v_summary.cost_total > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_je_id, v_cogs_acc_id, v_summary.cost_total, 0, 'تكلفة مبيعات الوردية', v_org_id);
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_je_id, v_inventory_acc_id, 0, v_summary.cost_total, 'صرف مخزون الوردية', v_org_id);
+        -- 🚀 محرك التكلفة الذكي (V50.7): توجيه التكلفة لكل نوع مخزون بشكل صحيح
+        FOR v_item_cost_record IN (
+            SELECT p.inventory_account_id, SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) as total_cost
+            FROM public.order_items oi
+            JOIN public.products p ON oi.product_id = p.id
+            WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
+            GROUP BY p.inventory_account_id
+        ) LOOP
+            IF v_item_cost_record.total_cost > 0 THEN
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cogs_acc_id, v_item_cost_record.total_cost, 0, 'تكلفة مبيعات الوردية', v_org_id);
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, COALESCE(v_item_cost_record.inventory_account_id, v_inventory_acc_id), 0, v_item_cost_record.total_cost, 'صرف مخزون الوردية', v_org_id);
+            END IF;
+        END LOOP;
     END IF;
 
     -- 4. معالجة العجز (مدين)
@@ -508,6 +534,7 @@ BEGIN
     END IF;
 
     PERFORM public.fix_unbalanced_journal_entry(v_je_id);
+    DROP TABLE IF EXISTS temp_shift_orders;
     RETURN v_je_id;
 END; $$;
 
@@ -987,16 +1014,27 @@ CREATE OR REPLACE FUNCTION public.mfg_finalize_order(
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
-    v_order record; v_total_cost numeric := 0; v_je_id uuid; v_wip_acc uuid;
+    v_order record; v_accumulated_wip numeric := 0; v_je_id uuid; v_wip_acc uuid;
     v_fg_acc uuid; v_loss_acc uuid; v_org_id uuid; v_mappings jsonb;
-    v_old_stock numeric; v_new_wac numeric;
+    v_old_stock numeric; v_new_wac numeric; v_total_cost numeric := 0;
 BEGIN
     SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
-
     IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
     
     v_org_id := COALESCE(v_order.organization_id, public.get_my_org());
     IF v_order.status = 'completed' THEN RETURN; END IF;
+
+    -- 🛡️ نظام "تصفير WIP": نحسب إجمالي ما تم تحميله فعلياً على هذا الأمر في سجلات القيود لضمان الإغلاق التام
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_accumulated_wip
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.related_document_id IN (
+        SELECT id FROM public.mfg_order_progress WHERE production_order_id = p_order_id 
+        UNION 
+        SELECT id FROM public.mfg_material_requests WHERE production_order_id = p_order_id
+    )
+    AND a.code = '10303' AND je.organization_id = v_org_id;
 
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار
     DELETE FROM public.journal_entries WHERE related_document_id = p_order_id AND related_document_type = 'mfg_order' AND organization_id = v_org_id;
@@ -1063,13 +1101,125 @@ BEGIN
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
         VALUES (now()::date, (CASE WHEN p_final_status = 'completed' THEN 'إغلاق إنتاج: ' ELSE 'خسارة رفض إنتاج: ' END) || v_order.order_number, 'MFG-FIN-' || v_order.order_number, 'posted', v_org_id, true, p_order_id, 'mfg_order') RETURNING id INTO v_je_id;
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, CASE WHEN p_final_status = 'completed' THEN v_fg_acc ELSE v_loss_acc END, v_total_cost, 0, COALESCE('إثبات المنتج التام المصنع: ' || v_order.order_number, 'إغلاق إنتاج'), v_org_id);
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_wip_acc, 0, v_total_cost, COALESCE('إقفال تكاليف الإنتاج تحت التشغيل: ' || v_order.order_number, 'تفريغ WIP'), v_org_id);
+        -- 🚀 استخدام v_accumulated_wip بدلاً من التقديري لضمان تصفير الحساب تماماً
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_wip_acc, 0, v_accumulated_wip, COALESCE('إقفال تكاليف الإنتاج تحت التشغيل: ' || v_order.order_number, 'تفريغ WIP'), v_org_id);
     END IF;
 
     -- 5. العمليات التكميلية
     PERFORM public.mfg_update_selling_price_from_cost(p_order_id);
     PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
+
+-- ================================================================
+-- 6. مديول الموارد البشرية والرواتب (HR & Payroll Module)
+-- ================================================================
+
+-- 🛠️ دالة تشغيل مسير الرواتب (Payroll Engine) - النسخة الموحدة والمصححة
+CREATE OR REPLACE FUNCTION public.run_payroll_rpc(
+    p_month integer, 
+    p_year integer, 
+    p_date date, 
+    p_treasury_acc uuid, 
+    p_items jsonb, 
+    p_org_id uuid DEFAULT NULL
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid; v_payroll_id uuid; v_total_gross numeric := 0; 
+    v_total_additions numeric := 0; v_total_deductions numeric := 0; 
+    v_total_advances numeric := 0; v_total_net numeric := 0; 
+    v_item jsonb; v_je_id uuid; v_mappings jsonb; v_payroll_item_id uuid;
+    v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
+    v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
+    v_fixed_allowances numeric := 0; v_monthly_additions numeric := 0; v_monthly_deductions numeric := 0; v_emp_net numeric := 0;
+BEGIN
+    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة للمسير.'; END IF;
+
+    -- 🛡️ منع تكرار الصرف لنفس الفترة
+    IF EXISTS (SELECT 1 FROM public.payrolls WHERE payroll_month = p_month AND payroll_year = p_year AND organization_id = v_org_id AND status = 'paid') THEN
+        RAISE EXCEPTION 'تم اعتماد وصرف مسير الرواتب لهذا الشهر مسبقاً.';
+    END IF;
+
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+
+    -- جلب الحسابات (مع Fallback للأكواد القياسية المصرية)
+    v_salaries_acc_id := COALESCE((v_mappings->>'SALARIES_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '531' AND organization_id = v_org_id LIMIT 1));
+    v_bonuses_acc_id := COALESCE((v_mappings->>'EMPLOYEE_BONUSES')::uuid, (SELECT id FROM public.accounts WHERE code = '5312' AND organization_id = v_org_id LIMIT 1));
+    v_deductions_acc_id := COALESCE((v_mappings->>'EMPLOYEE_DEDUCTIONS')::uuid, (SELECT id FROM public.accounts WHERE code = '422' AND organization_id = v_org_id LIMIT 1));
+    v_advances_acc_id := COALESCE((v_mappings->>'EMPLOYEE_ADVANCES')::uuid, (SELECT id FROM public.accounts WHERE code = '1223' AND organization_id = v_org_id LIMIT 1));
+    v_payroll_tax_id := COALESCE((v_mappings->>'PAYROLL_TAX')::uuid, (SELECT id FROM public.accounts WHERE code = '2233' AND organization_id = v_org_id LIMIT 1));
+
+    IF v_salaries_acc_id IS NULL OR v_advances_acc_id IS NULL THEN 
+        RAISE EXCEPTION 'إعدادات الحسابات المالية للرواتب مفقودة (531 أو 1223).';
+    END IF;
+
+    -- 🛡️ المرحلة 1: حساب الإجماليات والتحقق من النزاهة
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        v_fixed_allowances := COALESCE((SELECT SUM(amount) FROM public.employee_allowances WHERE employee_id = (v_item->>'employee_id')::uuid AND organization_id = v_org_id), 0);
+        v_monthly_additions := COALESCE((SELECT SUM(amount) FROM public.payroll_variables WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year AND type = 'addition' AND is_processed = false AND organization_id = v_org_id), 0);
+        v_monthly_deductions := COALESCE((SELECT SUM(amount) FROM public.payroll_variables WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year AND type = 'deduction' AND is_processed = false AND organization_id = v_org_id), 0);
+
+        -- 🚀 إصلاح Typo وحماية الـ NULL: حساب الصافي الحقيقي
+        v_emp_net := COALESCE((v_item->>'gross_salary')::numeric, 0) + v_fixed_allowances + COALESCE((v_item->>'additions')::numeric, 0) + v_monthly_additions
+                     - (COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions)
+                     - COALESCE((v_item->>'advances_deducted')::numeric, 0) - COALESCE((v_item->>'payroll_tax')::numeric, 0);
+
+        v_total_gross := v_total_gross + COALESCE((v_item->>'gross_salary')::numeric, 0) + v_fixed_allowances;
+        v_total_additions := v_total_additions + COALESCE((v_item->>'additions')::numeric, 0) + v_monthly_additions;
+        v_total_deductions := v_total_deductions + COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions;
+        v_total_advances := v_total_advances + COALESCE((v_item->>'advances_deducted')::numeric, 0);
+        v_total_payroll_tax := v_total_payroll_tax + COALESCE((v_item->>'payroll_tax')::numeric, 0);
+        v_total_net := v_total_net + v_emp_net;
+    END LOOP;
+
+    -- 🛡️ المرحلة 2: تسجيل المسير والبنود
+    INSERT INTO public.payrolls (payroll_month, payroll_year, payment_date, total_gross_salary, total_additions, total_deductions, total_net_salary, status, organization_id)
+    VALUES (p_month, p_year, p_date, v_total_gross, v_total_additions, (v_total_deductions + v_total_advances + v_total_payroll_tax), v_total_net, 'paid', v_org_id) RETURNING id INTO v_payroll_id;
+
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        -- 🚀 إعادة حساب الصافي لكل موظف لضمان دقة سجل البنود (Net Salary Fix)
+        v_fixed_allowances := COALESCE((SELECT SUM(amount) FROM public.employee_allowances WHERE employee_id = (v_item->>'employee_id')::uuid AND organization_id = v_org_id), 0);
+        v_monthly_additions := COALESCE((SELECT SUM(amount) FROM public.payroll_variables WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year AND type = 'addition' AND is_processed = false AND organization_id = v_org_id), 0);
+        v_monthly_deductions := COALESCE((SELECT SUM(amount) FROM public.payroll_variables WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year AND type = 'deduction' AND is_processed = false AND organization_id = v_org_id), 0);
+
+        v_emp_net := COALESCE((v_item->>'gross_salary')::numeric, 0) + v_fixed_allowances + COALESCE((v_item->>'additions')::numeric, 0) + v_monthly_additions
+                     - (COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions)
+                     - COALESCE((v_item->>'advances_deducted')::numeric, 0) - COALESCE((v_item->>'payroll_tax')::numeric, 0);
+
+        INSERT INTO public.payroll_items (payroll_id, employee_id, gross_salary, additions, payroll_tax, advances_deducted, other_deductions, net_salary, organization_id)
+        VALUES (v_payroll_id, (v_item->>'employee_id')::uuid, 
+                COALESCE((v_item->>'gross_salary')::numeric, 0) + v_fixed_allowances, 
+                COALESCE((v_item->>'additions')::numeric, 0) + v_monthly_additions, 
+                COALESCE((v_item->>'payroll_tax')::numeric, 0), 
+                COALESCE((v_item->>'advances_deducted')::numeric, 0), 
+                COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions, 
+                v_emp_net, v_org_id)
+        RETURNING id INTO v_payroll_item_id;
+
+        UPDATE public.payroll_variables SET is_processed = true WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year AND organization_id = v_org_id;
+        IF (v_item->>'advances_deducted')::numeric > 0 THEN
+            UPDATE public.employee_advances SET status = 'deducted', payroll_item_id = v_payroll_item_id WHERE employee_id = (v_item->>'employee_id')::uuid AND status = 'paid' AND organization_id = v_org_id;
+        END IF;
+    END LOOP;
+
+    -- 🛡️ المرحلة 3: الترحيل المحاسبي المتوازن
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type, user_id) 
+    VALUES (p_date, 'مسير رواتب ' || p_month || '/' || p_year, 'PAYROLL-' || p_month || '-' || p_year, 'posted', v_org_id, true, v_payroll_id, 'payroll', auth.uid()) RETURNING id INTO v_je_id;
+
+    IF (v_total_additions > 0 AND v_bonuses_acc_id IS NULL) OR (v_total_deductions > 0 AND v_deductions_acc_id IS NULL) OR (v_total_payroll_tax > 0 AND v_payroll_tax_id IS NULL) THEN
+        RAISE EXCEPTION 'فشل ترحيل القيد: حسابات المكافآت أو الخصومات أو الضرائب غير معرّفة رغم وجود مبالغ مستحقة.';
+    END IF;
+
+    IF v_total_gross > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); END IF;
+    IF v_total_additions > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF;
+    IF v_total_advances > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_advances_acc_id, 0, v_total_advances, 'استرداد سلف', v_org_id); END IF;
+    IF v_total_deductions > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
+    IF v_total_payroll_tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_payroll_tax_id, 0, v_total_payroll_tax, 'ضريبة كسب العمل', v_org_id); END IF;
+    IF ABS(COALESCE(v_total_net, 0)) > 0.001 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_acc, 0, v_total_net, 'صرف صافي الرواتب', v_org_id); END IF;
+
+    PERFORM public.fix_unbalanced_journal_entry(v_je_id);
+END; $$;
+
 -- ================================================================
 -- 6. سياسات الأمان والعزل (RLS Policies)
 -- ================================================================
@@ -1160,13 +1310,276 @@ END $$;
 -- ================================================================
 -- 🔓 منح الصلاحيات النهائية (Final Grants)
 -- ================================================================
+-- 📊 دالة جلب إحصائيات لوحة التحكم (Dashboard Stats RPC)
+CREATE OR REPLACE FUNCTION public.get_dashboard_stats(p_org_id uuid DEFAULT NULL)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_target_org_id uuid;
+    v_current_month_start date := date_trunc('month', now())::date;
+    v_current_month_end date := (date_trunc('month', now()) + interval '1 month - 1 day')::date;
+    v_prev_month_start date := (date_trunc('month', now()) - interval '1 month')::date;
+    v_prev_month_end date := (date_trunc('month', now()) - interval '1 day')::date;
+    
+    v_month_sales numeric := 0;
+    v_prev_month_sales numeric := 0;
+    v_month_purchases numeric := 0;
+    v_prev_month_purchases numeric := 0;
+    v_month_cogs numeric := 0;
+    v_month_expenses numeric := 0;
+    v_receivables numeric := 0;
+    v_payables numeric := 0;
+    v_total_receipts numeric := 0;
+    v_total_payments numeric := 0;
+    v_low_stock_count bigint := 0;
+    v_sales_target numeric := 0;
+    
+    v_chart_data jsonb := '[]'::jsonb;
+    v_recent_invoices jsonb := '[]'::jsonb;
+    v_recent_journals jsonb := '[]'::jsonb;
+    v_top_customers jsonb := '[]'::jsonb;
+    v_top_products jsonb := '[]'::jsonb;
+    v_top_customers_pie_data jsonb := '[]'::jsonb;
+    v_low_stock_items jsonb := '[]'::jsonb;
+    v_mappings jsonb;
+    v_sales_acc_id uuid;
+    v_cogs_acc_id uuid;
+    v_expense_acc_ids uuid[];
+    v_customer_acc_id uuid;
+    v_supplier_acc_id uuid;
+BEGIN
+    v_target_org_id := COALESCE(p_org_id, public.get_my_org());
 
+    IF v_target_org_id IS NULL THEN
+        RAISE EXCEPTION 'Organization ID is required.';
+    END IF;
+
+    -- Get account mappings and sales target
+    SELECT account_mappings, monthly_sales_target INTO v_mappings, v_sales_target
+    FROM public.company_settings
+    WHERE organization_id = v_target_org_id;
+
+    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_target_org_id LIMIT 1));
+    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_target_org_id LIMIT 1));
+    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_target_org_id LIMIT 1));
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_target_org_id LIMIT 1));
+    
+    -- Get all expense account IDs (codes starting with '5')
+    SELECT array_agg(id) INTO v_expense_acc_ids FROM public.accounts WHERE code LIKE '5%' AND organization_id = v_target_org_id;
+
+    -- 1. Current Month Sales
+    SELECT COALESCE(SUM(total_amount), 0) INTO v_month_sales
+    FROM public.invoices
+    WHERE organization_id = v_target_org_id AND status IN ('posted', 'paid')
+    AND invoice_date BETWEEN v_current_month_start AND v_current_month_end;
+
+    -- 2. Previous Month Sales
+    SELECT COALESCE(SUM(total_amount), 0) INTO v_prev_month_sales
+    FROM public.invoices
+    WHERE organization_id = v_target_org_id AND status IN ('posted', 'paid')
+    AND invoice_date BETWEEN v_prev_month_start AND v_prev_month_end;
+
+    -- 3. Current Month Purchases
+    SELECT COALESCE(SUM(total_amount), 0) INTO v_month_purchases
+    FROM public.purchase_invoices
+    WHERE organization_id = v_target_org_id AND status IN ('posted', 'paid')
+    AND invoice_date BETWEEN v_current_month_start AND v_current_month_end;
+
+    -- 4. Previous Month Purchases
+    SELECT COALESCE(SUM(total_amount), 0) INTO v_prev_month_purchases
+    FROM public.purchase_invoices
+    WHERE organization_id = v_target_org_id AND status IN ('posted', 'paid')
+    AND invoice_date BETWEEN v_prev_month_start AND v_prev_month_end;
+
+    -- 5. Current Month COGS (from journal entries)
+    IF v_cogs_acc_id IS NOT NULL THEN
+        SELECT COALESCE(SUM(jl.debit), 0) INTO v_month_cogs
+        FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE jl.account_id = v_cogs_acc_id
+        AND je.organization_id = v_target_org_id AND je.status = 'posted'
+        AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
+    END IF;
+
+    -- 6. Current Month Expenses (from journal entries)
+    IF v_expense_acc_ids IS NOT NULL THEN
+        SELECT COALESCE(SUM(jl.debit), 0) INTO v_month_expenses
+        FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE jl.account_id = ANY(v_expense_acc_ids)
+        AND je.organization_id = v_target_org_id AND je.status = 'posted'
+        AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
+    END IF;
+
+    -- 7. Receivables (Customers Balance)
+    SELECT COALESCE(SUM(balance), 0) INTO v_receivables
+    FROM public.customers
+    WHERE organization_id = v_target_org_id;
+
+    -- 8. Payables (Suppliers Balance)
+    SELECT COALESCE(SUM(balance), 0) INTO v_payables
+    FROM public.suppliers
+    WHERE organization_id = v_target_org_id;
+
+    -- 9. Total Receipts (current month)
+    SELECT COALESCE(SUM(amount), 0) INTO v_total_receipts
+    FROM public.receipt_vouchers
+    WHERE organization_id = v_target_org_id
+    AND receipt_date BETWEEN v_current_month_start AND v_current_month_end;
+
+    -- 10. Total Payments (current month)
+    SELECT COALESCE(SUM(amount), 0) INTO v_total_payments
+    FROM public.payment_vouchers
+    WHERE organization_id = v_target_org_id
+    AND payment_date BETWEEN v_current_month_start AND v_current_month_end;
+
+    -- 11. Low Stock Count and Items
+    SELECT COUNT(*) INTO v_low_stock_count
+    FROM public.products
+    WHERE organization_id = v_target_org_id AND stock <= min_stock_level AND min_stock_level > 0;
+
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('id', id, 'name', name, 'stock', stock, 'min_stock_level', min_stock_level, 'sku', sku)), '[]'::jsonb)
+    INTO v_low_stock_items
+    FROM public.products
+    WHERE organization_id = v_target_org_id AND stock <= min_stock_level AND min_stock_level > 0
+    LIMIT 5;
+
+    -- 12. Chart Data (Last 6 months sales/purchases)
+    WITH monthly_sales_summary AS (
+        SELECT
+            to_char(date_trunc('month', inv.invoice_date), 'YYYY-MM') as month_key,
+            to_char(date_trunc('month', inv.invoice_date), 'Mon') as month_name,
+            COALESCE(SUM(inv.total_amount), 0) as sales_amount
+        FROM public.invoices inv
+        WHERE inv.organization_id = v_target_org_id AND inv.status IN ('posted', 'paid')
+        AND inv.invoice_date >= (now() - interval '5 months')::date
+        GROUP BY 1, 2
+    ),
+    monthly_purchase_summary AS (
+        SELECT
+            to_char(date_trunc('month', pinv.invoice_date), 'YYYY-MM') as month_key,
+            COALESCE(SUM(pinv.total_amount), 0) as purchase_amount
+        FROM public.purchase_invoices pinv
+        WHERE pinv.organization_id = v_target_org_id AND pinv.status IN ('posted', 'paid')
+        AND pinv.invoice_date >= (now() - interval '5 months')::date
+        GROUP BY 1
+    )
+    SELECT jsonb_agg(jsonb_build_object(
+        'name', ms.month_name,
+        'sales', ms.sales_amount,
+        'purchases', COALESCE(mps.purchase_amount, 0)
+    ) ORDER BY ms.month_key)
+    INTO v_chart_data
+    FROM monthly_sales_summary ms
+    LEFT JOIN monthly_purchase_summary mps ON ms.month_key = mps.month_key;
+
+    -- 13. Recent Invoices
+    SELECT COALESCE(jsonb_agg(t), '[]'::jsonb)
+    INTO v_recent_invoices
+    FROM (
+        SELECT i.id, i.invoice_number, i.invoice_date, i.total_amount, c.name as customer_name
+        FROM public.invoices i
+        LEFT JOIN public.customers c ON i.customer_id = c.id
+        WHERE i.organization_id = v_target_org_id AND i.status IN ('posted', 'paid')
+        ORDER BY i.invoice_date DESC
+        LIMIT 5
+    ) t;
+
+    -- 14. Recent Journals (top 5)
+    SELECT COALESCE(jsonb_agg(t), '[]'::jsonb)
+    INTO v_recent_journals
+    FROM (
+        SELECT je.id, je.transaction_date, je.description, je.reference
+        FROM public.journal_entries je
+        WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
+        ORDER BY je.transaction_date DESC
+        LIMIT 5
+    ) t;
+
+    -- 15. Top Customers
+    WITH customer_sales AS (
+        SELECT c.id, c.name, COALESCE(SUM(i.total_amount), 0) as total_sales
+        FROM public.customers c
+        JOIN public.invoices i ON c.id = i.customer_id
+        WHERE c.organization_id = v_target_org_id AND i.status IN ('posted', 'paid')
+        GROUP BY c.id, c.name
+        ORDER BY total_sales DESC
+        LIMIT 5
+    )
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('id', id, 'name', name, 'total', total_sales)), '[]'::jsonb)
+    INTO v_top_customers
+    FROM customer_sales;
+
+    -- 16. Top Customers Pie Data (for pie chart)
+    WITH customer_sales AS (
+        SELECT c.id, c.name, COALESCE(SUM(i.total_amount), 0) as total_sales
+        FROM public.customers c
+        JOIN public.invoices i ON c.id = i.customer_id
+        WHERE c.organization_id = v_target_org_id AND i.status IN ('posted', 'paid')
+        GROUP BY c.id, c.name
+        ORDER BY total_sales DESC
+        LIMIT 4 -- Top 4, rest will be 'Others'
+    ),
+    other_sales AS (
+        SELECT COALESCE(SUM(i.total_amount), 0) as total_sales
+        FROM public.invoices i
+        WHERE i.organization_id = v_target_org_id AND i.status IN ('posted', 'paid')
+        AND i.customer_id NOT IN (SELECT id FROM customer_sales)
+    )
+    SELECT jsonb_agg(jsonb_build_object('name', name, 'value', total_sales)) ||
+           CASE WHEN (SELECT total_sales FROM other_sales) > 0 THEN jsonb_build_array(jsonb_build_object('name', 'عملاء آخرون', 'value', (SELECT total_sales FROM other_sales))) ELSE '[]'::jsonb END
+    INTO v_top_customers_pie_data
+    FROM customer_sales;
+
+    -- 17. Top Products
+    WITH product_revenue AS (
+        SELECT p.id, p.name, COALESCE(SUM(ii.quantity * ii.unit_price), 0) as total_revenue
+        FROM public.products p
+        JOIN public.invoice_items ii ON p.id = ii.product_id
+        JOIN public.invoices i ON ii.invoice_id = i.id
+        WHERE p.organization_id = v_target_org_id AND i.status IN ('posted', 'paid')
+        GROUP BY p.id, p.name
+        ORDER BY total_revenue DESC
+        LIMIT 5
+    )
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('id', id, 'name', name, 'total_revenue', total_revenue)), '[]'::jsonb)
+    INTO v_top_products
+    FROM product_revenue;
+
+
+    RETURN jsonb_build_object(
+        'monthSales', v_month_sales,
+        'prevMonthSales', v_prev_month_sales,
+        'monthPurchases', v_month_purchases,
+        'prevMonthPurchases', v_prev_month_purchases,
+        'monthCogs', v_month_cogs,
+        'monthExpenses', v_month_expenses,
+        'receivables', v_receivables,
+        'payables', v_payables,
+        'totalReceipts', v_total_receipts,
+        'totalPayments', v_total_payments,
+        'lowStockCount', v_low_stock_count,
+        'salesTarget', COALESCE(v_sales_target, 0),
+        'chartData', v_chart_data,
+        'recentInvoices', v_recent_invoices,
+        'recentJournals', v_recent_journals,
+        'topCustomers', v_top_customers,
+        'topProducts', v_top_products,
+        'topCustomersPieData', v_top_customers_pie_data,
+        'lowStockItems', v_low_stock_items
+    );
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_dashboard_stats(uuid) TO authenticated;
 GRANT USAGE ON SCHEMA public TO authenticated, anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid, uuid) TO authenticated, anon;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_monthly_shift_report(uuid, integer, integer) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.run_payroll_rpc(integer, integer, date, uuid, jsonb, uuid) TO authenticated;
 
 -- 🚀 تنشيط ذاكرة المخطط فوراً لضمان ظهور الدوال في الـ API (حل مشكلة 404)
 NOTIFY pgrst, 'reload config';

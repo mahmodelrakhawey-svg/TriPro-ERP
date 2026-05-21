@@ -15,7 +15,7 @@ type SlowProduct = {
 };
 
 const SlowMovingReport = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<SlowProduct[]>([]);
@@ -40,8 +40,7 @@ const SlowMovingReport = () => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id;
 
       if (!userOrgId) return;
 
@@ -82,7 +81,7 @@ const SlowMovingReport = () => {
         // ج. استهلاك المواد الخام في التصنيع (Actual Usage)
         supabase
         .from('mfg_actual_material_usage')
-        .select('raw_material_id, actual_quantity, mfg_order_progress!inner(created_at, status)')
+        .select('raw_material_id, actual_quantity, mfg_order_progress!inner(created_at, status, production_order_id)')
         .eq('mfg_order_progress.organization_id', userOrgId)
         .eq('mfg_order_progress.status', 'completed')
         .gte('mfg_order_progress.created_at', `${startDate}T00:00:00`)
@@ -91,7 +90,7 @@ const SlowMovingReport = () => {
         // د. صرف المواد الخام بطلبات صرف (Issued Material Requests)
         supabase
         .from('mfg_material_request_items')
-        .select('raw_material_id, quantity_issued, mfg_material_requests!inner(created_at, status)')
+        .select('raw_material_id, quantity_issued, mfg_material_requests!inner(created_at, status, production_order_id)')
         .eq('mfg_material_requests.organization_id', userOrgId)
         .eq('mfg_material_requests.status', 'issued')
         .gte('mfg_material_requests.created_at', `${startDate}T00:00:00`)
@@ -110,6 +109,7 @@ const SlowMovingReport = () => {
 
       // 3. تجميع كل حركات الصادر (Outflow) لكل صنف
       const outflowMap: Record<string, number> = {};
+      const processedOrderMaterials = new Set<string>(); // لتجنب الازدواجية: order_id + material_id
 
       salesItems?.forEach((item: any) => {
           outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + item.quantity;
@@ -121,10 +121,14 @@ const SlowMovingReport = () => {
 
       mfgActualUsageItems?.forEach((item: any) => {
           outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + item.actual_quantity;
+          processedOrderMaterials.add(`${item.mfg_order_progress.production_order_id}-${item.raw_material_id}`);
       });
 
       mfgIssuedRequestItems?.forEach((item: any) => {
-          outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + item.quantity_issued;
+          const key = `${item.mfg_material_requests.production_order_id}-${item.raw_material_id}`;
+          if (!processedOrderMaterials.has(key)) {
+              outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + item.quantity_issued;
+          }
       });
 
       mfgScrapLogItems?.forEach((item: any) => {

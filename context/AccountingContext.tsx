@@ -139,7 +139,7 @@ interface AccountingContextType {
   addEmployee: (employee: any) => Promise<void>;
   updateEmployee: (id: string, updates: any) => Promise<void>;
   deleteEmployee: (id: string, reason?: string) => Promise<void>;
-  runPayroll: (monthYear: string, date: string, treasuryId: string, data: any[]) => Promise<void>;
+  runPayroll: (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => Promise<void>;
   // --- دوال المطاعم ---
   finalizeProductionOrder: (id: string, status: string, notes: string) => Promise<any>;
   openTableSession: (tableId: string) => Promise<string | null>;
@@ -221,10 +221,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setIsLoading(true);
     try {
       // جلب بيانات المنظمة والبروفايل
-      const { data: profile } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
+      const { data: profile, error: profileError } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
+      if (profileError) throw profileError;
       if (profile) {
         setCurrentUser(profile);
-        setOrganization(profile.organizations);
       }
 
       // Determine the organization ID to use for fetching data
@@ -247,6 +247,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
       }
       if (!fetchOrgId) return; // If still no orgId, return.
+
+      // تحديث كائن المنظمة ليتوافق مع المنظمة النشطة (دعم السوبر أدمن)
+      if (fetchOrgId === profile.organization_id) {
+        setOrganization(profile.organizations);
+      } else {
+        // جلب تفاصيل المنظمة المختارة يدوياً
+        const { data: selectedOrg } = await supabase.from('organizations').select('*').eq('id', fetchOrgId).single();
+        if (selectedOrg) setOrganization(selectedOrg);
+      }
 
       // If super admin, fetch all organizations to populate the selector
       if (authUser.role === 'super_admin') {
@@ -362,12 +371,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   // Inventory
   const recalculateStock = async (productId?: string) => { 
-    const { error } = await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); 
-    if (error) {
+    const { error } = await supabase.rpc('recalculate_stock_rpc', { 
+      p_product_id: productId || null, 
+      p_org_id: currentSelectedOrgId || currentUser?.organization_id || null 
+    }); 
+        if (error) {
       showToast('فشل إعادة حساب المخزون: ' + error.message, 'error');
     } else {
       showToast('تم تحديث المخزون بنجاح ✅', 'success');
-      refreshData(); 
+      await refreshData(); // 🚀 الانتظار ضروري لتحديث الحالة قبل إغلاق اللودر في الواجهة
     }
   };  const addProduct = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -590,17 +602,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const updateEmployee = async (id: string, data: any) => { await supabase.from('employees').update(data).eq('id', id); refreshData(); };
   const deleteEmployee = async (id: string, reason?: string) => { await supabase.from('employees').update({ status: 'terminated', notes: reason }).eq('id', id); refreshData(); };
-  const runPayroll = async (monthYear: string, date: string, treasuryId: string, data: any[]) => {
-    const [year, month] = monthYear.split('-').map(Number);
-    await supabase.rpc('run_payroll_rpc', {
+  const runPayroll = async (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => {
+    const { error } = await supabase.rpc('run_payroll_rpc', {
       p_month: month,
       p_year: year,
-      p_payment_date: date,
-      p_treasury_account_id: treasuryId,
+      p_date: date,
+      p_treasury_acc: treasuryId,
       p_items: data,
-      p_org_id: currentSelectedOrgId
+      p_org_id: orgId || currentSelectedOrgId || null // استخدام null لضمان صحة JSON
     });
-    refreshData();
+    
+    if (error) {
+      if (process.env.NODE_ENV === 'development') console.error("Payroll RPC Error:", error);
+      throw new Error(error.message || 'حدث خطأ أثناء تنفيذ مسير الرواتب');
+    }
+    
+    await refreshData();
   };
 
   // --- Demo Stubs ---

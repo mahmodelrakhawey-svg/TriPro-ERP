@@ -218,8 +218,8 @@ const CustomerDepositForm = () => {
         }
 
         // 🛡️ استخدام المحرك المحاسبي الموحد لضمان قيد واحد سليم ومرتبط بالسند
-        // نمرر حساب التأمينات (226) كطرف دائن بدلاً من حساب العملاء
-        const customerDepositsAcc = getSystemAccount('CUSTOMER_DEPOSITS');
+        // نمرر حساب التأمينات (226) كطرف دائن بدلاً من حساب العملاء (SECURITY_DEPOSIT_ACCOUNT)
+        const customerDepositsAcc = getSystemAccount('SECURITY_DEPOSIT_ACCOUNT');
         if (!customerDepositsAcc) throw new Error('حساب تأمينات العملاء غير معرّف في الإعدادات.');
 
         const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', {
@@ -235,12 +235,15 @@ const CustomerDepositForm = () => {
             const { data: newVoucher } = await supabase
                 .from('receipt_vouchers')
                 .select('*')
-                .ilike('notes', '%تأمين%')
-                .order('receipt_date', { ascending: false })
-                .limit(1)
-                .maybeSingle(); // استخدام maybeSingle لتجنب خطأ 406
+                .eq('id', voucherId)
+                .maybeSingle();
                 
-            if (newVoucher) setDepositVouchers(prev => [newVoucher, ...prev]);
+            if (newVoucher) {
+                setDepositVouchers(prev => {
+                    const filtered = prev.filter(v => v.id !== newVoucher.id);
+                    return [newVoucher, ...filtered];
+                });
+            }
         handleNew();
     } catch (error: any) {
         showToast('حدث خطأ: ' + error.message, 'error');

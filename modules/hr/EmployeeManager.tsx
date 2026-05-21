@@ -6,9 +6,8 @@ import { Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, Briefcase, Cal
 import { createEmployeeSchema } from '../../utils/validationSchemas';
 
 const EmployeeManager = () => {
-  const { employees, addEmployee, updateEmployee, deleteEmployee, currentUser } = useAccounting();
+  const { employees, addEmployee, updateEmployee, deleteEmployee, currentUser, isLoading: contextLoading } = useAccounting();
   const { showToast } = useToast();
-  const [loading, setLoading] = useState(true); // Start with loading true
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -26,12 +25,6 @@ const EmployeeManager = () => {
     status: 'active',
     notes: ''
   });
-
-  // Fetch initial data
-  useEffect(() => {
-    // Data is now coming from context, so we just need to handle the loading state
-    if (employees.length > 0) setLoading(false);
-  }, [employees]);
 
 
   const handleOpenModal = (employee?: any) => {
@@ -168,7 +161,7 @@ const EmployeeManager = () => {
         </div>
       </div>
 
-      {loading ? (
+      {contextLoading ? (
         <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-600" size={32} /></div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -240,7 +233,7 @@ const EmployeeManager = () => {
                         </div>
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-1">الراتب الأساسي</label>
-                            <input type="number" value={formData.salary} onChange={e => setFormData({...formData, salary: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5 focus:border-blue-500 outline-none" />
+                            <input type="number" value={formData.salary} onChange={e => setFormData({...formData, salary: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2.5 focus:border-blue-500 outline-none" />
                         </div>
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ التعيين</label>

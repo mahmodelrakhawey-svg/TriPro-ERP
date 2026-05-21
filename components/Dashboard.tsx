@@ -49,45 +49,6 @@ const Dashboard = () => {
   const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#64748b'];
 
   // دالة حساب إحصائيات الشهر الحالي محلياً لضمان الدقة 100%
-  const calculateCurrentMonthStats = useCallback(() => {
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-    
-    let mSales = 0;
-    let mPurchases = 0;
-    let mCogs = 0;
-    let mExpenses = 0;
-
-    // حساب المصروفات والتكاليف من دفتر الأستاذ (القيود)
-    entries.filter(e => e.date >= startOfMonth && e.status === 'posted').forEach(entry => {
-      (entry.lines || []).forEach(line => {
-        const acc = accounts.find(a => a.id === line.accountId);
-        if (!acc) return;
-        const code = String(acc.code);
-
-        // حساب المبيعات الصافية (4) - تضمن مبيعات المطعم وتطرح الخصومات المسموح بها
-        if (code.startsWith('4')) {
-          mSales += (line.credit - line.debit);
-        }
-        // حساب المشتريات (إذا تم توجيهها لحسابات تكلفة مباشرة)
-        if (code.startsWith('511') && !acc.name.includes('تكلفة')) {
-          mPurchases += (line.debit - line.credit);
-        }
-
-        // تكلفة البضاعة (COGS)
-        if (code.startsWith('511') || acc.name.includes('تكلفة')) {
-          mCogs += (line.debit - line.credit);
-        }
-        // مصروفات تشغيلية وإدارية
-        else if (code.startsWith('5') && !code.startsWith('511')) {
-          mExpenses += (line.debit - line.credit);
-        }
-      });
-    });
-
-    return { mSales, mPurchases, mCogs, mExpenses };
-  }, [demoInvoices, demoPurchaseInvoices, entries, accounts]);
-
   useEffect(() => {
     // Effect for non-demo (real) users, relies on RPC
     const fetchRealData = async () => {
@@ -114,15 +75,17 @@ const Dashboard = () => {
 
         try {
           setRpcError(null);
+          // 🛡️ صمام أمان: التأكد من وجود معرف المنظمة قبل الطلب
           if (orgId) {
               await Promise.all([checkSub(), checkHighDebt(orgId)]);
           }
 
-          const { data, error } = await supabase.rpc('get_dashboard_stats');
+          // 🚀 تمرير المعرف لضمان جلب بيانات الشركة الصحيحة لليوزر العالمي
+          const { data, error } = await supabase.rpc('get_dashboard_stats', { p_org_id: orgId });
           
           if (error) {
-              if (error.message.includes('function get_dashboard_stats() does not exist')) {
-                  setRpcError("دالة `get_dashboard_stats()` غير موجودة. يرجى تنفيذ سكربت SQL لإنشائها.");
+              if (error.code === '42703') {
+                  setRpcError("خطأ في بنية الجداول: عمود مفقود. يرجى تشغيل سكربت Stabilization.");
               }
               else if (error.code === '42P01') {
                   setRpcError("خطأ في قاعدة البيانات: الرؤية `journal_lines_view` مفقودة. يرجى تشغيل سكربت إنشاء الرؤية.");
@@ -130,22 +93,20 @@ const Dashboard = () => {
               throw error;
           }
 
-          const localStats = calculateCurrentMonthStats();
-
           if (data) {
               setStats({
-                  monthSales: localStats.mSales || data.monthSales || 0,
+                  monthSales: data.monthSales || 0,
                   prevMonthSales: data.prevMonthSales || 0,
-                  monthPurchases: localStats.mPurchases || data.monthPurchases || 0,
+                  monthPurchases: data.monthPurchases || 0,
                   prevMonthPurchases: data.prevMonthPurchases || 0,
-                  monthCogs: localStats.mCogs || data.monthCogs || 0,
-                  monthExpenses: localStats.mExpenses || data.monthExpenses || 0,
+                  monthCogs: data.monthCogs || 0,
+                  monthExpenses: data.monthExpenses || 0,
                   receivables: data.receivables || 0,
                   payables: data.payables || 0,
                   totalReceipts: data.totalReceipts || 0,
                   totalPayments: data.totalPayments || 0,
                   lowStockCount: data.lowStockCount || 0,
-                  salesTarget: data.salesTarget || 0,
+                  salesTarget: data.salesTarget || settings?.monthly_sales_target || 0, // Fallback to settings if RPC doesn't provide
               });
               setChartData(data.chartData || []);
               setRecentInvoices(data.recentInvoices?.map((inv: any) => ({...inv, customers: { name: inv.customer_name }})) || []);
@@ -164,7 +125,7 @@ const Dashboard = () => {
       }
     };
     fetchRealData();
-  }, [currentUser]); // Dependency on currentUser only
+  }, [currentUser, settings]); // Dependency on currentUser and settings
 
   useEffect(() => {
     // Effect for demo users, relies on context data

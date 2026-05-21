@@ -693,7 +693,10 @@ BEGIN
     -- 🛡️ التحقق هل يوجد طلب صرف مواد (MR) مسبق لهذا الأمر لمنع الازدواجية وعدم الاتزان
     SELECT EXISTS (
         SELECT 1 FROM public.mfg_material_requests 
-        WHERE production_order_id = v_step.production_order_id AND status = 'issued'
+        WHERE production_order_id = v_step.production_order_id 
+        AND status = 'issued'
+        -- نتحقق من وجود نفس المادة في طلب الصرف لضمان عدم تكرار قيدها
+        AND id IN (SELECT material_request_id FROM public.mfg_material_request_items WHERE raw_material_id IN (SELECT raw_material_id FROM public.mfg_step_materials WHERE step_id = v_step.step_id))
     ) INTO v_has_mr;
 
     -- [جديد] جلب إجمالي التالف المسجل لهذه المرحلة لزيادة الاستهلاك الفعلي
@@ -731,7 +734,7 @@ BEGIN
         -- حساب تكلفة المواد المستهلكة (بناءً على المتوسط المرجح)
         v_mat_total_cost := v_mat_total_cost + (v_usage_qty * COALESCE((SELECT NULLIF(weighted_average_cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT NULLIF(cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT purchase_price FROM public.products WHERE id = v_mat.raw_material_id), 0));
 
-        -- ب. تسجيل الاستهلاك الفعلي (إضافة الكمية المعيارية + التالف الخاص بنفس المادة إن وجد)
+        -- ب. تسجيل الاستهلاك الفعلي (بدون تكرار الخصم من المخزن هنا إذا كان هناك MR)
         INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, organization_id)
         VALUES (
             p_progress_id,
@@ -757,7 +760,7 @@ BEGIN
                            (SELECT id FROM public.accounts WHERE (code = '513' OR code = '511') AND organization_id = v_org_id LIMIT 1));
 
     -- 🛡️ حساب القيمة المدينة للـ WIP: إذا كانت المواد صرفت مسبقاً، نحمل العمالة فقط لضمان توازن القيد
-    v_wip_debit_amount := v_labor_cost;
+    v_wip_debit_amount := COALESCE(v_labor_cost, 0);
     IF NOT v_has_mr THEN
         v_wip_debit_amount := v_wip_debit_amount + v_mat_total_cost;
     END IF;
@@ -805,16 +808,26 @@ CREATE OR REPLACE FUNCTION public.mfg_finalize_order(
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 DECLARE
-    v_order record; v_total_cost numeric := 0; v_je_id uuid; v_wip_acc uuid;
-    v_fg_acc uuid; v_loss_acc uuid; v_org_id uuid; v_mappings jsonb;
+    v_order record; v_accumulated_wip numeric := 0; v_je_id uuid; v_wip_acc uuid;
+    v_fg_acc uuid; v_loss_acc uuid; v_org_id uuid; v_mappings jsonb; v_total_cost numeric := 0;
 BEGIN
-    -- 1. جلب بيانات الطلب والتحقق من حالته
-    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار أو التضارب بعد التعديل
-    DELETE FROM public.journal_entries WHERE related_document_id = p_order_id AND related_document_type = 'mfg_order';
-
     SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
     IF v_order.status = 'completed' THEN RETURN; END IF;
+
+    v_org_id := v_order.organization_id;
+
+    -- 🛡️ نظام "تصفير WIP": نحسب إجمالي ما تم تحميله فعلياً على هذا الأمر في سجلات القيود لضمان الإغلاق التام
+    -- بدلاً من الحساب النظري فقط
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_accumulated_wip
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.related_document_id IN (SELECT id FROM public.mfg_order_progress WHERE production_order_id = p_order_id UNION SELECT id FROM public.mfg_material_requests WHERE production_order_id = p_order_id)
+    AND a.code = '10303';
+
+    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند
+    DELETE FROM public.journal_entries WHERE related_document_id = p_order_id AND related_document_type = 'mfg_order';
 
     -- [صمام أمان] منع إغلاق أوامر لم يبدأ العمل فيها فعلياً (لمنع التكلفة الصفرية)
     IF NOT EXISTS (SELECT 1 FROM public.mfg_order_progress WHERE production_order_id = p_order_id AND status = 'completed')

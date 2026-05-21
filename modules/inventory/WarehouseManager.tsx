@@ -1,11 +1,11 @@
 ﻿﻿﻿﻿﻿﻿import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Warehouse, Plus, MapPin, Trash2, Edit2, Save, X, User, Phone } from 'lucide-react';
+import { Warehouse, Plus, MapPin, Trash2, Edit2, Save, X, User, Phone, Package, DollarSign } from 'lucide-react';
 import { createWarehouseSchema } from '../../utils/validationSchemas'; // Removed z import
 
 const WarehouseManager = () => {
-  const { warehouses, addWarehouse, updateWarehouse, deleteWarehouse, currentUser } = useAccounting();
+  const { warehouses, products, addWarehouse, updateWarehouse, deleteWarehouse, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -56,7 +56,7 @@ const WarehouseManager = () => {
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="flex justify-between items-center">
-        <div>
+        <div className="flex-1">
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <Warehouse className="text-blue-600" /> إدارة الفروع والمستودعات
           </h2>
@@ -68,7 +68,14 @@ const WarehouseManager = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {warehouses.map(warehouse => (
+        {warehouses.map(warehouse => {
+          // حساب إحصائيات المستودع الحالية بناءً على بيانات الأصناف المحدثة
+          const warehouseStock = products.filter(p => p.warehouse_stock?.[warehouse.id] && Number(p.warehouse_stock[warehouse.id]) !== 0);
+          const totalValue = warehouseStock.reduce((sum, p) => 
+            sum + (Number(p.warehouse_stock[warehouse.id]) * (p.cost || p.weighted_average_cost || p.purchase_price || 0)), 0
+          );
+
+          return (
           <div key={warehouse.id} className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-all">
             <div className="flex justify-between items-start mb-4">
               <div className="p-3 bg-blue-50 rounded-lg text-blue-600">
@@ -91,8 +98,20 @@ const WarehouseManager = () => {
                 </div>
                 {warehouse.phone && <div className="flex items-center gap-2 text-slate-500 text-sm"><Phone size={14} /> <span dir="ltr">{warehouse.phone}</span></div>}
             </div>
+
+            {/* ملخص أرصدة المستودع المحدث */}
+            <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-100 bg-slate-50/50 -mx-6 -mb-6 p-4 rounded-b-xl">
+                <div className="text-center">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">الأصناف</p>
+                    <p className="text-sm font-black text-slate-700">{warehouseStock.length}</p>
+                </div>
+                <div className="text-center border-r border-slate-200">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">إجمالي القيمة</p>
+                    <p className="text-sm font-black text-emerald-600">{totalValue.toLocaleString()}</p>
+                </div>
+            </div>
           </div>
-        ))}
+        )})}
       </div>
 
       {isModalOpen && (

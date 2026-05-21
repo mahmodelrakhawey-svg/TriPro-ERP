@@ -9,7 +9,7 @@ import { createInventoryCountSchema } from '../../utils/validationSchemas';
 
 const InventoryCountForm = () => {
   const navigate = useNavigate();
-  const { products, warehouses, settings, recalculateStock, currentUser } = useAccounting();
+  const { products, warehouses, settings, recalculateStock, currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -19,7 +19,7 @@ const InventoryCountForm = () => {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
 
-  const orgId = (settings as any)?.organization_id || (currentUser as any)?.organization_id;
+  const orgId = currentSelectedOrgId || (settings as any)?.organization_id || (currentUser as any)?.organization_id;
 
   const handleStartCount = async () => {
     if (!warehouseId) {
@@ -94,9 +94,8 @@ const InventoryCountForm = () => {
       }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const handleSaveCount = async (isFinal: boolean = false) => {
+    if (items.length === 0) return;
     const validationResult = createInventoryCountSchema.safeParse({ warehouseId, date, items });
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
@@ -133,11 +132,23 @@ const InventoryCountForm = () => {
 
         if (itemsError) throw itemsError;
 
-        showToast('تم حفظ الجرد بنجاح ✅', 'success');
+        // 🚀 توحيد المنطق: إذا كان المستخدم يريد الاعتماد الفوري، نستخدم المحرك المركزي (RPC)
+        if (isFinal) {
+            const { error: postError } = await supabase.rpc('post_inventory_count', { 
+                p_count_id: countDoc.id 
+            });
+            if (postError) throw postError;
+            
+            // تحديث المخزون في الـ Context لضمان مزامنة الأرقام فوراً
+            await recalculateStock();
+            showToast('تم ترحيل الجرد واعتماد التسويات والقيود بنجاح ✅', 'success');
+        } else {
+            showToast('تم حفظ الجرد كمسودة بنجاح ✅', 'success');
+        }
+
         setItems([]);
         setWarehouseId('');
         navigate('/inventory-history');
-        
     } catch (error: any) {
         console.error(error);
         showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
@@ -327,11 +338,16 @@ const InventoryCountForm = () => {
                       </table>
                   </div>
                   <div className="bg-slate-900 p-6 rounded-b-[32px] flex justify-between items-center text-white">
-                      <p className="text-sm font-bold opacity-60">سيتم حفظ هذا الجرد كمسودة حتى تقوم باعتماده من صفحة سجل الجرود.</p>
-                      <button onClick={handleSubmit} disabled={saving} className="bg-purple-500 hover:bg-purple-400 text-white px-10 py-3 rounded-2xl font-black shadow-xl shadow-purple-900/50 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
-                          {saving ? <Loader2 className="animate-spin" size={20} /> : <Save size={20} />} 
-                          {saving ? 'جاري الحفظ...' : 'حفظ المسودة'}
-                      </button>
+                      <p className="text-sm font-bold opacity-60">يمكنك حفظ الجرد كمسودة للمراجعة لاحقاً، أو اعتماده فوراً للتأثير في المخازن والحسابات.</p>
+                      <div className="flex gap-3">
+                        <button onClick={() => handleSaveCount(false)} disabled={saving} className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-2xl font-bold transition-all disabled:opacity-50">
+                            حفظ كمسودة
+                        </button>
+                        <button onClick={() => handleSaveCount(true)} disabled={saving} className="bg-purple-500 hover:bg-purple-400 text-white px-8 py-3 rounded-2xl font-black shadow-xl shadow-purple-900/50 flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50">
+                            {saving ? <Loader2 className="animate-spin" size={20} /> : <CheckCircle2 size={20} />} 
+                            {saving ? 'جاري المعالجة...' : 'اعتماد وترحيل فوري'}
+                        </button>
+                      </div>
                   </div>
               </div>
           )}

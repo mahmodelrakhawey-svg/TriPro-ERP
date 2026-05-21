@@ -57,77 +57,93 @@ const StockMovementCostReport = () => {
     }
 
     try {
+      // 🛡️ جلب معرف المنظمة لضمان عزل البيانات (المستخدم العالمي)
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
+
       // 1. جلب حركات المبيعات (Sales Invoices) - صادر
       let querySales = supabase
         .from('invoice_items')
         .select('quantity, cost, invoice_id, invoices!inner(invoice_date, invoice_number, status)')
         .eq('product_id', selectedProductId)
-        .neq('invoices.status', 'draft');
+        .neq('invoices.status', 'draft')
+        .eq('organization_id', userOrgId);
 
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       let queryPurchases = supabase
         .from('purchase_invoice_items')
-        .select('quantity, unit_price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status)')
+        .select('quantity, unit_price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status, organization_id)')
         .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .in('purchase_invoices.status', ['posted', 'paid']);
 
       // 3. جلب التسويات المخزنية (Stock Adjustments)
       let queryAdjustments = supabase
         .from('stock_adjustment_items')
-        .select('quantity, stock_adjustments!inner(adjustment_date, adjustment_number, status)')
+        .select('quantity, stock_adjustments!inner(adjustment_date, adjustment_number, status, organization_id)')
         .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .neq('stock_adjustments.status', 'draft');
 
       // 4. مرتجعات مبيعات (Sales Returns) - وارد
       let querySalesReturns = supabase
         .from('sales_return_items')
-        .select('quantity, sales_returns!inner(return_date, return_number, status)')
+        .select('quantity, sales_returns!inner(return_date, return_number, status, organization_id)')
         .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .neq('sales_returns.status', 'draft');
 
       // 5. مرتجعات مشتريات (Purchase Returns) - صادر
       let queryPurchaseReturns = supabase
         .from('purchase_return_items')
-        .select('quantity, unit_price, purchase_return_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(return_date, return_number, status)')
+        .select('quantity, unit_price, purchase_return_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(return_date, return_number, status, organization_id)')
         .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .eq('purchase_returns.status', 'posted');
 
       // 6. استعلامات مديول التصنيع (SaaS MFG)
       let mfgInQuery = supabase
         .from('mfg_production_orders')
-        .select('id, order_number, end_date, quantity_to_produce, status')
+        .select('id, order_number, end_date, quantity_to_produce, status, organization_id')
         .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .eq('status', 'completed');
 
       let mfgOutQuery = supabase
         .from('mfg_material_request_items')
-        .select('quantity_issued, mfg_material_requests!inner(request_number, issue_date, status, created_at)')
+        .select('quantity_issued, mfg_material_requests!inner(request_number, issue_date, status, created_at, organization_id)')
         .eq('raw_material_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .eq('mfg_material_requests.status', 'issued');
 
       let mfgScrapQuery = supabase
         .from('mfg_scrap_logs')
         .select('quantity, reason, created_at')
+        .eq('organization_id', userOrgId)
         .eq('product_id', selectedProductId);
 
       // 7. رصيد أول المدة (Opening Inventory) - الإضافة الجديدة
       let queryOpening = supabase
         .from('opening_inventories')
         .select('quantity, cost, created_at, warehouse_id')
+        .eq('organization_id', userOrgId)
         .eq('product_id', selectedProductId);
 
       // 8. التحويلات المخزنية (Stock Transfers)
       let queryTransfers = supabase
         .from('stock_transfer_items')
-        .select('quantity, stock_transfers!inner(transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status)')
+        .select('quantity, stock_transfers!inner(transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status, organization_id)')
         .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .eq('stock_transfers.status', 'posted');
 
       // 9. مبيعات واستهلاك المطاعم (Restaurant)
       let queryRestDirect = supabase
         .from('order_items')
-        .select('quantity, unit_cost, orders!inner(created_at, order_number, status)')
+        .select('quantity, unit_cost, orders!inner(created_at, order_number, status, organization_id)')
         .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId)
         .eq('orders.status', 'COMPLETED');
 
       const { data: restBoms } = await supabase

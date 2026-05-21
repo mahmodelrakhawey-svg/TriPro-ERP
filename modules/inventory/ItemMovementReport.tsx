@@ -51,6 +51,11 @@ const ItemMovementReport = () => {
     }
 
     try {
+      // 🛡️ جلب معرف المنظمة لضمان عزل البيانات للمستخدم العالمي
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
+
       const product = products.find(p => p.id === selectedProductId);
       if (product) setCurrentStock(product.stock);
 
@@ -61,7 +66,8 @@ const ItemMovementReport = () => {
         .from('invoice_items')
         .select('quantity, invoice_id, invoices!inner(invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
-        .neq('invoices.status', 'draft');
+        .neq('invoices.status', 'draft')
+        .eq('organization_id', userOrgId);
       
       if (selectedWarehouseId) salesQuery = salesQuery.eq('invoices.warehouse_id', selectedWarehouseId);
       const { data: salesItems } = await salesQuery;
@@ -71,7 +77,8 @@ const ItemMovementReport = () => {
         .from('purchase_invoice_items')
         .select('quantity, purchase_invoice_id, purchase_invoices!inner(invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
-        .neq('purchase_invoices.status', 'draft');
+        .neq('purchase_invoices.status', 'draft')
+        .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) purchaseQuery = purchaseQuery.eq('purchase_invoices.warehouse_id', selectedWarehouseId);
       const { data: purchaseItems } = await purchaseQuery;
@@ -81,7 +88,8 @@ const ItemMovementReport = () => {
         .from('sales_return_items')
         .select('quantity, sales_return_id, sales_returns!inner(return_date, return_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
-        .neq('sales_returns.status', 'draft');
+        .neq('sales_returns.status', 'draft')
+        .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) salesReturnsQuery = salesReturnsQuery.eq('sales_returns.warehouse_id', selectedWarehouseId);
       const { data: salesReturns } = await salesReturnsQuery;
@@ -91,7 +99,8 @@ const ItemMovementReport = () => {
         .from('purchase_return_items')
         .select('quantity, purchase_return_id, purchase_returns!inner(return_date, return_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
-        .neq('purchase_returns.status', 'draft');
+        .neq('purchase_returns.status', 'draft')
+        .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) purchaseReturnsQuery = purchaseReturnsQuery.eq('purchase_returns.warehouse_id', selectedWarehouseId);
       const { data: purchaseReturns } = await purchaseReturnsQuery;
@@ -101,7 +110,8 @@ const ItemMovementReport = () => {
         .from('stock_adjustment_items')
         .select('quantity, stock_adjustments!inner(adjustment_date, adjustment_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
-        .neq('stock_adjustments.status', 'draft');
+        .neq('stock_adjustments.status', 'draft')
+        .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) adjustmentsQuery = adjustmentsQuery.eq('stock_adjustments.warehouse_id', selectedWarehouseId);
       const { data: adjustments } = await adjustmentsQuery;
@@ -110,24 +120,26 @@ const ItemMovementReport = () => {
       let openingQuery = supabase
         .from('opening_inventories')
         .select('quantity, created_at, warehouse_id, created_by')
-        .eq('product_id', selectedProductId);
+        .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId);
       
       if (selectedWarehouseId) openingQuery = openingQuery.eq('warehouse_id', selectedWarehouseId);
       const { data: openingInventory } = await openingQuery;
 
-      // 7. جلب التحويلات المخزنية (Stock Transfers) - هام جداً
+      // 7. جلب التحويلات المخزنية (Stock Transfers) - الإصلاح النهائي للـ 400 Bad Request
       let transfersQuery = supabase
         .from('stock_transfer_items')
         .select('quantity, stock_transfers!inner(transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status, created_by)')
         .eq('product_id', selectedProductId)
-        .eq('stock_transfers.status', 'posted');
+        .eq('organization_id', userOrgId)
+        .filter('stock_transfers.status', 'eq', 'posted');
       
       const { data: transfers } = await transfersQuery;
 
       // 8. جلب حركات التصنيع (Manufacturing)
       let manufacturingQuery = supabase
-        .from('work_orders')
-        .select('id, order_number, end_date, quantity, product_id, warehouse_id, status, created_by')
+        .from('mfg_production_orders')
+        .select('id, order_number, end_date, quantity_to_produce, product_id, warehouse_id, status')
         .eq('status', 'completed');
         
       if (selectedWarehouseId) manufacturingQuery = manufacturingQuery.eq('warehouse_id', selectedWarehouseId);
@@ -307,10 +319,10 @@ const ItemMovementReport = () => {
               allMovements.push({
                   date: wo.end_date,
                   type: 'in',
-                  quantity: wo.quantity,
+                  quantity: wo.quantity_to_produce,
                   documentType: 'تصنيع (منتج تام)',
                   documentNumber: wo.order_number,
-                  userName: getUserName(wo.created_by)
+                  userName: 'النظام الآلي'
               });
           });
 
@@ -398,8 +410,8 @@ const ItemMovementReport = () => {
     XLSX.writeFile(wb, `Item_Movement_${productName}_${startDate}.xlsx`);
   };
 
-  const totalIn = movements.filter(m => m.type === 'in').reduce((sum, m) => sum + m.quantity, 0);
-  const totalOut = movements.filter(m => m.type === 'out').reduce((sum, m) => sum + m.quantity, 0);
+  const totalIn = useMemo(() => movements.filter(m => m.type === 'in').reduce((sum, m) => sum + Number(m.quantity), 0), [movements]);
+  const totalOut = useMemo(() => movements.filter(m => m.type === 'out').reduce((sum, m) => sum + Number(m.quantity), 0), [movements]);
 
   // تجهيز بيانات الرسم البياني (إضافة نقطة البداية)
   const chartData = useMemo(() => {

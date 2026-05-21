@@ -251,6 +251,20 @@ const StockCard = () => {
         });
       });
 
+      // معالجة التصنيع - الهالك (صادر)
+      mfgScrap.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `MFG-SCRAP-${item.id}`,
+          date: item.created_at.split('T')[0],
+          type: 'OUT',
+          quantity: item.quantity,
+          documentType: 'تصنيع (هالك)',
+          documentNumber: '-',
+          createdAt: item.created_at,
+          notes: `هالك صناعي: ${item.reason}`
+        });
+      });
+
       // معالجة مرتجعات المبيعات (وارد)
       sReturns.data?.forEach((item: any) => {
         allTxns.push({
@@ -627,9 +641,9 @@ const StockCard = () => {
     if (window.confirm('هل تريد إعادة احتساب أرصدة المخزون بناءً على الحركات المسجلة؟ سيتم تصحيح أي فروقات.')) {
         setIsRecalculating(true);
         try {
-            await recalculateStock();
-            await refreshData(); // تحديث بيانات المنتجات في السياق
-            await fetchTransactions(); // تحديث الجدول الحالي
+            // 🚀 تمرير المعرف لتحسين الأداء وسرعة التحديث لصنف واحد في المحرك V50.5
+            await recalculateStock(selectedProductId);
+            await fetchTransactions(); // تحديث جدول الحركات المكتملة
         } catch (e) {
             console.error(e);
         } finally {
@@ -647,8 +661,7 @@ const StockCard = () => {
           const { error } = await supabase.from('opening_inventories').delete().eq('id', existingOpeningId);
           if (error) throw error;
 
-          await recalculateStock();
-          await refreshData();
+          await recalculateStock(selectedProductId);
           await fetchTransactions();
           setIsOpeningModalOpen(false);
           showToast('تم حذف رصيد أول المدة بنجاح', 'success');
@@ -696,8 +709,7 @@ const StockCard = () => {
               });
           }
 
-          await recalculateStock(); // إعادة احتساب الأرصدة لتنعكس التغييرات
-          await refreshData();
+          await recalculateStock(selectedProductId); // إعادة احتساب الأرصدة للصنف المحدث
           await fetchTransactions();
           setIsOpeningModalOpen(false);
           showToast('تم تحديث رصيد أول المدة بنجاح ✅', 'success');

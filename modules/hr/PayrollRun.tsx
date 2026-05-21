@@ -19,7 +19,7 @@ type PayrollItem = {
 };
 
 const PayrollRun = () => {
-  const { runPayroll: runPayrollFromContext, currentUser, accounts, createMissingSystemAccounts } = useAccounting(); // Renamed to avoid conflict
+  const { runPayroll: runPayrollFromContext, currentUser, currentSelectedOrgId, accounts, createMissingSystemAccounts } = useAccounting(); // Renamed to avoid conflict
   const { showToast } = useToast();
   const [payrollData, setPayrollData] = useState<PayrollItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -59,11 +59,13 @@ const PayrollRun = () => {
       }
 
       // 1. جلب الموظفين النشطين
-      const { data: employees, error: empError } = await supabase.from('employees').select('*').eq('status', 'active');
+      // 🛡️ تعديل: الفلترة بالمنظمة المختارة (مهم جداً لليوزر العالمي)
+      const targetOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const { data: employees, error: empError } = await supabase.from('employees').select('*').eq('status', 'active').eq('organization_id', targetOrg);
       if (empError) throw empError;
 
       // 2. جلب السلف التي تم صرفها للموظفين ولم يتم خصمها بعد
-      const { data: advances, error: advError } = await supabase.from('employee_advances').select('*').eq('status', 'paid').is('payroll_item_id', null);
+      const { data: advances, error: advError } = await supabase.from('employee_advances').select('*').eq('status', 'paid').is('payroll_item_id', null).eq('organization_id', targetOrg);
       if (advError) throw advError;
 
       const preparedData = employees.map(emp => {
@@ -73,7 +75,7 @@ const PayrollRun = () => {
         
         return {
           employee_id: emp.id,
-          full_name: emp.full_name,
+          full_name: emp.full_name || emp.name || 'موظف بدون اسم', // حماية من القيم الفارغة
           gross_salary: emp.salary || 0,
           additions: 0,
           payroll_tax: 0,
@@ -123,10 +125,12 @@ const PayrollRun = () => {
   };
 
   const handleRunPayroll = async () => {
-    // 1. التحقق من بيانات المسير العامة
+    // 1. التحقق من بيانات المسير العامة (إضافة الشهر والسنة للمخطط لتجنب undefined)
     const generalValidationResult = payrollRunSchema.safeParse({
         treasuryId,
-        hasData: payrollData.length > 0
+        hasData: payrollData.length > 0,
+        month: selectedMonth,
+        year: selectedYear
     });
 
     if (!generalValidationResult.success) {
@@ -181,12 +185,17 @@ const PayrollRun = () => {
 
     setSaving(true);
     try {
-      // Call the centralized payroll function from the context
+      // جلب معرف المنظمة للمستخدم الحالي
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+      // تحديث الاستدعاء ليتوافق مع التوقيع الجديد (شهر، سنة، تاريخ، خزينة، بيانات، منظمة)
       await runPayrollFromContext(
-        `${selectedYear}-${selectedMonth}`,
+        selectedMonth,
+        selectedYear,
         new Date().toISOString().split('T')[0],
         treasuryId,
-        payrollData
+        payrollData,
+        orgId
       );
 
       showToast('تم تنفيذ مسير الرواتب وترحيل القيد بنجاح ✅', 'success');

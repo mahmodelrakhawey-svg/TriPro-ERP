@@ -160,76 +160,17 @@ const InventoryCountList = () => {
     }
     
     try {
-        // 1. جلب بيانات الجرد والتفاصيل
-        const { data: count } = await supabase.from('inventory_counts').select('*').eq('id', countId).single();
-        // جلب التكلفة الحالية للمنتجات مباشرة من قاعدة البيانات لضمان الدقة
-        const { data: items } = await supabase.from('inventory_count_items').select('*, products(purchase_price, cost)').eq('inventory_count_id', countId);
-        
-        if (!count || !items) throw new Error("بيانات الجرد غير مكتملة");
+        // 🚀 استخدام المحرك المركزي (RPC) لضمان الدقة المحاسبية
+        // الدالة post_inventory_count تقوم بإنشاء التسوية والقيد، 
+        // وتستدعي recalculate_stock_rpc المحدثة داخلياً.
+        const { error } = await supabase.rpc('post_inventory_count', { 
+            p_count_id: countId 
+        });
 
-        // 2. تصفية الأصناف التي بها فروقات
-        const adjustmentItems = items.filter((i: any) => i.difference !== 0);
+        if (error) throw error;
 
-        let totalAdjustmentValue = 0;
-        if (adjustmentItems.length > 0) {
-            // إنشاء تسوية مخزنية تلقائية
-            const adjustmentNumber = `ADJ-CNT-${count.count_number}`;
-            const { data: adjDoc, error: adjError } = await supabase.from('stock_adjustments').insert({
-                warehouse_id: count.warehouse_id,
-                adjustment_date: new Date().toISOString().split('T')[0],
-                adjustment_number: adjustmentNumber,
-                reason: `تسوية تلقائية ناتجة عن الجرد رقم ${count.count_number}`,
-                status: 'posted',
-                organization_id: count.organization_id
-            }).select().single();
-
-            if (adjError) throw adjError;
-
-            const adjLines = adjustmentItems.map((i: any) => {
-                // حساب القيمة للقيد المحاسبي
-                const cost = i.products?.purchase_price || i.products?.cost || 0;
-                totalAdjustmentValue += (Number(i.difference) * cost);
-
-                return {
-                    stock_adjustment_id: adjDoc.id,
-                    product_id: i.product_id,
-                    quantity: i.difference, // الموجب يزيد المخزون، السالب ينقصه
-                    organization_id: count.organization_id || (currentUser as any)?.organization_id
-                };
-            });
-
-            const { error: linesError } = await supabase.from('stock_adjustment_items').insert(adjLines);
-            if (linesError) throw linesError;
-        }
-
-        // 3. تحديث حالة الجرد
-        const { error: updateError } = await supabase.from('inventory_counts').update({ status: 'posted' }).eq('id', countId);
-        if (updateError) throw updateError;
-
+        // تحديث المخزون في الـ Context لضمان مزامنة الأرقام في الواجهة فوراً
         await recalculateStock();
-
-        // 4. إنشاء القيد المحاسبي (Journal Entry)
-        if (Math.abs(totalAdjustmentValue) > 0.01) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS');
-            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS');
-
-            if (inventoryAcc && adjustmentAcc) {
-                const lines = [];
-                if (totalAdjustmentValue > 0) {
-                    lines.push({ accountId: inventoryAcc.id, debit: totalAdjustmentValue, credit: 0, description: `زيادة جرد ${count.count_number}` });
-                    lines.push({ accountId: adjustmentAcc.id, debit: 0, credit: totalAdjustmentValue, description: 'فروقات جرد (زيادة)' });
-                } else {
-                    lines.push({ accountId: adjustmentAcc.id, debit: Math.abs(totalAdjustmentValue), credit: 0, description: 'فروقات جرد (عجز)' });
-                    lines.push({ accountId: inventoryAcc.id, debit: 0, credit: Math.abs(totalAdjustmentValue), description: `عجز جرد ${count.count_number}` });
-                }
-                
-                await addEntry({ date: new Date().toISOString().split('T')[0], reference: `ADJ-CNT-${count.count_number}`, description: `تسوية فروقات جرد رقم ${count.count_number}`, status: 'posted', lines: lines });
-            } else {
-                showToast('تنبيه: تم ترحيل الجرد ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات.', 'warning');
-            }
-        } else if (adjustmentItems.length > 0) {
-            showToast('تنبيه: تم ترحيل الجرد وتحديث الكميات، ولكن لم يتم إنشاء قيد محاسبي لأن تكلفة الأصناف صفر.', 'warning');
-        }
 
         showToast('تم ترحيل الجرد وإنشاء التسوية والقيد المحاسبي بنجاح ✅', 'success');
         setIsModalOpen(false);

@@ -34,8 +34,18 @@ const TaxReturnReport = () => {
             setLoading(true);
             try {
                 // حساب الحركات خلال الفترة باستخدام await لضمان الحصول على أرقام
-                const outAmount = await getAccountBalanceInPeriod(outputVatAcc.id, startDate, endDate);
-                const inAmount = await getAccountBalanceInPeriod(inputVatAcc.id, startDate, endDate);
+                const outRes = await getAccountBalanceInPeriod(outputVatAcc.id, startDate, endDate);
+                const inRes = await getAccountBalanceInPeriod(inputVatAcc.id, startDate, endDate);
+
+                // 🛡️ دالة مساعدة لاستخراج القيمة العددية من ردود Supabase المتنوعة (رقم، مصفوفة، أو كائن)
+                const extractAmount = (res: any) => {
+                    if (Array.isArray(res)) res = res[0];
+                    if (res && typeof res === 'object') return Number(res.balance ?? res.amount ?? res.net ?? Object.values(res)[0] ?? 0);
+                    return Number(res || 0);
+                };
+
+                const outAmount = extractAmount(outRes);
+                const inAmount = extractAmount(inRes);
 
                 setCalculatedData({
                     outputVatAmount: outAmount,
@@ -94,7 +104,7 @@ const TaxReturnReport = () => {
                 // 1. إقفال ضريبة المخرجات (هي دائنة بطبيعتها، نقفلها بالمدين)
                 if (reportData.outputVatAmount > 0) {
                     lines.push({ 
-                        accountId: reportData.outputVatAcc.id, 
+                        account_id: reportData.outputVatAcc.id, 
                         debit: reportData.outputVatAmount, 
                         credit: 0, 
                         description: 'إقفال ضريبة المخرجات' 
@@ -104,7 +114,7 @@ const TaxReturnReport = () => {
                 // 2. إقفال ضريبة المدخلات (هي مدينة بطبيعتها، نقفلها بالدائن)
                 if (reportData.inputVatAmount > 0) {
                     lines.push({ 
-                        accountId: reportData.inputVatAcc.id, 
+                        account_id: reportData.inputVatAcc.id, 
                         debit: 0, 
                         credit: reportData.inputVatAmount, 
                         description: 'إقفال ضريبة المدخلات' 
@@ -115,7 +125,7 @@ const TaxReturnReport = () => {
                 // إذا كان صافي الضريبة موجب (مخرجات > مدخلات) -> التزام علينا -> دائن في حساب التسوية
                 if (reportData.netVat > 0) {
                     lines.push({ 
-                        accountId: settlementAcc.id, 
+                        account_id: settlementAcc.id, 
                         debit: 0, 
                         credit: reportData.netVat, 
                         description: 'مستحق لهيئة الزكاة والضريبة (صافي الإقرار)' 
@@ -124,7 +134,7 @@ const TaxReturnReport = () => {
                 // إذا كان صافي الضريبة سالب (مدخلات > مخرجات) -> رصيد لنا -> مدين في حساب التسوية
                 else if (reportData.netVat < 0) {
                     lines.push({ 
-                        accountId: settlementAcc.id, 
+                        account_id: settlementAcc.id, 
                         debit: Math.abs(reportData.netVat), 
                         credit: 0, 
                         description: 'رصيد دائن (استرداد) من الهيئة' 

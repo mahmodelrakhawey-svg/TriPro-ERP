@@ -24,14 +24,15 @@ const ExpenseAnalysisReport = () => {
 
     // حساب الإجماليات من القيود المرحلة
     entries.forEach(entry => {
-      if (entry.date >= startDate && entry.date <= endDate && entry.status === 'posted') {
-        entry.lines.forEach(line => {
+      const entryDate = entry.transaction_date || entry.date || entry.created_at;
+      if (entryDate >= startDate && entryDate <= endDate && entry.status === 'posted') {
+        (entry.journal_lines || []).forEach(line => {
           // التحقق مما إذا كان الحساب هو حساب مصروفات
-          if (expenseAccounts.some(a => a.id === line.accountId)) {
+          if (expenseAccounts.some(a => a.id === line.account_id)) {
             // المصروفات طبيعتها مدينة: المدين يزيدها والدائن ينقصها
             const amount = (Number(line.debit) || 0) - (Number(line.credit) || 0);
-            if (amount !== 0 && line.accountId) {
-                accountTotals[line.accountId] = (accountTotals[line.accountId] || 0) + amount;
+            if (amount !== 0 && line.account_id) {
+                accountTotals[line.account_id] = (accountTotals[line.account_id] || 0) + amount;
             }
           }
         });

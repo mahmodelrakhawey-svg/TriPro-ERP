@@ -261,19 +261,22 @@ export const createEmployeeAdvanceSchema = z.object({
 
 
 export const payrollRunSchema = z.object({
-  monthYear: z.string().regex(/^\d{4}-\d{2}$/, 'صيغة الشهر والسنة غير صحيحة (YYYY-MM)'),
-  paymentDate: dateSchema,
-  treasuryId: idSchema,
+  month: z.number().min(1).max(12),
+  year: z.number().min(2020),
+  treasuryId: z.string().uuid('معرف الخزينة غير صالح'),
+  hasData: z.boolean().refine(val => val === true, {
+    message: 'لا يوجد موظفون في المسير لتشغيله',
+  }),
 });
 
 export const payrollItemSchema = z.object({
   employee_id: idSchema,
-  full_name: nameSchema,
-  gross_salary: amountSchema,
-  additions: amountSchema,
-  advances_deducted: amountSchema,
-  payroll_tax: amountSchema,
-  other_deductions: amountSchema,
+  full_name: z.string().min(1, 'اسم الموظف مطلوب'),
+  gross_salary: amountSchema.default(0),
+  additions: amountSchema.default(0),
+  advances_deducted: amountSchema.default(0),
+  payroll_tax: amountSchema.default(0),
+  other_deductions: amountSchema.default(0),
   net_salary: z.number(), // Calculated field, just ensure it's a number
   advances_ids: z.array(idSchema).optional(),
 });
