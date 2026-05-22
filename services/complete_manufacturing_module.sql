@@ -293,6 +293,7 @@ END; $$;
 -- ================================================================
 
 -- 📊 رؤية محاسبية عامة (ضرورية للوحة التحكم والتقارير المالية)
+DROP VIEW IF EXISTS public.journal_lines_view CASCADE;
 CREATE OR REPLACE VIEW public.journal_lines_view AS
 SELECT 
     jl.id,
@@ -307,6 +308,8 @@ SELECT
     je.description as entry_description,
     je.status,
     je.organization_id,
+    je.related_document_id,
+    je.related_document_type,
     a.code as account_code,
     a.name as account_name,
     a.type as account_type
@@ -693,7 +696,7 @@ BEGIN
     -- 🛡️ التحقق هل يوجد طلب صرف مواد (MR) مسبق لهذا الأمر لمنع الازدواجية وعدم الاتزان
     SELECT EXISTS (
         SELECT 1 FROM public.mfg_material_requests 
-        WHERE production_order_id = v_step.production_order_id 
+        WHERE production_order_id = v_step.production_order_id
         AND status = 'issued'
         -- نتحقق من وجود نفس المادة في طلب الصرف لضمان عدم تكرار قيدها
         AND id IN (SELECT material_request_id FROM public.mfg_material_request_items WHERE raw_material_id IN (SELECT raw_material_id FROM public.mfg_step_materials WHERE step_id = v_step.step_id))
@@ -1111,8 +1114,33 @@ END; $$;
 -- 🛠️ دالة بدء أمر إنتاج واحد
 CREATE OR REPLACE FUNCTION public.mfg_start_production_order(p_order_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+    v_prod_id uuid;
+    v_org_id uuid;
+    v_routing_id uuid;
 BEGIN
-    UPDATE public.mfg_production_orders SET status = 'in_progress', start_date = now()::date WHERE id = p_order_id;
+    -- 1. جلب بيانات أمر الإنتاج الأساسية
+    SELECT product_id, organization_id INTO v_prod_id, v_org_id 
+    FROM public.mfg_production_orders WHERE id = p_order_id;
+
+    -- 2. تحديث الحالة وتاريخ البدء
+    UPDATE public.mfg_production_orders 
+    SET status = 'in_progress', start_date = now()::date 
+    WHERE id = p_order_id AND status = 'draft';
+
+    -- 3. تحديد المسار الإنتاجي الافتراضي للمنتج
+    SELECT id INTO v_routing_id FROM public.mfg_routings 
+    WHERE product_id = v_prod_id AND organization_id = v_org_id AND is_default = true 
+    LIMIT 1;
+
+    -- 4. توليد مراحل العمل آلياً في جدول التقدم (إذا لم تكن مولدة مسبقاً)
+    IF v_routing_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM public.mfg_order_progress WHERE production_order_id = p_order_id) THEN
+        INSERT INTO public.mfg_order_progress (production_order_id, step_id, status, organization_id)
+        SELECT p_order_id, rs.id, 'pending', v_org_id
+        FROM public.mfg_routing_steps rs
+        WHERE rs.routing_id = v_routing_id
+        ORDER BY rs.step_order ASC;
+    END IF;
 END; $$;
 
 -- 🛠️ دالة بدء أوامر إنتاج متعددة دفعة واحدة
@@ -1120,27 +1148,23 @@ CREATE OR REPLACE FUNCTION public.mfg_start_production_orders_batch(p_order_ids 
 RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
     v_id uuid;
+    v_po_id uuid;
     v_count integer := 0;
 BEGIN
     FOR v_id IN SELECT unnest(p_order_ids) LOOP
-        -- 1. محاولة تحديث أمر الإنتاج مباشرة إذا كان المعرف الممرر هو معرف أمر الإنتاج
-        UPDATE public.mfg_production_orders
-        SET status = 'in_progress', start_date = now()::date
-        WHERE id = v_id AND status = 'draft' AND organization_id = public.get_my_org();
-        
-        -- 2. إذا لم يتم التحديث، نبحث عن أمر الإنتاج "المسودة" المرتبط بطلب البيع أو الفاتورة
-        IF NOT FOUND THEN
-            UPDATE public.mfg_production_orders po
-            SET status = 'in_progress', start_date = now()::date
-            FROM (
-                SELECT order_number FROM public.sales_orders WHERE id = v_id
-                UNION ALL
-                SELECT invoice_number FROM public.invoices WHERE id = v_id
-            ) src
-            WHERE po.batch_number = src.order_number AND po.status = 'draft' AND po.organization_id = public.get_my_org();
-        END IF;
+        -- البحث عن معرف أمر الإنتاج سواء كان الممرر هو المعرف المباشر أو معرف طلب بيع/فاتورة مرتبط
+        SELECT po.id INTO v_po_id
+        FROM public.mfg_production_orders po
+        LEFT JOIN public.sales_orders so ON po.batch_number = so.order_number
+        LEFT JOIN public.invoices inv ON po.batch_number = inv.invoice_number
+        WHERE (po.id = v_id OR so.id = v_id OR inv.id = v_id)
+        AND po.status = 'draft' AND po.organization_id = public.get_my_org()
+        LIMIT 1;
 
-        IF FOUND THEN v_count := v_count + 1; END IF;
+        IF v_po_id IS NOT NULL THEN
+            PERFORM public.mfg_start_production_order(v_po_id);
+            v_count := v_count + 1;
+        END IF;
     END LOOP;
     RETURN v_count;
 END; $$;

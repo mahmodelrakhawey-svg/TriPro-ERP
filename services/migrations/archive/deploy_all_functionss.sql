@@ -2017,15 +2017,15 @@ BEGIN
         FROM public.payroll_variables WHERE employee_id = (v_item->>'employee_id')::uuid 
         AND month = p_month AND year = p_year AND type = 'deduction' AND is_processed = false AND organization_id = v_org_id;
         -- حساب الصافي الحقيقي في السيرفر لضمان النزاهة المالية
-        v_emp_net := (v_item->>'gross_salary')::numeric + v_fixed_allowances + (v_item->>'additions')::numeric + v_monthly_additions
+        v_emp_net := COALESCE((v_item->>'gross_salary')::numeric, 0) + v_fixed_allowances + COALESCE((v_item->>'additions')::numeric, 0) + v_monthly_additions
                      - (COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions)
-                     - (v_item->>'advancesn_deducted')::numeric - COALESCE((v_item->>'payroll_tax')::numeric, 0);
-        v_total_gross := v_total_gross + (v_item->>'gross_salary')::numeric + v_fixed_allowances;
-        v_total_additions := v_total_additions + (v_item->>'additions')::numeric + v_monthly_additions;
+                     - COALESCE((v_item->>'advances_deducted')::numeric, 0) - COALESCE((v_item->>'payroll_tax')::numeric, 0);
+        v_total_gross := v_total_gross + COALESCE((v_item->>'gross_salary')::numeric, 0) + v_fixed_allowances;
+        v_total_additions := v_total_additions + COALESCE((v_item->>'additions')::numeric, 0) + v_monthly_additions;
         v_total_deductions := v_total_deductions + COALESCE((v_item->>'other_deductions')::numeric, 0) + v_monthly_deductions;
-        v_total_advances := v_total_advances + (v_item->>'advances_deducted')::numeric;
+        v_total_advances := v_total_advances + COALESCE((v_item->>'advances_deducted')::numeric, 0);
         v_total_payroll_tax := v_total_payroll_tax + COALESCE((v_item->>'payroll_tax')::numeric, 0);
-        v_total_net := v_total_net + v_emp_net;
+        v_total_net := v_total_net + COALESCE(v_emp_net, 0);
         
     END LOOP;
 
@@ -2070,12 +2070,17 @@ BEGIN
 
     RAISE NOTICE 'Payroll JE created: ID=% for OrgID=%', v_je_id, v_org_id;
 
+    -- 🛡️ التحقق من وجود الحسابات قبل البدء لتجنب عدم توازن القيد (SaaS Security Guard)
+    IF (v_total_additions > 0 AND v_bonuses_acc_id IS NULL) OR (v_total_deductions > 0 AND v_deductions_acc_id IS NULL) OR (v_total_payroll_tax > 0 AND v_payroll_tax_id IS NULL) THEN
+        RAISE EXCEPTION 'فشل ترحيل القيد: بعض الحسابات (مكافآت، خصومات، أو ضرائب) غير معرفة في إعدادات الربط رغم وجود مبالغ مستحقة.';
+    END IF;
+
     IF v_total_gross > 0 AND v_salaries_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_salaries_acc_id, v_total_gross, 0, 'استحقاق رواتب', v_org_id); END IF;
-    IF v_total_additions > 0 AND v_bonuses_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF; -- Ensure v_bonuses_acc_id is not NULL
+    IF v_total_additions > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_bonuses_acc_id, v_total_additions, 0, 'مكافآت وحوافز', v_org_id); END IF;
     IF v_total_advances > 0 AND v_advances_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_advances_acc_id, 0, v_total_advances, 'استرداد سلف', v_org_id); END IF;
-    IF v_total_deductions > 0 AND v_deductions_acc_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
-    IF v_total_payroll_tax > 0 AND v_payroll_tax_id IS NOT NULL THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_payroll_tax_id, 0, v_total_payroll_tax, 'ضريبة كسب العمل', v_org_id); END IF;
-    IF v_total_net > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_acc, 0, v_total_net, 'صرف صافي الرواتب', v_org_id); END IF;
+    IF v_total_deductions > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_deductions_acc_id, 0, v_total_deductions, 'خصومات وجزاءات', v_org_id); END IF;
+    IF v_total_payroll_tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_payroll_tax_id, 0, v_total_payroll_tax, 'ضريبة كسب العمل', v_org_id); END IF;
+    IF ABS(COALESCE(v_total_net, 0)) > 0.001 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, p_treasury_acc, 0, v_total_net, 'صرف صافي الرواتب', v_org_id); END IF;
 
      -- 🛡️ موازنة القيد آلياً في حال وجود فروق كسور عشرية بسيطة
     PERFORM public.fix_unbalanced_journal_entry(v_je_id);

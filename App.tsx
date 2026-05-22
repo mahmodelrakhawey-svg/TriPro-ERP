@@ -95,7 +95,11 @@ import FiscalYearClosing from './modules/accounting/FiscalYearClosing';
 import TrialBalanceAdvanced from './modules/accounting/TrialBalanceAdvanced';
 import ItemSalesAnalysis from './modules/reports/ItemSalesAnalysis';
 import PurchaseAnalysisReport from './modules/purchases/PurchaseAnalysisReport';
+import WorkOrderManager from './modules/manufacturing/WorkOrderManager';
 import ProductionCostAnalysis from './modules/reports/ProductionCostAnalysis';
+import UnitCostDrillDown from './modules/manufacturing/UnitCostDrillDown';
+import ManufacturingAlertsLog from './modules/manufacturing/ManufacturingAlertsLog';
+import CostClosingDashboard from './services/CostClosingDashboard';
 import SecurityLogs from './components/SecurityLogs';
 import PermissionsManager from './modules/admin/PermissionsManager';
 import Maintenance from './components/Maintenance';
@@ -397,6 +401,7 @@ const MainLayout = () => {
                 <Route path="/opening-inventory" element={<ModuleGuard module="inventory"><OpeningInventory /></ModuleGuard>} />
                 {/* المديول الجديد للتصنيع موجود في مسارات /mfg/ أدناه */}
                 <Route path="/mfg/dashboard" element={<ModuleGuard module="manufacturing"><ManufacturingDashboard /></ModuleGuard>} />
+                <Route path="/mfg/orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
                 <Route path="/mfg/batch-orders" element={<ModuleGuard module="manufacturing"><BatchOrderManager /></ModuleGuard>} />
                 <Route path="/mfg/shop-floor" element={<ModuleGuard module="manufacturing"><ShopFloorManager /></ModuleGuard>} />
                 <Route path="/mfg/quality-control" element={<ModuleGuard module="manufacturing"><QualityControlManager /></ModuleGuard>} />
@@ -408,6 +413,9 @@ const MainLayout = () => {
                 <Route path="/mfg/raw-materials-turnover" element={<ModuleGuard module="manufacturing"><RawMaterialsTurnover /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/wip-monthly-summary" element={<ModuleGuard module="manufacturing"><WIPMonthlySummaryReport /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
+                <Route path="/mfg/unit-cost-drilldown" element={<ModuleGuard module="manufacturing"><UnitCostDrillDown /></ModuleGuard>} />
+                <Route path="/mfg/alerts-log" element={<ModuleGuard module="manufacturing"><ManufacturingAlertsLog /></ModuleGuard>} />
+                <Route path="/mfg/closing" element={<ModuleGuard module="manufacturing"><CostClosingDashboard /></ModuleGuard>} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />

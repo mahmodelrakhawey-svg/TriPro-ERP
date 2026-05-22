@@ -548,8 +548,10 @@ BEGIN
         end_time = now(), actual_cash = p_actual_cash, status = 'CLOSED', notes = p_notes
     WHERE id = p_shift_id;
     PERFORM public.generate_shift_closing_entry(p_shift_id, p_org_id);
+    
+    -- 🏭 [تكامل التصنيع] ترحيل نسب إتمام الإنتاج آلياً عند إغلاق الوردية
+    PERFORM public.mfg_auto_post_wip_progress(COALESCE(p_org_id, public.get_my_org()));
 END; $$;
-
 -- 🛠️ دالة اعتماد سند القبض محاسبياً (Receipt Voucher Approval)
 CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(p_voucher_id uuid, p_credit_account_id uuid) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$

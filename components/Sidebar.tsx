@@ -138,7 +138,8 @@ const Sidebar: React.FC = () => {
     // التصنيع والإنتاج
     { type: 'section', label: 'التصنيع والإنتاج' },
     { to: '/mfg/dashboard', label: 'لوحة التحكم الصناعية', icon: LayoutDashboard, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
-    { to: '/mfg/batch-orders', label: 'أوامر الإنتاج (Batches)', icon: ClipboardList, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.orders' },
+    { to: '/mfg/orders', label: 'إدارة أوامر الإنتاج', icon: Factory, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.orders' },
+    { to: '/mfg/batch-orders', label: 'جدولة ودمج الطلبات', icon: ClipboardList, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.orders' },
     { to: '/mfg/shop-floor', label: 'أرضية المصنع (تتبع لحظي)', icon: Activity, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/quality-control', label: 'مركز رقابة الجودة', icon: ShieldCheck, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.qc' },
     { to: '/mfg/routing-bom', label: 'وصفات وقوائم المواد', icon: List, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.routings' },
@@ -149,6 +150,9 @@ const Sidebar: React.FC = () => {
     { to: '/mfg/raw-materials-turnover', label: 'دوران المواد الخام', icon: RefreshCw, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/wip-monthly-summary', label: 'ملخص الإنتاج تحت التشغيل', icon: PieChart, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/production-cost-analysis', label: 'تحليل تكاليف الإنتاج', icon: Calculator, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
+    { to: '/mfg/unit-cost-drilldown', label: 'تشريح تكلفة الوحدة', icon: Layers, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
+    { to: '/mfg/alerts-log', label: 'سجل التنبيهات الصناعية', icon: AlertTriangle, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
+    { to: '/mfg/closing', label: 'إغلاق الفترة المالي', icon: Calculator, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
 
     // الخزينة والبنوك
     { type: 'section', label: 'الخزينة والبنوك' },
