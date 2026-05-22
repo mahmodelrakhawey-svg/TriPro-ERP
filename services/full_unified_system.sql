@@ -10,7 +10,7 @@
 DO $$ 
 DECLARE 
     t text;
-    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments', 'payrolls', 'payroll_items'];
+    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments', 'payrolls', 'payroll_items', 'projects', 'project_boq', 'project_progress_billings', 'subcontractors', 'subcontractor_contracts', 'subcontractor_billings', 'project_material_issues', 'project_material_issue_items', 'project_daily_reports', 'project_retention_releases', 'project_milestones', 'project_custodies', 'project_custody_expenses'];
 BEGIN
     -- ضمان وجود عمود organization_id في كافة الجداول الأساسية
     FOREACH t IN ARRAY tables_to_heal LOOP
@@ -178,6 +178,13 @@ BEGIN
                 JOIN public.mfg_actual_material_usage amu_sub ON op_sub.id = amu_sub.order_progress_id
                 WHERE op_sub.production_order_id = po.id AND amu_sub.raw_material_id = mri.raw_material_id
             )
+
+            UNION ALL
+            -- 🏗️ استهلاك مواد لمشاريع المقاولات (-)
+            SELECT pmii.product_id, pmi.warehouse_id, -pmii.quantity
+            FROM public.project_material_issue_items pmii
+            JOIN public.project_material_issues pmi ON pmii.issue_id = pmi.id
+            WHERE pmi.status = 'approved' AND pmi.organization_id = v_final_org
         ) movements
         WHERE product_id IS NOT NULL AND warehouse_id IS NOT NULL
         AND (p_product_id IS NULL OR product_id = p_product_id)

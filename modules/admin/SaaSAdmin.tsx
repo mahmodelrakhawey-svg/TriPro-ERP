@@ -42,6 +42,7 @@ const AVAILABLE_MODULES = [
   { id: 'restaurant', label: 'مديول المطاعم' },
   { id: 'hr', label: 'الموارد البشرية' },
   { id: 'manufacturing', label: 'التصنيع والإنتاج' },
+  { id: 'construction', label: 'المقاولات والمشاريع' },
 ];
 
 const PLAN_CONFIGS: Record<string, { name: string, maxUsers: number, modules: string[] }> = {
@@ -58,7 +59,7 @@ const PLAN_CONFIGS: Record<string, { name: string, maxUsers: number, modules: st
   premium: {
     name: 'الباقة المتكاملة (مستخدمين: 15)',
     maxUsers: 15,
-    modules: ['accounting', 'sales', 'purchases', 'inventory', 'hr', 'restaurant', 'manufacturing']
+    modules: ['accounting', 'sales', 'purchases', 'inventory', 'hr', 'restaurant', 'manufacturing', 'construction']
   }
 };
 

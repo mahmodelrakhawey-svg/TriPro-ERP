@@ -101,6 +101,8 @@ import UnitCostDrillDown from './modules/manufacturing/UnitCostDrillDown';
 import ManufacturingAlertsLog from './modules/manufacturing/ManufacturingAlertsLog';
 import CostClosingDashboard from './services/CostClosingDashboard';
 import SecurityLogs from './components/SecurityLogs';
+import ProjectManager from './modules/construction/ProjectManager';
+import SubcontractorManager from './modules/construction/SubcontractorManager';
 import PermissionsManager from './modules/admin/PermissionsManager';
 import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
@@ -416,6 +418,11 @@ const MainLayout = () => {
                 <Route path="/mfg/unit-cost-drilldown" element={<ModuleGuard module="manufacturing"><UnitCostDrillDown /></ModuleGuard>} />
                 <Route path="/mfg/alerts-log" element={<ModuleGuard module="manufacturing"><ManufacturingAlertsLog /></ModuleGuard>} />
                 <Route path="/mfg/closing" element={<ModuleGuard module="manufacturing"><CostClosingDashboard /></ModuleGuard>} />
+
+                {/* موديول المقاولات والمشاريع */}
+                <Route path="/construction" element={<ModuleGuard module="construction"><ProjectManager /></ModuleGuard>} />
+                <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorManager onBack={() => window.history.back()} onViewContracts={(id) => console.log('Viewing contracts for:', id)} /></ModuleGuard>} />
+
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />

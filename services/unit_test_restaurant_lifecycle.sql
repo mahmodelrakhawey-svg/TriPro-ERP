@@ -551,6 +551,119 @@ EXCEPTION WHEN OTHERS THEN
     step_name := 'فشل حرج في التصنيع'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
 END; $$;
 
+-- 🏗️ 4. اختبار دورة حياة المقاولات (Construction Lifecycle Test)
+-- ℹ️ الغرض: التأكد من صحة إنشاء المشاريع، الربط المحاسبي، المستخلصات، وصرف المواد مع درع الميزانية.
+CREATE OR REPLACE FUNCTION public.test_construction_lifecycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_org_id uuid; v_user_id uuid; v_wh_id uuid; v_cust_id uuid;
+    v_prod_id uuid; v_project_id uuid; v_billing_id uuid; v_issue_id uuid;
+    v_je_id uuid; v_stock_before numeric; v_stock_after numeric;
+BEGIN
+    -- 🛡️ 1. تحديد بيانات الهوية للاختبار
+    PERFORM set_config('app.restore_mode', 'on', true);
+    
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles WHERE role = 'super_admin' LIMIT 1);
+    END IF;
+    
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT organization_id FROM public.profiles WHERE id = v_user_id);
+    END IF;
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    END IF;
+
+    -- 🛡️ تنظيف شامل لبيانات الاختبار السابقة
+    DELETE FROM public.projects WHERE organization_id = v_org_id AND name = 'Test Project Construction';
+    DELETE FROM public.customers WHERE organization_id = v_org_id AND name = 'Construction Test Customer';
+    DELETE FROM public.products WHERE organization_id = v_org_id AND name = 'Test Material Construction';
+
+    -- ضمان وجود عميل ومستودع ومنتج (مادة خام)
+    INSERT INTO public.customers (name, organization_id) VALUES ('Construction Test Customer', v_org_id) RETURNING id INTO v_cust_id;
+    
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('Construction Test WH', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    INSERT INTO public.products (name, organization_id, mfg_type, stock)
+    VALUES ('Test Material Construction', v_org_id, 'raw', 100) RETURNING id INTO v_prod_id;
+
+    -- 📥 رصيد افتتاحي للمادة الخام لكي يراها محرك المخزون
+    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
+    VALUES (v_prod_id, v_wh_id, 100, 50, v_org_id);
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+
+    step_name := '0. تهيئة البيئة'; result := 'PASS ✅'; details := format('المنظمة: %s، العميل: %s', v_org_id, v_cust_id); RETURN NEXT;
+
+    -- 🏗️ 1. إنشاء مشروع جديد
+    INSERT INTO public.projects (name, contract_value, customer_id, organization_id, status)
+    VALUES ('Test Project Construction', 100000, v_cust_id, v_org_id, 'active') RETURNING id INTO v_project_id;
+
+    step_name := '1. إنشاء المشروع'; result := 'PASS ✅'; details := format('المشروع ID: %s والقيمة: 100,000', v_project_id); RETURN NEXT;
+
+    -- 📋 2. إضافة بند BOQ (المقايسة)
+    INSERT INTO public.project_boq (project_id, item_name, unit, estimated_quantity, unit_price, organization_id)
+    VALUES (v_project_id, 'أعمال خرسانة اختبار', 'm3', 100, 500, v_org_id);
+
+    step_name := '2. إضافة بنود المقايسة (BOQ)'; result := 'PASS ✅'; details := 'تم إضافة بند خرسانة بقيمة إجمالية 50,000'; RETURN NEXT;
+
+    -- 📑 3. اختبار المستخلصات (الإيرادات والتحصيل)
+    -- محاكاة مستخلص بقيمة 20,000، خصم محجوز ضمان 2,000، واستهلاك دفعة مقدمة 3,000 (الصافي المتوقع 15,000)
+    INSERT INTO public.project_progress_billings (project_id, billing_number, billing_date, completion_percentage, gross_amount, retention_amount, advance_deduction, organization_id, status)
+    VALUES (v_project_id, 'BILL-TEST-001', CURRENT_DATE, 20, 20000, 2000, 3000, v_org_id, 'draft') RETURNING id INTO v_billing_id;
+
+    PERFORM public.fn_approve_project_billing(v_billing_id);
+
+    SELECT related_journal_entry_id INTO v_je_id FROM public.project_progress_billings WHERE id = v_billing_id;
+    IF v_je_id IS NOT NULL THEN
+        step_name := '3. اعتماد المستخلص'; result := 'PASS ✅'; details := format('تم توليد القيد المحاسبي بنجاح ID: %s', v_je_id);
+    ELSE
+        step_name := '3. اعتماد المستخلص'; result := 'FAIL ❌'; details := 'فشل توليد قيد المستخلص (راجع المحرك المالي)';
+    END IF;
+    RETURN NEXT;
+
+    -- 📦 4. اختبار صرف المواد وتحميل التكلفة (Cost Side)
+    SELECT stock INTO v_stock_before FROM public.products WHERE id = v_prod_id;
+    
+    INSERT INTO public.project_material_issues (project_id, warehouse_id, issue_number, organization_id, status)
+    VALUES (v_project_id, v_wh_id, 'ISS-TEST-001', v_org_id, 'draft') RETURNING id INTO v_issue_id;
+
+    INSERT INTO public.project_material_issue_items (issue_id, product_id, quantity, unit_cost)
+    VALUES (v_issue_id, v_prod_id, 10, 50);
+
+    PERFORM public.fn_approve_material_issue(v_issue_id);
+    PERFORM pg_sleep(0.3); -- انتظار تحديث المخزون
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+
+    SELECT stock INTO v_stock_after FROM public.products WHERE id = v_prod_id;
+
+    IF v_stock_after = (v_stock_before - 10) THEN
+        step_name := '4. صرف المواد والتكلفة'; result := 'PASS ✅'; details := format('تم خصم المخزون بنجاح. الرصيد المتبقي: %s حبة', v_stock_after);
+    ELSE
+        step_name := '4. صرف المواد والتكلفة'; result := 'FAIL ❌'; details := format('خطأ في حسابات المخزون! المتوقع: %s، الفعلي: %s', v_stock_before - 10, v_stock_after);
+    END IF;
+    RETURN NEXT;
+
+    -- 🏁 5. التحقق النهائي من حالة المشروع والربط الآلي
+    IF EXISTS (SELECT 1 FROM public.projects WHERE id = v_project_id AND cost_center_account_id IS NOT NULL) THEN
+        step_name := '5. التحقق من الربط المالي'; result := 'SUCCESS 🏆'; details := 'تم إنشاء وربط الحساب المالي للمشروع آلياً عبر التريجر.';
+    ELSE
+        step_name := '5. التحقق من الربط المالي'; result := 'FAIL ❌'; details := 'المشروع غير مرتبط بحساب مالي (Trigger trg_after_project_insert failed)';
+    END IF;
+    RETURN NEXT;
+
+    PERFORM set_config('app.restore_mode', 'off', true);
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل اختبار المقاولات'; result := 'CRITICAL 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
 -- 🧪 3. دالة اختبار شاملة لجميع مديولات المطعم (Unified Restaurant Modules Integrity Test)
 CREATE OR REPLACE FUNCTION public.test_all_restaurant_modules_integrity()
 RETURNS TABLE(test_suite text, step_name text, result text, details text)
@@ -642,6 +755,14 @@ BEGIN
         status := 'CRITICAL 🛑'; details := 'فشل في دورة مبيعات المطاعم';
     ELSE
         status := 'HEALTHY 🟢'; details := 'دورة المطاعم والمطبخ سليمة';
+    END IF; RETURN NEXT;
+
+    -- 🏗️ اختبارات المقاولات والمشاريع
+    suite_name := 'Construction & Projects';
+    IF EXISTS (SELECT 1 FROM public.test_construction_lifecycle() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في دورة المقاولات أو الحسابات المرتبطة';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'دورة المقاولات والمشاريع سليمة ومؤمنة';
     END IF; RETURN NEXT;
 
     -- 2. اختبارات التصنيع

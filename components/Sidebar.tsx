@@ -6,6 +6,7 @@ import {
   Settings, 
   LayoutDashboard, 
   ShoppingCart, 
+  Building2,
   Truck, 
   Package, 
   Users, 
@@ -153,6 +154,11 @@ const Sidebar: React.FC = () => {
     { to: '/mfg/unit-cost-drilldown', label: 'تشريح تكلفة الوحدة', icon: Layers, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/alerts-log', label: 'سجل التنبيهات الصناعية', icon: AlertTriangle, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/closing', label: 'إغلاق الفترة المالي', icon: Calculator, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
+
+    // موديول المقاولات والمشاريع
+    { type: 'section', label: 'المقاولات والمشاريع' },
+    { to: '/construction', label: 'إدارة المشاريع الإنشائية', icon: Building2, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
+    { to: '/subcontractors', label: 'مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
 
     // الخزينة والبنوك
     { type: 'section', label: 'الخزينة والبنوك' },

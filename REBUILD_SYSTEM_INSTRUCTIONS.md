@@ -13,14 +13,17 @@
  3. `services/full_unified_system.sql`
     - المحرك الموحد (V50.0): "الحقيقة النهائية" للنظام، يحتوي على أحدث منطق للمخزون والمحاسبة والـ RLS.
 
- 4. `services/complete_manufacturing_module.sql`
+ 4. `services/construction_module.sql`
+    - مديول المقاولات المتطور (V1.1): يشمل جداول المشاريع، الـ BOQ، المستخلصات، وصرف المواد للمواقع.
+
+ 5. `services/complete_manufacturing_module.sql`
     - مديول التصنيع المتكامل (الرقعة النهائية): يحتوي على الإصلاحات الدقيقة لمنع تكرار التكاليف وحساب التكلفة المعيارية بشكل صحيح. يجب تشغيله بعد المحرك الموحد لضمان بقاء هذه الإصلاحات.
 
- 5. `services/mfg_advanced_costing.sql`
+ 6. `services/mfg_advanced_costing.sql`
     - مديول التكاليف المتقدم: يحتوي على محرك الإنتاج المعادل، رؤى تشريح التكلفة، ودوال توزيع الأعباء.
- 6. `services/mfg_cost_analytics.sql`
+ 7. `services/mfg_cost_analytics.sql`
     - تحليلات التكاليف: يحتوي على رؤى تحليل اتجاهات التكلفة.
- 7. `services/setup_rls.sql`
+ 8. `services/setup_rls.sql`
     - طبقة الأمان (Security Layer): تفعيل سياسات أمان الصفوف (RLS) لضمان عزل بيانات كل منظمة.
 
 ---

@@ -411,6 +411,131 @@ export const createPurchaseReturnSchema = z.object({
   items: z.array(purchaseReturnItemSchema).min(1, 'يجب إضافة بند واحد على الأقل')
 });
 
+// ============== CONSTRUCTION SCHEMAS ==============
+
+export const createProjectSchema = z.object({
+  name: nameSchema,
+  description: textSchema.optional(),
+  customerId: idSchema,
+  contractValue: amountSchema,
+  startDate: dateSchema.optional(),
+  endDate: dateSchema.optional(),
+  status: z.enum(['planned', 'active', 'on_hold', 'completed', 'cancelled']).default('planned'),
+}).refine(data => !data.startDate || !data.endDate || data.endDate >= data.startDate, {
+  message: 'تاريخ النهاية يجب أن يكون بعد تاريخ البداية',
+  path: ['endDate']
+});
+
+export const projectBOQItemSchema = z.object({
+  item_name: z.string().min(2, 'اسم البند مطلوب'),
+  unit: z.string().min(1, 'الوحدة مطلوبة'),
+  estimated_quantity: z.number().positive('الكمية التقديرية يجب أن تكون موجبة'),
+  unit_price: amountSchema,
+});
+
+export const createProjectBillingSchema = z.object({
+  projectId: idSchema,
+  billingNumber: z.string().min(1, 'رقم المستخلص مطلوب'),
+  billingDate: dateSchema,
+  completionPercentage: percentSchema,
+  grossAmount: amountSchema,
+  retentionAmount: amountSchema.default(0),
+  notes: textSchema.optional(),
+});
+
+export const createSubcontractorSchema = z.object({
+  name: nameSchema,
+  phone: phoneSchema.optional().or(z.literal('')), // السماح بأن يكون فارغاً
+  specialty: z.string().min(1, 'التخصص مطلوب'),
+});
+
+export const createSubcontractorBillingSchema = z.object({
+  contractId: idSchema,
+  billingNumber: z.string().min(1),
+  billingDate: dateSchema,
+  grossAmount: amountSchema,
+  retentionAmount: amountSchema.default(0),
+  advanceDeduction: amountSchema.default(0),
+});
+
+export const materialIssueItemSchema = z.object({
+  productId: idSchema,
+  quantity: z.number().positive('الكمية يجب أن تكون موجبة'),
+  unitCost: amountSchema,
+});
+
+export const createMaterialIssueSchema = z.object({
+  projectId: idSchema,
+  warehouseId: idSchema,
+  issueNumber: z.string().min(1, 'رقم الإذن مطلوب'),
+  issueDate: dateSchema,
+  items: z.array(materialIssueItemSchema).min(1, 'يجب إضافة صنف واحد على الأقل'),
+});
+
+export const createCustodySchema = z.object({
+  projectId: idSchema,
+  employeeId: idSchema,
+  custodyName: z.string().min(3, 'اسم العهدة مطلوب'),
+  initialAmount: amountSchema.positive('المبلغ الابتدائي يجب أن يكون موجباً'),
+});
+
+export const custodyExpenseSchema = z.object({
+  amount: amountSchema.positive('مبلغ المصروف يجب أن يكون موجباً'),
+  description: z.string().min(5, 'يرجى كتابة وصف واضح للمصروف'),
+  expenseDate: dateSchema,
+  category: z.string().optional(),
+});
+
+export const dailyReportSchema = z.object({
+  projectId: idSchema,
+  reportDate: dateSchema,
+  workDescription: z.string().min(20, 'يرجى كتابة وصف تفصيلي للأعمال (20 حرف على الأقل)'),
+  manpowerCount: z.number().min(0, 'عدد العمالة لا يمكن أن يكون سالباً'),
+  weatherCondition: z.string().optional(),
+  equipmentStatus: z.string().optional(),
+  siteImages: z.array(z.string().url()).optional().default([]),
+  notes: z.string().optional(),
+});
+
+export const milestoneSchema = z.object({
+  projectId: idSchema,
+  title: z.string().min(5, 'عنوان المرحلة مطلوب (5 أحرف على الأقل)'),
+  expected_start_date: dateSchema,
+  expected_end_date: dateSchema,
+  actual_completion_date: dateSchema.optional().nullable(),
+  progress_percentage: percentSchema.default(0),
+  status: z.enum(['pending', 'in_progress', 'completed', 'delayed']).default('pending'),
+}).refine(data => data.expected_end_date >= data.expected_start_date, {
+  message: 'تاريخ الانتهاء المتوقع يجب أن يكون بعد تاريخ البدء المتوقع',
+  path: ['expected_end_date'],
+});
+
+export const retentionReleaseSchema = z.object({
+  amount: amountSchema.positive('المبلغ يجب أن يكون موجباً'),
+  release_type: z.enum(['customer', 'subcontractor'], { message: 'نوع الاسترداد مطلوب' }),
+  subcontractor_id: idSchema.optional().nullable(),
+  notes: textSchema.optional(),
+}).refine(data => {
+  if (data.release_type === 'subcontractor' && !data.subcontractor_id) {
+    return false;
+  }
+  return true;
+}, {
+  message: 'يجب اختيار مقاول باطن عند استرداد محجوزاته',
+  path: ['subcontractor_id'],
+});
+
+export type CreateProject = z.infer<typeof createProjectSchema>;
+export type ProjectBOQItem = z.infer<typeof projectBOQItemSchema>;
+export type CreateProjectBilling = z.infer<typeof createProjectBillingSchema>;
+export type CreateSubcontractor = z.infer<typeof createSubcontractorSchema>;
+export type CreateSubcontractorBilling = z.infer<typeof createSubcontractorBillingSchema>;
+export type CreateMaterialIssue = z.infer<typeof createMaterialIssueSchema>;
+export type CreateCustody = z.infer<typeof createCustodySchema>;
+export type CustodyExpense = z.infer<typeof custodyExpenseSchema>;
+export type MilestoneFormData = z.infer<typeof milestoneSchema>;
+export type RetentionReleaseFormData = z.infer<typeof retentionReleaseSchema>;
+
 
 // ============== USER MANAGER SCHEMAS ==============
 export const createUserManagerUserSchema = z.object({
