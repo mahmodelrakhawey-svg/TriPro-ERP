@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
 import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star, Percent, Layers, CreditCard, Lock, CheckCircle } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
-import { ModifierSelectionModal } from './ModifierSelectionModal';
+import { ModifierSelectionModal } from './Modals/ModifierSelectionModal';
 import type { SelectedModifier } from '../../../types';
 
 // --- Types ---

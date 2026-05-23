@@ -1,13 +1,13 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
-import RecipeManagement from '../../components/RecipeManagement';
+import RecipeManagement from '../restaurant/components/Management/RecipeManagement';
 import SearchableSelect from '../../components/SearchableSelect'; // Import the new component
-import { ModifierManagement } from '../../components/ModifierManagement';
+import { ModifierManagement } from '../restaurant/components/Management/ModifierManagement';
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import { createProductSchema, bulkOfferSchema, bulkPriceUpdateSchema } from '../../utils/validationSchemas';

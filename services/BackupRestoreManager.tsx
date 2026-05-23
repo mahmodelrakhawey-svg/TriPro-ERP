@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { Upload, Download, Loader2, Database, AlertCircle, FileJson, CheckCircle } from 'lucide-react';
-import { IntegrityCheckScreen } from './IntegrityCheckScreen';
+import { IntegrityCheckScreen } from '../components/IntegrityCheckScreen';
 
 /**
  * BackupRestoreManager

@@ -13,7 +13,7 @@ import { OrderSummary, ActiveOrder } from './OrderSummary';
 import { ModifierSelectionModal } from '../Modals/ModifierSelectionModal';
 import { PaymentModal } from '../Modals/PaymentModal';
 import { PendingOrdersSidebar } from './PendingOrdersSidebar';
-import { QRCodeModal } from '../QRCodeModal';
+import { QRCodeModal } from '../Modals/QRCodeModal';
 import { closeShiftSchema, validateData } from '../../../../utils/validationSchemas';
 import { BulkQRCodeModal } from '../Modals/BulkQRCodeModal';
 import { secureStorage } from '../../../../utils/securityMiddleware';

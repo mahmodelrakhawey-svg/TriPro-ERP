@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { supabase } from '../supabaseClient';
-import { useAccounting } from '../context/AccountingContext';
-import { useToast } from '../context/ToastContext';
+import { supabase } from '../../../../services/supabaseClient';
+import { useAccounting } from '../../../../context/AccountingContext';
+import { useToast } from '../../../../context/ToastContext';
 import { Search, Plus, Trash2, Save, Loader2, UtensilsCrossed, Info, X, DollarSign, Zap, Users } from 'lucide-react';
 
 interface Ingredient {
@@ -136,11 +136,12 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
     }
   };
 
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) && 
-    p.id !== productId &&
-    !ingredients.some(i => i.raw_material_id === p.id)
-  ).slice(0, 5);
+  const filteredProducts = useMemo(() => 
+    products.filter(p => 
+      (p.name.toLowerCase().includes(searchTerm.toLowerCase()) || p.sku?.includes(searchTerm)) && 
+      p.id !== productId &&
+      !ingredients.some(i => i.raw_material_id === p.id)
+    ).slice(0, 5), [products, searchTerm, ingredients, productId]);
 
   const totalRecipeCost = useMemo(() => {
     const materialsCost = ingredients.reduce((sum, ing) => sum + (ing.quantity_required * (ing.cost || 0)), 0);
