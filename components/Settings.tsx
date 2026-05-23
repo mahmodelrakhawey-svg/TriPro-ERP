@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
 import { z } from 'zod';
-import { runRestaurantModuleTest } from '../utils/runRestaurantFlowTest';
+import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
 import ArchiveManager from '../services/ArchiveManager'; // استيراد مدير الأرشفة
 
 const ACCOUNT_LABELS: Record<string, string> = {

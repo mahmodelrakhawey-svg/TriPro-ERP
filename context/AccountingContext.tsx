@@ -84,6 +84,8 @@ interface AccountingContextType {
   currentShift: any;
   activityLog: any[];
   refreshData: () => Promise<void>;
+  fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[], count: number }>;
+
   isDemo: boolean;
   clearCache: () => void;
   getFinancialSummary: () => Promise<any>;
@@ -337,7 +339,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // --- تنفيذ الدوال المطلوبة (RPC Wrappers) ---
   const clearCache = () => { window.location.reload(); };
   const getFinancialSummary = async () => { const { data } = await supabase.rpc('get_financial_summary', { p_org_id: currentSelectedOrgId }); return data; };
-  
+ 
+  const fetchEntriesPaged = useCallback(async (page: number, pageSize: number) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    if (!targetOrgId) return { data: [], count: 0 };
+
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    const { data, count, error } = await supabase
+      .from('journal_entries')
+      .select('*, journal_lines(*)', { count: 'exact' })
+      .eq('organization_id', targetOrgId)
+      .order('transaction_date', { ascending: false })
+      .range(from, to);
+
+    if (error) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Error fetching paged entries:', error);
+      }
+      return { data: [], count: 0 };
+    }
+
+    return { data: data || [], count: count || 0 };
+  }, [currentSelectedOrgId, currentUser?.organization_id]); 
   const addEntry = async (entry: any) => { const { error } = await supabase.rpc('add_journal_entry', entry); if (error) throw error; refreshData(); };
   const getSystemAccount = (key: string) => {
     const mappingId = settings.account_mappings?.[key];
@@ -767,9 +792,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const exportData = async () => { /* Logic to export JSON */ };
 
-  const value = {
+  const value: AccountingContextType = {
     organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
-    employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
+    fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
     users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
     currentShift, activityLog, refreshData, isDemo, can, clearCache,
     // Accounting Functions

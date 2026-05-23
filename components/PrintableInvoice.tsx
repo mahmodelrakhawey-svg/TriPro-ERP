@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ActiveOrder } from './OrderSummary';
+import type { ActiveOrder } from '../modules/restaurant/components/POS/OrderSummary';
 import type { SystemSettings } from '../types';
 
 interface PrintableInvoiceProps {

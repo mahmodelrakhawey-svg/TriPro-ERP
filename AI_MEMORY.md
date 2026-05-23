@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ١٥‏/٥‏/٢٠٢٦، ٣:٥٦:٠٣ م
+📅 تاريخ التحديث: ٢٣‏/٥‏/٢٠٢٦، ٤:٥٢:٠٦ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -31,7 +31,6 @@
     📄 verify_closing.sql
   📁 admin/
     📄 auto_setup_new_org.sql
-    📄 DataMigration.tsx
     📄 DataMigrationCenter.tsx
     📄 PermissionsManager.tsx
     📄 RecycleBin.tsx
@@ -43,31 +42,56 @@
     📄 ChequePrint.tsx
     📄 ChequesPage.tsx
     📄 ReturnedChequesReport.tsx
+  📁 construction/
+    📁 components/
+      📄 BillingManager.tsx
+      📄 BOQManager.tsx
+      📄 CustodyManager.tsx
+      📄 ProjectForm.tsx
+      📄 ProjectGanttChart.tsx
+      📄 ProjectManager.tsx
+      📄 ProjectMilestonesManager.tsx
+      📄 RetentionReleaseManager.tsx
+      📄 SiteRequisitionManager.tsx
+      📄 SubcontractorBillingManager.tsx
+      📄 SubcontractorContractsManager.tsx
+      📄 SubcontractorForm.tsx
+      📄 SubcontractorManager.tsx
+    📁 reports/
+      📄 ProjectProfitabilityDashboard.tsx
   📁 finance/
-    📄 BankReconciliationForm.tsx
-    📄 CashClosingForm.tsx
+    📁 components/
+      📄 BankReconciliationForm.tsx
+      📄 CashClosingForm.tsx
+      📄 CustomerDepositForm.tsx
+      📄 ExpenseVoucherForm.tsx
+      📄 PaymentVoucherForm.tsx
+      📄 ReceiptVoucherForm.tsx
+      📄 TransferForm.tsx
+    📁 reports/
+      📄 CustomerDepositPrint.tsx
+      📄 ExpenseVoucherPrint.tsx
+      📄 PaymentVoucherList.tsx
+      📄 PaymentVoucherPrint.tsx
+      📄 ReceiptVoucherList.tsx
+      📄 ReceiptVoucherPrint.tsx
     📄 ci.yml
-    📄 CustomerDepositForm.tsx
     📄 CustomerDepositPrint.tsx
-    📄 ExpenseVoucherForm.tsx
     📄 ExpenseVoucherPrint.tsx
     📄 keep-alive.ts
-    📄 PaymentVoucherForm.tsx
-    📄 PaymentVoucherList.tsx
     📄 PaymentVoucherPrint.tsx
-    📄 ReceiptVoucherForm.tsx
-    📄 ReceiptVoucherList.tsx
     📄 ReceiptVoucherPrint.tsx
-    📄 TransferForm.tsx
   📁 hooks/
     📄 usePermissions.ts
   📁 hr/
-    📄 EmployeeAdvances.tsx
-    📄 EmployeeManager.tsx
-    📄 EmployeeReports.tsx
-    📄 EmployeeStatement.tsx
-    📄 PayrollReport.tsx
-    📄 PayrollRun.tsx
+    📁 components/
+      📄 EmployeeAdvances.tsx
+      📄 EmployeeManager.tsx
+      📄 PayrollRun.tsx
+    📁 reports/
+      📄 EmployeeReports.tsx
+      📄 EmployeeStatement.tsx
+      📄 PayrollReport.tsx
   📁 inventory/
     📄 2026-04-05_add_notes_to_inventory_counts.sql
     📄 add_category_image.sql
@@ -78,7 +102,6 @@
     📄 InventoryRevaluation.tsx
     📄 ItemMovementReport.tsx
     📄 ItemProfitReport.tsx
-    📄 KitchenEndDayCount.tsx
     📄 OpeningInventory.tsx
     📄 ProductManager.tsx
     📄 secure_journals.sql
@@ -94,8 +117,35 @@
     📄 WastageManager.tsx
     📄 WastageReport.tsx
   📁 manufacturing/
-    📄 ManufacturingManager.tsx
-    📄 WorkOrderManager.tsx
+    📁 components/
+      📄 BatchOrderManager.tsx
+      📄 ByProductModal.tsx
+      📄 CostClosingDashboard.tsx
+      📄 ManufacturingDashboard.tsx
+      📄 ManufacturingManager.tsx
+      📄 MaterialRequestsList.tsx
+      📄 QualityControlManager.tsx
+      📄 RoutingBOMManager.tsx
+      📄 ScrapModal.tsx
+      📄 ShopFloorManager.tsx
+      📄 StageLedger.tsx
+      📄 WorkOrderManager.tsx
+    📁 reports/
+      📄 AdvancedCostingReports.tsx
+      📄 BOMVarianceReport.tsx
+      📄 GenealogyViewer.tsx
+      📄 ManufacturingAlertsLog.tsx
+      📄 ProductionCostAnalysis.tsx
+      📄 ProductionProfitabilityReport.tsx
+      📄 RawMaterialsTurnover.tsx
+      📄 StageVarianceReport.tsx
+      📄 UnitCostDrillDown.tsx
+      📄 WIPMonthlySummaryReport.tsx
+      📄 WorkCenterEfficiencyTable.tsx
+    📁 services/
+    📁 types.ts/
+    📄 MFG_TEST_SCENARIO.md
+    📄 StageLedger.tsx
   📁 purchases/
     📄 DebitNoteForm.tsx
     📄 DebitNoteList.tsx
@@ -126,11 +176,42 @@
     📄 PerformanceComparisonReport.tsx
     📄 ProductionCostAnalysis.tsx
     📄 Reports.tsx
-    📄 RestaurantProfitReport.tsx
-    📄 RestaurantSalesReport.tsx
-    📄 SalesByUserReport.tsx
     📄 TaxReturnReport.tsx
-    📄 WastageAnalysisReport.tsx
+  📁 restaurant/
+    📁 components/
+      📁 KDS/
+        📄 KdsScreen.tsx
+        📄 KitchenTicket.tsx
+      📁 Management/
+        📄 KitchenEndDayCount.tsx
+        📄 ModifierManagement.tsx
+      📁 Modals/
+        📄 BulkQRCodeModal.tsx
+        📄 CopyModifiersModal.tsx
+        📄 ModifierSelectionModal.tsx
+        📄 PaymentModal.tsx
+        📄 QRCodeModal.tsx
+      📁 POS/
+        📄 CustomerDisplay.tsx
+        📄 OrderSummary.tsx
+        📄 PendingOrdersSidebar.tsx
+        📄 PosScreen.tsx
+      📄 GuestMenuLayout.tsx
+      📄 ModifierSelectionModal.tsx
+      📄 OrderSummary.tsx
+      📄 PaymentModal.tsx
+      📄 QRCodeModal.tsx
+    📁 reports/
+      📄 RestaurantProfitReport.tsx
+      📄 RestaurantSalesReport.tsx
+      📄 SalesByUserReport.tsx
+      📄 WastageAnalysisReport.tsx
+    📁 services/
+      📄 modifierService.ts
+      📄 posService.ts
+    📁 types.ts/
+    📁 utils/
+      📄 runRestaurantFlowTest.ts
   📁 sales/
     📄 backup.yml
     📄 CreditNoteForm.tsx
@@ -158,39 +239,26 @@
   📄 About.tsx
   📄 add_overhead_percentage.sql
   📄 add_product_costs.sql
-  📄 BulkQRCodeModal.tsx
-  📄 CopyModifiersModal.tsx
-  📄 CustomerDisplay.tsx
   📄 Dashboard.tsx
   📄 DemoTour.tsx
   📄 DEPLOYMENT_STRATEGY.md
   📄 DraftJournalsList.tsx
   📄 FINAL_FEATURES_SUMMARY.md
   📄 full-flow-test.ts
-  📄 GuestMenuLayout.tsx
   📄 Header.tsx
   📄 index.ts
   📄 InvoiceItemsList.tsx
-  📄 KdsScreen.tsx
-  📄 KitchenTicket.tsx
   📄 LandingPage.tsx
   📄 Login.tsx
   📄 Maintenance.tsx
   📄 ModifierManagement.tsx
-  📄 ModifierSelectionModal.tsx
   📄 NotificationCenter.tsx
   📄 OfflineSyncProvider.tsx
-  📄 OrderSummary.tsx
-  📄 PaymentModal.tsx
-  📄 PendingOrdersSidebar.tsx
-  📄 PosScreen.tsx
   📄 PrintableInvoice.tsx
   📄 ProductStockViewer.tsx
-  📄 QRCodeModal.tsx
   📄 RecipeManagement.tsx
   📄 ReportHeader.tsx
   📄 run-flow-test.ts
-  📄 SaasAdmin.tsx
   📄 search-tool.ts
   📄 SearchableSelect.tsx
   📄 SecurityLogs.tsx
@@ -203,25 +271,6 @@
   📄 UserProfile.tsx
 📁 services/
   📁 mfg/
-    📄 BatchOrderManager.tsx
-    📄 BOMVarianceReport.tsx
-    📄 GenealogyViewer.tsx
-    📄 manufacturing_alerts.sql
-    📄 manufacturing_functions.sql
-    📄 manufacturing_qc_variance.sql
-    📄 manufacturing_rls.sql
-    📄 manufacturing_setup.sql
-    📄 manufacturing_stabilization.sql
-    📄 ManufacturingDashboard.tsx
-    📄 MaterialRequestsList.tsx
-    📄 mfg_rls_test.sql
-    📄 MFG_TEST_SCENARIO.md
-    📄 ProductionProfitabilityReport.tsx
-    📄 QualityControlManager.tsx
-    📄 RoutingBOMManager.tsx
-    📄 ShopFloorManager.tsx
-    📄 WIPMonthlySummaryReport.tsx
-    📄 WorkCenterEfficiencyTable.tsx
   📁 migrations/
     📁 archive/
       📄 admin_platform_stats.sql
@@ -232,6 +281,7 @@
       📄 comprehensive_fix.sql
       📄 create_fix_schema_function.sql
       📄 debug_rls_permissions.sql
+      📄 deploy_all_functionss.sql
       📄 diagnostic_auth_debug.sql
       📄 diagnostic_invoice_journal.sql
       📄 disable_all_rls.sql
@@ -261,6 +311,13 @@
       📄 fix_user_creation.sql
       📄 invoice_items_queries.sql
       📄 link_returns_to_invoices.sql
+      📄 manufacturing_alerts.sql
+      📄 manufacturing_functions.sql
+      📄 manufacturing_qc_variance.sql
+      📄 manufacturing_rls.sql
+      📄 manufacturing_setup.sql
+      📄 manufacturing_stabilization.sql
+      📄 mfg_rls_test.sql
       📄 populate_demo_activity.sql
       📄 quick_diagnostic.sql
       📄 recalculate_stock_rpc.sql
@@ -349,24 +406,27 @@
   📄 backup_script.sh
   📄 BackupRestoreManager.tsx
   📄 complete_manufacturing_module.sql
+  📄 construction_module.sql
   📄 create-client.ts
-  📄 deploy_all_functionss.sql
+  📄 DailyReportForm.tsx
+  📄 full_unified_system.sql
   📄 geminiService.ts
   📄 index.ts
   📄 initialize_egyptian_coa.sql
   📄 IntegrityCheckScreen.tsx
   📄 invoiceItems.ts
   📄 master_setup.sql
-  📄 modifierService.ts
+  📄 mfg_advanced_costing.sql
+  📄 mfg_cost_analytics.sql
   📄 NEXT_PHASE_ROADMAP.md
   📄 NotificationScheduler.ts
   📄 notificationService.ts
   📄 notificationTestUtils.ts
   📄 offlineService.ts
   📄 Quotations.tsx
-  📄 RawMaterialsTurnover.tsx
   📄 setup_rls.sql
   📄 supabaseClient.ts
+  📄 unit_test_restaurant_lifecycle.sql
   📄 updated_system_stabilization.sql
   📄 UserManagement.tsx
   📄 WhatsAppButton.tsx
@@ -404,10 +464,11 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@google/genai": "^1.34.0",
+    "@hookform/resolvers": "^5.4.0",
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.16",
     "@types/nodemailer": "^7.0.11",
-    "date-fns": "^4.1.0",
+    "date-fns": "^4.2.1",
     "dexie": "^4.3.0",
     "dexie-react-hooks": "^4.2.0",
     "html2canvas": "^1.4.1",
@@ -417,13 +478,14 @@
     "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-hook-form": "^7.76.0",
     "react-hot-toast": "^2.6.0",
     "react-router-dom": "^6.20.0",
     "react-to-print": "^3.3.0",
     "recharts": "^3.6.0",
     "uuid": "^13.0.0",
     "xlsx": "^0.18.5",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@testing-library/react": "^16.0.0",
@@ -485,7 +547,7 @@ import InventoryCountForm from './modules/inventory/InventoryCountForm';
 import InventoryCountList from './modules/inventory/InventoryCountList';
 import StockCard from './modules/inventory/StockCard';
 import CustomerManager from './modules/sales/CustomerManager';
-import BankReconciliationForm from './modules/finance/BankReconciliationForm';
+import BankReconciliationForm from './modules/finance/components/BankReconciliationForm';
 import OpeningInventory from './modules/inventory/OpeningInventory';
 import CustomerStatement from './modules/sales/CustomerStatement';
 import CustomerAgingReport from './modules/sales/CustomerAgingReport';
@@ -498,33 +560,33 @@ import TopSellingReport from './modules/inventory/TopSellingReport';
 import SlowMovingReport from './modules/inventory/SlowMovingReport';
 import ItemProfitReport from './modules/inventory/ItemProfitReport';
 import ProductManager from './modules/inventory/ProductManager';
-import ReceiptVoucherForm from './modules/finance/ReceiptVoucherForm';
+import ReceiptVoucherForm from './modules/finance/components/ReceiptVoucherForm';
 import InventoryRevaluation from './modules/inventory/InventoryRevaluation';
 import StockMovementCostReport from './modules/inventory/StockMovementCostReport';
-import ReceiptVoucherList from './modules/finance/ReceiptVoucherList';
-import PaymentVoucherForm from './modules/finance/PaymentVoucherForm';
+import ReceiptVoucherList from './modules/finance/reports/ReceiptVoucherList';
+import PaymentVoucherForm from './modules/finance/components/PaymentVoucherForm';
 import WastageManager from './modules/inventory/WastageManager';
 import InventoryDashboard from './modules/inventory/InventoryDashboard';
-import PaymentVoucherList from './modules/finance/PaymentVoucherList';
-import ExpenseVoucherForm from './modules/finance/ExpenseVoucherForm';
-import CustomerDepositForm from './modules/finance/CustomerDepositForm';
-import TransferForm from './modules/finance/TransferForm';
+import PaymentVoucherList from './modules/finance/reports/PaymentVoucherList';
+import ExpenseVoucherForm from './modules/finance/components/ExpenseVoucherForm';
+import CustomerDepositForm from './modules/finance/components/CustomerDepositForm';
+import TransferForm from './modules/finance/components/TransferForm';
 import StockTransfer from './modules/inventory/StockTransfer';
 import StockTransferList from './modules/inventory/StockTransferList';
 import WarehouseManager from './modules/inventory/WarehouseManager';
-import CashClosingForm from './modules/finance/CashClosingForm';
+import CashClosingForm from './modules/finance/components/CashClosingForm';
 import DeficitReport from './modules/reports/DeficitReport';
 import Login from './components/Login';
 import UserManager from './components/UserManager';
 import Settings from './components/Settings';
 import { ChequesPage } from './modules/banking/ChequesPage';
 import AssetManager from './modules/assets/AssetManager';
-import EmployeeManager from './modules/hr/EmployeeManager';
-import PayrollRun from './modules/hr/PayrollRun';
-import EmployeeAdvances from './modules/hr/EmployeeAdvances';
-import PayrollReport from './modules/hr/PayrollReport';
-import EmployeeStatement from './modules/hr/EmployeeStatement';
-import EmployeeReports from './modules/hr/EmployeeReports';
+import EmployeeManager from './modules/hr/components/EmployeeManager';
+import PayrollRun from './modules/hr/components/PayrollRun';
+import EmployeeAdvances from './modules/hr/components/EmployeeAdvances';
+import PayrollReport from './modules/hr/reports/PayrollReport';
+import EmployeeStatement from './modules/hr/reports/EmployeeStatement';
+import EmployeeReports from './modules/hr/reports/EmployeeReports';
 import SalesOrders from './modules/sales/SalesOrders';
 import QuotationForm from './modules/sales/QuotationForm';
 import QuotationList from './modules/sales/QuotationList';
@@ -544,49 +606,55 @@ import FiscalYearClosing from './modules/accounting/FiscalYearClosing';
 import TrialBalanceAdvanced from './modules/accounting/TrialBalanceAdvanced';
 import ItemSalesAnalysis from './modules/reports/ItemSalesAnalysis';
 import PurchaseAnalysisReport from './modules/purchases/PurchaseAnalysisReport';
-import ProductionCostAnalysis from './modules/reports/ProductionCostAnalysis';
+import WorkOrderManager from './modules/manufacturing/components/WorkOrderManager';
+import ProductionCostAnalysis from './modules/manufacturing/reports/ProductionCostAnalysis';
+import UnitCostDrillDown from './modules/manufacturing/reports/UnitCostDrillDown';
+import ManufacturingAlertsLog from './modules/manufacturing/reports/ManufacturingAlertsLog';
+import CostClosingDashboard from './modules/manufacturing/components/CostClosingDashboard';
 import SecurityLogs from './components/SecurityLogs';
+import ProjectManager from './modules/construction/components/ProjectManager';
+import SubcontractorManager from './modules/construction/components/SubcontractorManager';
 import PermissionsManager from './modules/admin/PermissionsManager';
 import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
 import RecycleBin from './modules/admin/RecycleBin';
-import SaasAdmin from './components/SaasAdmin';
+import SaasAdmin from './modules/admin/SaaSAdmin';
 import DataMigrationCenter from './modules/admin/DataMigrationCenter';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement'; // Re-add this import
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
 import UserGuide from './components/UserGuide';
 import AttachmentsReport from './modules/reports/AttachmentsReport';
 import DetailedStockMovementReport from './modules/inventory/DetailedStockMovementReport';
-import ManufacturingDashboard from './services/mfg/ManufacturingDashboard';
-import BatchOrderManager from './services/mfg/BatchOrderManager';
-import ShopFloorManager from './services/mfg/ShopFloorManager';
-import QualityControlManager from './services/mfg/QualityControlManager';
-import BOMVarianceReport from './services/mfg/BOMVarianceReport';
-import GenealogyViewer from './services/mfg/GenealogyViewer';
-import ProductionProfitabilityReport from './services/mfg/ProductionProfitabilityReport';
-import RoutingBOMManager from './services/mfg/RoutingBOMManager'; // New import
-import MaterialRequestsList from './services/mfg/MaterialRequestsList'; // New import for Material Requests
-import { RawMaterialsTurnover } from './services/RawMaterialsTurnover'; // New import for Raw Materials Turnover
-import WIPMonthlySummaryReport from './services/mfg/WIPMonthlySummaryReport'; // New import for WIP Monthly Summary
+import ManufacturingDashboard from './modules/manufacturing/components/ManufacturingDashboard';
+import BatchOrderManager from './modules/manufacturing/components/BatchOrderManager';
+import ShopFloorManager from './modules/manufacturing/components/ShopFloorManager';
+import QualityControlManager from './modules/manufacturing/components/QualityControlManager';
+import BOMVarianceReport from './modules/manufacturing/reports/BOMVarianceReport';
+import GenealogyViewer from './modules/manufacturing/reports/GenealogyViewer';
+import ProductionProfitabilityReport from './modules/manufacturing/reports/ProductionProfitabilityReport';
+import RoutingBOMManager from './modules/manufacturing/components/RoutingBOMManager';
+import MaterialRequestsList from './modules/manufacturing/components/MaterialRequestsList';
+import { RawMaterialsTurnover } from './modules/manufacturing/reports/RawMaterialsTurnover';
+import WIPMonthlySummaryReport from './modules/manufacturing/reports/WIPMonthlySummaryReport';
 import UserProfile from './components/UserProfile';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
-import GuestMenuLayout from './components/GuestMenuLayout';
+import GuestMenuLayout from './modules/restaurant/components/GuestMenuLayout';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 import About from './components/About';
-import RestaurantSalesReport from './modules/reports/RestaurantSalesReport';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
-import PosScreen from './components/PosScreen'; // تأكد من المسار الصحيح
-import KitchenEndDayCount from './modules/inventory/KitchenEndDayCount'; // إضافة جرد المطبخ
-import KdsScreen from './components/KdsScreen'; // إضافة شاشة المطبخ
-import SalesByUserReport from './modules/reports/SalesByUserReport';
-import WastageAnalysisReport from './modules/reports/WastageAnalysisReport'; // تأكد من أن الملف في هذا المسار
-import RestaurantProfitReport from './modules/reports/RestaurantProfitReport'; // إضافة تقرير الربحية
+import PosScreen from './modules/restaurant/components/POS/PosScreen';
+import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
+import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
+import RestaurantSalesReport from './modules/restaurant/reports/RestaurantSalesReport';
+import SalesByUserReport from './modules/restaurant/reports/SalesByUserReport';
+import WastageAnalysisReport from './modules/restaurant/reports/WastageAnalysisReport';
+import RestaurantProfitReport from './modules/restaurant/reports/RestaurantProfitReport';
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
-import CustomerDisplay from './components/CustomerDisplay';
+import CustomerDisplay from './modules/restaurant/components/POS/CustomerDisplay';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -846,6 +914,7 @@ const MainLayout = () => {
                 <Route path="/opening-inventory" element={<ModuleGuard module="inventory"><OpeningInventory /></ModuleGuard>} />
                 {/* المديول الجديد للتصنيع موجود في مسارات /mfg/ أدناه */}
                 <Route path="/mfg/dashboard" element={<ModuleGuard module="manufacturing"><ManufacturingDashboard /></ModuleGuard>} />
+                <Route path="/mfg/orders" element={<ModuleGuard module="manufacturing"><WorkOrderManager /></ModuleGuard>} />
                 <Route path="/mfg/batch-orders" element={<ModuleGuard module="manufacturing"><BatchOrderManager /></ModuleGuard>} />
                 <Route path="/mfg/shop-floor" element={<ModuleGuard module="manufacturing"><ShopFloorManager /></ModuleGuard>} />
                 <Route path="/mfg/quality-control" element={<ModuleGuard module="manufacturing"><QualityControlManager /></ModuleGuard>} />
@@ -856,7 +925,15 @@ const MainLayout = () => {
                 <Route path="/mfg/material-requests" element={<ModuleGuard module="manufacturing"><MaterialRequestsList /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/raw-materials-turnover" element={<ModuleGuard module="manufacturing"><RawMaterialsTurnover /></ModuleGuard>} /> {/* New Route */}
                 <Route path="/mfg/wip-monthly-summary" element={<ModuleGuard module="manufacturing"><WIPMonthlySummaryReport /></ModuleGuard>} /> {/* New Route */}
-                <Route path="/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
+                <Route path="/mfg/production-cost-analysis" element={<ModuleGuard module="manufacturing"><ProductionCostAnalysis /></ModuleGuard>} />
+                <Route path="/mfg/unit-cost-drilldown" element={<ModuleGuard module="manufacturing"><UnitCostDrillDown /></ModuleGuard>} />
+                <Route path="/mfg/alerts-log" element={<ModuleGuard module="manufacturing"><ManufacturingAlertsLog /></ModuleGuard>} />
+                <Route path="/mfg/closing" element={<ModuleGuard module="manufacturing"><CostClosingDashboard /></ModuleGuard>} />
+
+                {/* موديول المقاولات والمشاريع */}
+                <Route path="/construction" element={<ModuleGuard module="construction"><ProjectManager /></ModuleGuard>} />
+                <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorManager onBack={() => window.history.back()} onViewContracts={(id) => console.log('Viewing contracts for:', id)} /></ModuleGuard>} />
+
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />
@@ -1022,13 +1099,27 @@ export const SYSTEM_ACCOUNTS = {
   EMPLOYEE_BONUSES: '5312',
   EMPLOYEE_DEDUCTIONS: '422',
   PAYROLL_TAX: '2233',
-  CASH_SHORTAGE: '541',
+  CASH_SHORTAGE: '541', // تسوية عجز الصندوق
+  BANK_ACCOUNTS: '123201', // حساب البنك الرئيسي (الأهلي المصري افتراضياً)
   INVENTORY_RAW_MATERIALS: '10301',
   INVENTORY_WIP: '10303',
   INVENTORY_FINISHED_GOODS: '10302',
   LABOR_COST_ALLOCATED: '513',
   WASTAGE_EXPENSE: '5121',
-  SECURITY_DEPOSIT_ACCOUNT: '226'
+  SECURITY_DEPOSIT_ACCOUNT: '226',
+  WHT_PAYABLE: '2232', // ضريبة الخصم والتحصيل - علينا
+  WHT_RECEIVABLE: '1242', // ضريبة الخصم والتحصيل - لنا
+  SALES_RETURNS: '412', // مردودات المبيعات
+  SALES_DISCOUNT: '413', // الخصم المسموح به
+  ASSETS_FIXED: '111', // الأصول الثابتة
+  ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
+  DEPRECIATION_EXPENSE: '533', // مصروف الإهلاك
+  OPENING_BALANCES: '3999', // الأرصدة الافتتاحية
+  PREPAID_EXPENSES: '1243', // مصروفات مقدمة
+  ACCRUED_EXPENSES: '225', // مصروفات مستحقة
+  REVENUE_OTHER: '421', // إيرادات أخرى
+  EXPENSE_GENERAL: '53', // مصروفات إدارية وعمومية
+  SOCIAL_INSURANCE: '224' // هيئة التأمينات الاجتماعية
 };
 
 interface AccountingContextType {
@@ -1099,9 +1190,9 @@ interface AccountingContextType {
   addSupplier: (supplier: any) => Promise<any>;
   updateSupplier: (id: string, updates: any) => Promise<void>;
   deleteSupplier: (id: string, reason?: string) => Promise<void>;
-  approveInvoice: (id: string) => Promise<boolean>;
-  approvePurchaseInvoice: (id: string) => Promise<void>;
-  convertPoToInvoice: (poId: string, warehouseId?: string) => Promise<void>;
+  approveInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>;
+  approvePurchaseInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<void>;
+  convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
   addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
   addPaymentVoucher: (voucher: any) => Promise<void>;
   // --- دوال الأصول والشيكات ---
@@ -1118,7 +1209,7 @@ interface AccountingContextType {
   addEmployee: (employee: any) => Promise<void>;
   updateEmployee: (id: string, updates: any) => Promise<void>;
   deleteEmployee: (id: string, reason?: string) => Promise<void>;
-  runPayroll: (monthYear: string, date: string, treasuryId: string, data: any[]) => Promise<void>;
+  runPayroll: (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => Promise<void>;
   // --- دوال المطاعم ---
   finalizeProductionOrder: (id: string, status: string, notes: string) => Promise<any>;
   openTableSession: (tableId: string) => Promise<string | null>;
@@ -1128,7 +1219,7 @@ interface AccountingContextType {
   mergeTableSessions: (sourceId: string, targetId: string) => Promise<boolean>;
   createRestaurantOrder: (payload: any) => Promise<string>;
   getOpenTableOrder: (tableId: string) => Promise<any>;
-  completeRestaurantOrder: (orderId: string, method: string, total: number, accountId: string | null) => Promise<void>;
+  completeRestaurantOrder: (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => Promise<void>;
   processSplitPayment: (orderId: string, items: any[], method: string, total: number, accountId: string) => Promise<boolean>;
   addRestaurantTable: (data: any) => Promise<void>;
   updateRestaurantTable: (id: string, data: any) => Promise<void>;
@@ -1200,10 +1291,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setIsLoading(true);
     try {
       // جلب بيانات المنظمة والبروفايل
-      const { data: profile } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
+      const { data: profile, error: profileError } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
+      if (profileError) throw profileError;
       if (profile) {
         setCurrentUser(profile);
-        setOrganization(profile.organizations);
       }
 
       // Determine the organization ID to use for fetching data
@@ -1226,6 +1317,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
       }
       if (!fetchOrgId) return; // If still no orgId, return.
+
+      // تحديث كائن المنظمة ليتوافق مع المنظمة النشطة (دعم السوبر أدمن)
+      if (fetchOrgId === profile.organization_id) {
+        setOrganization(profile.organizations);
+      } else {
+        // جلب تفاصيل المنظمة المختارة يدوياً
+        const { data: selectedOrg } = await supabase.from('organizations').select('*').eq('id', fetchOrgId).single();
+        if (selectedOrg) setOrganization(selectedOrg);
+      }
 
       // If super admin, fetch all organizations to populate the selector
       if (authUser.role === 'super_admin') {
@@ -1282,7 +1382,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCustomers(custs.data || []);
       setSuppliers(sups.data || []);
       setCheques(chqs.data || []);
-      setCurrentShift(shift.data);
+      
+      // تتبع بيانات الوردية القادمة من قاعدة البيانات
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Raw Shift Data from RPC:', shift.data);
+      }
+
+      // 🛡️ تصحيح جذري: التحقق من وجود ID حقيقي للوردية لمنع الوردية "الوهمية"
+      const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
+      setCurrentShift(activeShiftData && activeShiftData.id ? activeShiftData : null);
       setLastUpdated(new Date());
 
     } catch (error) {
@@ -1333,12 +1441,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   // Inventory
   const recalculateStock = async (productId?: string) => { 
-    const { error } = await supabase.rpc('recalculate_stock_rpc', { p_product_id: productId || null, p_org_id: currentSelectedOrgId }); 
-    if (error) {
+    const { error } = await supabase.rpc('recalculate_stock_rpc', { 
+      p_product_id: productId || null, 
+      p_org_id: currentSelectedOrgId || currentUser?.organization_id || null 
+    }); 
+        if (error) {
       showToast('فشل إعادة حساب المخزون: ' + error.message, 'error');
     } else {
       showToast('تم تحديث المخزون بنجاح ✅', 'success');
-      refreshData(); 
+      await refreshData(); // 🚀 الانتظار ضروري لتحديث الحالة قبل إغلاق اللودر في الواجهة
     }
   };  const addProduct = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -1434,9 +1545,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     refreshData(); 
   };
-  const approveInvoice = async (id: string) => { const { error } = await supabase.rpc('post_sales_invoice', { p_invoice_id: id }); refreshData(); return !error; };
-  const approvePurchaseInvoice = async (id: string) => { 
-    const { error } = await supabase.rpc('post_purchase_invoice', { p_invoice_id: id }); 
+  const approveInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
+    const { error } = await supabase.rpc('post_sales_invoice', { 
+      p_invoice_id: id,
+      p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id || null,
+      p_warehouse_id: warehouseId
+    }); 
+    refreshData(); 
+    return !error; 
+  };
+   const approvePurchaseInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
+    const { error } = await supabase.rpc('post_purchase_invoice', { 
+      p_invoice_id: id,
+      p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id,
+      p_warehouse_id: warehouseId
+    }); 
     if (error) {
       showToast('فشل اعتماد الفاتورة: ' + error.message, 'error');
     } else {
@@ -1444,8 +1567,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       refreshData();
     }
   };
-  const convertPoToInvoice = async (id: string, warehouseId?: string) => { 
-    const { error } = await supabase.rpc('convert_po_to_invoice', { p_po_id: id, p_warehouse_id: warehouseId }); 
+  const convertPoToInvoice = async (id: string, warehouseId?: string, orgId?: string) => { 
+    const { error } = await supabase.rpc('convert_po_to_invoice', { 
+      p_po_id: id, 
+      p_warehouse_id: warehouseId,
+      p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id
+    }); 
     if (error) {
       showToast('فشل تحويل أمر الشراء: ' + error.message, 'error');
     } else {
@@ -1523,7 +1650,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     await refreshData(); 
   };
-  const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => { await supabase.from('cheques').update({ status }).eq('id', id); refreshData(); };
+  const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => {
+    const updatePayload: { status: string; current_account_id?: string | null } = { status };
+    if (bankId !== undefined) { // تضمين bankId فقط إذا تم تمريره صراحةً، مما يسمح بمسحه إذا كان null
+      updatePayload.current_account_id = bankId;
+    }
+    await supabase.from('cheques').update(updatePayload).eq('id', id); 
+    refreshData(); 
+  };     
   const addTransfer = async (transfer: any) => { await supabase.rpc('add_treasury_transfer', transfer); refreshData(); };
   const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const permanentDeleteItem = async (table: string, id: string) => { const { error } = await supabase.from(table).delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
@@ -1538,17 +1672,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const updateEmployee = async (id: string, data: any) => { await supabase.from('employees').update(data).eq('id', id); refreshData(); };
   const deleteEmployee = async (id: string, reason?: string) => { await supabase.from('employees').update({ status: 'terminated', notes: reason }).eq('id', id); refreshData(); };
-  const runPayroll = async (monthYear: string, date: string, treasuryId: string, data: any[]) => {
-    const [year, month] = monthYear.split('-').map(Number);
-    await supabase.rpc('run_payroll_rpc', {
+  const runPayroll = async (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => {
+    const { error } = await supabase.rpc('run_payroll_rpc', {
       p_month: month,
       p_year: year,
-      p_payment_date: date,
-      p_treasury_account_id: treasuryId,
+      p_date: date,
+      p_treasury_acc: treasuryId,
       p_items: data,
-      p_org_id: currentSelectedOrgId
+      p_org_id: orgId || currentSelectedOrgId || null // استخدام null لضمان صحة JSON
     });
-    refreshData();
+    
+    if (error) {
+      if (process.env.NODE_ENV === 'development') console.error("Payroll RPC Error:", error);
+      throw new Error(error.message || 'حدث خطأ أثناء تنفيذ مسير الرواتب');
+    }
+    
+    await refreshData();
   };
 
   // --- Demo Stubs ---
@@ -1598,7 +1737,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createRestaurantOrder = async (payload: any) => {
-    const { data, error } = await supabase.rpc('create_restaurant_order', { ...payload, p_org_id: currentSelectedOrgId });
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data, error } = await supabase.rpc('create_restaurant_order', { 
+      ...payload, 
+      p_warehouse_id: payload.p_warehouse_id || settings?.default_warehouse_id,
+      p_org_id: targetOrgId 
+    });
     if (error) throw error;
     return data;
   };
@@ -1608,8 +1752,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return data;
   };
 
-  const completeRestaurantOrder = async (orderId: string, method: string, total: number, accountId: string | null) => {
-    const { error } = await supabase.rpc('complete_restaurant_order', { p_order_id: orderId, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
+  const completeRestaurantOrder = async (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => {
+    const { error } = await supabase.rpc('complete_restaurant_order', { 
+      p_order_id: orderId, 
+      p_payment_method: method, 
+      p_amount: total, 
+      p_cash_account_id: accountId, 
+      p_org_id: currentSelectedOrgId || currentUser?.organization_id,
+      p_warehouse_id: warehouseId
+    });
     if (error) throw error;
     refreshData();
   };
@@ -1635,18 +1786,39 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const startShift = async (amount: number) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const treasuryAcc = getSystemAccount('CASH');
     const { error } = await supabase.rpc('start_pos_shift', { 
-      p_opening_balance: Number(amount) || 0 
+      p_opening_balance: Number(amount) || 0,
+      p_resume_existing: false, // 🛡️ تصحيح: عند الضغط على زر "بدء" نريد إنشاء وردية جديدة فعلاً وليس مجرد استئناف
+      p_treasury_account_id: treasuryAcc?.id || null,
+      p_user_id: currentUser?.id,
+      p_org_id: targetOrgId
     }); 
     if (error) throw error;
     await refreshData(); 
   };
   const closeCurrentShift = async (actualCash: number, notes: string) => { 
-    if (!currentShift?.id) return;
-    await supabase.rpc('close_shift', { p_shift_id: currentShift.id, p_actual_cash: actualCash, p_notes: notes }); 
-    refreshData(); 
+    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
+    if (!shiftId) {
+      throw new Error('لا توجد وردية مفتوحة حالياً ليتم إغلاقها');
+    }
+    const { error } = await supabase.rpc('close_shift', { 
+      p_shift_id: shiftId, 
+      p_actual_cash: actualCash, 
+      p_notes: notes,
+      p_org_id: currentSelectedOrgId || currentUser?.organization_id
+    }); 
+    if (error) throw error;
+    await refreshData(); 
   };
-  const getCurrentShiftSummary = async () => { if (!currentShift?.id) return null; const { data } = await supabase.rpc('get_shift_summary', { p_shift_id: currentShift.id }); return data; };
+  const getCurrentShiftSummary = async () => { 
+    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
+    if (!shiftId) return null; 
+    const { data, error } = await supabase.rpc('get_shift_summary', { p_shift_id: shiftId }); 
+    if (error) throw error;
+    return data; 
+  };
 
   const createMissingSystemAccounts = async () => await supabase.rpc('create_missing_system_accounts');
   const recalculateAllBalances = async () => { await supabase.rpc('recalculate_all_balances'); showToast('تم تحديث الأرصدة', 'success'); };

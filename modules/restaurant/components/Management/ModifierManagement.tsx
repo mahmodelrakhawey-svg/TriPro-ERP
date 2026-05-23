@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { modifierService } from '../modules/restaurant/services/modifierService';
-import { ModifierGroup, Modifier } from '../types';
+import { modifierService } from '../../services/modifierService';
+import { ModifierGroup, Modifier } from '../../../../types';
 import { Plus, Trash2, X, Save, Loader2, DollarSign, Layers, GripVertical, Copy } from 'lucide-react';
-import { useToast } from '../context/ToastContext';
+import { useToast } from '../../../../context/ToastContext';
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { CopyModifiersModal } from '../modules/restaurant/components/Modals/CopyModifiersModal';
+import { CopyModifiersModal } from '../Modals/CopyModifiersModal';
 
 interface ModifierManagementProps {
   productId: string;
