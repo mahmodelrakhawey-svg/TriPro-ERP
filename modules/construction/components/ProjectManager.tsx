@@ -14,7 +14,11 @@ import SiteRequisitionManager from './SiteRequisitionManager';
 import CustodyManager from './CustodyManager';
 import ProjectMilestonesManager from './ProjectMilestonesManager';
 import RetentionReleaseManager from './RetentionReleaseManager';
+import ChangeOrderManager from './ChangeOrderManager';
+import SiteAttendanceManager from '../../../services/SiteAttendanceManager';
+import SiteImageGallery from '../../../services/SiteImageGallery';
 import DailyReportForm from '../../../services/DailyReportForm';
+import { Link } from 'react-router-dom';
 
 interface Project {
   id: string;
@@ -31,7 +35,7 @@ const ProjectManager: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [activeView, setActiveView] = useState<{
-    type: 'boq' | 'billing' | 'subcontractors' | 'sub_contracts' | 'sub_billings' | 'profitability' | 'requisition' | 'custody' | 'daily_reports' | 'milestones' | 'retention_release', 
+    type: 'boq' | 'billing' | 'subcontractors' | 'sub_contracts' | 'sub_billings' | 'profitability' | 'requisition' | 'custody' | 'daily_reports' | 'milestones' | 'retention_release' | 'change_orders' | 'attendance' | 'gallery', 
     id: string 
   } | null>(null);
   const { showToast } = useToast();
@@ -104,8 +108,10 @@ const ProjectManager: React.FC = () => {
   }
 
   if (activeView?.type === 'requisition') {
+    const project = projects.find(p => p.id === activeView.id);
     return <SiteRequisitionManager 
       projectId={activeView.id} 
+      projectName={project?.name || ''}
       onBack={() => setActiveView(null)} 
     />;
   }
@@ -117,6 +123,22 @@ const ProjectManager: React.FC = () => {
         <DailyReportForm projectId={activeView.id} projectName={project?.name || ''} onSuccess={() => setActiveView(null)} />
       </div>
     );
+  }
+
+  if (activeView?.type === 'change_orders') {
+    const project = projects.find(p => p.id === activeView.id);
+    return <ChangeOrderManager 
+      projectId={activeView.id} 
+      projectName={project?.name || ''} 
+      onBack={() => setActiveView(null)} />;
+  }
+
+  if (activeView?.type === 'attendance') {
+    const project = projects.find(p => p.id === activeView.id);
+    return <SiteAttendanceManager 
+      projectId={activeView.id} 
+      projectName={project?.name || ''} 
+      onBack={() => setActiveView(null)} />;
   }
 
   if (activeView?.type === 'milestones') {
@@ -131,6 +153,14 @@ const ProjectManager: React.FC = () => {
     const project = projects.find(p => p.id === activeView.id);
     return <RetentionReleaseManager
       projectId={activeView.id} projectName={project?.name || 'المشروع'} onBack={() => setActiveView(null)} />;
+  }
+
+  if (activeView?.type === 'gallery') {
+    const project = projects.find(p => p.id === activeView.id);
+    return <SiteImageGallery 
+      projectId={activeView.id} 
+      projectName={project?.name || ''} 
+      onBack={() => setActiveView(null)} />;
   }
 
   return (
@@ -188,24 +218,45 @@ const ProjectManager: React.FC = () => {
               </div>
 
               <div className="mt-6 pt-4 border-t border-gray-50 flex gap-2">
-                <button 
-                  onClick={() => setActiveView({ type: 'profitability', id: project.id })}
-                  className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"
-                  title="تحليل الربحية"
+                <Link 
+                  to="/construction/analytics"
+                  className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors flex items-center justify-center"
+                  title="لوحة تحكم التحليلات المتقدمة"
                 >
                   <BarChart3 size={18} />
-                </button>
+                </Link>
                 <button 
                   onClick={() => setActiveView({ type: 'boq', id: project.id })}
-                  className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 py-2 rounded-lg text-sm font-medium transition-colors"
+                  className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   المقايسة (BOQ)
+                </button>
+                <button 
+                  onClick={() => setActiveView({ type: 'change_orders', id: project.id })}
+                  className="p-2 bg-rose-50 text-rose-600 rounded-lg hover:bg-rose-100 transition-colors"
+                  title="أوامر التغيير (تعديل العقد)"
+                >
+                  <Plus size={18} />
                 </button>
                 <button 
                   onClick={() => setActiveView({ type: 'billing', id: project.id })}
                   className="flex-1 bg-blue-50 hover:bg-blue-100 text-blue-700 py-2 rounded-lg text-sm font-medium transition-colors"
                 >
                   المستخلصات
+                </button>
+                <button 
+                  onClick={() => setActiveView({ type: 'attendance', id: project.id })}
+                  className="p-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-colors"
+                  title="حضور العمال وتكلفة العمالة"
+                >
+                  <Users size={18} />
+                </button>
+                <button 
+                  onClick={() => setActiveView({ type: 'gallery', id: project.id })}
+                  className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors"
+                  title="معرض الصور الميدانية"
+                >
+                  <Camera size={18} />
                 </button>
                 <button 
                   onClick={() => setActiveView({ type: 'requisition', id: project.id })}

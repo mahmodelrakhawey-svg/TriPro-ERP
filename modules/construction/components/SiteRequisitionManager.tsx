@@ -3,6 +3,7 @@ import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { ArrowRight, Plus, Package, Truck, CheckCircle, AlertCircle } from 'lucide-react';
+import MaterialIssueForm from './MaterialIssueForm';
 
 interface MaterialIssue {
   id: string;
@@ -14,13 +15,15 @@ interface MaterialIssue {
 
 interface Props {
   projectId: string;
+  projectName: string;
   onBack: () => void;
 }
 
-const SiteRequisitionManager: React.FC<Props> = ({ projectId, onBack }) => {
+const SiteRequisitionManager: React.FC<Props> = ({ projectId, projectName, onBack }) => {
   const { organization } = useAccounting();
   const [issues, setIssues] = useState<MaterialIssue[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -73,7 +76,7 @@ const SiteRequisitionManager: React.FC<Props> = ({ projectId, onBack }) => {
             <p className="text-sm text-gray-500">متابعة المواد المنصرفة من المستودع الرئيسي للموقع</p>
           </div>
         </div>
-        <button className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-orange-100">
+        <button onClick={() => setShowForm(true)} className="bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-orange-100">
           <Plus size={20} />
           إذن صرف مواد جديد
         </button>
@@ -120,6 +123,14 @@ const SiteRequisitionManager: React.FC<Props> = ({ projectId, onBack }) => {
           </div>
         )}
       </div>
+
+      {showForm && (
+        <MaterialIssueForm 
+          projectId={projectId} 
+          onClose={() => setShowForm(false)} 
+          onSuccess={fetchIssues} 
+        />
+      )}
     </div>
   );
 };

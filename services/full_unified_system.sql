@@ -87,6 +87,25 @@ BEGIN
     RETURN _org_id;
 END; $$;
 
+-- 🛠️ دالة مساعدة لضمان الترحيل إلى حساب فرعي (Resolve Leaf Account)
+CREATE OR REPLACE FUNCTION public.resolve_leaf_account(p_account_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_leaf_id uuid;
+BEGIN
+    IF p_account_id IS NULL THEN RETURN NULL; END IF;
+
+    -- البحث المتعمق عن أول حساب "ورقة" (Leaf) سواء كان الحساب الممرر هو الورقة أو أحد أبنائه
+    WITH RECURSIVE coa_tree AS (
+        SELECT id, is_group, code FROM public.accounts WHERE id = p_account_id
+        UNION ALL
+        SELECT a.id, a.is_group, a.code FROM public.accounts a JOIN coa_tree ct ON a.parent_id = ct.id
+    )
+    SELECT id INTO v_leaf_id FROM coa_tree WHERE is_group = false ORDER BY code LIMIT 1;
+
+    -- 🛡️ إذا لم نجد حساب فرعي (حالة نادرة)، نرجع الحساب الأصلي ليتولى الـ Trigger المنع بدلاً من انهيار الدالة بـ NULL
+    RETURN COALESCE(v_leaf_id, p_account_id);
+END; $$;
+
 -- ================================================================
 -- 3. محرك المخزون الشامل (The Master Stock Engine)
 -- ================================================================
@@ -113,11 +132,11 @@ BEGIN
             SUM(qty) as net_qty
         FROM (
             -- رصيد افتتاحي
-            SELECT product_id, warehouse_id, quantity as qty FROM public.opening_inventories WHERE warehouse_id IS NOT NULL AND product_id IS NOT NULL AND organization_id = v_final_org
+            SELECT product_id, warehouse_id, quantity as qty FROM public.opening_inventories WHERE warehouse_id IS NOT NULL AND product_id IS NOT NULL AND (v_final_org IS NULL OR organization_id = v_final_org)
             UNION ALL
             -- مشتريات (+)
             SELECT pii.product_id, pi.warehouse_id, pii.quantity FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id 
-            WHERE UPPER(pi.status) NOT IN ('DRAFT', 'CANCELLED') AND pi.warehouse_id IS NOT NULL AND pii.product_id IS NOT NULL AND pi.organization_id = v_final_org
+            WHERE UPPER(pi.status) NOT IN ('DRAFT', 'CANCELLED') AND pi.warehouse_id IS NOT NULL AND pii.product_id IS NOT NULL AND (v_final_org IS NULL OR pi.organization_id = v_final_org)
             
             UNION ALL
             -- مبيعات (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
@@ -127,6 +146,7 @@ BEGIN
             WHERE UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED')
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR i.organization_id = v_final_org)
               AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id)
             
             UNION ALL
@@ -138,6 +158,7 @@ BEGIN
             WHERE UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED')
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR i.organization_id = v_final_org)
               AND bom.raw_material_id IS NOT NULL
             
             UNION ALL
@@ -146,6 +167,7 @@ BEGIN
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
+              AND (v_final_org IS NULL OR o.organization_id = v_final_org)
               AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
             UNION ALL
             -- مبيعات المطعم (Order Items) (-) - خصم مكونات BOM للمنتجات التامة المباعة
@@ -153,18 +175,18 @@ BEGIN
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id
-            WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND bom.raw_material_id IS NOT NULL
+            WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND bom.raw_material_id IS NOT NULL AND (v_final_org IS NULL OR o.organization_id = v_final_org)
             UNION ALL
             -- تصنيع تام (+) 
             SELECT product_id, warehouse_id, quantity_to_produce FROM public.mfg_production_orders 
-            WHERE UPPER(status) = 'COMPLETED' AND warehouse_id IS NOT NULL AND product_id IS NOT NULL AND organization_id = v_final_org
+            WHERE UPPER(status) = 'COMPLETED' AND warehouse_id IS NOT NULL AND product_id IS NOT NULL AND (v_final_org IS NULL OR organization_id = v_final_org)
             UNION ALL
             -- استهلاك خامات (-)
             SELECT amu.raw_material_id, po.warehouse_id, -amu.actual_quantity 
             FROM public.mfg_actual_material_usage amu 
             JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id 
             JOIN public.mfg_production_orders po ON op.production_order_id = po.id 
-            WHERE po.warehouse_id IS NOT NULL AND amu.raw_material_id IS NOT NULL AND po.organization_id = v_final_org
+            WHERE po.warehouse_id IS NOT NULL AND amu.raw_material_id IS NOT NULL AND (v_final_org IS NULL OR po.organization_id = v_final_org)
             
             UNION ALL
             -- 🛡️ استهلاك خامات بطلبات صرف (MR) - (فقط للأصناف غير الموجودة في AMU لنفس الطلب لضمان عدم الخصم مرتين)
@@ -172,7 +194,7 @@ BEGIN
             FROM public.mfg_material_request_items mri
             JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
             JOIN public.mfg_production_orders po ON mr.production_order_id = po.id
-            WHERE mr.status = 'issued' AND po.warehouse_id IS NOT NULL AND po.organization_id = v_final_org
+            WHERE mr.status = 'issued' AND po.warehouse_id IS NOT NULL AND (v_final_org IS NULL OR po.organization_id = v_final_org)
             AND NOT EXISTS (
                 SELECT 1 FROM public.mfg_order_progress op_sub
                 JOIN public.mfg_actual_material_usage amu_sub ON op_sub.id = amu_sub.order_progress_id
@@ -184,7 +206,42 @@ BEGIN
             SELECT pmii.product_id, pmi.warehouse_id, -pmii.quantity
             FROM public.project_material_issue_items pmii
             JOIN public.project_material_issues pmi ON pmii.issue_id = pmi.id
-            WHERE pmi.status = 'approved' AND pmi.organization_id = v_final_org
+            WHERE pmi.status = 'approved' AND (v_final_org IS NULL OR pmi.organization_id = v_final_org)
+
+            UNION ALL
+            -- 🔄 مرتجعات مبيعات (+)
+            SELECT sri.product_id, sr.warehouse_id, sri.quantity
+            FROM public.sales_return_items sri
+            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
+            WHERE sr.status = 'posted' AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
+
+            UNION ALL
+            -- 🔄 مرتجعات مشتريات (-)
+            SELECT pri.product_id, pr.warehouse_id, -pri.quantity
+            FROM public.purchase_return_items pri
+            JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id
+            WHERE pr.status = 'posted' AND (v_final_org IS NULL OR pr.organization_id = v_final_org)
+
+            UNION ALL
+            -- 🛠️ تسويات مخزنية (+/-)
+            SELECT sai.product_id, sa.warehouse_id, sai.quantity
+            FROM public.stock_adjustment_items sai
+            JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id
+            WHERE sa.status = 'posted' AND (v_final_org IS NULL OR sa.organization_id = v_final_org)
+
+            UNION ALL
+            -- 🚚 تحويلات مخزنية (صادر -)
+            SELECT sti.product_id, st.from_warehouse_id, -sti.quantity
+            FROM public.stock_transfer_items sti
+            JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id
+            WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
+
+            UNION ALL
+            -- 🚚 تحويلات مخزنية (وارد +)
+            SELECT sti.product_id, st.to_warehouse_id, sti.quantity
+            FROM public.stock_transfer_items sti
+            JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id
+            WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
         ) movements
         WHERE product_id IS NOT NULL AND warehouse_id IS NOT NULL
         AND (p_product_id IS NULL OR product_id = p_product_id)
@@ -498,12 +555,12 @@ BEGIN
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
-    -- 🛡️ [حاسم] ضمان سحب حساب النقدية 1231 حتى لو لم توجد إعدادات لضمان نجاح الاختبار
-    v_cash_acc_id := COALESCE((v_mappings->>'CASH')::uuid, v_shift.treasury_account_id, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1));
-    v_sales_acc_id := COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1));
-    v_vat_acc_id := COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1));
-    v_cogs_acc_id := COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1));
-    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
+    -- 🛡️ [تحديث V51] ضمان الترحيل للحسابات الفرعية حصراً لتجنب أخطاء "المجموعة"
+    v_cash_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'CASH')::uuid, v_shift.treasury_account_id, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1)));
+    v_sales_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1)));
+    v_vat_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1)));
+    v_cogs_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1)));
+    v_inventory_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1)));
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type, user_id)
     VALUES (now()::date, 'إغلاق وردية مطعم', 'SHIFT-' || to_char(now(), 'YYMMDD') || '-' || substring(p_shift_id::text, 1, 4), 'posted', v_org_id, true, p_shift_id, 'shift', v_shift.user_id) RETURNING id INTO v_je_id;
@@ -529,7 +586,7 @@ BEGIN
         ) LOOP
             IF v_item_cost_record.total_cost > 0 THEN
                 INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cogs_acc_id, v_item_cost_record.total_cost, 0, 'تكلفة مبيعات الوردية', v_org_id);
-                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, COALESCE(v_item_cost_record.inventory_account_id, v_inventory_acc_id), 0, v_item_cost_record.total_cost, 'صرف مخزون الوردية', v_org_id);
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, public.resolve_leaf_account(COALESCE(v_item_cost_record.inventory_account_id, v_inventory_acc_id)), 0, v_item_cost_record.total_cost, 'صرف مخزون الوردية', v_org_id);
             END IF;
         END LOOP;
     END IF;
@@ -1033,20 +1090,18 @@ BEGIN
     v_org_id := COALESCE(v_order.organization_id, public.get_my_org());
     IF v_order.status = 'completed' THEN RETURN; END IF;
 
-    -- 🛡️ نظام "تصفير WIP": نحسب إجمالي ما تم تحميله فعلياً على هذا الأمر في سجلات القيود لضمان الإغلاق التام
+    -- جلب حسابات الربط والتحصين ضد حسابات المجموعات
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_wip_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10303', '103') AND organization_id = v_org_id LIMIT 1)));
+    v_fg_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10302', '1105') AND organization_id = v_org_id LIMIT 1)));
+    v_loss_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code IN ('5121', '512') AND organization_id = v_org_id LIMIT 1)));
+
+    -- 🛡️ نظام "تصفير WIP": نحسب إجمالي ما تم تحميله فعلياً (في الحساب الفرعي أو الأب) لضمان الإغلاق التام
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_accumulated_wip
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
-    WHERE je.related_document_id IN (
-        SELECT id FROM public.mfg_order_progress WHERE production_order_id = p_order_id 
-        UNION 
-        SELECT id FROM public.mfg_material_requests WHERE production_order_id = p_order_id
-    )
-    AND a.code = '10303' AND je.organization_id = v_org_id;
-
-    -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند منعاً للتكرار
-    DELETE FROM public.journal_entries WHERE related_document_id = p_order_id AND related_document_type = 'mfg_order' AND organization_id = v_org_id;
+    WHERE je.related_document_id = p_order_id AND je.related_document_type = 'mfg_order';
 
     -- معالجة حالة "إعادة التشغيل"
     IF p_final_status = 'rework' THEN
@@ -1098,13 +1153,6 @@ BEGIN
     ELSE
         UPDATE public.mfg_production_orders SET status = 'cancelled', notes = 'مرفوض جودة: ' || p_qc_notes WHERE id = p_order_id;
     END IF;
-
-    -- 4. المحرك المحاسبي
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    -- 🛠️ تعزيز جلب الحسابات: البحث بالكود مباشرة كخيار بديل قوي لضمان عدم فشل القيد (V50.1)
-    v_wip_acc := COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10303', '103') AND organization_id = v_org_id LIMIT 1));
-    v_fg_acc := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10302', '1105') AND organization_id = v_org_id LIMIT 1));
-    v_loss_acc := COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code IN ('5121', '512') AND organization_id = v_org_id LIMIT 1));
 
     IF COALESCE(v_total_cost, 0) > 0 AND v_wip_acc IS NOT NULL AND v_fg_acc IS NOT NULL THEN
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
@@ -1345,6 +1393,11 @@ DECLARE
     v_low_stock_count bigint := 0;
     v_sales_target numeric := 0;
     
+    -- مقاييس المقاولات الجديدة
+    v_active_projects_count bigint := 0;
+    v_total_contracts_value numeric := 0;
+    v_total_construction_billed numeric := 0;
+    
     v_chart_data jsonb := '[]'::jsonb;
     v_recent_invoices jsonb := '[]'::jsonb;
     v_recent_journals jsonb := '[]'::jsonb;
@@ -1443,6 +1496,17 @@ BEGIN
     FROM public.payment_vouchers
     WHERE organization_id = v_target_org_id
     AND payment_date BETWEEN v_current_month_start AND v_current_month_end;
+
+    -- 🏗️ إحصائيات المقاولات (Construction KPIs)
+    SELECT COUNT(*) INTO v_active_projects_count 
+    FROM public.projects WHERE organization_id = v_target_org_id AND status = 'active';
+    
+    SELECT COALESCE(SUM(contract_value), 0) INTO v_total_contracts_value 
+    FROM public.projects WHERE organization_id = v_target_org_id AND status != 'cancelled';
+
+    SELECT COALESCE(SUM(gross_amount), 0) INTO v_total_construction_billed 
+    FROM public.project_progress_billings 
+    WHERE organization_id = v_target_org_id AND status = 'approved';
 
     -- 11. Low Stock Count and Items
     SELECT COUNT(*) INTO v_low_stock_count
@@ -1571,6 +1635,9 @@ BEGIN
         'totalPayments', v_total_payments,
         'lowStockCount', v_low_stock_count,
         'salesTarget', COALESCE(v_sales_target, 0),
+        'activeProjectsCount', v_active_projects_count,
+        'totalContractsValue', v_total_contracts_value,
+        'totalConstructionBilled', v_total_construction_billed,
         'chartData', v_chart_data,
         'recentInvoices', v_recent_invoices,
         'recentJournals', v_recent_journals,

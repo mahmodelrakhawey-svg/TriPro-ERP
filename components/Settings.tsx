@@ -44,6 +44,9 @@ const ACCOUNT_LABELS: Record<string, string> = {
   CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
   LABOR_COST_ALLOCATED: 'تكاليف العمالة الصناعية المحملة',
   WASTAGE_EXPENSE: 'مصروف الهالك والفاقد الصناعي',
+  RETENTION_CUSTOMER: 'محتجز ضمان لدى الغير (عملاء) (1249)',
+  RETENTION_SUBCONTRACTOR: 'محتجز ضمان لمقاولي الباطن (2229)',
+  ADVANCE_PAYMENT_SUBCONTRACTOR: 'دفعات مقدمة للمقاولين (1245)',
 };
 
 interface CloudBackup {
@@ -602,7 +605,10 @@ const Settings = () => {
           INVENTORY_WIP: '10303',
           INVENTORY_FINISHED_GOODS: '10302',
           LABOR_COST_ALLOCATED: '513',
-          WASTAGE_EXPENSE: '5121'
+          WASTAGE_EXPENSE: '5121',
+          RETENTION_CUSTOMER: '1249',
+          RETENTION_SUBCONTRACTOR: '2229',
+          ADVANCE_PAYMENT_SUBCONTRACTOR: '1245'
       };
 
       const newMappings = { ...formData.accountMappings };
@@ -1222,7 +1228,10 @@ const Settings = () => {
                               INVENTORY_WIP: '10303',
                               INVENTORY_FINISHED_GOODS: '10302',
                               LABOR_COST_ALLOCATED: '513',
-                              WASTAGE_EXPENSE: '5121'
+                              WASTAGE_EXPENSE: '5121',
+                              RETENTION_CUSTOMER: '1249',
+                              RETENTION_SUBCONTRACTOR: '2229',
+                              ADVANCE_PAYMENT_SUBCONTRACTOR: '1245'
                           }).map(([key, defaultCode]) => {
                               const isUnmapped = !formData.accountMappings[key];
                               return (

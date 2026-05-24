@@ -19,6 +19,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
     v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
     v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid;
+    v_ret_cust_id uuid; v_ret_sub_id uuid; v_adv_sub_id uuid;
     v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid;
     v_prepaid_exp_id uuid; v_accrued_exp_id uuid;
     v_social_ins_id uuid; v_bank_main_id uuid; v_rev_other_id uuid; v_exp_gen_id uuid; v_security_deposit_id uuid;
@@ -260,6 +261,10 @@ BEGIN
     v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
+    -- جلب حسابات المقاولات (الإصلاح الجذري)
+    v_ret_cust_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1249' LIMIT 1);
+    v_ret_sub_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2229' LIMIT 1);
+    v_adv_sub_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1245' LIMIT 1);
     v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
     v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
     v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
@@ -301,6 +306,9 @@ BEGIN
             'LABOR_COST_ALLOCATED', v_labor_mfg_id,
             'MANUFACTURING_OVERHEAD', v_overhead_mfg_id,
             'WASTAGE_EXPENSE', v_wastage_id,
+            'RETENTION_CUSTOMER', v_ret_cust_id,
+            'RETENTION_SUBCONTRACTOR', v_ret_sub_id,
+            'ADVANCE_PAYMENT_SUBCONTRACTOR', v_adv_sub_id,
             'DEPRECIATION_EXPENSE', v_dep_exp_id,
             'ACCUMULATED_DEPRECIATION', v_acc_dep_id,
             'ASSETS_FIXED', v_fixed_assets_id,
@@ -332,6 +340,14 @@ BEGIN
            p_org_id
     FROM public.permissions
     ON CONFLICT DO NOTHING;
+
+    -- 🚀 [تحديث حاسم V50.8] تفعيل كافة الموديولات لضمان ظهورها في القائمة الجانبية ومنع Redirect
+    UPDATE public.organizations 
+    SET allowed_modules = ARRAY[
+        'accounting', 'inventory', 'sales', 'purchases', 
+        'hr', 'manufacturing', 'restaurant', 'construction'
+    ]::text[]
+    WHERE id = p_org_id;
 
     RETURN '✅ تم تأسيس الدليل المحاسبي وربط الحسابات السيادية بنجاح.';
 

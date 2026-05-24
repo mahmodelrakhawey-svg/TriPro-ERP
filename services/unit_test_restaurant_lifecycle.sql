@@ -342,7 +342,7 @@ BEGIN
     IF v_cash_acc IS NULL THEN
         v_cash_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND type = 'asset' AND (name LIKE '%نقدية%' OR name LIKE '%خزينة%') LIMIT 1);
         IF v_cash_acc IS NULL THEN
-            INSERT INTO public.accounts (code, name, type, organization_id) VALUES ('1231-QR', 'خزينة اختبار QR', 'asset', v_org_id) RETURNING id INTO v_cash_acc;
+            INSERT INTO public.accounts (code, name, type, organization_id, is_group) VALUES ('1231-QR', 'خزينة اختبار QR', 'asset', v_org_id, false) RETURNING id INTO v_cash_acc;
         END IF;
     END IF;
     
@@ -599,6 +599,25 @@ BEGIN
     INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
     VALUES (v_prod_id, v_wh_id, 100, 50, v_org_id);
     PERFORM public.recalculate_stock_rpc(v_org_id);
+
+    -- 🛠️ ضمان وجود الحسابات المطلوبة والربط المحاسبي للمقاولات
+    INSERT INTO public.accounts (code, name, type, organization_id, is_group)
+    VALUES 
+        ('1249', 'محتجز ضمان لدى الغير (عملاء)', 'asset', v_org_id, false),
+        ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', v_org_id, false),
+        ('411', 'إيراد مبيعات بضاعة', 'revenue', v_org_id, false),
+        ('1221', 'العملاء', 'asset', v_org_id, false),
+        ('10303', 'مشروعات تحت التنفيذ - WIP', 'asset', v_org_id, false)
+    ON CONFLICT (organization_id, code) DO NOTHING;
+
+    UPDATE public.company_settings 
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
+            'CUSTOMERS', (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1),
+            'SALES_REVENUE', (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1),
+            'RETENTION_CUSTOMER', (SELECT id FROM public.accounts WHERE code = '1249' AND organization_id = v_org_id LIMIT 1),
+            'SECURITY_DEPOSIT_ACCOUNT', (SELECT id FROM public.accounts WHERE code = '226' AND organization_id = v_org_id LIMIT 1)
+        )
+    WHERE organization_id = v_org_id;
 
     step_name := '0. تهيئة البيئة'; result := 'PASS ✅'; details := format('المنظمة: %s، العميل: %s', v_org_id, v_cust_id); RETURN NEXT;
 

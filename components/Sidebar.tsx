@@ -158,6 +158,8 @@ const Sidebar: React.FC = () => {
     // موديول المقاولات والمشاريع
     { type: 'section', label: 'المقاولات والمشاريع' },
     { to: '/construction', label: 'إدارة المشاريع الإنشائية', icon: Building2, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
+    { to: '/construction/labor-reports', label: 'تقارير تكاليف العمالة', icon: UserCheck, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
+    { to: '/construction/subcontractor-analytics', label: 'تحليل أداء مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/subcontractors', label: 'مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
 
     // الخزينة والبنوك

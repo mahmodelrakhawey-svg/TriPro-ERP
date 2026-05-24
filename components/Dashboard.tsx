@@ -7,11 +7,13 @@ import {
   AlertTriangle, ArrowUpRight, ArrowDownLeft, Activity,
   Wallet, FileText, Package, Truck, BarChart2, Calendar, Loader2,
   DollarSign, Target, Crown, Star, PieChart as PieChartIcon,
-  Edit
+  Edit,
+  Building2, Briefcase, BarChart3 as ChartIcon, Zap
 } from 'lucide-react'; // 💡 Note: I've removed unused imports for cleaner code
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { useToast } from '../context/ToastContext';
+import { DashboardAlerts } from './DashboardAlerts';
 
 const Dashboard = () => {
   const { currentUser, settings, getSystemAccount, getFinancialSummary, products: demoProducts, invoices: demoInvoices, purchaseInvoices: demoPurchaseInvoices, customers: demoCustomers, entries, accounts } = useAccounting();
@@ -30,6 +32,11 @@ const Dashboard = () => {
     totalPayments: 0,
     lowStockCount: 0,
     salesTarget: 0,
+    // مقاييس المقاولات الجديدة
+    activeProjectsCount: 0,
+    totalContractsValue: 0,
+    expectedProfitability: 0, // نضف معدل الربحية المتوقع
+    totalConstructionBilled: 0
   });
   const [recentJournals, setRecentJournals] = useState<any[]>([]);
   const [recentInvoices, setRecentInvoices] = useState<any[]>([]);
@@ -107,6 +114,11 @@ const Dashboard = () => {
                   totalPayments: data.totalPayments || 0,
                   lowStockCount: data.lowStockCount || 0,
                   salesTarget: data.salesTarget || settings?.monthly_sales_target || 0, // Fallback to settings if RPC doesn't provide
+                  // تحديث بيانات المقاولات
+                  activeProjectsCount: data.activeProjectsCount || 0,
+                  totalContractsValue: data.totalContractsValue || 0,
+                  expectedProfitability: data.expectedProfitability || 0,
+                  totalConstructionBilled: data.totalConstructionBilled || 0
               });
               setChartData(data.chartData || []);
               setRecentInvoices(data.recentInvoices?.map((inv: any) => ({...inv, customers: { name: inv.customer_name }})) || []);
@@ -160,6 +172,11 @@ const Dashboard = () => {
                 payables: getSystemAccount('SUPPLIERS')?.balance ?? 0,
                 totalReceipts: 0, totalPayments: 0,
                 salesTarget: 200000,
+                // ✅ إضافة القيم الافتراضية للمقاولات في وضع الديمو لإصلاح خطأ TS2345
+                activeProjectsCount: 0,
+                totalContractsValue: 0,
+                expectedProfitability: 0,
+                totalConstructionBilled: 0
             });
 
             setChartData([ { name: 'يناير', sales: 45000, purchases: 30000 }, { name: 'فبراير', sales: 52000, purchases: 35000 }, { name: 'مارس', sales: 48000, purchases: 42000 }, { name: 'أبريل', sales: 61000, purchases: 45000 }, { name: 'مايو', sales: 85000, purchases: 60000 }, { name: 'يونيو', sales: 125000, purchases: 85000 }, ]);
@@ -387,6 +404,9 @@ const Dashboard = () => {
                 </div>
             )}
 
+            {/* 🏗️ تنبيهات تجاوز الميزانية للمقاولات */}
+            <DashboardAlerts />
+
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 dashboard-stats">
                 <StatCard title="مبيعات الشهر" value={stats.monthSales} previousValue={stats.prevMonthSales} icon={ShoppingCart} color="bg-blue-100" isGood={true} />
@@ -394,6 +414,30 @@ const Dashboard = () => {
                 <StatCard title="صافي الربح" value={stats.monthSales - stats.monthCogs - stats.monthExpenses} icon={Activity} color="bg-indigo-100" isGood={true} subLabel="بعد خصم المصروفات الإدارية" />
                 <StatCard title="مشتريات الشهر" value={stats.monthPurchases} previousValue={stats.prevMonthPurchases} icon={Truck} color="bg-purple-100" isGood={false} />
             </div>
+
+            {/* 🏗️ قسم إحصائيات المقاولات السريعة (يظهر عند وجود مشاريع) */}
+            {stats.activeProjectsCount > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in slide-in-from-right-4 duration-500">
+                    <Link to="/construction/analytics" className="block transition-transform hover:scale-[1.02]">
+                        <StatCard title="المشاريع النشطة" value={stats.activeProjectsCount} icon={Building2} color="bg-amber-100" isCurrency={false} isGood={true} subLabel="اضغط لعرض تحليلات الأداء" />
+                    </Link>
+                    <StatCard title="إجمالي قيمة العقود" value={stats.totalContractsValue} icon={Briefcase} color="bg-blue-100" isGood={true} />
+                    <StatCard title="إيرادات المقاولات" value={stats.totalConstructionBilled} icon={ChartIcon} color="bg-emerald-100" isGood={true} subLabel="من واقع المستخلصات المعتمدة" />
+                    
+                    {/* 🚀 ذكاء اصطناعي: تنبيه سيولة لـ 90 يوم */}
+                    <div className="md:col-span-3 bg-gradient-to-r from-slate-900 to-slate-800 p-6 rounded-3xl shadow-xl border border-slate-700 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-bl-full -mr-16 -mt-16"></div>
+                        <div className="flex items-center gap-4 relative z-10">
+                            <div className="p-3 bg-blue-600 text-white rounded-2xl animate-pulse"><Zap size={24} /></div>
+                            <div>
+                                <h4 className="text-white font-black">المستشار المالي: توقعات السيولة</h4>
+                                <p className="text-slate-400 text-xs">بناءً على سرعة الإنجاز الحالية، ستحتاج المنشأة لـ <span className="text-blue-400 font-black">{(stats.totalContractsValue * 0.4).toLocaleString()}</span> خلال الـ 90 يوماً القادمة لتغطية بنود المقايسات النشطة.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Monthly Performance Chart */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">

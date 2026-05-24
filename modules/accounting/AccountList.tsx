@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
@@ -28,6 +28,9 @@ const AccountList = () => {
     '10301', // مخزون المواد الخام
     '10302', // مخزون المنتج التام
     '10303', // مخزون إنتاج تحت التشغيل (WIP)
+    '1249',  // محتجز ضمان لدى الغير (عملاء)
+    '2229',  // محتجز ضمان لمقاولي الباطن
+    '1245',  // دفعات مقدمة للمقاولين
     '513',   // أجور عمال الإنتاج المباشرة
     '514',   // تكاليف صناعية غير مباشرة (Group)
     '5121',  // تكلفة الهالك والفاقد

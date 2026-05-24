@@ -170,22 +170,16 @@ BEGIN
     SELECT SUM(total_conversion_eq_units) INTO v_total_eq_units 
     FROM public.v_mfg_equivalent_units WHERE organization_id = v_org_id;
 
-    -- 3. جلب الحسابات من الإعدادات
-    SELECT (account_mappings->>'INVENTORY_WIP')::uuid INTO v_wip_acc 
-    FROM public.company_settings WHERE organization_id = v_org_id;
 
-    -- 🛡️ تأمين اختيار حسابات فرعية (Non-Group) لتجنب أخطاء القيود
-    -- إذا كان حساب الـ WIP المختار حساباً رئيسياً، نلجأ للحساب الفرعي المعياري 10303
-    IF EXISTS (SELECT 1 FROM public.accounts WHERE id = v_wip_acc AND is_group = true) THEN
-        v_wip_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10303' LIMIT 1);
-    END IF;
-
+    v_wip_acc := public.resolve_leaf_account((SELECT (account_mappings->>'INVENTORY_WIP')::uuid 
+                 FROM public.company_settings WHERE organization_id = v_org_id));
     -- جلب أول حساب فرعي متاح تحت "التكاليف الصناعية غير المباشرة" (514) بدلاً من الحساب الرئيسي
-    v_applied_ovh_acc := (
+    v_applied_ovh_acc := public.resolve_leaf_account((
         SELECT id FROM public.accounts 
         WHERE organization_id = v_org_id AND code LIKE '514%' AND is_group = false 
         ORDER BY code LIMIT 1
-    );
+        ));
+
 
     IF v_total_eq_units > 0 AND v_total_actual_overhead > 0 THEN
         v_overhead_per_unit := v_total_actual_overhead / v_total_eq_units;
@@ -443,16 +437,9 @@ BEGIN
     SELECT COALESCE(weighted_average_cost, cost, 0) INTO v_cost_per_unit FROM public.products WHERE id = p_material_id;
     INSERT INTO public.mfg_scrap_logs (order_progress_id, product_id, quantity, is_abnormal, salvage_value_per_unit, reason, organization_id) VALUES (p_progress_id, p_material_id, p_qty, p_is_abnormal, p_salvage_value, p_reason, v_org_id);
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    v_wip_acc := (v_mappings->>'INVENTORY_WIP')::uuid;
-
-    -- التأكد من أن WIP حساب فرعي
-    IF EXISTS (SELECT 1 FROM public.accounts WHERE id = v_wip_acc AND is_group = true) THEN 
-        v_wip_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10303' LIMIT 1); 
-    END IF;
-
-    v_loss_acc := (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1);
-    -- إصلاح: اختيار حساب فرعي للأرصدة المدينة الأخرى (بدلاً من المجموعة الرئيسية 124)
-    v_scrap_inv_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '124%' AND is_group = false ORDER BY code DESC LIMIT 1);
+    v_wip_acc := public.resolve_leaf_account((v_mappings->>'INVENTORY_WIP')::uuid);
+    v_loss_acc := public.resolve_leaf_account((SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1));
+    v_scrap_inv_acc := public.resolve_leaf_account((SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code LIKE '124%' AND is_group = false ORDER BY code DESC LIMIT 1));
 
     IF p_is_abnormal THEN
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type)
@@ -721,11 +708,8 @@ BEGIN
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     
     -- 1. جلب حسابات الربط
-    v_wip_acc := (v_mappings->>'INVENTORY_WIP')::uuid;
-    v_variance_acc := (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1); -- حساب انحرافات التكاليف
-
-    -- التأكد من أن WIP حساب فرعي قبل ترحيل قيد التسوية
-    IF EXISTS (SELECT 1 FROM public.accounts WHERE id = v_wip_acc AND is_group = true) THEN v_wip_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10303' LIMIT 1); END IF;
+    v_wip_acc := public.resolve_leaf_account((v_mappings->>'INVENTORY_WIP')::uuid);
+    v_variance_acc := public.resolve_leaf_account((SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1));
 
     -- 2. حساب رصيد الحساب الحالي في الأستاذ العام (Book Value)
     SELECT COALESCE(SUM(debit - credit), 0) INTO v_gl_wip_balance 

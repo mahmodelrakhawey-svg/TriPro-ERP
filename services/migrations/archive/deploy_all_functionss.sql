@@ -3570,6 +3570,10 @@ DECLARE
     v_products_count bigint;
     v_top_selling_products jsonb;
     v_recent_invoices jsonb;
+    -- مقاييس المقاولات
+    v_active_projects_count bigint;
+    v_total_contracts_value numeric;
+    v_construction_revenue numeric;
 BEGIN
     -- 1. إجمالي المبيعات
     p_org_id := COALESCE(p_org_id, public.get_my_org()); 
@@ -3610,6 +3614,15 @@ BEGIN
     SELECT COUNT(*) INTO v_customers_count FROM public.customers WHERE organization_id = p_org_id AND deleted_at IS NULL;
     SELECT COUNT(*) INTO v_products_count FROM public.products WHERE organization_id = p_org_id AND deleted_at IS NULL;
 
+    -- 🚀 8. مقاييس المقاولات (Construction KPIs)
+    SELECT COUNT(*) INTO v_active_projects_count FROM public.projects WHERE organization_id = p_org_id AND status = 'active';
+    SELECT COALESCE(SUM(contract_value), 0) INTO v_total_contracts_value FROM public.projects WHERE organization_id = p_org_id AND status != 'cancelled';
+    
+    -- إيراد المقاولات من المستخلصات المعتمدة
+    SELECT COALESCE(SUM(gross_amount), 0) INTO v_construction_revenue 
+    FROM public.project_progress_billings 
+    WHERE organization_id = p_org_id AND status = 'approved';
+
     -- 8. المنتجات الأكثر مبيعاً (أعلى 5)
     WITH top_products AS (
         SELECT p.name as product_name, SUM(oi.quantity) as total_quantity
@@ -3630,7 +3643,10 @@ BEGIN
         'total_expenses', v_total_expenses, 'total_revenue', v_total_revenue,
         'cash_balance', v_cash_balance, 'bank_balance', v_bank_balance,
         'customers_count', v_customers_count, 'products_count', v_products_count,
-        'top_selling_products', COALESCE(v_top_selling_products, '[]'::jsonb)
+        'top_selling_products', COALESCE(v_top_selling_products, '[]'::jsonb),
+        'active_projects_count', v_active_projects_count,
+        'total_contracts_value', v_total_contracts_value,
+        'construction_revenue', v_construction_revenue
     );
 END;
 $$;

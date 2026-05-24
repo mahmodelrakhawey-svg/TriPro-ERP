@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
-import { ArrowRight, Plus, FileText, CheckCircle2, ShieldAlert, Receipt } from 'lucide-react';
+import { ArrowRight, Plus, FileText, CheckCircle2, ShieldAlert, Receipt, Star, Clock as ClockIcon } from 'lucide-react';
 
 interface SubBilling {
   id: string;
@@ -20,10 +20,14 @@ interface Props {
   onBack: () => void;
 }
 
+/** 🏗️ تحديث: إضافة واجهة تقييم الأداء عند اعتماد المستخلص لضمان ترابط البيانات التحليلية **/
+
 const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) => {
   const { organization } = useAccounting();
   const [billings, setBillings] = useState<SubBilling[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showApprovalDialog, setShowApprovalDialog] = useState<string | null>(null);
+  const [scores, setScores] = useState({ quality: 5, timeliness: 5 });
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -47,12 +51,21 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
     setLoading(false);
   };
 
-  const approveBilling = async (id: string) => {
+  const confirmApproval = async () => {
+    if (!showApprovalDialog) return;
     try {
       setLoading(true);
-      const { error } = await supabase.rpc('fn_approve_sub_billing', { p_billing_id: id });
-      if (error) throw error;
+      const { error } = await supabase.from('subcontractor_billings')
+        .update({ status: 'approved', quality_score: scores.quality, timeliness_score: scores.timeliness })
+        .eq('id', showApprovalDialog);
+
+      // بعد تحديث التقييم، نستدعي دالة الاعتماد المحاسبي
+      const { error: accError } = await supabase.rpc('fn_approve_sub_billing', { p_billing_id: showApprovalDialog });
+      
+      if (error || accError) throw (error || accError);
+
       showToast('تم اعتماد مستخلص المقاول وترحيله للتكاليف بنجاح ✅', 'success');
+      setShowApprovalDialog(null);
       fetchBillings();
     } catch (error: any) {
       showToast(error.message, 'error');
@@ -116,7 +129,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
             <div>
               {bill.status === 'draft' ? (
                 <button 
-                  onClick={() => approveBilling(bill.id)}
+                  onClick={() => setShowApprovalDialog(bill.id)}
                   disabled={loading}
                   className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2 rounded-xl text-sm font-bold transition-all"
                 >
@@ -138,6 +151,53 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
           </div>
         )}
       </div>
+
+      {/* 🛡️ نافذة التقييم والاعتماد */}
+      {showApprovalDialog && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+            <h3 className="text-lg font-black text-slate-800 mb-4 flex items-center gap-2">
+              <ShieldAlert className="text-amber-500" /> اعتماد الأعمال وتقييم المقاول
+            </h3>
+            
+            <div className="space-y-6 mb-8">
+              <div>
+                <label className="text-sm font-bold text-slate-600 mb-2 block flex items-center gap-2">
+                  <Star size={14} className="text-amber-400" /> جودة التنفيذ (1-5)
+                </label>
+                <input 
+                  type="range" min="1" max="5" value={scores.quality} 
+                  onChange={(e) => setScores({...scores, quality: parseInt(e.target.value)})}
+                  className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                />
+                <div className="flex justify-between text-[10px] font-bold text-slate-400 mt-1"><span>ضعيف</span><span>ممتاز</span></div>
+              </div>
+
+              <div>
+                <label className="text-sm font-bold text-slate-600 mb-2 block flex items-center gap-2">
+                  <ClockIcon size={14} className="text-blue-400" /> الالتزام بالجدول الزمني (1-5)
+                </label>
+                <input 
+                  type="range" min="1" max="5" value={scores.timeliness} 
+                  onChange={(e) => setScores({...scores, timeliness: parseInt(e.target.value)})}
+                  className="w-full h-2 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                />
+                <div className="flex justify-between text-[10px] font-bold text-slate-400 mt-1"><span>متأخر</span><span>منضبط</span></div>
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button 
+                onClick={confirmApproval}
+                className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition-all shadow-lg shadow-purple-100"
+              >
+                تأكيد الاعتماد والترحيل
+              </button>
+              <button onClick={() => setShowApprovalDialog(null)} className="px-6 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

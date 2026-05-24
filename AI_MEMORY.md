@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٢٤‏/٥‏/٢٠٢٦، (نهاية جلسة التنظيم الكبرى)
+📅 تاريخ التحديث: ٢٤‏/٥‏/٢٠٢٦، ١:٣٧:٠٧ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -87,8 +87,6 @@
       📄 EmployeeStatement.tsx
       📄 PayrollReport.tsx
   📁 inventory/
-    📄 2026-04-05_add_notes_to_inventory_counts.sql
-    📄 add_category_image.sql
     📄 DetailedStockMovementReport.tsx
     📄 InventoryCountForm.tsx
     📄 InventoryCountList.tsx
@@ -98,7 +96,6 @@
     📄 ItemProfitReport.tsx
     📄 OpeningInventory.tsx
     📄 ProductManager.tsx
-    📄 secure_journals.sql
     📄 SlowMovingReport.tsx
     📄 StockAdjustmentForm.tsx
     📄 StockCard.tsx
@@ -156,7 +153,6 @@
     📄 SupplierManager.tsx
     📄 SupplierStatement.tsx
   📁 reports/
-    📄 add_product_unit.sql
     📄 AttachmentsReport.tsx
     📄 DailySalesReport.tsx
     📄 DeficitReport.tsx
@@ -202,7 +198,6 @@
     📁 utils/
       📄 runRestaurantFlowTest.ts
   📁 sales/
-    📄 backup.yml
     📄 CreditNoteForm.tsx
     📄 CreditNoteList.tsx
     📄 CustomerAgingReport.tsx
@@ -239,9 +234,9 @@
   📄 Maintenance.tsx
   📄 NotificationCenter.tsx
   📄 OfflineSyncProvider.tsx
-  📄 Quotations.tsx
   📄 PrintableInvoice.tsx
   📄 ProductStockViewer.tsx
+  📄 Quotations.tsx
   📄 ReportHeader.tsx
   📄 run-flow-test.ts
   📄 search-tool.ts
@@ -254,8 +249,6 @@
   📄 UserGuide.tsx
   📄 UserManager.tsx
   📄 UserProfile.tsx
-📁 docs/
-  📄 MASTER_DOCUMENTATION.md
 📁 services/
   📁 mfg/
   📁 migrations/
@@ -307,8 +300,6 @@
       📄 mfg_rls_test.sql
       📄 populate_demo_activity.sql
       📄 quick_diagnostic.sql
-      📄 recalculate_stock_rpc.sql
-      📄 recalculate_stock_v3.sql
       📄 reset_database_clean.sql
       📄 restore_from_backup.sql
       📄 secure_tables.sql
@@ -354,10 +345,12 @@
     📄 2026-03-31_fix_historical_unbalanced_journals.sql
     📄 2026-04-01_fix_report_account_types.sql
     📄 2026-04-03_enforce_lowercase_types.sql
+    📄 2026-04-05_add_notes_to_inventory_counts.sql
     📄 2026-04-05_auto_assign_qr_orders.sql
     📄 2026-04-06_fix_sales_account_missing.sql
     📄 2026-04-10_fix_sync_role_permissions.sql
     📄 add_account_mappings.sql
+    📄 add_category_image.sql
     📄 add_created_by_columns.sql
     📄 add_currency_to_vouchers.sql
     📄 add_decimal_places_column.sql
@@ -366,6 +359,7 @@
     📄 add_overhead_percentage.sql
     📄 add_payment_method_column.sql
     📄 add_product_costs.sql
+    📄 add_product_unit.sql
     📄 approve_credit_note_rpc.sql
     📄 approve_debit_note_rpc.sql
     📄 approve_payment_voucher_rpc.sql
@@ -386,6 +380,7 @@
     📄 reports_functions.sql
     📄 run_period_depreciation_rpc.sql
     📄 schema.sql
+    📄 secure_journals.sql
     📄 setup_notifications.sql
     📄 sync_missing_accounts.sql
     📄 system_stabilization.sql
@@ -508,7 +503,8 @@ import { ToastProvider } from './context/ToastContext';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
-import AdminTestDashboard from './services/AdminTestDashboard';
+import AdminTestDashboard from './components/AdminTestDashboard';
+import Quotations from './components/Quotations';
 import Dashboard from './components/Dashboard';
 import DraftJournalsList from './components/DraftJournalsList';
 import GeneralJournal from './modules/accounting/GeneralJournal';
@@ -1874,3 +1870,4 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
   }
 });
 ```
+
