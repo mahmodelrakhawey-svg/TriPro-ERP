@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
@@ -63,7 +63,8 @@ const AccountList = () => {
     '412', // إيرادات التوصيل (Delivery) / مردودات ومسموحات مبيعات
     '413', // خصم مسموح به
     '421', // إيرادات متنوعة
-    '422', // إيراد خصومات وجزاءات الموظفين
+    '422', // إيراد خصومات وجزاءات الموظفين (الموجود مسبقاً)
+    '425', // إيراد تشغيل معدات داخلي (الحساب الجديد)
     '423', // فوائد بنكية دائنة
     '511', // تكلفة البضاعة المباعة / تكلفة المواد الخام المستهلكة
     '512', // تسويات جردية (عجز/زيادة) / تكلفة الهالك والضيافة
@@ -218,6 +219,8 @@ const AccountList = () => {
       { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_code: '22' },
       { code: '3999', name: 'الأرصدة الافتتاحية (حساب وسيط)', type: 'EQUITY', is_group: false, parent_code: '3' },
       { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_code: '4' },
+      { code: '42', name: 'إيرادات أخرى', type: 'REVENUE', is_group: true, parent_code: '4' },
+      { code: '425', name: 'إيراد تشغيل معدات داخلي', type: 'REVENUE', is_group: false, parent_code: '42' },
       { code: '511', name: 'تكلفة البضاعة المباعة', type: 'EXPENSE', is_group: false, parent_code: '5' },
       { code: '53', name: 'المصروفات الإدارية والعمومية', type: 'EXPENSE', is_group: true, parent_code: '5' },
       { code: '541', name: 'تسوية عجز الصندوق', type: 'EXPENSE', is_group: false, parent_code: '53' },

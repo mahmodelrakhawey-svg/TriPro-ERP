@@ -6,11 +6,12 @@ import { validateData, createProjectSchema } from '../../../utils/validationSche
 import { X, Save, Building2, User, DollarSign, Calendar } from 'lucide-react';
 
 interface ProjectFormProps {
+  project?: any;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-const ProjectForm: React.FC<ProjectFormProps> = ({ onClose, onSuccess }) => {
+const ProjectForm: React.FC<ProjectFormProps> = ({ onClose, onSuccess, project }) => {
   const { organization } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -19,10 +20,23 @@ const ProjectForm: React.FC<ProjectFormProps> = ({ onClose, onSuccess }) => {
     name: '',
     description: '',
     customerId: '',
-    contractValue: 0,
-    startDate: new Date().toISOString().split('T')[0],
-    status: 'planned'
+    contractValue: project?.contract_value || 0,
+    startDate: project?.start_date || new Date().toISOString().split('T')[0],
+    status: project?.status || 'planned'
   });
+
+  React.useEffect(() => {
+    if (project) {
+      setFormData({
+        name: project.name,
+        description: project.description || '',
+        customerId: project.customer_id,
+        contractValue: project.contract_value,
+        startDate: project.start_date,
+        status: project.status
+      });
+    }
+  }, [project]);
 
   React.useEffect(() => {
     const fetchCustomers = async () => {
@@ -48,19 +62,36 @@ const ProjectForm: React.FC<ProjectFormProps> = ({ onClose, onSuccess }) => {
     }
 
     try {
-      const { error } = await supabase.from('projects').insert([{
-        name: formData.name,
-        description: formData.description,
-        customer_id: formData.customerId,
-        contract_value: formData.contractValue,
-        start_date: formData.startDate,
-        status: formData.status,
-        organization_id: organization?.id
-      }]);
+      if (project?.id) {
+        const { error } = await supabase
+          .from('projects')
+          .update({
+            name: formData.name,
+            description: formData.description,
+            customer_id: formData.customerId,
+            contract_value: formData.contractValue,
+            start_date: formData.startDate,
+            status: formData.status,
+          })
+          .eq('id', project.id);
 
-      if (error) throw error;
+        if (error) throw error;
+        showToast('تم تحديث بيانات المشروع بنجاح ✅', 'success');
+      } else {
+        const { error } = await supabase.from('projects').insert([{
+          name: formData.name,
+          description: formData.description,
+          customer_id: formData.customerId,
+          contract_value: formData.contractValue,
+          start_date: formData.startDate,
+          status: formData.status,
+          organization_id: organization?.id
+        }]);
 
-      showToast('تم إنشاء المشروع وربطه مالياً بنجاح ✅', 'success');
+        if (error) throw error;
+        showToast('تم إنشاء المشروع وربطه مالياً بنجاح ✅', 'success');
+      }
+
       onSuccess();
       onClose();
     } catch (error: any) {
@@ -76,7 +107,7 @@ const ProjectForm: React.FC<ProjectFormProps> = ({ onClose, onSuccess }) => {
         <div className="p-6 border-b flex justify-between items-center bg-gray-50">
           <h3 className="font-bold text-xl text-gray-800 flex items-center gap-2">
             <Building2 className="text-blue-600" size={24} />
-            إضافة مشروع مقاولات جديد
+            {project ? 'تعديل بيانات المشروع' : 'إضافة مشروع مقاولات جديد'}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={24} />
@@ -123,6 +154,32 @@ const ProjectForm: React.FC<ProjectFormProps> = ({ onClose, onSuccess }) => {
                 onChange={e => setFormData({ ...formData, startDate: e.target.value })}
               />
             </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                <DollarSign size={14}/> قيمة العقد
+              </label>
+              <input
+                type="number"
+                className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                value={formData.contractValue}
+                onChange={e => setFormData({ ...formData, contractValue: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-1">حالة المشروع</label>
+            <select
+              className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              value={formData.status}
+              onChange={e => setFormData({ ...formData, status: e.target.value })}
+            >
+              <option value="planned">مخطط (Planned)</option>
+              <option value="active">نشط (Active)</option>
+              <option value="on_hold">متوقف مؤقتاً (On Hold)</option>
+              <option value="completed">مكتمل (Completed)</option>
+              <option value="cancelled">ملغي (Cancelled)</option>
+            </select>
           </div>
 
           <button

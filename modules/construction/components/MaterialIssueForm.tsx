@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -16,10 +16,12 @@ interface ItemRow {
   quantity: number;
   unitCost: number;
   unit: string;
+  boqItemId?: string; // 🏗️ جديد: ربط البند بالمقايسة
 }
 
 const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) => {
   const { organization, warehouses, products } = useAccounting();
+  const [boqItems, setBoqItems] = useState<any[]>([]); // 🏗️ قائمة بنود المقايسة
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [warehouseId, setWarehouseId] = useState('');
@@ -29,6 +31,17 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
   const [items, setItems] = useState<ItemRow[]>([
     { productId: '', quantity: 1, unitCost: 0, unit: '' }
   ]);
+
+  useEffect(() => {
+    const fetchBOQ = async () => {
+      const { data } = await supabase
+        .from('project_boq')
+        .select('id, item_name')
+        .eq('project_id', projectId);
+      if (data) setBoqItems(data);
+    };
+    fetchBOQ();
+  }, [projectId]);
 
   const updateItem = (index: number, field: keyof ItemRow, value: any) => {
     const newItems = [...items];
@@ -74,7 +87,8 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
           issue_id: issue.id,
           product_id: item.productId,
           quantity: item.quantity,
-          unit_cost: item.unitCost
+          unit_cost: item.unitCost,
+          boq_item_id: item.boqItemId || null // 🏗️ ترحيل الربط لقاعدة البيانات
         })));
 
       if (itemsError) throw itemsError;
@@ -132,6 +146,7 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
               <thead className="bg-slate-50 font-black text-slate-500">
                 <tr>
                   <th className="p-4">الصنف المخزني</th>
+                  <th className="p-4 w-48">مرتبط ببند مقايسة (BOQ)</th>
                   <th className="p-4 text-center w-32">الكمية</th>
                   <th className="p-4 text-center w-32">التكلفة التقديرية</th>
                   <th className="p-4 text-center w-32">الإجمالي</th>
@@ -143,6 +158,16 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
                   <tr key={idx} className="hover:bg-slate-50/50">
                     <td className="p-2">
                       <SearchableSelect options={products.filter(p => p.item_type !== 'SERVICE').map(p => ({ id: p.id, name: p.name, code: p.sku }))} value={item.productId} onChange={val => updateItem(idx, 'productId', val)} placeholder="ابحث عن صنف..." />
+                    </td>
+                    <td className="p-2">
+                      <select 
+                        value={item.boqItemId || ''} 
+                        onChange={e => updateItem(idx, 'boqItemId', e.target.value)}
+                        className="w-full border rounded-lg p-2 text-xs font-bold text-blue-600 bg-blue-50/30"
+                      >
+                        <option value="">-- اختياري --</option>
+                        {boqItems.map(b => <option key={b.id} value={b.id}>{b.item_name}</option>)}
+                      </select>
                     </td>
                     <td className="p-2"><input type="number" value={item.quantity} onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value))} className="w-full border rounded-lg p-2 text-center font-bold" /></td>
                     <td className="p-2"><input type="number" value={item.unitCost} onChange={e => updateItem(idx, 'unitCost', parseFloat(e.target.value))} className="w-full border rounded-lg p-2 text-center text-slate-500" /></td>

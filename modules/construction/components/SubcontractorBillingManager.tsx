@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
-import { ArrowRight, Plus, FileText, CheckCircle2, ShieldAlert, Receipt, Star, Clock as ClockIcon } from 'lucide-react';
+import { ArrowRight, Plus, FileText, CheckCircle2, ShieldAlert, Receipt, Star, Clock as ClockIcon, X, Save, Loader2, Calendar, Target, TrendingUp, Wallet, Paperclip } from 'lucide-react';
+import SiteAttachmentManager from './SiteAttachmentManager';
 
 interface SubBilling {
   id: string;
@@ -25,16 +26,77 @@ interface Props {
 const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) => {
   const { organization } = useAccounting();
   const [billings, setBillings] = useState<SubBilling[]>([]);
+  const [contractDetails, setContractDetails] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [activeAttachmentId, setActiveAttachmentId] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    totalBilled: 0,
+    totalPaid: 0,
+    remainingBalance: 0,
+    completionPercentage: 0
+  });
+  const [isCreating, setIsCreating] = useState(false);
   const [showApprovalDialog, setShowApprovalDialog] = useState<string | null>(null);
+  const [newBilling, setNewBilling] = useState({
+    billing_number: '',
+    billing_date: new Date().toISOString().split('T')[0],
+    gross_amount: 0,
+    retention_amount: 0,
+    advance_deduction: 0,
+    retention_release_date: '', // 🏗️ جديد
+  });
   const [scores, setScores] = useState({ quality: 5, timeliness: 5 });
   const { showToast } = useToast();
 
   useEffect(() => {
     if (organization?.id) {
       fetchBillings();
+      fetchContract();
     }
   }, [contractId, organization?.id]);
+
+  const fetchContract = async () => {
+    const { data } = await supabase
+      .from('subcontractor_contracts')
+      .select('*')
+      .eq('id', contractId)
+      .single();
+    
+    if (data) {
+      setContractDetails(data);
+      // حساب إحصائيات العقد بناءً على المستخلصات المعتمدة
+      const totalBilled = billings.filter(b => b.status === 'approved').reduce((sum, b) => sum + b.gross_amount, 0);
+      const completion = data.total_value > 0 ? (totalBilled / data.total_value) * 100 : 0;
+      setStats({
+        totalBilled,
+        totalPaid: billings.filter(b => b.status === 'approved').reduce((sum, b) => sum + b.net_amount, 0),
+        remainingBalance: data.total_value - totalBilled,
+        completionPercentage: completion
+      });
+    }
+  };
+
+  // 🏗️ أتمتة حساب الاستقطاعات عند تغيير مبلغ الأعمال
+  useEffect(() => {
+    if (contractDetails && newBilling.gross_amount > 0) {
+      // حساب محتجز الضمان (مثلاً 5%)
+      const retention = (newBilling.gross_amount * (contractDetails.retention_percentage || 0)) / 100;
+      
+      // حساب استهلاك الدفعة المقدمة (بناءً على نسبة الدفعة من إجمالي العقد)
+      // إذا كان العقد بـ 100 ألف والدفعة المقدمة كانت 10 آلاف (10%)، نخصم 10% من كل مستخلص
+      let suggestedDeduction = 0;
+      if (contractDetails.total_value > 0 && contractDetails.advance_payment_balance > 0) {
+        const advanceRate = 0.1; // يمكن جعلها ديناميكية لاحقاً، نفترض 10% كمعيار سوقي
+        suggestedDeduction = Math.min(newBilling.gross_amount * advanceRate, contractDetails.advance_payment_balance);
+      }
+
+      setNewBilling(prev => ({ 
+        ...prev, 
+        retention_amount: retention,
+        advance_deduction: suggestedDeduction
+      }));
+    }
+  }, [newBilling.gross_amount, contractDetails]);
 
   const fetchBillings = async () => {
     if (!organization?.id) return;
@@ -49,6 +111,27 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
     if (error) showToast(error.message, 'error');
     else setBillings(data || []);
     setLoading(false);
+  };
+
+  const handleCreateBilling = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      const { error } = await supabase.from('subcontractor_billings').insert([{
+        ...newBilling,
+        contract_id: contractId,
+        organization_id: organization?.id,
+        status: 'draft'
+      }]);
+      if (error) throw error;
+      showToast('تم حفظ مستخلص المقاول كمسودة ✅', 'success');
+      setIsCreating(false);
+      fetchBillings();
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const confirmApproval = async () => {
@@ -86,11 +169,91 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
             <p className="text-sm text-gray-500">متابعة الإنجاز والخصومات المالية</p>
           </div>
         </div>
-        <button className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-purple-100">
+        <button 
+          onClick={() => setIsCreating(true)}
+          className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-purple-100"
+        >
           <Plus size={20} />
           إضافة مستخلص أعمال
         </button>
       </div>
+
+      {/* 🏗️ لوحة ملخص العقد (Contract Snapshot) */}
+      {contractDetails && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8 animate-in fade-in duration-500">
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 text-slate-400 mb-2 font-bold text-xs"><Target size={14}/> إجمالي قيمة العقد</div>
+            <div className="text-xl font-black text-slate-800">{contractDetails.total_value?.toLocaleString()}</div>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 text-blue-500 mb-2 font-bold text-xs"><TrendingUp size={14}/> إجمالي الأعمال المعتمدة</div>
+            <div className="text-xl font-black text-blue-600">{stats.totalBilled.toLocaleString()}</div>
+            <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+              <div className="bg-blue-500 h-full transition-all duration-1000" style={{ width: `${Math.min(stats.completionPercentage, 100)}%` }}></div>
+            </div>
+          </div>
+          <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 text-emerald-500 mb-2 font-bold text-xs"><Wallet size={14}/> المتبقي في العقد</div>
+            <div className="text-xl font-black text-emerald-600">{stats.remainingBalance.toLocaleString()}</div>
+          </div>
+          <div className="bg-gradient-to-br from-purple-600 to-indigo-700 p-4 rounded-2xl shadow-lg shadow-purple-100 text-white">
+            <div className="flex items-center gap-2 opacity-80 mb-2 font-bold text-xs"><ShieldAlert size={14}/> رصيد الدفعة المقدمة</div>
+            <div className="text-2xl font-black">{contractDetails.advance_payment_balance?.toLocaleString()}</div>
+            <p className="text-[10px] mt-1 opacity-70 italic">* سيتم استهلاكها تلقائياً عند الاعتماد</p>
+          </div>
+        </div>
+      )}
+
+      {isCreating && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 text-right">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden flex flex-col">
+            <div className="p-6 bg-purple-50 border-b flex justify-between items-center">
+              <h3 className="font-bold text-xl text-purple-800">إضافة مستخلص مقاول باطن</h3>
+              <button onClick={() => setIsCreating(false)} className="text-purple-400 hover:text-purple-600"><X size={24} /></button>
+            </div>
+            <form onSubmit={handleCreateBilling} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">رقم المستخلص</label>
+                  <input type="text" required value={newBilling.billing_number} onChange={e => setNewBilling({...newBilling, billing_number: e.target.value})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500" placeholder="مثلاً: SUB-001" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">تاريخ المستخلص</label>
+                  <input type="date" required value={newBilling.billing_date} onChange={e => setNewBilling({...newBilling, billing_date: e.target.value})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">قيمة الأعمال المنفذة (Gross)</label>
+                <input type="number" required value={newBilling.gross_amount} onChange={e => setNewBilling({...newBilling, gross_amount: parseFloat(e.target.value)})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1 text-orange-600">خصم محتجز الضمان</label>
+                  <input type="number" value={newBilling.retention_amount} onChange={e => setNewBilling({...newBilling, retention_amount: parseFloat(e.target.value)})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-orange-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1 text-blue-600">خصم استرداد دفعة</label>
+                  <input type="number" value={newBilling.advance_deduction} onChange={e => setNewBilling({...newBilling, advance_deduction: parseFloat(e.target.value)})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1 flex items-center gap-1">
+                  <Calendar size={14} className="text-emerald-600" /> تاريخ رد المحتجز المتوقع
+                </label>
+                <input 
+                  type="date" 
+                  value={newBilling.retention_release_date} 
+                  onChange={e => setNewBilling({...newBilling, retention_release_date: e.target.value})} 
+                  className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 bg-emerald-50/20" 
+                />
+              </div>
+              <button type="submit" disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all">
+                {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> حفظ المستخلص</>}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {billings.map((bill) => (
@@ -126,7 +289,14 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
               </div>
             </div>
 
-            <div>
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setActiveAttachmentId(bill.id)}
+                className="p-2 text-slate-400 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                title="المرفقات المستندية"
+              >
+                <Paperclip size={20} />
+              </button>
               {bill.status === 'draft' ? (
                 <button 
                   onClick={() => setShowApprovalDialog(bill.id)}
@@ -197,6 +367,15 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
             </div>
           </div>
         </div>
+      )}
+
+      {/* 🏗️ ربط محرك المرفقات بالواجهة */}
+      {activeAttachmentId && contractDetails && (
+        <SiteAttachmentManager 
+          projectId={contractDetails.project_id} 
+          billingId={activeAttachmentId} 
+          onClose={() => setActiveAttachmentId(null)} 
+        />
       )}
     </div>
   );

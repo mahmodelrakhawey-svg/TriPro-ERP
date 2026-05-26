@@ -6,11 +6,12 @@ import { validateData, createSubcontractorSchema } from '../../../utils/validati
 import { X, Save, Users, Phone, Briefcase } from 'lucide-react';
 
 interface SubcontractorFormProps {
+  subcontractor?: any;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSuccess }) => {
+const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSuccess, subcontractor }) => {
   const { organization } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
@@ -19,6 +20,16 @@ const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSucces
     phone: '',
     specialty: '',
   });
+
+  React.useEffect(() => {
+    if (subcontractor) {
+      setFormData({
+        name: subcontractor.name || '',
+        phone: subcontractor.phone || '',
+        specialty: subcontractor.specialty || '',
+      });
+    }
+  }, [subcontractor]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,14 +43,24 @@ const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSucces
     }
 
     try {
-      const { error } = await supabase.from('subcontractors').insert([{
+      if (subcontractor?.id) {
+        const { error } = await supabase
+          .from('subcontractors')
+          .update(formData)
+          .eq('id', subcontractor.id);
+
+        if (error) throw error;
+        showToast('تم تحديث بيانات المقاول بنجاح ✅', 'success');
+      } else {
+        const { error } = await supabase.from('subcontractors').insert([{
           ...formData,
           organization_id: organization?.id
-      }]);
+        }]);
 
-      if (error) throw error;
+        if (error) throw error;
+        showToast('تم إضافة مقاول الباطن بنجاح ✅', 'success');
+      }
 
-      showToast('تم إضافة مقاول الباطن بنجاح ✅', 'success');
       onSuccess();
       onClose();
     } catch (error: any) {
@@ -55,7 +76,7 @@ const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSucces
         <div className="p-6 border-b flex justify-between items-center bg-gray-50">
           <h3 className="font-bold text-xl text-gray-800 flex items-center gap-2">
             <Users className="text-purple-600" size={24} />
-            إضافة مقاول باطن جديد
+            {subcontractor ? 'تعديل بيانات المقاول' : 'إضافة مقاول باطن جديد'}
           </h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
             <X size={24} />

@@ -20,6 +20,7 @@
 - ✅ 3 مستويات أولوية (عالية، متوسطة، منخفضة)
 - ✅ تخزين دائم في قاعدة البيانات
 - ✅ فحوصات دورية تلقائية
+- ✅ تنبيهات أداء المشاريع (CPI/SPI)
 - ✅ معالجة الأخطاء الشاملة
 
 **الدوال الرئيسية**:
@@ -34,6 +35,7 @@ checkLowInventory()     - فحص المخزون
 checkHighDebt()         - فحص الديون
 checkPendingApprovals() - فحص الموافقات
 checkUpcomingDueDates() - فحص التواريخ القريبة
+checkProjectPerformanceThresholds() - فحص أداء المشاريع
 runAllChecks()          - تشغيل جميع الفحوصات
 ```
 

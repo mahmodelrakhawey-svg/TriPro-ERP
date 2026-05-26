@@ -29,6 +29,7 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
   const [viewMode, setViewMode] = useState<'cards' | 'gantt'>('cards');
   const { showToast } = useToast();
 
@@ -84,6 +85,20 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
     } catch (error: any) {
       showToast('خطأ في إضافة المرحلة: ' + error.message, 'error');
     }
+  };
+
+  // 🏗️ دالة تحديث التقدم من مخطط Gantt
+  const updateMilestoneProgress = async (id: string, progress: number) => {
+    try {
+      const status = progress === 100 ? 'completed' : progress > 0 ? 'in_progress' : 'pending';
+      const { error } = await supabase
+        .from('project_milestones')
+        .update({ progress_percentage: progress, status })
+        .eq('id', id);
+      if (error) throw error;
+      showToast('تم تحديث نسبة الإنجاز ✅', 'success');
+      fetchMilestones();
+    } catch (e: any) { showToast(e.message, 'error'); }
   };
 
   const getStatusBadge = (status: Milestone['status']) => {
@@ -224,7 +239,13 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
         </div>
       ) : (
         viewMode === 'gantt' ? (
-          <ProjectGanttChart milestones={milestones} />
+          <ProjectGanttChart 
+            milestones={milestones} 
+            onMilestoneClick={(m) => {
+              const newProgress = window.prompt(`تحديث نسبة إنجاز "${m.title}" (%):`, m.progress_percentage.toString());
+              if (newProgress !== null) updateMilestoneProgress(m.id, parseInt(newProgress));
+            }}
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {milestones.map((milestone) => (

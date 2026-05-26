@@ -13,6 +13,7 @@ import {
   CartesianGrid, Tooltip, Legend, Cell, ComposedChart, Line, AreaChart, Area
 } from 'recharts';
 import ProjectExecutiveReport from '../reports/ProjectExecutiveReport';
+import ProjectHealthGauges from './ProjectHealthGauges'; // Import the new gauges
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 
@@ -113,6 +114,13 @@ const ConstructionDashboard = () => {
 
   useEffect(() => { fetchDashboardData(); }, []);
 
+  // التأكد من فتح المشروع المطلوب عند الانتقال من قائمة المشاريع
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const targetId = searchParams.get('projectId');
+    if (targetId && projects.length > 0) setExpandedProject(targetId);
+  }, [projects]);
+
   const exportProjectPDF = async (project: ProjectPerformance) => {
     setIsExporting(true);
     try {
@@ -164,22 +172,29 @@ const ConstructionDashboard = () => {
                   </div>
                 </div>
                 <div className="flex gap-2 items-center">
-                   <button 
-                    onClick={() => exportProjectPDF(proj)}
-                    disabled={isExporting}
-                    className="p-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center gap-2 text-[10px] font-bold"
-                    title="تصدير تقرير فاخر للعميل"
-                   >
-                    {isExporting ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
-                    تصدير التقرير
-                   </button>
-                   <IndicatorBadge label="SPI" value={proj.spi} />
-                   <IndicatorBadge label="CPI" value={proj.cpi} />
+                    <button 
+                      onClick={() => exportProjectPDF(proj)}
+                      disabled={isExporting}
+                      className="p-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center gap-2 text-[10px] font-bold"
+                      title="تصدير تقرير فاخر للعميل"
+                    >
+                      {isExporting ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                      تصدير التقرير
+                    </button>
+                    {/* Replacing badges with Gauges for a professional look */}
+                    <div className="hidden md:block">
+                       <ProjectHealthGauges cpi={proj.cpi} spi={proj.spi} />
+                    </div>
                 </div>
               </div>
             </div>
 
             <div className="p-6">
+              {/* Show gauges on mobile inside the content area */}
+              <div className="md:hidden mb-6">
+                <ProjectHealthGauges cpi={proj.cpi} spi={proj.spi} />
+              </div>
+              
               <div className="grid grid-cols-3 gap-4 mb-6">
                 <MetricItem label="الميزانية (BAC)" value={proj.metrics.bac} color="text-slate-600" />
                 <MetricItem label="المنجز (EV)" value={proj.metrics.earned_value} color="text-blue-600" />
@@ -241,7 +256,13 @@ const ConstructionDashboard = () => {
                   {/* جدول انحراف المواد التفصيلي */}
                   <div className="mt-8">
                     <h4 className="text-sm font-black text-slate-700 mb-4 flex items-center gap-2">
-                      <PackageSearch size={18} className="text-orange-600" /> تفصيل انحراف المواد (Planned vs Actual)
+                      <PackageSearch size={18} className="text-orange-600" /> 
+                      مقارنة المخطط بالمنفذ (Material Audit)
+                      {materialVariances.some(v => v.project_name === proj.project_name && v.consumption_pct > 100) && (
+                        <span className="bg-red-100 text-red-600 text-[9px] px-2 py-0.5 rounded-full animate-pulse">
+                          تنبيه: تجاوز ميزانية خامات!
+                        </span>
+                      )}
                     </h4>
                     <div className="bg-slate-50 rounded-2xl overflow-hidden border">
                       <table className="w-full text-right text-xs">
@@ -252,10 +273,17 @@ const ConstructionDashboard = () => {
                           {materialVariances.filter(v => v.project_name === proj.project_name).map((mv, i) => (
                             <tr key={i} className="border-t">
                               <td className="p-3 font-bold">{mv.material_name}</td>
-                              <td className="p-3">{mv.planned_qty}</td>
-                              <td className="p-3">{mv.actual_issued_qty}</td>
+                              <td className="p-3 text-slate-500">{mv.planned_qty.toLocaleString()} {mv.unit}</td>
+                              <td className="p-3 font-bold">{mv.actual_issued_qty.toLocaleString()} {mv.unit}</td>
                               <td className={`p-3 font-bold ${mv.variance_qty < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{mv.variance_qty}</td>
-                              <td className="p-3"><span className={`px-2 py-0.5 rounded-full font-black ${mv.consumption_pct > 100 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>{mv.consumption_pct}%</span></td>
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-1 rounded-lg font-black text-[10px] ${mv.consumption_pct > 100 ? 'bg-red-500 text-white' : 'bg-emerald-100 text-emerald-700'}`}>{mv.consumption_pct}%</span>
+                                  {mv.consumption_pct > 90 && mv.consumption_pct <= 100 && (
+                                    <span title="اقترب من نفاذ ميزانية البند"><AlertTriangle size={12} className="text-amber-500 animate-pulse" /></span>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>

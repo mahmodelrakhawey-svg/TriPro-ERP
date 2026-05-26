@@ -47,6 +47,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   RETENTION_CUSTOMER: 'محتجز ضمان لدى الغير (عملاء) (1249)',
   RETENTION_SUBCONTRACTOR: 'محتجز ضمان لمقاولي الباطن (2229)',
   ADVANCE_PAYMENT_SUBCONTRACTOR: 'دفعات مقدمة للمقاولين (1245)',
+  EQUIPMENT_INTERNAL_REVENUE: 'إيراد تشغيل معدات داخلي (425)',
 };
 
 interface CloudBackup {
@@ -608,7 +609,8 @@ const Settings = () => {
           WASTAGE_EXPENSE: '5121',
           RETENTION_CUSTOMER: '1249',
           RETENTION_SUBCONTRACTOR: '2229',
-          ADVANCE_PAYMENT_SUBCONTRACTOR: '1245'
+          ADVANCE_PAYMENT_SUBCONTRACTOR: '1245',
+          EQUIPMENT_INTERNAL_REVENUE: '425'
       };
 
       const newMappings = { ...formData.accountMappings };
@@ -1231,7 +1233,8 @@ const Settings = () => {
                               WASTAGE_EXPENSE: '5121',
                               RETENTION_CUSTOMER: '1249',
                               RETENTION_SUBCONTRACTOR: '2229',
-                              ADVANCE_PAYMENT_SUBCONTRACTOR: '1245'
+                              ADVANCE_PAYMENT_SUBCONTRACTOR: '1245',
+                              EQUIPMENT_INTERNAL_REVENUE: '425'
                           }).map(([key, defaultCode]) => {
                               const isUnmapped = !formData.accountMappings[key];
                               return (

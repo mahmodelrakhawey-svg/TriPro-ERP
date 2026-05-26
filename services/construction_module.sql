@@ -50,20 +50,61 @@ CREATE TABLE IF NOT EXISTS public.project_progress_billings (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- جدول مرفقات المستخلصات (لتعزيز الرقابة الميدانية)
-CREATE TABLE IF NOT EXISTS public.project_billing_attachments (
+-- 🏗️ جدول المرفقات الشامل (Project & Billing Attachments)
+CREATE TABLE IF NOT EXISTS public.project_attachments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    billing_id UUID NOT NULL REFERENCES public.project_progress_billings(id) ON DELETE CASCADE,
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    billing_id UUID REFERENCES public.project_progress_billings(id) ON DELETE CASCADE, -- مستخلصات عملاء
+    sub_billing_id UUID REFERENCES public.subcontractor_billings(id) ON DELETE CASCADE, -- 🏗️ جديد: مستخلصات مقاولين
     organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     file_name TEXT NOT NULL,
     file_url TEXT NOT NULL,
     file_type TEXT,
+    file_size NUMERIC,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE public.project_billing_attachments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Billing_Attachment_Isolation" ON public.project_billing_attachments;
-CREATE POLICY "SaaS_Billing_Attachment_Isolation" ON public.project_billing_attachments FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+-- 🏗️ نظام طلبات التفتيش والجودة (Site Inspection Requests - IR)
+CREATE TABLE IF NOT EXISTS public.project_inspections (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    boq_item_id UUID REFERENCES public.project_boq(id) ON DELETE SET NULL,
+    inspection_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    location_in_site TEXT, -- مثل: الدور الخامس - الجناح الشرقي
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'passed', 'failed', 'rework')),
+    technical_notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 🏗️ نظام ربط صرف المواد بالبند (BOQ Enforcement Helper)
+-- الغرض: التأكد من أن أي مادة تصرف للموقع مرتبطة ببند مقايسة محدد
+CREATE OR REPLACE FUNCTION public.get_project_boq_remaining_qty(p_boq_item_id UUID)
+RETURNS NUMERIC LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_planned NUMERIC;
+    v_issued NUMERIC;
+BEGIN
+    -- 1. الكمية المخططة في المقايسة
+    SELECT estimated_quantity INTO v_planned FROM public.project_boq WHERE id = p_boq_item_id;
+    
+    -- 2. إجمالي الكميات المنصرفة فعلياً لهذا البند
+    SELECT COALESCE(SUM(quantity), 0) INTO v_issued 
+    FROM public.project_material_issue_items 
+    WHERE boq_item_id = p_boq_item_id 
+      AND issue_id IN (SELECT id FROM public.project_material_issues WHERE status = 'approved');
+
+    RETURN v_planned - v_issued;
+END; $$;
+
+ALTER TABLE public.project_inspections ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Inspection_Isolation" ON public.project_inspections;
+CREATE POLICY "SaaS_Inspection_Isolation" ON public.project_inspections 
+FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+
+ALTER TABLE public.project_attachments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Project_Attachment_Isolation" ON public.project_attachments;
+CREATE POLICY "SaaS_Project_Attachment_Isolation" ON public.project_attachments FOR ALL TO authenticated USING (organization_id = public.get_my_org());
 
 -- 🛡️ ترميم هيكل الجدول لضمان وجود أعمدة الدفعات المقدمة (Schema Healing)
 DO $$ 
@@ -72,13 +113,52 @@ BEGIN
         ALTER TABLE public.project_boq ADD COLUMN product_id UUID REFERENCES public.products(id) ON DELETE SET NULL;
     END IF;
 
+    -- تطوير المقايسة لتشمل التحليل (Rate Analysis)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_boq' AND column_name='material_cost_per_unit') THEN
+        ALTER TABLE public.project_boq ADD COLUMN material_cost_per_unit NUMERIC(15,2) DEFAULT 0;
+        ALTER TABLE public.project_boq ADD COLUMN labor_cost_per_unit NUMERIC(15,2) DEFAULT 0;
+        ALTER TABLE public.project_boq ADD COLUMN overhead_cost_per_unit NUMERIC(15,2) DEFAULT 0;
+        ALTER TABLE public.project_boq ADD COLUMN profit_margin_pct NUMERIC(5,2) DEFAULT 0;
+    END IF;
+
+    -- تحديث المستخلصات لتشمل الضرائب وتواريخ الفك
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_progress_billings' AND column_name='advance_deduction') THEN
         ALTER TABLE public.project_progress_billings ADD COLUMN advance_deduction NUMERIC(15,2) DEFAULT 0;
-        -- إعادة إنشاء العمود المحسوب ليشمل الخصم الجديد لضمان دقة صافي المستخلص
-        ALTER TABLE public.project_progress_billings DROP COLUMN IF EXISTS net_amount;
-        ALTER TABLE public.project_progress_billings ADD COLUMN net_amount NUMERIC(15,2) 
-            GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction) STORED;
     END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_progress_billings' AND column_name='vat_rate') THEN
+        ALTER TABLE public.project_progress_billings ADD COLUMN vat_rate NUMERIC(5,2) DEFAULT 0;
+        ALTER TABLE public.project_progress_billings ADD COLUMN vat_amount NUMERIC(15,2) DEFAULT 0;
+        ALTER TABLE public.project_progress_billings ADD COLUMN wht_rate NUMERIC(5,2) DEFAULT 0;
+        ALTER TABLE public.project_progress_billings ADD COLUMN wht_amount NUMERIC(15,2) DEFAULT 0;
+        ALTER TABLE public.project_progress_billings ADD COLUMN retention_release_date DATE;
+    END IF;
+
+    -- إعادة بناء net_amount لـ project_progress_billings ليشمل الضرائب
+    ALTER TABLE public.project_progress_billings DROP COLUMN IF EXISTS net_amount;
+    ALTER TABLE public.project_progress_billings ADD COLUMN net_amount NUMERIC(15,2) 
+        GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction + vat_amount - wht_amount) STORED;
+
+    -- تحديث مستخلصات مقاولي الباطن
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='subcontractor_billings' AND column_name='vat_rate') THEN
+        ALTER TABLE public.subcontractor_billings ADD COLUMN vat_rate NUMERIC(5,2) DEFAULT 0;
+        ALTER TABLE public.subcontractor_billings ADD COLUMN vat_amount NUMERIC(15,2) DEFAULT 0;
+        ALTER TABLE public.subcontractor_billings ADD COLUMN wht_rate NUMERIC(5,2) DEFAULT 0;
+        ALTER TABLE public.subcontractor_billings ADD COLUMN wht_amount NUMERIC(15,2) DEFAULT 0;
+        ALTER TABLE public.subcontractor_billings ADD COLUMN retention_release_date DATE;
+    END IF;
+
+    -- تحديث بيانات المقاولين لتشمل التفاصيل البنكية للأتمتة
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='subcontractors' AND column_name='bank_name') THEN
+        ALTER TABLE public.subcontractors ADD COLUMN bank_name TEXT;
+        ALTER TABLE public.subcontractors ADD COLUMN iban_number TEXT;
+        ALTER TABLE public.subcontractors ADD COLUMN swift_code TEXT;
+    END IF;
+    -- إعادة بناء net_amount لـ subcontractor_billings ليشمل الضرائب
+    ALTER TABLE public.subcontractor_billings DROP COLUMN IF EXISTS net_amount;
+    ALTER TABLE public.subcontractor_billings ADD COLUMN net_amount NUMERIC(15,2) 
+        GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction + vat_amount - wht_amount) STORED;
+
 END $$;
 
 -- تفعيل حماية البيانات (RLS) لكل شركة
@@ -152,6 +232,8 @@ DECLARE
     v_revenue_acc UUID;
     v_retention_cust_acc UUID; -- 1. محجوز ضمان عملاء (Asset)
     v_advance_cust_acc UUID;   -- 2. دفعات مقدمة عملاء (Liability)
+    v_vat_acc UUID;            -- ضريبة القيمة المضافة (Liability)
+    v_wht_rec_acc UUID;        -- ضريبة الخصم والتحصيل - لنا (Asset)
 BEGIN
     SELECT b.*, COALESCE(b.advance_deduction, 0) as adv_deduct INTO v_billing 
     FROM public.project_progress_billings b WHERE b.id = p_billing_id;
@@ -172,6 +254,9 @@ BEGIN
     -- 2. حساب دفعات مقدمة عملاء (Liability) - كود 226
     v_advance_cust_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'SECURITY_DEPOSIT_ACCOUNT')::UUID, (v_mappings->>'CUSTOMER_ADVANCES')::UUID, (SELECT id FROM public.accounts WHERE code = '226' AND organization_id = v_org_id LIMIT 1)));
 
+    v_vat_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'VAT')::UUID, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1)));
+    v_wht_rec_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WHT_RECEIVABLE')::UUID, (SELECT id FROM public.accounts WHERE code = '1242' AND organization_id = v_org_id LIMIT 1)));
+
     -- إنشاء القيد المحاسبي
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
     VALUES (v_billing.billing_date, 'مستخلص رقم ' || v_billing.billing_number || ' - مشروع ' || v_project.name, v_billing.billing_number, 'posted', v_org_id, p_billing_id, 'construction_billing', true)
@@ -187,286 +272,34 @@ BEGIN
         VALUES (v_je_id, v_retention_cust_acc, v_billing.retention_amount, 0, 'محتجز ضمان مستخلص ' || v_billing.billing_number, v_org_id);
     END IF;
 
+    -- من ح/ ضريبة الخصم والتحصيل (أصل - تم خصمها من قبل العميل لنا)
+    IF COALESCE(v_billing.wht_amount, 0) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_wht_rec_acc, v_billing.wht_amount, 0, 'ضريبة خصم وتحصيل مستخلص ' || v_billing.billing_number, v_org_id);
+    END IF;
+
     -- من ح/ الدفعات المقدمة (استهلاك الدفعة - تخفيض التزام)
     IF v_billing.adv_deduct > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_je_id, v_advance_cust_acc, v_billing.adv_deduct, 0, 'استهلاك دفعة مقدمة مستخلص ' || v_billing.billing_number, v_org_id);
     END IF;
 
-    -- إلى ح/ الإيرادات (بالإجمالي) - مربوط بمركز تكلفة المشروع
+    -- إلى ح/ إيرادات النشاط (بالقيمة الإجمالية)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_je_id, v_revenue_acc, 0, v_billing.gross_amount, 'إيراد أعمال منفذة للمشروع', v_org_id);
+    VALUES (v_je_id, v_revenue_acc, 0, v_billing.gross_amount, 'إيراد أعمال مشروع ' || v_project.name, v_org_id);
 
-    -- تحديث المستخلص
-    UPDATE public.project_progress_billings 
-    SET status = 'approved', related_journal_entry_id = v_je_id 
-    WHERE id = p_billing_id;
-END;
-$function$;
-
--- 7. دالة اعتماد مستخلص مقاول الباطن
-CREATE OR REPLACE FUNCTION public.fn_approve_sub_billing(p_billing_id UUID)
-RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $function$
-DECLARE
-    v_billing RECORD;
-    v_contract RECORD;
-    v_project RECORD;
-    v_je_id UUID;
-    v_mappings JSONB;
-    v_sub_acc UUID;        -- ح/ الموردين (مقاولين الباطن)
-    v_retention_sub_acc UUID; -- 3. محجوز ضمان مقاولين (Liability)
-    v_advance_sub_acc UUID;   -- 4. دفعات مقدمة مقاولين (Asset)
-BEGIN
-    SELECT b.* INTO v_billing FROM public.subcontractor_billings b WHERE b.id = p_billing_id;
-    SELECT * INTO v_contract FROM public.subcontractor_contracts WHERE id = v_billing.contract_id;
-    SELECT * INTO v_project FROM public.projects WHERE id = v_contract.project_id;
-
-    -- جلب الربط المحاسبي
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_billing.organization_id;
-
-    -- تحديد الحسابات
-    v_sub_acc := COALESCE((v_mappings->>'SUPPLIERS')::UUID, (SELECT id FROM public.accounts WHERE code IN ('221', '201') AND organization_id = v_billing.organization_id LIMIT 1));
-
-    -- كود 2229: محتجز ضمان لمقاولي الباطن (التزام)
-    v_retention_sub_acc := COALESCE((v_mappings->>'RETENTION_SUBCONTRACTOR')::UUID, (SELECT id FROM public.accounts WHERE code = '2229' AND organization_id = v_billing.organization_id LIMIT 1));
-
-    -- كود 1245: دفعات مقدمة للمقاولين (أصل)
-    v_advance_sub_acc := COALESCE((v_mappings->>'ADVANCE_PAYMENT_SUBCONTRACTOR')::UUID, (SELECT id FROM public.accounts WHERE code = '1245' AND organization_id = v_billing.organization_id LIMIT 1));
-
-    -- إنشاء القيد
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
-    VALUES (v_billing.billing_date, 'مستخلص مقاول باطن: ' || v_billing.billing_number, v_billing.billing_number, 'posted', v_billing.organization_id, p_billing_id, 'sub_billing', true)
-    RETURNING id INTO v_je_id;
-
-    -- من ح/ تكاليف المشروع (مركز التكلفة) - بالإجمالي
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_je_id, v_project.cost_center_account_id, v_billing.gross_amount, 0, 'أعمال منفذة من مقاول الباطن', v_billing.organization_id);
-
-    -- إلى ح/ محتجز ضمان مقاولين (Liability)
-    IF v_billing.retention_amount > 0 THEN
+    -- إلى ح/ ضريبة القيمة المضافة
+    IF COALESCE(v_billing.vat_amount, 0) > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_retention_sub_acc, 0, v_billing.retention_amount, 'محتجز ضمان مقاول مستخلص ' || v_billing.billing_number, v_billing.organization_id);
+        VALUES (v_je_id, v_vat_acc, 0, v_billing.vat_amount, 'ضريبة قيمة مضافة مستخلص ' || v_billing.billing_number, v_org_id);
     END IF;
 
-    -- إلى ح/ دفعات مقدمة مقاولين (Asset reduction)
-    IF v_billing.advance_deduction > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_advance_sub_acc, 0, v_billing.advance_deduction, 'استرداد دفعة مقدمة مقاول مستخلص ' || v_billing.billing_number, v_billing.organization_id);
-    END IF;
-
-    -- إلى ح/ الموردين (الصافي)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_je_id, v_sub_acc, 0, v_billing.net_amount, 'صافي مستحق لمقاول الباطن', v_billing.organization_id);
-
-    UPDATE public.subcontractor_billings SET status = 'approved', related_journal_entry_id = v_je_id WHERE id = p_billing_id;
+    UPDATE public.project_progress_billings SET status = 'approved', related_journal_entry_id = v_je_id WHERE id = p_billing_id;
+    PERFORM public.fix_unbalanced_journal_entry(v_je_id);
 END;
 $function$;
 
--- 8. جداول صرف المواد للمشاريع
-CREATE TABLE IF NOT EXISTS public.project_material_issues (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    warehouse_id UUID REFERENCES public.warehouses(id),
-    issue_number TEXT NOT NULL,
-    issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'cancelled')),
-    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.project_material_issue_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    issue_id UUID REFERENCES public.project_material_issues(id) ON DELETE CASCADE,
-    product_id UUID REFERENCES public.products(id),
-    quantity NUMERIC(15,3) NOT NULL,
-    unit_cost NUMERIC(15,2) -- التكلفة وقت الصرف (FIFO/Average)
-);
-
--- دالة اعتماد صرف المواد وترحيل التكاليف
-CREATE OR REPLACE FUNCTION public.fn_approve_material_issue(p_issue_id UUID)
-RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $function$
-DECLARE
-    v_issue RECORD;
-    v_project RECORD;
-    v_je_id UUID;
-    v_current_issue_cost NUMERIC(15,2) := 0;
-    v_total_budget NUMERIC(15,2);
-    v_current_spent NUMERIC(15,2);   
-BEGIN
-    -- 🧪 السماح بتجاوز الفحص أثناء الاختبارات أو وضع الاستعادة
-    IF current_setting('app.restore_mode', true) = 'on' THEN
-        -- تنفيذ العمليات مباشرة دون قيود الميزانية في وضع الاختبار
-    END IF;
-
-    SELECT * INTO v_issue FROM public.project_material_issues WHERE id = p_issue_id;
-    SELECT * INTO v_project FROM public.projects WHERE id = v_issue.project_id;
-
-    -- 🛡️ [Budget Guard] تفعيل درع الميزانية
-    -- 1. حساب الميزانية الإجمالية من المقايسة (BOQ)
-    SELECT COALESCE(SUM(total_price), 0) INTO v_total_budget 
-    FROM public.project_boq WHERE project_id = v_issue.project_id;
-
-    -- إذا لم يتم إدخال مقايسة تفصيلية، نستخدم قيمة العقد كدرع حماية نهائي
-    IF v_total_budget = 0 THEN
-        v_total_budget := v_project.contract_value;
-    END IF;
-
-    -- حساب إجمالي ما تم صرفه فعلياً عبر القيود المحاسبية المرتبطة بحساب المشروع
-    SELECT COALESCE(SUM(debit), 0) INTO v_current_spent 
-    FROM public.journal_lines WHERE account_id = v_project.cost_center_account_id;
-
-
-    -- 3. حساب تكلفة إذن الصرف الحالي
-    SELECT COALESCE(SUM(quantity * unit_cost), 0) INTO v_current_issue_cost 
-    FROM public.project_material_issue_items WHERE issue_id = p_issue_id;
-
-    -- منع الاعتماد إذا تجاوزت التكلفة الإجمالية الميزانية + 5% هامش أمان
-    IF (v_current_spent + v_current_issue_cost) > (v_total_budget * 1.05) THEN
-        RAISE EXCEPTION '❌ تم حظر الصرف: إجمالي التكاليف (%) سيتجاوز ميزانية المشروع المخططة (%)', 
-            (v_current_spent + v_current_issue_cost), v_total_budget;
-    END IF;
-
-    -- 1. إنشاء القيد المحاسبي (بشرط تجاوز فحص الميزانية)
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
-    VALUES (v_issue.issue_date, 'صرف مواد لمشروع: ' || v_project.name, v_issue.issue_number, 'posted', v_issue.organization_id, p_issue_id, 'material_issue', true)
-    RETURNING id INTO v_je_id;
-
-    -- 2. إنشاء أسطر القيد (تأمين التوازن المحاسبي)
-    -- أ. جانب المدين: تحميل التكلفة على حساب المشروع (مركز التكلفة)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_je_id, v_project.cost_center_account_id, v_current_issue_cost, 0, 'تحميل تكلفة مواد منصرفة للمشروع: ' || v_project.name, v_issue.organization_id);
-
-    -- ب. جانب الدائن: خصم القيمة من حسابات المخزون (تجميع حسب الحساب المرتبط بالمنتج)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    SELECT 
-        v_je_id, 
-        COALESCE(p.inventory_account_id, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_issue.organization_id LIMIT 1)), 
-        0, 
-        SUM(pmii.quantity * pmii.unit_cost), 
-        'إقفال قيمة مواد منصرفة للموقع', 
-        v_issue.organization_id
-    FROM public.project_material_issue_items pmii
-    JOIN public.products p ON pmii.product_id = p.id
-    WHERE pmii.issue_id = p_issue_id
-    GROUP BY p.inventory_account_id;
-
-    UPDATE public.project_material_issues SET status = 'approved', related_journal_entry_id = v_je_id WHERE id = p_issue_id;
-    
-    -- 3. تحديث المخزون عبر المحرك المركزي 🚀
-    PERFORM public.recalculate_stock_rpc(v_issue.organization_id);
-END;
-$function$;
-
--- 10. جداول التقارير الميدانية (Daily Progress Reports)
-CREATE TABLE IF NOT EXISTS public.project_daily_reports (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
-    report_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    work_description TEXT NOT NULL,
-    weather_condition TEXT,
-    manpower_count INTEGER DEFAULT 0,
-    equipment_status TEXT,
-    site_images TEXT[], -- روابط الصور المرفوعة
-    reported_by UUID REFERENCES auth.users(id),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- تفعيل RLS للتقارير
-ALTER TABLE public.project_daily_reports ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Daily_Report_Isolation" ON public.project_daily_reports;
-CREATE POLICY "SaaS_Daily_Report_Isolation" ON public.project_daily_reports 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
--- دالة استرداد محجوز الضمان (Retention Release)
--- 11. جدول استرداد محجوزات الضمان
-CREATE TABLE IF NOT EXISTS public.project_retention_releases (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
-    subcontractor_id UUID REFERENCES public.subcontractors(id) ON DELETE SET NULL, -- اختياري: إذا كان للمقاول
-    release_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    amount NUMERIC(15,2) NOT NULL,
-    release_type TEXT NOT NULL CHECK (release_type IN ('customer', 'subcontractor')),
-    reference_number TEXT,
-    status TEXT DEFAULT 'posted',
-    notes TEXT,
-    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-ALTER TABLE public.project_retention_releases ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Retention_Release_Isolation" ON public.project_retention_releases;
-CREATE POLICY "SaaS_Retention_Release_Isolation" ON public.project_retention_releases 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
--- دالة استرداد محجوز الضمان (Retention Release) مع القيود المحاسبية
-CREATE OR REPLACE FUNCTION public.fn_release_retention(
-    p_project_id UUID, 
-    p_amount NUMERIC, 
-    p_type TEXT, 
-    p_notes TEXT,
-    p_subcontractor_id UUID DEFAULT NULL
-)
-RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER AS $function$
-DECLARE
-    v_je_id UUID;
-    v_project RECORD;
-    v_org_id UUID;
-    v_cash_acc UUID; -- حساب النقدية/البنك
-    v_retention_acc UUID;
-BEGIN
-    SELECT * INTO v_project FROM public.projects WHERE id = p_project_id;
-    v_org_id := v_project.organization_id;
-
-    -- جلب حساب النقدية الافتراضي من الإعدادات
-    SELECT (account_mappings->>'CASH')::UUID INTO v_cash_acc 
-    FROM public.company_settings WHERE organization_id = v_org_id;
-
-    IF p_type = 'customer' THEN
-        -- استلام محجوز ضمان من العميل (أصل متداول)
-        -- كود 1249: محتجز ضمان لدى الغير
-        v_retention_acc := (SELECT id FROM public.accounts WHERE code = '1249' AND organization_id = v_org_id LIMIT 1);
-        
-        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_type, is_posted)
-        VALUES (CURRENT_DATE, 'استرداد محجوز ضمان عميل - مشروع: ' || v_project.name, 'RET-CUST-' || substring(p_project_id::text, 1, 5), 'posted', v_org_id, 'retention_release', true)
-        RETURNING id INTO v_je_id;
-
-        -- من ح/ النقدية (مدين)
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id)
-        VALUES (v_je_id, v_cash_acc, p_amount, 0, v_org_id);
-        -- إلى ح/ محتجز ضمان عملاء (دائن)
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id)
-        VALUES (v_je_id, v_retention_acc, 0, p_amount, v_org_id);
-
-    ELSE
-        -- صرف محجوز ضمان لمقاول باطن (التزام)
-        -- كود 2229: محتجز ضمان لمقاولي الباطن
-        v_retention_acc := (SELECT id FROM public.accounts WHERE code = '2229' AND organization_id = v_org_id LIMIT 1);
-
-        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_type, is_posted)
-        VALUES (CURRENT_DATE, 'رد محجوز ضمان مقاول - مشروع: ' || v_project.name, 'RET-SUB-' || substring(p_project_id::text, 1, 5), 'posted', v_org_id, 'retention_release', true)
-        RETURNING id INTO v_je_id;
-
-        -- من ح/ محتجز ضمان مقاولين (مدين)
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id)
-        VALUES (v_je_id, v_retention_acc, p_amount, 0, v_org_id);
-        -- إلى ح/ النقدية (دائن)
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id)
-        VALUES (v_je_id, v_cash_acc, 0, p_amount, v_org_id);
-    END IF;
-
-    -- تسجيل العملية في جدول الاستردادات
-    INSERT INTO public.project_retention_releases (project_id, subcontractor_id, amount, release_type, notes, related_journal_entry_id, organization_id)
-    VALUES (p_project_id, p_subcontractor_id, p_amount, p_type, p_notes, v_je_id, v_org_id);
-
-    RETURN v_je_id;
-END;
-$function$;
-
--- 12. جدول الجدولة الزمنية (Project Milestones/Timeline)
+-- 8. جداول المراحل الزمنية للمشاريع (Project Milestones)
 CREATE TABLE IF NOT EXISTS public.project_milestones (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
@@ -574,6 +407,140 @@ DROP POLICY IF EXISTS "SaaS_Custody_Isolation" ON public.project_custodies;
 CREATE POLICY "SaaS_Custody_Isolation" ON public.project_custodies FOR ALL TO authenticated USING (organization_id = public.get_my_org());
 DROP POLICY IF EXISTS "SaaS_Custody_Exp_Isolation" ON public.project_custody_expenses;
 CREATE POLICY "SaaS_Custody_Exp_Isolation" ON public.project_custody_expenses FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+-- دالة اعتماد مستخلص مقاول الباطن (تمت إضافتها لتغطية أزرار الواجهة)
+CREATE OR REPLACE FUNCTION public.fn_approve_sub_billing(p_billing_id UUID)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $function$
+DECLARE
+    v_billing RECORD;
+    v_contract RECORD;
+    v_project RECORD;
+    v_je_id UUID;
+    v_org_id UUID;
+    v_mappings JSONB;
+    v_supp_acc UUID;
+    v_retention_supp_acc UUID; 
+    v_advance_supp_acc UUID;   
+    v_vat_acc UUID;
+    v_wht_pay_acc UUID;
+BEGIN
+    SELECT * INTO v_billing FROM public.subcontractor_billings WHERE id = p_billing_id;
+    SELECT * INTO v_contract FROM public.subcontractor_contracts WHERE id = v_billing.contract_id;
+    SELECT * INTO v_project FROM public.projects WHERE id = v_contract.project_id;
+    v_org_id := v_billing.organization_id;
+
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    
+    v_supp_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'SUPPLIERS')::UUID, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1)));
+    v_retention_supp_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'RETENTION_SUBCONTRACTOR')::UUID, (SELECT id FROM public.accounts WHERE code = '2229' AND organization_id = v_org_id LIMIT 1)));
+    v_advance_supp_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'ADVANCE_PAYMENT_SUBCONTRACTOR')::UUID, (SELECT id FROM public.accounts WHERE code = '1245' AND organization_id = v_org_id LIMIT 1)));
+    v_vat_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'VAT_INPUT')::UUID, (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1)));
+    v_wht_pay_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WHT_PAYABLE')::UUID, (SELECT id FROM public.accounts WHERE code = '2232' AND organization_id = v_org_id LIMIT 1)));
+
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
+    VALUES (v_billing.billing_date, 'مستخلص مقاول: ' || v_billing.billing_number || ' - ' || v_project.name, v_billing.billing_number, 'posted', v_org_id, p_billing_id, 'sub_billing', true)
+    RETURNING id INTO v_je_id;
+
+    -- من ح/ تكاليف المشروع (مركز التكلفة) - بالقيمة الإجمالية
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id, cost_center_id)
+    VALUES (v_je_id, v_project.cost_center_account_id, v_billing.gross_amount, 0, 'تكلفة أعمال مقاول باطن', v_org_id, v_project.cost_center_account_id);
+
+    -- من ح/ ضريبة القيمة المضافة (مدخلات)
+    IF COALESCE(v_billing.vat_amount, 0) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_vat_acc, v_billing.vat_amount, 0, 'ضريبة قيمة مضافة مشتريات', v_org_id);
+    END IF;
+
+    -- إلى ح/ المقاول (بالصافي المستحق)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_supp_acc, 0, v_billing.net_amount, 'صافي مستحق للمقاول', v_org_id);
+
+    -- إلى ح/ محجوز ضمان مقاولين (Liability)
+    IF v_billing.retention_amount > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_retention_supp_acc, 0, v_billing.retention_amount, 'محتجز ضمان مقاول', v_org_id);
+    END IF;
+
+    -- إلى ح/ الدفعات المقدمة (تخفيض الأصل)
+    IF COALESCE(v_billing.advance_deduction, 0) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_advance_supp_acc, 0, v_billing.advance_deduction, 'استهلاك دفعة مقدمة مقاول', v_org_id);
+    END IF;
+
+    -- إلى ح/ ضريبة الخصم والتحصيل (التزام)
+    IF COALESCE(v_billing.wht_amount, 0) > 0 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_wht_pay_acc, 0, v_billing.wht_amount, 'ضريبة خصم وتحصيل من المنبع', v_org_id);
+    END IF;
+
+    UPDATE public.subcontractor_billings SET status = 'approved', related_journal_entry_id = v_je_id WHERE id = p_billing_id;
+    PERFORM public.fix_unbalanced_journal_entry(v_je_id);
+END;
+$function$;
+-- 🏗️ نظام صرف المواد للمشاريع (Project Material Issues)
+CREATE TABLE IF NOT EXISTS public.project_material_issues (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    warehouse_id UUID REFERENCES public.warehouses(id) ON DELETE SET NULL,
+    issue_number TEXT NOT NULL,
+    issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'cancelled')),
+    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.project_material_issue_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    issue_id UUID NOT NULL REFERENCES public.project_material_issues(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    boq_item_id UUID REFERENCES public.project_boq(id) ON DELETE SET NULL,
+    quantity NUMERIC(15,3) NOT NULL,
+    unit_cost NUMERIC(15,2) NOT NULL,
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+ALTER TABLE public.project_material_issues ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Material_Issue_Isolation" ON public.project_material_issues;
+CREATE POLICY "SaaS_Material_Issue_Isolation" ON public.project_material_issues FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+
+-- دالة اعتماد صرف المواد وتحميلها على تكلفة المشروع
+CREATE OR REPLACE FUNCTION public.fn_approve_material_issue(p_issue_id UUID)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_issue RECORD;
+    v_item RECORD;
+    v_project RECORD;
+    v_je_id UUID;
+    v_inv_acc UUID;
+    v_total_cost NUMERIC := 0;
+BEGIN
+    SELECT * INTO v_issue FROM public.project_material_issues WHERE id = p_issue_id;
+    SELECT * INTO v_project FROM public.projects WHERE id = v_issue.project_id;
+
+    v_inv_acc := public.resolve_leaf_account(COALESCE(
+        (SELECT (account_mappings->>'INVENTORY')::UUID FROM public.company_settings WHERE organization_id = v_issue.organization_id),
+        (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_issue.organization_id LIMIT 1)
+    ));
+
+    FOR v_item IN SELECT * FROM public.project_material_issue_items WHERE issue_id = p_issue_id LOOP
+        v_total_cost := v_total_cost + (v_item.quantity * v_item.unit_cost);
+    END LOOP;
+
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
+    VALUES (v_issue.issue_date, 'صرف مواد لمشروع: ' || v_project.name, v_issue.issue_number, 'posted', v_issue.organization_id, p_issue_id, 'material_issue', true)
+    RETURNING id INTO v_je_id;
+
+    -- من ح/ تكاليف المشروع (مركز التكلفة)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id, cost_center_id)
+    VALUES (v_je_id, v_project.cost_center_account_id, v_total_cost, 0, 'تحميل تكلفة مواد منصرفة', v_issue.organization_id, v_project.cost_center_account_id);
+
+    -- إلى ح/ المخزون (سيتم الخصم الفعلي عبر محرك المخزون الشامل)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_inv_acc, 0, v_total_cost, 'صرف خامات من المخزن للمشروع', v_issue.organization_id);
+
+    UPDATE public.project_material_issues SET status = 'approved', related_journal_entry_id = v_je_id WHERE id = p_issue_id;
+    PERFORM public.recalculate_stock_rpc(v_issue.organization_id);
+END; $$;
 
 GRANT EXECUTE ON FUNCTION public.fn_approve_project_billing(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_approve_sub_billing(UUID) TO authenticated;
@@ -730,7 +697,7 @@ SELECT
     (public.get_project_evm_metrics(p.id)->>'schedule_status') as schedule_status,
     (public.get_project_evm_metrics(p.id)->>'cost_status') as cost_status
 FROM public.projects p
-WHERE p.status = 'active';
+WHERE p.status IN ('active', 'planned');
 
 -- 📊 3. رؤية انحراف الكميات (BOQ Quantity Variance Report)
 DROP VIEW IF EXISTS public.v_project_quantity_variance CASCADE;
@@ -1194,3 +1161,203 @@ LEFT JOIN actual_labor al ON p.id = al.project_id
 LEFT JOIN planned_labor pl ON p.id = pl.project_id;
 
 GRANT SELECT ON public.v_project_labor_variance TO authenticated;
+
+-- ================================================================
+-- 18. إدارة معدات الموقع (Equipment Management)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS public.equipment (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    name TEXT NOT NULL,
+    asset_id UUID REFERENCES public.assets(id) ON DELETE SET NULL,
+    type TEXT,
+    serial_number TEXT,
+    purchase_date DATE,
+    purchase_cost NUMERIC(15,2),
+    hourly_operating_cost NUMERIC(15,2) DEFAULT 0,
+    status TEXT DEFAULT 'available' CHECK (status IN ('available', 'in_use', 'under_maintenance', 'retired')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.equipment_usage_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    equipment_id UUID NOT NULL REFERENCES public.equipment(id) ON DELETE CASCADE,
+    usage_date DATE NOT NULL,
+    hours_used NUMERIC(5,2) NOT NULL DEFAULT 0,
+    cost_per_hour NUMERIC(15,2),
+    total_cost NUMERIC(15,2) GENERATED ALWAYS AS (hours_used * cost_per_hour) STORED,
+    status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'cancelled')),
+    related_journal_entry_id UUID REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.equipment ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Equipment_Isolation" ON public.equipment;
+CREATE POLICY "SaaS_Equipment_Isolation" ON public.equipment FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+
+ALTER TABLE public.equipment_usage_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Equipment_Usage_Isolation" ON public.equipment_usage_logs;
+CREATE POLICY "SaaS_Equipment_Usage_Isolation" ON public.equipment_usage_logs FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+
+-- ================================================================
+-- 20. إدارة عُهد الأدوات الصغيرة (Tool Custody)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS public.project_tool_custody (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    project_id UUID NOT NULL REFERENCES public.projects(id) ON DELETE CASCADE,
+    tool_name TEXT NOT NULL,
+    employee_id UUID NOT NULL REFERENCES public.employees(id),
+    issue_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    return_date TIMESTAMPTZ,
+    status TEXT DEFAULT 'issued' CHECK (status IN ('issued', 'returned', 'lost')),
+    condition_notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 🛡️ ضمان سلامة سياسات الأمان ومنع أخطاء التكرار
+DO $$ 
+BEGIN
+    ALTER TABLE public.project_tool_custody ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "SaaS_Tool_Custody_Isolation" ON public.project_tool_custody;
+    CREATE POLICY "SaaS_Tool_Custody_Isolation" ON public.project_tool_custody 
+    FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+
+    ALTER TABLE public.project_attachments ENABLE ROW LEVEL SECURITY;
+    DROP POLICY IF EXISTS "SaaS_Project_Attachment_Isolation" ON public.project_attachments;
+    CREATE POLICY "SaaS_Project_Attachment_Isolation" ON public.project_attachments 
+    FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+END $$;
+
+-- ================================================================
+-- 19. دوال الإغلاق والتقارير المتقدمة المضافة حديثاً
+-- ================================================================
+
+-- دالة إغلاق المشروع (Project Closing)
+CREATE OR REPLACE FUNCTION public.fn_close_project(p_project_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_project_status TEXT;
+    v_open_customer_billings INT;
+    v_open_sub_billings INT;
+    v_profit_loss NUMERIC;
+BEGIN
+    SELECT status INTO v_project_status FROM public.projects WHERE id = p_project_id;
+    IF v_project_status = 'completed' THEN RETURN jsonb_build_object('status', 'success', 'message', 'المشروع مغلق بالفعل.'); END IF;
+
+    SELECT COUNT(*) INTO v_open_customer_billings FROM public.project_progress_billings WHERE project_id = p_project_id AND status = 'draft';
+    IF v_open_customer_billings > 0 THEN RAISE EXCEPTION 'يوجد % مستخلص عميل معلق.', v_open_customer_billings; END IF;
+
+    SELECT COUNT(*) INTO v_open_sub_billings FROM public.subcontractor_billings sb JOIN public.subcontractor_contracts sc ON sb.contract_id = sc.id WHERE sc.project_id = p_project_id AND sb.status = 'draft';
+    IF v_open_sub_billings > 0 THEN RAISE EXCEPTION 'يوجد % مستخلص مقاول باطن معلق.', v_open_sub_billings; END IF;
+
+    SELECT (COALESCE(SUM(gross_amount), 0) - COALESCE(SUM(debit), 0)) INTO v_profit_loss FROM public.v_project_profitability WHERE project_id = p_project_id;
+
+    UPDATE public.projects SET status = 'completed', updated_at = NOW() WHERE id = p_project_id;
+
+    RETURN jsonb_build_object('status', 'success', 'message', 'تم إغلاق المشروع بنجاح.', 'final_profit', v_profit_loss);
+END; $$;
+
+-- كشف حساب المقاول التفصيلي
+CREATE OR REPLACE FUNCTION public.fn_get_subcontractor_statement(p_subcontractor_id UUID, p_organization_id UUID)
+RETURNS TABLE (transaction_date DATE, description TEXT, debit NUMERIC(15,2), credit NUMERIC(15,2), balance NUMERIC(15,2)) 
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    WITH sub_transactions AS (
+        SELECT sc.created_at::DATE AS transaction_date, 'عقد: ' || sc.contract_name AS description, 0.00 AS debit, sc.total_value AS credit
+        FROM public.subcontractor_contracts sc WHERE sc.subcontractor_id = p_subcontractor_id AND sc.organization_id = p_organization_id
+        UNION ALL
+        SELECT sb.billing_date, 'مستخلص رقم: ' || sb.billing_number, 0.00 AS debit, sb.net_amount AS credit
+        FROM public.subcontractor_billings sb JOIN public.subcontractor_contracts sc ON sb.contract_id = sc.id
+        WHERE sc.subcontractor_id = p_subcontractor_id AND sc.organization_id = p_organization_id AND sb.status = 'approved'
+        UNION ALL
+        -- الدفعات النقدية من الأستاذ العام المرتبطة بالمقاول عبر الوصف
+        SELECT je.transaction_date, 'صرف: ' || je.description, jl.credit AS debit, 0.00 AS credit
+        FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE je.organization_id = p_organization_id AND je.description ILIKE '%' || (SELECT name FROM public.subcontractors WHERE id = p_subcontractor_id) || '%'
+        AND jl.account_id IN (SELECT id FROM public.accounts WHERE code IN ('201', '221') AND organization_id = p_organization_id)
+    )
+    SELECT st.transaction_date, st.description, st.debit, st.credit, SUM(st.credit - st.debit) OVER (ORDER BY st.transaction_date, st.description) AS balance
+    FROM sub_transactions st ORDER BY st.transaction_date, st.description;
+END; $$;
+
+-- دالة اعتماد تكلفة المعدة وترحيلها محاسبياً
+CREATE OR REPLACE FUNCTION public.fn_approve_equipment_usage(p_usage_log_id UUID)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_log RECORD; v_project RECORD; v_je_id UUID; v_exp_acc UUID;
+BEGIN
+    SELECT eul.*, e.hourly_operating_cost INTO v_log FROM public.equipment_usage_logs eul JOIN public.equipment e ON eul.equipment_id = e.id WHERE eul.id = p_usage_log_id;
+    IF v_log.status = 'approved' THEN RETURN; END IF;
+    SELECT * INTO v_project FROM public.projects WHERE id = v_log.project_id;
+
+    -- جلب حساب إيراد تشغيل المعدات الداخلي من الربط في الإعدادات
+    v_exp_acc := public.resolve_leaf_account(COALESCE(
+        (SELECT (account_mappings->>'EQUIPMENT_INTERNAL_REVENUE')::UUID FROM public.company_settings WHERE organization_id = v_log.organization_id), 
+        (SELECT id FROM public.accounts WHERE code = '425' AND organization_id = v_log.organization_id LIMIT 1)
+    ));
+
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
+    VALUES (v_log.usage_date, 'تشغيل معدة: ' || v_log.hours_used || ' ساعة - ' || v_project.name, v_log.id::TEXT, 'posted', v_log.organization_id, p_usage_log_id, 'equipment_usage', true) RETURNING id INTO v_je_id;
+    
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_project.cost_center_account_id, v_log.total_cost, 0, 'تكلفة تشغيل معدة للمشروع', v_log.organization_id);
+    
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_exp_acc, 0, v_log.total_cost, 'إيراد تشغيل معدات داخلي', v_log.organization_id);
+
+    UPDATE public.equipment_usage_logs SET status = 'approved', related_journal_entry_id = v_je_id WHERE id = p_usage_log_id;
+END; $$;
+
+-- فحص تجاوز الميزانية للإشعارات (KPI Alert)
+CREATE OR REPLACE FUNCTION public.fn_check_cpi_threshold(p_org_id UUID, p_threshold NUMERIC DEFAULT 0.85)
+RETURNS TABLE (project_id UUID, project_name TEXT, cpi NUMERIC, spi NUMERIC) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT p.id, p.name, (public.get_project_evm_metrics(p.id)->>'cpi')::NUMERIC, (public.get_project_evm_metrics(p.id)->>'spi')::NUMERIC
+    FROM public.projects p WHERE p.organization_id = p_org_id AND p.status = 'active'
+    AND ((public.get_project_evm_metrics(p.id)->>'cpi')::NUMERIC < p_threshold OR (public.get_project_evm_metrics(p.id)->>'spi')::NUMERIC < p_threshold);
+END; $$;
+
+-- 🚀 محرك التنبؤ بنفاذ السيولة (Liquidity Burn-out Predictor)
+-- الغرض: حساب معدل الصرف اليومي وتوقع تاريخ نفاذ الميزانية بناءً على الأداء الفعلي
+CREATE OR REPLACE FUNCTION public.get_project_liquidity_warning(p_project_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_project RECORD; v_spent NUMERIC; v_budget NUMERIC; v_days_passed INTEGER; v_daily_burn_rate NUMERIC;
+    v_days_left_estimated INTEGER; v_planned_days_left INTEGER;
+BEGIN
+    SELECT * INTO v_project FROM public.projects WHERE id = p_project_id;
+    SELECT COALESCE(SUM(total_price), v_project.contract_value, 0) INTO v_budget FROM public.project_boq WHERE project_id = p_project_id;
+    SELECT COALESCE(SUM(debit - credit), 0) INTO v_spent FROM public.journal_lines WHERE account_id = v_project.cost_center_account_id;
+    v_days_passed := GREATEST(CURRENT_DATE - v_project.start_date, 1);
+    v_daily_burn_rate := v_spent / v_days_passed;
+    v_days_left_estimated := CASE WHEN v_daily_burn_rate > 0 THEN (v_budget - v_spent) / v_daily_burn_rate ELSE 9999 END;
+    v_planned_days_left := GREATEST(v_project.end_date - CURRENT_DATE, 0);
+    RETURN jsonb_build_object(
+        'project_name', v_project.name,
+        'current_burn_rate_daily', ROUND(v_daily_burn_rate, 2),
+        'estimated_days_until_empty', v_days_left_estimated,
+        'planned_days_remaining', v_planned_days_left,
+        'risk_level', CASE WHEN v_days_left_estimated < v_planned_days_left THEN 'CRITICAL 🔴' ELSE 'HEALTHY 🟢' END
+    );
+END; $$;
+
+-- 💰 محرك أوامر الدفع (Payment Order)
+CREATE OR REPLACE FUNCTION public.get_subcontractor_payment_order(p_billing_id UUID)
+RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_billing RECORD; v_sub RECORD;
+BEGIN
+    SELECT sb.*, sc.subcontractor_id INTO v_billing FROM public.subcontractor_billings sb JOIN public.subcontractor_contracts sc ON sb.contract_id = sc.id WHERE sb.id = p_billing_id;
+    SELECT name, bank_name, iban_number FROM public.subcontractors WHERE id = v_billing.subcontractor_id INTO v_sub;
+    RETURN jsonb_build_object('beneficiary', v_sub.name, 'bank', v_sub.bank_name, 'iban', v_sub.iban_number, 'amount', v_billing.net_amount);
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.get_project_liquidity_warning(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_subcontractor_payment_order(UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fn_approve_material_issue(UUID) TO authenticated;

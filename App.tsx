@@ -106,7 +106,10 @@ import ProjectManager from './modules/construction/components/ProjectManager';
 import ConstructionDashboard from './modules/construction/components/ConstructionDashboard';
 import LaborCostReport from './modules/construction/reports/LaborCostReport';
 import SubcontractorManager from './modules/construction/components/SubcontractorManager';
+import SubcontractorContractsManager from './modules/construction/components/SubcontractorContractsManager';
+import SubcontractorBillingManager from './modules/construction/components/SubcontractorBillingManager';
 import SubcontractorAnalytics from './modules/construction/reports/SubcontractorAnalytics';
+import SubcontractorStatement from './modules/construction/components/SubcontractorStatement';
 import PermissionsManager from './modules/admin/PermissionsManager';
 import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
@@ -310,6 +313,39 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     return <>{children}</>;
 };
 
+/** 🏗️ مكون وسيط لإدارة تدفق شاشات المقاولين عند الدخول من القائمة الجانبية **/
+const SubcontractorStandalone = () => {
+  const [view, setView] = useState<{type: 'list' | 'contracts' | 'billings' | 'statement', id: string}>({ type: 'list', id: '' });
+
+  if (view.type === 'contracts') {
+    return <SubcontractorContractsManager 
+      subcontractorId={view.id} 
+      onBack={() => setView({ type: 'list', id: '' })} 
+      onViewBillings={(contractId) => setView({ type: 'billings', id: contractId })}
+    />;
+  }
+
+  if (view.type === 'billings') {
+    return <SubcontractorBillingManager 
+      contractId={view.id} 
+      onBack={() => setView({ type: 'list', id: '' })} // العودة للقائمة الرئيسية للتبسيط
+    />;
+  }
+
+  if (view.type === 'statement') {
+    return <SubcontractorStatement 
+      subcontractorId={view.id} 
+      onBack={() => setView({ type: 'list', id: '' })} 
+    />;
+  }
+
+  return <SubcontractorManager 
+    onBack={() => window.history.back()} 
+    onViewContracts={(id) => setView({ type: 'contracts', id })} 
+    onViewStatement={(id) => setView({ type: 'statement', id })}
+  />;
+};
+
 const MainLayout = () => {
     const { currentUser } = useAccounting();
 
@@ -452,7 +488,7 @@ const MainLayout = () => {
                 <Route path="/construction/analytics" element={<ModuleGuard module="construction"><ConstructionDashboard /></ModuleGuard>} />
                 <Route path="/construction/labor-reports" element={<ModuleGuard module="construction"><LaborCostReport /></ModuleGuard>} />
                 <Route path="/construction" element={<ModuleGuard module="construction"><ProjectManager /></ModuleGuard>} />
-                <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorManager onBack={() => window.history.back()} onViewContracts={(id) => console.log('Viewing contracts for:', id)} /></ModuleGuard>} />
+                <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorStandalone /></ModuleGuard>} />
                 <Route path="/construction/subcontractor-analytics" element={<ModuleGuard module="construction"><SubcontractorAnalytics /></ModuleGuard>} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />

@@ -17,6 +17,7 @@ import {
   Info,
   Zap,
   ChevronRight,
+  ShieldCheck, // استيراد الأيقونة المناسبة للمحتجزات
 } from 'lucide-react';
 import { useNotifications } from '../utils/useNotifications';
 import { Notification, NotificationType } from '../services/notificationService';
@@ -48,6 +49,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
         return <Clock className="w-5 h-5 text-blue-500" />;
       case 'due_date_approaching':
         return <Zap className="w-5 h-5 text-orange-500" />;
+      case 'project_performance_alert':
+        return <TrendingDown className="w-5 h-5 text-red-500" />;
+      case 'retention_release_alert':
+        return <ShieldCheck className="w-5 h-5 text-emerald-500" />;
       case 'success':
         return <CheckCircle className="w-5 h-5 text-green-500" />;
       case 'warning':
@@ -64,6 +69,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
       high_debt: 'ديون عالية',
       pending_approval: 'انتظار موافقة',
       due_date_approaching: 'تواريخ استحقاق قريبة',
+      project_performance_alert: 'تنبيه أداء المشروع',
+        retention_release_alert: 'فك محتجز الضمان',
       system_alert: 'تنبيهات النظام',
       success: 'نجاح',
       warning: 'تحذير',

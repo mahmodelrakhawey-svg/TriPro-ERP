@@ -20,7 +20,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
     v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid;
     v_ret_cust_id uuid; v_ret_sub_id uuid; v_adv_sub_id uuid;
-    v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid;
+    v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid; v_equip_rev_id uuid;
     v_prepaid_exp_id uuid; v_accrued_exp_id uuid;
     v_social_ins_id uuid; v_bank_main_id uuid; v_rev_other_id uuid; v_exp_gen_id uuid; v_security_deposit_id uuid;
     v_sal_allow_id uuid;
@@ -156,6 +156,7 @@ BEGIN
     ('413', 'خصم مسموح به', 'revenue', false, '41'),
     ('421', 'إيرادات متنوعة', 'revenue', false, '42'),
     ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'),
+    ('425', 'إيراد تشغيل معدات داخلي', 'revenue', false, '42'),
     ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
     -- المصروفات
     ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'),
@@ -259,6 +260,7 @@ BEGIN
     v_ded_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '422' LIMIT 1);
     v_adv_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1223' LIMIT 1);
     v_retained_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '32' LIMIT 1);
+    v_equip_rev_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '425' LIMIT 1);
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
     -- جلب حسابات المقاولات (الإصلاح الجذري)
@@ -307,6 +309,7 @@ BEGIN
             'MANUFACTURING_OVERHEAD', v_overhead_mfg_id,
             'WASTAGE_EXPENSE', v_wastage_id,
             'RETENTION_CUSTOMER', v_ret_cust_id,
+            'EQUIPMENT_INTERNAL_REVENUE', v_equip_rev_id,
             'RETENTION_SUBCONTRACTOR', v_ret_sub_id,
             'ADVANCE_PAYMENT_SUBCONTRACTOR', v_adv_sub_id,
             'DEPRECIATION_EXPENSE', v_dep_exp_id,

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
-import { Plus, Users, Phone, Briefcase, ArrowRight } from 'lucide-react';
+import { Plus, Users, Phone, Briefcase, ArrowRight, Trash2, Edit, History } from 'lucide-react';
 import SubcontractorForm from './SubcontractorForm';
 
 interface Subcontractor {
@@ -15,13 +15,15 @@ interface Subcontractor {
 interface Props {
   onBack: () => void;
   onViewContracts: (subcontractorId: string) => void;
+  onViewStatement: (subcontractorId: string) => void; // 🏗️ جديد: دالة لعرض كشف الحساب
 }
 
-const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts }) => {
+const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts, onViewStatement }) => {
   const { organization } = useAccounting();
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [editingSubcontractor, setEditingSubcontractor] = useState<Subcontractor | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -44,11 +46,26 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts }) => {
     }
   };
 
+  const deleteSubcontractor = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذا المقاول؟ سيؤدي ذلك لحذف جميع عقوده المرتبطة.')) return;
+    try {
+      setLoading(true);
+      const { error } = await supabase.from('subcontractors').delete().eq('id', id);
+      if (error) throw error;
+      showToast('تم حذف المقاول بنجاح 🗑️', 'success');
+      fetchSubcontractors();
+    } catch (error: any) {
+      showToast(error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen rtl">
       <div className="flex justify-between items-center mb-8">
         <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2 hover:bg-white rounded-full transition-colors shadow-sm">
+          <button onClick={onBack} className="p-2 bg-white hover:bg-gray-100 rounded-full transition-colors shadow-sm">
             <ArrowRight size={24} />
           </button>
           <div>
@@ -76,7 +93,28 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {subcontractors.map((sub) => (
             <div key={sub.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:shadow-md transition-shadow">
-              <h3 className="text-lg font-bold text-gray-800 mb-3">{sub.name}</h3>
+              <div className="flex justify-between items-start mb-3">
+                <h3 className="text-lg font-bold text-gray-800">{sub.name}</h3>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setEditingSubcontractor(sub)}
+                    className="text-gray-300 hover:text-blue-500 transition-colors"
+                    title="تعديل بيانات المقاول"
+                  >
+                    <Edit size={18} />
+                  </button>
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSubcontractor(sub.id);
+                    }}
+                    className="text-gray-300 hover:text-red-500 transition-colors"
+                    title="حذف المقاول"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
+              </div>
               
               <div className="space-y-2 text-sm text-gray-600">
                 {sub.specialty && (
@@ -100,6 +138,13 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts }) => {
                 >
                   عرض العقود
                 </button>
+                <button
+                  onClick={() => onViewStatement(sub.id)}
+                  className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  title="عرض كشف الحساب التفصيلي"
+                >
+                  <History size={16} className="inline-block ml-1" /> كشف حساب
+                </button>
               </div>
             </div>
           ))}
@@ -114,8 +159,12 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts }) => {
         </div>
       )}
 
-      {showForm && (
-        <SubcontractorForm onClose={() => setShowForm(false)} onSuccess={fetchSubcontractors} />
+      {(showForm || editingSubcontractor) && (
+        <SubcontractorForm 
+          subcontractor={editingSubcontractor}
+          onClose={() => { setShowForm(false); setEditingSubcontractor(null); }} 
+          onSuccess={fetchSubcontractors} 
+        />
       )}
     </div>
   );

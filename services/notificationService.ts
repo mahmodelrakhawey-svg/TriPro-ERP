@@ -11,7 +11,9 @@ export type NotificationType =
   | 'low_inventory' 
   | 'high_debt' 
   | 'pending_approval' 
-  | 'due_date_approaching'
+  | 'due_date_approaching' 
+  | 'project_performance_alert' // 🏗️ جديد: تنبيه أداء المشروع
+  | 'retention_release_alert'    // 💰 جديد: تنبيه فك محتجز الضمان
   | 'system_alert'
   | 'success'
   | 'warning';
@@ -482,6 +484,130 @@ class NotificationService {
   }
 
   /**
+   * 🏗️ جديد: التحقق من تواريخ فك محتجز الضمان (Retention Release)
+   * يبحث في مستخلصات العملاء والمقاولين عن التواريخ التي حان وقت فكها
+   */
+  static async checkUpcomingRetentionReleases(organizationId?: string): Promise<void> {
+    try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
+      const nextWeek = new Date();
+      nextWeek.setDate(nextWeek.getDate() + 7);
+      const nextWeekStr = nextWeek.toISOString().split('T')[0];
+
+      // 1. فحص محتجزات العملاء
+      const { data: customerRetentions } = await supabase
+        .from('project_progress_billings')
+        .select('id, billing_number, retention_release_date, project_id')
+        .eq('organization_id', orgId)
+        .lte('retention_release_date', nextWeekStr)
+        .gt('retention_amount', 0)
+        .eq('status', 'approved');
+
+      // 2. فحص محتجزات مقاولي الباطن
+      const { data: subRetentions } = await supabase
+        .from('subcontractor_billings')
+        .select('id, billing_number, retention_release_date')
+        .eq('organization_id', orgId)
+        .lte('retention_release_date', nextWeekStr)
+        .gt('retention_amount', 0)
+        .eq('status', 'approved');
+
+      // جلب المسؤولين
+      const { data: admins } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('organization_id', orgId)
+        .in('role', ['admin', 'super_admin']);
+
+      if (!admins) return;
+
+      // إرسال تنبيهات للعملاء
+      for (const item of (customerRetentions || [])) {
+        for (const admin of admins) {
+          await this.createNotification(
+            admin.id, orgId, 'موعد استرداد تأمين',
+            `المستخلص رقم ${item.billing_number} حان موعد فك محتجز الضمان الخاص به بتاريخ ${item.retention_release_date}`,
+            'retention_release_alert', 'high', item.id, `/construction`
+          );
+        }
+      }
+
+      // إرسال تنبيهات للمقاولين
+      for (const item of (subRetentions || [])) {
+        for (const admin of admins) {
+          await this.createNotification(
+            admin.id, orgId, 'استحقاق رد تأمين مقاول',
+            `المستخلص رقم ${item.billing_number} يستحق رد محتجز الضمان للمقاول بتاريخ ${item.retention_release_date}`,
+            'retention_release_alert', 'medium', item.id, `/subcontractors`
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Error checking retention releases:', err);
+    }
+  }
+
+  /**
+   * 🏗️ جديد: التحقق من مؤشرات أداء المشاريع (CPI/SPI)
+   * وإرسال تنبيه إذا انخفضت عن العتبة المحددة.
+   */
+  static async checkProjectPerformanceThresholds(organizationId?: string): Promise<void> {
+    try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
+      // استدعاء دالة RPC التي تجلب المشاريع ذات الأداء المنخفض
+      const { data: projectsWithLowPerformance, error } = await supabase.rpc('fn_check_cpi_threshold', {
+        p_org_id: orgId,
+        p_threshold: 0.85 // العتبة الافتراضية لـ CPI و SPI
+      });
+
+      if (error) {
+        console.error('Error checking project performance thresholds:', error);
+        return;
+      }
+
+      if (projectsWithLowPerformance && projectsWithLowPerformance.length > 0) {
+        // جلب معرفات المدراء لإرسال التنبيهات إليهم
+        const { data: admins } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('organization_id', orgId)
+          .in('role', ['admin', 'super_admin']);
+
+        if (admins) {
+          for (const project of projectsWithLowPerformance) {
+            for (const admin of admins) {
+              await this.createNotification(
+                admin.id,
+                orgId,
+                `⚠️ أداء مشروع منخفض: ${project.project_name}`,
+                `مؤشر التكلفة (CPI): ${project.cpi}، مؤشر الجدول (SPI): ${project.spi}. يتطلب مراجعة عاجلة!`,
+                'project_performance_alert',
+                'high',
+                project.project_id,
+                `/construction/analytics?projectId=${project.project_id}` // رابط مباشر للوحة تحكم المشروع
+              );
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error checking project performance thresholds:', err);
+    }
+  }
+
+  /**
    * تشغيل جميع الفحوصات الدورية
    * يجب استدعاؤها بشكل دوري (مثلاً كل ساعة أو كل يوم)
    */
@@ -495,6 +621,8 @@ class NotificationService {
         this.checkHighDebt(),
         this.checkPendingApprovals(),
         this.checkUpcomingDueDates(),
+        this.checkProjectPerformanceThresholds(), // 🏗️ جديد: إضافة فحص أداء المشاريع
+        this.checkUpcomingRetentionReleases(),    // 🏗️ جديد: فحص محتجزات الضمان
       ]);
       console.log('✅ Notification checks completed');
     } catch (err) {
