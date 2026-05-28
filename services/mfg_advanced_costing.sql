@@ -856,28 +856,6 @@ END; $$;
 GRANT EXECUTE ON FUNCTION public.mfg_undo_costing_period_close(text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_check_active_cost_overruns(numeric) TO authenticated;
 
--- تفعيل RLS على الجدول الجديد
-ALTER TABLE public.mfg_period_cost_snapshots ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_byproducts_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_beginning_wip_inventory ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.mfg_alerts_log ENABLE ROW LEVEL SECURITY;
-
--- سياسة عزل سجل التنبيهات
-DROP POLICY IF EXISTS "Alerts_SaaS_Policy" ON public.mfg_alerts_log;
-CREATE POLICY "Alerts_SaaS_Policy" ON public.mfg_alerts_log 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.is_super_admin());
-
--- سياسة عزل أرصدة أول المدة
-DROP POLICY IF EXISTS "BeginningWIP_SaaS_Policy" ON public.mfg_beginning_wip_inventory;
-CREATE POLICY "BeginningWIP_SaaS_Policy" ON public.mfg_beginning_wip_inventory 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.is_super_admin());
-DROP POLICY IF EXISTS "Byproducts_SaaS_Policy" ON public.mfg_byproducts_logs;
-CREATE POLICY "Byproducts_SaaS_Policy" ON public.mfg_byproducts_logs 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.is_super_admin()) WITH CHECK (organization_id = public.get_my_org() OR public.is_super_admin());
-DROP POLICY IF EXISTS "Snapshots_SaaS_Policy" ON public.mfg_period_cost_snapshots;
-CREATE POLICY "Snapshots_SaaS_Policy" ON public.mfg_period_cost_snapshots 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.is_super_admin()) WITH CHECK (organization_id = public.get_my_org() OR public.is_super_admin());
-
 -- 🕒 جدولة الترحيل الآلي
 DO $$ 
 BEGIN

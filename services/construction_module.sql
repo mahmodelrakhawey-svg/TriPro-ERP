@@ -97,15 +97,6 @@ BEGIN
     RETURN v_planned - v_issued;
 END; $$;
 
-ALTER TABLE public.project_inspections ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Inspection_Isolation" ON public.project_inspections;
-CREATE POLICY "SaaS_Inspection_Isolation" ON public.project_inspections 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
-ALTER TABLE public.project_attachments ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Project_Attachment_Isolation" ON public.project_attachments;
-CREATE POLICY "SaaS_Project_Attachment_Isolation" ON public.project_attachments FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
 -- 🛡️ ترميم هيكل الجدول لضمان وجود أعمدة الدفعات المقدمة (Schema Healing)
 DO $$ 
 BEGIN
@@ -161,16 +152,6 @@ BEGIN
 
 END $$;
 
--- تفعيل حماية البيانات (RLS) لكل شركة
-ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Project_Isolation" ON public.projects;
-CREATE POLICY "SaaS_Project_Isolation" ON public.projects FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
--- تفعيل حماية البيانات للمقايسات
-ALTER TABLE public.project_boq ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_BOQ_Isolation" ON public.project_boq;
-CREATE POLICY "SaaS_BOQ_Isolation" ON public.project_boq FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
 -- 6. جداول مقاولين الباطن
 CREATE TABLE IF NOT EXISTS public.subcontractors (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -207,17 +188,6 @@ CREATE TABLE IF NOT EXISTS public.subcontractor_billings (
     status TEXT DEFAULT 'draft',
     related_journal_entry_id UUID REFERENCES public.journal_entries(id)
 );
-
-ALTER TABLE public.subcontractors ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.subcontractor_contracts ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.subcontractor_billings ENABLE ROW LEVEL SECURITY;
-
-DROP POLICY IF EXISTS "SaaS_Subcontractor_Isolation" ON public.subcontractors;
-CREATE POLICY "SaaS_Subcontractor_Isolation" ON public.subcontractors FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-DROP POLICY IF EXISTS "SaaS_Sub_Contract_Isolation" ON public.subcontractor_contracts;
-CREATE POLICY "SaaS_Sub_Contract_Isolation" ON public.subcontractor_contracts FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-DROP POLICY IF EXISTS "SaaS_Sub_Billing_Isolation" ON public.subcontractor_billings;
-CREATE POLICY "SaaS_Sub_Billing_Isolation" ON public.subcontractor_billings FOR ALL TO authenticated USING (organization_id = public.get_my_org());
 
 -- 5. دالة اعتماد المستخلص وتوليد القيد المحاسبي
 CREATE OR REPLACE FUNCTION public.fn_approve_project_billing(p_billing_id UUID)
@@ -313,11 +283,6 @@ CREATE TABLE IF NOT EXISTS public.project_milestones (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE public.project_milestones ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Milestones_Isolation" ON public.project_milestones;
-CREATE POLICY "SaaS_Milestones_Isolation" ON public.project_milestones 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
 -- 9. جداول العهد المالية للمشاريع (Financial Custody)
 CREATE TABLE IF NOT EXISTS public.project_custodies (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -371,7 +336,7 @@ BEGIN
     IF v_total_budget = 0 THEN v_total_budget := v_project.contract_value; END IF;
 
     SELECT COALESCE(SUM(debit), 0) INTO v_current_spent 
-    FROM public.journal_lines WHERE cost_center_id = v_project.cost_center_account_id;
+    FROM public.journal_lines WHERE account_id = v_project.cost_center_account_id;
 
     IF (v_current_spent + v_expense.amount) > (v_total_budget * 1.10) THEN -- سماح بـ 10% للعهد
         RAISE EXCEPTION '⚠️ تجاوز حرج للميزانية! إجمالي المصاريف (%) سيتجاوز سقف المشروع (%).', 
@@ -401,12 +366,6 @@ BEGIN
 END;
 $function$;
 
-ALTER TABLE public.project_custodies ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.project_custody_expenses ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Custody_Isolation" ON public.project_custodies;
-CREATE POLICY "SaaS_Custody_Isolation" ON public.project_custodies FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-DROP POLICY IF EXISTS "SaaS_Custody_Exp_Isolation" ON public.project_custody_expenses;
-CREATE POLICY "SaaS_Custody_Exp_Isolation" ON public.project_custody_expenses FOR ALL TO authenticated USING (organization_id = public.get_my_org());
 -- دالة اعتماد مستخلص مقاول الباطن (تمت إضافتها لتغطية أزرار الواجهة)
 CREATE OR REPLACE FUNCTION public.fn_approve_sub_billing(p_billing_id UUID)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $function$
@@ -440,9 +399,9 @@ BEGIN
     VALUES (v_billing.billing_date, 'مستخلص مقاول: ' || v_billing.billing_number || ' - ' || v_project.name, v_billing.billing_number, 'posted', v_org_id, p_billing_id, 'sub_billing', true)
     RETURNING id INTO v_je_id;
 
-    -- من ح/ تكاليف المشروع (مركز التكلفة) - بالقيمة الإجمالية
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id, cost_center_id)
-    VALUES (v_je_id, v_project.cost_center_account_id, v_billing.gross_amount, 0, 'تكلفة أعمال مقاول باطن', v_org_id, v_project.cost_center_account_id);
+    -- من ح/ تكاليف المشروع - بالقيمة الإجمالية
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_project.cost_center_account_id, v_billing.gross_amount, 0, 'تكلفة أعمال مقاول باطن', v_org_id);
 
     -- من ح/ ضريبة القيمة المضافة (مدخلات)
     IF COALESCE(v_billing.vat_amount, 0) > 0 THEN
@@ -499,10 +458,6 @@ CREATE TABLE IF NOT EXISTS public.project_material_issue_items (
     organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
-ALTER TABLE public.project_material_issues ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Material_Issue_Isolation" ON public.project_material_issues;
-CREATE POLICY "SaaS_Material_Issue_Isolation" ON public.project_material_issues FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
 -- دالة اعتماد صرف المواد وتحميلها على تكلفة المشروع
 CREATE OR REPLACE FUNCTION public.fn_approve_material_issue(p_issue_id UUID)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -530,9 +485,9 @@ BEGIN
     VALUES (v_issue.issue_date, 'صرف مواد لمشروع: ' || v_project.name, v_issue.issue_number, 'posted', v_issue.organization_id, p_issue_id, 'material_issue', true)
     RETURNING id INTO v_je_id;
 
-    -- من ح/ تكاليف المشروع (مركز التكلفة)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id, cost_center_id)
-    VALUES (v_je_id, v_project.cost_center_account_id, v_total_cost, 0, 'تحميل تكلفة مواد منصرفة', v_issue.organization_id, v_project.cost_center_account_id);
+    -- من ح/ تكاليف المشروع
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_project.cost_center_account_id, v_total_cost, 0, 'تحميل تكلفة مواد منصرفة', v_issue.organization_id);
 
     -- إلى ح/ المخزون (سيتم الخصم الفعلي عبر محرك المخزون الشامل)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
@@ -901,10 +856,6 @@ CREATE TABLE IF NOT EXISTS public.project_change_orders (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE public.project_change_orders ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Change_Order_Isolation" ON public.project_change_orders;
-CREATE POLICY "SaaS_Change_Order_Isolation" ON public.project_change_orders FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
 -- دالة اعتماد أمر التغيير وتحديث قيمة العقد
 CREATE OR REPLACE FUNCTION public.fn_approve_change_order(p_order_id UUID)
 RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -1019,11 +970,6 @@ CREATE TABLE IF NOT EXISTS public.project_site_attendance (
     related_journal_entry_id UUID REFERENCES public.journal_entries(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
-ALTER TABLE public.project_site_attendance ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Site_Attendance_Isolation" ON public.project_site_attendance;
-CREATE POLICY "SaaS_Site_Attendance_Isolation" ON public.project_site_attendance 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org());
 
 -- دالة ترحيل تكاليف العمالة للمشروع
 CREATE OR REPLACE FUNCTION public.fn_post_site_labor_cost(p_attendance_date DATE, p_project_id UUID)
@@ -1195,14 +1141,6 @@ CREATE TABLE IF NOT EXISTS public.equipment_usage_logs (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE public.equipment ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Equipment_Isolation" ON public.equipment;
-CREATE POLICY "SaaS_Equipment_Isolation" ON public.equipment FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
-ALTER TABLE public.equipment_usage_logs ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_Equipment_Usage_Isolation" ON public.equipment_usage_logs;
-CREATE POLICY "SaaS_Equipment_Usage_Isolation" ON public.equipment_usage_logs FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
 -- ================================================================
 -- 20. إدارة عُهد الأدوات الصغيرة (Tool Custody)
 -- ================================================================
@@ -1218,20 +1156,6 @@ CREATE TABLE IF NOT EXISTS public.project_tool_custody (
     condition_notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-
--- 🛡️ ضمان سلامة سياسات الأمان ومنع أخطاء التكرار
-DO $$ 
-BEGIN
-    ALTER TABLE public.project_tool_custody ENABLE ROW LEVEL SECURITY;
-    DROP POLICY IF EXISTS "SaaS_Tool_Custody_Isolation" ON public.project_tool_custody;
-    CREATE POLICY "SaaS_Tool_Custody_Isolation" ON public.project_tool_custody 
-    FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
-    ALTER TABLE public.project_attachments ENABLE ROW LEVEL SECURITY;
-    DROP POLICY IF EXISTS "SaaS_Project_Attachment_Isolation" ON public.project_attachments;
-    CREATE POLICY "SaaS_Project_Attachment_Isolation" ON public.project_attachments 
-    FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-END $$;
 
 -- ================================================================
 -- 19. دوال الإغلاق والتقارير المتقدمة المضافة حديثاً

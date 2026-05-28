@@ -107,6 +107,92 @@ BEGIN
 END; $$;
 
 -- ================================================================
+-- 2.5 دوال النسخ الاحتياطي (Backup Functions)
+-- ================================================================
+
+-- 🛡️ تنظيف النسخ القديمة لتجنب خطأ تعارض أنواع البيانات (HINT: 42P13)
+DROP FUNCTION IF EXISTS public.create_organization_backup(uuid, text);
+DROP FUNCTION IF EXISTS public.run_daily_backups_all_orgs();
+
+-- �️ دالة إنشاء نسخة احتياطية لمنظمة محددة
+CREATE OR REPLACE FUNCTION public.create_organization_backup(p_org_id uuid, p_notes text DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_backup_data jsonb := '{}'::jsonb;
+    v_table_name text;
+    v_table_data jsonb;
+    v_backup_id uuid;
+    v_user_id uuid := auth.uid(); -- User performing the backup
+    v_org_name text;
+BEGIN
+    -- Get organization name for notes
+    SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
+
+    -- Iterate through all tables that have an organization_id column
+    FOR v_table_name IN
+        SELECT c.table_name
+        FROM information_schema.columns c
+        WHERE c.table_schema = 'public'
+          AND c.column_name = 'organization_id'
+          AND EXISTS (SELECT 1 FROM information_schema.tables t WHERE t.table_schema = 'public' AND t.table_name = c.table_name AND t.table_type = 'BASE TABLE')
+          AND c.table_name NOT IN ('organizations', 'organization_backups', 'profiles', 'auth.users') -- Exclude core system tables or tables with special RLS
+    LOOP
+        BEGIN
+            -- Select all data for the given organization from the current table
+            EXECUTE format('SELECT jsonb_agg(to_jsonb(t)) FROM public.%I t WHERE t.organization_id = %L', v_table_name, p_org_id)
+            INTO v_table_data;
+            
+            -- Add table data to the main backup JSONB object
+            -- Use jsonb_set to add/update a key-value pair in the JSONB object
+            v_backup_data := jsonb_set(v_backup_data, ARRAY[v_table_name], COALESCE(v_table_data, '[]'::jsonb), true);
+            
+            -- Optional: Log progress
+            -- RAISE NOTICE 'Backed up data from table % for organization %', v_table_name, p_org_id;
+
+        EXCEPTION
+            WHEN UNDEFINED_COLUMN THEN
+                RAISE WARNING 'Table % does not have organization_id column, skipping.', v_table_name;
+            WHEN OTHERS THEN
+                RAISE WARNING 'Error backing up table % for organization %: %', v_table_name, p_org_id, SQLERRM;
+        END;
+    END LOOP;
+
+    -- Insert the backup record
+    INSERT INTO public.organization_backups (organization_id, backup_data, file_size_kb, created_by, notes)
+    VALUES (
+        p_org_id,
+        v_backup_data,
+        pg_column_size(v_backup_data) / 1024.0, -- Size in KB
+        v_user_id,
+        COALESCE(p_notes, 'Daily backup for ' || v_org_name)
+    ) RETURNING id INTO v_backup_id;
+
+    RETURN v_backup_id;
+END; $$;
+
+-- 🛠️ دالة تشغيل النسخ الاحتياطي لجميع المنظمات النشطة
+CREATE OR REPLACE FUNCTION public.run_daily_backups_all_orgs()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid;
+    v_backup_count int := 0;
+    v_error_message text;
+BEGIN
+    FOR v_org_id IN SELECT id FROM public.organizations WHERE is_active = true LOOP
+        BEGIN
+            PERFORM public.create_organization_backup(v_org_id, 'Automated daily backup');
+            v_backup_count := v_backup_count + 1;
+        EXCEPTION WHEN OTHERS THEN
+            v_error_message := SQLERRM;
+            RAISE WARNING 'Failed to create backup for organization %: %', v_org_id, v_error_message;
+            INSERT INTO public.system_error_logs (error_message, context, function_name, organization_id)
+            VALUES (v_error_message, jsonb_build_object('organization_id', v_org_id), 'run_daily_backups_all_orgs', v_org_id);
+        END;
+    END LOOP;
+    RETURN 'Successfully created ' || v_backup_count || ' backups.';
+END; $$;
+
+-- ================================================================
 -- 3. محرك المخزون الشامل (The Master Stock Engine)
 -- ================================================================
 -- 🛡️ تحديث V50.5: ضمان تصفير الأصناف التي ليس لها حركات عند إعادة الاحتساب الجزئي
@@ -1278,53 +1364,6 @@ BEGIN
 END; $$;
 
 -- ================================================================
--- 6. سياسات الأمان والعزل (RLS Policies)
--- ================================================================
-
--- تفعيل RLS على كافة الجداول
-DO $$ 
-DECLARE t text;
-BEGIN
-    FOR t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', t);
-    END LOOP;
-END $$;
-
--- سياسة السوبر أدمن (الوصول المطلق) 👑
-DO $$ 
-DECLARE t text;
-BEGIN
-    FOR t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "SuperAdmin_Access" ON public.%I', t);
-        EXECUTE format('CREATE POLICY "SuperAdmin_Access" ON public.%I FOR ALL TO authenticated USING (public.get_my_role() = ''super_admin'') WITH CHECK (public.get_my_role() = ''super_admin'')', t);
-    END LOOP;
-END $$;
-
--- سياسة عزل البيانات للشركات (SaaS Isolation) 🛡️
--- تعتمد على JWT مباشرة لمنع الـ Recursion
-DROP POLICY IF EXISTS "SaaS_Org_Isolation" ON public.profiles;
-CREATE POLICY "SaaS_Org_Isolation" ON public.profiles 
-FOR SELECT TO authenticated 
-USING (
-    id = auth.uid() 
-    OR organization_id = (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid
-);
-
--- تطبيق السياسة العامة على بقية الجداول
-DO $$ 
-DECLARE t text;
-BEGIN
-    FOR t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('profiles', 'organizations', 'permissions')) LOOP
-        EXECUTE format('DROP POLICY IF EXISTS "Org_Data_Access" ON public.%I', t);
-        EXECUTE format('CREATE POLICY "Org_Data_Access" ON public.%I FOR ALL TO authenticated 
-            USING (organization_id = (auth.jwt() -> ''user_metadata'' ->> ''org_id'')::uuid) 
-            WITH CHECK (organization_id = (auth.jwt() -> ''user_metadata'' ->> ''org_id'')::uuid)', t);
-    END LOOP;
-END $$;
-
--- ================================================================
--- 7. المشغلات التلقائية (System Triggers)
--- ================================================================
 -- [تحديث] إضافة مشغل المستودعات
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN
@@ -1657,6 +1696,8 @@ GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_monthly_shift_report(uuid, integer, integer) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.run_payroll_rpc(integer, integer, date, uuid, jsonb, uuid) TO authenticated;
 
+GRANT EXECUTE ON FUNCTION public.create_organization_backup(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.run_daily_backups_all_orgs() TO authenticated;
 -- 🚀 تنشيط ذاكرة المخطط فوراً لضمان ظهور الدوال في الـ API (حل مشكلة 404)
 NOTIFY pgrst, 'reload config';
 

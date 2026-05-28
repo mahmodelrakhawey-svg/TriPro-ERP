@@ -52,8 +52,16 @@ DECLARE
         'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 
         'mfg_production_variances', 'mfg_material_requests', 'mfg_material_request_items',
         'kitchen_orders', 'mfg_qc_inspections', 'mfg_step_attachments', 'bank_reconciliations'
+
+        'whatsapp_notification_queue', 'system_error_logs',
+        'projects', 'project_boq', 'project_progress_billings', 'project_attachments',
+        'project_inspections', 'subcontractors', 'subcontractor_contracts', 'subcontractor_billings',
+        'project_milestones', 'project_custodies', 'project_custody_expenses',
+        'project_material_issues', 'project_material_issue_items', 'project_change_orders',
+        'project_site_attendance', 'equipment', 'equipment_usage_logs', 'project_tool_custody',
+        'mfg_period_cost_snapshots', 'mfg_byproducts_logs', 'mfg_beginning_wip_inventory', 'mfg_alerts_log'
     ];
-    BEGIN
+        BEGIN
 
         FOREACH t IN ARRAY tables_to_rls LOOP
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
@@ -186,11 +194,15 @@ DO $$ BEGIN
         WITH CHECK ((organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager', 'chef', 'cashier')) OR public.get_my_role() = 'super_admin');
     END IF;
 END $$;
--- حماية القيود المحاسبية (ممنوع على الـ Viewer و البائعين)
-DROP POLICY IF EXISTS "Journal_Entries_Isolation" ON journal_entries;
-CREATE POLICY "Journal_Entries_Isolation" ON journal_entries
-FOR SELECT TO authenticated 
+
+-- تم إزالتها لأن السياسة العامة Org_Access_Policy_journal_entries تغطيها بشكل أفضل
+
+-- حماية سجل الأخطاء (كل شركة ترى أخطائها فقط، والسوبر أدمن يرى الجميع)
+DROP POLICY IF EXISTS "System_Logs_Isolation" ON system_error_logs;
+CREATE POLICY "System_Logs_Isolation" ON system_error_logs 
+FOR ALL TO authenticated 
 USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+
 -- 6. سياسة النسخ الاحتياطي (Backups)
 DROP POLICY IF EXISTS "Admins manage backups" ON organization_backups;
 CREATE POLICY "Admins manage backups" ON organization_backups 
@@ -207,7 +219,7 @@ USING (
 DROP POLICY IF EXISTS "Restricted_Payrolls_Select" ON payrolls;
 CREATE POLICY "Restricted_Payrolls_Select" ON payrolls FOR SELECT TO authenticated 
 USING (
-    (organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager'))
+     (organization_id = public.get_my_org() AND public.get_my_role() IN ('admin', 'manager'))
     OR
     public.get_my_role() = 'super_admin'
 );
@@ -288,6 +300,27 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- تنفيذ التنشيط
+-- =================================================================
+-- 📱 جدول طابور إشعارات الواتساب (WhatsApp Notification Queue)
+-- =================================================================
+CREATE TABLE IF NOT EXISTS public.whatsapp_notification_queue (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    phone_number TEXT NOT NULL,
+    message_body TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
+    retry_count INTEGER DEFAULT 0,
+    error_log TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    processed_at TIMESTAMPTZ
+);
+
+ALTER TABLE public.whatsapp_notification_queue ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_WA_Queue_Isolation" ON public.whatsapp_notification_queue;
+CREATE POLICY "SaaS_WA_Queue_Isolation" ON public.whatsapp_notification_queue 
+FOR ALL TO authenticated USING (organization_id = public.get_my_org());
+
+GRANT ALL ON public.whatsapp_notification_queue TO authenticated;
 SELECT public.refresh_saas_schema();
 
 -- =================================================================
