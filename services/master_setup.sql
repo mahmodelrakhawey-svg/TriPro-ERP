@@ -188,6 +188,45 @@ CREATE TABLE IF NOT EXISTS public.organizations (
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
+-- 🛡️ نظام التنشيط التلقائي للسوبر أدمن والمنظمة (Super Admin Auto-Link)
+DO $$
+DECLARE
+    v_org_id UUID;
+    v_user_id UUID := auth.uid();
+BEGIN
+    -- 1. ضمان وجود منظمة واحدة على الأقل
+    IF NOT EXISTS (SELECT 1 FROM public.organizations) THEN
+        INSERT INTO public.organizations (name, activity_type, is_active)
+        VALUES ('شركة تراي برو العالمية', 'general', true)
+        RETURNING id INTO v_org_id;
+        RAISE NOTICE '✅ تم إنشاء المنظمة السيادية للنظام.';
+    ELSE
+        SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    END IF;
+
+    -- 2. ربط المستخدم الحالي (أنت) بالمنظمة ومنحه صلاحيات السوبر أدمن
+    IF v_user_id IS NOT NULL THEN
+        INSERT INTO public.profiles (id, full_name, role, organization_id, is_active)
+        VALUES (v_user_id, 'المدير العام للنظام', 'super_admin', v_org_id, true)
+        ON CONFLICT (id) DO UPDATE SET 
+            role = 'super_admin',
+            organization_id = v_org_id,
+            is_active = true;
+        
+        -- تحديث بيانات الهوية (Metadata) لضمان ظهور القوائم فوراً
+        UPDATE auth.users SET raw_user_meta_data = 
+            COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', v_org_id, 'role', 'super_admin')
+        WHERE id = v_user_id;
+    END IF;
+
+    -- 3. تفعيل كافة الموديولات لهذه الشركة لضمان ظهورها في كافة القوائم
+    UPDATE public.organizations 
+    SET allowed_modules = ARRAY['accounting', 'inventory', 'sales', 'purchases', 'hr', 'manufacturing', 'restaurant', 'construction']
+    WHERE id = v_org_id;
+
+    RAISE NOTICE '✅ تم ربط حسابك بالمنظمة وتفعيل كافة الصلاحيات.';
+END $$;
+
 -- جدول النسخ الاحتياطية للمنظمات (SaaS Backups) - تم نقل دالة الإنشاء لملف الدوال
 CREATE TABLE IF NOT EXISTS public.organization_backups (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -195,7 +234,7 @@ CREATE TABLE IF NOT EXISTS public.organization_backups (
     backup_date timestamptz DEFAULT now(),
     backup_data jsonb NOT NULL,
     file_size_kb numeric,
-    created_by uuid REFERENCES auth.users(id),
+    user_id uuid REFERENCES public.profiles(id),
     notes text,
     created_at timestamptz DEFAULT now() NOT NULL
 );

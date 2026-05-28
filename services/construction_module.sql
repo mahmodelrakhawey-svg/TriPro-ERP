@@ -755,6 +755,10 @@ CREATE OR REPLACE FUNCTION public.get_project_s_curve_data(p_project_id UUID)
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
     v_project_start DATE;
+    v_project_end DATE;
+    v_bac NUMERIC; -- Budget at Completion
+    v_duration_days INTEGER;
+    v_daily_planned_cost NUMERIC;
     v_result JSONB;
 BEGIN
     -- صمام أمان لمنع خطأ 400 عند إرسال معرّف فارغ
@@ -763,15 +767,25 @@ BEGIN
     END IF;
 
     -- جلب تاريخ البداية مع بديل آمن (تاريخ الإنشاء أو اليوم) لتجنب أخطاء generate_series
-    SELECT COALESCE(start_date, created_at::date, CURRENT_DATE) INTO v_project_start 
-    FROM public.projects WHERE id = p_project_id;
+    SELECT
+        COALESCE(p.start_date, p.created_at::date, CURRENT_DATE),
+        COALESCE(p.end_date, CURRENT_DATE + INTERVAL '1 year')::date, -- Default to 1 year if end_date is null
+        COALESCE(SUM(pb.total_price), p.contract_value, 0)
+    INTO v_project_start, v_project_end, v_bac
+    FROM public.projects p
+    LEFT JOIN public.project_boq pb ON p.id = pb.project_id
+    WHERE p.id = p_project_id
+    GROUP BY p.id;
+
+    v_duration_days := GREATEST(v_project_end - v_project_start, 1);
+    v_daily_planned_cost := v_bac / v_duration_days;
 
     IF v_project_start IS NULL THEN RETURN '[]'::jsonb; END IF;
 
     WITH monthly_series AS (
         SELECT (generate_series(
             date_trunc('month', v_project_start),
-            date_trunc('month', CURRENT_DATE),
+            date_trunc('month', GREATEST(CURRENT_DATE, v_project_end)), -- Ensure series goes up to current date or project end
             '1 month'::interval
         ))::date AS month_date
     ),
@@ -793,19 +807,43 @@ BEGIN
         WHERE project_id = p_project_id AND status = 'approved'
         GROUP BY 1
     ),
-    cumulative_data AS (
+    monthly_planned AS (
+        SELECT
+            ms.month_date,
+            -- Calculate planned value for each month based on daily burn rate
+            -- Consider days in month and project start/end dates
+            -- This calculation ensures that planned cost is only for days within the project's start and end dates
+            SUM(
+                GREATEST(0,
+                    LEAST(
+                        (ms.month_date + INTERVAL '1 month - 1 day')::date,
+                        v_project_end
+                    ) -
+                    GREATEST(
+                        ms.month_date,
+                        v_project_start
+                    ) + 1
+                ) * v_daily_planned_cost
+            ) as planned_cost
+        FROM monthly_series ms
+        GROUP BY ms.month_date
+    )
+    , cumulative_data AS (
         -- فصل حساب القيم التراكمية (Window Functions) عن التجميع النهائي لمنع خطأ PG 42803
         SELECT 
             ms.month_date,
+            SUM(COALESCE(mp.planned_cost, 0)) OVER (ORDER BY ms.month_date) as cumulative_planned,
             SUM(COALESCE(ma.actual_cost, 0)) OVER (ORDER BY ms.month_date) as cumulative_actual,
             SUM(COALESCE(me.earned_val, 0)) OVER (ORDER BY ms.month_date) as cumulative_earned
         FROM monthly_series ms
         LEFT JOIN monthly_actuals ma ON ms.month_date = ma.m_date
         LEFT JOIN monthly_earned me ON ms.month_date = me.m_date
+        LEFT JOIN monthly_planned mp ON ms.month_date = mp.month_date -- Join with monthly_planned
     )
     SELECT COALESCE(jsonb_agg(jsonb_build_object(
         'month', to_char(month_date, 'Mon YYYY'),
         'cumulative_actual', cumulative_actual,
+        'cumulative_planned', cumulative_planned,
         'cumulative_earned', cumulative_earned
     )), '[]'::jsonb) INTO v_result
     FROM cumulative_data;
@@ -819,19 +857,24 @@ CREATE OR REPLACE FUNCTION public.get_project_health_score(p_project_id UUID)
 RETURNS INTEGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_metrics JSONB;
+    v_risks JSONB;
     v_cpi NUMERIC;
     v_spi NUMERIC;
     v_score INTEGER;
 BEGIN
     v_metrics := public.get_project_evm_metrics(p_project_id);
+    v_risks := public.get_project_risk_signals(p_project_id);
     IF v_metrics IS NULL THEN RETURN 0; END IF;
 
     v_cpi := (v_metrics->>'cpi')::NUMERIC;
     v_spi := (v_metrics->>'spi')::NUMERIC;
 
-    -- الحسبة: 50% لأداء التكلفة و 50% لأداء الجدول الزمني
-    -- مع معاقبة التجاوزات (إذا كان CPI < 1، ينخفض السكور بسرعة)
     v_score := ROUND((LEAST(v_cpi, 1.2) * 50) + (LEAST(v_spi, 1.2) * 50));
+
+    -- خصم نقاط بناءً على مستوى المخاطر المكتشفة
+    IF (v_risks->>'risk_level') = 'High' THEN v_score := v_score - 20;
+    ELSIF (v_risks->>'risk_level') = 'Medium' THEN v_score := v_score - 10;
+    END IF;
     
     RETURN LEAST(v_score, 100);
 END; $$;

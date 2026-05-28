@@ -112,6 +112,8 @@ END; $$;
 
 -- 🛡️ تنظيف النسخ القديمة لتجنب خطأ تعارض أنواع البيانات (HINT: 42P13)
 DROP FUNCTION IF EXISTS public.create_organization_backup(uuid, text);
+DROP FUNCTION IF EXISTS public.restore_organization_from_backup(uuid);
+DROP FUNCTION IF EXISTS public.validate_backup_integrity(uuid, jsonb);
 DROP FUNCTION IF EXISTS public.run_daily_backups_all_orgs();
 
 -- �️ دالة إنشاء نسخة احتياطية لمنظمة محددة
@@ -158,14 +160,24 @@ BEGIN
     END LOOP;
 
     -- Insert the backup record
-    INSERT INTO public.organization_backups (organization_id, backup_data, file_size_kb, created_by, notes)
+    INSERT INTO public.organization_backups (organization_id, backup_data, file_size_kb, user_id, notes)
     VALUES (
         p_org_id,
         v_backup_data,
         pg_column_size(v_backup_data) / 1024.0, -- Size in KB
-        v_user_id,
+        COALESCE(v_user_id, auth.uid()),
         COALESCE(p_notes, 'Daily backup for ' || v_org_name)
     ) RETURNING id INTO v_backup_id;
+
+    -- 🛡️ تنظيف النسخ القديمة: الاحتفاظ بآخر 5 نسخ فقط لكل شركة لضمان توفير المساحة
+    DELETE FROM public.organization_backups
+    WHERE id IN (
+        SELECT id
+        FROM public.organization_backups
+        WHERE organization_id = p_org_id
+        ORDER BY backup_date DESC
+        OFFSET 5
+    );
 
     RETURN v_backup_id;
 END; $$;
@@ -190,6 +202,139 @@ BEGIN
         END;
     END LOOP;
     RETURN 'Successfully created ' || v_backup_count || ' backups.';
+END; $$;
+
+-- 🛠️ دالة فحص سلامة النسخة الاحتياطية قبل الاستعادة
+CREATE OR REPLACE FUNCTION public.validate_backup_integrity(p_org_id uuid, p_backup_data jsonb)
+RETURNS TABLE (name text, status text, message text) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_table_name text;
+    v_missing_tables text[] := '{}';
+    v_critical_tables text[] := ARRAY['accounts', 'products', 'journal_entries'];
+    v_table_exists boolean;
+BEGIN
+    -- 1. التحقق من صحة هيكل الـ JSON
+    name := 'صحة هيكل البيانات';
+    IF jsonb_typeof(p_backup_data) != 'object' THEN
+        status := 'fail';
+        message := 'بيانات النسخة الاحتياطية تالفة أو ليست بتنسيق JSON صحيح.';
+        RETURN NEXT;
+        RETURN; 
+    ELSE
+        status := 'pass';
+        message := 'هيكل البيانات سليم.';
+        RETURN NEXT;
+    END IF;
+
+    -- 2. التحقق من تطابق الجداول مع النظام الحالي
+    FOR v_table_name IN SELECT jsonb_object_keys(p_backup_data) LOOP
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_schema = 'public' AND table_name = v_table_name
+        ) INTO v_table_exists;
+        
+        IF NOT v_table_exists THEN
+            v_missing_tables := array_append(v_missing_tables, v_table_name);
+        END IF;
+    END LOOP;
+
+    name := 'توافق الجداول';
+    IF array_length(v_missing_tables, 1) > 0 THEN
+        status := 'warning';
+        message := 'تحتوي النسخة على جداول غير موجودة في النظام الحالي (سيتم تجاهلها): ' || array_to_string(v_missing_tables, ', ');
+    ELSE
+        status := 'pass';
+        message := 'جميع جداول النسخة متوافقة مع النظام.';
+    END IF;
+    RETURN NEXT;
+
+    -- 3. التحقق من وجود الجداول السيادية (Critical Tables)
+    name := 'سلامة البيانات الأساسية';
+    v_missing_tables := '{}';
+    FOREACH v_table_name IN ARRAY v_critical_tables LOOP
+        IF NOT (p_backup_data ? v_table_name) THEN
+            v_missing_tables := array_append(v_missing_tables, v_table_name);
+        END IF;
+    END LOOP;
+
+    IF array_length(v_missing_tables, 1) > 0 THEN
+        status := 'fail';
+        message := 'النسخة تفتقر لجداول حيوية (لا يمكن الاستعادة): ' || array_to_string(v_missing_tables, ', ');
+    ELSE
+        status := 'pass';
+        message := 'الجداول الحيوية موجودة.';
+    END IF;
+    RETURN NEXT;
+
+    -- 4. التحقق من ملكية البيانات (Organization Match)
+    name := 'التحقق من ملكية البيانات';
+    v_table_name := (SELECT jsonb_object_keys(p_backup_data) LIMIT 1);
+    IF v_table_name IS NOT NULL AND jsonb_array_length(p_backup_data->v_table_name) > 0 THEN
+        IF (p_backup_data->v_table_name->0->>'organization_id')::uuid != p_org_id THEN
+            status := 'fail';
+            message := 'هذه النسخة تنتمي لمنظمة أخرى ولا يمكن استعادتها لهذه الشركة.';
+        ELSE
+            status := 'pass';
+            message := 'البيانات تنتمي لهذه المنظمة بشكل صحيح.';
+        END IF;
+    ELSE
+        status := 'warning';
+        message := 'لا توجد بيانات كافية في النسخة للتحقق من ملكية المنظمة.';
+    END IF;
+    RETURN NEXT;
+END; $$;
+
+-- 🛠️ دالة استعادة بيانات منظمة من نسخة احتياطية محددة
+CREATE OR REPLACE FUNCTION public.restore_organization_from_backup(p_backup_id uuid)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_backup record;
+    v_table_name text;
+    v_row jsonb;
+    v_count int := 0;
+BEGIN
+    -- 1. جلب بيانات النسخة والتحقق من وجودها
+    SELECT * INTO v_backup FROM public.organization_backups WHERE id = p_backup_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'النسخة الاحتياطية غير موجودة.'; END IF;
+
+    -- 🛡️ تفعيل وضع الاستعادة لتجاوز قيود الـ RLS والمشغلات (Triggers) أثناء العملية
+    PERFORM set_config('app.restore_mode', 'on', true);
+
+    -- 2. استرجاع قائمة الجداول من حقل backup_data وتفريغ البيانات الحالية
+    FOR v_table_name IN SELECT jsonb_object_keys(v_backup.backup_data)
+    LOOP
+        -- أ. حذف البيانات الحالية للمنظمة من الجدول المستهدف
+        EXECUTE format('DELETE FROM public.%I WHERE organization_id = %L', v_table_name, v_backup.organization_id);
+
+        -- ب. إعادة حقن السجلات من النسخة الاحتياطية (Row by Row من الـ JSON)
+        FOR v_row IN SELECT * FROM jsonb_array_elements(v_backup.backup_data -> v_table_name)
+        LOOP
+            EXECUTE format('INSERT INTO public.%I SELECT * FROM jsonb_populate_record(NULL::public.%I, %L)', 
+                           v_table_name, v_table_name, v_row);
+            v_count := v_count + 1;
+        END LOOP;
+    END LOOP;
+
+    -- 🚀 إعادة تنشيط محرك المخزون لضمان دقة الأرصدة بعد الاستعادة
+    PERFORM public.recalculate_stock_rpc(v_backup.organization_id);
+    PERFORM set_config('app.restore_mode', 'off', true);
+
+    -- 🛡️ تسجيل العملية في سجل الأمان (Audit Log) لضمان المحاسبية
+    INSERT INTO public.security_logs (
+        event_type, 
+        description, 
+        performed_by, 
+        organization_id, 
+        metadata
+    ) VALUES (
+        'data_restore',
+        'تمت استعادة بيانات المنظمة من نسخة احتياطية رقم: ' || p_backup_id,
+        auth.uid(),
+        v_backup.organization_id,
+        jsonb_build_object('backup_id', p_backup_id, 'records_count', v_count, 'backup_date', v_backup.backup_date)
+    );
+    
+    RETURN '✅ تمت الاستعادة بنجاح. إجمالي السجلات المسترجعة: ' || v_count;
 END; $$;
 
 -- ================================================================
@@ -1698,6 +1843,8 @@ GRANT EXECUTE ON FUNCTION public.run_payroll_rpc(integer, integer, date, uuid, j
 
 GRANT EXECUTE ON FUNCTION public.create_organization_backup(uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.run_daily_backups_all_orgs() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.restore_organization_from_backup(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_backup_integrity(uuid, jsonb) TO authenticated;
 -- 🚀 تنشيط ذاكرة المخطط فوراً لضمان ظهور الدوال في الـ API (حل مشكلة 404)
 NOTIFY pgrst, 'reload config';
 

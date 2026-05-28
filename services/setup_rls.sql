@@ -51,11 +51,7 @@ DECLARE
         'mfg_production_orders', 'mfg_order_progress', 'mfg_step_materials', 
         'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 
         'mfg_production_variances', 'mfg_material_requests', 'mfg_material_request_items',
-        'kitchen_orders', 'mfg_qc_inspections', 'mfg_step_attachments', 'bank_reconciliations'
-
-        'whatsapp_notification_queue', 'system_error_logs',
-        'projects', 'project_boq', 'project_progress_billings', 'project_attachments',
-        'project_inspections', 'subcontractors', 'subcontractor_contracts', 'subcontractor_billings',
+        'kitchen_orders', 'mfg_qc_inspections', 'mfg_step_attachments', 'bank_reconciliations',
         'project_milestones', 'project_custodies', 'project_custody_expenses',
         'project_material_issues', 'project_material_issue_items', 'project_change_orders',
         'project_site_attendance', 'equipment', 'equipment_usage_logs', 'project_tool_custody',
@@ -142,7 +138,7 @@ DROP POLICY IF EXISTS "Org_SuperAdmin_Policy" ON organizations;
 CREATE POLICY "Org_SuperAdmin_Policy" ON organizations FOR ALL TO authenticated USING (public.get_my_role() = 'super_admin');
 
 DROP POLICY IF EXISTS "Org_Select_Policy" ON organizations;
-CREATE POLICY "Org_Select_Policy" ON organizations FOR SELECT TO authenticated USING (id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+CREATE POLICY "Org_Select_Policy" ON organizations FOR SELECT TO authenticated USING (id = public.get_my_org() OR public.get_my_role() = 'super_admin' OR (auth.jwt() -> 'user_metadata' ->> 'role') = 'super_admin');
 
 -- 2. إعدادات الشركة (Company Settings)
 -- قراءة للجميع (المصادق عليهم) والسوبر أدمن

@@ -51,6 +51,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
         return <Zap className="w-5 h-5 text-orange-500" />;
       case 'project_performance_alert':
         return <TrendingDown className="w-5 h-5 text-red-500" />;
+      case 'backup_failure':
+        return <AlertCircle className="w-5 h-5 text-red-700" />;
+      case 'manufacturing_cost_overrun':
+        return <Wrench className="w-5 h-5 text-red-600" />;
       case 'retention_release_alert':
         return <ShieldCheck className="w-5 h-5 text-emerald-500" />;
       case 'success':
@@ -70,6 +74,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
       pending_approval: 'انتظار موافقة',
       due_date_approaching: 'تواريخ استحقاق قريبة',
       project_performance_alert: 'تنبيه أداء المشروع',
+      backup_failure: 'فشل النسخ الاحتياطي',
+      manufacturing_cost_overrun: 'تجاوز تكاليف التصنيع',
         retention_release_alert: 'فك محتجز الضمان',
       system_alert: 'تنبيهات النظام',
       success: 'نجاح',
