@@ -6,6 +6,22 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+export interface Organization {
+  id: string;
+  name: string;
+  vat_number?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  logo_url?: string;
+  footer_text?: string;
+  allowed_modules?: string[];
+  is_active: boolean;
+  subscription_expiry?: string;
+  max_users: number;
+  created_at: string;
+}
+
 export interface Database {
   public: {
     Tables: {

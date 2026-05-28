@@ -18,7 +18,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
     v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
-    v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid;
+    v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid; v_wip_variance_id uuid;
     v_ret_cust_id uuid; v_ret_sub_id uuid; v_adv_sub_id uuid;
     v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid; v_equip_rev_id uuid;
     v_prepaid_exp_id uuid; v_accrued_exp_id uuid;
@@ -28,6 +28,7 @@ BEGIN
     v_vat_rate := CASE 
         WHEN p_activity_type = 'construction' THEN 0.05 
         WHEN p_activity_type = 'charity' THEN 0.00 
+        WHEN p_activity_type IN ('manufacturing', 'factory', 'تصنيع', 'مصانع') THEN 0.14
         ELSE 0.14 
     END;
     SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
@@ -197,6 +198,12 @@ BEGIN
         ('4112', 'إيرادات مبيعات (توصيل)', 'revenue', false, '41');
     END IF;
 
+    IF p_activity_type IN ('manufacturing', 'factory', 'تصنيع', 'مصانع') THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('4113', 'إيرادات مبيعات إنتاج تام', 'revenue', false, '41'),
+        ('4114', 'إيرادات مبيعات مخلفات إنتاج', 'revenue', false, '41');
+    END IF;
+
     -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
     INSERT INTO public.accounts (organization_id, code, name, type, is_group, is_active)
     SELECT p_org_id, code, name, type, is_group, true
@@ -263,7 +270,12 @@ BEGIN
     v_equip_rev_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '425' LIMIT 1);
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
+    v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
+    v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1);
+    v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
+
     -- جلب حسابات المقاولات (الإصلاح الجذري)
+    v_wip_variance_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '511' LIMIT 1); -- Default to COGS
     v_ret_cust_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1249' LIMIT 1);
     v_ret_sub_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2229' LIMIT 1);
     v_adv_sub_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1245' LIMIT 1);
@@ -306,6 +318,7 @@ BEGIN
             'INVENTORY_RAW_MATERIALS', v_raw_id,
             'INVENTORY_WIP', v_wip_id,
             'LABOR_COST_ALLOCATED', v_labor_mfg_id,
+            'WIP_VARIANCE_ACCOUNT', v_wip_variance_id,
             'MANUFACTURING_OVERHEAD', v_overhead_mfg_id,
             'WASTAGE_EXPENSE', v_wastage_id,
             'RETENTION_CUSTOMER', v_ret_cust_id,

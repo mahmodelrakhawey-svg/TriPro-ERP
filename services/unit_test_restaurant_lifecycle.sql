@@ -769,6 +769,11 @@ CREATE OR REPLACE FUNCTION public.run_comprehensive_system_tests()
 RETURNS TABLE(suite_name text, status text, details text) LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN
     -- 1. اختبارات المطاعم
+    RAISE NOTICE 'Running cleanup before Restaurant & POS tests...';
+    -- 🛡️ تنظيف بيانات اختبار الضغط لضمان بيئة اختبار نظيفة قبل كل تشغيل
+    PERFORM public.clean_load_test_data(public.get_my_org());
+    PERFORM public.recalculate_stock_rpc(public.get_my_org());
+
     suite_name := 'Restaurant & POS';
     IF EXISTS (SELECT 1 FROM public.test_all_restaurant_modules_integrity() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
         status := 'CRITICAL 🛑'; details := 'فشل في دورة مبيعات المطاعم';
@@ -777,6 +782,9 @@ BEGIN
     END IF; RETURN NEXT;
 
     -- 🏗️ اختبارات المقاولات والمشاريع
+    RAISE NOTICE 'Running cleanup before Construction & Projects tests...';
+    PERFORM public.clean_load_test_data(public.get_my_org());
+    PERFORM public.recalculate_stock_rpc(public.get_my_org());
     suite_name := 'Construction & Projects';
     IF EXISTS (SELECT 1 FROM public.test_construction_lifecycle() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
         status := 'CRITICAL 🛑'; details := 'فشل في دورة المقاولات أو الحسابات المرتبطة';
@@ -785,6 +793,9 @@ BEGIN
     END IF; RETURN NEXT;
 
     -- 2. اختبارات التصنيع
+    RAISE NOTICE 'Running cleanup before Manufacturing tests...';
+    PERFORM public.clean_load_test_data(public.get_my_org());
+    PERFORM public.recalculate_stock_rpc(public.get_my_org());
     suite_name := 'Manufacturing';
     IF EXISTS (SELECT 1 FROM public.test_mfg_order_lifecycle() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
         status := 'CRITICAL 🛑'; details := 'فشل في مديول التصنيع';
@@ -908,6 +919,8 @@ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_total_revenue numeric;
     v_org_count int;
+    v_global_liquidity numeric;
+    v_project_profitability numeric;
     v_module_breakdown jsonb;
 BEGIN
     -- جلب إجمالي الإيرادات من كافة الشركات والموديولات
@@ -915,6 +928,16 @@ BEGIN
     FROM public.journal_lines jl
     JOIN public.accounts a ON jl.account_id = a.id
     WHERE a.code LIKE '4%' AND a.is_group = false;
+
+    -- جلب إجمالي السيولة النقدية (نقدية + بنوك) عبر كافة المنظمات
+    SELECT SUM(debit - credit) INTO v_global_liquidity
+    FROM public.journal_lines jl
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE (a.code LIKE '1231%' OR a.code LIKE '1232%') AND a.is_group = false;
+
+    -- حساب صافي ربحية المشاريع النشطة (إيرادات المستخلصات - التكاليف الفعلية)
+    SELECT SUM(net_profit) INTO v_project_profitability 
+    FROM public.v_project_profitability;
 
     SELECT COUNT(*) INTO v_org_count FROM public.organizations WHERE is_active = true;
 
@@ -930,6 +953,8 @@ BEGIN
 
     RETURN jsonb_build_object(
         'global_revenue', COALESCE(v_total_revenue, 0),
+        'global_liquidity', COALESCE(v_global_liquidity, 0),
+        'active_projects_profit', COALESCE(v_project_profitability, 0),
         'active_organizations', v_org_count,
         'module_performance', v_module_breakdown,
         'system_health', 'Excellent',

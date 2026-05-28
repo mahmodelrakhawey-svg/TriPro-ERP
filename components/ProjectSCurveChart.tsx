@@ -11,7 +11,7 @@ import {
   Area,
   ComposedChart
 } from 'recharts';
-import { supabase } from '../utils/supabaseClient';
+import { supabase } from '../supabaseClient';
 import { Loader2, TrendingUp } from 'lucide-react';
 
 interface SCurveData {

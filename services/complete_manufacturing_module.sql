@@ -1564,7 +1564,7 @@ BEGIN
         RAISE EXCEPTION 'يوجد بالفعل طلب صرف مواد مفتوح لأمر الإنتاج هذا.';
     END IF;
 
-    v_request_number := 'MR-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+    v_request_number := 'MR-' || to_char(now(), 'YYMMDDHH24MISS') || '-' || upper(substring(gen_random_uuid()::text, 1, 8));
 
     INSERT INTO public.mfg_material_requests (
         production_order_id, request_number, requested_by, organization_id, status

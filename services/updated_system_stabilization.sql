@@ -907,25 +907,35 @@ $$ LANGUAGE plpgsql;
 -- ============================================================
 -- 🛡️ دالة فرض معرف المنظمة (Force Organization ID Function)
 -- الوصف: تضمن هذه الدالة تعيين organization_id تلقائياً عند الإدراج
+-- تم توحيدها لتشمل منطق الوراثة الذكي ووضع الاستعادة
 -- ============================================================
-CREATE OR REPLACE FUNCTION public.fn_force_org_id_on_insert()
+CREATE OR REPLACE FUNCTION public.fn_force_org_id_universal()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- 🛡️ وضع الاستعادة/الاختبار: السماح بمرور السجل كما هو
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN NEW;
+    END IF;
+
     -- 🏗️ محرك الوراثة الذكي: إذا كان السجل تابعاً لطلب أو جلسة، يرث منظمتها تلقائياً
     IF TG_TABLE_NAME = 'order_items' AND NEW.organization_id IS NULL THEN
         SELECT organization_id INTO NEW.organization_id FROM public.orders WHERE id = NEW.order_id;
+    ELSIF TG_TABLE_NAME = 'orders' AND NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id FROM public.table_sessions WHERE id = NEW.session_id;
+    ELSIF TG_TABLE_NAME = 'table_sessions' AND NEW.organization_id IS NULL THEN
+        SELECT organization_id INTO NEW.organization_id FROM public.restaurant_tables WHERE id = NEW.table_id;
     END IF;
 
     IF NEW.organization_id IS NULL THEN
         NEW.organization_id := public.get_my_org();
     END IF;
+    IF NEW.organization_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد المنظمة.'; END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 DROP TRIGGER IF EXISTS trg_ensure_invoice_warehouse ON public.invoices;
 CREATE TRIGGER trg_ensure_invoice_warehouse BEFORE INSERT ON public.invoices FOR EACH ROW EXECUTE FUNCTION public.fn_ensure_document_warehouse();
-
 
 -- هنا نقوم فقط بتطبيق المشغلات (Triggers) لضمان استقرار البيئة.
 DO $$ 
@@ -947,9 +957,9 @@ BEGIN
 
     FOREACH t IN ARRAY tables_list LOOP
         EXECUTE format('DROP TRIGGER IF EXISTS trg_force_org_id ON public.%I', t);
-        EXECUTE format('CREATE TRIGGER trg_force_org_id 
-                        BEFORE INSERT ON public.%I 
-                        FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_on_insert()', t);
+        EXECUTE format('CREATE TRIGGER trg_force_org_id_universal 
+                        BEFORE INSERT ON public.%I
+                        FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_universal()', t);
     END LOOP;
 
     -- 🛡️ ترميم بيانات عروض الأسعار اليتيمة (في حال وجدت)
@@ -986,7 +996,61 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'profiles') THEN 
         ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(); 
     END IF;
-END $$;   
+END $$;
+
+-- 🛠️ دالة زر الإصلاح العالمي (The Global Repair Button)
+-- الغرض: تنظيف شامل وإعادة توازن للنظام لتقليل تذاكر الدعم الفني
+CREATE OR REPLACE FUNCTION public.run_global_system_repair(p_org_id uuid DEFAULT NULL)
+RETURNS TABLE(task_name text, status text, impact_count bigint) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE 
+    v_org_id uuid := COALESCE(p_org_id, public.get_my_org());
+    v_count bigint;
+BEGIN
+    -- 1. إصلاح السجلات اليتيمة في المحاسبة
+    DELETE FROM public.journal_lines WHERE journal_entry_id NOT IN (SELECT id FROM public.journal_entries);
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    task_name := 'تنظيف خطوط القيود اليتيمة'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
+
+    -- 2. إعادة موازنة القيود (توجيه الفروق لحساب الوسيط)
+    WITH unbalanced AS (
+        SELECT journal_entry_id FROM public.journal_lines 
+        GROUP BY journal_entry_id HAVING ABS(SUM(debit - credit)) > 0.01
+    )
+    SELECT COUNT(*) FROM (SELECT public.fix_unbalanced_journal_entry(journal_entry_id) FROM unbalanced) t INTO v_count;
+    task_name := 'إعادة توازن قيود اليومية'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
+
+    -- 3. مزامنة أنواع الأصناف (ضمان عدم تحولها لـ STOCK بشكل خاطئ)
+    UPDATE public.products SET product_type = 'RAW_MATERIAL' WHERE mfg_type = 'raw' AND product_type != 'RAW_MATERIAL' AND organization_id = v_org_id;
+    UPDATE public.products SET product_type = 'MANUFACTURED' WHERE mfg_type = 'standard' AND product_type != 'MANUFACTURED' AND organization_id = v_org_id;
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    task_name := 'تصحيح تصنيفات الأصناف الصناعية'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
+
+    -- 4. إعادة احتساب المخزون الشامل (الضربة القاضية لمشاكل الأرصدة)
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+    task_name := 'تحديث أرصدة المخازن اللحظية'; status := 'DONE'; impact_count := (SELECT COUNT(*) FROM public.products WHERE organization_id = v_org_id); RETURN NEXT;
+
+    -- 5. التأكد من وجود إعدادات الشركة (Company Settings)
+    IF NOT EXISTS (SELECT 1 FROM public.company_settings WHERE organization_id = v_org_id) THEN
+        INSERT INTO public.company_settings (organization_id, company_name) 
+        VALUES (v_org_id, (SELECT name FROM public.organizations WHERE id = v_org_id));
+        task_name := 'إنشاء إعدادات الشركة المفقودة'; status := 'CREATED'; impact_count := 1; RETURN NEXT;
+    END IF;
+
+    -- 6. تنظيف القيود المكررة للمستندات (Duplicate Guard)
+    DELETE FROM public.journal_entries 
+    WHERE id IN (
+        SELECT id FROM (
+            SELECT id, ROW_NUMBER() OVER (PARTITION BY organization_id, related_document_id, related_document_type ORDER BY created_at DESC) as rank
+            FROM public.journal_entries 
+            WHERE related_document_id IS NOT NULL AND related_document_type IN ('invoice', 'purchase_invoice', 'shift')
+        ) t WHERE rank > 1
+    );
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    task_name := 'حذف قيود المستندات المكررة'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
+
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.run_global_system_repair(uuid) TO authenticated;
 -- 🛠️ إصلاح أرصدة التصنيع والتكاليف المشوهة (MFG Data Repair)
 
 

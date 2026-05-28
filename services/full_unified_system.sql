@@ -87,6 +87,50 @@ BEGIN
     RETURN _org_id;
 END; $$;
 
+-- 🛡️ تحديث: درع حماية الحسابات السيادية (ليسمح بالحذف في وضع الاستعادة)
+CREATE OR REPLACE FUNCTION public.fn_protect_system_accounts() RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 🛑 إذا كان وضع الاستعادة نشطاً، اسمح بالحذف فوراً (تستخدم عند حذف المنظمة بالكامل)
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN OLD;
+    END IF;
+
+    -- 🚀 صمام أمان: إذا كانت المنظمة نفسها غير موجودة (تم حذفها بالفعل)، اسمح بحذف الحسابات التابعة لها
+    IF NOT EXISTS (SELECT 1 FROM public.organizations WHERE id = OLD.organization_id) THEN
+        RETURN OLD;
+    END IF;
+
+    -- الحماية الطبيعية أثناء العمل اليومي
+    IF OLD.code IN ('1', '2', '3', '4', '5', '1221', '201', '311', '1231') THEN
+        RAISE EXCEPTION '⚠️ خطأ سيادي: لا يمكن حذف الحساب (%) لأنه حساب نظام أساسي مرتبط بالتقارير المالية والقيود الآلية.', OLD.name;
+    END IF;
+
+    RETURN OLD;
+END; $$;
+
+-- ربط الدرع بجدول الحسابات
+DROP TRIGGER IF EXISTS trg_protect_system_accounts ON public.accounts;
+CREATE TRIGGER trg_protect_system_accounts BEFORE DELETE ON public.accounts FOR EACH ROW EXECUTE FUNCTION public.fn_protect_system_accounts();
+
+-- 🛠️ دالة حذف المنظمة بأمان (تجاوز الحماية السيادية)
+CREATE OR REPLACE FUNCTION public.fn_delete_organization_safe(p_org_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 1. التحقق من الصلاحيات (يجب أن يكون سوبر أدمن)
+    IF public.get_my_role() != 'super_admin' THEN
+        RAISE EXCEPTION '⚠️ خطأ أمني: غير مصرح لك بحذف المنظمات من هذا المستوى.';
+    END IF;
+
+    -- 2. تفعيل وضع التجاوز (Restore Mode) لتعطيل حماية الحسابات "السيادية"
+    PERFORM set_config('app.restore_mode', 'on', true);
+
+    -- 3. حذف المنظمة (سيتم حذف كل شيء بفضل ON DELETE CASCADE)
+    DELETE FROM public.organizations WHERE id = p_org_id;
+
+    -- 4. إعادة الوضع الطبيعي
+    PERFORM set_config('app.restore_mode', 'off', true);
+END; $$;
+
 -- 🛠️ دالة مساعدة لضمان الترحيل إلى حساب فرعي (Resolve Leaf Account)
 CREATE OR REPLACE FUNCTION public.resolve_leaf_account(p_account_id uuid)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -199,6 +243,15 @@ BEGIN
             RAISE WARNING 'Failed to create backup for organization %: %', v_org_id, v_error_message;
             INSERT INTO public.system_error_logs (error_message, context, function_name, organization_id)
             VALUES (v_error_message, jsonb_build_object('organization_id', v_org_id), 'run_daily_backups_all_orgs', v_org_id);
+
+            -- 🔔 إرسال تنبيه ذكي للسوبر أدمن عند فشل النسخة الاحتياطية
+            INSERT INTO public.notifications (user_id, title, message, priority, organization_id, type)
+            SELECT id, '⚠️ فشل النسخ الاحتياطي', 
+                   format('فشل النظام في إنشاء نسخة للمنظمة (%s). يرجى التحقق من سجل الأخطاء.', 
+                          (SELECT name FROM public.organizations WHERE id = v_org_id)), 
+                   'high', v_org_id, 'system_error'
+            FROM public.profiles 
+            WHERE role = 'super_admin' AND is_active = true;
         END;
     END LOOP;
     RETURN 'Successfully created ' || v_backup_count || ' backups.';
@@ -757,6 +810,12 @@ BEGIN
     END IF;
 
     v_org_id := COALESCE(p_org_id, v_shift.organization_id, public.get_my_org());
+    
+    -- 🛡️ صمام أمان: لا تسمح بتوليد القيد إذا كانت الوردية لا تزال مفتوحة
+    IF v_shift.status != 'CLOSED' THEN
+        RAISE EXCEPTION 'لا يمكن توليد قيد إغلاق لوردية لا تزال مفتوحة.';
+    END IF;
+
     DELETE FROM public.journal_entries WHERE related_document_id = p_shift_id AND related_document_type = 'shift';
 
     -- 🚀 استخدام جدول مؤقت لتجنب مشاكل النطاق وتحسين الأداء (V50.7)
@@ -1518,35 +1577,397 @@ DO $$ BEGIN
 END $$;
 
 -- ⚙️ مشغل فرض المنظمة آلياً عند الإضافة
-CREATE OR REPLACE FUNCTION public.fn_force_org_id() RETURNS TRIGGER AS $$
+-- ================================================================
+-- 7. دالة محاكاة اختبار الضغط (Load Test Simulation Function)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.simulate_load_test(
+    p_num_sales_invoices INTEGER DEFAULT 100,
+    p_num_mfg_orders INTEGER DEFAULT 100,
+    p_org_id UUID DEFAULT NULL,
+    p_user_id UUID DEFAULT NULL
+)
+RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id UUID;
+    v_current_user_id UUID;
+    v_customer_id UUID;
+    v_product_id UUID;
+    v_warehouse_id UUID;
+    v_invoice_id UUID;
+    v_mfg_product_id UUID; -- Product for manufacturing
+    v_mfg_order_id UUID;
+    v_i INTEGER;
+    v_invoice_number TEXT;
+    v_order_number TEXT;
+    v_sales_price NUMERIC;
+    v_cost NUMERIC;
+    v_quantity NUMERIC;
+    v_supplier_id UUID;
+    v_treasury_acc_id UUID;
+    v_mfg_routing_id UUID;
+    v_mfg_progress_id UUID;
+    v_employee_id UUID; -- New variable for employee ID
+    v_mfg_step_id UUID;
 BEGIN
-    -- 🛡️ وضع الاستعادة/الاختبار: السماح بمرور السجل كما هو
-    IF current_setting('app.restore_mode', true) = 'on' THEN
-        RETURN NEW;
+    -- Resolve organization and user IDs
+    v_org_id := COALESCE(p_org_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
+    v_current_user_id := COALESCE(p_user_id, auth.uid(), (SELECT id FROM public.profiles WHERE organization_id = v_org_id LIMIT 1));
+
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'Organization ID not found or provided.';
+    END IF;
+    IF v_current_user_id IS NULL THEN
+        RAISE EXCEPTION 'User ID not found or provided.';
     END IF;
 
-    -- محرك الوراثة الذكي للـ POS
-    IF TG_TABLE_NAME = 'table_sessions' AND NEW.organization_id IS NULL THEN
-        SELECT organization_id INTO NEW.organization_id FROM public.restaurant_tables WHERE id = NEW.table_id;
-    ELSIF TG_TABLE_NAME = 'orders' AND NEW.organization_id IS NULL THEN
-        SELECT organization_id INTO NEW.organization_id FROM public.table_sessions WHERE id = NEW.session_id;
-    ELSIF TG_TABLE_NAME = 'order_items' AND NEW.organization_id IS NULL THEN
-        SELECT organization_id INTO NEW.organization_id FROM public.orders WHERE id = NEW.order_id;
+    -- Get or create essential IDs for operations
+    SELECT id INTO v_customer_id FROM public.customers WHERE organization_id = v_org_id LIMIT 1;
+    IF v_customer_id IS NULL THEN
+        INSERT INTO public.customers (name, organization_id) VALUES ('Load Test Customer', v_org_id) RETURNING id INTO v_customer_id;
     END IF;
 
-    NEW.organization_id := COALESCE(NEW.organization_id, public.get_my_org());
-    IF NEW.organization_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد المنظمة.'; END IF;
-    RETURN NEW;
-END; $$ LANGUAGE plpgsql;
+    SELECT id INTO v_product_id FROM public.products WHERE organization_id = v_org_id AND product_type = 'STOCK' LIMIT 1;
+    IF v_product_id IS NULL THEN
+        INSERT INTO public.products (name, sales_price, cost, stock, organization_id, product_type)
+        VALUES ('Load Test Product', 100, 50, 10000, v_org_id, 'STOCK') RETURNING id INTO v_product_id;
+    END IF;
 
-DO $$ 
-DECLARE t text;
-BEGIN
-    FOR t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT IN ('organizations', 'profiles')) LOOP
-        EXECUTE format('DROP TRIGGER IF EXISTS trg_force_org ON public.%I', t);
-        EXECUTE format('CREATE TRIGGER trg_force_org BEFORE INSERT ON public.%I FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id()', t);
+    SELECT id INTO v_warehouse_id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1;
+    IF v_warehouse_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('Load Test Warehouse', v_org_id) RETURNING id INTO v_warehouse_id;
+    END IF;
+
+    SELECT id INTO v_treasury_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1;
+    IF v_treasury_acc_id IS NULL THEN
+        INSERT INTO public.accounts (code, name, type, organization_id) VALUES ('1231-LT', 'Load Test Cash', 'asset', v_org_id) RETURNING id INTO v_treasury_acc_id;
+    END IF;
+
+    -- Get or create an employee for MFG operations
+    SELECT id INTO v_employee_id FROM public.employees WHERE organization_id = v_org_id LIMIT 1;
+    IF v_employee_id IS NULL THEN
+        INSERT INTO public.employees (full_name, position, organization_id, hourly_rate) VALUES ('Load Test Employee', 'Worker', v_org_id, 20) RETURNING id INTO v_employee_id;
+    END IF;
+
+    -- Find a manufactured product with a routing for MFG orders
+    SELECT p.id, r.id INTO v_mfg_product_id, v_mfg_routing_id
+    FROM public.products p
+    JOIN public.mfg_routings r ON p.id = r.product_id
+    WHERE p.organization_id = v_org_id AND p.mfg_type = 'standard'
+    LIMIT 1;
+
+    IF v_mfg_product_id IS NULL THEN
+        RAISE WARNING 'No manufactured product with routing found for organization %. Skipping manufacturing load test.', v_org_id;
+        p_num_mfg_orders := 0; -- Skip MFG test if no suitable product
+    END IF;
+
+    -- ============================================================
+    -- Simulate Sales Invoices
+    -- ============================================================
+    RAISE NOTICE 'Simulating % sales invoices...', p_num_sales_invoices;
+    FOR v_i IN 1..p_num_sales_invoices LOOP
+        v_invoice_number := 'LT-INV-' || to_char(now(), 'YYMMDDHH24MISS') || '-' || upper(substring(gen_random_uuid()::text, 1, 4)) || '-' || LPAD(v_i::text, 4, '0');
+        v_sales_price := (RANDOM() * 100 + 50)::NUMERIC(10,2); -- Random price between 50 and 150
+        v_quantity := (RANDOM() * 5 + 1)::NUMERIC(10,2); -- Random quantity between 1 and 6
+
+        INSERT INTO public.invoices (
+            invoice_number, customer_id, invoice_date, total_amount, tax_amount, subtotal,
+            status, warehouse_id, organization_id, created_by
+        ) VALUES (
+            v_invoice_number, v_customer_id, now()::date, v_sales_price * v_quantity * 1.14, v_sales_price * v_quantity * 0.14, v_sales_price * v_quantity,
+            'draft', v_warehouse_id, v_org_id, v_current_user_id
+        ) RETURNING id INTO v_invoice_id;
+
+        INSERT INTO public.invoice_items (
+            invoice_id, product_id, quantity, unit_price, organization_id
+        ) VALUES (
+            v_invoice_id, v_product_id, v_quantity, v_sales_price, v_org_id
+        );
+
+        -- Approve the invoice to trigger stock and journal entries
+        PERFORM public.approve_invoice(v_invoice_id, v_org_id, v_warehouse_id);
     END LOOP;
-END $$;
+    PERFORM public.recalculate_stock_rpc(v_org_id); -- تحديث نهائي لضمان الدقة
+    RAISE NOTICE 'Finished simulating % sales invoices.', p_num_sales_invoices;
+
+    -- ============================================================
+    -- Simulate Manufacturing Orders
+    -- ============================================================
+    IF p_num_mfg_orders > 0 THEN
+        RAISE NOTICE 'Simulating % manufacturing orders...', p_num_mfg_orders;
+        FOR v_i IN 1..p_num_mfg_orders LOOP
+            v_order_number := 'LT-MFG-' || to_char(now(), 'YYMMDDHH24MISS') || '-' || upper(substring(gen_random_uuid()::text, 1, 4)) || '-' || LPAD(v_i::text, 4, '0');
+            v_quantity := (RANDOM() * 10 + 1)::NUMERIC(10,2); -- Random quantity between 1 and 11
+
+            INSERT INTO public.mfg_production_orders (
+                order_number, product_id, quantity_to_produce, status, warehouse_id, organization_id
+            ) VALUES (
+                v_order_number, v_mfg_product_id, v_quantity, 'draft', v_warehouse_id, v_org_id
+            ) RETURNING id INTO v_mfg_order_id;
+
+            -- Start the production order (this will create steps)
+            PERFORM public.mfg_start_production_order(v_mfg_order_id);
+
+            -- Complete all steps for the order
+            FOR v_mfg_progress_id IN SELECT id FROM public.mfg_order_progress WHERE production_order_id = v_mfg_order_id LOOP
+                PERFORM public.mfg_start_step(v_mfg_progress_id, v_employee_id); -- Use the actual employee ID
+                PERFORM public.mfg_complete_step(v_mfg_progress_id, v_quantity); -- Assuming each step produces the full quantity
+            END LOOP;
+
+            -- Finalize the manufacturing order
+            PERFORM public.mfg_finalize_order(v_mfg_order_id, 'completed', 'Load test completion');
+        END LOOP;
+        PERFORM public.recalculate_stock_rpc(v_org_id); -- تحديث نهائي
+        RAISE NOTICE 'Finished simulating % manufacturing orders.', p_num_mfg_orders;
+    END IF;
+
+    RETURN format('Load test completed for organization %s. %s sales invoices and %s manufacturing orders simulated.', v_org_id, p_num_sales_invoices, p_num_mfg_orders);
+
+EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'Load test failed: %', SQLERRM;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.simulate_load_test(INTEGER, INTEGER, UUID, UUID) TO authenticated;
+-- ================================================================
+-- 8. دالة تنظيف بيانات اختبار الضغط (Load Test Data Cleanup)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.clean_load_test_data(p_org_id UUID DEFAULT NULL)
+RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_final_org_id UUID;
+    v_deleted_count INTEGER := 0;
+BEGIN
+    v_final_org_id := COALESCE(p_org_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
+
+    IF v_final_org_id IS NULL THEN
+        RAISE EXCEPTION 'Organization ID not found or provided.';
+    END IF;
+
+    RAISE NOTICE 'Cleaning load test data for organization %...', v_final_org_id;
+
+    -- 1. حذف سجلات الجداول الفرعية أولاً بسبب قيود المفتاح الأجنبي (FK constraints)
+
+    -- حذف من mfg_actual_material_usage
+    DELETE FROM public.mfg_actual_material_usage
+    WHERE organization_id = v_final_org_id
+    AND order_progress_id IN (
+        SELECT op.id FROM public.mfg_order_progress op
+        JOIN public.mfg_production_orders po ON op.production_order_id = po.id
+        WHERE po.organization_id = v_final_org_id AND po.order_number LIKE 'LT-MFG-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_actual_material_usage.', v_deleted_count;
+
+    -- حذف من mfg_scrap_logs
+    DELETE FROM public.mfg_scrap_logs
+    WHERE organization_id = v_final_org_id
+    AND order_progress_id IN (
+        SELECT op.id FROM public.mfg_order_progress op
+        JOIN public.mfg_production_orders po ON op.production_order_id = po.id
+        WHERE po.organization_id = v_final_org_id AND po.order_number LIKE 'LT-MFG-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_scrap_logs.', v_deleted_count;
+
+    -- حذف من mfg_qc_inspections
+    DELETE FROM public.mfg_qc_inspections
+    WHERE organization_id = v_final_org_id
+    AND progress_id IN (
+        SELECT op.id FROM public.mfg_order_progress op
+        JOIN public.mfg_production_orders po ON op.production_order_id = po.id
+        WHERE po.organization_id = v_final_org_id AND po.order_number LIKE 'LT-MFG-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_qc_inspections.', v_deleted_count;
+
+    -- حذف من mfg_batch_serials
+    DELETE FROM public.mfg_batch_serials
+    WHERE organization_id = v_final_org_id
+    AND production_order_id IN (
+        SELECT id FROM public.mfg_production_orders
+        WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_batch_serials.', v_deleted_count;
+
+    -- حذف من mfg_production_variances
+    DELETE FROM public.mfg_production_variances
+    WHERE organization_id = v_final_org_id
+    AND production_order_id IN (
+        SELECT id FROM public.mfg_production_orders
+        WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_production_variances.', v_deleted_count;
+
+    -- حذف من mfg_material_request_items
+    DELETE FROM public.mfg_material_request_items
+    WHERE organization_id = v_final_org_id
+    AND material_request_id IN (
+        SELECT id FROM public.mfg_material_requests
+        WHERE organization_id = v_final_org_id AND production_order_id IN (
+            SELECT id FROM public.mfg_production_orders
+            WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%'
+        )
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_material_request_items.', v_deleted_count;
+
+    -- حذف من mfg_material_requests
+    DELETE FROM public.mfg_material_requests
+    WHERE organization_id = v_final_org_id
+    AND production_order_id IN (
+        SELECT id FROM public.mfg_production_orders
+        WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_material_requests.', v_deleted_count;
+
+    -- حذف من mfg_order_progress
+    DELETE FROM public.mfg_order_progress
+    WHERE organization_id = v_final_org_id
+    AND production_order_id IN (
+        SELECT id FROM public.mfg_production_orders
+        WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_order_progress.', v_deleted_count;
+
+    -- حذف من invoice_items
+    DELETE FROM public.invoice_items
+    WHERE organization_id = v_final_org_id
+    AND invoice_id IN (
+        SELECT id FROM public.invoices
+        WHERE organization_id = v_final_org_id AND invoice_number LIKE 'LT-INV-%'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from invoice_items.', v_deleted_count;
+
+    -- حذف من journal_lines المرتبطة بفواتير وأوامر تصنيع اختبار الضغط
+    DELETE FROM public.journal_lines
+    WHERE organization_id = v_final_org_id
+    AND journal_entry_id IN (
+        SELECT je.id FROM public.journal_entries je
+        WHERE je.organization_id = v_final_org_id
+        AND (
+            (je.related_document_type = 'invoice' AND je.related_document_id IN (SELECT id FROM public.invoices WHERE organization_id = v_final_org_id AND invoice_number LIKE 'LT-INV-%'))
+            OR
+            (je.related_document_type = 'mfg_order' AND je.related_document_id IN (SELECT id FROM public.mfg_production_orders WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%'))
+            OR
+            (je.related_document_type = 'mfg_step' AND je.related_document_id IN (SELECT op.id FROM public.mfg_order_progress op JOIN public.mfg_production_orders po ON op.production_order_id = po.id WHERE po.organization_id = v_final_org_id AND po.order_number LIKE 'LT-MFG-%'))
+            OR
+            (je.related_document_type = 'mfg_material_request' AND je.related_document_id IN (SELECT id FROM public.mfg_material_requests WHERE organization_id = v_final_org_id AND production_order_id IN (SELECT id FROM public.mfg_production_orders WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%')) )
+        )
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from journal_lines.', v_deleted_count;
+
+    -- حذف من journal_entries المرتبطة بفواتير وأوامر تصنيع اختبار الضغط
+    DELETE FROM public.journal_entries
+    WHERE organization_id = v_final_org_id
+    AND (
+        (related_document_type = 'invoice' AND related_document_id IN (SELECT id FROM public.invoices WHERE organization_id = v_final_org_id AND invoice_number LIKE 'LT-INV-%'))
+        OR
+        (related_document_type = 'mfg_order' AND related_document_id IN (SELECT id FROM public.mfg_production_orders WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%'))
+        OR
+        (related_document_type = 'mfg_step' AND related_document_id IN (SELECT op.id FROM public.mfg_order_progress op JOIN public.mfg_production_orders po ON op.production_order_id = po.id WHERE po.organization_id = v_final_org_id AND po.order_number LIKE 'LT-MFG-%'))
+        OR
+        (related_document_type = 'mfg_material_request' AND related_document_id IN (SELECT id FROM public.mfg_material_requests WHERE organization_id = v_final_org_id AND production_order_id IN (SELECT id FROM public.mfg_production_orders WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%')) )
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from journal_entries.', v_deleted_count;
+
+    -- 2. حذف السجلات الرئيسية
+
+    -- حذف من invoices
+    DELETE FROM public.invoices
+    WHERE organization_id = v_final_org_id AND invoice_number LIKE 'LT-INV-%';
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from invoices.', v_deleted_count;
+
+    -- حذف من mfg_production_orders
+    DELETE FROM public.mfg_production_orders
+    WHERE organization_id = v_final_org_id AND order_number LIKE 'LT-MFG-%';
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_production_orders.', v_deleted_count;
+
+    -- حذف من opening_inventories للمنتجات التي تم إنشاؤها لاختبار الضغط
+    DELETE FROM public.opening_inventories
+    WHERE organization_id = v_final_org_id
+    AND product_id IN (
+        SELECT id FROM public.products
+        WHERE organization_id = v_final_org_id AND name IN ('Load Test Product', 'خامة افتراضية للتصنيع', 'منتج مصنع افتراضي')
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from opening_inventories.', v_deleted_count;
+
+    -- حذف من mfg_routing_steps
+    DELETE FROM public.mfg_routing_steps
+    WHERE organization_id = v_final_org_id
+    AND routing_id IN (
+        SELECT id FROM public.mfg_routings
+        WHERE organization_id = v_final_org_id AND product_id IN (
+            SELECT id FROM public.products WHERE organization_id = v_final_org_id AND name = 'منتج مصنع افتراضي'
+        )
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_routing_steps.', v_deleted_count;
+
+    -- حذف من mfg_routings
+    DELETE FROM public.mfg_routings
+    WHERE organization_id = v_final_org_id
+    AND product_id IN (
+        SELECT id FROM public.products WHERE organization_id = v_final_org_id AND name = 'منتج مصنع افتراضي'
+    );
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_routings.', v_deleted_count;
+
+    -- حذف من products
+    DELETE FROM public.products
+    WHERE organization_id = v_final_org_id AND name IN ('Load Test Product', 'خامة افتراضية للتصنيع', 'منتج مصنع افتراضي');
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from products.', v_deleted_count;
+
+    -- حذف من customers
+    DELETE FROM public.customers
+    WHERE organization_id = v_final_org_id AND name = 'Load Test Customer';
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from customers.', v_deleted_count;
+
+    -- حذف من employees
+    DELETE FROM public.employees
+    WHERE organization_id = v_final_org_id AND full_name IN ('Load Test Employee', 'موظف تصنيع افتراضي');
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from employees.', v_deleted_count;
+
+    -- حذف من mfg_work_centers
+    DELETE FROM public.mfg_work_centers
+    WHERE organization_id = v_final_org_id AND name = 'مركز عمل افتراضي';
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from mfg_work_centers.', v_deleted_count;
+
+    -- حذف من warehouses
+    DELETE FROM public.warehouses
+    WHERE organization_id = v_final_org_id AND name IN ('Load Test Warehouse', 'مستودع افتراضي');
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from warehouses.', v_deleted_count;
+
+    -- حذف من accounts (فقط الحساب المحدد الذي تم إنشاؤه لاختبار الضغط)
+    DELETE FROM public.accounts
+    WHERE organization_id = v_final_org_id AND code = '1231-LT';
+    GET DIAGNOSTICS v_deleted_count = ROW_COUNT;
+    RAISE NOTICE 'Deleted % records from accounts.', v_deleted_count;
+
+    -- إعادة احتساب المخزون بعد التنظيف لضمان دقة الأرصدة
+    PERFORM public.recalculate_stock_rpc(v_final_org_id);
+
+    RETURN 'Load test data cleanup completed for organization ' || v_final_org_id || '.';
+EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'Load test data cleanup failed: %', SQLERRM;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.clean_load_test_data(UUID) TO authenticated;
 
 -- ================================================================
 -- 🔓 منح الصلاحيات النهائية (Final Grants)

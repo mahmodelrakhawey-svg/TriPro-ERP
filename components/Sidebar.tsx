@@ -364,11 +364,13 @@ const Sidebar: React.FC = () => {
               className="w-full bg-gray-800 border border-gray-700 text-white text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
             >
               <option value="">-- اختر شركة لعرض بياناتها --</option>
-              {organizations.map((org: any) => (
+              {organizations && organizations.length > 0 ? organizations.map((org: any) => (
                 <option key={org.id} value={org.id}>
                   {org.name}
                 </option>
-              ))}
+              )) : (
+                <option disabled>لا توجد شركات مسجلة</option>
+              )}
             </select>
           </div>
         </div>

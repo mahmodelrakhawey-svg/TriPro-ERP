@@ -227,6 +227,64 @@ BEGIN
     RAISE NOTICE '✅ تم ربط حسابك بالمنظمة وتفعيل كافة الصلاحيات.';
 END $$;
 
+-- 🛡️ ضمان وجود منتج مصنع ومسار إنتاجي لاختبارات التصنيع (MFG Load Test Healing)
+DO $$
+DECLARE
+    v_org_id UUID;
+    v_prod_id UUID;
+    v_wc_id UUID;
+    v_routing_id UUID;
+    v_raw_id UUID;
+    v_wh_id UUID;
+BEGIN
+    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    IF v_org_id IS NULL THEN RETURN; END IF; -- لا يوجد منظمة، لا حاجة لإنشاء منتجات
+
+    -- 1. ضمان وجود مستودع
+    SELECT id INTO v_wh_id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1;
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع افتراضي', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    -- 2. إنشاء منتج خام افتراضي إذا لم يوجد
+    SELECT id INTO v_raw_id FROM public.products WHERE organization_id = v_org_id AND name = 'خامة افتراضية للتصنيع' LIMIT 1;
+    IF v_raw_id IS NULL THEN
+        INSERT INTO public.products (name, mfg_type, product_type, stock, weighted_average_cost, organization_id)
+        VALUES ('خامة افتراضية للتصنيع', 'raw', 'RAW_MATERIAL', 1000, 10, v_org_id) RETURNING id INTO v_raw_id;
+    END IF;
+
+    -- 3. إنشاء منتج مصنع افتراضي إذا لم يوجد
+    SELECT id INTO v_prod_id FROM public.products WHERE organization_id = v_org_id AND name = 'منتج مصنع افتراضي' AND mfg_type = 'standard' LIMIT 1;
+    IF v_prod_id IS NULL THEN
+        INSERT INTO public.products (name, mfg_type, product_type, sales_price, cost, weighted_average_cost, organization_id)
+        VALUES ('منتج مصنع افتراضي', 'standard', 'MANUFACTURED', 100, 50, 50, v_org_id) RETURNING id INTO v_prod_id;
+    END IF;
+
+    -- 4. إنشاء مركز عمل افتراضي إذا لم يوجد
+    SELECT id INTO v_wc_id FROM public.mfg_work_centers WHERE organization_id = v_org_id LIMIT 1;
+    IF v_wc_id IS NULL THEN
+        INSERT INTO public.mfg_work_centers (name, hourly_rate, organization_id) VALUES ('مركز عمل افتراضي', 20, v_org_id) RETURNING id INTO v_wc_id;
+    END IF;
+
+    -- 5. إنشاء مسار إنتاجي افتراضي للمنتج المصنع إذا لم يوجد
+    SELECT id INTO v_routing_id FROM public.mfg_routings WHERE product_id = v_prod_id AND organization_id = v_org_id LIMIT 1;
+    IF v_routing_id IS NULL THEN
+        INSERT INTO public.mfg_routings (product_id, name, organization_id, is_default) VALUES (v_prod_id, 'مسار افتراضي', v_org_id, true) RETURNING id INTO v_routing_id;
+        INSERT INTO public.mfg_routing_steps (routing_id, step_order, work_center_id, operation_name, standard_time_minutes, organization_id)
+        VALUES (v_routing_id, 1, v_wc_id, 'تجميع', 60, v_org_id);
+        INSERT INTO public.mfg_step_materials (step_id, raw_material_id, quantity_required, organization_id)
+        VALUES ((SELECT id FROM public.mfg_routing_steps WHERE routing_id = v_routing_id LIMIT 1), v_raw_id, 2, v_org_id);
+    END IF;
+
+    -- 6. إنشاء موظف افتراضي لاختبارات التصنيع إذا لم يوجد
+    IF NOT EXISTS (SELECT 1 FROM public.employees WHERE organization_id = v_org_id AND full_name = 'موظف تصنيع افتراضي') THEN
+        INSERT INTO public.employees (full_name, position, organization_id, hourly_rate)
+        VALUES ('موظف تصنيع افتراضي', 'عامل إنتاج', v_org_id, 25);
+    END IF;
+
+    RAISE NOTICE '✅ تم ضمان وجود منتج مصنع ومسار إنتاجي لاختبارات التصنيع.';
+END $$;
+
 -- جدول النسخ الاحتياطية للمنظمات (SaaS Backups) - تم نقل دالة الإنشاء لملف الدوال
 CREATE TABLE IF NOT EXISTS public.organization_backups (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,

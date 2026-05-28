@@ -14,6 +14,8 @@ export type NotificationType =
   | 'due_date_approaching' 
   | 'project_performance_alert' // 🏗️ جديد: تنبيه أداء المشروع
   | 'retention_release_alert'    // 💰 جديد: تنبيه فك محتجز الضمان
+  | 'backup_failure'
+  | 'manufacturing_cost_overrun'
   | 'system_alert'
   | 'success'
   | 'warning';

@@ -707,9 +707,9 @@ BEGIN
     SELECT organization_id INTO v_org_id FROM public.mfg_production_orders WHERE id = p_order_id;
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     
-    -- 1. جلب حسابات الربط
+    -- 1. جلب حسابات الربط (مع إضافة حساب انحراف WIP)
     v_wip_acc := public.resolve_leaf_account((v_mappings->>'INVENTORY_WIP')::uuid);
-    v_variance_acc := public.resolve_leaf_account((SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1));
+    v_variance_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WIP_VARIANCE_ACCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1)));
 
     -- 2. حساب رصيد الحساب الحالي في الأستاذ العام (Book Value)
     SELECT COALESCE(SUM(debit - credit), 0) INTO v_gl_wip_balance 

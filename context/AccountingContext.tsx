@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization } from '../types';
 import { useToast } from '../context/ToastContext';
 
 export interface UserProfile {
@@ -173,6 +174,8 @@ interface AccountingContextType {
   addDemoInvoice: (invoice: any) => void;
   postDemoSalesInvoice: (invoice: any) => void;
   addDemoPurchaseInvoice: (invoice: any) => void;
+  deleteOrganization: (orgId: string) => Promise<{ success: boolean; message?: string }>;
+
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -229,26 +232,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCurrentUser(profile);
       }
 
+      // 🛡️ صمام أمان: جلب قائمة الشركات للسوبر أدمن فوراً لملء القائمة المنسدلة
+      const isSuperAdmin = authUser.role === 'super_admin' || profile.role === 'super_admin';
+      if (isSuperAdmin) {
+        const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
+        setOrganizations(allOrgs || []);
+      }
+
       // Determine the organization ID to use for fetching data
       let fetchOrgId = profile.organization_id;
 
-      // If super admin, and no specific org is selected, try to use the profile's org
-      // or the first available org if the super admin has no default.
-      if (authUser.role === 'super_admin') {
+      if (isSuperAdmin) {
           if (currentSelectedOrgId) {
               fetchOrgId = currentSelectedOrgId;
           } else if (profile.organization_id) {
               fetchOrgId = profile.organization_id;
               setCurrentSelectedOrgId(profile.organization_id); // Set it for future consistency
-          } else {
-              // If super admin has no default org, and none is selected, we can't fetch data.
-              // A UI mechanism is needed to select an organization.
-              console.warn("Super admin needs to select an organization to view data.");
-              setIsLoading(false);
-              return;
           }
       }
-      if (!fetchOrgId) return; // If still no orgId, return.
+
+      // إذا لم يكن هناك شركة مختارة (حتى للسوبر أدمن)، نتوقف عن جلب البيانات المالية فقط ونعرض الواجهة
+      if (!fetchOrgId) {
+        setIsLoading(false);
+        return;
+      }
 
       // تحديث كائن المنظمة ليتوافق مع المنظمة النشطة (دعم السوبر أدمن)
       if (fetchOrgId === profile.organization_id) {
@@ -257,12 +264,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // جلب تفاصيل المنظمة المختارة يدوياً
         const { data: selectedOrg } = await supabase.from('organizations').select('*').eq('id', fetchOrgId).single();
         if (selectedOrg) setOrganization(selectedOrg);
-      }
-
-      // If super admin, fetch all organizations to populate the selector
-      if (authUser.role === 'super_admin') {
-        const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
-        setOrganizations(allOrgs || []);
       }
 
       // جلب الإعدادات
@@ -792,6 +793,35 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const exportData = async () => { /* Logic to export JSON */ };
 
+  const deleteOrganization = useCallback(async (orgId: string) => {
+    if (currentUser?.role !== 'super_admin') {
+      showToast('ليس لديك صلاحية لحذف الشركات.', 'error');
+      return { success: false, message: 'ليس لديك صلاحية لحذف الشركات.' };
+    }
+
+    if (!window.confirm('⚠️ تحذير: سيتم حذف هذه الشركة وجميع بياناتها (الحسابات، الفواتير، المخزون...) بشكل نهائي.\n\nلا يمكن التراجع عن هذا الإجراء.\n\nهل أنت متأكد تماماً؟')) {
+      return { success: false, message: 'تم إلغاء عملية الحذف.' };
+    }
+
+    try {
+      // استدعاء دالة الحذف الآمنة التي تتجاوز الحماية السيادية في قاعدة البيانات
+      const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
+
+      if (error) {
+        console.error('Error deleting organization:', error);
+        showToast(`فشل حذف الشركة: ${error.message}`, 'error');
+        return { success: false, message: `فشل حذف الشركة: ${error.message}` };
+      }
+
+      showToast('تم حذف الشركة وجميع بياناتها بنجاح ✅', 'success');
+      await refreshData(); // تحديث القائمة بعد الحذف
+      return { success: true };
+    } catch (e: any) {
+      showToast(`حدث خطأ غير متوقع: ${e.message}`, 'error');
+      return { success: false, message: e.message };
+    }
+  }, [currentUser, showToast, refreshData]);
+
   const value: AccountingContextType = {
     organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
@@ -821,6 +851,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     purgeDeletedRecords, refreshSaasSchema, closeFinancialYear, exportData,
     // Demo
     addDemoEntry, addDemoPaymentVoucher, addDemoReceiptVoucher, addDemoInvoice,
+    deleteOrganization,
     postDemoSalesInvoice, addDemoPurchaseInvoice
   };
 

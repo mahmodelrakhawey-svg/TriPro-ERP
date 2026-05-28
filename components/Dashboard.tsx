@@ -8,7 +8,8 @@ import {
   Wallet, FileText, Package, Truck, BarChart2, Calendar, Loader2,
   DollarSign, Target, Crown, Star, PieChart as PieChartIcon,
   Edit,
-  Building2, Briefcase, BarChart3 as ChartIcon, Zap
+  Building2, Briefcase, BarChart3 as ChartIcon, Zap,
+  Layout
 } from 'lucide-react'; // 💡 Note: I've removed unused imports for cleaner code
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
@@ -16,7 +17,7 @@ import { useToast } from '../context/ToastContext';
 import { DashboardAlerts } from './DashboardAlerts';
 
 const Dashboard = () => {
-  const { currentUser, settings, getSystemAccount, getFinancialSummary, products: demoProducts, invoices: demoInvoices, purchaseInvoices: demoPurchaseInvoices, customers: demoCustomers, entries, accounts } = useAccounting();
+  const { currentUser, settings, getSystemAccount, getFinancialSummary, products: demoProducts, invoices: demoInvoices, purchaseInvoices: demoPurchaseInvoices, customers: demoCustomers, entries, accounts, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -60,8 +61,20 @@ const Dashboard = () => {
     // Effect for non-demo (real) users, relies on RPC
     const fetchRealData = async () => {
       if (currentUser && currentUser.role !== 'demo') {
+        // 🛡️ تحديد معرف الشركة: إذا كان سوبر أدمن نأخذ الشركة المختارة من السايدبار، وإذا كان أدمن نأخذ شركته الثابتة
+        const orgId = currentUser.role === 'super_admin' ? currentSelectedOrgId : (currentUser as any)?.organization_id;
+
+        // 🛑 صمام أمان: إذا لم يتم تحديد شركة بعد (حالة السوبر أدمن عند الدخول الأول)، لا تحاول جلب البيانات
+        if (!orgId) {
+            setLoading(false);
+            // تصفير الإحصائيات لعدم عرض بيانات قديمة من شركة أخرى لضمان النزاهة
+            setStats(prev => ({...prev, monthSales: 0, receivables: 0, payables: 0}));
+            setRecentInvoices([]);
+            setChartData([]);
+            return;
+        }
+
         setLoading(true);
-        const orgId = (currentUser as any)?.organization_id;
 
         // فحص حالة الاشتراك
         const checkSub = async () => {
@@ -137,7 +150,7 @@ const Dashboard = () => {
       }
     };
     fetchRealData();
-  }, [currentUser, settings]); // Dependency on currentUser and settings
+  }, [currentUser, settings, currentSelectedOrgId]); // 🔄 إضافة currentSelectedOrgId للتبعيات لتحديث البيانات عند تبديل الشركة
 
   useEffect(() => {
     // Effect for demo users, relies on context data
@@ -353,6 +366,24 @@ const Dashboard = () => {
   // هذا يضمن ظهور الأرصدة الافتتاحية والقيود اليدوية
   const realReceivables = stats.receivables;
   const realPayables = stats.payables;
+
+  // 🛡️ عرض حالة "انتظار اختيار الشركة" للسوبر أدمن
+  if (!loading && currentUser?.role === 'super_admin' && !currentSelectedOrgId) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6 animate-in fade-in duration-500">
+        <div className="w-32 h-32 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 shadow-inner">
+          <Layout size={64} className="opacity-50" />
+        </div>
+        <div>
+          <h1 className="text-3xl font-black text-slate-800">مرحباً بك، مدير المنصة 👋</h1>
+          <p className="text-slate-500 mt-2 max-w-md mx-auto">
+            لعرض الإحصائيات المالية والنشاطات، يرجى اختيار شركة من القائمة المنسدلة في 
+            <span className="font-bold text-indigo-600"> القائمة الجانبية</span>.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in pb-10">

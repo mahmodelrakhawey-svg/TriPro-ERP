@@ -106,10 +106,11 @@ const WeeklyCashFlowChart = React.memo(({ data }: { data: any[] }) => (
 ));
 
 export default function AccountingDashboard() {
-  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin } = useAccounting();
+  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin, deleteOrganization, organizations } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedOrgIdToDelete, setSelectedOrgIdToDelete] = useState('');
 
   useEffect(() => {
     const load = async () => {
@@ -597,6 +598,47 @@ export default function AccountingDashboard() {
                 تحديث البيانات
             </button>
         </div>
+        {currentUser?.role === 'super_admin' && organizations.length > 0 && (
+            <div className="flex items-center gap-2 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <h3 className="text-lg font-bold text-slate-800">إدارة الشركات</h3>
+                <select 
+                    value={selectedOrgIdToDelete}
+                    onChange={(e) => setSelectedOrgIdToDelete(e.target.value)}
+                    className="bg-transparent border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-blue-500 outline-none cursor-pointer text-blue-600"
+                >
+                    <option value="">-- اختر شركة للحذف --</option>
+                    {organizations.map(org => (
+                        <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                </select>
+                <button 
+                    onClick={async () => {
+                        if (selectedOrgIdToDelete) {
+                            if (window.confirm('⚠️ تحذير نهائي: سيتم حذف الشركة وكامل بياناتها (حسابات، فواتير، عملاء...) نهائياً. هل أنت متأكد؟')) {
+                                setLoading(true);
+                                try {
+                                    const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: selectedOrgIdToDelete });
+                                    if (error) throw error;
+                                    showToast('تم حذف الشركة بنجاح ✅', 'success');
+                                    setSelectedOrgIdToDelete('');
+                                    window.location.reload();
+                                } catch (e: any) {
+                                    showToast('فشل الحذف: ' + (e.message || 'خطأ غير معروف'), 'error');
+                                } finally {
+                                    setLoading(false);
+                                }
+                            }
+                        } else {
+                            showToast('الرجاء اختيار شركة أولاً', 'warning');
+                        }
+                    }}
+                    className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold shadow-sm transition-colors text-sm"
+                >
+                    <Trash2 size={16} />
+                    حذف الشركة المحددة
+                </button>
+            </div>
+        )}
       </div>
 
       {/* Cards */}

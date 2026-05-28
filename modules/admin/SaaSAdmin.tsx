@@ -444,6 +444,7 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
                 <option value="commercial">🏢 نشاط تجاري عام</option>
                 <option value="restaurant">🍽️ مديول المطاعم والكافيهات</option>
                 <option value="construction">🏗️ نشاط المقاولات والإنشاءات</option>
+                <option value="manufacturing">🏭 نشاط المصانع والتصنيع</option>
                 <option value="clinic">⚕️ العيادات الطبية والخدمات الصحية</option>
                 <option value="legal">⚖️ مكاتب المحاماة والاستشارات</option>
                 <option value="transport">🚚 شركات النقل والخدمات اللوجستية</option>
@@ -678,7 +679,11 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
                 <option value="commercial">🏢 نشاط تجاري عام</option>
                 <option value="restaurant">🍽️ مديول المطاعم</option>
                 <option value="construction">🏗️ نشاط المقاولات</option>
+                <option value="manufacturing">🏭 نشاط المصانع</option>
                 <option value="clinic">⚕️ العيادات الطبية</option>
+                <option value="legal">⚖️ مكاتب المحاماة</option>
+                <option value="transport">🚚 شركات النقل</option>
+                <option value="charity">🤝 العمل الخيري</option>
               </select>
             </div>
 
@@ -1489,6 +1494,7 @@ const SaaSAdmin: React.FC = () => {
                     <option value="commercial">تجاري</option>
                     <option value="restaurant">مطاعم</option>
                     <option value="construction">مقاولات</option>
+                    <option value="manufacturing">مصانع/تصنيع</option>
                     <option value="clinic">عيادات</option>
                     <option value="legal">قانوني</option>
                     <option value="transport">نقل</option>
@@ -1533,7 +1539,11 @@ const SaaSAdmin: React.FC = () => {
                     'commercial': 'تجاري',
                     'restaurant': 'مطاعم',
                     'construction': 'مقاولات',
-                    'clinic': 'عيادات'
+                    'manufacturing': 'مصانع/تصنيع',
+                    'clinic': 'عيادات',
+                    'legal': 'قانوني',
+                    'transport': 'نقل',
+                    'charity': 'خيري'
                   };
 
                   // حساب الأيام المتبقية لموعد الدفع القادم

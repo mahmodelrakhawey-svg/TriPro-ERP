@@ -1297,15 +1297,24 @@ CREATE OR REPLACE FUNCTION public.get_project_liquidity_warning(p_project_id UUI
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_project RECORD; v_spent NUMERIC; v_budget NUMERIC; v_days_passed INTEGER; v_daily_burn_rate NUMERIC;
-    v_days_left_estimated INTEGER; v_planned_days_left INTEGER;
+    v_days_left_estimated INTEGER; v_planned_days_left INTEGER; v_recent_spent NUMERIC; v_recent_days INTEGER;
 BEGIN
     SELECT * INTO v_project FROM public.projects WHERE id = p_project_id;
     SELECT COALESCE(SUM(total_price), v_project.contract_value, 0) INTO v_budget FROM public.project_boq WHERE project_id = p_project_id;
     SELECT COALESCE(SUM(debit - credit), 0) INTO v_spent FROM public.journal_lines WHERE account_id = v_project.cost_center_account_id;
-    v_days_passed := GREATEST(CURRENT_DATE - v_project.start_date, 1);
-    v_daily_burn_rate := v_spent / v_days_passed;
+    
+    -- 🚀 حساب معدل الصرف اليومي بناءً على آخر 30 يوم من المصروفات الفعلية
+    SELECT COALESCE(SUM(debit - credit), 0) INTO v_recent_spent
+    FROM public.journal_lines
+    JOIN public.journal_entries je ON journal_lines.journal_entry_id = je.id
+    WHERE account_id = v_project.cost_center_account_id
+      AND je.transaction_date BETWEEN (CURRENT_DATE - INTERVAL '30 days') AND CURRENT_DATE;
+
+    v_recent_days := 30; -- نستخدم 30 يوم كفترة مرجعية
+    v_daily_burn_rate := CASE WHEN v_recent_spent > 0 THEN v_recent_spent / v_recent_days ELSE 0 END;
+
     v_days_left_estimated := CASE WHEN v_daily_burn_rate > 0 THEN (v_budget - v_spent) / v_daily_burn_rate ELSE 9999 END;
-    v_planned_days_left := GREATEST(v_project.end_date - CURRENT_DATE, 0);
+    v_planned_days_left := GREATEST(COALESCE(v_project.end_date - CURRENT_DATE, 0), 0);
     RETURN jsonb_build_object(
         'project_name', v_project.name,
         'current_burn_rate_daily', ROUND(v_daily_burn_rate, 2),
@@ -1328,3 +1337,25 @@ END; $$;
 GRANT EXECUTE ON FUNCTION public.get_project_liquidity_warning(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_subcontractor_payment_order(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fn_approve_material_issue(UUID) TO authenticated;
+
+-- 🏗️ دالة تتبع محجوز الضمان المستحق (Retention Tracker)
+-- الغرض: تنبيه المستخدم بالمبالغ التي حان موعد فك حجزها من العملاء
+CREATE OR REPLACE FUNCTION public.get_upcoming_retention_releases(p_org_id uuid DEFAULT NULL)
+RETURNS TABLE (project_name text, billing_number text, amount numeric, release_date date, days_left integer) 
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        p.name, 
+        pb.billing_number, 
+        pb.retention_amount, 
+        pb.retention_release_date,
+        (pb.retention_release_date - CURRENT_DATE)::integer
+    FROM public.project_progress_billings pb
+    JOIN public.projects p ON pb.project_id = p.id
+    WHERE pb.organization_id = COALESCE(p_org_id, public.get_my_org())
+      AND pb.retention_amount > 0 
+      AND pb.status = 'approved'
+      AND pb.retention_release_date IS NOT NULL
+      AND pb.retention_release_date <= (CURRENT_DATE + INTERVAL '30 days');
+END; $$;
