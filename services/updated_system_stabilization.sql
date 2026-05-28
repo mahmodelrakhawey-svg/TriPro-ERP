@@ -956,7 +956,7 @@ BEGIN
     );
 
     FOREACH t IN ARRAY tables_list LOOP
-        EXECUTE format('DROP TRIGGER IF EXISTS trg_force_org_id ON public.%I', t);
+        EXECUTE format('DROP TRIGGER IF EXISTS trg_force_org_id_universal ON public.%I', t);
         EXECUTE format('CREATE TRIGGER trg_force_org_id_universal 
                         BEFORE INSERT ON public.%I
                         FOR EACH ROW EXECUTE FUNCTION public.fn_force_org_id_universal()', t);
