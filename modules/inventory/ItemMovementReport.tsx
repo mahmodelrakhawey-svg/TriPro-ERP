@@ -64,10 +64,10 @@ const ItemMovementReport = () => {
       // 1. جلب حركات المبيعات (Sales Invoices) - صادر
       let salesQuery = supabase
         .from('invoice_items')
-        .select('quantity, invoice_id, invoices!inner(invoice_date, invoice_number, status, warehouse_id, created_by)')
+        .select('quantity, invoice_id, invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
         .neq('invoices.status', 'draft')
-        .eq('organization_id', userOrgId);
+        .eq('organization_id', userOrgId); 
       
       if (selectedWarehouseId) salesQuery = salesQuery.eq('invoices.warehouse_id', selectedWarehouseId);
       const { data: salesItems } = await salesQuery;
@@ -75,7 +75,7 @@ const ItemMovementReport = () => {
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       let purchaseQuery = supabase
         .from('purchase_invoice_items')
-        .select('quantity, purchase_invoice_id, purchase_invoices!inner(invoice_date, invoice_number, status, warehouse_id, created_by)')
+        .select('quantity, purchase_invoice_id, purchase_invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
         .neq('purchase_invoices.status', 'draft')
         .eq('organization_id', userOrgId);
@@ -86,9 +86,9 @@ const ItemMovementReport = () => {
       // 3. جلب مرتجعات المبيعات (Sales Returns) - وارد
       let salesReturnsQuery = supabase
         .from('sales_return_items')
-        .select('quantity, sales_return_id, sales_returns!inner(return_date, return_number, status, warehouse_id, created_by)')
+        .select('quantity, sales_returns!inner(id, return_date, return_number, status, warehouse_id)')
         .eq('product_id', selectedProductId)
-        .neq('sales_returns.status', 'draft')
+        .eq('sales_returns.status', 'posted')
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) salesReturnsQuery = salesReturnsQuery.eq('sales_returns.warehouse_id', selectedWarehouseId);
@@ -97,9 +97,9 @@ const ItemMovementReport = () => {
       // 4. جلب مرتجعات المشتريات (Purchase Returns) - صادر
       let purchaseReturnsQuery = supabase
         .from('purchase_return_items')
-        .select('quantity, purchase_return_id, purchase_returns!inner(return_date, return_number, status, warehouse_id, created_by)')
+        .select('quantity, purchase_returns!inner(id, return_date, return_number, status, warehouse_id)')
         .eq('product_id', selectedProductId)
-        .neq('purchase_returns.status', 'draft')
+        .eq('purchase_returns.status', 'posted')
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) purchaseReturnsQuery = purchaseReturnsQuery.eq('purchase_returns.warehouse_id', selectedWarehouseId);
@@ -108,9 +108,9 @@ const ItemMovementReport = () => {
       // 5. جلب التسويات المخزنية (Stock Adjustments)
       let adjustmentsQuery = supabase
         .from('stock_adjustment_items')
-        .select('quantity, stock_adjustments!inner(adjustment_date, adjustment_number, status, warehouse_id, created_by)')
+        .select('quantity, stock_adjustments!inner(id, adjustment_date, adjustment_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
-        .neq('stock_adjustments.status', 'draft')
+        .eq('stock_adjustments.status', 'posted')
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) adjustmentsQuery = adjustmentsQuery.eq('stock_adjustments.warehouse_id', selectedWarehouseId);
@@ -129,10 +129,10 @@ const ItemMovementReport = () => {
       // 7. جلب التحويلات المخزنية (Stock Transfers) - الإصلاح النهائي للـ 400 Bad Request
       let transfersQuery = supabase
         .from('stock_transfer_items')
-        .select('quantity, stock_transfers!inner(transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status, created_by)')
+        .select('quantity, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status)')
         .eq('product_id', selectedProductId)
-        .eq('organization_id', userOrgId)
-        .filter('stock_transfers.status', 'eq', 'posted');
+        .eq('stock_transfers.status', 'posted')
+        .eq('organization_id', userOrgId);
       
       const { data: transfers } = await transfersQuery;
 
@@ -349,8 +349,8 @@ const ItemMovementReport = () => {
       
       allMovements.forEach(mov => {
           // معالجة التاريخ للمقارنة (خاصة للمطاعم التي تحتوي على توقيت)
-          const movDateOnly = mov.date.includes('T') ? mov.date.split('T')[0] : mov.date;
-          if (mov.date < startDate) {
+          const movDateOnly = mov.date?.includes('T') ? mov.date.split('T')[0] : (mov.date || '');
+          if (movDateOnly < startDate) {
               if (mov.type === 'in') openBal += mov.quantity;
               else openBal -= mov.quantity;
           } else if (movDateOnly <= endDate) {

@@ -65,7 +65,7 @@ const StockMovementCostReport = () => {
       // 1. جلب حركات المبيعات (Sales Invoices) - صادر
       let querySales = supabase
         .from('invoice_items')
-        .select('quantity, cost, invoice_id, invoices!inner(invoice_date, invoice_number, status)')
+        .select('quantity, cost, invoice_id, invoices!inner(id, invoice_date, invoice_number, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
         .neq('invoices.status', 'draft')
         .eq('organization_id', userOrgId);
@@ -73,46 +73,46 @@ const StockMovementCostReport = () => {
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       let queryPurchases = supabase
         .from('purchase_invoice_items')
-        .select('quantity, unit_price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(invoice_date, invoice_number, status, organization_id)')
+        .select('quantity, unit_price, purchase_invoice_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(id, invoice_date, invoice_number, status)')
         .eq('product_id', selectedProductId)
-        .eq('organization_id', userOrgId)
-        .in('purchase_invoices.status', ['posted', 'paid']);
+        .in('purchase_invoices.status', ['posted', 'paid'])
+        .eq('organization_id', userOrgId);
 
       // 3. جلب التسويات المخزنية (Stock Adjustments)
       let queryAdjustments = supabase
         .from('stock_adjustment_items')
-        .select('quantity, stock_adjustments!inner(adjustment_date, adjustment_number, status, organization_id)')
+        .select('quantity, stock_adjustments!inner(id, adjustment_number, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
-        .eq('organization_id', userOrgId)
-        .neq('stock_adjustments.status', 'draft');
+        .eq('stock_adjustments.status', 'posted')
+        .eq('organization_id', userOrgId);
 
       // 4. مرتجعات مبيعات (Sales Returns) - وارد
       let querySalesReturns = supabase
         .from('sales_return_items')
-        .select('quantity, sales_returns!inner(return_date, return_number, status, organization_id)')
+        .select('quantity, sales_returns!inner(return_date, return_number, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
-        .eq('organization_id', userOrgId)
-        .neq('sales_returns.status', 'draft');
+        .eq('sales_returns.status', 'posted')
+        .eq('organization_id', userOrgId);
 
       // 5. مرتجعات مشتريات (Purchase Returns) - صادر
       let queryPurchaseReturns = supabase
         .from('purchase_return_items')
-        .select('quantity, unit_price, purchase_return_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(return_date, return_number, status, organization_id)')
+        .select('quantity, unit_price, purchase_return_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(return_date, return_number, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
-        .eq('organization_id', userOrgId)
-        .eq('purchase_returns.status', 'posted');
+        .eq('purchase_returns.status', 'posted')
+        .eq('organization_id', userOrgId);
 
       // 6. استعلامات مديول التصنيع (SaaS MFG)
       let mfgInQuery = supabase
         .from('mfg_production_orders')
-        .select('id, order_number, end_date, quantity_to_produce, status, organization_id')
+        .select('id, order_number, end_date, quantity_to_produce, status') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId)
         .eq('status', 'completed');
 
       let mfgOutQuery = supabase
         .from('mfg_material_request_items')
-        .select('quantity_issued, mfg_material_requests!inner(request_number, issue_date, status, created_at, organization_id)')
+        .select('quantity_issued, mfg_material_requests!inner(request_number, issue_date, status, created_at)') // Removed organization_id from inner select
         .eq('raw_material_id', selectedProductId)
         .eq('organization_id', userOrgId)
         .eq('mfg_material_requests.status', 'issued');
@@ -133,15 +133,15 @@ const StockMovementCostReport = () => {
       // 8. التحويلات المخزنية (Stock Transfers)
       let queryTransfers = supabase
         .from('stock_transfer_items')
-        .select('quantity, stock_transfers!inner(transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status, organization_id)')
+        .select('quantity, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
-        .eq('organization_id', userOrgId)
-        .eq('stock_transfers.status', 'posted');
+        .eq('stock_transfers.status', 'posted')
+        .eq('organization_id', userOrgId);
 
       // 9. مبيعات واستهلاك المطاعم (Restaurant)
       let queryRestDirect = supabase
         .from('order_items')
-        .select('quantity, unit_cost, orders!inner(created_at, order_number, status, organization_id)')
+        .select('quantity, unit_cost, orders!inner(id, created_at, order_number, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId)
         .eq('orders.status', 'COMPLETED');
@@ -155,10 +155,12 @@ const StockMovementCostReport = () => {
       if (restBoms && restBoms.length > 0) {
           const pIds = restBoms.map(b => b.product_id);
           queryRestConsumption = supabase
-            .from('order_items')
-            .select('quantity, product_id, orders!inner(created_at, order_number, status)')
+            .from('order_items') // 🛡️ إضافة id للجدول المرتبط
+            .select('quantity, product_id, orders!inner(id, created_at, order_number, status)')
             .in('product_id', pIds)
             .eq('orders.status', 'COMPLETED');
+          // Add organization_id filter to queryRestConsumption
+          queryRestConsumption = queryRestConsumption.eq('organization_id', userOrgId);
       }
 
       // تنفيذ الاستعلامات بالتوازي وجلب البيانات الفعلية بشكل منضبط
@@ -350,7 +352,7 @@ const StockMovementCostReport = () => {
       const periodMovements: Movement[] = [];
       
       allMovements.forEach(mov => {
-          const movDateOnly = mov.date.includes('T') ? mov.date.split('T')[0] : mov.date;
+          const movDateOnly = mov.date?.includes('T') ? mov.date.split('T')[0] : (mov.date || '');
           if (movDateOnly < startDate) {
               if (mov.type === 'in') openBal += mov.quantity;
               else openBal -= mov.quantity;

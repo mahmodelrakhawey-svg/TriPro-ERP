@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -122,8 +122,8 @@ const InventoryCountForm = () => {
         const countItems = items.map(item => ({
             inventory_count_id: countDoc.id,
             product_id: item.productId,
-            system_qty: item.systemQty,
-            actual_qty: item.actualQty,
+            system_quantity: item.systemQty,
+            counted_quantity: item.actualQty,
             difference: item.difference,
             organization_id: orgId
         }));

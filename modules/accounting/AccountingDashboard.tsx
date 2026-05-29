@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
+import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { 
@@ -16,7 +17,8 @@ import {
   Percent,
   RefreshCw,
   Trash2,
-  Calendar
+  Calendar,
+  Lock
 } from 'lucide-react';
 import { 
   XAxis, 
@@ -105,12 +107,34 @@ const WeeklyCashFlowChart = React.memo(({ data }: { data: any[] }) => (
   </ResponsiveContainer>
 ));
 
+const ManufacturingVariances = React.memo(({ data }: { data: any[] }) => (
+  <div className="space-y-4">
+    {data.map((item, idx) => (
+      <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+        <div>
+          <p className="text-xs font-bold text-slate-500">{item.order_number}</p>
+          <p className="text-sm font-black text-slate-800">{item.finished_product}</p>
+        </div>
+        <div className="text-right">
+          <p className={`text-sm font-bold ${item.variance_qty < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+            {item.variance_qty < 0 ? 'زيادة استهلاك' : 'توفير مواد'}
+          </p>
+          <p className="text-xs text-slate-400">بنسبة {Math.abs(item.variance_percentage)}%</p>
+        </div>
+      </div>
+    ))}
+    {data.length === 0 && <p className="text-center text-slate-400 text-sm">لا توجد انحرافات مسجلة</p>}
+  </div>
+));
+
 export default function AccountingDashboard() {
   const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin, deleteOrganization, organizations } = useAccounting();
   const { showToast } = useToast();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedOrgIdToDelete, setSelectedOrgIdToDelete] = useState('');
+  const [mfgVariances, setMfgVariances] = useState([]);
 
   useEffect(() => {
     const load = async () => {
@@ -120,6 +144,13 @@ export default function AccountingDashboard() {
     };
     load();
   }, []);
+
+  useEffect(() => {
+    // جلب بيانات انحرافات التصنيع من الـ View الجديد
+    supabase.from('v_mfg_material_variances').select('*').limit(3).then(({data}) => {
+      if (data) setMfgVariances(data);
+    });
+  }, [selectedYear]);
 
   const { metrics, monthlyData, expenseData, revenueData, weeklyCashData, recentEntries } = useMemo(() => {
       // Debugging: Check if data is loaded
@@ -584,6 +615,14 @@ export default function AccountingDashboard() {
                         <Trash2 size={16} />
                         تفريغ السلة
                     </button>
+                    <button 
+                        onClick={() => navigate('/fiscal-year-closing')}
+                        className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:bg-amber-100 transition-colors shadow-sm font-bold text-sm"
+                        title="إقفال السنة المالية وتصفير الأرصدة المؤقتة"
+                    >
+                        <Lock size={16} />
+                        إقفال السنة
+                    </button>
                 </>
             )}
             <button 
@@ -710,6 +749,14 @@ export default function AccountingDashboard() {
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
             <ExpensesBreakdownChart data={expenseData} />
           </div>
+        </div>
+
+        {/* Manufacturing Intelligence Card */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <Activity size={18} className="text-indigo-500" /> ذكاء التصنيع (انحرافات المواد)
+          </h3>
+          <ManufacturingVariances data={mfgVariances} />
         </div>
 
         {/* Weekly Cash Flow Chart */}

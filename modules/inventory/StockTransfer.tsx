@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { ArrowRightLeft, Save, Plus, Trash2, Package, Loader2 } from 'lucide-react';
@@ -7,7 +8,7 @@ import { createStockTransferSchema } from '../../utils/validationSchemas'; // Re
 
 const StockTransfer = () => {
   const location = useLocation();
-  const { warehouses, products, addStockTransfer, currentUser } = useAccounting();
+  const { warehouses, products, recalculateStock, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   
@@ -76,13 +77,38 @@ const StockTransfer = () => {
 
     setLoading(true);
     try {
-        await addStockTransfer({
-            ...formData,
+        const transferNumber = `TRN-${Date.now().toString().slice(-6)}`;
+
+        // 1. إنشاء رأس التحويل في جدول stock_transfers
+        const { data: header, error: headerError } = await supabase.from('stock_transfers').insert({
+            transfer_number: transferNumber,
+            transfer_date: formData.date,
+            from_warehouse_id: formData.fromWarehouseId,
+            to_warehouse_id: formData.toWarehouseId,
+            notes: formData.notes,
             organization_id: userOrgId,
-            items
-        });
+            status: 'posted' // ترحيل مباشر أو 'draft' حسب الحاجة
+        }).select().single();
+
+        if (headerError) throw headerError;
+
+        // 2. إنشاء بنود التحويل في جدول stock_transfer_items
+        const dbItems = items.map(item => ({
+            stock_transfer_id: header.id,
+            product_id: item.productId,
+            quantity: item.quantity,
+            organization_id: userOrgId
+        }));
+
+        const { error: itemsError } = await supabase.from('stock_transfer_items').insert(dbItems);
+        if (itemsError) throw itemsError;
+
+        // 3. تحديث الأرصدة في النظام
+        await recalculateStock();
+
         setFormData({ ...formData, notes: '' });
         setItems([]);
+        showToast('تمت عملية التحويل المخزني بنجاح ✅', 'success');
     } catch (error) {
         console.error(error);
         showToast('حدث خطأ أثناء معالجة التحويل المخزني', 'error');

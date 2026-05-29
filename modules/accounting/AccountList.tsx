@@ -1,7 +1,7 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles } from 'lucide-react';
+import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AddAccountModal from './AddAccountModal';
 import { useNavigate } from 'react-router-dom';
@@ -197,88 +197,51 @@ const AccountList = () => {
     setEditingAccount(null); // تأمين حالة التحميل
     showToast('جاري فحص الحسابات المفقودة...', 'info');
 
-    // قائمة الحسابات الأساسية المطلوبة (بالترتيب الهرمي)
-    const essentialTemplate = [
-      { code: '1', name: 'الأصول', type: 'ASSET', is_group: true, parent_code: null },
-      { code: '2', name: 'الخصوم (الإلتزامات)', type: 'LIABILITY', is_group: true, parent_code: null },
-      { code: '3', name: 'حقوق الملكية', type: 'EQUITY', is_group: true, parent_code: null },
-      { code: '4', name: 'الإيرادات', type: 'REVENUE', is_group: true, parent_code: null },
-      { code: '5', name: 'المصروفات', type: 'EXPENSE', is_group: true, parent_code: null },
-      { code: '11', name: 'الأصول غير المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
-      { code: '12', name: 'الأصول المتداولة', type: 'ASSET', is_group: true, parent_code: '1' },
-      { code: '111', name: 'الأصول الثابتة', type: 'ASSET', is_group: true, parent_code: '11' },
-      { code: '103', name: 'المخزون', type: 'ASSET', is_group: true, parent_code: '12' },
-      { code: '122', name: 'العملاء والمدينون', type: 'ASSET', is_group: true, parent_code: '12' },
-      { code: '123', name: 'النقدية وما في حكمها', type: 'ASSET', is_group: true, parent_code: '12' },
-      { code: '22', name: 'الخصوم المتداولة', type: 'LIABILITY', is_group: true, parent_code: '2' },
-      { code: '10301', name: 'مخزون المواد الخام', type: 'ASSET', is_group: false, parent_code: '103' },
-      { code: '10302', name: 'مخزون المنتج التام', type: 'ASSET', is_group: false, parent_code: '103' },
-      { code: '10303', name: 'مخزون إنتاج تحت التشغيل (WIP)', type: 'ASSET', is_group: false, parent_code: '103' },
-      { code: '1221', name: 'العملاء', type: 'ASSET', is_group: false, parent_code: '122' },
-      { code: '1231', name: 'النقدية بالصندوق', type: 'ASSET', is_group: false, parent_code: '123' },
-      { code: '201', name: 'الموردين', type: 'LIABILITY', is_group: false, parent_code: '22' },
-      { code: '3999', name: 'الأرصدة الافتتاحية (حساب وسيط)', type: 'EQUITY', is_group: false, parent_code: '3' },
-      { code: '411', name: 'إيراد المبيعات', type: 'REVENUE', is_group: false, parent_code: '4' },
-      { code: '42', name: 'إيرادات أخرى', type: 'REVENUE', is_group: true, parent_code: '4' },
-      { code: '425', name: 'إيراد تشغيل معدات داخلي', type: 'REVENUE', is_group: false, parent_code: '42' },
-      { code: '511', name: 'تكلفة البضاعة المباعة', type: 'EXPENSE', is_group: false, parent_code: '5' },
-      { code: '53', name: 'المصروفات الإدارية والعمومية', type: 'EXPENSE', is_group: true, parent_code: '5' },
-      { code: '541', name: 'تسوية عجز الصندوق', type: 'EXPENSE', is_group: false, parent_code: '53' },
-    ];
-
-    let createdCount = 0;
-
     try {
       // جلب معرف المنظمة الحالي
       const { data: { user } } = await supabase.auth.getUser();
       const orgId = user?.user_metadata?.org_id;
 
       if (!orgId) throw new Error('تعذر تحديد معرف المنظمة');
+      
+      const { data, error } = await supabase.rpc('create_missing_system_accounts', { p_org_id: orgId });
 
-      // معالجة القالب بالتتابع لضمان وجود الأب قبل الابن
-      for (const item of essentialTemplate) {
-        // فحص هل الحساب موجود مسبقاً (محلياً من القائمة الحالية لتسريع العملية)
-        const exists = accounts.some(a => a.code === item.code);
-        
-        if (!exists) {
-          // البحث عن ID الحساب الأب بناءً على الكود
-          let parentId = null;
-          if (item.parent_code) {
-            // نبحث في قاعدة البيانات عن الأب لضمان الحصول على أحدث ID
-            const { data: parentAcc } = await supabase
-              .from('accounts')
-              .select('id')
-              .eq('organization_id', orgId)
-              .eq('code', item.parent_code)
-              .maybeSingle();
-            
-            parentId = parentAcc?.id || null;
-          }
+      if (error) throw error;
 
-          const { error: insertError } = await supabase.from('accounts').insert({
-            code: item.code,
-            name: item.name,
-            type: item.type,
-            is_group: item.is_group,
-            parent_id: parentId,
-            organization_id: orgId,
-            is_active: true
-          });
-
-          if (!insertError) createdCount++;
-        }
-      }
-
-      if (createdCount > 0) {
-        showToast(`تم إنشاء ${createdCount} حساب بنجاح ✅`, 'success');
-        refreshData();
-      } else {
-        showToast('جميع الحسابات الأساسية موجودة بالفعل ✨', 'info');
-      }
+      showToast(data, 'success'); // The RPC function returns a success message
+      refreshData();
 
     } catch (err: any) {
       console.error(err);
       showToast('فشل إنشاء الحسابات: ' + err.message, 'error');
+    }
+  };
+
+  const handleGlobalSystemRepair = async () => {
+    if (!window.confirm('هل تريد تشغيل محرك الإصلاح العالمي للمنظمة؟\nسيقوم النظام بتنظيف السجلات اليتيمة، إعادة موازنة القيود، وتحديث أرصدة المخازن.')) {
+      return;
+    }
+
+    showToast('جاري تشغيل عملية الإصلاح الشامل...', 'info');
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const orgId = user?.user_metadata?.org_id;
+
+      if (!orgId) throw new Error('تعذر تحديد معرف المنظمة');
+      
+      const { data, error } = await supabase.rpc('run_global_system_repair', { p_org_id: orgId });
+
+      if (error) throw error;
+
+      // تحويل مصفوفة المهام المنفذة إلى نص منسق لعرضه في الرسالة دون أخطاء
+      const summary = Array.isArray(data) ? data.map((item: any) => item.task_name).join('، ') : 'تمت العملية';
+      showToast(`تمت عملية الإصلاح بنجاح ✅: ${summary}`, 'success');
+      refreshData();
+
+    } catch (err: any) {
+      console.error(err);
+      showToast('فشل الإصلاح العالمي: ' + err.message, 'error');
     }
   };
 
@@ -389,6 +352,14 @@ const AccountList = () => {
               <span>تحديث الأرصدة</span>
             </button>
             <button 
+              onClick={handleGlobalSystemRepair}
+              className="flex items-center gap-2 bg-blue-50 border border-blue-200 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-100 font-bold transition-colors shadow-sm"
+              title="تشغيل الإصلاح الشامل للنظام (تنظيف، توازن، وتحديث أرصدة)"
+            >
+              <Wrench size={18} />
+              <span>الإصلاح العالمي</span>
+            </button>
+            <button 
               onClick={handleCreateMissingAccounts}
               className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-100 font-bold transition-colors shadow-sm"
               title="إنشاء الحسابات المفقودة اللازمة للنظام"
@@ -403,6 +374,38 @@ const AccountList = () => {
             >
               <Wrench size={18} />
               <span>إصلاح أنواع الحسابات</span>
+            </button>
+            <button 
+              onClick={async () => {
+                const year = prompt('أدخل السنة المالية المراد إعادة فتحها (مثال: 2024):');
+                if (!year) return;
+                if (window.confirm(`هل أنت متأكد من إعادة فتح السنة المالية ${year}؟\nسيتم حذف قيد الإقفال والسماح بالتعديلات.`)) {
+                  showToast('جاري فتح السنة المالية...', 'info');
+                  try {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    const orgId = user?.user_metadata?.org_id;
+                    const { data, error } = await supabase.rpc('reopen_financial_year', { p_year: parseInt(year), p_org_id: orgId });
+                    if (error) throw error;
+                    showToast(data, 'success');
+                    refreshData();
+                  } catch (err: any) {
+                    showToast('فشل الفتح: ' + err.message, 'error');
+                  }
+                }
+              }}
+              className="flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-100 font-bold transition-colors shadow-sm"
+              title="فتح سنة مغلقة مؤقتاً لتصحيح الأخطاء"
+            >
+              <FolderOpen size={18} />
+              <span>إعادة فتح سنة</span>
+            </button>
+            <button 
+              onClick={() => navigate('/fiscal-year-closing')}
+              className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:bg-amber-100 font-bold transition-colors shadow-sm"
+              title="إجراءات إقفال السنة المالية وتصفير حسابات الدخل"
+            >
+              <Lock size={18} />
+              <span>إقفال السنة المالية</span>
             </button>
             <button onClick={exportToExcel} className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-100 font-bold transition-colors">
                 <Download size={18} /> تصدير Excel

@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
+import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Trash2, Save, Plus, Search, Loader2, AlertCircle, Package } from 'lucide-react';
 
 const WastageManager = () => {
-  const { warehouses, products, addWastage, settings } = useAccounting();
+  const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, settings, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [warehouseId, setWarehouseId] = useState('');
@@ -47,12 +48,67 @@ const WastageManager = () => {
     }
 
     setLoading(true);
-    const success = await addWastage({ warehouseId, date, notes, items });
-    if (success) {
-      setItems([]);
-      setNotes('');
+    try {
+        const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const adjustmentNumber = `WST-${Date.now().toString().slice(-6)}`;
+
+        // 1. إنشاء رأس الحركة كـ "تسوية مخزنية" بنوع هالك
+        const { data: header, error: headerError } = await supabase.from('stock_adjustments').insert({
+            warehouse_id: warehouseId,
+            adjustment_date: date,
+            reason: 'الهالك (Wastage)',
+            notes: notes || 'تسجيل مواد تالفة/هالكة',
+            adjustment_number: adjustmentNumber,
+            status: 'posted',
+            created_by: currentUser?.id,
+            organization_id: userOrgId
+        }).select().single();
+
+        if (headerError) throw headerError;
+
+        // 2. إنشاء البنود في جدول تفاصيل التسويات مع جعل الكمية سالبة دائماً (صادر)
+        const dbItems = items.map(item => ({
+            stock_adjustment_id: header.id,
+            product_id: item.productId,
+            quantity: -Math.abs(item.quantity),
+            type: 'out',
+            organization_id: userOrgId
+        }));
+
+        const { error: itemsError } = await supabase.from('stock_adjustment_items').insert(dbItems);
+        if (itemsError) throw itemsError;
+
+        // 3. تحديث أرصدة المخازن
+        await recalculateStock();
+
+        // 4. إنشاء القيد المحاسبي لإثبات الخسارة (من ح/ الهالك إلى ح/ المخزون)
+        if (totalLostCost > 0) {
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => a.code === '122' || a.code === '1201');
+            const wastageAcc = accounts.find(a => a.code === '512' || a.name.includes('هالك') || a.name.includes('تالف'));
+
+            if (inventoryAcc && wastageAcc) {
+                await addEntry({
+                    date: date,
+                    reference: adjustmentNumber,
+                    description: `قيد إثبات هالك مخزني - رقم ${adjustmentNumber}`,
+                    status: 'posted',
+                    lines: [
+                        { accountId: wastageAcc.id, debit: totalLostCost, credit: 0, description: 'خسائر المواد الهالكة' },
+                        { accountId: inventoryAcc.id, debit: 0, credit: totalLostCost, description: 'تخفيض المخزون نتيجة التلف' }
+                    ]
+                });
+            }
+        }
+
+        showToast('تم تسجيل وترحيل الهالك بنجاح ✅', 'success');
+        setItems([]);
+        setNotes('');
+    } catch (error: any) {
+        console.error(error);
+        showToast('حدث خطأ أثناء معالجة الهالك: ' + error.message, 'error');
+    } finally {
+        setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

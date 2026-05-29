@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -11,13 +11,13 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
   if (!count) return null;
 
   const totalValueDiff = items.reduce((sum, item) => {
-    const diff = (item.actual_qty || 0) - (item.system_qty || 0);
+    const diff = (item.counted_quantity || 0) - (item.system_quantity || 0);
     const cost = item.products?.purchase_price || 0;
     return sum + (diff * cost);
   }, 0);
 
   const filteredItems = showDiscrepanciesOnly 
-    ? items.filter(item => ((item.actual_qty || 0) - (item.system_qty || 0)) !== 0)
+    ? items.filter(item => ((item.counted_quantity || 0) - (item.system_quantity || 0)) !== 0)
     : items;
 
   return (
@@ -58,14 +58,14 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredItems.map(item => {
-                  const diff = (item.actual_qty || 0) - (item.system_qty || 0);
+                  const diff = (item.counted_quantity || 0) - (item.system_quantity || 0);
                   const cost = item.products?.purchase_price || 0;
                   const valueDiff = diff * cost;
                   return (
                     <tr key={item.id}>
                       <td className="p-3 font-medium text-slate-800 flex items-center gap-2"><Package size={14} className="text-slate-400"/>{item.products?.name || 'صنف محذوف'}</td>
-                      <td className="p-3 text-center font-mono text-slate-500">{item.system_qty}</td>
-                      <td className="p-3 text-center font-mono font-bold text-blue-600">{item.actual_qty}</td>
+                      <td className="p-3 text-center font-mono text-slate-500">{item.system_quantity}</td>
+                      <td className="p-3 text-center font-mono font-bold text-blue-600">{item.counted_quantity}</td>
                       <td className={`p-3 text-center font-mono font-bold ${diff === 0 ? 'text-slate-400' : diff > 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                         {diff > 0 ? `+${diff}` : diff}
                       </td>

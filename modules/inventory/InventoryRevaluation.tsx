@@ -18,7 +18,7 @@ interface Product {
 }
 
 const InventoryRevaluation = () => {
-  const { currentUser, products: contextProducts } = useAccounting();
+  const { currentUser, products: contextProducts, accounts, getSystemAccount, addEntry, recalculateStock } = useAccounting();
   const { data: serverProducts = [], refetch: refetchProducts } = useProducts();
   const { showToast } = useToast();
   // const { showDialog } = useDialog();
@@ -66,17 +66,48 @@ const InventoryRevaluation = () => {
         return;
     }
     try {
-      // يمكن نقل هذا المنطق إلى ملف خدمة
-      // await inventoryService.revalueProductCost({ ... });
-      const { error } = await supabase.rpc('revalue_product_cost', {
-        p_product_id: selectedProductId,
-        p_new_cost: parseFloat(newCost),
-        p_revaluation_date: revaluationDate,
-        p_notes: notes || `إعادة تقييم يدوية`,
-        p_org_id: currentUser?.organization_id // Pass currentSelectedOrgId
-      });
+      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const newCostValue = parseFloat(newCost);
 
-      if (error) throw error;
+      // 1. تحديث تكلفة الصنف في قاعدة البيانات مباشرة لتجاوز خطأ الدالة المفقودة
+      const { error: updateError } = await supabase
+        .from('products')
+        .update({
+          weighted_average_cost: newCostValue,
+          purchase_price: newCostValue,
+          cost: newCostValue
+        })
+        .eq('id', selectedProductId);
+
+      if (updateError) throw updateError;
+
+      // 2. إنشاء القيد المحاسبي لتسوية فرق القيمة المخزنية (إثبات الربح أو الخسارة الناتجة عن التقييم)
+      if (Math.abs(valueDifference) > 0.01) {
+          const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => a.code === '122');
+          let revalAcc = getSystemAccount('INVENTORY_REVALUATION') || accounts.find(a => a.code === (valueDifference > 0 ? '421' : '512') || a.name.includes('تقييم'));
+
+          if (inventoryAcc && revalAcc) {
+              const lines = [];
+              if (valueDifference > 0) {
+                  lines.push({ accountId: inventoryAcc.id, debit: valueDifference, credit: 0, description: 'أرباح إعادة تقييم مخزون' });
+                  lines.push({ accountId: revalAcc.id, debit: 0, credit: valueDifference, description: 'زيادة قيمة المخزون الدفتري' });
+              } else {
+                  lines.push({ accountId: revalAcc.id, debit: Math.abs(valueDifference), credit: 0, description: 'خسائر إعادة تقييم مخزون' });
+                  lines.push({ accountId: inventoryAcc.id, debit: 0, credit: Math.abs(valueDifference), description: 'تخفيض قيمة المخزون الدفتري' });
+              }
+
+              await addEntry({
+                  date: revaluationDate,
+                  description: `قيد إعادة تقييم صنف: ${selectedProduct?.name} - ${notes || 'تعديل يدوي للقيم'}`,
+                  reference: `REV-${Date.now().toString().slice(-6)}`,
+                  status: 'posted',
+                  lines: lines
+              });
+          }
+      }
+
+      // 3. تحديث الأرصدة والواجهة
+      await recalculateStock(selectedProductId);
 
       showToast('تمت إعادة تقييم التكلفة بنجاح ✅', 'success');
       refetchProducts();

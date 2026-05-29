@@ -10,7 +10,8 @@
 DO $$ 
 DECLARE 
     t text;
-    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments', 'payrolls', 'payroll_items', 'projects', 'project_boq', 'project_progress_billings', 'subcontractors', 'subcontractor_contracts', 'subcontractor_billings', 'project_material_issues', 'project_material_issue_items', 'project_daily_reports', 'project_retention_releases', 'project_milestones', 'project_custodies', 'project_custody_expenses'];
+    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments', 'payrolls', 'payroll_items', 'projects', 'project_boq', 'project_progress_billings', 'subcontractors', 'subcontractor_contracts', 'subcontractor_billings', 'project_material_issues', 'project_material_issue_items', 'project_daily_reports', 'project_retention_releases', 'project_milestones', 'project_custodies', 'project_custody_expenses',
+    'sales_returns', 'sales_return_items', 'purchase_returns', 'purchase_return_items', 'stock_adjustments', 'stock_adjustment_items', 'stock_transfers', 'stock_transfer_items', 'inventory_counts', 'inventory_count_items'];
 BEGIN
     -- ضمان وجود عمود organization_id في كافة الجداول الأساسية
     FOREACH t IN ARRAY tables_to_heal LOOP
@@ -57,13 +58,20 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payrolls' AND table_schema = 'public') THEN
         ALTER TABLE public.payrolls ADD COLUMN IF NOT EXISTS payment_date date;
     END IF;
+
+    -- ترميم أعمدة الإغلاق السنوي في إعدادات الشركة
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'company_settings' AND table_schema = 'public') THEN
+        ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS last_closed_year integer;
+        ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS last_closed_date date;
+    END IF;
 END $$;
 
 -- ================================================================
 -- 2. دوال الهوية والوصول (Identity Helpers)
 -- ================================================================
 
-CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+CREATE OR REPLACE FUNCTION public.get_my_role() 
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _role text;
 BEGIN
     _role := COALESCE(
@@ -85,6 +93,25 @@ BEGIN
     -- Fallback للبحث في البروفايل
     SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
     RETURN _org_id;
+END; $$;
+
+-- 🛠️ دالة تحويل الكميات بين الوحدات (UoM Conversion Logic)
+CREATE OR REPLACE FUNCTION public.uom_convert(
+    p_qty numeric,
+    p_from_uom_id uuid,
+    p_to_uom_id uuid
+) RETURNS numeric LANGUAGE plpgsql AS $$
+DECLARE
+    v_from_ratio numeric;
+    v_to_ratio numeric;
+BEGIN
+    IF p_from_uom_id = p_to_uom_id THEN RETURN p_qty; END IF;
+    
+    SELECT ratio INTO v_from_ratio FROM public.uoms WHERE id = p_from_uom_id;
+    SELECT ratio INTO v_to_ratio FROM public.uoms WHERE id = p_to_uom_id;
+    
+    -- المعادلة: (الكمية * نسبة الوحدة الأصلية) / نسبة الوحدة المستهدفة
+    RETURN (p_qty * COALESCE(v_from_ratio, 1)) / COALESCE(v_to_ratio, 1);
 END; $$;
 
 -- 🛡️ تحديث: درع حماية الحسابات السيادية (ليسمح بالحذف في وضع الاستعادة)
@@ -563,6 +590,55 @@ BEGIN
 
 END; $$;
 
+-- 🛠️ دالة إعادة تقييم التكلفة (Inventory Revaluation)
+CREATE OR REPLACE FUNCTION public.revalue_product_cost(
+    p_new_cost numeric,
+    p_notes text,
+    p_org_id uuid,
+    p_product_id uuid,
+    p_revaluation_date date
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    UPDATE public.products 
+    SET weighted_average_cost = p_new_cost,
+        purchase_price = p_new_cost,
+        cost = p_new_cost
+    WHERE id = p_product_id AND organization_id = p_org_id;
+
+    PERFORM public.recalculate_stock_rpc(p_org_id, p_product_id);
+END; $$;
+
+-- 🛠️ دالة تسجيل الهالك (Record Wastage)
+CREATE OR REPLACE FUNCTION public.record_wastage(
+    p_date date,
+    p_items jsonb,
+    p_notes text,
+    p_warehouse_id uuid,
+    p_org_id uuid DEFAULT public.get_my_org(),
+    p_user_id uuid DEFAULT auth.uid()
+)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_adj_id uuid;
+    v_item jsonb;
+    v_adj_num text;
+BEGIN
+    v_adj_num := 'WST-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
+    
+    INSERT INTO public.stock_adjustments (adjustment_date, notes, warehouse_id, organization_id, created_by, adjustment_number, status, reason)
+    VALUES (p_date, p_notes, p_warehouse_id, p_org_id, p_user_id, v_adj_num, 'posted', 'الهالك (Wastage)')
+    RETURNING id INTO v_adj_id;
+
+    FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
+        INSERT INTO public.stock_adjustment_items (stock_adjustment_id, product_id, quantity, type, organization_id)
+        VALUES (v_adj_id, (v_item->>'productId')::uuid, -ABS((v_item->>'quantity')::numeric), 'out', p_org_id);
+    END LOOP;
+
+    PERFORM public.recalculate_stock_rpc(p_org_id);
+    RETURN v_adj_id;
+END; $$;
+
 -- ================================================================
 -- 4. مديول المطاعم ونقاط البيع (Restaurant & POS Module)
 -- ================================================================
@@ -975,6 +1051,78 @@ BEGIN
     PERFORM public.recalculate_all_system_balances(v_org_id);
 END; $$;
 
+-- 🛠️ دالة التحويل المالي بين الخزائن (Treasury Transfer)
+CREATE OR REPLACE FUNCTION public.add_treasury_transfer(
+  p_from_account_id uuid,
+  p_to_account_id uuid,
+  p_amount numeric,
+  p_transfer_date date,
+  p_notes text,
+  p_org_id uuid,
+  p_user_id uuid
+)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_entry_id uuid;
+BEGIN
+  -- 1. إنشاء رأس القيد المحاسبي
+  INSERT INTO public.journal_entries (
+    transaction_date,
+    description,
+    status,
+    organization_id,
+    user_id,
+    reference
+  ) VALUES (
+    p_transfer_date,
+    p_notes,
+    'posted',
+    p_org_id,
+    p_user_id,
+    'TRF-' || TO_CHAR(NOW(), 'YYMMDD-HH24MI')
+  ) RETURNING id INTO v_entry_id;
+
+  -- 2. سطر القيد المدين (الخزينة المستلمة تزيد)
+  INSERT INTO public.journal_lines (
+    journal_entry_id,
+    account_id,
+    debit,
+    credit,
+    description,
+    organization_id
+  ) VALUES (
+    v_entry_id,
+    p_to_account_id,
+    p_amount,
+    0,
+    'تحويل وارد: ' || p_notes,
+    p_org_id
+  );
+
+  -- 3. سطر القيد الدائن (الخزينة المحولة تنقص)
+  INSERT INTO public.journal_lines (
+    journal_entry_id,
+    account_id,
+    debit,
+    credit,
+    description,
+    organization_id
+  ) VALUES (
+    v_entry_id,
+    p_from_account_id,
+    0,
+    p_amount,
+    'تحويل صادر: ' || p_notes,
+    p_org_id
+  );
+
+  RETURN v_entry_id;
+END;
+$$;
+
 -- 🛠️ دالة ترحيل قيد يومية للشيكات (Cheque Journal Entry Engine)
 CREATE OR REPLACE FUNCTION public.post_cheque_journal_entry(p_cheque_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -1222,17 +1370,22 @@ BEGIN
     END IF;
 
     -- تحديث متوسط التكلفة (WAC) قبل إعادة احتساب المخزون
-    FOR v_item IN SELECT product_id, quantity, unit_price FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
+    FOR v_item IN SELECT product_id, quantity, unit_price, uom_id FROM public.purchase_invoice_items WHERE purchase_invoice_id = p_invoice_id LOOP
+        -- 🚀 تحويل الكمية إلى الوحدة الأساسية قبل حساب التكلفة
+        DECLARE
+            v_base_qty numeric := public.uom_convert(v_item.quantity, v_item.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_item.product_id));
+            v_unit_cost_base numeric := v_item.unit_price / (v_base_qty / NULLIF(v_item.quantity, 0));
+        BEGIN
         UPDATE public.products p SET 
-            purchase_price = v_item.unit_price,
-            cost = v_item.unit_price,
+            purchase_price = v_unit_cost_base,
+            cost = v_unit_cost_base,
             weighted_average_cost = CASE 
-                WHEN (COALESCE(p.stock, 0) + v_item.quantity) > 0 
-                -- 🛡️ إصلاح حساب متوسط التكلفة: إذا كانت التكلفة السابقة 0 أو مفقودة، نفترض أن السعر الحالي هو السعر المرجعي للرصيد القديم
-                THEN ROUND(((COALESCE(p.stock, 0) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, v_item.unit_price)) + (v_item.quantity * v_item.unit_price)) / (COALESCE(p.stock, 0) + v_item.quantity), 4)
-                ELSE v_item.unit_price 
+                WHEN (COALESCE(p.stock, 0) + v_base_qty) > 0 
+                THEN ROUND(((COALESCE(p.stock, 0) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, v_unit_cost_base)) + (v_base_qty * v_unit_cost_base)) / (COALESCE(p.stock, 0) + v_base_qty), 4)
+                ELSE v_unit_cost_base 
             END
         WHERE id = v_item.product_id;
+        END;
     END LOOP;
 
     -- توليد القيد المحاسبي
@@ -2033,20 +2186,24 @@ BEGIN
     v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_target_org_id LIMIT 1));
     v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_target_org_id LIMIT 1));
     
-    -- Get all expense account IDs (codes starting with '5')
-    SELECT array_agg(id) INTO v_expense_acc_ids FROM public.accounts WHERE code LIKE '5%' AND organization_id = v_target_org_id;
+    -- 1. Current Month Sales (Net Revenue from GL to match Income Statement)
+    -- 🛡️ [إصلاح] استخدام ميزان المراجعة للحصول على صافي الإيرادات (بعد المرتجعات) بدلاً من إجمالي الفواتير
+    SELECT COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_month_sales
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
+    AND (a.type ILIKE '%revenue%' OR a.code LIKE '4%')
+    AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
 
-    -- 1. Current Month Sales
-    SELECT COALESCE(SUM(total_amount), 0) INTO v_month_sales
-    FROM public.invoices
-    WHERE organization_id = v_target_org_id AND status IN ('posted', 'paid')
-    AND invoice_date BETWEEN v_current_month_start AND v_current_month_end;
-
-    -- 2. Previous Month Sales
-    SELECT COALESCE(SUM(total_amount), 0) INTO v_prev_month_sales
-    FROM public.invoices
-    WHERE organization_id = v_target_org_id AND status IN ('posted', 'paid')
-    AND invoice_date BETWEEN v_prev_month_start AND v_prev_month_end;
+    -- 2. Previous Month Sales (Net Revenue)
+    SELECT COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_prev_month_sales
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
+    AND (a.type ILIKE '%revenue%' OR a.code LIKE '4%')
+    AND je.transaction_date BETWEEN v_prev_month_start AND v_prev_month_end;
 
     -- 3. Current Month Purchases
     SELECT COALESCE(SUM(total_amount), 0) INTO v_month_purchases
@@ -2060,25 +2217,26 @@ BEGIN
     WHERE organization_id = v_target_org_id AND status IN ('posted', 'paid')
     AND invoice_date BETWEEN v_prev_month_start AND v_prev_month_end;
 
-    -- 5. Current Month COGS (from journal entries)
-    IF v_cogs_acc_id IS NOT NULL THEN
-        SELECT COALESCE(SUM(jl.debit), 0) INTO v_month_cogs
-        FROM public.journal_lines jl
-        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
-        WHERE jl.account_id = v_cogs_acc_id
-        AND je.organization_id = v_target_org_id AND je.status = 'posted'
-        AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
-    END IF;
+    -- 5. Current Month COGS (Net Cost from GL)
+    -- 🛡️ [تحسين] استخدام نفس منطق قائمة الدخل لضمان تطابق الأرقام
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_month_cogs
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
+    AND (a.id = v_cogs_acc_id OR a.code LIKE '511%' OR a.code LIKE '501%' OR a.name ILIKE '%تكلفة%' OR a.name ILIKE '%cost%')
+    AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
 
-    -- 6. Current Month Expenses (from journal entries)
-    IF v_expense_acc_ids IS NOT NULL THEN
-        SELECT COALESCE(SUM(jl.debit), 0) INTO v_month_expenses
-        FROM public.journal_lines jl
-        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
-        WHERE jl.account_id = ANY(v_expense_acc_ids)
-        AND je.organization_id = v_target_org_id AND je.status = 'posted'
-        AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
-    END IF;
+    -- 6. Current Month Operating Expenses (from journal entries)
+    -- 🛡️ [إصلاح حاسم] استبعاد حسابات تكلفة المبيعات من المصروفات الإدارية لمنع تكرار الخصم وظهور أرباح سالبة خاطئة
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_month_expenses
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
+    AND (a.type ILIKE '%expense%' OR a.code LIKE '5%')
+    AND NOT (a.id = v_cogs_acc_id OR a.code LIKE '511%' OR a.code LIKE '501%' OR a.name ILIKE '%تكلفة%' OR a.name ILIKE '%cost%')
+    AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
 
     -- 7. Receivables (Customers Balance)
     SELECT COALESCE(SUM(balance), 0) INTO v_receivables
@@ -2253,6 +2411,299 @@ BEGIN
     );
 END;
 $$;
+-- 🛠️ دالة إقفال السنة المالية (Fiscal Year Closing Engine)
+-- الوصف: تصفير حسابات قائمة الدخل (إيرادات ومصروفات) وترحيل الصافي إلى الأرباح المبقاة (32)
+CREATE OR REPLACE FUNCTION public.close_financial_year(
+    p_year integer,
+    p_closing_date date,
+    p_org_id uuid DEFAULT public.get_my_org()
+)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_net_income numeric := 0;
+    v_je_id uuid;
+    v_retained_earnings_acc_id uuid;
+    v_row record;
+    v_ref text := 'CLOSE-' || p_year;
+    v_target_org uuid := COALESCE(p_org_id, public.get_my_org());
+    v_entry_count integer := 0;
+BEGIN
+    -- 1. التحقق من وجود حساب الأرباح المبقاة (32)
+    SELECT id INTO v_retained_earnings_acc_id FROM public.accounts WHERE organization_id = v_target_org AND code = '32' LIMIT 1;
+    IF v_retained_earnings_acc_id IS NULL THEN RAISE EXCEPTION 'حساب الأرباح المبقاة (32) مفقود في دليل الحسابات.'; END IF;
+
+    -- 2. منع التكرار
+    IF EXISTS (SELECT 1 FROM public.journal_entries WHERE reference = v_ref AND organization_id = v_target_org) THEN
+        RAISE EXCEPTION 'السنة المالية % مغلقة بالفعل لهذه الشركة.', p_year;
+    END IF;
+
+    -- 3. إنشاء رأس قيد الإقفال
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, user_id)
+    VALUES (p_closing_date, 'إقفال حسابات النتيجة للسنة المالية ' || p_year, v_ref, 'posted', v_target_org, true, auth.uid())
+    RETURNING id INTO v_je_id;
+
+    -- 4. حصر وإقفال الحسابات المؤقتة (إيرادات ومصروفات مرحلة فقط)
+    FOR v_row IN 
+        SELECT a.id, a.name, SUM(jl.debit - jl.credit) as balance
+        FROM public.accounts a
+        JOIN public.journal_lines jl ON a.id = jl.account_id
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE je.organization_id = v_target_org AND je.status = 'posted'
+          AND EXTRACT(YEAR FROM je.transaction_date) = p_year
+          AND (a.type ILIKE '%revenue%' OR a.type ILIKE '%expense%' OR a.code LIKE '4%' OR a.code LIKE '5%')
+        GROUP BY a.id, a.name
+        HAVING ABS(SUM(jl.debit - jl.credit)) > 0.001
+    LOOP
+        -- إقفال: عكس الرصيد الحالي (المدين يصبح دائن والعكس)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_row.id, CASE WHEN v_row.balance < 0 THEN ABS(v_row.balance) ELSE 0 END, CASE WHEN v_row.balance > 0 THEN v_row.balance ELSE 0 END, 'إقفال رصيد حساب ' || v_row.name, v_target_org);
+        v_net_income := v_net_income + (-v_row.balance);
+        v_entry_count := v_entry_count + 1;
+    END LOOP;
+
+    IF v_entry_count = 0 THEN
+        DELETE FROM public.journal_entries WHERE id = v_je_id;
+        RAISE EXCEPTION 'لا توجد حركات مرحلة في سنة % تتطلب الإقفال.', p_year;
+    END IF;
+
+    -- 5. ترحيل صافي الأرباح/الخسائر (v_net_income دائن للربح ومدين للخسارة)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+    VALUES (v_je_id, v_retained_earnings_acc_id, CASE WHEN v_net_income < 0 THEN ABS(v_net_income) ELSE 0 END, CASE WHEN v_net_income > 0 THEN v_net_income ELSE 0 END, 'ترحيل صافي نتيجة نشاط سنة ' || p_year, v_target_org);
+
+    -- 6. موازنة القيد النهائية
+    PERFORM public.fix_unbalanced_journal_entry(v_je_id);
+    
+    -- 7. تحديث إعدادات الإغلاق
+    UPDATE public.company_settings SET last_closed_year = p_year, last_closed_date = p_closing_date WHERE organization_id = v_target_org;
+
+    RETURN '✅ تم بنجاح إقفال السنة ' || p_year || ' وترحيل الصافي لحساب الأرباح المبقاة.';
+END; $$;
+
+-- 🔓 دالة إعادة فتح سنة مالية مغلقة (Reopen Fiscal Year)
+-- الوصف: حذف قيد الإغلاق وتعديل إعدادات السنة المغلقة للسماح بالتعديلات المؤقتة
+CREATE OR REPLACE FUNCTION public.reopen_financial_year(
+    p_year integer,
+    p_org_id uuid DEFAULT public.get_my_org()
+)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_target_org uuid := COALESCE(p_org_id, public.get_my_org());
+    v_last_closed integer;
+    v_ref text := 'CLOSE-' || p_year;
+BEGIN
+    -- 1. التأكد من أن السنة المطلوب فتحها هي آخر سنة مغلقة (لأن الإغلاق تراكمي)
+    SELECT last_closed_year INTO v_last_closed FROM public.company_settings WHERE organization_id = v_target_org;
+
+    IF v_last_closed IS NULL OR v_last_closed < p_year THEN
+        RETURN '⚠️ هذه السنة ليست مغلقة حالياً في إعدادات المنظمة.';
+    END IF;
+
+    IF v_last_closed > p_year THEN
+        RAISE EXCEPTION '⚠️ خطأ محاسبي: يجب إعادة فتح السنة % أولاً قبل فتح سنة % لضمان تسلسل الأرصدة.', v_last_closed, p_year;
+    END IF;
+
+    -- 2. تفعيل وضع التجاوز لحذف قيد الإغلاق وتحديث الإعدادات
+    PERFORM set_config('app.restore_mode', 'on', true);
+    
+    DELETE FROM public.journal_entries WHERE reference = v_ref AND organization_id = v_target_org;
+    UPDATE public.company_settings SET last_closed_year = p_year - 1, last_closed_date = (make_date(p_year - 1, 12, 31)) WHERE organization_id = v_target_org;
+    
+    PERFORM set_config('app.restore_mode', 'off', true);
+
+    RETURN '🔓 تم فتح السنة المالية ' || p_year || ' بنجاح. يمكنك الآن تعديل الحركات. تذكر إعادة الإغلاق فور الانتهاء.';
+END; $$;
+
+-- 🛡️ درع حماية السنوات المغلقة (Prevention Trigger)
+CREATE OR REPLACE FUNCTION public.fn_check_closed_year() RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM public.company_settings WHERE organization_id = NEW.organization_id AND last_closed_year >= EXTRACT(YEAR FROM NEW.transaction_date)) THEN
+        RAISE EXCEPTION '⚠️ خطأ حماية: لا يمكن إضافة أو تعديل بيانات في سنة مالية مغلقة مسبقاً.';
+    END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_check_closed_year ON public.journal_entries;
+CREATE TRIGGER trg_check_closed_year BEFORE INSERT OR UPDATE ON public.journal_entries FOR EACH ROW EXECUTE FUNCTION public.fn_check_closed_year();
+
+-- 🛠️ دالة تنظيف السجلات المحذوفة نهائياً (Database Purge Engine)
+-- الوصف: حذف السجلات التي تم تعليمها للحذف (Soft Deleted) وتنظيف البيانات اليتيمة
+DROP FUNCTION IF EXISTS public.purge_deleted_records();
+CREATE OR REPLACE FUNCTION public.purge_deleted_records()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_table text;
+    v_count bigint;
+    v_total_purged bigint := 0;
+    v_tables_processed text[] := ARRAY[]::text[];
+BEGIN
+    -- 1. البحث عن كافة الجداول التي تحتوي على خاصية "الحذف الناعم" وتطهيرها
+    FOR v_table IN
+        SELECT table_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND column_name = 'deleted_at'
+          AND table_name NOT IN ('spatial_ref_sys')
+    LOOP
+        EXECUTE format('DELETE FROM public.%I WHERE deleted_at IS NOT NULL', v_table);
+        GET DIAGNOSTICS v_count = ROW_COUNT;
+        v_total_purged := v_total_purged + v_count;
+        IF v_count > 0 THEN
+            v_tables_processed := array_append(v_tables_processed, v_table);
+        END IF;
+    END LOOP;
+
+    -- 2. تنظيف البيانات اليتيمة لضمان سلامة التكامل المرجعي
+    DELETE FROM public.journal_lines WHERE journal_entry_id NOT IN (SELECT id FROM public.journal_entries);
+    DELETE FROM public.invoice_items WHERE invoice_id NOT IN (SELECT id FROM public.invoices);
+    DELETE FROM public.order_items WHERE order_id NOT IN (SELECT id FROM public.orders);
+    DELETE FROM public.order_item_modifiers WHERE order_item_id NOT IN (SELECT id FROM public.order_items);
+
+    RETURN format('✅ تم تنظيف قاعدة البيانات بنجاح. إجمالي السجلات المطهرة: %s. الجداول المتأثرة: %s', v_total_purged, array_to_string(v_tables_processed, ', '));
+END; $$;
+
+-- 🛠️ دالة إصلاح مخطط المرتجعات (Fix Returns Schema)
+-- الوصف: توحيد مسميات أعمدة المرتجعات لضمان التوافق
+-- ملاحظة: تم تغيير نوع الإرجاع إلى TEXT لحل مشكلة الـ Rendering في React
+DROP FUNCTION IF EXISTS public.fix_returns_schema();
+CREATE OR REPLACE FUNCTION public.fix_returns_schema()
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    t text;
+    tables_to_fix text[] := ARRAY['quotation_items', 'sales_return_items', 'purchase_invoice_items', 'purchase_order_items', 'purchase_return_items', 'invoice_items', 'order_items', 'modifiers'];
+    v_log_message text := '';
+    v_count int := 0;
+BEGIN
+    -- توحيد مسمى سعر الوحدة في جميع جداول النظام
+    FOREACH t IN ARRAY tables_to_fix LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t AND table_type = 'BASE TABLE') 
+           AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'price') THEN
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = t AND column_name = 'unit_price') THEN
+                EXECUTE format('ALTER TABLE public.%I RENAME COLUMN price TO unit_price', t);
+                v_log_message := v_log_message || format('Renamed price to unit_price in %s. ', t);
+                v_count := v_count + 1;
+            ELSE
+                -- إذا كان كلاهما موجوداً، انقل البيانات للعمود الجديد واحذف القديم لتجنب التعارض
+                EXECUTE format('UPDATE public.%I SET unit_price = COALESCE(price, 0) WHERE unit_price IS NULL OR unit_price = 0', t);
+                EXECUTE format('ALTER TABLE public.%I DROP COLUMN price', t);
+                v_log_message := v_log_message || format('Merged price into unit_price and dropped price column in %s. ', t);
+                v_count := v_count + 1;
+            END IF;
+        END IF;
+    END LOOP;
+
+    -- ضمان عدم تكرار التصنيفات
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'item_categories_name_org_unique') THEN
+        -- Check if organization_id column exists before adding constraint
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'item_categories' AND column_name = 'organization_id') THEN
+            ALTER TABLE public.item_categories ADD COLUMN organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org();
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'item_categories' AND column_name = 'display_order') THEN
+            ALTER TABLE public.item_categories ADD COLUMN display_order integer DEFAULT 0;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'item_categories' AND column_name = 'created_at') THEN
+            ALTER TABLE public.item_categories ADD COLUMN created_at timestamptz DEFAULT now();
+        END IF;
+        ALTER TABLE public.item_categories ADD CONSTRAINT item_categories_name_org_unique UNIQUE (organization_id, name);
+        v_log_message := v_log_message || 'Added unique constraint to item_categories. ';
+        v_count := v_count + 1;
+    END IF;
+
+    -- توحيد مسميات معرفات المرتجعات
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'return_id') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_return_items' AND column_name = 'sales_return_id') THEN
+            EXECUTE 'ALTER TABLE public.sales_return_items RENAME COLUMN return_id TO sales_return_id';
+            v_log_message := v_log_message || 'Renamed return_id to sales_return_id in sales_return_items. ';
+            v_count := v_count + 1;
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_return_items' AND column_name = 'return_id') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_return_items' AND column_name = 'purchase_return_id') THEN
+            EXECUTE 'ALTER TABLE public.purchase_return_items RENAME COLUMN return_id TO purchase_return_id';
+            v_log_message := v_log_message || 'Renamed return_id to purchase_return_id in purchase_return_items. ';
+            v_count := v_count + 1;
+        END IF;
+    END IF;
+
+    RETURN format('✅ تم إصلاح مخطط المرتجعات بنجاح. التغييرات المنفذة: %s. التفاصيل: %s', v_count, v_log_message);
+
+END; $$;
+
+-- 🛠️ دالة فحص وإنشاء الحسابات الأساسية المفقودة (Create Missing System Accounts)
+-- الوصف: تضمن وجود الحسابات الأساسية الضرورية لعمل النظام والتقارير المحاسبية.
+CREATE OR REPLACE FUNCTION public.create_missing_system_accounts(p_org_id uuid DEFAULT public.get_my_org())
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(p_org_id, public.get_my_org());
+    v_created_count integer := 0;
+    v_account_item record;
+    v_parent_id uuid;
+BEGIN
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'معرف المنظمة غير موجود.';
+    END IF;
+
+    -- Define essential accounts using a temporary table, similar to initialize_egyptian_coa
+    CREATE TEMPORARY TABLE IF NOT EXISTS coa_missing_temp (
+        code text PRIMARY KEY,
+        name text NOT NULL,
+        type text NOT NULL,
+        is_group boolean NOT NULL,
+        parent_code text
+    ) ON COMMIT DROP;
+
+    -- Clear previous data in case of multiple calls within a session
+    TRUNCATE TABLE coa_missing_temp;
+
+    INSERT INTO coa_missing_temp (code, name, type, is_group, parent_code) VALUES
+        ('1', 'الأصول', 'asset', true, NULL),
+        ('2', 'الخصوم (الإلتزامات)', 'liability', true, NULL),
+        ('3', 'حقوق الملكية', 'equity', true, NULL),
+        ('4', 'الإيرادات', 'revenue', true, NULL),
+        ('5', 'المصروفات', 'expense', true, NULL),
+        ('11', 'الأصول غير المتداولة', 'asset', true, '1'),
+        ('12', 'الأصول المتداولة', 'asset', true, '1'),
+        ('111', 'الأصول الثابتة', 'asset', true, '11'),
+        ('103', 'المخزون', 'asset', true, '12'),
+        ('122', 'العملاء والمدينون', 'asset', true, '12'),
+        ('123', 'النقدية وما في حكمها', 'asset', true, '12'),
+        ('22', 'الخصوم المتداولة', 'liability', true, '2'),
+        ('10301', 'مخزون المواد الخام', 'asset', false, '103'),
+        ('10302', 'مخزون المنتج التام', 'asset', false, '103'),
+        ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
+        ('1221', 'العملاء', 'asset', false, '122'),
+        ('1231', 'النقدية بالصندوق', 'asset', false, '123'),
+        ('201', 'الموردين', 'liability', false, '22'),
+        ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
+        ('411', 'إيراد المبيعات', 'revenue', false, '4'),
+        ('42', 'إيرادات أخرى', 'revenue', true, '4'),
+        ('425', 'إيراد تشغيل معدات داخلي', 'revenue', false, '42'),
+        ('511', 'تكلفة البضاعة المباعة', 'expense', false, '5'),
+        ('53', 'المصروفات الإدارية والعمومية', 'expense', true, '5'),
+        ('541', 'تسوية عجز الصندوق', 'expense', false, '53');
+
+    -- Insert missing accounts from the temporary table
+    FOR v_account_item IN SELECT * FROM coa_missing_temp ORDER BY length(code), code
+    LOOP
+        IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE organization_id = v_org_id AND code = v_account_item.code) THEN
+            v_parent_id := NULL;
+            IF v_account_item.parent_code IS NOT NULL THEN
+                SELECT id INTO v_parent_id FROM public.accounts WHERE organization_id = v_org_id AND code = v_account_item.parent_code;
+            END IF;
+
+            INSERT INTO public.accounts (organization_id, code, name, type, is_group, parent_id, is_active)
+            VALUES (v_org_id, v_account_item.code, v_account_item.name, v_account_item.type, v_account_item.is_group, v_parent_id, true);
+            v_created_count := v_created_count + 1;
+        END IF;
+    END LOOP;
+
+    RETURN format('✅ تم إنشاء %s حساب أساسي مفقود بنجاح.', v_created_count);
+EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'فشل إنشاء الحسابات المفقودة: %', SQLERRM;
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.run_global_system_repair(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.purge_deleted_records() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.fix_returns_schema() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_dashboard_stats(uuid) TO authenticated;
 GRANT USAGE ON SCHEMA public TO authenticated, anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
@@ -2261,11 +2712,39 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_monthly_shift_report(uuid, integer, integer) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.run_payroll_rpc(integer, integer, date, uuid, jsonb, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.add_treasury_transfer(uuid, uuid, numeric, date, text, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.revalue_product_cost(numeric, text, uuid, uuid, date) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.record_wastage(date, jsonb, text, uuid, uuid, uuid) TO authenticated;
 
 GRANT EXECUTE ON FUNCTION public.create_organization_backup(uuid, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_missing_system_accounts(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.run_daily_backups_all_orgs() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.close_financial_year(integer, date, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.reopen_financial_year(integer, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.restore_organization_from_backup(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.validate_backup_integrity(uuid, jsonb) TO authenticated;
+
+-- 🕒 جدولة النسخ الاحتياطي التلقائي (Automated SaaS Backup)
+-- الوصف: يتم تشغيل هذه المهمة عبر pg_cron لعمل نسخة احتياطية لكافة المنظمات النشطة كل ليلة الساعة 3 فجراً.
+DO $$ 
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'cron') THEN
+        -- إلغاء الجدولة القديمة لتجنب التكرار في حال إعادة تشغيل السكريبت
+        BEGIN
+            EXECUTE 'SELECT cron.unschedule(''daily-saas-backup'')';
+        EXCEPTION WHEN OTHERS THEN NULL;
+        END;
+
+        -- جدولة النسخ الاحتياطي الساعة 3 فجراً يومياً
+        -- التوقيت: (دقيقة 0، ساعة 3، يوم *، شهر *، أسبوع *)
+        PERFORM cron.schedule('daily-saas-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');
+
+        RAISE NOTICE '✅ تم ضبط جدولة النسخ الاحتياطي التلقائي الساعة 3 فجراً بنجاح.';
+    ELSE
+        RAISE WARNING '⚠️ تنبيه: ملحق pg_cron غير مفعل. النسخ الاحتياطي التلقائي يحتاج لتفعيل الإضافة من لوحة تحكم Supabase (Database -> Extensions).';
+    END IF;
+END $$;
+
 -- 🚀 تنشيط ذاكرة المخطط فوراً لضمان ظهور الدوال في الـ API (حل مشكلة 404)
 NOTIFY pgrst, 'reload config';
 

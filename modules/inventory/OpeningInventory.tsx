@@ -98,7 +98,8 @@ export default function OpeningInventory() {
             warehouse_id: defaultWarehouseId,
             quantity: item.quantity,
             cost: item.cost,
-            created_by: currentUser?.id
+            created_by: currentUser?.id,
+            organization_id: orgId
           });
           if (openingError) console.error("Failed to save opening inventory record:", openingError);
         }

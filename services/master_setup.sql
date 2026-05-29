@@ -167,6 +167,31 @@ END $$;
 -- 1. الجداول الأساسية (Core Tables)
 -- ================================================================
 
+-- فئات وحدات القياس (UoM Categories)
+CREATE TABLE IF NOT EXISTS public.uom_categories (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL, -- مثل: الكتلة، الطول، وحدات العدد
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+-- وحدات القياس (Units of Measure)
+CREATE TABLE IF NOT EXISTS public.uoms (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    category_id uuid REFERENCES public.uom_categories(id) ON DELETE CASCADE,
+    name text NOT NULL, -- مثل: كجم، جرام، كرتونة، حبة
+    uom_type text CHECK (uom_type IN ('reference', 'smaller', 'bigger')), -- وحدة المرجع، أصغر، أو أكبر
+    ratio numeric(19,4) DEFAULT 1, -- النسبة بالنسبة لوحدة المرجع
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(organization_id, name)
+);
+
+-- إضافة أعمدة الوحدات لجدول المنتجات
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS base_uom_id uuid REFERENCES public.uoms(id);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS purchase_uom_id uuid REFERENCES public.uoms(id);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS sale_uom_id uuid REFERENCES public.uoms(id);
+
 -- المنظمات والإعدادات
 CREATE TABLE IF NOT EXISTS public.organizations (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -753,6 +778,7 @@ CREATE TABLE IF NOT EXISTS public.invoice_items (
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric NOT NULL DEFAULT 0,
     unit_price numeric NOT NULL DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id),
     total numeric(19,4) GENERATED ALWAYS AS (quantity * unit_price) STORED,
     discount numeric DEFAULT 0,
     tax_rate numeric DEFAULT 0,
@@ -796,6 +822,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
     purchase_invoice_id uuid REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric NOT NULL DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id),
     unit_price numeric(19,4) NOT NULL DEFAULT 0,
     total numeric GENERATED ALWAYS AS (quantity * unit_price) STORED,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -232,6 +232,7 @@ const StockAdjustmentForm = () => {
 
     setLoading(true);
     try {
+        const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
         const adjustmentNumber = `ADJ-${Date.now().toString().slice(-6)}`;
 
         // 1. Create Header
@@ -242,7 +243,7 @@ const StockAdjustmentForm = () => {
             adjustment_number: adjustmentNumber,
             status: 'posted', // Direct posting for simplicity, or draft
             created_by: currentUser?.id,
-            organization_id: (currentUser as any)?.organization_id
+            organization_id: userOrgId
         }).select().single();
 
         if (headerError) throw headerError;
@@ -253,7 +254,7 @@ const StockAdjustmentForm = () => {
             product_id: item.productId,
             quantity: item.type === 'in' ? Math.abs(item.quantity) : -Math.abs(item.quantity),
             type: item.type,
-            organization_id: (currentUser as any)?.organization_id
+            organization_id: userOrgId
         }));
 
         const { error: itemsError } = await supabase.from('stock_adjustment_items').insert(dbItems);
@@ -273,8 +274,14 @@ const StockAdjustmentForm = () => {
         });
 
         if (totalValue !== 0) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS');
-            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS');
+            // نظام البحث الاحتياطي عن الحسابات لضمان عدم تعطل القيد
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => a.code === '122' || a.code === '1201');
+            
+            let adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS');
+            if (!adjustmentAcc) {
+                // البحث عن حساب "فروقات الجرد" (541) أو "الهالك" (512) أو "إيرادات متنوعة" (421) للزيادة
+                adjustmentAcc = accounts.find(a => a.code === (totalValue > 0 ? '421' : '512') || a.code === '541' || a.name.includes('تسوية'));
+            }
 
             if (inventoryAcc && adjustmentAcc) {
                 const lines = [];
