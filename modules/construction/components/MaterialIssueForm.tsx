@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
-import { X, Save, Plus, Trash2, Package, Loader2, Warehouse as WarehouseIcon, Calendar, CheckCircle } from 'lucide-react';
+import { X, Save, Plus, Trash2, Package, Loader2, Warehouse as WarehouseIcon, Calendar, CheckCircle, Ruler, List, DollarSign, Activity } from 'lucide-react';
 import SearchableSelect from '../../../components/SearchableSelect';
 
 interface Props {
@@ -15,13 +15,14 @@ interface ItemRow {
   productId: string;
   quantity: number;
   unitCost: number;
-  unit: string;
+  uomId: string;
   boqItemId?: string; // 🏗️ جديد: ربط البند بالمقايسة
 }
 
 const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) => {
-  const { organization, warehouses, products } = useAccounting();
+  const { organization, warehouses, products, currentUser } = useAccounting();
   const [boqItems, setBoqItems] = useState<any[]>([]); // 🏗️ قائمة بنود المقايسة
+  const [uoms, setUoms] = useState<any[]>([]);
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [warehouseId, setWarehouseId] = useState('');
@@ -29,38 +30,76 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
   const [issueNumber, setIssueNumber] = useState(`MAT-${Date.now().toString().slice(-6)}`);
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<ItemRow[]>([
-    { productId: '', quantity: 1, unitCost: 0, unit: '' }
+    { productId: '', quantity: 1, unitCost: 0, uomId: '' }
   ]);
 
   useEffect(() => {
-    const fetchBOQ = async () => {
+    const fetchData = async () => {
+      // جلب بنود المقايسة
       const { data } = await supabase
         .from('project_boq')
         .select('id, item_name')
         .eq('project_id', projectId);
       if (data) setBoqItems(data);
+
+      // جلب وحدات القياس للمنظمة
+      const orgId = organization?.id || (currentUser as any)?.organization_id;
+      if (orgId) {
+        const { data: uomData } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+        if (uomData) setUoms(uomData);
+      }
     };
-    fetchBOQ();
-  }, [projectId]);
+    fetchData();
+  }, [projectId, organization, currentUser]);
 
   const updateItem = (index: number, field: keyof ItemRow, value: any) => {
     const newItems = [...items];
+    let updatedItem = { ...newItems[index], [field]: value };
+
     if (field === 'productId') {
       const product = products.find(p => p.id === value);
-      newItems[index].unitCost = product?.purchase_price || product?.cost || 0;
-      newItems[index].unit = product?.unit || 'وحدة';
+      if (product) {
+        const defaultUomId = product.purchase_uom_id || product.base_uom_id;
+        const selectedUom = uoms.find(u => u.id === defaultUomId);
+        const basePrice = product.purchase_price || product.cost || 0;
+        
+        updatedItem.uomId = defaultUomId || '';
+        updatedItem.unitCost = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
+      }
+    } else if (field === 'uomId') {
+      const selectedUom = uoms.find(u => u.id === value);
+      const product = products.find(p => p.id === updatedItem.productId);
+      if (selectedUom && product) {
+        const basePrice = product.purchase_price || product.cost || 0;
+        updatedItem.unitCost = Number((basePrice * selectedUom.ratio).toFixed(4));
+      }
     }
-    newItems[index] = { ...newItems[index], [field]: value };
+    
+    newItems[index] = updatedItem;
     setItems(newItems);
   };
 
-  const handleAddItem = () => setItems([...items, { productId: '', quantity: 1, unitCost: 0, unit: '' }]);
+  const handleAddItem = () => setItems([...items, { productId: '', quantity: 1, unitCost: 0, uomId: '' }]);
   const handleRemoveItem = (index: number) => items.length > 1 && setItems(items.filter((_, i) => i !== index));
 
   const handleSubmit = async (e: React.FormEvent, approveImmediately = false) => {
     e.preventDefault();
     if (!warehouseId) return showToast('الرجاء اختيار المستودع المصدر', 'warning');
     if (items.some(i => !i.productId || i.quantity <= 0)) return showToast('يرجى التحقق من الأصناف والكميات', 'warning');
+
+    // 🏗️ فحص توفر المخزون بناءً على معاملات التحويل
+    for (const item of items) {
+        const product = products.find(p => p.id === item.productId);
+        const selectedUom = uoms.find(u => u.id === item.uomId);
+        const baseQty = item.quantity * (selectedUom?.ratio || 1);
+        
+        const warehouseStock = (product as any)?.warehouse_stock || {};
+        const available = Number(warehouseStock[warehouseId] || 0);
+
+        if (baseQty > available) {
+            return showToast(`❌ عجز في صنف "${product?.name}": المتاح في المستودع ${available} (وحدة أساسية)، بينما المطلوب صرفه ${baseQty} (وحدة أساسية).`, 'error');
+        }
+    }
 
     setLoading(true);
     try {
@@ -88,7 +127,8 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
           product_id: item.productId,
           quantity: item.quantity,
           unit_cost: item.unitCost,
-          boq_item_id: item.boqItemId || null // 🏗️ ترحيل الربط لقاعدة البيانات
+          uom_id: item.uomId,
+          boq_item_id: item.boqItemId || null
         })));
 
       if (itemsError) throw itemsError;
@@ -145,11 +185,12 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
             <table className="w-full text-right text-sm">
               <thead className="bg-slate-50 font-black text-slate-500">
                 <tr>
-                  <th className="p-4">الصنف المخزني</th>
-                  <th className="p-4 w-48">مرتبط ببند مقايسة (BOQ)</th>
+                  <th className="p-4 flex items-center gap-2"><Package size={14}/> الصنف المخزني</th>
+                  <th className="p-4 w-32 text-center"><Ruler size={14} className="inline ml-1"/>الوحدة</th>
+                  <th className="p-4 w-48"><List size={14} className="inline ml-1"/>مرتبط بـ BOQ</th>
                   <th className="p-4 text-center w-32">الكمية</th>
-                  <th className="p-4 text-center w-32">التكلفة التقديرية</th>
-                  <th className="p-4 text-center w-32">الإجمالي</th>
+                  <th className="p-4 text-center w-32"><DollarSign size={14} className="inline ml-1"/>التكلفة</th>
+                  <th className="p-4 text-center w-32"><Activity size={14} className="inline ml-1"/>الإجمالي</th>
                   <th className="p-4 w-12"></th>
                 </tr>
               </thead>
@@ -161,9 +202,25 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
                     </td>
                     <td className="p-2">
                       <select 
+                        value={item.uomId} 
+                        onChange={e => updateItem(idx, 'uomId', e.target.value)}
+                        className="w-full border-2 border-slate-100 rounded-lg p-2 text-xs font-bold bg-white focus:border-orange-500 outline-none transition-all"
+                      >
+                        <option value="">-- الوحدة --</option>
+                        {uoms.filter(u => {
+                            const prod = products.find(p => p.id === item.productId);
+                            const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
+                            return u.category_id === baseUom?.category_id;
+                        }).map(u => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="p-2">
+                      <select 
                         value={item.boqItemId || ''} 
                         onChange={e => updateItem(idx, 'boqItemId', e.target.value)}
-                        className="w-full border rounded-lg p-2 text-xs font-bold text-blue-600 bg-blue-50/30"
+                        className="w-full border-2 border-slate-100 rounded-lg p-2 text-xs font-bold text-blue-600 bg-blue-50/30 outline-none focus:border-blue-400 transition-all"
                       >
                         <option value="">-- اختياري --</option>
                         {boqItems.map(b => <option key={b.id} value={b.id}>{b.item_name}</option>)}
@@ -176,6 +233,13 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-slate-50 font-black">
+                <tr>
+                  <td colSpan={5} className="p-4 text-left text-slate-500">إجمالي قيمة المواد المنصرفة للموقع:</td>
+                  <td className="p-4 text-center text-orange-600 text-lg">{items.reduce((sum, item) => sum + (item.quantity * item.unitCost), 0).toLocaleString()}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
             </table>
             <button type="button" onClick={handleAddItem} className="w-full py-3 bg-slate-50 text-slate-500 font-bold hover:bg-slate-100 transition-colors flex items-center justify-center gap-2 border-t"><Plus size={16} /> إضافة صنف آخر</button>
           </div>

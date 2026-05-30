@@ -177,6 +177,9 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN
         ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
         ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS exchange_rate numeric(19,4) DEFAULT 1;
+        -- ترميم بنود الفواتير والمرتجعات
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoice_items') THEN ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_return_items') THEN ALTER TABLE public.sales_return_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
         ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS tax_rate numeric DEFAULT 0; -- 🛡️ إضافة عمود tax_rate لـ invoice_items
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS due_date date; END IF;
@@ -186,6 +189,9 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices') THEN ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS cost_center_id uuid REFERENCES public.cost_centers(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoices') THEN
         ALTER TABLE public.purchase_invoices ADD COLUMN IF NOT EXISTS currency text DEFAULT 'EGP';
+        -- ترميم بنود مشتريات ومرتجعات مشتريات
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoice_items') THEN ALTER TABLE public.purchase_invoice_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_return_items') THEN ALTER TABLE public.purchase_return_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     END IF;
 
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cheques') THEN 

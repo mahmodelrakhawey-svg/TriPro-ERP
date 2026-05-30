@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٢٤‏/٥‏/٢٠٢٦، ١:٣٧:٠٧ م
+📅 تاريخ التحديث: ٣٠‏/٥‏/٢٠٢٦، ١١:٣٨:٢٠ ص
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -44,19 +44,33 @@
     📁 components/
       📄 BillingManager.tsx
       📄 BOQManager.tsx
+      📄 ChangeOrderManager.tsx
+      📄 ConstructionDashboard.tsx
       📄 CustodyManager.tsx
+      📄 EquipmentManager.tsx
+      📄 MaterialIssueForm.tsx
+      📄 ProjectChangeOrderForm.tsx
+      📄 ProjectClosingForm.tsx
+      📄 ProjectComprehensiveReport.tsx
       📄 ProjectForm.tsx
       📄 ProjectGanttChart.tsx
+      📄 ProjectHealthGauges.tsx
       📄 ProjectManager.tsx
       📄 ProjectMilestonesManager.tsx
       📄 RetentionReleaseManager.tsx
+      📄 SiteAssetsCustody.tsx
+      📄 SiteAttachmentManager.tsx
       📄 SiteRequisitionManager.tsx
       📄 SubcontractorBillingManager.tsx
       📄 SubcontractorContractsManager.tsx
       📄 SubcontractorForm.tsx
       📄 SubcontractorManager.tsx
+      📄 SubcontractorStatement.tsx
     📁 reports/
+      📄 LaborCostReport.tsx
+      📄 ProjectExecutiveReport.tsx
       📄 ProjectProfitabilityDashboard.tsx
+      📄 SubcontractorAnalytics.tsx
   📁 finance/
     📁 components/
       📄 BankReconciliationForm.tsx
@@ -103,6 +117,7 @@
     📄 StockTransfer.tsx
     📄 StockTransferList.tsx
     📄 TopSellingReport.tsx
+    📄 UomManager.tsx
     📄 useProducts.ts
     📄 WarehouseManager.tsx
     📄 WastageManager.tsx
@@ -219,7 +234,9 @@
   📄 _redirects
   📄 About.tsx
   📄 AdminTestDashboard.tsx
+  📄 backup_service.sql
   📄 Dashboard.tsx
+  📄 DashboardAlerts.tsx
   📄 DemoTour.tsx
   📄 DEPLOYMENT_STRATEGY.md
   📄 DraftJournalsList.tsx
@@ -232,10 +249,12 @@
   📄 LandingPage.tsx
   📄 Login.tsx
   📄 Maintenance.tsx
+  📄 manufacturing_module.sql
   📄 NotificationCenter.tsx
   📄 OfflineSyncProvider.tsx
   📄 PrintableInvoice.tsx
   📄 ProductStockViewer.tsx
+  📄 ProjectSCurveChart.tsx
   📄 Quotations.tsx
   📄 ReportHeader.tsx
   📄 run-flow-test.ts
@@ -243,8 +262,10 @@
   📄 SearchableSelect.tsx
   📄 SecurityLogs.tsx
   📄 Settings.tsx
+  📄 setup_notifications.sql
   📄 Sidebar.tsx
   📄 SmartRiskAlerts.tsx
+  📄 UnitsOfMeasureManager.tsx
   📄 usePagination.ts
   📄 UserGuide.tsx
   📄 UserManager.tsx
@@ -407,7 +428,11 @@
   📄 notificationService.ts
   📄 notificationTestUtils.ts
   📄 offlineService.ts
+  📄 ProjectInsights.tsx
   📄 setup_rls.sql
+  📄 SiteAttendanceManager.tsx
+  📄 SiteImageGallery.tsx
+  📄 SubcontractorPaymentButton.tsx
   📄 supabaseClient.ts
   📄 unit_test_restaurant_lifecycle.sql
   📄 updated_system_stabilization.sql
@@ -444,6 +469,7 @@
     "security-check": "npm audit && npm run security-audit"
   },
   "dependencies": {
+    "@ant-design/icons": "^6.2.3",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@google/genai": "^1.34.0",
@@ -451,6 +477,7 @@
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.16",
     "@types/nodemailer": "^7.0.11",
+    "antd": "^6.4.3",
     "date-fns": "^4.2.1",
     "dexie": "^4.3.0",
     "dexie-react-hooks": "^4.2.0",
@@ -597,7 +624,13 @@ import ManufacturingAlertsLog from './modules/manufacturing/reports/Manufacturin
 import CostClosingDashboard from './modules/manufacturing/components/CostClosingDashboard';
 import SecurityLogs from './components/SecurityLogs';
 import ProjectManager from './modules/construction/components/ProjectManager';
+import ConstructionDashboard from './modules/construction/components/ConstructionDashboard';
+import LaborCostReport from './modules/construction/reports/LaborCostReport';
 import SubcontractorManager from './modules/construction/components/SubcontractorManager';
+import SubcontractorContractsManager from './modules/construction/components/SubcontractorContractsManager';
+import SubcontractorBillingManager from './modules/construction/components/SubcontractorBillingManager';
+import SubcontractorAnalytics from './modules/construction/reports/SubcontractorAnalytics';
+import SubcontractorStatement from './modules/construction/components/SubcontractorStatement';
 import PermissionsManager from './modules/admin/PermissionsManager';
 import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
@@ -624,6 +657,7 @@ import WIPMonthlySummaryReport from './modules/manufacturing/reports/WIPMonthlyS
 import UserProfile from './components/UserProfile';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
+import UnitsOfMeasureManager from './components/UnitsOfMeasureManager';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import GuestMenuLayout from './modules/restaurant/components/GuestMenuLayout';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
@@ -801,6 +835,39 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     return <>{children}</>;
 };
 
+/** 🏗️ مكون وسيط لإدارة تدفق شاشات المقاولين عند الدخول من القائمة الجانبية **/
+const SubcontractorStandalone = () => {
+  const [view, setView] = useState<{type: 'list' | 'contracts' | 'billings' | 'statement', id: string}>({ type: 'list', id: '' });
+
+  if (view.type === 'contracts') {
+    return <SubcontractorContractsManager 
+      subcontractorId={view.id} 
+      onBack={() => setView({ type: 'list', id: '' })} 
+      onViewBillings={(contractId) => setView({ type: 'billings', id: contractId })}
+    />;
+  }
+
+  if (view.type === 'billings') {
+    return <SubcontractorBillingManager 
+      contractId={view.id} 
+      onBack={() => setView({ type: 'list', id: '' })} // العودة للقائمة الرئيسية للتبسيط
+    />;
+  }
+
+  if (view.type === 'statement') {
+    return <SubcontractorStatement 
+      subcontractorId={view.id} 
+      onBack={() => setView({ type: 'list', id: '' })} 
+    />;
+  }
+
+  return <SubcontractorManager 
+    onBack={() => window.history.back()} 
+    onViewContracts={(id) => setView({ type: 'contracts', id })} 
+    onViewStatement={(id) => setView({ type: 'statement', id })}
+  />;
+};
+
 const MainLayout = () => {
     const { currentUser } = useAccounting();
 
@@ -872,11 +939,80 @@ const MainLayout = () => {
                 <Route path="/budget-setup" element={<ModuleGuard module="accounting"><BudgetManager /></ModuleGuard>} />
                 <Route path="/budget-report" element={<ModuleGuard module="accounting"><BudgetVarianceReport /></ModuleGuard>} />
                 <Route path="/fiscal-year-closing" element={<ModuleGuard module="accounting"><FiscalYearClosing /></ModuleGuard>} />
+                {/* 💰 مديول الخزينة والبنوك */}
                 <Route path="/receipt-voucher" element={<ModuleGuard module="accounting"><ReceiptVoucherForm /></ModuleGuard>} />
                 <Route path="/receipt-vouchers-list" element={<ModuleGuard module="accounting"><ReceiptVoucherList /></ModuleGuard>} />
                 <Route path="/payment-voucher" element={<ModuleGuard module="accounting"><PaymentVoucherForm /></ModuleGuard>} />
+                <Route path="/payment-vouchers-list" element={<ModuleGuard module="accounting"><PaymentVoucherList /></ModuleGuard>} />
+                <Route path="/expense-voucher" element={<ModuleGuard module="accounting"><ExpenseVoucherForm /></ModuleGuard>} />
+                <Route path="/transfer" element={<ModuleGuard module="accounting"><TransferForm /></ModuleGuard>} />
+                <Route path="/customer-deposit" element={<ModuleGuard module="accounting"><CustomerDepositForm /></ModuleGuard>} />
+                <Route path="/cheques" element={<ModuleGuard module="accounting"><ChequesPage /></ModuleGuard>} />
+                <Route path="/cheque-movement-report" element={<ModuleGuard module="accounting"><ChequeMovementReport /></ModuleGuard>} />
+                <Route path="/returned-cheques-report" element={<ModuleGuard module="accounting"><ReturnedChequesReport /></ModuleGuard>} />
+                <Route path="/bank-reconciliation" element={<ModuleGuard module="accounting"><BankReconciliationForm /></ModuleGuard>} />
+                <Route path="/cash-closing" element={<ModuleGuard module="accounting"><CashClosingForm /></ModuleGuard>} />
+                <Route path="/deficit-report" element={<ModuleGuard module="accounting"><DeficitReport /></ModuleGuard>} />
+                
+                {/* 🛒 مديول المبيعات والعملاء */}
+                <Route path="/sales-invoice" element={<ModuleGuard module="sales"><SalesInvoiceForm /></ModuleGuard>} />
+                <Route path="/invoices-list" element={<ModuleGuard module="sales"><InvoiceList /></ModuleGuard>} />
+                <Route path="/quotations-new" element={<ModuleGuard module="sales"><QuotationForm /></ModuleGuard>} />
+                <Route path="/quotations-list" element={<ModuleGuard module="sales"><QuotationList /></ModuleGuard>} />
+                <Route path="/sales-orders" element={<ModuleGuard module="sales"><SalesOrders /></ModuleGuard>} />
+                <Route path="/sales-return" element={<ModuleGuard module="sales"><SalesReturnForm /></ModuleGuard>} />
+                <Route path="/credit-note" element={<ModuleGuard module="sales"><CreditNoteForm /></ModuleGuard>} />
+                <Route path="/credit-notes-list" element={<ModuleGuard module="sales"><CreditNoteList /></ModuleGuard>} />
+                <Route path="/offer-beneficiaries" element={<ModuleGuard module="sales"><OfferBeneficiariesReport /></ModuleGuard>} />
+                <Route path="/customers" element={<ModuleGuard module="sales"><CustomerManager /></ModuleGuard>} />
+                <Route path="/customer-statement" element={<ModuleGuard module="sales"><CustomerStatement /></ModuleGuard>} />
+                <Route path="/customer-aging" element={<ModuleGuard module="sales"><CustomerAgingReport /></ModuleGuard>} />
+                <Route path="/item-sales-analysis" element={<ModuleGuard module="sales"><ItemSalesAnalysis /></ModuleGuard>} />
+                <Route path="/sales-reports" element={<ModuleGuard module="sales"><SalesReports /></ModuleGuard>} />
+                
+                {/* 🚚 مديول المشتريات والموردين */}
+                <Route path="/purchase-invoice" element={<ModuleGuard module="purchases"><PurchaseInvoiceForm /></ModuleGuard>} />
+                <Route path="/purchase-invoices-list" element={<ModuleGuard module="purchases"><PurchaseInvoiceList /></ModuleGuard>} />
+                <Route path="/purchase-order-new" element={<ModuleGuard module="purchases"><PurchaseOrderForm /></ModuleGuard>} />
+                <Route path="/purchase-order-list" element={<ModuleGuard module="purchases"><PurchaseOrderList /></ModuleGuard>} />
+                <Route path="/purchase-return" element={<ModuleGuard module="purchases"><PurchaseReturnForm /></ModuleGuard>} />
+                <Route path="/debit-note" element={<ModuleGuard module="purchases"><DebitNoteForm /></ModuleGuard>} />
+                <Route path="/debit-notes-list" element={<ModuleGuard module="purchases"><DebitNoteList /></ModuleGuard>} />
+                <Route path="/net-purchases-report" element={<ModuleGuard module="purchases"><NetPurchasesReport /></ModuleGuard>} />
+                <Route path="/supplier-reconciliation" element={<ModuleGuard module="purchases"><SupplierBalanceReconciliation /></ModuleGuard>} />
+                <Route path="/supplier-balances" element={<ModuleGuard module="purchases"><SupplierBalancesReport /></ModuleGuard>} />
+                <Route path="/suppliers" element={<ModuleGuard module="purchases"><SupplierManager /></ModuleGuard>} />
+                <Route path="/supplier-statement" element={<ModuleGuard module="purchases"><SupplierStatement /></ModuleGuard>} />
+                <Route path="/supplier-aging" element={<ModuleGuard module="purchases"><SupplierAgingReport /></ModuleGuard>} />
+                <Route path="/purchase-analysis" element={<ModuleGuard module="purchases"><PurchaseAnalysisReport /></ModuleGuard>} />
+                <Route path="/purchase-reports" element={<ModuleGuard module="purchases"><PurchaseReports /></ModuleGuard>} />
+                
+                {/* 📦 مديول المخازن والأصناف */}
+                <Route path="/products" element={<ModuleGuard module="inventory"><ProductManager /></ModuleGuard>} />
+                <Route path="/units-of-measure" element={<ModuleGuard module="inventory"><UnitsOfMeasureManager /></ModuleGuard>} />
+                <Route path="/inventory-dashboard" element={<ModuleGuard module="inventory"><InventoryDashboard /></ModuleGuard>} />
+                <Route path="/warehouses" element={<ModuleGuard module="inventory"><WarehouseManager /></ModuleGuard>} />
+                <Route path="/stock-transfer" element={<ModuleGuard module="inventory"><StockTransfer /></ModuleGuard>} />
+                <Route path="/stock-transfer-list" element={<ModuleGuard module="inventory"><StockTransferList /></ModuleGuard>} />
+                <Route path="/inventory-count" element={<ModuleGuard module="inventory"><InventoryCountForm /></ModuleGuard>} />
+                <Route path="/inventory-history" element={<ModuleGuard module="inventory"><InventoryCountList /></ModuleGuard>} />
+                <Route path="/stock-adjustment" element={<ModuleGuard module="inventory"><StockAdjustmentForm /></ModuleGuard>} />
+                <Route path="/wastage" element={<ModuleGuard module="inventory"><WastageManager /></ModuleGuard>} />
+                <Route path="/inventory-revaluation" element={<ModuleGuard module="inventory"><InventoryRevaluation /></ModuleGuard>} />
+                <Route path="/stock-movement-cost" element={<ModuleGuard module="inventory"><StockMovementCostReport /></ModuleGuard>} />
+                <Route path="/slow-moving" element={<ModuleGuard module="inventory"><SlowMovingReport /></ModuleGuard>} />
+                <Route path="/opening-inventory" element={<ModuleGuard module="inventory"><OpeningInventory /></ModuleGuard>} />
+                <Route path="/stock-card" element={<ModuleGuard module="inventory"><StockCard /></ModuleGuard>} />
+                <Route path="/item-movement" element={<ModuleGuard module="inventory"><ItemMovementReport /></ModuleGuard>} />
+                <Route path="/top-selling" element={<ModuleGuard module="inventory"><TopSellingReport /></ModuleGuard>} />
+                <Route path="/item-profit" element={<ModuleGuard module="inventory"><ItemProfitReport /></ModuleGuard>} />
+                <Route path="/detailed-stock-movement" element={<ModuleGuard module="inventory"><DetailedStockMovementReport /></ModuleGuard>} />
+
+                <Route path="/construction/analytics" element={<ModuleGuard module="construction"><ConstructionDashboard /></ModuleGuard>} />
+                <Route path="/construction/labor-reports" element={<ModuleGuard module="construction"><LaborCostReport /></ModuleGuard>} />
                 <Route path="/construction" element={<ModuleGuard module="construction"><ProjectManager /></ModuleGuard>} />
-                <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorManager onBack={() => window.history.back()} onViewContracts={(id) => console.log('Viewing contracts for:', id)} /></ModuleGuard>} />
+                <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorStandalone /></ModuleGuard>} />
+                <Route path="/construction/subcontractor-analytics" element={<ModuleGuard module="construction"><SubcontractorAnalytics /></ModuleGuard>} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />
@@ -903,15 +1039,10 @@ const MainLayout = () => {
                 <Route path="/accounts" element={<ModuleGuard module="accounting"><AccountList /></ModuleGuard>} />
                 <Route path="/assets" element={<ModuleGuard module="accounting"><AssetManager /></ModuleGuard>} />
                 <Route path="/important-reports" element={<ModuleGuard module="accounting"><ImportantReports /></ModuleGuard>} />
-                <Route path="/sales-reports" element={<ModuleGuard module="sales"><SalesReports /></ModuleGuard>} />
                 <Route path="/reports/restaurant-sales" element={<ModuleGuard module="restaurant"><RestaurantSalesReport /></ModuleGuard>} />
                 <Route path="/reports/sales-by-user" element={<ModuleGuard module="restaurant"><SalesByUserReport /></ModuleGuard>} />
                 <Route path="/reports/wastage-analysis" element={<ModuleGuard module="restaurant"><WastageAnalysisReport /></ModuleGuard>} />
                 <Route path="/reports/restaurant-profit" element={<ModuleGuard module="restaurant"><RestaurantProfitReport /></ModuleGuard>} />
-                <Route path="/purchase-reports" element={<ModuleGuard module="purchases"><PurchaseReports /></ModuleGuard>} />
-                <Route path="/offer-beneficiaries" element={<ModuleGuard module="sales"><OfferBeneficiariesReport /></ModuleGuard>} />
-                <Route path="/item-sales-analysis" element={<ModuleGuard module="sales"><ItemSalesAnalysis /></ModuleGuard>} />
-                <Route path="/purchase-analysis" element={<ModuleGuard module="purchases"><PurchaseAnalysisReport /></ModuleGuard>} />
                 <Route path="/users" element={<UserManager />} />
                 <Route path="/security-logs" element={<SecurityLogs />} /> 
                 <Route path="/permissions" element={<PermissionsManager />} />
@@ -1011,8 +1142,9 @@ export default App;
 ### 📄 context/AccountingContext.tsx
 ```typescript
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
+import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization } from '../types';
 import { useToast } from '../context/ToastContext';
 
 export interface UserProfile {
@@ -1185,6 +1317,8 @@ interface AccountingContextType {
   addDemoInvoice: (invoice: any) => void;
   postDemoSalesInvoice: (invoice: any) => void;
   addDemoPurchaseInvoice: (invoice: any) => void;
+  deleteOrganization: (orgId: string) => Promise<{ success: boolean; message?: string }>;
+
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -1241,26 +1375,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         setCurrentUser(profile);
       }
 
+      // 🛡️ صمام أمان: جلب قائمة الشركات للسوبر أدمن فوراً لملء القائمة المنسدلة
+      const isSuperAdmin = authUser.role === 'super_admin' || profile.role === 'super_admin';
+      if (isSuperAdmin) {
+        const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
+        setOrganizations(allOrgs || []);
+      }
+
       // Determine the organization ID to use for fetching data
       let fetchOrgId = profile.organization_id;
 
-      // If super admin, and no specific org is selected, try to use the profile's org
-      // or the first available org if the super admin has no default.
-      if (authUser.role === 'super_admin') {
+      if (isSuperAdmin) {
           if (currentSelectedOrgId) {
               fetchOrgId = currentSelectedOrgId;
           } else if (profile.organization_id) {
               fetchOrgId = profile.organization_id;
               setCurrentSelectedOrgId(profile.organization_id); // Set it for future consistency
-          } else {
-              // If super admin has no default org, and none is selected, we can't fetch data.
-              // A UI mechanism is needed to select an organization.
-              console.warn("Super admin needs to select an organization to view data.");
-              setIsLoading(false);
-              return;
           }
       }
-      if (!fetchOrgId) return; // If still no orgId, return.
+
+      // إذا لم يكن هناك شركة مختارة (حتى للسوبر أدمن)، نتوقف عن جلب البيانات المالية فقط ونعرض الواجهة
+      if (!fetchOrgId) {
+        setIsLoading(false);
+        return;
+      }
 
       // تحديث كائن المنظمة ليتوافق مع المنظمة النشطة (دعم السوبر أدمن)
       if (fetchOrgId === profile.organization_id) {
@@ -1269,12 +1407,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // جلب تفاصيل المنظمة المختارة يدوياً
         const { data: selectedOrg } = await supabase.from('organizations').select('*').eq('id', fetchOrgId).single();
         if (selectedOrg) setOrganization(selectedOrg);
-      }
-
-      // If super admin, fetch all organizations to populate the selector
-      if (authUser.role === 'super_admin') {
-        const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
-        setOrganizations(allOrgs || []);
       }
 
       // جلب الإعدادات
@@ -1804,6 +1936,35 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const exportData = async () => { /* Logic to export JSON */ };
 
+  const deleteOrganization = useCallback(async (orgId: string) => {
+    if (currentUser?.role !== 'super_admin') {
+      showToast('ليس لديك صلاحية لحذف الشركات.', 'error');
+      return { success: false, message: 'ليس لديك صلاحية لحذف الشركات.' };
+    }
+
+    if (!window.confirm('⚠️ تحذير: سيتم حذف هذه الشركة وجميع بياناتها (الحسابات، الفواتير، المخزون...) بشكل نهائي.\n\nلا يمكن التراجع عن هذا الإجراء.\n\nهل أنت متأكد تماماً؟')) {
+      return { success: false, message: 'تم إلغاء عملية الحذف.' };
+    }
+
+    try {
+      // استدعاء دالة الحذف الآمنة التي تتجاوز الحماية السيادية في قاعدة البيانات
+      const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
+
+      if (error) {
+        console.error('Error deleting organization:', error);
+        showToast(`فشل حذف الشركة: ${error.message}`, 'error');
+        return { success: false, message: `فشل حذف الشركة: ${error.message}` };
+      }
+
+      showToast('تم حذف الشركة وجميع بياناتها بنجاح ✅', 'success');
+      await refreshData(); // تحديث القائمة بعد الحذف
+      return { success: true };
+    } catch (e: any) {
+      showToast(`حدث خطأ غير متوقع: ${e.message}`, 'error');
+      return { success: false, message: e.message };
+    }
+  }, [currentUser, showToast, refreshData]);
+
   const value: AccountingContextType = {
     organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
@@ -1833,6 +1994,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     purgeDeletedRecords, refreshSaasSchema, closeFinancialYear, exportData,
     // Demo
     addDemoEntry, addDemoPaymentVoucher, addDemoReceiptVoucher, addDemoInvoice,
+    deleteOrganization,
     postDemoSalesInvoice, addDemoPurchaseInvoice
   };
 

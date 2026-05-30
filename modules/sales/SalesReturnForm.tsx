@@ -13,6 +13,7 @@ const SalesReturnForm = () => {
   const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [formData, setFormData] = useState({ customerId: '', warehouseId: '', date: new Date().toISOString().split('T')[0], returnNumber: '', notes: '' });
+  const [uoms, setUoms] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
   const [productSearch, setProductSearch] = useState('');
   const [searchInvoiceNumber, setSearchInvoiceNumber] = useState('');
@@ -21,9 +22,17 @@ const SalesReturnForm = () => {
   const [originalInvoiceId, setOriginalInvoiceId] = useState<string | null>(null);
   const [originalInvoiceOrgId, setOriginalInvoiceOrgId] = useState<string | null>(null);
 
-  // تعيين المستودع الافتراضي عند التحميل
+  // تحميل البيانات الأساسية (المستودع والوحدات)
   useEffect(() => {
-    // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات)
+    // 1. جلب كافة الوحدات للمنظمة
+    const fetchUoms = async () => {
+      const orgId = (currentUser as any)?.organization_id;
+      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      if (data) setUoms(data);
+    };
+    fetchUoms();
+
+    // 2. اختيار المستودع تلقائياً
     if (!formData.warehouseId) {
       if (warehouses.length === 1) {
         setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
@@ -32,7 +41,7 @@ const SalesReturnForm = () => {
         if (preferred) setFormData(prev => ({ ...prev, warehouseId: preferred.id }));
       }
     }
-  }, [warehouses, formData.warehouseId]);
+  }, [warehouses, formData.warehouseId, currentUser]);
 
   const handleFetchInvoice = async () => {
     if (!searchInvoiceNumber.trim()) return;
@@ -40,7 +49,7 @@ const SalesReturnForm = () => {
     try {
       const { data: invoice, error } = await supabase
         .from('invoices')
-        .select('*, invoice_items(*, products(name))')
+        .select('*, invoice_items(*, products(name, base_uom_id))')
         // البحث في كافة المنظمات إذا كان المستخدم سوبر أدمن، أو منظمته فقط إذا كان مستخدماً عادياً (بفضل RLS)
         .ilike('invoice_number', `%${searchInvoiceNumber.trim()}%`)
         .limit(1)
@@ -62,7 +71,8 @@ const SalesReturnForm = () => {
             productId: item.product_id,
             name: item.products?.name,
             quantity: returnPartialQuantities ? 0 : item.quantity, // هنا يتم ضبط الكمية بناءً على خيار الإرجاع الجزئي
-            unitPrice: item.unit_price, // Changed to unitPrice
+            unitPrice: item.unit_price,
+            uomId: item.uom_id || item.products?.base_uom_id, // استخدام وحدة الفاتورة أو الوحدة الأساسية
             maxQuantity: item.quantity // نحتفظ بالكمية الأصلية هنا
         }));
         setItems(newItems);
@@ -87,7 +97,15 @@ const SalesReturnForm = () => {
   };
 
   const addItem = (product: any) => {
-    setItems([...items, { productId: product.id, name: product.name, quantity: 1, unitPrice: product.sales_price || 0 }]); // Changed to unitPrice
+    setItems([...items, { 
+      productId: product.id, 
+      name: product.name, 
+      quantity: 1, 
+      unitPrice: product.sales_price || 0,
+      uomId: product.base_uom_id || product.sale_uom_id,
+      // إضافة قائمة الوحدات المتوافقة لهذا السطر (نفس الفئة)
+      availableUoms: uoms.filter(u => u.category_id === product.uom_categories?.id)
+    }]);
     setProductSearch('');
   };
 
@@ -103,8 +121,28 @@ const SalesReturnForm = () => {
              processedValue = item.maxQuantity;
         }
     }
-    // Changed to unitPrice
+    
+    // تحديث السعر عند تغيير الوحدة في المرتجع لضمان القيمة الصحيحة
+    if (field === 'uomId') {
+        const selectedUom = uoms.find(u => u.id === value);
+        const product = products.find(p => p.id === newItems[index].productId || p.id === newItems[index].product_id);
+        if (selectedUom && product) {
+            // الذكاء الاصطناعي: السعر الجديد = سعر البيع الأساسي * معامل تحويل الوحدة المختارة
+            const basePrice = product.sales_price || product.price || 0;
+            const newUnitPrice = Number((basePrice * selectedUom.ratio).toFixed(4));
+            
+            newItems[index].unitPrice = newUnitPrice;
+            // ضمان تحديث unit_price للتوافق مع أسماء الأعمدة المختلفة
+            if (newItems[index].unit_price !== undefined) {
+                newItems[index].unit_price = newUnitPrice;
+            }
+        }
+    }
+
     newItems[index][field] = processedValue;
+    // إعادة حساب الإجمالي لهذا السطر فوراً
+    newItems[index].total = newItems[index].quantity * (newItems[index].unitPrice || newItems[index].unit_price || 0);
+    
     setItems(newItems);
   };
 
@@ -187,6 +225,7 @@ const SalesReturnForm = () => {
         sales_return_id: returnDoc.id,
         product_id: item.productId,
         quantity: item.quantity,
+        uom_id: item.uomId, // 🛡️ حقن معرف الوحدة في جدول البنود
         unit_price: item.unitPrice,
         total: item.quantity * item.unitPrice
       }));
@@ -313,6 +352,7 @@ const SalesReturnForm = () => {
           <thead className="bg-slate-50 text-sm font-bold text-slate-600">
             <tr>
               <th className="p-3">الصنف</th>
+              <th className="p-3 w-40">الوحدة</th>
               <th className="p-3 w-32">الكمية المرتجعة</th>
               <th className="p-3 w-32">سعر الوحدة</th>
               <th className="p-3 w-32">الإجمالي</th>
@@ -323,6 +363,23 @@ const SalesReturnForm = () => {
             {items.map((item, idx) => (
               <tr key={idx} className="border-b">
                 <td className="p-3">{item.name}</td>
+                <td className="p-3">
+                  <select 
+                    value={item.uomId} 
+                    onChange={e => updateItem(idx, 'uomId', e.target.value)}
+                    className="w-full border rounded p-1 text-xs bg-white"
+                  >
+                    {/* عرض الوحدات المتوافقة فقط مع فئة الصنف */}
+                    {uoms.filter(u => {
+                        const prod = products.find(p => p.id === item.productId);
+                        // جلب category_id للوحدة الأساسية للصنف
+                        const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
+                        return u.category_id === baseUom?.category_id;
+                    }).map(u => (
+                      <option key={u.id} value={u.id}>{u.name}</option>
+                    ))}
+                  </select>
+                </td>
                 <td className="p-3">
                   <input 
                     type="number" 

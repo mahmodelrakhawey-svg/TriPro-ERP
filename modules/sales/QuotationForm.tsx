@@ -20,15 +20,23 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
   // Pricing Tier State
   const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
 
-  const [items, setItems] = useState<InvoiceItem[]>([
+  const [items, setItems] = useState<any[]>([
     { id: '1', productName: '', product_name: '', quantity: 1, unitPrice: 0, unit_price: 0, total: 0 }
   ]);
+  const [uoms, setUoms] = useState<any[]>([]);
 
   const [savedQuote, setSavedQuote] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   // تحميل بيانات عرض السعر إذا كان في وضع التعديل
   React.useEffect(() => {
+    const fetchUoms = async () => {
+      const orgId = (currentUser as any)?.organization_id;
+      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      if (data) setUoms(data);
+    };
+    fetchUoms();
+
     if (quotationId) {
       const loadQuotation = async () => {
         setIsLoading(true);
@@ -71,10 +79,10 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
   const taxAmount = subtotal * taxRate;
   const totalAmount = subtotal + taxAmount;
 
-  const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
+  const handleItemChange = (index: number, field: string, value: any) => {
     const newItems = [...items];
     let processedValue = value;
-    if (field === 'quantity' || field === 'unitPrice') processedValue = parseFloat(value) || 0;
+    if (field === 'quantity' || (field as string) === 'unitPrice') processedValue = parseFloat(value) || 0;
 
     const item = { ...newItems[index], [field]: processedValue };
     if (field === 'quantity' || field === 'unitPrice' || field === 'productId') {
@@ -91,11 +99,24 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
             if (pricingTier === 'half') priceToUse = product.halfWholesalePrice || product.sales_price || product.price || 0;
 
             item.unitPrice = priceToUse;
+            item.uomId = product.sale_uom_id || product.base_uom_id; // 🛡️ تعيين الوحدة الافتراضية فوراً
             item.total = item.quantity * priceToUse;
         }
     }
-    newItems[index] = item;
-    setItems(newItems);
+    // تحديث السعر تلقائياً عند تغيير الوحدة في عرض السعر
+    if (field === 'uomId') {
+        const selectedUom = uoms.find(u => u.id === value);
+        const product = products.find(p => p.id === newItems[index].productId);
+        if (selectedUom && product) {
+            const basePrice = product.sales_price || 0;
+            item.unitPrice = Number((basePrice * selectedUom.ratio).toFixed(4));
+        }
+    }
+
+    newItems[index] = { ...item, [field]: processedValue };
+    newItems[index].total = newItems[index].quantity * newItems[index].unitPrice;
+
+        setItems(newItems);
   };
 
   const handlePricingTierChange = (tier: 'retail' | 'wholesale' | 'half') => {
@@ -188,6 +209,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
             product_id: item.productId,
             quantity: item.quantity,
             unit_price: item.unitPrice, // تم التوحيد مع نظام الفواتير والمرتجعات
+            uom_id: item.uomId,
             total: item.total
         }));
 
@@ -281,6 +303,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
                   <thead>
                       <tr className="border-b text-sm text-slate-500">
                           <th className="pb-2 w-1/3">المنتج</th>
+                          <th className="pb-2 w-32 text-center">الوحدة</th>
                           <th className="pb-2 w-24 text-center">الكمية</th>
                           <th className="pb-2 w-32 text-center">السعر</th>
                           <th className="pb-2 w-32 text-center">الإجمالي</th>
@@ -296,6 +319,18 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
                                       {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                   </select>
                                   <input type="text" className="w-full border rounded p-1 text-xs" placeholder="وصف" value={item.productName} onChange={e => handleItemChange(idx, 'productName', e.target.value)} />
+                              </td>
+                              <td className="py-2">
+                                  <select 
+                                      className="w-full border rounded p-1 text-xs bg-white"
+                                      value={item.uomId}
+                                      onChange={e => handleItemChange(idx, 'uomId', e.target.value)}
+                                  >
+                                      {uoms.filter(u => {
+                                          const prod = products.find(p => p.id === item.productId);
+                                          return u.category_id === uoms.find(ux => ux.id === prod?.base_uom_id)?.category_id;
+                                      }).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                  </select>
                               </td>
                               <td className="py-2"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => handleItemChange(idx, 'quantity', e.target.value)} /></td>
                               <td className="py-2"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => handleItemChange(idx, 'unitPrice', e.target.value)} /></td>

@@ -270,6 +270,9 @@ export interface Product {
   item_type?: 'STOCK' | 'SERVICE' | 'MANUFACTURED';
   purchase_price?: number;
   unit?: string;
+  base_uom_id?: string | null;
+  purchase_uom_id?: string | null;
+  sale_uom_id?: string | null;
   // خصائص إضافية
   wholesalePrice?: number;
   halfWholesalePrice?: number;
@@ -288,6 +291,7 @@ export interface InvoiceItem {
   product_name: string;
   product_sku?: string;
   quantity: number;
+  uom_id?: string;
   unit_price: number;
   total: number;
   // خصائص إضافية
@@ -295,6 +299,7 @@ export interface InvoiceItem {
   productSku?: string;
   unitPrice?: number;
   productId?: string;
+  uomId?: string;
 }
 
 export interface Invoice {
@@ -592,6 +597,8 @@ export interface OrderItem {
   productId: string;
   name: string;
   quantity: number;
+  uomId?: string;
+  uom_id?: string;
   price: number;      // السعر الأساسي
   unitPrice: number;  // السعر شامل الإضافات
   unitCost: number;   // التكلفة الإجمالية

@@ -21,6 +21,15 @@ ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT '
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
 
+-- 🛡️ ترميم أعمدة وحدات القياس (UoM Healing) لضمان توافق الجداول الحالية مع التحديثات
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bill_of_materials') THEN ALTER TABLE public.bill_of_materials ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_step_materials') THEN ALTER TABLE public.mfg_step_materials ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_actual_material_usage') THEN ALTER TABLE public.mfg_actual_material_usage ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_material_request_items') THEN ALTER TABLE public.mfg_material_request_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'opening_inventories') THEN ALTER TABLE public.opening_inventories ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+END $$;
+
 -- ================================================================
 -- 1. جداول مديول التصنيع (MFG Module Tables)
 -- ================================================================
@@ -42,6 +51,7 @@ CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم الوحدات في BOM
     quantity_required numeric NOT NULL DEFAULT 1,
     created_at timestamptz DEFAULT now()
 );
@@ -111,6 +121,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_step_materials (
     step_id uuid REFERENCES public.mfg_routing_steps(id) ON DELETE CASCADE,
     raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity_required numeric NOT NULL DEFAULT 1,
+    uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم الوحدات في خامات مراحل التشغيل
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
 );
@@ -120,6 +131,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_actual_material_usage (
     order_progress_id uuid REFERENCES public.mfg_order_progress(id) ON DELETE CASCADE,
     raw_material_id uuid REFERENCES public.products(id),
     standard_quantity numeric NOT NULL,
+    uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم الوحدات في الاستهلاك الفعلي
     actual_quantity numeric NOT NULL,
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
@@ -189,6 +201,7 @@ CREATE TABLE IF NOT EXISTS public.mfg_material_request_items (
     material_request_id uuid REFERENCES public.mfg_material_requests(id) ON DELETE CASCADE,
     raw_material_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity_requested numeric NOT NULL,
+    uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم الوحدات في بنود الطلب
     quantity_issued numeric DEFAULT 0,
     organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now()
@@ -254,7 +267,7 @@ DECLARE
     v_routing_id uuid;
 BEGIN
     -- 1. حساب تكلفة المواد المباشرة من قائمة المواد (BOM) العامة
-    SELECT SUM(bom.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+    SELECT SUM(public.uom_convert(bom.quantity_required, bom.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
     INTO v_material_cost
     FROM public.bill_of_materials bom
     JOIN public.products p ON bom.raw_material_id = p.id
@@ -268,7 +281,7 @@ BEGIN
     IF v_routing_id IS NOT NULL THEN
         -- أ. إضافة تكلفة المواد المعرفة داخل المراحل (في حال عدم وجودها في BOM العام)
         v_material_cost := COALESCE(v_material_cost, 0) + COALESCE((
-            SELECT SUM(sm.quantity_required * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+            SELECT SUM(public.uom_convert(sm.quantity_required, sm.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
             FROM public.mfg_routing_steps rs
             JOIN public.mfg_step_materials sm ON rs.id = sm.step_id
             JOIN public.products p ON sm.raw_material_id = p.id
@@ -404,7 +417,7 @@ material_summary AS (
 
     -- 🛡️ منع الازدواجية في التقارير: نجمع AMU مع MR المستقلة فقط
     SELECT po_id, SUM(cost) as total_material_cost FROM (
-        SELECT op.production_order_id as po_id, SUM(amu.actual_quantity * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
+        SELECT op.production_order_id as po_id, SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
         FROM public.mfg_actual_material_usage amu
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         JOIN public.products rm ON amu.raw_material_id = rm.id
@@ -476,8 +489,8 @@ DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
 SELECT to_char(op.actual_end_time, 'YYYY-MM') AS month, p.name AS product_name, wc.name AS work_center_name, po.organization_id,
        COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
-       COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
-       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(amu.actual_quantity * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
+       COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
+       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
 FROM public.mfg_production_orders po
 JOIN public.products p ON po.product_id = p.id
 JOIN public.mfg_order_progress op ON po.id = op.production_order_id
@@ -606,7 +619,7 @@ DECLARE
     v_stock_val numeric;
 BEGIN
     -- حساب إجمالي قيمة المواد الخام المستهلكة فعلياً في الفترة للمنظمة بالكامل
-    SELECT COALESCE(SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, 0)), 0) 
+    SELECT COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(p.weighted_average_cost, p.cost, 0)), 0) 
     INTO v_usage_val
     FROM public.mfg_actual_material_usage amu
     JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
@@ -728,22 +741,26 @@ BEGIN
 
     -- 4. محرك الخصم المخزني الآلي (Stage-based BOM Deduction)
     FOR v_mat IN
-        SELECT raw_material_id, quantity_required
+        SELECT raw_material_id, quantity_required, uom_id
         FROM public.mfg_step_materials
         WHERE step_id = v_step.step_id
     LOOP
         v_usage_qty := v_mat.quantity_required * p_qty;
 
-        -- حساب تكلفة المواد المستهلكة (بناءً على المتوسط المرجح)
-        v_mat_total_cost := v_mat_total_cost + (v_usage_qty * COALESCE((SELECT NULLIF(weighted_average_cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT NULLIF(cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT purchase_price FROM public.products WHERE id = v_mat.raw_material_id), 0));
+        -- 🚀 حساب التكلفة بناءً على الكمية المحولة للوحدة الأساسية (Base UoM)
+        v_mat_total_cost := v_mat_total_cost + (
+            public.uom_convert(v_usage_qty, v_mat.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_mat.raw_material_id)) * 
+            COALESCE((SELECT NULLIF(weighted_average_cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT NULLIF(cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT purchase_price FROM public.products WHERE id = v_mat.raw_material_id), 0)
+        );
 
         -- ب. تسجيل الاستهلاك الفعلي (بدون تكرار الخصم من المخزن هنا إذا كان هناك MR)
-        INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, organization_id)
+        INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, uom_id, organization_id)
         VALUES (
             p_progress_id,
             v_mat.raw_material_id,
             v_usage_qty,
             v_usage_qty + COALESCE((SELECT SUM(quantity) FROM public.mfg_scrap_logs WHERE order_progress_id = p_progress_id AND product_id = v_mat.raw_material_id), 0),
+            v_mat.uom_id,
             v_org_id
         );
     END LOOP;
@@ -751,6 +768,7 @@ BEGIN
     -- 5. المحرك المحاسبي الصناعي: توليد قيد الإنتاج تحت التشغيل (WIP Entry)
 
     -- جلب الحسابات (نستخدم كود 10303 للإنتاج تحت التشغيل و 10301 للمواد الخام)
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_wip_acc := public.resolve_leaf_account(COALESCE(
         (v_mappings->>'INVENTORY_WIP')::uuid,
         (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1),
@@ -823,6 +841,7 @@ BEGIN
     v_org_id := v_order.organization_id;
 
     -- جلب حسابات الربط والتعامل مع حسابات المجموعات
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_wip_acc := COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1));
     
     -- 🛡️ منع الترحيل للحسابات الرئيسية: البحث عن حساب فرعي إذا كان المختار مجموعة
@@ -875,7 +894,7 @@ BEGIN
 
     -- ج. إضافة تكلفة المواد الفعلية المستهلكة (AMU) - تحسين الربط لضمان الدقة (V50.2)
     v_total_cost := v_total_cost + COALESCE((
-        SELECT SUM(amu.actual_quantity * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+        SELECT SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
         FROM public.mfg_actual_material_usage amu 
         JOIN public.products p ON amu.raw_material_id = p.id
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
@@ -1575,17 +1594,17 @@ BEGIN
     FOR v_material_item IN
         SELECT
             sm.raw_material_id,
-            SUM(sm.quantity_required * v_order.quantity_to_produce) AS total_required_qty
-        FROM public.mfg_routings r
+            sm.uom_id,
+            SUM(sm.quantity_required * v_order.quantity_to_produce) AS total_required_qty        FROM public.mfg_routings r
         JOIN public.mfg_routing_steps rs ON r.id = rs.routing_id
         JOIN public.mfg_step_materials sm ON rs.id = sm.step_id
         WHERE r.product_id = v_order.product_id AND r.is_default = TRUE AND r.organization_id = v_org_id
-        GROUP BY sm.raw_material_id
+        GROUP BY sm.raw_material_id, sm.uom_id
     LOOP
         INSERT INTO public.mfg_material_request_items (
-            material_request_id, raw_material_id, quantity_requested, organization_id
+            material_request_id, raw_material_id, quantity_requested, uom_id, organization_id
         ) VALUES (
-            v_request_id, v_material_item.raw_material_id, v_material_item.total_required_qty, v_org_id
+            v_request_id, v_material_item.raw_material_id, v_material_item.total_required_qty, v_material_item.uom_id, v_org_id
         );
     END LOOP;
 
@@ -1606,18 +1625,25 @@ BEGIN
     v_org_id := v_request.organization_id;
 
     FOR v_item IN SELECT * FROM public.mfg_material_request_items WHERE material_request_id = p_request_id LOOP
-        SELECT COALESCE(stock, 0) INTO v_current_stock FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
-        IF v_current_stock < v_item.quantity_requested THEN
+        -- 🚀 فحص التوفر بالكمية الأساسية (Base Unit)
+        DECLARE
+            v_base_qty numeric := public.uom_convert(v_item.quantity_requested, v_item.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_item.raw_material_id));
+        BEGIN
+            SELECT COALESCE(stock, 0) INTO v_current_stock FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+            
+            IF v_current_stock < v_base_qty THEN
             RAISE EXCEPTION 'نقص في المخزون للمادة %', (SELECT name FROM public.products WHERE id = v_item.raw_material_id);
-        END IF;
+            END IF;
 
-        UPDATE public.products SET stock = stock - v_item.quantity_requested
-        WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+            UPDATE public.products SET stock = stock - v_base_qty
+            WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
 
-        SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) INTO v_product_cost
-        FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
-        v_total_issued_cost := v_total_issued_cost + (v_item.quantity_requested * v_product_cost);
-        UPDATE public.mfg_material_request_items SET quantity_issued = v_item.quantity_requested WHERE id = v_item.id;
+            SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) INTO v_product_cost
+            FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+            
+            v_total_issued_cost := v_total_issued_cost + (v_base_qty * v_product_cost);
+            UPDATE public.mfg_material_request_items SET quantity_issued = v_item.quantity_requested WHERE id = v_item.id;
+        END;
     END LOOP;
 
     UPDATE public.mfg_material_requests SET status = 'issued', issued_by = auth.uid(), issue_date = now() WHERE id = p_request_id;
@@ -1699,8 +1725,8 @@ BEGIN
     SELECT jsonb_agg(t) INTO v_components FROM (
         SELECT
             rm.name as material_name,
-            ROUND(SUM(amu.standard_quantity) / NULLIF(v_order.quantity_to_produce, 0), 4) as standard_per_unit,
-            ROUND(SUM(amu.actual_quantity) / NULLIF(v_order.quantity_to_produce, 0), 4) as actual_per_unit,
+            ROUND(SUM(public.uom_convert(amu.standard_quantity, amu.uom_id, rm.base_uom_id)) / NULLIF(v_order.quantity_to_produce, 0), 4) as standard_per_unit,
+            ROUND(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id)) / NULLIF(v_order.quantity_to_produce, 0), 4) as actual_per_unit,
             jsonb_agg(DISTINCT jsonb_build_object(
                 'request_number', mr.request_number,
                 'issue_date', mr.issue_date
@@ -2046,6 +2072,8 @@ DECLARE
     v_order_id uuid;
     v_prog_id uuid;
     v_wh_id uuid; -- تم إضافة تعريف المستودع
+    v_uom_id uuid;
+    v_uom_cat_id uuid;
 BEGIN
     -- 🛡️ تفعيل وضع الاستعادة للسماح بتنظيف البيانات المحمية إن وجدت
     PERFORM set_config('app.restore_mode', 'on', true);
@@ -2074,16 +2102,24 @@ BEGIN
     -- 🗑️ تنظيف مسبق لبيانات الاختبار بنفس الأسماء لضمان دقة الأرقام
     DELETE FROM public.products WHERE organization_id = v_org_id AND name IN ('منتج اختباري نهائي', 'خامة اختبارية');
 
-    -- إنشاء منتج تام ومادة خام للاختبار
-    INSERT INTO public.products (name, mfg_type, requires_serial, organization_id)
-    VALUES ('منتج اختباري نهائي', 'standard', true, v_org_id) RETURNING id INTO v_prod_id;
+    -- ضمان وجود وحدة قياس مرجعية
+    SELECT id INTO v_uom_id FROM public.uoms WHERE organization_id = v_org_id AND uom_type = 'reference' LIMIT 1;
+    IF v_uom_id IS NULL THEN
+        INSERT INTO public.uom_categories (name, organization_id) VALUES ('وحدات اختبار مديول', v_org_id) RETURNING id INTO v_uom_cat_id;
+        INSERT INTO public.uoms (name, category_id, uom_type, ratio, organization_id) 
+        VALUES ('حبة اختبار مديول', v_uom_cat_id, 'reference', 1, v_org_id) RETURNING id INTO v_uom_id;
+    END IF;
 
-    INSERT INTO public.products (name, mfg_type, stock, weighted_average_cost, organization_id)
-    VALUES ('خامة اختبارية', 'raw', 100, 10, v_org_id) RETURNING id INTO v_raw_id;
+    -- إنشاء منتج تام ومادة خام للاختبار
+    INSERT INTO public.products (name, mfg_type, requires_serial, organization_id, base_uom_id)
+    VALUES ('منتج اختباري نهائي', 'standard', true, v_org_id, v_uom_id) RETURNING id INTO v_prod_id;
+
+    INSERT INTO public.products (name, mfg_type, stock, weighted_average_cost, organization_id, base_uom_id)
+    VALUES ('خامة اختبارية', 'raw', 100, 10, v_org_id, v_uom_id) RETURNING id INTO v_raw_id;
 
     -- 📥 تسجيل رصيد افتتاحي لكي يراه المحرك
-    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
-    VALUES (v_raw_id, v_wh_id, 100, 10, v_org_id);
+    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id, uom_id)
+    VALUES (v_raw_id, v_wh_id, 100, 10, v_org_id, v_uom_id);
     step_name := '1. تهيئة البيانات'; result := 'PASS ✅'; details := 'تم إنشاء المنتج والخامة'; RETURN NEXT;
 
     -- 2. إنشاء مركز عمل ومسار
@@ -2096,8 +2132,8 @@ BEGIN
     INSERT INTO public.mfg_routing_steps (routing_id, step_order, work_center_id, operation_name, standard_time_minutes, organization_id)
     VALUES (v_routing_id, 1, v_wc_id, 'مرحلة اختبارية', 60, v_org_id) RETURNING id INTO v_step_id;
 
-    INSERT INTO public.mfg_step_materials (step_id, raw_material_id, quantity_required, organization_id)
-    VALUES (v_step_id, v_raw_id, 2, v_org_id);
+    INSERT INTO public.mfg_step_materials (step_id, raw_material_id, quantity_required, organization_id, uom_id)
+    VALUES (v_step_id, v_raw_id, 2, v_org_id, v_uom_id);
 
     step_name := '2. إعداد المسار وBOM'; result := 'PASS ✅'; details := 'تم ربط الخامة بمركز العمل'; RETURN NEXT;
 

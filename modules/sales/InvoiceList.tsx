@@ -100,7 +100,7 @@ const InvoiceList = () => {
     try {
         const { data, error } = await supabase
             .from('invoices')
-            .select('*, invoice_items(*, products(name))')
+            .select('*, invoice_items(*, products(name), uoms(name))')
             .eq('id', invoice.id)
             .single();
             
@@ -108,8 +108,9 @@ const InvoiceList = () => {
         
         const fullInvoice = {
             ...invoice,
-            items: data.invoice_items.map((item: { products?: { name: string }; quantity: number; unit_price: number; total: number }) => ({
+            items: data.invoice_items.map((item: any) => ({
                 productName: item.products?.name,
+                uomName: item.uoms?.name,
                 quantity: item.quantity,
                 unitPrice: item.unit_price || 0,
                 total: item.total

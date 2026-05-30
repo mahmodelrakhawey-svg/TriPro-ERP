@@ -20,7 +20,17 @@ const PurchaseReturnForm = () => {
     notes: ''
   });
   const [items, setItems] = useState<any[]>([]);
+  const [uoms, setUoms] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const orgId = (currentUser as any)?.organization_id;
+      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      if (data) setUoms(data);
+    };
+    if (currentUser) fetchUoms();
+  }, [currentUser]);
 
   // تصفية فواتير المشتريات بناءً على المورد المختار
   const supplierInvoices = useMemo(() => {
@@ -48,6 +58,17 @@ const PurchaseReturnForm = () => {
   const handleItemChange = (index: number, field: string, value: any) => {
     const newItems = [...items];
     
+    newItems[index][field] = value;
+
+    if (field === 'uomId') {
+        const selectedUom = uoms.find(u => u.id === value);
+        const product = products.find(p => p.id === newItems[index].productId);
+        if (selectedUom && product) {
+            const basePrice = product.purchase_price || product.cost || 0;
+            newItems[index].price = Number((basePrice * selectedUom.ratio).toFixed(4));
+        }
+    }
+
     if (field === 'quantity' || field === 'price') {
         newItems[index][field] = parseFloat(value) || 0;
     } else {
@@ -56,8 +77,8 @@ const PurchaseReturnForm = () => {
 
     if (field === 'productId') {
       const product = products.find(p => p.id === value);
-      // في مرتجع المشتريات، السعر الافتراضي هو سعر الشراء أو التكلفة
       newItems[index].price = product?.purchase_price || product?.cost || 0;
+      newItems[index].uomId = product?.purchase_uom_id || product?.base_uom_id;
     }
 
     newItems[index].total = (newItems[index].quantity || 0) * (newItems[index].price || 0);
@@ -65,7 +86,7 @@ const PurchaseReturnForm = () => {
   };
 
   const addItem = () => {
-    setItems([...items, { productId: '', quantity: 1, price: 0, total: 0 }]);
+    setItems([...items, { productId: '', quantity: 1, price: 0, uomId: '', total: 0 }]);
   };
 
   const removeItem = (index: number) => {
@@ -124,6 +145,7 @@ const PurchaseReturnForm = () => {
         purchase_return_id: returnHeader.id,
         product_id: item.productId,
         quantity: item.quantity,
+        uom_id: item.uomId,
         unit_price: item.price,
         total: item.total
       }));
@@ -212,13 +234,35 @@ const PurchaseReturnForm = () => {
 
         <div className="space-y-2">
           <h3 className="font-bold">الأصناف المرتجعة</h3>
+          {/* 🏷️ ترويسة المرتجعات الموحدة */}
+          <div className="grid grid-cols-12 gap-2 pb-2 border-b-2 border-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest no-print">
+            <div className="col-span-3 pr-2">بيان الصنف</div>
+            <div className="col-span-2 text-center">الوحدة</div>
+            <div className="col-span-2 text-center">الكمية المرتجعة</div>
+            <div className="col-span-2 text-center">سعر المرتجع</div>
+            <div className="col-span-2 text-center">إجمالي القيمة</div>
+            <div className="col-span-1"></div>
+          </div>
+
           {items.map((item, index) => (
             <div key={index} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-5">
+              <div className="col-span-3">
                 <select required value={item.productId} onChange={e => handleItemChange(index, 'productId', e.target.value)} className="w-full border rounded p-2">
                   <option value="">اختر الصنف...</option>
                   {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
+              </div>
+              <div className="col-span-2">
+                  <select 
+                      value={item.uomId} 
+                      onChange={e => handleItemChange(index, 'uomId', e.target.value)}
+                      className="w-full border rounded p-2 text-xs bg-white"
+                  >
+                      {uoms.filter(u => {
+                          const prod = products.find(p => p.id === item.productId);
+                          return u.category_id === uoms.find(ux => ux.id === prod?.base_uom_id)?.category_id;
+                      }).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                  </select>
               </div>
               <div className="col-span-2">
                 <input type="number" step="any" min="0.01" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', e.target.value)} className="w-full border rounded p-2 text-center" placeholder="الكمية" />

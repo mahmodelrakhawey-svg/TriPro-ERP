@@ -34,6 +34,7 @@ import {
   ChevronDown,
   Landmark,
   Banknote,
+  Ruler,
   ChefHat,
   ScrollText,
   LayoutGrid,
@@ -118,6 +119,8 @@ const Sidebar: React.FC = () => {
     // موديول المخازن
     { type: 'section', label: 'المخازن والأصناف' },
     { to: '/products', label: 'الأصناف والخدمات', icon: Package, color: 'text-purple-400', module: 'inventory', permission: 'products.view' },
+    { to: '/units-of-measure', label: 'وحدات القياس (UoM)', icon: Ruler, color: 'text-purple-400', module: 'inventory', permission: 'products.view' },
+    { to: '/multi-uom-report', label: 'رصيد المخزون المتعدد', icon: Layers, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory-dashboard', label: 'لوحة تحكم المخزون', icon: Activity, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/warehouses', label: 'إدارة المستودعات', icon: LayoutGrid, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/stock-transfer', label: 'تحويل مخزني جديد', icon: ArrowLeftRight, color: 'text-purple-400', module: 'inventory', permission: 'inventory.transfer' },

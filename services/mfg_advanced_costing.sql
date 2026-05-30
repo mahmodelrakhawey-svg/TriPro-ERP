@@ -116,6 +116,7 @@ WHERE op.status = 'completed';
 -- ================================================================
 
 -- 📊 1. تقرير الإنتاج المعادل التفصيلي (Step 2 of Process Costing)
+DROP VIEW IF EXISTS public.v_mfg_equivalent_units CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_equivalent_units WITH (security_invoker = true) AS
 WITH stage_data AS (
     SELECT 
@@ -204,6 +205,7 @@ END; $$;
 
 -- 📊 2. تقرير المصالحة النهائية (Step 5: Cost Reconciliation) - نسخة Weighted Average
 -- يقوم هذا التقرير بجمع تكاليف الفترة مع أول المدة وتوزيعها على الوحدات التامة وتحت التشغيل
+DROP VIEW IF EXISTS public.v_mfg_cost_reconciliation_report CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_cost_reconciliation_report WITH (security_invoker = true) AS
 WITH period_costs AS (
     SELECT 
@@ -273,6 +275,7 @@ JOIN public.products p ON po.product_id = p.id
 JOIN allocation a ON po.id = a.order_id;
 
 -- 📊 3. تقرير انحرافات التكاليف (Variance per EQ Unit)
+DROP VIEW IF EXISTS public.v_mfg_unit_cost_variance CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_unit_cost_variance AS
 SELECT 
     cr.order_number,
@@ -287,6 +290,7 @@ JOIN public.products p ON po.product_id = p.id
 JOIN public.v_mfg_equivalent_units eu ON cr.order_id = eu.order_id;
 
 -- 📊 4. تقرير كمية الإنتاج (Units Flow)
+DROP VIEW IF EXISTS public.v_mfg_production_quantity_report CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_production_quantity_report AS
 SELECT 
     po.order_number,

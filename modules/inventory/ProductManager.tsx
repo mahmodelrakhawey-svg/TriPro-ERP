@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -30,6 +30,9 @@ type Item = {
   sales_account_id: string | null;
   image_url: string | null;
   expiry_date?: string | null;
+  base_uom_id?: string | null;
+  purchase_uom_id?: string | null;
+  sale_uom_id?: string | null;
   offer_price?: number | null;
   offer_start_date?: string | null;
   offer_end_date?: string | null;
@@ -53,6 +56,9 @@ type ProductFormData = {
   description: string;
   purchase_price: number;
   unit: string;
+  base_uom_id: string;
+  purchase_uom_id: string;
+  sale_uom_id: string;
   product_type: 'STOCK' | 'SERVICE' | 'RAW_MATERIAL' | 'MANUFACTURED';
   inventory_account_id: string;
   cogs_account_id: string;
@@ -78,11 +84,15 @@ const ProductManager = () => {
   const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry } = useAccounting();
   const { showToast } = useToast();
   
+  // نقلنا تعريفات الحالة للأعلى لمنع خطأ TS2448 (Used before declaration)
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [uoms, setUoms] = useState<any[]>([]);
+  
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showOffersOnly, setShowOffersOnly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [recipeCost, setRecipeCost] = useState(0); // تخزين تكلفة المكونات
+  const [recipeCost, setRecipeCost] = useState(0); 
 
   // تأخير البحث
   useEffect(() => {
@@ -108,6 +118,27 @@ const ProductManager = () => {
   // استخدام Hook التصفح
   const { data: serverItems, loading: serverLoading, page, setPage, totalPages, totalCount, refresh } = usePagination<Item>('products', { select: '*', pageSize: 20, orderBy: 'name', ascending: true }, queryModifier);
 
+  useEffect(() => {
+    const fetchUoms = async () => {
+      if (currentUser?.role === 'demo') {
+        setUoms([
+          { id: 'u1', name: 'قطعة' },
+          { id: 'u2', name: 'علبة' },
+          { id: 'u3', name: 'كرتونة' },
+          { id: 'u4', name: 'كجم' },
+          { id: 'u5', name: 'لتر' }
+        ]);
+        return;
+      }
+      const orgId = (currentUser as any)?.organization_id;
+      let query = supabase.from('uoms').select('*');
+      if (orgId) query = query.eq('organization_id', orgId);
+      const { data } = await query.order('name');
+      if (data) setUoms(data);
+    };
+    if (isModalOpen) fetchUoms();
+  }, [isModalOpen, currentUser]);
+
   // في وضع الديمو، نستخدم المنتجات من السياق (الوهمية)
   const items = currentUser?.role === 'demo' 
     ? contextProducts.filter(i => 
@@ -118,7 +149,6 @@ const ProductManager = () => {
     : serverItems;
     
   const loading = currentUser?.role === 'demo' ? false : serverLoading;
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [reservedStock, setReservedStock] = useState<Record<string, number>>({});
@@ -235,7 +265,11 @@ const ProductManager = () => {
     available_modifiers: [] as any[],
     labor_cost: 0,
     overhead_cost: 0,
-    is_overhead_percentage: false
+    is_overhead_percentage: false,
+    // إضافة الحقول المفقودة لحل خطأ TS2345
+    base_uom_id: '',
+    purchase_uom_id: '',
+    sale_uom_id: ''
   });
 
   // 🚀 تحديث تلقائي لسعر التكلفة التقديري بناءً على العمالة والمصاريف (للوجبات)
@@ -287,6 +321,9 @@ const ProductManager = () => {
         description: item.description || '',
         purchase_price: item.purchase_price || 0,
         unit: item.unit || 'قطعة', // Removed (item as any)
+        base_uom_id: item.base_uom_id || '',
+        purchase_uom_id: item.purchase_uom_id || '',
+        sale_uom_id: item.sale_uom_id || '',
         product_type: item.product_type, // Use item.product_type directly
         inventory_account_id: inventoryAccId || '',
         cogs_account_id: cogsAccId || '',
@@ -304,10 +341,9 @@ const ProductManager = () => {
         available_modifiers: item.available_modifiers || [], // Use item.available_modifiers directly
         labor_cost: item.labor_cost || 0,
         overhead_cost: item.overhead_cost || 0,
-        is_overhead_percentage: item.is_overhead_percentage || false
+        is_overhead_percentage: item.is_overhead_percentage || false,
       };
-      setFormData(productDataToSet); // Pass the explicitly typed object    } else {
-      setFormData(productDataToSet); 
+      setFormData(productDataToSet);
     } else {
       setRecipeCost(0);
       setEditingId(null);
@@ -322,6 +358,9 @@ const ProductManager = () => {
         sales_price: 0, 
         purchase_price: 0, 
         unit: 'قطعة',
+        base_uom_id: '',
+        purchase_uom_id: '',
+        sale_uom_id: '',
         requires_serial: false,
         product_type: 'STOCK', // Default to STOCK for new products
         inventory_account_id: defaultInventory,
@@ -977,6 +1016,9 @@ const ProductManager = () => {
             description: formData.description || null,
             unit: formData.unit,
             sales_price: formData.sales_price,
+            base_uom_id: formData.base_uom_id || null,
+            purchase_uom_id: formData.purchase_uom_id || null,
+            sale_uom_id: formData.sale_uom_id || null,
             purchase_price: formData.purchase_price,
             product_type: formData.product_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL',
             inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
@@ -1011,6 +1053,9 @@ const ProductManager = () => {
           barcode: formData.barcode || null,
           description: formData.description || null,
           unit: formData.unit,
+          base_uom_id: formData.base_uom_id || null,
+          purchase_uom_id: formData.purchase_uom_id || null,
+          sale_uom_id: formData.sale_uom_id || null,
           sales_price: formData.sales_price,
           purchase_price: formData.purchase_price,
           cost: formData.purchase_price, // Set initial cost to purchase price
@@ -1188,6 +1233,9 @@ const ProductManager = () => {
         description: (item as any).description || '',
         purchase_price: item.purchase_price || 0,
         unit: (item as any).unit || 'قطعة',
+        base_uom_id: item.base_uom_id || '',
+        purchase_uom_id: item.purchase_uom_id || '',
+        sale_uom_id: item.sale_uom_id || '',
         product_type: item.product_type || 'STOCK',
         inventory_account_id: item.inventory_account_id || '',
         cogs_account_id: item.cogs_account_id || '',
@@ -1871,6 +1919,29 @@ const ProductManager = () => {
                         <option value="pallet">بالتة (Pallet)</option>
                         <option value="m">متر (Meter)</option>
                       </select>
+                    </div>
+                    <div className="col-span-2 bg-blue-50/50 p-4 rounded-xl border border-blue-100 grid grid-cols-3 gap-4">
+                        <div>
+                            <label className="block text-[10px] font-black text-blue-600 mb-1">الوحدة الأساسية (للمخزن)</label>
+                            <select value={formData.base_uom_id} onChange={e => setFormData({...formData, base_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
+                                <option value="">-- اختر --</option>
+                                {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-blue-600 mb-1">وحدة المشتريات</label>
+                            <select value={formData.purchase_uom_id} onChange={e => setFormData({...formData, purchase_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
+                                <option value="">-- اختر --</option>
+                                {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-[10px] font-black text-blue-600 mb-1">وحدة المبيعات</label>
+                            <select value={formData.sale_uom_id} onChange={e => setFormData({...formData, sale_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
+                                <option value="">-- اختر --</option>
+                                {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                            </select>
+                        </div>
                     </div>
                     <div className="col-span-2 md:col-span-1">
                         <label className="block text-sm font-bold mb-1 text-slate-700">الكود (SKU)</label>

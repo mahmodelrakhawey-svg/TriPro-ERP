@@ -68,6 +68,7 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
             <tr>
                 <th className="py-3 px-4 font-bold text-slate-800">#</th>
                 <th className="py-3 px-4 font-bold text-slate-800">الصنف</th>
+                <th className="py-3 px-4 font-bold text-slate-800 text-center">الوحدة</th>
                 <th className="py-3 px-4 font-bold text-slate-800 text-center">الكمية</th>
                 <th className="py-3 px-4 font-bold text-slate-800 text-center">السعر</th>
                 <th className="py-3 px-4 font-bold text-slate-800 text-center">الإجمالي</th>
@@ -78,6 +79,7 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
                 <tr key={index}>
                     <td className="py-3 px-4">{index + 1}</td>
                     <td className="py-3 px-4 font-bold">{item.productName || item.products?.name || 'N/A'}</td>
+                    <td className="py-3 px-4 text-center">{item.uomName || '-'}</td>
                     <td className="py-3 px-4 text-center">{Number(item.quantity).toLocaleString()}</td>
                     <td className="py-3 px-4 text-center">{Number(item.unitPrice || item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className="py-3 px-4 text-center font-bold">{Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>

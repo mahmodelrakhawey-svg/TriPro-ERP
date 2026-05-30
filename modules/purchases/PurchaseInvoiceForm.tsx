@@ -3,7 +3,8 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { 
     Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
-    CircleDollarSign, Loader2, CheckCircle
+    CircleDollarSign, Loader2, CheckCircle, Package, Ruler, List, 
+    DollarSign, Activity
 } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -30,6 +31,7 @@ const PurchaseInvoiceForm = () => {
   });
 
   const [items, setItems] = useState<any[]>([]);
+  const [uoms, setUoms] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -49,6 +51,16 @@ const PurchaseInvoiceForm = () => {
       }
     });
   }, []);
+
+  // تحميل كافة الوحدات عند فتح الشاشة
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const orgId = (currentUser as any)?.organization_id;
+      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      if (data) setUoms(data);
+    };
+    if (currentUser) fetchUoms();
+  }, [currentUser]);
 
   // تصفية حسابات الخزينة والبنوك لسداد الفاتورة
   const treasuryAccounts = useMemo(() => {
@@ -116,6 +128,7 @@ const PurchaseInvoiceForm = () => {
                    productSku: i.products?.sku,
                    quantity: i.quantity,
                    unitPrice: i.unit_price,
+                   uomId: i.uom_id,
                    total: i.total
                  })));
               }
@@ -156,7 +169,7 @@ const PurchaseInvoiceForm = () => {
 
   const addProductToInvoice = (product: Product) => {
       const existingItemIndex = items.findIndex(i => i.productId === product.id);
-      const price = product.purchase_price || product.cost || 0;
+      const basePrice = product.purchase_price || product.cost || 0;
 
       if (existingItemIndex > -1) {
           const newItems = [...items];
@@ -164,14 +177,19 @@ const PurchaseInvoiceForm = () => {
           newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * (newItems[existingItemIndex].unitPrice || 0);
           setItems(newItems);
       } else {
+          const defaultUomId = product.purchase_uom_id || product.base_uom_id;
+          const selectedUom = uoms.find(u => u.id === defaultUomId);
+          const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
+
           setItems([...items, {
               id: Date.now().toString(),
               productId: product.id,
               productName: product.name,
               productSku: product.sku,
               quantity: 1,
-              unitPrice: price,
-              total: price
+              unitPrice: initialPrice,
+              uomId: defaultUomId,
+              total: initialPrice
           }]);
       }
       setProductSearchTerm('');
@@ -182,10 +200,23 @@ const PurchaseInvoiceForm = () => {
     const newItems = [...items];
     newItems[index][field] = value;
 
+    // ذكاء المشتريات: تحديث سعر الشراء تلقائياً عند تغيير الوحدة
+    if (field === 'uomId') {
+        const selectedUom = uoms.find(u => u.id === value);
+        const product = products.find(p => p.id === newItems[index].productId);
+        if (selectedUom && product) {
+            // السعر الجديد = سعر الشراء الأساسي * معامل التحويل
+            const basePrice = product.purchase_price || product.cost || 0;
+            const newUnitPrice = basePrice * selectedUom.ratio;
+            newItems[index].unitPrice = Number(newUnitPrice.toFixed(4));
+        }
+    }
+
     if (field === 'productId') {
       const product = products.find(p => p.id === value);
       if (product) {
         newItems[index].unitPrice = product.purchase_price || product.cost || 0;
+        newItems[index].uomId = product.purchase_uom_id || product.base_uom_id;
       }
     }
 
@@ -297,6 +328,7 @@ const PurchaseInvoiceForm = () => {
         product_id: item.productId,
         quantity: item.quantity,
         unit_price: item.unitPrice,
+        uom_id: item.uomId,
         total: item.total
       }));
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
@@ -426,7 +458,15 @@ const PurchaseInvoiceForm = () => {
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
           <h3 className="font-bold">بنود الفاتورة</h3>
-
+          {/* 🏷️ ترويسة البنود الاحترافية لضمان دقة الإدخال */}
+          <div className="grid grid-cols-12 gap-2 pb-2 border-b-2 border-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest no-print">
+            <div className="col-span-3 pr-2 flex items-center gap-1"><Package size={12} /> بيان الصنف</div>
+            <div className="col-span-2 text-center flex items-center justify-center gap-1"><Ruler size={12} /> الوحدة</div>
+            <div className="col-span-2 text-center flex items-center justify-center gap-1"><List size={12} /> العدد (الكمية)</div>
+            <div className="col-span-2 text-center flex items-center justify-center gap-1"><DollarSign size={12} /> سعر الشراء</div>
+            <div className="col-span-2 text-center flex items-center justify-center gap-1"><Activity size={12} /> القيمة (الإجمالي)</div>
+            <div className="col-span-1"></div>
+          </div>
           {/* حقل البحث السريع والذكي عن الأصناف */}
           <div className="relative mb-4 no-print">
             <div className="relative">
@@ -454,11 +494,26 @@ const PurchaseInvoiceForm = () => {
 
           {items.map((item, index) => (
             <div key={index} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-5">
+              <div className="col-span-3">
                 <select required value={item.productId} onChange={e => handleItemChange(index, 'productId', e.target.value)} className="w-full border rounded p-2 bg-white">
                   <option value="">اختر الصنف...</option>
                   {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
+              </div>
+              <div className="col-span-2">
+                  <select 
+                      value={item.uomId} 
+                      onChange={e => handleItemChange(index, 'uomId', e.target.value)}
+                      className="w-full border rounded p-2 text-xs bg-white focus:border-emerald-500"
+                  >
+                      {uoms.filter(u => {
+                          const prod = products.find(p => p.id === item.productId);
+                          const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
+                          return u.category_id === baseUom?.category_id;
+                      }).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                      ))}
+                  </select>
               </div>
               <div className="col-span-2">
                 <input type="number" step="any" min="0.01" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="الكمية" />
@@ -476,7 +531,7 @@ const PurchaseInvoiceForm = () => {
               </div>
             </div>
           ))}
-          <button type="button" onClick={() => setItems([...items, { productId: '', quantity: 1, unitPrice: 0, total: 0 }])} className="flex items-center gap-2 text-blue-600 font-bold text-sm mt-2">
+          <button type="button" onClick={() => setItems([...items, { productId: '', quantity: 1, unitPrice: 0, uomId: '', total: 0 }])} className="flex items-center gap-2 text-blue-600 font-bold text-sm mt-2">
             <Plus size={16} /> إضافة صنف
           </button>
         </div>

@@ -9,6 +9,7 @@ const PurchaseOrderForm = () => {
   const { suppliers, products, currentUser, settings } = useAccounting();
   const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
+  const [uoms, setUoms] = useState<any[]>([]);
   const [formData, setFormData] = useState({ 
       supplierId: '', 
       date: new Date().toISOString().split('T')[0], 
@@ -19,14 +20,44 @@ const PurchaseOrderForm = () => {
   const [saving, setSaving] = useState(false);
   const [productSearch, setProductSearch] = useState('');
 
+  React.useEffect(() => {
+    const fetchUoms = async () => {
+      const orgId = (currentUser as any)?.organization_id;
+      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      if (data) setUoms(data);
+    };
+    if (currentUser) fetchUoms();
+  }, [currentUser]);
+
   const addItem = (product: any) => {
-    setItems([...items, { productId: product.id, name: product.name, quantity: 1, unitPrice: product.purchase_price || 0 }]); // Changed to unitPrice
+    const defaultUomId = product.purchase_uom_id || product.base_uom_id;
+    const selectedUom = uoms.find(u => u.id === defaultUomId);
+    const basePrice = product.purchase_price || 0;
+    const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
+
+    setItems([...items, { 
+        productId: product.id, 
+        name: product.name, 
+        quantity: 1, 
+        unitPrice: initialPrice,
+        uomId: defaultUomId
+    }]);
     setProductSearch('');
   };
 
   const updateItem = (index: number, field: string, value: any) => {
     const newItems = [...items];
     newItems[index][field] = value; // Changed to unitPrice
+
+    if (field === 'uomId') {
+        const selectedUom = uoms.find(u => u.id === value);
+        const product = products.find(p => p.id === newItems[index].productId);
+        if (selectedUom && product) {
+            const basePrice = product.purchase_price || product.cost || 0;
+            newItems[index].unitPrice = Number((basePrice * selectedUom.ratio).toFixed(4));
+        }
+    }
+
     setItems(newItems);
   };
 
@@ -93,6 +124,7 @@ const PurchaseOrderForm = () => {
           product_id: item.productId,
           quantity: item.quantity,
           unit_price: item.unitPrice,
+          uom_id: item.uomId,
           total: item.quantity * item.unitPrice
       }));
 
@@ -164,6 +196,7 @@ const PurchaseOrderForm = () => {
           <thead className="bg-slate-50 text-sm font-bold text-slate-600">
             <tr>
               <th className="p-3">الصنف</th>
+              <th className="p-3 text-center">الوحدة</th>
               <th className="p-3 w-32">الكمية</th>
               <th className="p-3 w-32">سعر الوحدة</th>
               <th className="p-3 w-32">الإجمالي</th>
@@ -174,6 +207,18 @@ const PurchaseOrderForm = () => {
             {items.map((item, idx) => (
               <tr key={idx} className="border-b">
                 <td className="p-3">{item.name}</td>
+                <td className="p-3">
+                    <select 
+                        value={item.uomId} 
+                        onChange={e => updateItem(idx, 'uomId', e.target.value)}
+                        className="w-full border rounded p-1 text-xs bg-white"
+                    >
+                        {uoms.filter(u => {
+                            const prod = products.find(p => p.id === item.productId);
+                            return u.category_id === uoms.find(ux => ux.id === prod?.base_uom_id)?.category_id;
+                        }).map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                </td>
                 <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.quantity} onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} /></td>
                 <td className="p-3"><input type="number" step="any" className="w-full border rounded p-1 text-center" value={item.unitPrice} onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} /></td>
                 <td className="p-3 font-bold">{(item.quantity * (item.unitPrice || 0)).toLocaleString()}</td>

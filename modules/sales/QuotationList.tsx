@@ -32,12 +32,23 @@ const QuotationList = () => {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [convertData, setConvertData] = useState({ warehouseId: '', treasuryId: '', paidAmount: 0 });
+  const [uoms, setUoms] = useState<any[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null); // State to track which quotation is being processed
 
   // Filter State
   const [statusFilter, setStatusFilter] = useState('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  // 🛡️ جلب وحدات القياس لضمان دقة حساب التكلفة عند التحويل
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      if (data) setUoms(data);
+    };
+    if (currentUser) fetchUoms();
+  }, [currentUser]);
 
   // تصفية حسابات الخزينة والبنوك
   const treasuryAccounts = useMemo(() => accounts.filter(a => {
@@ -113,7 +124,7 @@ const QuotationList = () => {
           try {
               // 1. جلب تفاصيل العرض
               const quote = quotations.find(q => q.id === selectedQuoteId);
-              const { data: quoteItems } = await supabase.from('quotation_items').select('*, products(cost, purchase_price)').eq('quotation_id', selectedQuoteId);
+              const { data: quoteItems } = await supabase.from('quotation_items').select('*, products(cost, purchase_price, base_uom_id)').eq('quotation_id', selectedQuoteId);
               
               if (!quote || !quoteItems) throw new Error('بيانات العرض غير مكتملة');
 
@@ -147,8 +158,14 @@ const QuotationList = () => {
                   product_id: item.product_id,
                   quantity: item.quantity,
                   unit_price: item.unit_price,
+                  uom_id: item.uom_id || item.products?.base_uom_id,
                   total: item.total,
-                  cost: item.products?.cost || item.products?.purchase_price || 0,
+                  // 🛡️ تصحيح التكلفة عند التحويل بناءً على معامل الوحدة في عرض السعر
+                  cost: (() => {
+                      const selectedUom = uoms.find(u => u.id === (item.uom_id || item.products?.base_uom_id));
+                      const baseCost = item.products?.cost || item.products?.purchase_price || 0;
+                      return Number((baseCost * (selectedUom?.ratio || 1)).toFixed(4));
+                  })(),
                   organization_id: invoice.organization_id
               }));
 
@@ -215,7 +232,7 @@ const QuotationList = () => {
 
     const { data: items } = await supabase
         .from('quotation_items')
-        .select('*, products(name)')
+        .select('*, products(name), uoms(name)')
         .eq('quotation_id', quote.id);
 
     if (!items) return;
@@ -247,14 +264,14 @@ const QuotationList = () => {
                         <div><strong>التاريخ:</strong> ${new Date(quote.quotation_date).toLocaleDateString('ar-EG')}</div>
                     </div>
                     <table>
-                        <thead><tr><th>الصنف</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
+                        <thead><tr><th>الصنف</th><th>الوحدة</th><th>الكمية</th><th>السعر</th><th>الإجمالي</th></tr></thead>
                         <tbody>
-                            ${items.map((item: any) => `<tr><td>${item.products?.name || 'منتج'}</td><td>${item.quantity}</td><td>${item.unit_price.toLocaleString()}</td><td>${item.total.toLocaleString()}</td></tr>`).join('')}
+                            ${items.map((item: any) => `<tr><td>${item.products?.name || 'منتج'}</td><td>${item.uoms?.name || '-'}</td><td>${item.quantity}</td><td>${item.unit_price.toLocaleString()}</td><td>${item.total.toLocaleString()}</td></tr>`).join('')}
                         </tbody>
                         <tfoot>
-                            ${settings.enableTax ? `<tr><td colspan="3">الإجمالي قبل الضريبة</td><td>${(quote.subtotal || (quote.total_amount - quote.tax_amount)).toLocaleString()}</td></tr>
-                            <tr><td colspan="3">الضريبة</td><td>${quote.tax_amount.toLocaleString()}</td></tr>` : ''}
-                            <tr><td colspan="3"><strong>الإجمالي النهائي</strong></td><td><strong>${quote.total_amount.toLocaleString()}</strong></td></tr>
+                            ${settings.enableTax ? `<tr><td colspan="4">الإجمالي قبل الضريبة</td><td>${(quote.subtotal || (quote.total_amount - quote.tax_amount)).toLocaleString()}</td></tr>
+                            <tr><td colspan="4">الضريبة</td><td>${quote.tax_amount.toLocaleString()}</td></tr>` : ''}
+                            <tr><td colspan="4"><strong>الإجمالي النهائي</strong></td><td><strong>${quote.total_amount.toLocaleString()}</strong></td></tr>
                         </tfoot>
                     </table>
                     <div class="footer"><p>شكراً لتعاملكم معنا</p></div>
@@ -453,6 +470,7 @@ const QuotationList = () => {
         product_id: item.product_id,
         quantity: item.quantity,
         unit_price: item.unit_price,
+        uom_id: item.uom_id || item.products?.base_uom_id, // 🛡️ نقل وحدة القياس للتصنيع
       }));
 
       const { error: soItemsInsertError } = await supabase.from('sales_order_items').insert(soItemsToInsert);

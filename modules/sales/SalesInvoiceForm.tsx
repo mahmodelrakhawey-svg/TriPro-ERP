@@ -46,7 +46,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
-  const [items, setItems] = useState<InvoiceItem[]>([]);
+  const [items, setItems] = useState<any[]>([]);
+  const [uoms, setUoms] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
@@ -79,6 +80,16 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       }
     });
   }, []);
+
+  // تحميل كافة الوحدات عند فتح الشاشة
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const orgId = (currentUser as any)?.organization_id;
+      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      if (data) setUoms(data);
+    };
+    if (currentUser) fetchUoms();
+  }, [currentUser]);
 
   useEffect(() => {
     if (invoiceToPrint) {
@@ -357,7 +368,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
   const addProductToInvoice = (product: Product) => {
       const existingItemIndex = items.findIndex(i => i.productId === product.id);
-      const price = getProductPrice(product);
+      const basePrice = getProductPrice(product);
 
       if (existingItemIndex > -1) {
           const newItems = [...items];
@@ -365,6 +376,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * newItems[existingItemIndex].unitPrice;
           setItems(newItems);
       } else {
+          const defaultUomId = product.sale_uom_id || product.base_uom_id;
+          const selectedUom = uoms.find(u => u.id === defaultUomId);
+          const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
+
           setItems([...items, {
               id: Date.now().toString(),
               productId: product.id,
@@ -374,9 +389,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               productSku: product.sku,
               product_sku: product.sku,
               quantity: 1,
-              unitPrice: price,
-              unit_price: price,
-              total: price
+              unitPrice: initialPrice,
+              unit_price: initialPrice,
+              uomId: defaultUomId,
+              total: initialPrice
           }]);
       }
       setProductSearchTerm('');
@@ -400,13 +416,41 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
   };
 
-  const handleItemChange = (index: number, field: keyof InvoiceItem, value: any) => {
+  const handleItemChange = (index: number, field: string, value: any) => {
     const newItems = [...items];
     let processedValue = value;
     if (field === 'quantity') processedValue = Math.max(0.01, parseFloat(value) || 0);
     else if (field === 'unitPrice') processedValue = Math.max(0, parseFloat(value) || 0);
+    
+    // تحديث البيانات والوحدة الافتراضية عند تغيير الصنف يدوياً (للتوافق المطلق)
+    if (field === 'productId') {
+        const product = products.find(p => p.id === value);
+        if (product) {
+            const price = getProductPrice(product);
+            newItems[index].unitPrice = price;
+            newItems[index].uomId = product.sale_uom_id || product.base_uom_id;
+            newItems[index].productName = product.name;
+            newItems[index].productSku = product.sku;
+            // تحديث الحقول التوافقية (Snake Case)
+            newItems[index].product_id = product.id;
+            newItems[index].product_name = product.name;
+            newItems[index].unit_price = price;
+        }
+    }
+    // الذكاء الاصطناعي: محرك السعر التلقائي عند تغيير الوحدة
+    else if (field === 'uomId') {
+        const selectedUom = uoms.find(u => u.id === value);
+        const product = products.find(p => p.id === newItems[index].productId);
+        if (selectedUom && product) {
+            // السعر الجديد = سعر البيع الأساسي * معامل التحويل
+            // هذا يضمن الدقة الرباعية 0.0001
+            const basePrice = product.sales_price || 0;
+            const newUnitPrice = basePrice * selectedUom.ratio;
+            newItems[index].unitPrice = Number(newUnitPrice.toFixed(4));
+        }
+    }
 
-    newItems[index] = { ...newItems[index], [field]: processedValue };
+    newItems[index][field] = processedValue;
     newItems[index].total = newItems[index].quantity * newItems[index].unitPrice;
     setItems(newItems);
   };
@@ -571,11 +615,17 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         for (const item of items) {
             const product = products.find(p => p.id === item.productId);
             const selectedWarehouse = warehouses.find(w => w.id === formData.warehouseId);
+            
+            // 🛡️ ذكاء تعدد الوحدات: تحويل الكمية المدخولة للكمية الأساسية للمقارنة بالمخزون
+            const selectedUom = uoms.find(u => u.id === item.uomId);
+            const baseQuantity = item.quantity * (selectedUom?.ratio || 1);
+            
             // 🛡️ إصلاح: الوصول للمخزون باستخدام الاسم الصحيح للعمود في قاعدة البيانات (warehouse_stock)
             const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
             const stockInWarehouse = Number(warehouseStock?.[formData.warehouseId] || 0);
-            if (item.quantity > stockInWarehouse) { // Use handleError for consistency
-                showToast(`❌ [عجز مخزني]: الصنف "${item.productName}" رصيده (${stockInWarehouse}) في مستودع "${selectedWarehouse?.name || 'المختار'}"، والمطلوب (${item.quantity}). يرجى اختيار المستودع الصحيح.`, 'error');
+
+            if (baseQuantity > stockInWarehouse) {
+                showToast(`❌ [عجز مخزني]: الصنف "${item.productName}" رصيده (${stockInWarehouse}) قطعة، والمطلوب صرفه يعادل (${baseQuantity.toFixed(2)}) قطعة.`, 'error');
                 setSaving(false);
                 return;
             }
@@ -676,14 +726,21 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (invoiceId) {
             const itemsToInsert = items.map(item => {
                 const product = products.find(p => p.id === item.productId);
+                const selectedUom = uoms.find(u => u.id === item.uomId);
+                const uomRatio = selectedUom?.ratio || 1;
+                
+                // 🛡️ ذكاء محاسبي: التكلفة المسجلة للفاتورة = (تكلفة القطعة الأساسية * معامل الوحدة المختارة)
+                const unitCostForSelectedUom = (product?.cost || product?.purchase_price || 0) * uomRatio;
+
                 return {
                     organization_id: userOrgId,
                     invoice_id: invoiceId,
                     product_id: item.productId,
                     quantity: Number(item.quantity),
                     unit_price: Number(item.unitPrice),
+                    uom_id: item.uomId,
                     total: Number(item.total),
-                    cost: product?.cost || product?.purchase_price || 0
+                    cost: Number(unitCostForSelectedUom.toFixed(4))
                 };
             });
 
@@ -852,6 +909,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                 product_id: item.productId,
                 quantity: Number(item.quantity),
                 unit_price: Number(item.unitPrice),
+                uom_id: item.uomId,
                 total: Number(item.total),
                 cost: product?.cost || product?.purchase_price || 0
             };
@@ -899,6 +957,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           totalAmount: totalAmount,
           items: items.map(item => ({
               productName: item.productName,
+              uomName: uoms.find(u => u.id === item.uomId)?.name || '',
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               total: item.total
@@ -1369,6 +1428,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                     <thead>
                                         <tr className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
                                             <th className="pb-3 pr-4">الصنف</th>
+                                            <th className="pb-3 text-center">الوحدة</th>
                                             <th className="pb-3 text-center">الكمية</th>
                                             <th className="pb-3 text-center">سعر الوحدة</th>
                                             <th className="pb-3 text-center">الإجمالي</th>
@@ -1408,6 +1468,21 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                                                 )}
                                                             </div>
                                                         </div>
+                                                    </td>
+                                                    <td className="py-4">
+                                                        <select 
+                                                            value={item.uomId} 
+                                                            onChange={e => handleItemChange(index, 'uomId', e.target.value)}
+                                                            className="w-full border-2 border-slate-50 rounded-xl p-1.5 text-xs font-bold bg-white focus:border-blue-300 outline-none"
+                                                        >
+                                                            {uoms.filter(u => {
+                                                                const prod = products.find(p => p.id === item.productId);
+                                                                const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
+                                                                return u.category_id === baseUom?.category_id;
+                                                            }).map(u => (
+                                                                <option key={u.id} value={u.id}>{u.name}</option>
+                                                            ))}
+                                                        </select>
                                                     </td>
                                                     <td className="py-4">
                                                         <div className="flex items-center justify-center">
@@ -1750,6 +1825,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               <thead>
                   <tr className="border-b border-black border-dashed">
                       <th className="py-1">الصنف</th>
+                      <th className="py-1 text-center">الوحدة</th>
                       <th className="py-1 w-8 text-center">ك</th>
                       <th className="py-1 w-12 text-center">سعر</th>
                       <th className="py-1 w-12 text-center">إجمالي</th>
@@ -1759,6 +1835,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                   {items.map((item, idx) => (
                       <tr key={idx} className="border-b border-slate-200 border-dashed">
                           <td className="py-1">{item.productName}</td>
+                          <td className="py-1 text-center">{uoms.find(u => u.id === item.uomId)?.name || '-'}</td>
                           <td className="py-1 text-center">{item.quantity}</td>
                           <td className="py-1 text-center">{item.unitPrice}</td>
                           <td className="py-1 text-center font-bold">{item.total}</td>

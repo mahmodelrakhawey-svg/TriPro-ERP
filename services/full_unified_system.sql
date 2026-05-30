@@ -10,9 +10,28 @@
 DO $$ 
 DECLARE 
     t text;
-    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments', 'payrolls', 'payroll_items', 'projects', 'project_boq', 'project_progress_billings', 'subcontractors', 'subcontractor_contracts', 'subcontractor_billings', 'project_material_issues', 'project_material_issue_items', 'project_daily_reports', 'project_retention_releases', 'project_milestones', 'project_custodies', 'project_custody_expenses',
+    tables_to_heal text[] := ARRAY['organizations', 'profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'employees', 'bill_of_materials', 'mfg_production_orders', 'delivery_orders', 'payments', 'payrolls', 'payroll_items', 'projects', 'project_boq', 'project_progress_billings', 'subcontractors', 'subcontractor_contracts', 'subcontractor_billings', 'project_material_issues', 'project_material_issue_items', 'project_daily_reports', 'project_retention_releases', 'project_milestones', 'project_custodies', 'project_custody_expenses', 'uom_categories', 'uoms',
     'sales_returns', 'sales_return_items', 'purchase_returns', 'purchase_return_items', 'stock_adjustments', 'stock_adjustment_items', 'stock_transfers', 'stock_transfer_items', 'inventory_counts', 'inventory_count_items'];
 BEGIN
+    -- 🛡️ إنشاء جداول وحدات القياس (UoM) إذا لم تكن موجودة
+    CREATE TABLE IF NOT EXISTS public.uom_categories (
+        id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+        name text NOT NULL,
+        organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+        created_at timestamptz DEFAULT now()
+    );
+
+    CREATE TABLE IF NOT EXISTS public.uoms (
+        id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+        category_id uuid REFERENCES public.uom_categories(id) ON DELETE CASCADE,
+        name text NOT NULL,
+        uom_type text CHECK (uom_type IN ('reference', 'smaller', 'bigger')),
+        ratio numeric(19,4) DEFAULT 1,
+        organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+        created_at timestamptz DEFAULT now(),
+        UNIQUE(organization_id, name)
+    );
+
     -- ضمان وجود عمود organization_id في كافة الجداول الأساسية
     FOREACH t IN ARRAY tables_to_heal LOOP
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t AND table_schema = 'public' AND table_type = 'BASE TABLE') THEN
@@ -26,6 +45,9 @@ BEGIN
         ALTER TABLE public.products ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
         ALTER TABLE public.products ADD COLUMN IF NOT EXISTS product_type text DEFAULT 'STOCK';
         ALTER TABLE public.products ADD COLUMN IF NOT EXISTS mfg_type text DEFAULT 'standard';
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS base_uom_id uuid REFERENCES public.uoms(id);
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS purchase_uom_id uuid REFERENCES public.uoms(id);
+        ALTER TABLE public.products ADD COLUMN IF NOT EXISTS sale_uom_id uuid REFERENCES public.uoms(id);
     END IF;
 
     -- ترميم أعمدة المستودعات في أوامر البيع والشراء
@@ -63,6 +85,30 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'company_settings' AND table_schema = 'public') THEN
         ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS last_closed_year integer;
         ALTER TABLE public.company_settings ADD COLUMN IF NOT EXISTS last_closed_date date;
+    END IF;
+
+    -- 🛡️ حقن عمود uom_id في كافة مفاصل النظام لضمان دقة التحويل (Multi-UoM Core)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoice_items') THEN ALTER TABLE public.invoice_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_invoice_items') THEN ALTER TABLE public.purchase_invoice_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'opening_inventories') THEN ALTER TABLE public.opening_inventories ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_return_items') THEN ALTER TABLE public.sales_return_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_return_items') THEN ALTER TABLE public.purchase_return_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stock_adjustment_items') THEN ALTER TABLE public.stock_adjustment_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stock_transfer_items') THEN ALTER TABLE public.stock_transfer_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'inventory_count_items') THEN ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bill_of_materials') THEN ALTER TABLE public.bill_of_materials ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_material_request_items') THEN ALTER TABLE public.mfg_material_request_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF; -- 🛡️ إصلاح خطأ الاختبار
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_step_materials') THEN ALTER TABLE public.mfg_step_materials ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'project_material_issue_items') THEN ALTER TABLE public.project_material_issue_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quotation_items') THEN ALTER TABLE public.quotation_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_actual_material_usage') THEN ALTER TABLE public.mfg_actual_material_usage ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stock_transfer_items') THEN ALTER TABLE public.stock_transfer_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    
+    -- 🛡️ إضافة سياسات الأمان للوحدات
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'uoms') THEN
+        EXECUTE 'CREATE POLICY "Org_Access_Policy_uoms" ON public.uoms FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'')';
+        EXECUTE 'CREATE POLICY "Org_Access_Policy_uom_categories" ON public.uom_categories FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'')';
     END IF;
 END $$;
 
@@ -103,15 +149,22 @@ CREATE OR REPLACE FUNCTION public.uom_convert(
 ) RETURNS numeric LANGUAGE plpgsql AS $$
 DECLARE
     v_from_ratio numeric;
+    v_from_type text;
     v_to_ratio numeric;
+    v_to_type text;
 BEGIN
-    IF p_from_uom_id = p_to_uom_id THEN RETURN p_qty; END IF;
+    IF p_from_uom_id IS NULL OR p_to_uom_id IS NULL OR p_from_uom_id = p_to_uom_id THEN RETURN p_qty; END IF;
     
-    SELECT ratio INTO v_from_ratio FROM public.uoms WHERE id = p_from_uom_id;
-    SELECT ratio INTO v_to_ratio FROM public.uoms WHERE id = p_to_uom_id;
+    SELECT ratio, uom_type INTO v_from_ratio, v_from_type FROM public.uoms WHERE id = p_from_uom_id;
+    SELECT ratio, uom_type INTO v_to_ratio, v_to_type FROM public.uoms WHERE id = p_to_uom_id;
+    
+    -- 🛡️ تصحيح منطق التحويل بناءً على نوع الوحدة
+    -- إذا كانت الوحدة 'أصغر' (smaller)، فإن النسبة تعني كم وحدة منها توجد في الوحدة المرجعية (لذا المعامل الحقيقي هو المقلوب)
+    IF v_from_type = 'smaller' THEN v_from_ratio := 1.0 / NULLIF(v_from_ratio, 0); END IF;
+    IF v_to_type = 'smaller' THEN v_to_ratio := 1.0 / NULLIF(v_to_ratio, 0); END IF;
     
     -- المعادلة: (الكمية * نسبة الوحدة الأصلية) / نسبة الوحدة المستهدفة
-    RETURN (p_qty * COALESCE(v_from_ratio, 1)) / COALESCE(v_to_ratio, 1);
+    RETURN ROUND((p_qty * COALESCE(v_from_ratio, 1.0)) / COALESCE(v_to_ratio, 1.0), 4);
 END; $$;
 
 -- 🛡️ تحديث: درع حماية الحسابات السيادية (ليسمح بالحذف في وضع الاستعادة)
@@ -443,17 +496,18 @@ BEGIN
             SUM(qty) as net_qty
         FROM (
             -- رصيد افتتاحي
-            SELECT product_id, warehouse_id, quantity as qty FROM public.opening_inventories WHERE warehouse_id IS NOT NULL AND product_id IS NOT NULL AND (v_final_org IS NULL OR organization_id = v_final_org)
+            SELECT oi.product_id, oi.warehouse_id, oi.quantity as qty FROM public.opening_inventories oi WHERE oi.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND (v_final_org IS NULL OR oi.organization_id = v_final_org)
             UNION ALL
             -- مشتريات (+)
-            SELECT pii.product_id, pi.warehouse_id, pii.quantity FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id 
+            SELECT pii.product_id, pi.warehouse_id, public.uom_convert(pii.quantity, pii.uom_id, p.base_uom_id) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id JOIN public.products p ON pii.product_id = p.id
             WHERE UPPER(pi.status) NOT IN ('DRAFT', 'CANCELLED') AND pi.warehouse_id IS NOT NULL AND pii.product_id IS NOT NULL AND (v_final_org IS NULL OR pi.organization_id = v_final_org)
             
             UNION ALL
             -- مبيعات (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
-            SELECT ii.product_id, i.warehouse_id, -ii.quantity
+            SELECT ii.product_id, i.warehouse_id, -public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id)
             FROM public.invoice_items ii
             JOIN public.invoices i ON ii.invoice_id = i.id
+            JOIN public.products p ON ii.product_id = p.id
             WHERE UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED')
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
@@ -461,11 +515,13 @@ BEGIN
               AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id)
             
             UNION ALL
-            -- مبيعات (-) - خصم مكونات BOM للمنتجات التامة المباعة
-            SELECT bom.raw_material_id, i.warehouse_id, -(ii.quantity * bom.quantity_required)
+            -- مبيعات (-) - خصم مكونات BOM للمنتجات التامة المباعة (مع مراعاة وحدات المكونات)
+            SELECT bom.raw_material_id, i.warehouse_id, -(public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
             FROM public.invoice_items ii
             JOIN public.invoices i ON ii.invoice_id = i.id
             JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id
+            JOIN public.products p ON ii.product_id = p.id
+            JOIN public.products rm ON bom.raw_material_id = rm.id
             WHERE UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED')
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
@@ -474,18 +530,21 @@ BEGIN
             
             UNION ALL
             -- مبيعات المطعم (Order Items) (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
-            SELECT oi.product_id, o.warehouse_id, -oi.quantity
+            SELECT oi.product_id, o.warehouse_id, -public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id)
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
+            JOIN public.products p ON oi.product_id = p.id
             WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
               AND (v_final_org IS NULL OR o.organization_id = v_final_org)
               AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
             UNION ALL
             -- مبيعات المطعم (Order Items) (-) - خصم مكونات BOM للمنتجات التامة المباعة
-            SELECT bom.raw_material_id, o.warehouse_id, -(oi.quantity * bom.quantity_required)
+            SELECT bom.raw_material_id, o.warehouse_id, -(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id
+            JOIN public.products p ON oi.product_id = p.id
+            JOIN public.products rm ON bom.raw_material_id = rm.id
             WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND bom.raw_material_id IS NOT NULL AND (v_final_org IS NULL OR o.organization_id = v_final_org)
             UNION ALL
             -- تصنيع تام (+) 
@@ -493,16 +552,18 @@ BEGIN
             WHERE UPPER(status) = 'COMPLETED' AND warehouse_id IS NOT NULL AND product_id IS NOT NULL AND (v_final_org IS NULL OR organization_id = v_final_org)
             UNION ALL
             -- استهلاك خامات (-)
-            SELECT amu.raw_material_id, po.warehouse_id, -amu.actual_quantity 
+            SELECT amu.raw_material_id, po.warehouse_id, -public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id)
             FROM public.mfg_actual_material_usage amu 
             JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id 
             JOIN public.mfg_production_orders po ON op.production_order_id = po.id 
+            JOIN public.products p ON amu.raw_material_id = p.id
             WHERE po.warehouse_id IS NOT NULL AND amu.raw_material_id IS NOT NULL AND (v_final_org IS NULL OR po.organization_id = v_final_org)
             
             UNION ALL
-            -- 🛡️ استهلاك خامات بطلبات صرف (MR) - (فقط للأصناف غير الموجودة في AMU لنفس الطلب لضمان عدم الخصم مرتين)
-            SELECT mri.raw_material_id, po.warehouse_id, -mri.quantity_issued
+            -- 🛡️ استهلاك خامات بطلبات صرف (MR) (منضبط بالوحدات)
+            SELECT mri.raw_material_id, po.warehouse_id, -public.uom_convert(mri.quantity_issued, mri.uom_id, p.base_uom_id)
             FROM public.mfg_material_request_items mri
+            JOIN public.products p ON mri.raw_material_id = p.id
             JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
             JOIN public.mfg_production_orders po ON mr.production_order_id = po.id
             WHERE mr.status = 'issued' AND po.warehouse_id IS NOT NULL AND (v_final_org IS NULL OR po.organization_id = v_final_org)
@@ -514,44 +575,48 @@ BEGIN
 
             UNION ALL
             -- 🏗️ استهلاك مواد لمشاريع المقاولات (-)
-            SELECT pmii.product_id, pmi.warehouse_id, -pmii.quantity
+            SELECT pmii.product_id, pmi.warehouse_id, -public.uom_convert(pmii.quantity, pmii.uom_id, p.base_uom_id)
             FROM public.project_material_issue_items pmii
             JOIN public.project_material_issues pmi ON pmii.issue_id = pmi.id
+            JOIN public.products p ON pmii.product_id = p.id
             WHERE pmi.status = 'approved' AND (v_final_org IS NULL OR pmi.organization_id = v_final_org)
 
             UNION ALL
             -- 🔄 مرتجعات مبيعات (+)
-            SELECT sri.product_id, sr.warehouse_id, sri.quantity
+            SELECT sri.product_id, sr.warehouse_id, public.uom_convert(sri.quantity, sri.uom_id, p.base_uom_id)
             FROM public.sales_return_items sri
-            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
+            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id JOIN public.products p ON sri.product_id = p.id
             WHERE sr.status = 'posted' AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
 
             UNION ALL
             -- 🔄 مرتجعات مشتريات (-)
-            SELECT pri.product_id, pr.warehouse_id, -pri.quantity
+            SELECT pri.product_id, pr.warehouse_id, -public.uom_convert(pri.quantity, pri.uom_id, p.base_uom_id)
             FROM public.purchase_return_items pri
-            JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id
+            JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id JOIN public.products p ON pri.product_id = p.id
             WHERE pr.status = 'posted' AND (v_final_org IS NULL OR pr.organization_id = v_final_org)
 
             UNION ALL
             -- 🛠️ تسويات مخزنية (+/-)
-            SELECT sai.product_id, sa.warehouse_id, sai.quantity
+            SELECT sai.product_id, sa.warehouse_id, public.uom_convert(sai.quantity, sai.uom_id, p.base_uom_id)
             FROM public.stock_adjustment_items sai
             JOIN public.stock_adjustments sa ON sai.stock_adjustment_id = sa.id
+            JOIN public.products p ON sai.product_id = p.id
             WHERE sa.status = 'posted' AND (v_final_org IS NULL OR sa.organization_id = v_final_org)
 
             UNION ALL
             -- 🚚 تحويلات مخزنية (صادر -)
-            SELECT sti.product_id, st.from_warehouse_id, -sti.quantity
+            SELECT sti.product_id, st.from_warehouse_id, -public.uom_convert(sti.quantity, sti.uom_id, p.base_uom_id)
             FROM public.stock_transfer_items sti
             JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id
+            JOIN public.products p ON sti.product_id = p.id
             WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
-
+            
             UNION ALL
             -- 🚚 تحويلات مخزنية (وارد +)
-            SELECT sti.product_id, st.to_warehouse_id, sti.quantity
+            SELECT sti.product_id, st.to_warehouse_id, public.uom_convert(sti.quantity, sti.uom_id, p.base_uom_id)
             FROM public.stock_transfer_items sti
             JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id
+            JOIN public.products p ON sti.product_id = p.id
             WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
         ) movements
         WHERE product_id IS NOT NULL AND warehouse_id IS NOT NULL
@@ -734,10 +799,10 @@ BEGIN
 
     FOR v_item IN SELECT * FROM jsonb_array_elements(p_items) LOOP
         -- 🚀 جلب التكلفة اللحظية للصنف لضمان دقة تقرير COGS لاحقاً
-        SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_item_cost 
+        SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0), base_uom_id INTO v_item_cost, v_final_wh_id -- نستخدم v_final_wh_id مؤقتاً لتخزين معرف الوحدة الأساسية
         FROM public.products WHERE id = (v_item->>'product_id')::uuid;
 
-        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, unit_cost, organization_id, modifiers)
+        INSERT INTO public.order_items (order_id, product_id, quantity, unit_price, unit_cost, organization_id, modifiers, uom_id)
         VALUES (
             v_order_id, 
             (v_item->>'product_id')::uuid, 
@@ -745,7 +810,8 @@ BEGIN
             (v_item->>'unit_price')::numeric,
             v_item_cost,
             v_org_id,
-            COALESCE(v_item->'modifiers', '[]'::jsonb)
+            COALESCE(v_item->'modifiers', '[]'::jsonb),
+            (v_item->>'uom_id')::uuid
         ) RETURNING id INTO v_order_item_id;
 
         v_subtotal := v_subtotal + ((v_item->>'quantity')::numeric * (v_item->>'unit_price')::numeric);
@@ -912,7 +978,8 @@ BEGIN
               AND UPPER(p.payment_method) = 'CASH' AND p.status = 'COMPLETED'
         ), 0) as cash_total,
         COALESCE((
-            SELECT SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) FROM public.order_items oi
+            SELECT SUM(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * COALESCE(oi.unit_cost, 0)) 
+            FROM public.order_items oi JOIN public.products p ON oi.product_id = p.id
             WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
         ), 0) as cost_total
     INTO v_summary
@@ -944,7 +1011,7 @@ BEGIN
     IF v_summary.cost_total > 0 THEN
         -- 🚀 محرك التكلفة الذكي (V50.7): توجيه التكلفة لكل نوع مخزون بشكل صحيح
         FOR v_item_cost_record IN (
-            SELECT p.inventory_account_id, SUM(oi.quantity * COALESCE(oi.unit_cost, 0)) as total_cost
+            SELECT p.inventory_account_id, SUM(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * COALESCE(oi.unit_cost, 0)) as total_cost
             FROM public.order_items oi
             JOIN public.products p ON oi.product_id = p.id
             WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
@@ -1323,9 +1390,13 @@ BEGIN
 
     -- 3. حساب تكلفة البضاعة المباعة وتحديث بيانات البنود
     FOR v_item IN SELECT * FROM public.invoice_items WHERE invoice_id = p_invoice_id LOOP
-        SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
-        v_total_cost := v_total_cost + (v_item_cost * v_item.quantity);
-        UPDATE public.invoice_items SET cost = v_item_cost WHERE id = v_item.id;
+        DECLARE v_base_qty numeric;
+        BEGIN
+            SELECT COALESCE(cost, weighted_average_cost, purchase_price, 0) INTO v_item_cost FROM public.products WHERE id = v_item.product_id;
+            v_base_qty := public.uom_convert(v_item.quantity, v_item.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_item.product_id));
+            v_total_cost := v_total_cost + (v_item_cost * v_base_qty);
+            UPDATE public.invoice_items SET cost = v_item_cost WHERE id = v_item.id;
+        END;
     END LOOP;
 
     -- 📝 4. إنشاء قيد اليومية المزدوج
@@ -1374,7 +1445,7 @@ BEGIN
         -- 🚀 تحويل الكمية إلى الوحدة الأساسية قبل حساب التكلفة
         DECLARE
             v_base_qty numeric := public.uom_convert(v_item.quantity, v_item.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_item.product_id));
-            v_unit_cost_base numeric := v_item.unit_price / (v_base_qty / NULLIF(v_item.quantity, 0));
+            v_unit_cost_base numeric := (v_item.unit_price * v_item.quantity) / NULLIF(v_base_qty, 0);
         BEGIN
         UPDATE public.products p SET 
             purchase_price = v_unit_cost_base,
@@ -1431,13 +1502,13 @@ WITH labor_summary AS (
 material_summary AS (
     -- 🛡️ منع الازدواجية في المحرك الموحد: نجمع الاستهلاك الفعلي مع طلبات الصرف المستقلة فقط
     SELECT po_id, SUM(cost) as total_material_cost FROM (
-        SELECT op.production_order_id as po_id, SUM(amu.actual_quantity * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
+        SELECT op.production_order_id as po_id, SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
         FROM public.mfg_actual_material_usage amu
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         JOIN public.products rm ON amu.raw_material_id = rm.id
         GROUP BY op.production_order_id, amu.raw_material_id
         UNION ALL
-        SELECT mr.production_order_id as po_id, SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) as cost
+        SELECT mr.production_order_id as po_id, SUM(public.uom_convert(mri.quantity_issued, mri.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) as cost
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id
@@ -1560,17 +1631,16 @@ BEGIN
 
     -- ج. إضافة تكلفة المواد الفعلية المستهلكة (AMU) - تحسين الربط لضمان الدقة (V50.2)
     v_total_cost := v_total_cost + COALESCE((
-        SELECT SUM(amu.actual_quantity * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+        SELECT SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
         FROM public.mfg_actual_material_usage amu 
         JOIN public.products p ON amu.raw_material_id = p.id
         JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
         WHERE op.production_order_id = p_order_id
     ), 0);
 
-    -- د. إضافة تكلفة المواد المصروفة بطلبات صرف (Material Requests)
     -- د. إضافة تكلفة المواد المصروفة بطلبات صرف (MR) - للأصناف المستقلة فقط (V50.2)
     v_total_cost := v_total_cost + COALESCE((
-        SELECT SUM(mri.quantity_issued * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
+        SELECT SUM(public.uom_convert(mri.quantity_issued, mri.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
         FROM public.mfg_material_request_items mri
         JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
         JOIN public.products p ON mri.raw_material_id = p.id

@@ -351,6 +351,7 @@ const RoutingBOMManager = () => {
       showToast('الرجاء اختيار مادة خام وتحديد كمية صحيحة', 'warning');
       return;
     }
+    const preciseQuantity = Number(quantity.toFixed(4));
     setSaving(true);
     try {
       const { data, error } = await supabase
@@ -358,7 +359,7 @@ const RoutingBOMManager = () => {
         .insert({
           step_id: stepId,
           raw_material_id: rawMaterialId,
-          quantity_required: quantity,
+          quantity_required: preciseQuantity,
           organization_id: orgId,
         })
         .select(`*, products(name, unit)`)
@@ -386,9 +387,10 @@ const RoutingBOMManager = () => {
       showToast('الكمية المطلوبة يجب أن تكون أكبر من صفر', 'warning');
       return;
     }
+    const preciseQuantity = Number(quantity.toFixed(4));
     setSaving(true);
     try {
-      const { error } = await supabase.from('mfg_step_materials').update({ quantity_required: quantity }).eq('id', materialId);
+      const { error } = await supabase.from('mfg_step_materials').update({ quantity_required: preciseQuantity }).eq('id', materialId);
       if (error) throw error;
       setRoutingSteps(prev =>
         prev.map(step =>
@@ -396,7 +398,7 @@ const RoutingBOMManager = () => {
             ? {
                 ...step,
                 materials: (step.materials || []).map(mat =>
-                  mat.id === materialId ? { ...mat, quantity_required: quantity } : mat
+                  mat.id === materialId ? { ...mat, quantity_required: preciseQuantity } : mat
                 ),
               }
             : step
@@ -779,8 +781,8 @@ const RoutingBOMManager = () => {
                                             value={mat.quantity_required}
                                             onChange={e => handleUpdateMaterialQuantity(mat.id, step.id, parseFloat(e.target.value))}
                                             className="w-20 border rounded-lg p-1 text-center"
-                                            min="0.001"
-                                            step="0.001"
+                                            min="0.0001"
+                                            step="0.0001"
                                           />
                                         </td>
                                         <td className="p-2 text-center text-gray-500">{mat.products?.unit}</td>
@@ -815,8 +817,8 @@ const RoutingBOMManager = () => {
                                   }}
                                   placeholder="الكمية"
                                   className="w-24 border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                                  min="0.001"
-                                  step="0.001"
+                                  min="0.0001"
+                                  step="0.0001"
                                 />
                                 <button
                                   onClick={() => handleAddMaterialToStep(step.id, newMaterial.raw_material_id, newMaterial.quantity_required)}

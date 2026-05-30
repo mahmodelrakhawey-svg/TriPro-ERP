@@ -70,6 +70,12 @@ BEGIN
             ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
     END IF;
 
+    -- 🛡️ ترميم بنود أوامر الشراء (Purchase Order Items Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_order_items' AND table_schema = 'public') THEN
+        ALTER TABLE public.purchase_order_items 
+            ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id);
+    END IF;
+
     -- 🛡️ ترميم جدول الموظفين (Employees Healing)
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees' AND table_schema = 'public') THEN
         ALTER TABLE public.employees 
@@ -696,7 +702,7 @@ min_stock numeric DEFAULT 5,
     offer_end_date date,
     offer_max_qty numeric,
     
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deleted_at timestamptz,
     deletion_reason text,
     is_active boolean DEFAULT true,
@@ -708,8 +714,9 @@ CREATE TABLE IF NOT EXISTS public.opening_inventories (
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     warehouse_id uuid REFERENCES public.warehouses(id) ON DELETE CASCADE,
     quantity numeric DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم الوحدات في الرصيد الافتتاحي
     cost numeric DEFAULT 0,
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now()
 );
@@ -738,7 +745,7 @@ CREATE TABLE IF NOT EXISTS public.invoices (
     approver_id uuid REFERENCES auth.users(id), -- عمود جديد
     reference text, -- عمود جديد
     deleted_at timestamptz,
-    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_by uuid REFERENCES auth.users(id),
     created_at timestamptz DEFAULT now() NOT NULL,
     CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number)
@@ -807,7 +814,7 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoices (
     currency text DEFAULT 'EGP',
     exchange_rate numeric(19,4) DEFAULT 1,
     related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
-    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     created_at timestamptz DEFAULT now() NOT NULL,
     paid_amount numeric DEFAULT 0,
     delivery_fee numeric DEFAULT 0,
@@ -827,6 +834,68 @@ CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
     total numeric GENERATED ALWAYS AS (quantity * unit_price) STORED,
     organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
 );
+
+-- 🚚 جداول مرتجعات المشتريات (Purchase Returns) - لإكمال الدورة المستندية
+CREATE TABLE IF NOT EXISTS public.purchase_returns (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    return_number text,
+    supplier_id uuid REFERENCES public.suppliers(id),
+    warehouse_id uuid REFERENCES public.warehouses(id),
+    original_invoice_id uuid REFERENCES public.purchase_invoices(id),
+    return_date date DEFAULT now(),
+    total_amount numeric(19,4) DEFAULT 0,
+    tax_amount numeric(19,4) DEFAULT 0,
+    status text DEFAULT 'draft', -- draft, posted
+    notes text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.purchase_return_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    purchase_return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id),
+    quantity numeric NOT NULL,
+    uom_id uuid REFERENCES public.uoms(id),
+    unit_price numeric(19,4) NOT NULL,
+    total numeric(19,4) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+-- 🛠️ دالة تحويل أمر الشراء إلى فاتورة (PO to Invoice Converter)
+DROP FUNCTION IF EXISTS public.convert_po_to_invoice(uuid, uuid);
+CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_warehouse_id uuid)
+RETURNS uuid AS $$
+DECLARE
+    v_inv_id uuid;
+    v_po record;
+BEGIN
+    -- 1. جلب بيانات أمر الشراء الأصلي
+    SELECT * INTO v_po FROM public.purchase_orders WHERE id = p_po_id;
+    
+    -- 2. إنشاء رأس فاتورة المشتريات كمسودة
+    INSERT INTO public.purchase_invoices (
+        organization_id, supplier_id, warehouse_id, invoice_date, 
+        total_amount, status, notes
+    ) VALUES (
+        v_po.organization_id, v_po.supplier_id, p_warehouse_id, now(),
+        v_po.total_amount, 'draft', 'محولة آلياً من أمر شراء رقم ' || v_po.order_number
+    ) RETURNING id INTO v_inv_id;
+
+    -- 3. نقل البنود مع الحفاظ على وحدة القياس المختارة (UoM Integrity)
+    INSERT INTO public.purchase_invoice_items (
+        organization_id, purchase_invoice_id, product_id, quantity, uom_id, unit_price
+    )
+    SELECT 
+        organization_id, v_inv_id, product_id, quantity, uom_id, unit_price
+    FROM public.purchase_order_items
+    WHERE purchase_order_id = p_po_id;
+
+    -- 4. تحديث حالة الطلب لضمان عدم تكرار الفوترة
+    UPDATE public.purchase_orders SET status = 'received' WHERE id = p_po_id;
+
+    RETURN v_inv_id;
+END; $$ LANGUAGE plpgsql;
 
 -- الخزينة والسندات
 CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
@@ -1228,6 +1297,28 @@ CREATE OR REPLACE VIEW public.monthly_sales_dashboard WITH (security_invoker = t
 -- ملاحظة: استخدام security_invoker يضمن أن الـ View يحترم سياسات RLS الخاصة بالجداول الأصلية
 
 -- 🚀 ملف الماستر انتهى هيكلياً. الرصيد والدوال في deploy_all_functionss والسياسات في setup_rls.
+
+-- 📊 رؤية محاسبية لعرض رصيد المخزن بأكثر من وحدة (Multi-UoM Stock View)
+DROP VIEW IF EXISTS public.v_inventory_multi_uom CASCADE;
+CREATE OR REPLACE VIEW public.v_inventory_multi_uom AS
+SELECT 
+    p.id as product_id,
+    p.name as product_name,
+    p.stock as base_stock,
+    bu.name as base_uom_name,
+    u.name as alternative_uom_name,
+    CASE 
+        WHEN u.uom_type = 'bigger' THEN ROUND(p.stock / NULLIF(u.ratio, 0), 4)
+        WHEN u.uom_type = 'smaller' THEN ROUND(p.stock * u.ratio, 4)
+        ELSE p.stock
+    END as alternative_stock,
+    p.organization_id
+FROM public.products p
+JOIN public.uoms bu ON p.base_uom_id = bu.id
+JOIN public.uoms u ON u.category_id = bu.category_id
+WHERE p.deleted_at IS NULL;
+
+COMMENT ON VIEW public.v_inventory_multi_uom IS 'تعرض هذه الرؤية رصيد كل صنف بكافة الوحدات المعرفة في فئته آلياً';
 
 -- إيقاف وضع الاستعادة لعودة عمل نظام الحماية الطبيعي
 SET app.restore_mode = 'off';

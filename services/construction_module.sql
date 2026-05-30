@@ -453,9 +453,10 @@ CREATE TABLE IF NOT EXISTS public.project_material_issue_items (
     issue_id UUID NOT NULL REFERENCES public.project_material_issues(id) ON DELETE CASCADE,
     product_id UUID NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
     boq_item_id UUID REFERENCES public.project_boq(id) ON DELETE SET NULL,
+    uom_id UUID REFERENCES public.uoms(id), -- 🛡️ دعم الوحدات في صرف مواد المواقع
     quantity NUMERIC(15,3) NOT NULL,
     unit_cost NUMERIC(15,2) NOT NULL,
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
 -- دالة اعتماد صرف المواد وتحميلها على تكلفة المشروع
@@ -977,6 +978,7 @@ BEGIN
 END $$;
 
 -- رؤية تحليلية لمقارنة المقاولين
+DROP VIEW IF EXISTS public.v_subcontractor_performance CASCADE;
 CREATE OR REPLACE VIEW public.v_subcontractor_performance AS
 SELECT 
     s.id AS subcontractor_id,
@@ -1040,6 +1042,7 @@ END;
 $$;
 
 -- رؤية تحليلية لحضور الموقع تربط الموظفين بالمشاريع
+DROP VIEW IF EXISTS public.v_project_site_attendance CASCADE;
 CREATE OR REPLACE VIEW public.v_project_site_attendance AS
 SELECT 
     a.id,

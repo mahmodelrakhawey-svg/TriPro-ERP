@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { supabase } from '../supabaseClient';
 import {
   getInvoiceItems,
   getInvoiceItemsWithTotals,
@@ -19,6 +20,7 @@ interface InvoiceItemsListProps {
 interface FormData {
   description: string;
   quantity: number;
+  uom_id?: string;
   unit_price: number;
   discount: number;
   tax_rate: number;
@@ -27,6 +29,7 @@ interface FormData {
 const INITIAL_FORM: FormData = {
   description: '',
   quantity: 1,
+  uom_id: '',
   unit_price: 0,
   discount: 0,
   tax_rate: 0
@@ -47,13 +50,20 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
   });
   const [formData, setFormData] = useState<FormData>(INITIAL_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [uoms, setUoms] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // تحميل البنود والمجاميع
   useEffect(() => {
     loadItems();
+    fetchUoms();
   }, [invoiceId]);
+
+  const fetchUoms = async () => {
+    const { data } = await supabase.from('uoms').select('*');
+    if (data) setUoms(data);
+  };
 
   const loadItems = async () => {
     try {
@@ -85,10 +95,11 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
         line_no: newLineNo,
         description: formData.description,
         quantity: formData.quantity,
+        uom_id: formData.uom_id,
         unit_price: formData.unit_price,
         discount: formData.discount,
         tax_rate: formData.tax_rate
-      });
+      } as any);
 
       setFormData(INITIAL_FORM);
       await loadItems();
@@ -103,10 +114,11 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
       await updateInvoiceItem(id, {
         description: formData.description,
         quantity: formData.quantity,
+        uom_id: formData.uom_id,
         unit_price: formData.unit_price,
         discount: formData.discount,
         tax_rate: formData.tax_rate
-      });
+      } as any);
 
       setEditingId(null);
       setFormData(INITIAL_FORM);
@@ -133,6 +145,7 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
     setFormData({
       description: item.description || '',
       quantity: item.quantity,
+      uom_id: (item as any).uom_id || '',
       unit_price: item.unit_price,
       discount: item.discount,
       tax_rate: item.tax_rate
@@ -161,6 +174,7 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
             <tr>
               <th className="border border-gray-300 px-3 py-2">الرقم</th>
               <th className="border border-gray-300 px-3 py-2">الوصف</th>
+              <th className="border border-gray-300 px-3 py-2 text-center">الوحدة</th>
               <th className="border border-gray-300 px-3 py-2 text-center">الكمية</th>
               <th className="border border-gray-300 px-3 py-2 text-center">السعر الفردي</th>
               <th className="border border-gray-300 px-3 py-2 text-center">الخصم</th>
@@ -185,6 +199,15 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
                     />
                   ) : (
                     item.description
+                  )}
+                </td>
+                <td className="border border-gray-300 px-3 py-2 text-center">
+                  {editingId === item.id ? (
+                    <select value={formData.uom_id} onChange={e => setFormData({...formData, uom_id: e.target.value})} className="w-full px-2 py-1 border rounded text-xs">
+                      {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                    </select>
+                  ) : (
+                    uoms.find(u => u.id === (item as any).uom_id)?.name || '-'
                   )}
                 </td>
                 <td className="border border-gray-300 px-3 py-2 text-center">
@@ -313,6 +336,12 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
               }
               className="px-2 py-1 border rounded"
             />
+            <select value={formData.uom_id} onChange={e => setFormData({...formData, uom_id: e.target.value})} className="px-2 py-1 border rounded bg-white">
+              <option value="">-- الوحدة --</option>
+              {uoms.map(u => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
             <input
               type="number"
               placeholder="الكمية"

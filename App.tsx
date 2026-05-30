@@ -50,6 +50,7 @@ import TopSellingReport from './modules/inventory/TopSellingReport';
 import SlowMovingReport from './modules/inventory/SlowMovingReport';
 import ItemProfitReport from './modules/inventory/ItemProfitReport';
 import ProductManager from './modules/inventory/ProductManager';
+import MultiUomStockReport from './modules/sales/MultiUomStockReport';
 import ReceiptVoucherForm from './modules/finance/components/ReceiptVoucherForm';
 import InventoryRevaluation from './modules/inventory/InventoryRevaluation';
 import StockMovementCostReport from './modules/inventory/StockMovementCostReport';
@@ -136,6 +137,7 @@ import WIPMonthlySummaryReport from './modules/manufacturing/reports/WIPMonthlyS
 import UserProfile from './components/UserProfile';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
+import UnitsOfMeasureManager from './components/UnitsOfMeasureManager';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import GuestMenuLayout from './modules/restaurant/components/GuestMenuLayout';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
@@ -467,6 +469,8 @@ const MainLayout = () => {
                 
                 {/* 📦 مديول المخازن والأصناف */}
                 <Route path="/products" element={<ModuleGuard module="inventory"><ProductManager /></ModuleGuard>} />
+                <Route path="/multi-uom-report" element={<ModuleGuard module="inventory"><MultiUomStockReport /></ModuleGuard>} />
+                <Route path="/units-of-measure" element={<ModuleGuard module="inventory"><UnitsOfMeasureManager /></ModuleGuard>} />
                 <Route path="/inventory-dashboard" element={<ModuleGuard module="inventory"><InventoryDashboard /></ModuleGuard>} />
                 <Route path="/warehouses" element={<ModuleGuard module="inventory"><WarehouseManager /></ModuleGuard>} />
                 <Route path="/stock-transfer" element={<ModuleGuard module="inventory"><StockTransfer /></ModuleGuard>} />
