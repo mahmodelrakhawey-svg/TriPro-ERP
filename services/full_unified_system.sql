@@ -1360,7 +1360,8 @@ EXCEPTION WHEN OTHERS THEN NULL; END $$;
 CREATE OR REPLACE FUNCTION public.approve_invoice(
     p_invoice_id uuid,
     p_org_id uuid DEFAULT NULL,
-    p_warehouse_id uuid DEFAULT NULL
+    p_warehouse_id uuid DEFAULT NULL,
+    p_skip_recalc boolean DEFAULT false -- 🚀 معامل الأداء للباقة المجانية
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_invoice record; v_org_id uuid; v_journal_id uuid; v_mappings jsonb;
@@ -1416,14 +1417,17 @@ BEGIN
     UPDATE public.invoices SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
 
     -- 🚀 6. تحديث المخزون الشامل لجميع المستودعات (الخصم اللحظي)
-    PERFORM public.recalculate_stock_rpc(v_org_id);
+    IF NOT p_skip_recalc THEN
+        PERFORM public.recalculate_stock_rpc(v_org_id);
+    END IF;
 END; $$;
 
 -- 🛠️ دالة ترحيل فاتورة المشتريات (Approve Purchase Invoice) - V50.0
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(
     p_invoice_id uuid,
     p_org_id uuid DEFAULT NULL,
-    p_warehouse_id uuid DEFAULT NULL
+    p_warehouse_id uuid DEFAULT NULL,
+    p_skip_recalc boolean DEFAULT false -- 🚀 معامل الأداء للباقة المجانية
 ) RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_invoice record; v_item record; v_org_id uuid; v_inventory_acc_id uuid; v_vat_in_id uuid; v_supplier_acc_id uuid;
@@ -1470,7 +1474,9 @@ BEGIN
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, v_invoice.subtotal, 0, 'إثبات مشتريات', v_org_id), (v_journal_id, v_supplier_acc_id, 0, v_invoice.total_amount, 'استحقاق مورد', v_org_id);
 
     UPDATE public.purchase_invoices SET status = 'posted' WHERE id = p_invoice_id;
-    PERFORM public.recalculate_stock_rpc(v_org_id);
+    IF NOT p_skip_recalc THEN
+        PERFORM public.recalculate_stock_rpc(v_org_id);
+    END IF;
 END; $$;
 
 -- 🛠️ الأسماء المستعارة (Aliases) لضمان توافق RPC مع الواجهة الأمامية
@@ -1589,7 +1595,8 @@ EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'MFG Purge info: %', SQLERRM; END $$;
 CREATE OR REPLACE FUNCTION public.mfg_finalize_order(
     p_order_id uuid,
     p_final_status text DEFAULT 'completed', 
-    p_qc_notes text DEFAULT NULL
+    p_qc_notes text DEFAULT NULL,
+    p_skip_recalc boolean DEFAULT false -- 🚀 معامل الأداء للباقة المجانية
 )
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
@@ -1803,13 +1810,19 @@ END $$;
 -- ================================================================
 -- 7. دالة محاكاة اختبار الضغط (Load Test Simulation Function)
 -- ================================================================
+DO $$ BEGIN
+    -- 🛡️ تطهير النسخة القديمة لضمان تغيير نوع الإرجاع من TEXT إلى jsonb (HINT: 42P13)
+    DROP FUNCTION IF EXISTS public.simulate_load_test(integer, integer, uuid, uuid);
+EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'LT Purge info: %', SQLERRM; END $$;
+
 CREATE OR REPLACE FUNCTION public.simulate_load_test(
     p_num_sales_invoices INTEGER DEFAULT 100,
     p_num_mfg_orders INTEGER DEFAULT 100,
     p_org_id UUID DEFAULT NULL,
     p_user_id UUID DEFAULT NULL
-)
-RETURNS TEXT LANGUAGE plpgsql SECURITY DEFINER AS $$
+-- 🚀 تحديث V51.3: إضافة محرك قياس الأداء (Performance Benchmarking) وضمان توفر البيانات
+) 
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_org_id UUID;
     v_current_user_id UUID;
@@ -1831,7 +1844,13 @@ DECLARE
     v_mfg_progress_id UUID;
     v_employee_id UUID; -- New variable for employee ID
     v_mfg_step_id UUID;
+    v_total_start timestamptz;
+    v_sales_start timestamptz;
+    v_mfg_start timestamptz;
+    v_sales_ms float := 0;
+    v_mfg_ms float := 0;
 BEGIN
+    v_total_start := clock_timestamp();
     -- Resolve organization and user IDs
     v_org_id := COALESCE(p_org_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
     v_current_user_id := COALESCE(p_user_id, auth.uid(), (SELECT id FROM public.profiles WHERE organization_id = v_org_id LIMIT 1));
@@ -1879,14 +1898,33 @@ BEGIN
     LIMIT 1;
 
     IF v_mfg_product_id IS NULL THEN
-        RAISE WARNING 'No manufactured product with routing found for organization %. Skipping manufacturing load test.', v_org_id;
-        p_num_mfg_orders := 0; -- Skip MFG test if no suitable product
+        -- 🛠️ ترميم بيانات الاختبار (Self-Healing): إنشاء منتج ومسار إذا لم يوجدا لضمان اختبار التصنيع
+        RAISE NOTICE 'No manufactured product found. Creating test data for organization %...', v_org_id;
+        
+        INSERT INTO public.products (name, mfg_type, product_type, sales_price, cost, weighted_average_cost, organization_id)
+        VALUES ('منتج اختبار الضغط', 'standard', 'MANUFACTURED', 100, 50, 50, v_org_id) RETURNING id INTO v_mfg_product_id;
+        
+        INSERT INTO public.mfg_routings (product_id, name, organization_id, is_default)
+        VALUES (v_mfg_product_id, 'مسار اختبار الضغط', v_org_id, true) RETURNING id INTO v_mfg_routing_id;
+        
+        INSERT INTO public.mfg_routing_steps (routing_id, step_order, work_center_id, operation_name, standard_time_minutes, organization_id)
+        VALUES (v_mfg_routing_id, 1, 
+               (SELECT id FROM public.mfg_work_centers WHERE organization_id = v_org_id LIMIT 1), 
+               'تجميع آلي', 60, v_org_id);
+               
+        -- تأكيد وجود خامة لربطها بالمسار
+        SELECT id INTO v_product_id FROM public.products WHERE organization_id = v_org_id AND mfg_type = 'raw' LIMIT 1;
+        IF v_product_id IS NOT NULL THEN
+            INSERT INTO public.mfg_step_materials (step_id, raw_material_id, quantity_required, organization_id)
+            VALUES ((SELECT id FROM public.mfg_routing_steps WHERE routing_id = v_mfg_routing_id LIMIT 1), v_product_id, 1, v_org_id);
+        END IF;
     END IF;
 
     -- ============================================================
     -- Simulate Sales Invoices
     -- ============================================================
     RAISE NOTICE 'Simulating % sales invoices...', p_num_sales_invoices;
+    v_sales_start := clock_timestamp();
     FOR v_i IN 1..p_num_sales_invoices LOOP
         v_invoice_number := 'LT-INV-' || to_char(now(), 'YYMMDDHH24MISS') || '-' || upper(substring(gen_random_uuid()::text, 1, 4)) || '-' || LPAD(v_i::text, 4, '0');
         v_sales_price := (RANDOM() * 100 + 50)::NUMERIC(10,2); -- Random price between 50 and 150
@@ -1910,6 +1948,7 @@ BEGIN
         PERFORM public.approve_invoice(v_invoice_id, v_org_id, v_warehouse_id);
     END LOOP;
     PERFORM public.recalculate_stock_rpc(v_org_id); -- تحديث نهائي لضمان الدقة
+    v_sales_ms := extract(epoch from (clock_timestamp() - v_sales_start)) * 1000;
     RAISE NOTICE 'Finished simulating % sales invoices.', p_num_sales_invoices;
 
     -- ============================================================
@@ -1917,6 +1956,7 @@ BEGIN
     -- ============================================================
     IF p_num_mfg_orders > 0 THEN
         RAISE NOTICE 'Simulating % manufacturing orders...', p_num_mfg_orders;
+        v_mfg_start := clock_timestamp();
         FOR v_i IN 1..p_num_mfg_orders LOOP
             v_order_number := 'LT-MFG-' || to_char(now(), 'YYMMDDHH24MISS') || '-' || upper(substring(gen_random_uuid()::text, 1, 4)) || '-' || LPAD(v_i::text, 4, '0');
             v_quantity := (RANDOM() * 10 + 1)::NUMERIC(10,2); -- Random quantity between 1 and 11
@@ -1940,13 +1980,25 @@ BEGIN
             PERFORM public.mfg_finalize_order(v_mfg_order_id, 'completed', 'Load test completion');
         END LOOP;
         PERFORM public.recalculate_stock_rpc(v_org_id); -- تحديث نهائي
+        v_mfg_ms := extract(epoch from (clock_timestamp() - v_mfg_start)) * 1000;
         RAISE NOTICE 'Finished simulating % manufacturing orders.', p_num_mfg_orders;
     END IF;
 
-    RETURN format('Load test completed for organization %s. %s sales invoices and %s manufacturing orders simulated.', v_org_id, p_num_sales_invoices, p_num_mfg_orders);
+    RETURN jsonb_build_object(
+        'status', 'SUCCESS',
+        'organization_id', v_org_id,
+        'benchmarks', jsonb_build_object(
+            'sales_invoices', jsonb_build_object('count', p_num_sales_invoices, 'total_ms', ROUND(v_sales_ms::numeric, 2), 'avg_ms_per_op', ROUND((v_sales_ms / NULLIF(p_num_sales_invoices, 0))::numeric, 2)),
+            'mfg_orders', jsonb_build_object('count', p_num_mfg_orders, 'total_ms', ROUND(v_mfg_ms::numeric, 2), 'avg_ms_per_op', ROUND((v_mfg_ms / NULLIF(p_num_mfg_orders, 0))::numeric, 2)),
+            'total_execution_ms', ROUND((extract(epoch from (clock_timestamp() - v_total_start)) * 1000)::numeric, 2)
+        ),
+        'timestamp', now()
+    );
 
 EXCEPTION WHEN OTHERS THEN
-    RAISE EXCEPTION 'Load test failed: %', SQLERRM;
+    INSERT INTO public.system_error_logs (error_message, context, function_name, organization_id)
+    VALUES (SQLERRM, jsonb_build_object('p_invoices', p_num_sales_invoices, 'p_mfg', p_num_mfg_orders), 'simulate_load_test', v_org_id);
+    RAISE EXCEPTION 'خطأ في اختبار الضغط: %', SQLERRM;
 END;
 $$;
 

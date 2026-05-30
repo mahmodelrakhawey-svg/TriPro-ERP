@@ -826,7 +826,8 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.mfg_finalize_order(
     p_order_id uuid,
     p_final_status text DEFAULT 'completed',
-    p_qc_notes text DEFAULT NULL
+    p_qc_notes text DEFAULT NULL,
+    p_skip_recalc boolean DEFAULT false -- 🚀 معامل الأداء للباقة المجانية
 )
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
@@ -979,7 +980,9 @@ BEGIN
         VALUES (SQLERRM, jsonb_build_object('order_id', p_order_id, 'step', 'mfg_finalize_sub_functions'), 'mfg_finalize_order', v_org_id, auth.uid());
         RAISE WARNING 'تنبيه: فشل تشغيل بعض العمليات المساعدة لأمر الإنتاج %: %', p_order_id, SQLERRM;
     END;
-    PERFORM public.recalculate_stock_rpc(v_org_id);
+    IF NOT p_skip_recalc THEN
+        PERFORM public.recalculate_stock_rpc(v_org_id);
+    END IF;
 END; $$;
 
 -- 🛠️ دالة تحويل طلب المبيعات إلى أوامر إنتاج تلقائية
@@ -2288,7 +2291,7 @@ GRANT SELECT ON public.v_mfg_step_variance TO authenticated;
 -- منح صلاحية تنفيذ الدوال للمستخدمين المصادق عليهم
 GRANT EXECUTE ON FUNCTION public.mfg_start_step(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_complete_step(uuid, numeric) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.mfg_finalize_order(uuid, text, text) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.mfg_finalize_order(uuid, text, text, boolean) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_create_orders_from_sales(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_merge_sales_orders(uuid[]) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.mfg_start_production_order(uuid) TO authenticated;
