@@ -18,6 +18,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_wht_pay_id uuid; v_payroll_tax_id uuid; v_wht_rec_id uuid; v_sal_ret_id uuid;
     v_sal_exp_id uuid; v_bonus_id uuid; v_ded_id uuid; v_adv_id uuid; v_retained_id uuid;
     v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
+    v_cash_surplus_id uuid;
     v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid; v_wip_variance_id uuid;
     v_ret_cust_id uuid; v_ret_sub_id uuid; v_adv_sub_id uuid;
     v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid; v_equip_rev_id uuid;
@@ -189,6 +190,7 @@ BEGIN
     ('538', 'أدوات مكتبية ومطبوعات', 'expense', false, '53'),
     ('539', 'ضيافة واستقبال', 'expense', false, '53'),
     ('541', 'تسوية عجز الصندوق', 'expense', false, '53'),
+    ('441', 'زيادة الصندوق (إيرادات متنوعة)', 'revenue', false, '42'),
     ('542', 'إكراميات', 'expense', false, '53'),
     ('543', 'مصاريف نظافة', 'expense', false, '53');
     -- 2. تخصيص حسابات بناءً على النشاط
@@ -274,6 +276,7 @@ BEGIN
     v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1);
     v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
 
+    v_cash_surplus_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '441' LIMIT 1);
     -- جلب حسابات المقاولات (الإصلاح الجذري)
     v_wip_variance_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '511' LIMIT 1); -- Default to COGS
     v_ret_cust_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1249' LIMIT 1);
@@ -314,6 +317,7 @@ BEGIN
             'RETAINED_EARNINGS', v_retained_id, 
             'NOTES_RECEIVABLE', v_notes_rec_id,
             'NOTES_PAYABLE', v_notes_pay_id,
+            'CASH_SURPLUS_ACC', v_cash_surplus_id,
             'CASH_SHORTAGE', v_cash_deficit_id,
             'INVENTORY_RAW_MATERIALS', v_raw_id,
             'INVENTORY_WIP', v_wip_id,

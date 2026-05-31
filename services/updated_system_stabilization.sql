@@ -664,8 +664,26 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS notes text; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'orders') THEN ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS grand_total numeric DEFAULT 0; END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'cheques') THEN ALTER TABLE public.cheques ADD COLUMN IF NOT EXISTS current_account_id uuid REFERENCES public.accounts(id); END IF;
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'inventory_count_items') THEN ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS notes text; END IF;
-END $$;
+
+    -- 🛠️ ترميم جداول الجرد (Inventory Count Healing)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'inventory_counts') THEN
+        CREATE TABLE public.inventory_counts (
+            id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+            count_date date DEFAULT now(),
+            status text DEFAULT 'draft',
+            warehouse_id uuid REFERENCES public.warehouses(id) ON DELETE SET NULL,
+            organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+            notes text,
+            created_at timestamptz DEFAULT now()
+        );
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'inventory_count_items') THEN 
+        ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS actual_qty numeric DEFAULT 0;
+        ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS system_qty numeric DEFAULT 0;
+        ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS difference numeric DEFAULT 0;
+        ALTER TABLE public.inventory_count_items ADD COLUMN IF NOT EXISTS notes text;
+    END IF;END $$;
 
 -- إضافة أعمدة مفقودة تم رصدها في هيكل القاعدة الحالي لضمان التوافق
 DO $$ BEGIN

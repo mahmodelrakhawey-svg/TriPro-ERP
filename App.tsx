@@ -385,12 +385,6 @@ const MainLayout = () => {
                 <Route path="/login" element={<Navigate to="/" replace />} />
                 <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
 
-                {/* مديول المحاسبة - يمكن فصلها في مصفوفة لاحقاً */}
-                {/* يتم استدعاء مصفوفة المسارات المنظمة هنا مستقبلاً */}
-                {/* 1. المسارات الأساسية */}
-                <Route path="/login" element={<Navigate to="/" replace />} />
-                <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
-
                 {/* 2. مديول التصنيع (Manufacturing) */}
                 <Route path="/mfg/*" element={
                   <ModuleGuard module="manufacturing">

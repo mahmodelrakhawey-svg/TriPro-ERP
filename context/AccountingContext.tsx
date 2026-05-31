@@ -233,7 +233,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       // 🛡️ صمام أمان: جلب قائمة الشركات للسوبر أدمن فوراً لملء القائمة المنسدلة
-      const isSuperAdmin = authUser.role === 'super_admin' || profile.role === 'super_admin';
+      const isSuperAdmin = authUser.role === 'super_admin' || (profile && profile.role === 'super_admin');
       if (isSuperAdmin) {
         const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
         setOrganizations(allOrgs || []);
@@ -317,7 +317,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCheques(chqs.data || []);
       
       // تتبع بيانات الوردية القادمة من قاعدة البيانات
-      if (process.env.NODE_ENV === 'development') {
+      if (import.meta.env.DEV) {
         console.log('Raw Shift Data from RPC:', shift.data);
       }
 
@@ -327,7 +327,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setLastUpdated(new Date());
 
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') console.error('Error refreshing accounting data:', error);
+      if (import.meta.env.DEV) console.error('Error refreshing accounting data:', error);
       showToast('فشل تحديث البيانات، يرجى التحقق من اتصال الإنترنت', 'error');    } finally {
       setIsLoading(false);
     }

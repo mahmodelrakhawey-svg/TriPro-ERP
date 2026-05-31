@@ -939,7 +939,7 @@ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_shift record; v_summary record; v_je_id uuid; v_mappings jsonb; v_org_id uuid;
     v_cash_acc_id uuid; v_sales_acc_id uuid; v_vat_acc_id uuid; v_cogs_acc_id uuid; v_inventory_acc_id uuid;
-    v_diff numeric := 0; v_item_cost_record record;
+    v_diff numeric := 0; v_item_cost_record record; v_cash_surplus_acc_id uuid; v_cash_deficit_acc_id uuid;
 BEGIN
     -- 🛡️ التأكد من أن المعرّف الممرر ليس فارغاً
     IF p_shift_id IS NULL THEN RAISE EXCEPTION 'خطأ: لم يتم تحديد وردية للإغلاق.'; END IF;
@@ -954,9 +954,7 @@ BEGIN
     v_org_id := COALESCE(p_org_id, v_shift.organization_id, public.get_my_org());
     
     -- 🛡️ صمام أمان: لا تسمح بتوليد القيد إذا كانت الوردية لا تزال مفتوحة
-    IF v_shift.status != 'CLOSED' THEN
-        RAISE EXCEPTION 'لا يمكن توليد قيد إغلاق لوردية لا تزال مفتوحة.';
-    END IF;
+    -- تم التعطيل مؤقتاً للسماح بالإصلاح اليدوي للورديات العالقة
 
     DELETE FROM public.journal_entries WHERE related_document_id = p_shift_id AND related_document_type = 'shift';
 
@@ -966,8 +964,12 @@ BEGIN
     SELECT o.id, o.subtotal, o.total_tax, o.grand_total, o.user_id
     FROM public.orders o 
     WHERE o.organization_id = v_org_id 
-    AND o.created_at BETWEEN v_shift.start_time - interval '1 second' AND COALESCE(v_shift.end_time, now()) + interval '1 second'
-    AND o.status IN ('PAID', 'COMPLETED', 'posted');
+    AND (
+        (o.created_at BETWEEN v_shift.start_time - interval '5 seconds' AND COALESCE(v_shift.end_time, now()) + interval '5 seconds')
+        OR 
+        (o.id IN (SELECT order_id FROM public.payments WHERE created_at BETWEEN v_shift.start_time AND COALESCE(v_shift.end_time, now())))
+    )
+    AND o.status IN ('PAID', 'COMPLETED', 'posted', 'CONFIRMED');
 
     SELECT 
         COALESCE(SUM(subtotal), 0) as subtotal, 
@@ -977,30 +979,47 @@ BEGIN
             WHERE p.order_id IN (SELECT id FROM temp_shift_orders)
               AND UPPER(p.payment_method) = 'CASH' AND p.status = 'COMPLETED'
         ), 0) as cash_total,
+        -- 🚀 حساب التكلفة بتفكيك الوصفة (BOM Expansion)
         COALESCE((
-            SELECT SUM(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * COALESCE(oi.unit_cost, 0)) 
-            FROM public.order_items oi JOIN public.products p ON oi.product_id = p.id
-            WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
-        ), 0) as cost_total
-    INTO v_summary
+            SELECT SUM(line_cost) FROM (
+                -- 1. الأصناف بدون وصفة
+                SELECT public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * COALESCE(NULLIF(oi.unit_cost, 0), NULLIF(p.weighted_average_cost, 0), p.cost, 0) as line_cost
+                FROM public.order_items oi JOIN public.products p ON oi.product_id = p.id
+                WHERE oi.order_id IN (SELECT id FROM temp_shift_orders) AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+                UNION ALL
+                -- 2. الأصناف بوصفة (الخامات)
+                SELECT (public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id)) * 
+                       COALESCE(NULLIF(rm.weighted_average_cost, 0), rm.cost, 0) as line_cost
+                FROM public.order_items oi JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id
+                JOIN public.products rm ON bom.raw_material_id = rm.id JOIN public.products p ON oi.product_id = p.id
+                WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
+            ) expanded
+        ), 0) as cost_total INTO v_summary
     FROM temp_shift_orders;
 
     v_diff := COALESCE(v_shift.actual_cash, 0) - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total);
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
-    -- 🛡️ [تحديث V51] ضمان الترحيل للحسابات الفرعية حصراً لتجنب أخطاء "المجموعة"
-    v_cash_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'CASH')::uuid, v_shift.treasury_account_id, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1)));
-    v_sales_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1)));
-    v_vat_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1)));
-    v_cogs_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1)));
-    v_inventory_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1)));
+    -- 🛡️ [تحديث V51.5] معالجة آمنة لجلب الحسابات لتجنب انهيار القيد عند وجود زيادة أو عجز
+    v_cash_acc_id := public.resolve_leaf_account(COALESCE(NULLIF(v_mappings->>'CASH', '')::uuid, v_shift.treasury_account_id, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('1231', '123101') LIMIT 1)));
+    v_sales_acc_id := public.resolve_leaf_account(COALESCE(NULLIF(v_mappings->>'SALES_REVENUE', '')::uuid, (SELECT id FROM public.accounts WHERE code IN ('411', '4111') AND organization_id = v_org_id LIMIT 1)));
+    v_vat_acc_id := public.resolve_leaf_account(COALESCE(NULLIF(v_mappings->>'VAT', '')::uuid, (SELECT id FROM public.accounts WHERE code IN ('2231', '2103') AND organization_id = v_org_id LIMIT 1)));
+    v_cogs_acc_id := public.resolve_leaf_account(COALESCE(NULLIF(v_mappings->>'COGS', '')::uuid, (SELECT id FROM public.accounts WHERE code IN ('511', '501') AND organization_id = v_org_id LIMIT 1)));
+    v_inventory_acc_id := public.resolve_leaf_account(COALESCE(NULLIF(v_mappings->>'INVENTORY_FINISHED_GOODS', '')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10302', '1213') AND organization_id = v_org_id LIMIT 1)));
+    
+    -- حسابات الفروقات (العجز والزيادة) مع صمام أمان
+    v_cash_deficit_acc_id := public.resolve_leaf_account(COALESCE(NULLIF(v_mappings->>'CASH_SHORTAGE', '')::uuid, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1)));
+    v_cash_surplus_acc_id := public.resolve_leaf_account(COALESCE(NULLIF(v_mappings->>'CASH_SURPLUS_ACC', '')::uuid, (SELECT id FROM public.accounts WHERE code = '441' AND organization_id = v_org_id LIMIT 1)));
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type, user_id)
     VALUES (now()::date, 'إغلاق وردية مطعم', 'SHIFT-' || to_char(now(), 'YYMMDD') || '-' || substring(p_shift_id::text, 1, 4), 'posted', v_org_id, true, p_shift_id, 'shift', v_shift.user_id) RETURNING id INTO v_je_id;
     
     -- 1. الإيرادات والضرائب (دائن)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-    VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيرادات الوردية', v_org_id);
+    IF v_summary.subtotal > 0 THEN 
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (v_je_id, v_sales_acc_id, 0, v_summary.subtotal, 'إيرادات الوردية', v_org_id);
+    END IF;
+
     IF v_summary.tax > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة', v_org_id); END IF;
 
     -- 2. النقدية (مدين)
@@ -1008,26 +1027,41 @@ BEGIN
     VALUES (v_je_id, v_cash_acc_id, (v_summary.cash_total + v_diff), 0, 'صافي تحصيل الوردية', v_org_id);
 
     -- 3. التكاليف والمخزون
-    IF v_summary.cost_total > 0 THEN
-        -- 🚀 محرك التكلفة الذكي (V50.7): توجيه التكلفة لكل نوع مخزون بشكل صحيح
+    IF COALESCE(v_summary.cost_total, 0) > 0 THEN
+        -- 🚀 محرك التكلفة الذكي المطور: توجيه التكلفة لحسابات الخامات أو المنتج التام حسب الوصفة
         FOR v_item_cost_record IN (
-            SELECT p.inventory_account_id, SUM(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * COALESCE(oi.unit_cost, 0)) as total_cost
-            FROM public.order_items oi
-            JOIN public.products p ON oi.product_id = p.id
-            WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
-            GROUP BY p.inventory_account_id
+            SELECT inv_acc, SUM(line_cost) as total_cost FROM (
+                -- أصناف مباشرة (10302)
+                SELECT COALESCE(p.inventory_account_id, v_inventory_acc_id) as inv_acc,
+                       public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * COALESCE(NULLIF(oi.unit_cost, 0), NULLIF(p.weighted_average_cost, 0), p.cost, 0) as line_cost
+                FROM public.order_items oi JOIN public.products p ON oi.product_id = p.id
+                WHERE oi.order_id IN (SELECT id FROM temp_shift_orders) AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+                UNION ALL
+                -- أصناف بوصفة (10301)
+                SELECT COALESCE(rm.inventory_account_id, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1)) as inv_acc,
+                       (public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id)) * 
+                       COALESCE(NULLIF(rm.weighted_average_cost, 0), rm.cost, 0) as line_cost
+                FROM public.order_items oi JOIN public.bill_of_materials bom ON oi.product_id = bom.product_id
+                JOIN public.products rm ON bom.raw_material_id = rm.id JOIN public.products p ON oi.product_id = p.id
+                WHERE oi.order_id IN (SELECT id FROM temp_shift_orders)
+            ) expanded_inv GROUP BY 1
         ) LOOP
-            IF v_item_cost_record.total_cost > 0 THEN
+            IF v_item_cost_record.total_cost > 0 AND v_item_cost_record.inv_acc IS NOT NULL THEN
                 INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, v_cogs_acc_id, v_item_cost_record.total_cost, 0, 'تكلفة مبيعات الوردية', v_org_id);
-                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, public.resolve_leaf_account(COALESCE(v_item_cost_record.inventory_account_id, v_inventory_acc_id)), 0, v_item_cost_record.total_cost, 'صرف مخزون الوردية', v_org_id);
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_je_id, public.resolve_leaf_account(v_item_cost_record.inv_acc), 0, v_item_cost_record.total_cost, 'صرف مخزون الوردية', v_org_id);
             END IF;
         END LOOP;
     END IF;
 
-    -- 4. معالجة العجز (مدين)
+    -- 4. ميزان التوازن الذكي (Smart Balancing)
     IF v_diff < 0 THEN
+        -- حالة العجز: قيد مدين في حساب العجز
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1), ABS(v_diff), 0, 'عجز نقدية الوردية', v_org_id);
+        VALUES (v_je_id, v_cash_deficit_acc_id, ABS(v_diff), 0, 'عجز نقدية الوردية', v_org_id);
+    ELSIF v_diff > 0 THEN
+        -- حالة الزيادة: قيد دائن في حساب الزيادة
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_cash_surplus_acc_id, 0, v_diff, 'زيادة نقدية الوردية (إيراد متنوع)', v_org_id);
     END IF;
 
     PERFORM public.fix_unbalanced_journal_entry(v_je_id);
@@ -2829,7 +2863,19 @@ GRANT EXECUTE ON FUNCTION public.fix_returns_schema() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_dashboard_stats(uuid) TO authenticated;
 GRANT USAGE ON SCHEMA public TO authenticated, anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+-- 📱 منح صلاحيات القراءة لـ anon لبعض الجداول المختارة لعمل الكيو آر منيو
+GRANT SELECT ON public.restaurant_tables TO anon;
+GRANT SELECT ON public.products TO anon;
+GRANT SELECT ON public.item_categories TO anon;
+GRANT SELECT ON public.menu_categories TO anon;
+GRANT SELECT ON public.uoms TO anon;
+GRANT SELECT ON public.organizations TO anon;
+GRANT SELECT ON public.modifier_groups TO anon;
+GRANT SELECT ON public.modifiers TO anon;
+GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid, uuid) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.create_public_order(uuid, jsonb, uuid) TO authenticated, anon;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 GRANT ALL ON ALL ROUTINES IN SCHEMA public TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_monthly_shift_report(uuid, integer, integer) TO authenticated;
@@ -2837,7 +2883,6 @@ GRANT EXECUTE ON FUNCTION public.run_payroll_rpc(integer, integer, date, uuid, j
 GRANT EXECUTE ON FUNCTION public.add_treasury_transfer(uuid, uuid, numeric, date, text, uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.revalue_product_cost(numeric, text, uuid, uuid, date) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.record_wastage(date, jsonb, text, uuid, uuid, uuid) TO authenticated;
-
 GRANT EXECUTE ON FUNCTION public.create_organization_backup(uuid, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.create_missing_system_accounts(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.run_daily_backups_all_orgs() TO authenticated;

@@ -8,7 +8,7 @@ import { z } from 'zod';
 
 const KitchenEndDayCount = () => {
   const navigate = useNavigate();
-  const { products, warehouses, settings, recalculateStock, currentUser, addEntry, getSystemAccount } = useAccounting();
+  const { products, warehouses, settings, recalculateStock, currentUser, addEntry, getSystemAccount, accounts } = useAccounting();
   const { showToast } = useToast();
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -177,17 +177,21 @@ const KitchenEndDayCount = () => {
 
         // 4. Create Journal Entry
         if (Math.abs(totalAdjustmentValue) > 0.01) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY');
-            const adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS'); // Should map to Cost of Goods Sold or Wastage
+            // 🚀 نظام البحث المحصن عن الحسابات لضمان عدم فشل القيد
+            const inventoryAcc = getSystemAccount('INVENTORY_RAW_MATERIALS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '10301');
+            
+            // البحث عن حساب التسوية (هالك أو تكلفة مبيعات)
+            let adjustmentAcc = getSystemAccount('WASTAGE_EXPENSE') || getSystemAccount('COGS');
+            if (!adjustmentAcc) {
+                adjustmentAcc = accounts.find(a => a.code === '5121' || a.code === '511' || a.code === '541');
+            }
 
             if (inventoryAcc && adjustmentAcc) {
                 const lines = [];
                 if (totalAdjustmentValue > 0) {
-                    // Gain
                     lines.push({ accountId: inventoryAcc.id, debit: totalAdjustmentValue, credit: 0, description: `زيادة جرد مطبخ ${date}` });
                     lines.push({ accountId: adjustmentAcc.id, debit: 0, credit: totalAdjustmentValue, description: 'فروقات جرد (زيادة)' });
                 } else {
-                    // Loss
                     lines.push({ accountId: adjustmentAcc.id, debit: Math.abs(totalAdjustmentValue), credit: 0, description: 'فروقات جرد (هالك/استهلاك)' });
                     lines.push({ accountId: inventoryAcc.id, debit: 0, credit: Math.abs(totalAdjustmentValue), description: `عجز جرد مطبخ ${date}` });
                 }
@@ -199,6 +203,8 @@ const KitchenEndDayCount = () => {
                     status: 'posted', 
                     lines: lines 
                 });
+            } else {
+                showToast('تنبيه: تم حفظ الجرد ولكن فشل إنشاء القيد لعدم وجود حسابات "هالك" أو "مخزون" مربوطة في الإعدادات.', 'warning');
             }
         }
 

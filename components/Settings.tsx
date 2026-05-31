@@ -42,6 +42,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   WITHHOLDING_TAX: 'ضريبة الخصم والتحصيل',
   EMPLOYEE_ADVANCES: 'سلف الموظفين',
   CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
+  CASH_SURPLUS_ACC: 'زيادة الصندوق (إيرادات متنوعة)',
   LABOR_COST_ALLOCATED: 'تكاليف العمالة الصناعية المحملة',
   WASTAGE_EXPENSE: 'مصروف الهالك والفاقد الصناعي',
   RETENTION_CUSTOMER: 'محتجز ضمان لدى الغير (عملاء) (1249)',
@@ -602,6 +603,7 @@ const Settings = () => {
       const mappingSource = {
           ...SYSTEM_ACCOUNTS, 
           CASH_SHORTAGE: '541',
+          CASH_SURPLUS_ACC: '441',
           INVENTORY_RAW_MATERIALS: '10301',
           INVENTORY_WIP: '10303',
           INVENTORY_FINISHED_GOODS: '10302',
@@ -1226,6 +1228,7 @@ const Settings = () => {
                           {Object.entries({
                               ...SYSTEM_ACCOUNTS, 
                               CASH_SHORTAGE: '541',
+                              CASH_SURPLUS_ACC: '441',
                               INVENTORY_RAW_MATERIALS: '10301',
                               INVENTORY_WIP: '10303',
                               INVENTORY_FINISHED_GOODS: '10302',

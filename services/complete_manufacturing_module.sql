@@ -2363,18 +2363,18 @@ BEGIN
         RETURN NEW;
     END IF;
 
-    -- 🧪 السماح بتجاوز الفحص أثناء الاختبارات أو عمليات الاستعادة
+    -- 🛡️ السماح بتجاوز الفحص أثناء الاختبارات أو عمليات الاستعادة
     IF current_setting('app.restore_mode', true) = 'on' THEN
         RETURN NEW;
     END IF;
 
-    -- 🧪 السماح بتجاوز الفحص أثناء الاختبارات أو عمليات الاستعادة
-    IF current_setting('app.restore_mode', true) = 'on' THEN
+    -- 📱 السماح لطلبات الزوار (QR Menu) بالمرور طالما المنظمة معرفة
+    IF auth.uid() IS NULL OR public.get_my_role() = 'anon' THEN
+        IF NEW.organization_id IS NULL THEN
+            RAISE EXCEPTION 'فشل تحديد المنظمة لطلب الزائر.';
+        END IF;
         RETURN NEW;
-    END IF;
-
-    -- For authenticated non-super_admin users
-    IF auth.uid() IS NOT NULL THEN
+    ELSIF auth.uid() IS NOT NULL THEN
         v_current_org := public.get_my_org();
 
         -- If the current user's organization is known

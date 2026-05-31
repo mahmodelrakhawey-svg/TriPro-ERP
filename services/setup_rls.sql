@@ -293,11 +293,47 @@ BEGIN
         EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON public.order_item_modifiers TO authenticated, anon';
     END IF;
 
+    -- 📱 صلاحيات المنيو الإلكتروني الشاملة (QR Menu) لضمان عدم ظهور Permission Denied
+    GRANT USAGE ON SCHEMA public TO anon;
+    GRANT SELECT ON public.restaurant_tables TO anon;
+    GRANT SELECT ON public.products TO anon;
+    GRANT SELECT ON public.item_categories TO anon;
+    GRANT SELECT ON public.menu_categories TO anon;
+    GRANT SELECT ON public.uoms TO anon;
+    GRANT SELECT ON public.uom_categories TO anon;
+    GRANT SELECT ON public.modifier_groups TO anon;
+    GRANT SELECT ON public.modifiers TO anon;
+    GRANT SELECT ON public.order_item_modifiers TO anon;
+    GRANT SELECT ON public.organizations TO anon;
+    GRANT SELECT ON public.orders TO anon;
+    GRANT SELECT ON public.order_items TO anon;
+    GRANT SELECT ON public.table_sessions TO anon;
+    GRANT SELECT ON public.company_settings TO anon;
+    GRANT SELECT ON public.payments TO anon;
+
+    GRANT EXECUTE ON FUNCTION public.create_public_order(uuid, jsonb, uuid) TO anon;
+    GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO anon;
+    GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid, uuid) TO anon;
     -- 🚀 إرسال إشارة تنبيه لمحرك PostgREST لإعادة بناء الكاش فوراً
     NOTIFY pgrst, 'reload schema';
     RAISE NOTICE '🚀 SaaS Schema & Cache Refreshed Successfully';
 END;
 $$ LANGUAGE plpgsql;
+
+-- =================================================================
+-- 📱 سياسات الوصول للمنيو الإلكتروني (Public QR Menu Policies)
+-- =================================================================
+DROP POLICY IF EXISTS "Public_Table_Lookup_QR" ON public.restaurant_tables;
+CREATE POLICY "Public_Table_Lookup_QR" ON public.restaurant_tables FOR SELECT TO anon USING (qr_access_key IS NOT NULL);
+
+DROP POLICY IF EXISTS "Public_Menu_Read_Policy" ON public.products;
+CREATE POLICY "Public_Menu_Read_Policy" ON public.products FOR SELECT TO anon USING (is_active = true);
+
+DROP POLICY IF EXISTS "Public_Category_Read_Policy" ON public.item_categories;
+CREATE POLICY "Public_Category_Read_Policy" ON public.item_categories FOR SELECT TO anon USING (true);
+
+DROP POLICY IF EXISTS "Public_UoM_Read_Policy" ON public.uoms;
+CREATE POLICY "Public_UoM_Read_Policy" ON public.uoms FOR SELECT TO anon USING (true);
 
 -- تنفيذ التنشيط
 -- =================================================================
