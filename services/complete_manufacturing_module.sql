@@ -830,10 +830,10 @@ CREATE OR REPLACE FUNCTION public.mfg_finalize_order(
     p_skip_recalc boolean DEFAULT false -- 🚀 معامل الأداء للباقة المجانية
 )
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = public AS $$
+SET search_path = public AS $$ -- 🛡️ [V51.0] إضافة حساب انحراف WIP
 DECLARE
     v_order record; v_accumulated_wip numeric := 0; v_je_id uuid; v_wip_acc uuid;
-    v_fg_acc uuid; v_loss_acc uuid; v_org_id uuid; v_mappings jsonb; v_total_cost numeric := 0;
+    v_fg_acc uuid; v_loss_acc uuid; v_org_id uuid; v_mappings jsonb; v_total_cost numeric := 0; v_wip_variance_acc uuid;
 BEGIN
     SELECT * INTO v_order FROM public.mfg_production_orders WHERE id = p_order_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'أمر الإنتاج غير موجود'; END IF;
@@ -846,16 +846,19 @@ BEGIN
     v_wip_acc := COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1));
     
     -- 🛡️ منع الترحيل للحسابات الرئيسية: البحث عن حساب فرعي إذا كان المختار مجموعة
+    -- 🛡️ [V51.0] جلب حسابات الربط والتحصين ضد حسابات المجموعات
     IF EXISTS (SELECT 1 FROM public.accounts WHERE id = v_wip_acc AND is_group = true) THEN
         v_wip_acc := (SELECT id FROM public.accounts WHERE parent_id = v_wip_acc AND is_group = false ORDER BY code LIMIT 1);
     END IF;
 
-    -- 🛡️ نظام "تصفير WIP": نحسب إجمالي ما تم تحميله فعلياً على هذا الأمر في سجلات القيود لضمان الإغلاق التام
+    -- 🛡️ [V51.2] الضربة القاضية: حساب رصيد WIP الحقيقي للأمر من كافة القيود (Step + MR)
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_accumulated_wip
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
-    JOIN public.accounts a ON jl.account_id = a.id
-    WHERE je.related_document_id = p_order_id AND je.related_document_type = 'mfg_order' AND a.id = v_wip_acc;
+    WHERE (
+        (je.related_document_id = p_order_id AND je.related_document_type IN ('mfg_order', 'mfg_step'))
+        OR (je.related_document_type = 'mfg_material_request' AND je.related_document_id IN (SELECT id FROM public.mfg_material_requests WHERE production_order_id = p_order_id))
+    ) AND jl.account_id = v_wip_acc;
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند
     DELETE FROM public.journal_entries WHERE related_document_id = p_order_id AND related_document_type = 'mfg_order';
 
@@ -956,11 +959,13 @@ BEGIN
     END IF;
 
     -- 4. المحرك المحاسبي المحصن ضد حسابات المجموعات (V51.0)
-    v_wip_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1)));
-    v_fg_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1)));
-    v_loss_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1)));
+    v_wip_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1))); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
+    v_fg_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1))); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
+    v_loss_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1))); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
+    v_wip_variance_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WIP_VARIANCE_ACCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1))); -- Fallback to COGS
 
     IF COALESCE(v_total_cost, 0) > 0 AND v_wip_acc IS NOT NULL AND v_fg_acc IS NOT NULL THEN
+        -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
         VALUES (now()::date, (CASE WHEN p_final_status = 'completed' THEN 'إغلاق إنتاج: ' ELSE 'خسارة رفض إنتاج: ' END) || v_order.order_number, 'MFG-FIN-' || v_order.order_number, 'posted', v_org_id, true, p_order_id, 'mfg_order') RETURNING id INTO v_je_id;
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 

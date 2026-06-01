@@ -289,14 +289,33 @@ JOIN public.mfg_production_orders po ON cr.order_id = po.id
 JOIN public.products p ON po.product_id = p.id
 JOIN public.v_mfg_equivalent_units eu ON cr.order_id = eu.order_id;
 
--- 📊 4. تقرير كمية الإنتاج (Units Flow)
+-- 📊 4. رؤية اتجاهات التكاليف الشهيرة (Cost Trends)
+DROP VIEW IF EXISTS public.v_mfg_cost_trends CASCADE;
+CREATE VIEW public.v_mfg_cost_trends WITH (security_invoker = true) AS
+SELECT 
+    to_char(date_trunc('month', po.created_at), 'YYYY-MM') as month_period,
+    po.organization_id,
+    AVG(cr.actual_unit_cost)::numeric as avg_actual_unit_cost,
+    AVG(p.manufacturing_cost)::numeric as avg_standard_unit_cost,
+    SUM(cr.total_to_account_for)::numeric as total_actual_cost,
+    CASE 
+        WHEN SUM(p.manufacturing_cost * po.quantity_to_produce) > 0 
+        THEN ROUND(((SUM(cr.total_to_account_for) - SUM(p.manufacturing_cost * po.quantity_to_produce)) / SUM(p.manufacturing_cost * po.quantity_to_produce) * 100), 2)
+        ELSE 0 
+    END::numeric as variance_pct
+FROM public.mfg_production_orders po
+JOIN public.products p ON po.product_id = p.id
+JOIN public.v_mfg_cost_reconciliation_report cr ON po.id = cr.order_id
+GROUP BY 1, 2;
+
+-- 📊 5. تقرير كمية الإنتاج (Units Flow)
 DROP VIEW IF EXISTS public.v_mfg_production_quantity_report CASCADE;
-CREATE OR REPLACE VIEW public.v_mfg_production_quantity_report AS
+CREATE VIEW public.v_mfg_production_quantity_report AS
 SELECT 
     po.order_number,
     po.quantity_to_produce as units_started,
-    (SELECT COALESCE(SUM(produced_qty), 0) FROM public.mfg_order_progress WHERE production_order_id = po.id AND status = 'completed') as units_completed,
-    (SELECT COALESCE(SUM(produced_qty), 0) FROM public.mfg_order_progress WHERE production_order_id = po.id AND status = 'active') as units_in_wip,
+    CASE WHEN po.status = 'completed' THEN po.quantity_to_produce ELSE COALESCE((SELECT MAX(produced_qty) FROM public.mfg_order_progress WHERE production_order_id = po.id AND status = 'completed'), 0) END::numeric as units_completed,
+    CASE WHEN po.status = 'completed' THEN 0 ELSE po.quantity_to_produce - COALESCE((SELECT MAX(produced_qty) FROM public.mfg_order_progress WHERE production_order_id = po.id AND status = 'completed'), 0) END::numeric as units_in_wip,
     (SELECT COALESCE(SUM(quantity), 0) FROM public.mfg_scrap_logs sl JOIN public.mfg_order_progress op ON sl.order_progress_id = op.id WHERE op.production_order_id = po.id AND sl.is_abnormal = false) as normal_scrap,
     (SELECT COALESCE(SUM(quantity), 0) FROM public.mfg_scrap_logs sl JOIN public.mfg_order_progress op ON sl.order_progress_id = op.id WHERE op.production_order_id = po.id AND sl.is_abnormal = true) as abnormal_scrap,
     po.organization_id

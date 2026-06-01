@@ -102,6 +102,9 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'project_material_issue_items') THEN ALTER TABLE public.project_material_issue_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'order_items') THEN ALTER TABLE public.order_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'quotation_items') THEN ALTER TABLE public.quotation_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_order_items') THEN ALTER TABLE public.sales_order_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_order_items') THEN ALTER TABLE public.sales_order_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_order_items') THEN ALTER TABLE public.sales_order_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_actual_material_usage') THEN ALTER TABLE public.mfg_actual_material_usage ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stock_transfer_items') THEN ALTER TABLE public.stock_transfer_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     

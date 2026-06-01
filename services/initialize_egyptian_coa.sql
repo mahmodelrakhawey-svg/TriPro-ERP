@@ -273,6 +273,7 @@ BEGIN
     v_raw_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10301' LIMIT 1);
     v_wip_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10303' LIMIT 1);
     v_labor_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '513' LIMIT 1);
+    v_wip_variance_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '511' LIMIT 1); -- Default to COGS
     v_overhead_mfg_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '514' LIMIT 1);
     v_wastage_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '5121' LIMIT 1);
 

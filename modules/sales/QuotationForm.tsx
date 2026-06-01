@@ -252,7 +252,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
           <div className="p-6 bg-teal-50 border-b border-teal-100 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="lg:col-span-1">
                   <label className="block text-sm font-bold text-slate-700 mb-1">العميل</label>
-                  <select required className="w-full border rounded p-2" value={formData.customerId} onChange={e => setFormData({...formData, customerId: e.target.value})}>
+                  <select required className="w-full border rounded p-2" value={formData.customerId ?? ''} onChange={e => setFormData({...formData, customerId: e.target.value})}>
                       <option value="">اختر...</option>
                       {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -314,7 +314,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
                       {items.map((item, idx) => (
                           <tr key={item.id}>
                               <td className="py-2">
-                                  <select className="w-full border rounded p-1 mb-1 text-sm" value={item.productId} onChange={e => handleItemChange(idx, 'productId', e.target.value)}>
+                                  <select className="w-full border rounded p-1 mb-1 text-sm" value={item.productId ?? ''} onChange={e => handleItemChange(idx, 'productId', e.target.value)}>
                                       <option value="">-- منتج --</option>
                                       {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                   </select>
@@ -323,7 +323,7 @@ const QuotationForm = ({ quotationId, onSaveSuccess }: { quotationId?: string, o
                               <td className="py-2">
                                   <select 
                                       className="w-full border rounded p-1 text-xs bg-white"
-                                      value={item.uomId}
+                                      value={item.uomId ?? ''}
                                       onChange={e => handleItemChange(idx, 'uomId', e.target.value)}
                                   >
                                       {uoms.filter(u => {

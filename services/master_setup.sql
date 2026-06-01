@@ -773,6 +773,7 @@ CREATE TABLE IF NOT EXISTS public.sales_order_items (
     product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
     quantity numeric NOT NULL DEFAULT 1,
     unit_price numeric DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id),
     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
 );
 
