@@ -153,6 +153,7 @@ import WastageAnalysisReport from './modules/restaurant/reports/WastageAnalysisR
 import RestaurantProfitReport from './modules/restaurant/reports/RestaurantProfitReport';
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 import CustomerDisplay from './modules/restaurant/components/POS/CustomerDisplay';
+import RestaurantAnalytics from './services/RestaurantAnalytics';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -512,6 +513,7 @@ const MainLayout = () => {
                 <Route path="/accounting-dashboard" element={<ModuleGuard module="accounting"><AccountingDashboard /></ModuleGuard>} /> 
                 <Route path="/journal-export" element={<ModuleGuard module="accounting"><JournalEntriesExport /></ModuleGuard>} />
                 <Route path="/accounts" element={<ModuleGuard module="accounting"><AccountList /></ModuleGuard>} />
+                <Route path="/restaurant-analytics" element={<ModuleGuard module="restaurant"><RestaurantAnalytics /></ModuleGuard>} />
                 <Route path="/assets" element={<ModuleGuard module="accounting"><AssetManager /></ModuleGuard>} />
                 <Route path="/important-reports" element={<ModuleGuard module="accounting"><ImportantReports /></ModuleGuard>} />
                 <Route path="/reports/restaurant-sales" element={<ModuleGuard module="restaurant"><RestaurantSalesReport /></ModuleGuard>} />

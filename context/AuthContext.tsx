@@ -254,12 +254,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isDemo = userRole === 'demo';
 
     await supabase.auth.signOut();
-    setCurrentUser(null); // يتم تحديث الحالة فوراً لتسريع تجربة الخروج
+    setCurrentUser(null); 
 
     // إذا كان المستخدم هو الديمو، قم بإعادة تعيين البيانات بعد الخروج
     if (isDemo) {
       try {
-        // استدعاء الدالة السحابية لإعادة تعيين البيانات
         await supabase.functions.invoke('reset-demo');
       } catch (error) {
         console.error('Failed to reset demo data:', error);

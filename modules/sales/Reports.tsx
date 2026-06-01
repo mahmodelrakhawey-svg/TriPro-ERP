@@ -2,7 +2,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { 
     PieChart, TrendingUp, Landmark, Scale, Banknote, 
-    FileText, BarChartBig, ArrowRight, AlertTriangle, Calculator
+    FileText, BarChartBig, ArrowRight, AlertTriangle, Calculator, Sparkles
 } from 'lucide-react';
 
 const Reports = () => {
@@ -48,6 +48,13 @@ const Reports = () => {
       icon: <BarChartBig size={32} className="text-blue-600" />,
       path: '/purchase-reports',
       color: 'bg-blue-50 border-blue-100'
+    },
+    {
+      title: 'مركز ذكاء المطاعم (BI)',
+      description: 'التوقعات الذكية، هندسة المنيو، وتحليل انحراف التكاليف اللحظي',
+      icon: <Sparkles size={32} className="text-blue-600" />,
+      path: '/restaurant-analytics',
+      color: 'bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 ring-4 ring-blue-50 scale-105 shadow-xl'
     },
     {
       title: 'كشوف الحسابات',

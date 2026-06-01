@@ -60,7 +60,8 @@ import {
   Database,
   Lock,
   Paperclip,
-  CheckSquare
+  CheckSquare,
+  Sparkles
 } from 'lucide-react';
 
 const Sidebar: React.FC = () => {
@@ -221,6 +222,7 @@ const Sidebar: React.FC = () => {
     { to: '/pos', label: 'نقطة البيع', icon: Utensils, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.pos' },
     { to: '/kds', label: 'شاشة المطبخ', icon: ChefHat, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/kitchen-end-day', label: 'جرد نهاية اليوم', icon: ClipboardCheck, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant-analytics', label: 'مركز ذكاء المطاعم (BI)', icon: Sparkles, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/restaurant-sales', label: 'تقارير مبيعات المطعم', icon: BarChart3, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     
     // الإدارة والنظام
@@ -237,7 +239,7 @@ const Sidebar: React.FC = () => {
   ];
 
   // تصفية العناصر بناءً على الأدوار والموديولات المتاحة
-  const filteredItems = navItems.filter(item => {
+  const filteredItems = React.useMemo(() => navItems.filter(item => {
     if (item.type === 'section') return true;
     if (item.superAdminOnly && !isSuperAdmin) return false;
     if (item.adminOnly && !isSuperAdmin && userRole !== 'admin' && userRole !== 'manager') return false;
@@ -252,29 +254,32 @@ const Sidebar: React.FC = () => {
     }
 
     return true;
-  });
+  }), [isSuperAdmin, userRole, allowedModules, organization, can]);
 
   // إخفاء العناوين (Sections) التي لا تحتوي على عناصر تحتها
-  const visibleItems = filteredItems.filter((item, idx) => {
+  const visibleItems = React.useMemo(() => filteredItems.filter((item, idx) => {
     if (item.type !== 'section') return true;
     const nextItem = filteredItems[idx + 1];
     return nextItem && nextItem.type !== 'section';
-  });
+  }), [filteredItems]);
 
   // تحويل القائمة المسطحة إلى هيكل شجري للموديولات لتسهيل عرضها كقوائم منسدلة
-  const groupedItems: any[] = [];
-  let currentSection: any = null;
+  const groupedItems = React.useMemo(() => {
+    const groups: any[] = [];
+    let currentSection: any = null;
 
-  visibleItems.forEach(item => {
-    if (item.type === 'section') {
-      currentSection = { ...item, children: [] };
-      groupedItems.push(currentSection);
-    } else if (currentSection) {
-      currentSection.children.push(item);
-    } else {
-      groupedItems.push(item); // العناصر التي تسبق أول قسم (مثل لوحة التحكم)
-    }
-  });
+    visibleItems.forEach(item => {
+      if (item.type === 'section') {
+        currentSection = { ...item, children: [] };
+        groups.push(currentSection);
+      } else if (currentSection) {
+        currentSection.children.push(item);
+      } else {
+        groups.push(item);
+      }
+    });
+    return groups;
+  }, [visibleItems]);
 
   const toggleSection = (label: string) => {
     setOpenSection(openSection === label ? null : label);

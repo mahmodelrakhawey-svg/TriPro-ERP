@@ -247,7 +247,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               fetchOrgId = currentSelectedOrgId;
           } else if (profile.organization_id) {
               fetchOrgId = profile.organization_id;
-              setCurrentSelectedOrgId(profile.organization_id); // Set it for future consistency
+              setCurrentSelectedOrgId(profile.organization_id); 
           }
       }
 
@@ -316,11 +316,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setSuppliers(sups.data || []);
       setCheques(chqs.data || []);
       
-      // تتبع بيانات الوردية القادمة من قاعدة البيانات
-      if (import.meta.env.DEV) {
-        console.log('Raw Shift Data from RPC:', shift.data);
-      }
-
       // 🛡️ تصحيح جذري: التحقق من وجود ID حقيقي للوردية لمنع الوردية "الوهمية"
       const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
       setCurrentShift(activeShiftData && activeShiftData.id ? activeShiftData : null);
@@ -419,7 +414,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     refreshData(); 
   };
   const deleteProduct = async (id: string, reason?: string) => { 
-    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    // تم إزالة تحديث حقل 'notes' لأن الجدول لا يحتوي عليه في قاعدة البيانات حالياً
+    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+          
     if (error) throw error;
     showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
     refreshData(); 
