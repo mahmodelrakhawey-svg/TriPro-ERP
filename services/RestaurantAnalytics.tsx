@@ -493,16 +493,56 @@ const RestaurantAnalytics = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {data.map((item, idx) => (
-                  <tr key={idx} className="hover:bg-blue-50/30 transition-colors group">
+                {(() => {
+                    // 🛡️ ذكاء محاسبي: حساب المتوسطات لتصنيف الأصناف في الجدول
+                    const isProfitability = activeTab === 'profitability';
+                    const isVariance = activeTab === 'variance';
+                    const avgQty = isProfitability ? data.reduce((acc, curr) => acc + (curr.total_sold || 0), 0) / (data.length || 1) : 0;
+                    const avgProfit = isProfitability ? data.reduce((acc, curr) => acc + (curr.unit_profit || 0), 0) / (data.length || 1) : 0;
+                    const totalVal = data.reduce((acc, curr) => {
+                        if (isVariance) return acc + ((curr.theoretical_qty || 0) * (curr.unit_cost || 0));
+                        return acc + (curr.total_sales || curr.total_revenue || curr.total_amount || curr.pair_count || curr.total_sold || 0);
+                    }, 0);
+
+                    return data.map((item, idx) => {
+                    // 🛡️ ذكاء محاسبي: تحديد القيم بناءً على نوع التقرير المختار
+                    const currentVal = isVariance 
+                        ? ((item.theoretical_qty || 0) * (item.unit_cost || 0))
+                        : (item.total_sales || item.total_revenue || item.total_amount || item.pair_count || item.total_sold || 0);
+
+                    // تحديد التصنيف واللون لتبويب ربحية الأصناف
+                    let categoryBadge = null;
+                    let rowClass = "hover:bg-blue-50/30";
+                    if (isProfitability) {
+                        if (item.total_sold >= avgQty && item.unit_profit >= avgProfit) {
+                            categoryBadge = <span className="mr-2 text-[10px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">نجم ⭐</span>;
+                            rowClass = "bg-emerald-50/20 hover:bg-emerald-50/40";
+                        } else if (item.total_sold >= avgQty && item.unit_profit < avgProfit) {
+                            categoryBadge = <span className="mr-2 text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full border border-blue-200">حصان جر 🐎</span>;
+                        } else if (item.total_sold < avgQty && item.unit_profit >= avgProfit) {
+                            categoryBadge = <span className="mr-2 text-[10px] bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full border border-amber-200">لغز 🧩</span>;
+                        } else {
+                            categoryBadge = <span className="mr-2 text-[10px] bg-red-100 text-red-700 px-2 py-0.5 rounded-full border border-red-200">خاسر 📉</span>;
+                            rowClass = "bg-red-50/10 hover:bg-red-50/20";
+                        }
+                    }
+
+                    const percentage = totalVal > 0 ? ((currentVal / totalVal) * 100).toFixed(1) : 0;
+
+                    return (
+                      <tr key={idx} className={`${rowClass} transition-colors group`}>
                     <td className="p-4 font-bold text-slate-700">
-                        {item.product_name || item.ingredient_name || item.customer_name || item.product_a || item.payment_name || item.payment_method || `الساعة ${item.sale_hour}:00` || item.staff_id || 'غير معروف'}
+                        {categoryBadge}
+                        {item.product_name || item.ingredient_name || item.customer_name || item.product_a || item.payment_method || (item.sale_hour !== undefined ? `الساعة ${item.sale_hour}:00` : null) || item.staff_id || item.sale_date || 'غير معروف'}
                     </td>
                     <td className="p-4 text-center font-mono text-slate-600">
-                        {item.product_b || (item.total_visits ? `${item.total_visits} زيارة` : '') || (item.total_quantity || item.theoretical_qty || item.transaction_count || item.total_orders || item.total_invoices) + (item.uom_name || '')}
+                        {item.product_b || (item.total_visits ? `${item.total_visits} زيارة` : '') || (item.total_quantity || item.total_sold || item.theoretical_qty || item.transaction_count || item.total_orders || item.total_invoices || 0) + (item.uom_name || '')}
                     </td>
                     <td className="p-4 text-center font-black text-slate-900">
-                        {activeTab === 'basket' ? `${item.pair_count} فاتورة` : activeTab === 'loyalty' ? (item.last_visit || '-') : ((item.total_sales || item.total_revenue || item.total_amount) || (item.theoretical_qty * item.unit_cost)).toLocaleString() + ' ' + settings.currency}
+                        {activeTab === 'basket' ? `${item.pair_count} فاتورة` : 
+                         activeTab === 'loyalty' ? (item.last_visit || '-') : 
+                         isVariance ? (currentVal.toLocaleString() + ' ' + settings.currency) :
+                         ((item.total_sales || item.total_revenue || item.total_amount) || 0).toLocaleString() + ' ' + settings.currency}
                     </td>
                     <td className="p-4">
                         {activeTab === 'loyalty' ? (
@@ -513,21 +553,30 @@ const RestaurantAnalytics = () => {
                                 )}
                             </div>
                         ) : activeTab === 'variance' ? (
-                            <span className="text-xs font-bold bg-amber-50 text-amber-600 px-3 py-1 rounded-full border border-amber-100">بانتظار الجرد الفعلي لمطابقة الانحراف</span>
+                            <div className="flex items-center gap-3">
+                                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                    <div className="h-full bg-amber-500 rounded-full" style={{ width: `${percentage}%` }} />
+                                </div>
+                                <span className="text-[10px] font-black text-amber-600">حصة التكلفة: {percentage}%</span>
+                            </div>
                         ) : (
                         <div className="flex items-center gap-3">
                             <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                                 <div 
-                                  className={`h-full rounded-full ${activeTab === 'profitability' ? 'bg-emerald-500' : 'bg-blue-500'}`}
-                                  style={{ width: `${activeTab === 'profitability' ? (item.unit_profit / item.selling_price * 100) : 45}%` }} 
+                                  className={`h-full rounded-full ${activeTab === 'profitability' ? 'bg-emerald-500' : 'bg-blue-600'}`}
+                                  style={{ width: `${activeTab === 'profitability' ? (item.unit_profit / item.selling_price * 100) : percentage}%` }} 
                                 />
                             </div>
-                            <span className="text-xs font-bold text-slate-400">45%</span>
+                            <span className="text-xs font-bold text-slate-400">
+                                {activeTab === 'profitability' ? (item.unit_profit / item.selling_price * 100).toFixed(0) : percentage}%
+                            </span>
                         </div>
                         )}
                     </td>
                   </tr>
-                ))}
+                    );
+                });
+                })()}
               </tbody>
             </table>
             </div>
