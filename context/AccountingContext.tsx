@@ -50,7 +50,9 @@ export const SYSTEM_ACCOUNTS = {
   ACCRUED_EXPENSES: '225', // مصروفات مستحقة
   REVENUE_OTHER: '421', // إيرادات أخرى
   EXPENSE_GENERAL: '53', // مصروفات إدارية وعمومية
-  SOCIAL_INSURANCE: '224' // هيئة التأمينات الاجتماعية
+  SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
+  HIMS_BILLING_REVENUE: '41101', // إيرادات الخدمات الطبية
+  HIMS_INSURANCE_RECEIVABLE: '122101', // ذمم التأمين
 };
 
 interface AccountingContextType {

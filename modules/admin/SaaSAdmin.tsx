@@ -43,6 +43,7 @@ const AVAILABLE_MODULES = [
   { id: 'hr', label: 'الموارد البشرية' },
   { id: 'manufacturing', label: 'التصنيع والإنتاج' },
   { id: 'construction', label: 'المقاولات والمشاريع' },
+  { id: 'hims', label: 'مديول المستشفيات (HIMS)' },
 ];
 
 const PLAN_CONFIGS: Record<string, { name: string, maxUsers: number, modules: string[] }> = {
@@ -59,7 +60,7 @@ const PLAN_CONFIGS: Record<string, { name: string, maxUsers: number, modules: st
   premium: {
     name: 'الباقة المتكاملة (مستخدمين: 15)',
     maxUsers: 15,
-    modules: ['accounting', 'sales', 'purchases', 'inventory', 'hr', 'restaurant', 'manufacturing', 'construction']
+    modules: ['accounting', 'sales', 'purchases', 'inventory', 'hr', 'restaurant', 'manufacturing', 'construction', 'hims']
   }
 };
 
@@ -449,6 +450,7 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
                 <option value="legal">⚖️ مكاتب المحاماة والاستشارات</option>
                 <option value="transport">🚚 شركات النقل والخدمات اللوجستية</option>
                 <option value="charity">🤝 الجمعيات الخيرية والمؤسسات غير الهادفة للربح</option>
+                <option value="hospital">🏥 المستشفيات والمراكز الطبية</option>
               </select>
             </div>
             <div>
@@ -684,6 +686,7 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
                 <option value="legal">⚖️ مكاتب المحاماة</option>
                 <option value="transport">🚚 شركات النقل</option>
                 <option value="charity">🤝 العمل الخيري</option>
+                <option value="hospital">🏥 المستشفيات والمراكز الطبية</option>
               </select>
             </div>
 
@@ -1499,6 +1502,7 @@ const SaaSAdmin: React.FC = () => {
                     <option value="legal">قانوني</option>
                     <option value="transport">نقل</option>
                     <option value="charity">خيري</option>
+                <option value="hospital">🏥 المستشفيات والمراكز الطبية</option>
                 </select>
             </div>
         </div>
@@ -1543,7 +1547,8 @@ const SaaSAdmin: React.FC = () => {
                     'clinic': 'عيادات',
                     'legal': 'قانوني',
                     'transport': 'نقل',
-                    'charity': 'خيري'
+                    'charity': 'خيري',
+                    'hospital': 'مستشفيات'
                   };
 
                   // حساب الأيام المتبقية لموعد الدفع القادم

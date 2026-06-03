@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useNotifications } from '../utils/useNotifications';
 import { Notification, NotificationType } from '../services/notificationService';
+import { ExperimentOutlined, CameraOutlined } from '@ant-design/icons'; // Import Ant Design icons
 
 interface NotificationCenterProps {
   isOpen: boolean;
@@ -58,6 +59,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
         return <Wrench className="w-5 h-5 text-red-600" />;
       case 'retention_release_alert':
         return <ShieldCheck className="w-5 h-5 text-emerald-500" />;
+      case 'lab_result_ready':
+        return <ExperimentOutlined className="w-5 h-5 text-blue-500" />;
+      case 'radiology_result_ready':
+        return <CameraOutlined className="w-5 h-5 text-purple-500" />;
       case 'success':
         return <CheckCircle className="w-5 h-5 text-green-500" />;
       case 'warning':
@@ -78,6 +83,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
       backup_failure: 'فشل النسخ الاحتياطي',
       manufacturing_cost_overrun: 'تجاوز تكاليف التصنيع',
         retention_release_alert: 'فك محتجز الضمان',
+      lab_result_ready: 'نتائج المختبر جاهزة',
+      radiology_result_ready: 'نتائج الأشعة جاهزة',
       system_alert: 'تنبيهات النظام',
       success: 'نجاح',
       warning: 'تحذير',

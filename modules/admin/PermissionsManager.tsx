@@ -33,7 +33,31 @@ const moduleLabels: Record<string, string> = {
     admin: 'الإدارة والصلاحيات',
     manufacturing: 'التصنيع والإنتاج',
     journal_entries: 'القيود اليومية',
-    finance: 'الإدارة المالية'
+    finance: 'الإدارة المالية',
+    pos: 'نقاط البيع (POS)',
+    dashboard: 'لوحة التحكم الرئيسية',
+    hims: 'إدارة المستشفيات (HIMS)',
+    hims_core: 'إدارة المرضى والزيارات',
+    hims_clinical: 'العيادات والسجل الطبي',
+    hims_inpatient: 'التنويم والعمليات',
+    hims_ancillary: 'المختبر والأشعة',
+    hims_billing: 'الفوترة الطبية والتأمين',
+    hims_patients: 'سجلات المرضى',
+    hims_doctors: 'سجل الأطباء',
+    hims_visits: 'الزيارات الطبية',
+    hims_prescriptions: 'الوصفات الطبية',
+    hims_wards: 'الأجنحة والأقسام',
+    hims_beds: 'إدارة الأسرة',
+    hims_lab_tests: 'دليل الفحوصات',
+    hims_lab_orders: 'طلبات المختبر',
+    hims_radiology_orders: 'طلبات الأشعة',
+    hims_appointments: 'حجز المواعيد',
+    hims_surgeries: 'العمليات الجراحية',
+    hims_insurance_claims: 'مطالبات التأمين',
+    hims_settings: 'إعدادات المستشفى',
+    hims_blood_donors: 'المتبرعون بالدم',
+    hims_blood_donations: 'التبرع بالدم',
+    hims_blood_transfusions: 'نقل الدم'
 };
 
 const actionMap: Record<string, 'read' | 'add' | 'edit' | 'delete' | 'other'> = {
@@ -290,6 +314,13 @@ const PermissionsManager = () => {
             <div className="lg:col-span-3 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 {!selectedRoleId ? (
                     <div className="text-center text-slate-400 py-12">اختر دوراً لعرض صلاحياته</div>
+                ) : permissions.length === 0 ? (
+                    <div className="text-center py-20">
+                        <Loader2 className="animate-spin mx-auto text-indigo-500 mb-4" size={40} />
+                        <h3 className="text-lg font-bold text-slate-700">لم يتم العثور على صلاحيات</h3>
+                        <p className="text-slate-500">تأكد من تشغيل سكربت تهيئة الصلاحيات في قاعدة البيانات</p>
+                        <button onClick={() => window.location.reload()} className="mt-4 text-indigo-600 font-bold hover:underline">إعادة تحميل الصفحة</button>
+                    </div>
                 ) : (
                     <div className="overflow-x-auto">
                         <table className="w-full text-right border-collapse">

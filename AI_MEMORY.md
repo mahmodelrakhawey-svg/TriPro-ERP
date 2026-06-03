@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٣٠‏/٥‏/٢٠٢٦، ١١:٣٨:٢٠ ص
+📅 تاريخ التحديث: ٣‏/٦‏/٢٠٢٦، ٨:٥٢:٤١ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -89,6 +89,33 @@
       📄 ReceiptVoucherPrint.tsx
     📄 ci.yml
     📄 keep-alive.ts
+  📁 hims/
+    📁 components/
+      📄 DischargeManager.tsx
+      📄 HospitalBillingEngine.tsx
+      📄 OrderManagement.tsx
+      📄 PatientMedicalRecord.tsx
+      📄 PrescriptionForm.tsx
+      📄 SurgeryBookingForm.tsx
+      📄 SurgeryExecutionForm.tsx
+      📄 VitalsForm.tsx
+      📄 WardBedManager.tsx
+    📁 pages/
+      📄 AdmissionManager.tsx
+      📄 AppointmentManager.tsx
+      📄 BloodBankDashboard.tsx
+      📄 DoctorDesktop.tsx
+      📄 ERTriageBoard.tsx
+      📄 HIMSExecutiveDashboard.tsx
+      📄 InpatientDashboard.tsx
+      📄 InsuranceClaimsManager.tsx
+      📄 LabDashboard.tsx
+      📄 MedicalBilling.tsx
+      📄 NurseStation.tsx
+      📄 PatientManager.tsx
+      📄 PharmacyDashboard.tsx
+      📄 RadiologyDashboard.tsx
+      📄 SurgeryScheduler.tsx
   📁 hooks/
     📄 usePermissions.ts
   📁 hr/
@@ -221,6 +248,7 @@
     📄 FreeReturnsReport.tsx
     📄 index.css
     📄 InvoiceList.tsx
+    📄 MultiUomStockReport.tsx
     📄 OfferBeneficiariesReport.tsx
     📄 QuotationForm.tsx
     📄 QuotationList.tsx
@@ -417,6 +445,9 @@
   📄 DailyReportForm.tsx
   📄 full_unified_system.sql
   📄 geminiService.ts
+  📄 hims_master_setup.sql
+  📄 hims_module.sql
+  📄 himsService.ts
   📄 index.ts
   📄 initialize_egyptian_coa.sql
   📄 invoiceItems.ts
@@ -429,6 +460,9 @@
   📄 notificationTestUtils.ts
   📄 offlineService.ts
   📄 ProjectInsights.tsx
+  📄 ReportBuilder.tsx
+  📄 restaurant_analytics_views.sql
+  📄 RestaurantAnalytics.tsx
   📄 setup_rls.sql
   📄 SiteAttendanceManager.tsx
   📄 SiteImageGallery.tsx
@@ -571,6 +605,7 @@ import TopSellingReport from './modules/inventory/TopSellingReport';
 import SlowMovingReport from './modules/inventory/SlowMovingReport';
 import ItemProfitReport from './modules/inventory/ItemProfitReport';
 import ProductManager from './modules/inventory/ProductManager';
+import MultiUomStockReport from './modules/sales/MultiUomStockReport';
 import ReceiptVoucherForm from './modules/finance/components/ReceiptVoucherForm';
 import InventoryRevaluation from './modules/inventory/InventoryRevaluation';
 import StockMovementCostReport from './modules/inventory/StockMovementCostReport';
@@ -673,6 +708,20 @@ import WastageAnalysisReport from './modules/restaurant/reports/WastageAnalysisR
 import RestaurantProfitReport from './modules/restaurant/reports/RestaurantProfitReport';
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 import CustomerDisplay from './modules/restaurant/components/POS/CustomerDisplay';
+import RestaurantAnalytics from './services/RestaurantAnalytics';
+
+// 🏥 HIMS Module Imports - Pages
+import PatientManager from './modules/hims/pages/PatientManager';
+import { DoctorDesktop } from './modules/hims/pages/DoctorDesktop';
+import MedicalBilling from './modules/hims/pages/MedicalBilling';
+import { LabDashboard } from './modules/hims/pages/LabDashboard';
+import { BloodBankDashboard as BloodBankManager } from './modules/hims/pages/BloodBankDashboard';
+import { NurseStation } from './modules/hims/pages/NurseStation';
+import { ERTriageBoard } from './modules/hims/pages/ERTriageBoard';
+import { PharmacyDashboard } from './modules/hims/pages/PharmacyDashboard';
+import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
+import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
+import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -905,13 +954,26 @@ const MainLayout = () => {
                 <Route path="/login" element={<Navigate to="/" replace />} />
                 <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
 
-                {/* مديول المحاسبة - يمكن فصلها في مصفوفة لاحقاً */}
-                {/* يتم استدعاء مصفوفة المسارات المنظمة هنا مستقبلاً */}
-                {/* 1. المسارات الأساسية */}
-                <Route path="/login" element={<Navigate to="/" replace />} />
-                <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
-
                 {/* 2. مديول التصنيع (Manufacturing) */}
+                {/* 🏥 مديول المستشفيات (HIMS) */}
+                <Route path="/hims/*" element={
+                  <ModuleGuard module="hims">
+                    <Routes>
+                      <Route path="patients" element={<PatientManager />} />
+                      <Route path="doctor-desktop" element={<DoctorDesktop />} />
+                      <Route path="billing" element={<MedicalBilling />} />
+                      <Route path="lab" element={<LabDashboard />} />
+                      <Route path="blood-bank" element={<BloodBankManager />} />
+                      <Route path="nurse-station" element={<NurseStation />} />
+                      <Route path="er-triage" element={<ERTriageBoard />} />
+                      <Route path="pharmacy" element={<PharmacyDashboard />} />
+                      <Route path="admissions" element={<AdmissionManager />} />
+                      <Route path="wards-management" element={<WardBedManager />} />
+                      <Route path="surgeries" element={<SurgeryScheduler />} />
+                    </Routes>
+                  </ModuleGuard>
+                } />
+
                 <Route path="/mfg/*" element={
                   <ModuleGuard module="manufacturing">
                     <Routes>
@@ -989,6 +1051,7 @@ const MainLayout = () => {
                 
                 {/* 📦 مديول المخازن والأصناف */}
                 <Route path="/products" element={<ModuleGuard module="inventory"><ProductManager /></ModuleGuard>} />
+                <Route path="/multi-uom-report" element={<ModuleGuard module="inventory"><MultiUomStockReport /></ModuleGuard>} />
                 <Route path="/units-of-measure" element={<ModuleGuard module="inventory"><UnitsOfMeasureManager /></ModuleGuard>} />
                 <Route path="/inventory-dashboard" element={<ModuleGuard module="inventory"><InventoryDashboard /></ModuleGuard>} />
                 <Route path="/warehouses" element={<ModuleGuard module="inventory"><WarehouseManager /></ModuleGuard>} />
@@ -1037,6 +1100,7 @@ const MainLayout = () => {
                 <Route path="/accounting-dashboard" element={<ModuleGuard module="accounting"><AccountingDashboard /></ModuleGuard>} /> 
                 <Route path="/journal-export" element={<ModuleGuard module="accounting"><JournalEntriesExport /></ModuleGuard>} />
                 <Route path="/accounts" element={<ModuleGuard module="accounting"><AccountList /></ModuleGuard>} />
+                <Route path="/restaurant-analytics" element={<ModuleGuard module="restaurant"><RestaurantAnalytics /></ModuleGuard>} />
                 <Route path="/assets" element={<ModuleGuard module="accounting"><AssetManager /></ModuleGuard>} />
                 <Route path="/important-reports" element={<ModuleGuard module="accounting"><ImportantReports /></ModuleGuard>} />
                 <Route path="/reports/restaurant-sales" element={<ModuleGuard module="restaurant"><RestaurantSalesReport /></ModuleGuard>} />
@@ -1193,7 +1257,9 @@ export const SYSTEM_ACCOUNTS = {
   ACCRUED_EXPENSES: '225', // مصروفات مستحقة
   REVENUE_OTHER: '421', // إيرادات أخرى
   EXPENSE_GENERAL: '53', // مصروفات إدارية وعمومية
-  SOCIAL_INSURANCE: '224' // هيئة التأمينات الاجتماعية
+  SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
+  HIMS_BILLING_REVENUE: '41101', // إيرادات الخدمات الطبية
+  HIMS_INSURANCE_RECEIVABLE: '122101', // ذمم التأمين
 };
 
 interface AccountingContextType {
@@ -1376,7 +1442,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       // 🛡️ صمام أمان: جلب قائمة الشركات للسوبر أدمن فوراً لملء القائمة المنسدلة
-      const isSuperAdmin = authUser.role === 'super_admin' || profile.role === 'super_admin';
+      const isSuperAdmin = authUser.role === 'super_admin' || (profile && profile.role === 'super_admin');
       if (isSuperAdmin) {
         const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
         setOrganizations(allOrgs || []);
@@ -1390,7 +1456,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               fetchOrgId = currentSelectedOrgId;
           } else if (profile.organization_id) {
               fetchOrgId = profile.organization_id;
-              setCurrentSelectedOrgId(profile.organization_id); // Set it for future consistency
+              setCurrentSelectedOrgId(profile.organization_id); 
           }
       }
 
@@ -1459,18 +1525,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setSuppliers(sups.data || []);
       setCheques(chqs.data || []);
       
-      // تتبع بيانات الوردية القادمة من قاعدة البيانات
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Raw Shift Data from RPC:', shift.data);
-      }
-
       // 🛡️ تصحيح جذري: التحقق من وجود ID حقيقي للوردية لمنع الوردية "الوهمية"
       const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
       setCurrentShift(activeShiftData && activeShiftData.id ? activeShiftData : null);
       setLastUpdated(new Date());
 
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') console.error('Error refreshing accounting data:', error);
+      if (import.meta.env.DEV) console.error('Error refreshing accounting data:', error);
       showToast('فشل تحديث البيانات، يرجى التحقق من اتصال الإنترنت', 'error');    } finally {
       setIsLoading(false);
     }
@@ -1562,7 +1623,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     refreshData(); 
   };
   const deleteProduct = async (id: string, reason?: string) => { 
-    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    // تم إزالة تحديث حقل 'notes' لأن الجدول لا يحتوي عليه في قاعدة البيانات حالياً
+    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+          
     if (error) throw error;
     showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
     refreshData(); 

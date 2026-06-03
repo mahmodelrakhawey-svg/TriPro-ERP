@@ -155,6 +155,19 @@ import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 import CustomerDisplay from './modules/restaurant/components/POS/CustomerDisplay';
 import RestaurantAnalytics from './services/RestaurantAnalytics';
 
+// 🏥 HIMS Module Imports - Pages
+import PatientManager from './modules/hims/pages/PatientManager';
+import { DoctorDesktop } from './modules/hims/pages/DoctorDesktop';
+import MedicalBilling from './modules/hims/pages/MedicalBilling';
+import { LabDashboard } from './modules/hims/pages/LabDashboard';
+import { BloodBankDashboard as BloodBankManager } from './modules/hims/pages/BloodBankDashboard';
+import { NurseStation } from './modules/hims/pages/NurseStation';
+import { ERTriageBoard } from './modules/hims/pages/ERTriageBoard';
+import { PharmacyDashboard } from './modules/hims/pages/PharmacyDashboard';
+import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
+import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
+import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
+
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
 
@@ -387,6 +400,25 @@ const MainLayout = () => {
                 <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
 
                 {/* 2. مديول التصنيع (Manufacturing) */}
+                {/* 🏥 مديول المستشفيات (HIMS) */}
+                <Route path="/hims/*" element={
+                  <ModuleGuard module="hims">
+                    <Routes>
+                      <Route path="patients" element={<PatientManager />} />
+                      <Route path="doctor-desktop" element={<DoctorDesktop />} />
+                      <Route path="billing" element={<MedicalBilling />} />
+                      <Route path="lab" element={<LabDashboard />} />
+                      <Route path="blood-bank" element={<BloodBankManager />} />
+                      <Route path="nurse-station" element={<NurseStation />} />
+                      <Route path="er-triage" element={<ERTriageBoard />} />
+                      <Route path="pharmacy" element={<PharmacyDashboard />} />
+                      <Route path="admissions" element={<AdmissionManager />} />
+                      <Route path="wards-management" element={<WardBedManager />} />
+                      <Route path="surgeries" element={<SurgeryScheduler />} />
+                    </Routes>
+                  </ModuleGuard>
+                } />
+
                 <Route path="/mfg/*" element={
                   <ModuleGuard module="manufacturing">
                     <Routes>

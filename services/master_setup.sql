@@ -34,7 +34,7 @@ BEGIN
             ADD COLUMN IF NOT EXISTS vat_number text,
             ADD COLUMN IF NOT EXISTS logo_url text,
             ADD COLUMN IF NOT EXISTS footer_text text,
-            ADD COLUMN IF NOT EXISTS allowed_modules text[] DEFAULT '{"accounting", "inventory", "sales", "purchases", "hr", "manufacturing", "restaurant", "construction"}',
+            ADD COLUMN IF NOT EXISTS allowed_modules text[] DEFAULT '{"accounting", "inventory", "sales", "purchases", "hr", "manufacturing", "restaurant", "construction", "hims"}',
             ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true,
             ADD COLUMN IF NOT EXISTS subscription_expiry date,
             ADD COLUMN IF NOT EXISTS max_users integer DEFAULT 5,
@@ -252,7 +252,7 @@ BEGIN
 
     -- 3. تفعيل كافة الموديولات لهذه الشركة لضمان ظهورها في كافة القوائم
     UPDATE public.organizations 
-    SET allowed_modules = ARRAY['accounting', 'inventory', 'sales', 'purchases', 'hr', 'manufacturing', 'restaurant', 'construction']
+    SET allowed_modules = ARRAY['accounting', 'inventory', 'sales', 'purchases', 'hr', 'manufacturing', 'restaurant', 'construction', 'hims']
     WHERE id = v_org_id;
 
     RAISE NOTICE '✅ تم ربط حسابك بالمنظمة وتفعيل كافة الصلاحيات.';
@@ -452,7 +452,13 @@ INSERT INTO public.permissions (module, action, description) VALUES
 ('reports', 'view_financial', 'عرض التقارير المالية الحساسة'),
 ('admin', 'backups', 'إدارة النسخ الاحتياطي والاستعادة'),
 ('admin', 'logs', 'سجلات أمان النظام'),
-('admin', 'manage', 'إدارة الصلاحيات')
+('admin', 'manage', 'إدارة الصلاحيات'),
+-- HIMS Granular Permissions
+('hims_core', 'view', 'عرض السجلات الطبية'),
+('hims_clinical', 'view', 'عرض مكتب الطبيب'),
+('hims_inpatient', 'view', 'عرض محطة التمريض'),
+('hims_ancillary', 'view', 'عرض المختبر والأشعة'),
+('hims_billing', 'view', 'عرض الفوترة الطبية')
 ON CONFLICT (module, action) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS public.role_permissions (

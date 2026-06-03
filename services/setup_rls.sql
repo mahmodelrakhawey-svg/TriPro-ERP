@@ -59,9 +59,18 @@ DECLARE
         'project_milestones', 'project_custodies', 'project_custody_expenses',
         'project_material_issues', 'project_material_issue_items', 'project_change_orders',
         'project_site_attendance', 'equipment', 'equipment_usage_logs', 'project_tool_custody',
-        'mfg_period_cost_snapshots', 'mfg_byproducts_logs', 'mfg_beginning_wip_inventory', 'mfg_alerts_log'
+        'mfg_period_cost_snapshots', 'mfg_byproducts_logs', 'mfg_beginning_wip_inventory', 'mfg_alerts_log',
+        -- HIMS & Blood Bank Tables
+        'hims_patients', 'hims_doctors', 'hims_visits', 'hims_prescriptions', 'hims_billing',
+        'hims_wards', 'hims_beds', 'hims_lab_tests', 'hims_lab_orders', 'hims_radiology_orders',
+        'hims_appointments', 'hims_surgeries', 'hims_insurance_claims', 'hims_settings',
+        'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions', 'hims_radiology_types',
+        'hims_medication_log',
+        'hims_billing_items',
+        'hims_clinical_notes',
+        'hims_nursing_activities'
     ];
-        BEGIN
+    BEGIN
 
         FOREACH t IN ARRAY tables_to_rls LOOP
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
@@ -86,6 +95,61 @@ USING (
     OR (COALESCE(auth.jwt() -> 'user_metadata' ->> 'role', auth.jwt() -> 'app_metadata' ->> 'role') = 'super_admin')
     OR (organization_id IS NOT NULL AND organization_id = (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid)
 );
+
+-- 🛡️ سياسة الوصول الشامل لمدراء المستشفى (HIMS Admin Override)
+-- تضمن هذه السياسة أن الأدمن يرى كافة المرضى والزيارات والروشتات دون قيود الطبيب المعالج
+DO $$ 
+DECLARE 
+    t text;
+    hims_tables text[] := ARRAY[
+        'hims_patients', 'hims_visits', 'hims_prescriptions', 'hims_billing', 
+        'hims_lab_orders', 'hims_appointments', 'hims_doctors', 'hims_wards', 
+        'hims_beds', 'hims_lab_tests', 'hims_radiology_orders', 'hims_surgeries',
+        'hims_insurance_claims', 'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions',
+        'hims_medication_log', 'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities'
+    ];
+BEGIN
+    FOREACH t IN ARRAY hims_tables LOOP
+        EXECUTE format('DROP POLICY IF EXISTS "HIMS_Admin_Policy_%I" ON public.%I', t, t);
+        EXECUTE format('CREATE POLICY "HIMS_Admin_Policy_%I" ON public.%I FOR ALL TO authenticated 
+            USING ((organization_id = public.get_my_org() OR organization_id IS NULL) AND (public.get_my_role() IN (''admin'', ''manager'', ''super_admin''))) 
+            WITH CHECK (organization_id = public.get_my_org())', t, t);
+    END LOOP;
+END $$;
+
+-- =================================================================
+-- 🛠️ مرونة الربط المحاسبي للمرضى (Accounting Resilience)
+-- =================================================================
+-- دالة تضمن عدم انهيار تسجيل المريض في حال وجود خطأ في إنشاء سجل العميل المالي
+CREATE OR REPLACE FUNCTION public.fn_sync_patient_to_customer_safe()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_customer_id UUID;
+BEGIN
+    BEGIN
+        -- محاولة إنشاء سجل العميل
+        INSERT INTO public.customers (name, phone, email, organization_id, notes)
+        VALUES (NEW.full_name, NEW.phone, NEW.email, NEW.organization_id, 'سجل تلقائي من HIMS')
+        RETURNING id INTO v_customer_id;
+        
+        NEW.customer_id := v_customer_id;
+    EXCEPTION WHEN OTHERS THEN
+        -- في حال الفشل (نقص حسابات، قيود RLS)، نستمر في تسجيل المريض طبياً
+        RAISE WARNING 'HIMS: فشل الربط المحاسبي للمريض %. سيتم المتابعة طبياً فقط.', NEW.full_name;
+    END;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- 🛡️ سياسة الوصول لجدول الصلاحيات (Permissions)
+-- يجب أن يكون قابلاً للقراءة من قبل جميع المستخدمين الموثقين لبناء واجهة المستخدم
+DROP POLICY IF EXISTS "permissions_read_policy" ON public.permissions;
+CREATE POLICY "permissions_read_policy" ON public.permissions FOR SELECT TO authenticated USING (true);
+
+-- 🛡️ سياسة الوصول لجدول الأدوار (Roles)
+-- تسمح للمستخدمين برؤية الأدوار التابعة لمنظمتهم فقط
+DROP POLICY IF EXISTS "roles_read_policy" ON public.roles;
+CREATE POLICY "roles_read_policy" ON public.roles FOR SELECT TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
 
 -- 1.1 إشعارات النظام (Notifications)
 -- تسمح للمستخدم برؤية إشعاراته الخاصة أو إشعارات شركته
@@ -334,37 +398,3 @@ CREATE POLICY "Public_Category_Read_Policy" ON public.item_categories FOR SELECT
 
 DROP POLICY IF EXISTS "Public_UoM_Read_Policy" ON public.uoms;
 CREATE POLICY "Public_UoM_Read_Policy" ON public.uoms FOR SELECT TO anon USING (true);
-
--- تنفيذ التنشيط
--- =================================================================
--- 📱 جدول طابور إشعارات الواتساب (WhatsApp Notification Queue)
--- =================================================================
-CREATE TABLE IF NOT EXISTS public.whatsapp_notification_queue (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
-    phone_number TEXT NOT NULL,
-    message_body TEXT NOT NULL,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
-    retry_count INTEGER DEFAULT 0,
-    error_log TEXT,
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    processed_at TIMESTAMPTZ
-);
-
-ALTER TABLE public.whatsapp_notification_queue ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "SaaS_WA_Queue_Isolation" ON public.whatsapp_notification_queue;
-CREATE POLICY "SaaS_WA_Queue_Isolation" ON public.whatsapp_notification_queue 
-FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-
-GRANT ALL ON public.whatsapp_notification_queue TO authenticated;
-SELECT public.refresh_saas_schema();
-
--- =================================================================
--- تعليمات التنفيذ
--- =================================================================
-/*
-1. انسخ هذا الكود بالكامل.
-2. اذهب إلى لوحة تحكم Supabase -> SQL Editor.
-3. الصق الكود واضغط Run.
-4. تأكد من عدم وجود أخطاء.
-*/

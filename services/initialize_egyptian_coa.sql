@@ -366,7 +366,7 @@ BEGIN
     UPDATE public.organizations 
     SET allowed_modules = ARRAY[
         'accounting', 'inventory', 'sales', 'purchases', 
-        'hr', 'manufacturing', 'restaurant', 'construction'
+        'hr', 'manufacturing', 'restaurant', 'construction', 'hims'
     ]::text[]
     WHERE id = p_org_id;
 

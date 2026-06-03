@@ -253,8 +253,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // التحقق مما إذا كان المستخدم الحالي هو مستخدم الديمو
     const isDemo = userRole === 'demo';
 
+    // 🛡️ تسريع عملية الخروج: مسح الحالة محلياً فوراً لمنع "طلبات الأشباح" (401 Errors)
+    setCurrentUser(null);
+    setUserRole(null);
+    setUserPermissions(new Set());
+    setIsLoading(false);
+
+    // 🧹 تنظيف يدوي للتوكنات لضمان عدم بقاء جلسة تالفة (Identity Gap Fix)
+    Object.keys(localStorage).forEach(key => {
+      if (key.includes('supabase.auth.token')) {
+        localStorage.removeItem(key);
+      }
+    });
+
+    // تنفيذ تسجيل الخروج من سوبابايز
     await supabase.auth.signOut();
-    setCurrentUser(null); 
 
     // إذا كان المستخدم هو الديمو، قم بإعادة تعيين البيانات بعد الخروج
     if (isDemo) {
@@ -264,6 +277,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Failed to reset demo data:', error);
       }
     }
+
+    // 🚀 تحويل فوري وقسري لصفحة تسجيل الدخول لضمان تنظيف كافة العمليات في المتصفح
+    window.location.href = '/login';
   };
 
   const can = (module: string, action: string): boolean => {

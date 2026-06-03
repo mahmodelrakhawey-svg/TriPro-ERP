@@ -7,6 +7,8 @@
 import { supabase } from '../supabaseClient';
 
 export type NotificationType = 
+  | 'radiology_result_ready'
+  | 'lab_result_ready'
   | 'overdue_payment' 
   | 'low_inventory' 
   | 'high_debt' 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
 export interface PaginationOptions {
@@ -31,6 +31,9 @@ export function usePagination<T>(
   const [error, setError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
+  // تخزين الـ queryModifier في مرجع لمنع الحلقات اللانهائية إذا كانت الوظيفة غير مستقرة
+  const queryModifierRef = useRef(queryModifier);
+
   const {
     select = '*',
     pageSize = 10,
@@ -38,14 +41,20 @@ export function usePagination<T>(
     ascending = false
   } = options;
 
-  const fetchData = useCallback(async () => {
+  // تحديث المرجع عند تغيير الدالة دون التسبب في إعادة الطلب
+  useEffect(() => {
+    queryModifierRef.current = queryModifier;
+  }, [queryModifier]);
+
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      if (!session) {
+      // 🛡️ حماية فورية: إذا لم توجد جلسة نشطة، توقف تماماً ولا ترسل طلبات لقاعدة البيانات
+      if (!session || !session.user) {
         setLoading(false);
         return;
       }
@@ -67,8 +76,8 @@ export function usePagination<T>(
         query = query.eq('organization_id', userOrgId);
       }
 
-      if (queryModifier) {
-        query = queryModifier(query);
+      if (queryModifierRef.current) {
+        query = queryModifierRef.current(query);
       }
 
       if (orderBy) {
@@ -78,24 +87,32 @@ export function usePagination<T>(
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      query = query.range(from, to);
+      query = query.range(from, to).abortSignal(signal);
 
       const { data: resultData, error: resultError, count } = await query;
 
       if (resultError) throw resultError;
 
-      setData(resultData as T[]);
+      setData((resultData as T[]) || []);
       setTotalCount(count || 0);
     } catch (err: any) {
-      if (process.env.NODE_ENV === 'development') console.error(`Error fetching data from ${tableName}:`, err);
+      // تجاهل الأخطاء الناتجة عن إلغاء الطلب يدوياً
+
+      if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;
+      
+      if (import.meta.env.DEV) console.error(`Error fetching data from ${tableName}:`, err);
       setError(err.message || 'An error occurred while fetching data');
     } finally {
       setLoading(false);
     }
-  }, [tableName, select, pageSize, orderBy, ascending, page, queryModifier, refreshTrigger]);
+  }, [tableName, select, pageSize, orderBy, ascending, page, refreshTrigger]);
 
   useEffect(() => {
-    fetchData();
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    
+    // تنظيف الطلبات عند فك المكون أو تغيير التبعيات
+    return () => controller.abort();
   }, [fetchData]);
 
   const refresh = useCallback(() => {

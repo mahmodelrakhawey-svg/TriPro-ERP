@@ -61,7 +61,10 @@ import {
   Lock,
   Paperclip,
   CheckSquare,
-  Sparkles
+    Sparkles,
+    HeartPulse,
+    FlaskConical,
+    Bed
 } from 'lucide-react';
 
 const Sidebar: React.FC = () => {
@@ -225,6 +228,21 @@ const Sidebar: React.FC = () => {
     { to: '/restaurant-analytics', label: 'مركز ذكاء المطاعم (BI)', icon: Sparkles, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/restaurant-sales', label: 'تقارير مبيعات المطعم', icon: BarChart3, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     
+    // موديول المستشفيات (HIMS)
+    { type: 'section', label: 'إدارة المستشفيات (HIMS)' },
+    { to: '/hims/patients', label: 'إدارة السجلات الطبية', icon: Users, color: 'text-blue-400', module: 'hims', permission: 'hims_core.view' },
+    { to: '/hims/wards-management', label: 'إعداد الأجنحة والأسرة', icon: Settings, color: 'text-slate-400', module: 'hims', permission: 'hims_core.view' },
+    { to: '/hims/admissions', label: 'إدارة التسكين والقبول', icon: Bed, color: 'text-indigo-500', module: 'hims', permission: 'hims_inpatient.view' },
+    { to: '/hims/surgeries', label: 'جدول غرف العمليات', icon: Activity, color: 'text-emerald-400', module: 'hims', permission: 'hims_clinical.view' },
+    { to: '/hims/doctor-desktop', label: 'سطح مكتب الطبيب', icon: Activity, color: 'text-indigo-400', module: 'hims', permission: 'hims_clinical.view' },
+    { to: '/hims/nurse-station', label: 'محطة التمريض والأسرة', icon: Bed, color: 'text-rose-400', module: 'hims', permission: 'hims_inpatient.view' },
+    { to: '/hims/er-triage', label: 'فرز الطوارئ (Triage)', icon: Activity, color: 'text-red-400', module: 'hims', permission: 'hims_clinical.view' },
+    { to: '/hims/lab', label: 'وحدة المختبر والتحاليل', icon: FlaskConical, color: 'text-cyan-400', module: 'hims', permission: 'hims_ancillary.view' },
+    { to: '/hims/pharmacy', label: 'الصيدلية الداخلية', icon: Package, color: 'text-emerald-500', module: 'hims', permission: 'hims_billing.view' },
+    { to: '/hims/blood-bank', label: 'بنك الدم المركزي', icon: HeartPulse, color: 'text-pink-500', module: 'hims', permission: 'hims_ancillary.view' },
+    { to: '/hims/billing', label: 'الحسابات والفوترة الطبية', icon: DollarSign, color: 'text-emerald-400', module: 'hims', permission: 'hims_billing.view' },
+    { to: '/hims/admin', label: 'لوحة القيادة الاستراتيجية', icon: HeartPulse, color: 'text-indigo-600', module: 'hims', permission: 'hims_core.view' },
+
     // الإدارة والنظام
     { type: 'section', label: 'الإدارة والنظام' },
     { to: '/users', label: 'إدارة المستخدمين', icon: Users, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
