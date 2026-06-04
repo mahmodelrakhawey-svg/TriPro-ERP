@@ -90,6 +90,17 @@ export const himsService = {
     return data;
   },
 
+  // 17. تسوية مطالبة تأمين وتحصيل المبلغ
+  async settleInsuranceClaim(claimId: string, receivedAmount: number, bankAccId: string) {
+    const { data, error } = await supabase.rpc('hims_settle_insurance_claim', {
+      p_claim_id: claimId,
+      p_received_amount: receivedAmount,
+      p_bank_acc_id: bankAccId
+    });
+    if (error) throw error;
+    return data;
+  },
+
   // 6. مراقبة حالات الطوارئ (Emergency Monitor)
   async getEmergencyMonitor() {
     const { data, error } = await supabase
@@ -117,6 +128,52 @@ export const himsService = {
       .insert([note])
       .select()
       .single();
+    if (error) throw error;
+    return data;
+  },
+  // 20. جلب تقارير ربحية الأطباء
+  async getDoctorProfitability() {
+    const { data, error } = await supabase
+      .from('v_hims_doctor_profitability')
+      .select('*')
+      .order('total_revenue', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  // 21. جلب تقارير ربحية الأقسام
+  async getDeptProfitability() {
+    const { data, error } = await supabase
+      .from('v_hims_dept_profitability')
+      .select('*')
+      .order('total_revenue', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  // 18. البحث في أكواد الأمراض العالمية ICD-10
+  async searchICD10(query: string) {
+    const { data, error } = await supabase
+      .from('v_hims_icd10_search')
+      .select('*')
+      .or(`code.ilike.%${query}%,description_ar.ilike.%${query}%`)
+      .limit(10);
+    if (error) throw error;
+    return data;
+  },
+
+  // 19. جلب قائمة المتبرعين بالدم
+  async getDonors() {
+    const { data, error } = await supabase
+      .from('hims_blood_donors')
+      .select('*')
+      .order('full_name', { ascending: true });
+    if (error) throw error;
+    return data;
+  },
+
+  async registerDonor(donor: { full_name: string, national_id: string, blood_type: string, phone: string }) {
+    const { data, error } = await supabase.rpc('hims_register_donor', donor);
     if (error) throw error;
     return data;
   },

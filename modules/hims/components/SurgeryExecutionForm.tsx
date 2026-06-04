@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Modal, Form, Select, InputNumber, Button, Space, Table, Typography, message } from 'antd';
 import { supabase } from '@/supabaseClient';
 import { SaveOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { useAuth } from '@/context/AuthContext';
 
 interface Props {
   surgeryId: string;
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export const SurgeryExecutionForm: React.FC<Props> = ({ surgeryId, visible, onCancel, onSuccess }) => {
+  const { currentUser } = useAuth();
   const [products, setProducts] = useState<any[]>([]);
   const [consumables, setConsumables] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,6 +23,7 @@ export const SurgeryExecutionForm: React.FC<Props> = ({ surgeryId, visible, onCa
       const { data } = await supabase
         .from('products')
         .select('id, name, stock, sales_price') // تأكدنا من المطابقة مع DB
+        .eq('organization_id', currentUser?.organization_id)
         .gt('stock', 0);
       setProducts(data || []);
     };

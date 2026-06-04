@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
-import { Card, Tag, Row, Col, Progress, Badge, Tooltip, Empty, Modal, Form, Input, message, List, Button } from 'antd';
-import { HeartOutlined, MedicineBoxOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { Card, Tag, Row, Col, Progress, Badge, Tooltip, Empty, Modal, Form, Input, message, List, Button, Tabs, Typography } from 'antd';
+import { HeartOutlined, MedicineBoxOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined, FormOutlined, AlertOutlined, DesktopOutlined } from '@ant-design/icons';
 
 const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () => void; onSuccess: () => void }> = ({ visible, visitId, onCancel, onSuccess }) => {
   const [form] = Form.useForm();
@@ -91,6 +91,7 @@ const MedicationMARModal: React.FC<{ visible: boolean; visitId: string; onCancel
 
 export const NurseStation: React.FC = () => {
   const [beds, setBeds] = useState<any[]>([]);
+  const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<string | null>(null);
   const [marVisit, setMarVisit] = useState<string | null>(null);
 
@@ -99,6 +100,7 @@ export const NurseStation: React.FC = () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_beds' }, fetchBeds)
       .subscribe();
     fetchBeds();
+    fetchTasks();
     return () => { supabase.removeChannel(sub) };
   }, []);
 
@@ -110,6 +112,10 @@ export const NurseStation: React.FC = () => {
     
     setBeds(data || []);
   };
+  const fetchTasks = async () => {
+    const { data } = await supabase.from('v_hims_overdue_nurse_tasks').select('*');
+    setPendingTasks(data || []);
+  };
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen rtl text-right">
@@ -117,46 +123,84 @@ export const NurseStation: React.FC = () => {
         <Badge status="processing" /> محطة التمريض ومراقبة الأسرة 🏥
       </h1>
       
-      <Row gutter={[16, 16]}>
-        {beds.length === 0 ? <Empty className="w-full" description="لا توجد أجنحة مفعّلة حالياً" /> : 
-          beds.map(bed => (
-          <Col key={bed.id} xs={24} sm={12} md={8} lg={6}>
-            <Card 
-              hoverable 
-              className={`rounded-2xl border-2 transition-all ${bed.status === 'occupied' ? 'border-red-100' : 'border-emerald-50'}`}
-              title={<div className="flex justify-between font-bold"><span>سرير {bed.bed_number}</span><Tag color="blue">{bed.hims_wards?.name}</Tag></div>}
-            >
-              {bed.status === 'occupied' ? (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 text-slate-700 font-bold">
-                    <UserOutlined className="text-blue-500" /> {bed.hims_patients?.full_name}
-                  </div>
-                  <div className="flex justify-between text-xs font-black">
-                    <span>فصيلة الدم:</span>
-                    <Tag color="red">{bed.hims_patients?.blood_type || 'غير مسجل'}</Tag>
-                  </div>
-                  <div className="mt-4 pt-4 border-t flex gap-2">
-                    {bed.current_visit_id && (
-                      <Tooltip title="تسجيل العلامات الحيوية">
-                        <HeartOutlined 
-                          className="text-rose-500 text-lg cursor-pointer hover:scale-125 transition-transform" 
-                          onClick={() => setSelectedVisit(bed.current_visit_id)} 
-                        />
-                      </Tooltip>
+      <Tabs defaultActiveKey="1" items={[
+        {
+          key: '1',
+          label: <span><DesktopOutlined /> مراقبة الأسرة والأجنحة</span>,
+          children: (
+            <Row gutter={[16, 16]}>
+              {beds.length === 0 ? <Empty className="w-full" description="لا توجد أجنحة مفعّلة حالياً" /> : 
+                beds.map(bed => (
+                <Col key={bed.id} xs={24} sm={12} md={8} lg={6}>
+                  <Card 
+                    hoverable 
+                    className={`rounded-2xl border-2 transition-all ${bed.status === 'occupied' ? 'border-red-100' : 'border-emerald-50'}`}
+                    title={<div className="flex justify-between font-bold"><span>سرير {bed.bed_number}</span><Tag color="blue">{bed.hims_wards?.name}</Tag></div>}
+                  >
+                    {bed.status === 'occupied' ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-slate-700 font-bold">
+                          <UserOutlined className="text-blue-500" /> {bed.hims_patients?.full_name}
+                        </div>
+                        <div className="flex justify-between text-xs font-black">
+                          <span>فصيلة الدم:</span>
+                          <Tag color="red">{bed.hims_patients?.blood_type || 'غير مسجل'}</Tag>
+                        </div>
+                        <div className="mt-4 pt-4 border-t flex gap-2">
+                          {bed.current_visit_id && (
+                            <Tooltip title="تسجيل العلامات الحيوية">
+                              <HeartOutlined 
+                                className="text-rose-500 text-lg cursor-pointer hover:scale-125 transition-transform" 
+                                onClick={() => setSelectedVisit(bed.current_visit_id)} 
+                              />
+                            </Tooltip>
+                          )}
+                          <Tooltip title="سجل الدواء (MAR)"><MedicineBoxOutlined className="text-indigo-500 text-lg cursor-pointer" onClick={() => setMarVisit(bed.current_visit_id)} /></Tooltip>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="py-6 text-center">
+                        <Tag color="success" className="rounded-full px-4">جاهز للاستقبال</Tag>
+                        <p className="text-slate-400 text-[10px] mt-2 font-bold">معدل الإقامة: {bed.daily_rate} EGP</p>
+                      </div>
                     )}
-                    <Tooltip title="الأدوية المطلوبة"><MedicineBoxOutlined className="text-indigo-500 text-lg cursor-pointer" /></Tooltip>
-                  </div>
-                </div>
-              ) : (
-                <div className="py-6 text-center">
-                  <Tag color="success" className="rounded-full px-4">جاهز للاستقبال</Tag>
-                  <p className="text-slate-400 text-[10px] mt-2 font-bold">معدل الإقامة: {bed.daily_rate} EGP</p>
-                </div>
-              )}
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          )
+        },
+        {
+          key: '2',
+          label: <span><Badge count={pendingTasks.length} size="small" offset={[10, 0]}><FormOutlined /> قائمة المهام الطبية</Badge></span>,
+          children: (
+            <Card className="rounded-2xl border-none shadow-sm overflow-hidden">
+              <div className="bg-red-50 p-4 border-b border-red-100 flex items-center gap-2 mb-4">
+                <AlertOutlined className="text-red-500" />
+                <Typography.Text className="text-red-700 font-bold">توجد {pendingTasks.length} مهام متأخرة تتطلب انتباهاً فورياً.</Typography.Text>
+              </div>
+              <List
+                dataSource={pendingTasks}
+                renderItem={(task) => (
+                  <List.Item className="px-6 py-4 hover:bg-slate-50 transition-colors border-b">
+                    <div className="flex justify-between items-center w-full">
+                      <div>
+                        <Typography.Text strong className="block text-indigo-700">{task.patient_name} - {task.ward_name}</Typography.Text>
+                        <Typography.Text type="secondary">{task.description}</Typography.Text>
+                      </div>
+                      <div className="text-left flex items-center gap-4">
+                        <Tag color="error" className="font-mono">تأخير: {Math.round(task.delay_minutes)} دقيقة</Tag>
+                        <Button type="primary" size="small" className="bg-emerald-600 border-none">تنفيذ وإغلاق</Button>
+                      </div>
+                    </div>
+                  </List.Item>
+                )}
+                locale={{ emptyText: "لا توجد مهام معلقة حالياً ✅" }}
+              />
             </Card>
-          </Col>
-        ))}
-      </Row>
+          )
+        }
+      ]} />
 
       {selectedVisit && (
         <VitalsModal 

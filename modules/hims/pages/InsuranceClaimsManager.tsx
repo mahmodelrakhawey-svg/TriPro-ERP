@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Table, Button, Tag, Space, message, Statistic, Divider, Modal, Select, Empty, Tabs } from 'antd';
+import { himsService } from '@/services/himsService';
 import { SafetyCertificateOutlined, SendOutlined, DollarOutlined, CheckCircleOutlined, HistoryOutlined } from '@ant-design/icons';
 import { useAccounting } from '@/context/AccountingContext';
 import { useAuth } from '@/context/AuthContext';
@@ -10,13 +11,28 @@ export const InsuranceClaimsManager: React.FC = () => {
   const [pendingBills, setPendingBills] = useState<any[]>([]);
   const [submittedClaims, setSubmittedClaims] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const { accounts } = useAccounting();
+  const [insuranceProviders, setInsuranceProviders] = useState<any[]>([]);
+  const { accounts, settings } = useAccounting();
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [selectedClaim, setSelectedClaim] = useState<any>(null);
   const [settleBankAcc, setSettleBankAcc] = useState<string>('');
   const [selectedInsuranceProvider, setSelectedInsuranceProvider] = useState<string | null>(null);
 
   const fetchPendingInsuranceBills = async () => {
+    if (!currentUser?.organization_id) return;
+    setLoading(true);
+
+    // جلب شركات التأمين المتاحة (من العملاء الذين تم استخدامهم كشركات تأمين)
+    const { data: providersData, error: providersError } = await supabase
+      .from('customers')
+      .select('id, name')
+      .eq('organization_id', currentUser.organization_id)
+      .eq('customer_type', 'insurance_provider'); // افتراض أن لدينا نوع عميل لشركات التأمين
+    
+    if (providersError) message.error('فشل جلب شركات التأمين');
+    else setInsuranceProviders(providersData || []);
+
+    // جلب الفواتير المعلقة
     if (!currentUser?.organization_id) return;
     setLoading(true);
     const { data } = await supabase
@@ -52,51 +68,43 @@ export const InsuranceClaimsManager: React.FC = () => {
     }
     
     setLoading(true);
-    const billsForClaim = pendingBills.filter(b => b.insurance_provider_id === selectedInsuranceProvider);
-    const totalAmount = billsForClaim.reduce((acc, curr) => acc + curr.insurance_covered_amount, 0);
     const batchRef = `CLAIM-BATCH-${Date.now()}`;
 
-    // 1. إنشاء سجل المطالبة
-    const { data: claim, error: claimErr } = await supabase 
-      .from('hims_insurance_claims')
-      .insert([{
-        insurance_provider_id: selectedInsuranceProvider,
-        batch_reference: batchRef,
-        total_claim_amount: totalAmount,
-        organization_id: currentUser?.organization_id,
-        status: 'submitted',
-        submission_date: new Date().toISOString()
-      }])
-      .select()
-      .single();
+    try {
+      // 🚀 استدعاء العقل المدبر في قاعدة البيانات لتجميع المطالبة في عملية واحدة
+      const { data: claimId, error } = await supabase.rpc('hims_create_insurance_batch', {
+        p_insurance_provider_id: selectedInsuranceProvider,
+        p_batch_ref: batchRef
+      });
 
-    if (claim) {
-      // 2. تحديث الفواتير لترتبط بهذه المطالبة
-      await supabase
-        .from('hims_billing')
-        .update({ insurance_claim_id: claim.id })
-        .in('id', billsForClaim.map(b => b.id));
-      
-      message.success(`تم توليد مطالبة مجمعة برقم: ${batchRef}`);
-      fetchPendingInsuranceBills();
+      if (error) throw error;
+
+      message.success(`تم توليد مطالبة مجمعة بنجاح ✅ مرجع: ${batchRef}`);
+      await fetchPendingInsuranceBills();
+    } catch (err: any) {
+      message.error('فشل تجميع المطالبة: ' + err.message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleSettleClaim = async () => {
     if (!settleBankAcc) return message.warning('يرجى اختيار الحساب البنكي للتحصيل');
-    setLoading(true);
-    const { error } = await supabase.rpc('hims_settle_insurance_claim', {
-      p_claim_id: selectedClaim.id,
-      p_received_amount: selectedClaim.total_claim_amount,
-      p_bank_acc_id: settleBankAcc
-    });
-    if (!error) {
+    setLoading(true); // يجب أن يكون هنا
+    try {
+      await himsService.settleInsuranceClaim(
+        selectedClaim.id,
+        selectedClaim.total_claim_amount, // نفترض تحصيل المبلغ بالكامل
+        settleBankAcc
+      );
       message.success('تمت تسوية المطالبة وترحيل المبلغ للبنك بنجاح ✅');
       setIsSettleModalOpen(false);
       fetchPendingInsuranceBills();
+    } catch (error: any) {
+      message.error(error.message || 'فشل في تسوية المطالبة');
+    } finally {
+      setLoading(false); // يجب أن يكون هنا
     }
-    setLoading(false);
   };
 
   return (
@@ -115,11 +123,9 @@ export const InsuranceClaimsManager: React.FC = () => {
               value={selectedInsuranceProvider}
               options={[
                 { label: 'كل الشركات', value: null },
-                // هنا يجب جلب شركات التأمين من جدول hims_insurance_providers
-                // مؤقتاً، سنستخدم قائمة افتراضية أو نعتمد على البيانات الموجودة
-                ...Array.from(new Set(pendingBills.map(b => b.insurance_provider_id))).map(id => ({
-                  label: pendingBills.find(b => b.insurance_provider_id === id)?.insurance?.name || `شركة تأمين ${id.slice(0,4)}`,
-                  value: id
+                ...insuranceProviders.map(provider => ({
+                  label: provider.name,
+                  value: provider.id
                 }))
               ]}
             />
@@ -142,9 +148,9 @@ export const InsuranceClaimsManager: React.FC = () => {
             title="إجمالي المبلغ المستحق من التأمين" 
             value={pendingBills.reduce((acc, curr) => acc + curr.insurance_covered_amount, 0)} 
             suffix="EGP" 
-            valueStyle={{ color: '#1890ff' }}
+            styles={{ content: { color: '#1890ff', fontWeight: 'bold' } }}
           />
-          <Statistic title="المطالبات المفتوحة" value={0} suffix="مطالبة" /> {/* هذا يحتاج لجلب من جدول المطالبات */}
+          <Statistic title="المطالبات المفتوحة" value={submittedClaims.length} suffix="مطالبة" />
         </div>
 
         <Tabs defaultActiveKey="1" items={[
@@ -158,7 +164,7 @@ export const InsuranceClaimsManager: React.FC = () => {
                 columns={[
                   { title: 'المريض', dataIndex: ['hims_patients', 'full_name'] },
                   { title: 'شركة التأمين', dataIndex: ['insurance', 'name'], render: (name) => <Tag color="blue">{name}</Tag> },
-                  { title: 'المبلغ المغطى', dataIndex: 'insurance_covered_amount', render: (v) => <b className="text-blue-600">{v?.toLocaleString()} EGP</b> },
+                  { title: 'المبلغ المغطى', dataIndex: 'insurance_covered_amount', render: (v) => <b className="text-blue-600">{v?.toLocaleString()} {settings?.currency || 'EGP'}</b> },
                   { title: 'تاريخ الفاتورة', dataIndex: 'created_at', render: (d) => new Date(d).toLocaleDateString('ar-EG') },
                 ]}
               />
@@ -174,7 +180,7 @@ export const InsuranceClaimsManager: React.FC = () => {
                 columns={[
                   { title: 'رقم المطالبة', dataIndex: 'batch_reference', render: (ref) => <Tag color="purple">{ref}</Tag> },
                   { title: 'شركة التأمين', dataIndex: ['insurance', 'name'] },
-                  { title: 'إجمالي المبلغ', dataIndex: 'total_claim_amount', render: (v) => <b className="text-emerald-600">{v?.toLocaleString()} EGP</b> },
+                  { title: 'إجمالي المبلغ', dataIndex: 'total_claim_amount', render: (v) => <b className="text-emerald-600">{v?.toLocaleString()} {settings?.currency || 'EGP'}</b> },
                   { title: 'تاريخ الإرسال', dataIndex: 'submission_date', render: (d) => new Date(d).toLocaleDateString('ar-EG') },
                   { title: 'إجراء', render: (record: any) => (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => { setSelectedClaim(record); setIsSettleModalOpen(true); }}>تسوية وتحصيل</Button>
@@ -194,7 +200,7 @@ export const InsuranceClaimsManager: React.FC = () => {
         onCancel={() => setIsSettleModalOpen(false)}
       >
         <div className="space-y-4 pt-4">
-          <p>سيتم تحصيل مبلغ <b>{selectedClaim?.total_claim_amount} EGP</b> من شركة التأمين.</p>
+          <p>سيتم تحصيل مبلغ <b>{selectedClaim?.total_claim_amount} {settings?.currency || 'EGP'}</b> من شركة التأمين.</p>
           <label className="block text-xs font-bold text-slate-500">اختر حساب البنك/الخزينة المستلم:</label>
           <Select 
             className="w-full" 

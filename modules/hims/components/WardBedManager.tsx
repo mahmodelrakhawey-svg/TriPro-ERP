@@ -1,129 +1,210 @@
 import React, { useEffect, useState } from 'react';
+import { Card, Row, Col, Table, Tag, Button, message, Typography, Badge, Space, Modal, Form, Input, InputNumber, Select } from 'antd';
+import { CheckCircleOutlined, ToolOutlined, ClearOutlined, HomeOutlined, PlusOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
-import { Table, Button, Card, Modal, Form, Input, InputNumber, Select, Row, Col, Tag, message, Typography, Divider } from 'antd';
-import { PlusOutlined, BankOutlined, DesktopOutlined } from '@ant-design/icons';
-import { useAccounting } from '@/context/AccountingContext';
+import { useAuth } from '@/context/AuthContext';
 
 export const WardBedManager: React.FC = () => {
-  const { organization } = useAccounting();
-  const [wards, setWards] = useState<any[]>([]);
+  const { currentUser } = useAuth();
   const [beds, setBeds] = useState<any[]>([]);
+  const [wards, setWards] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [isWardModalOpen, setIsWardModalOpen] = useState(false);
-  const [isBedModalOpen, setIsBedModalOpen] = useState(false);
-  const [form] = Form.useForm();
+  const [isWardModalVisible, setIsWardModalVisible] = useState(false);
+  const [isBedModalVisible, setIsBedModalVisible] = useState(false);
+  const [wardForm] = Form.useForm();
+  const [bedForm] = Form.useForm();
 
-  const fetchData = async () => {
+  const fetchBedsStatus = async () => {
+    if (!currentUser?.organization_id) return;
     setLoading(true);
-    const { data: wardsData } = await supabase.from('hims_wards').select('*').order('name');
-    const { data: bedsData } = await supabase.from('hims_beds').select('*, hims_wards(name)').order('bed_number');
-    setWards(wardsData || []);
-    setBeds(bedsData || []);
+    const { data, error } = await supabase
+      .from('hims_beds')
+      .select('*, ward:ward_id(name, floor)')
+      .eq('organization_id', currentUser.organization_id)
+      .order('bed_number', { ascending: true });
+
+    if (error) message.error('فشل جلب حالة الأسرة');
+    else setBeds(data || []);
     setLoading(false);
   };
 
+  const fetchWards = async () => {
+    if (!currentUser?.organization_id) return;
+    const { data } = await supabase
+      .from('hims_wards')
+      .select('*')
+      .eq('organization_id', currentUser.organization_id)
+      .order('name', { ascending: true });
+    setWards(data || []);
+  };
+
   useEffect(() => { 
-    if (organization?.id) fetchData(); 
-  }, [organization?.id]); // 🔄 التحديث فور توفر هوية المنظمة
+    fetchBedsStatus(); 
+    fetchWards();
+  }, [currentUser]);
 
-  const handleAddWard = async (values: any) => {
-    const { error } = await supabase.from('hims_wards').insert([{ 
-      name: values.name,
-      ward_type: values.ward_type,
-      organization_id: organization?.id 
+  const handleMarkReady = async (bedId: string) => {
+    setLoading(true);
+    // 🧼 استدعاء محرك كفاءة تشغيل الأسرة في SQL
+    const { error } = await supabase.rpc('hims_mark_bed_ready', {
+      p_bed_id: bedId
+    });
+
+    if (error) {
+      message.error('فشل تحديث حالة السرير: ' + error.message);
+    } else {
+      message.success('تم تأكيد جاهزية السرير ✅ هو الآن متاح للاستقبال.');
+      fetchBedsStatus();
+    }
+    setLoading(false);
+  };
+
+  const handleCreateWard = async (values: any) => {
+    setLoading(true);
+    const { error } = await supabase.from('hims_wards').insert([{
+      ...values,
+      organization_id: currentUser?.organization_id
     }]);
 
-    if (error) message.error(error.message);
-    else {
+    if (error) {
+      message.error('فشل إضافة الجناح: ' + error.message);
+    } else {
       message.success('تم إضافة الجناح بنجاح ✅');
-      setIsWardModalOpen(false);
-      fetchData();
+      setIsWardModalVisible(false);
+      wardForm.resetFields();
+      fetchWards();
     }
+    setLoading(false);
   };
 
-  const handleAddBed = async (values: any) => {
-    const { error } = await supabase.from('hims_beds').insert([{ 
-      ward_id: values.ward_id,
-      bed_number: values.bed_number,
-      daily_rate: values.daily_rate,
-      organization_id: organization?.id, 
-      status: 'available' 
+  const handleCreateBed = async (values: any) => {
+    setLoading(true);
+    const { error } = await supabase.from('hims_beds').insert([{
+      ...values,
+      organization_id: currentUser?.organization_id,
+      status: 'available'
     }]);
 
-    if (error) message.error(error.message);
-    else {
+    if (error) {
+      message.error('فشل إضافة السرير: ' + error.message);
+    } else {
       message.success('تم إضافة السرير بنجاح ✅');
-      setIsBedModalOpen(false);
-      fetchData();
+      setIsBedModalVisible(false);
+      bedForm.resetFields();
+      fetchBedsStatus();
     }
+    setLoading(false);
   };
+
+  const columns = [
+    { 
+      title: 'رقم السرير', 
+      dataIndex: 'bed_number', 
+      key: 'bed_number',
+      render: (text: string) => <b className="text-blue-700">{text}</b>
+    },
+    { 
+      title: 'الجناح / القسم', 
+      render: (r: any) => <span>{r.ward?.name} (الطابق: {r.ward?.floor})</span> 
+    },
+    { 
+      title: 'الحالة الحالية', 
+      dataIndex: 'status', 
+      render: (status: string) => {
+        const colors: any = {
+          available: 'success',
+          occupied: 'error',
+          cleaning: 'warning',
+          maintenance: 'default'
+        };
+        const labels: any = {
+          available: 'متاح',
+          occupied: 'مشغول',
+          cleaning: 'جاري التنظيف',
+          maintenance: 'صيانة'
+        };
+        return <Tag color={colors[status]}>{labels[status]}</Tag>;
+      }
+    },
+    {
+      title: 'إجراءات التجهيز',
+      key: 'action',
+      render: (record: any) => (
+        <Space>
+          {record.status === 'cleaning' && (
+            <Button 
+              type="primary" 
+              icon={<CheckCircleOutlined />} 
+              className="bg-emerald-600 border-none"
+              onClick={() => handleMarkReady(record.id)}
+              loading={loading}
+            >
+              تأكيد جاهزية السرير
+            </Button>
+          )}
+          {record.status === 'available' && (
+             <Button icon={<ToolOutlined />} size="small">طلب صيانة</Button>
+          )}
+        </Space>
+      ),
+    },
+  ];
 
   return (
     <div className="p-6 rtl text-right">
-      <Typography.Title level={2}><BankOutlined /> إدارة الأجنحة والأسرة 🏥</Typography.Title>
-      <p className="text-slate-500 mb-6">قم بتعريف الأجنحة الطبية وتوزيع الأسرة عليها لتتمكن من تسكين المرضى.</p>
+      <div className="mb-6 flex justify-between items-center">
+        <Typography.Title level={2}>
+          <HomeOutlined className="text-indigo-600" /> إدارة حالات الأسرة والأجنحة
+        </Typography.Title>
+        <Space>
+          <Button onClick={() => setIsWardModalVisible(true)} icon={<PlusOutlined />} className="bg-indigo-50 text-indigo-700 border-indigo-200">إضافة جناح</Button>
+          <Button onClick={() => setIsBedModalVisible(true)} type="primary" icon={<PlusOutlined />} className="bg-indigo-600">إضافة سرير</Button>
+          <Button onClick={fetchBedsStatus} icon={<ClearOutlined />}>تحديث الحالة</Button>
+        </Space>
+      </div>
 
-      <Row gutter={24}>
-        {/* الأجنحة */}
-        <Col lg={8} xs={24}>
-          <Card title="الأجنحة والأقسام" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => {
-            form.resetFields(); // 🧹 تنظيف الحقول قبل الفتح
-            setIsWardModalOpen(true);
-          }}>جناح جديد</Button>}>
-            <Table 
-              dataSource={wards} 
-              pagination={false}
-              columns={[
-                { title: 'اسم الجناح', dataIndex: 'name' },
-                { title: 'النوع', dataIndex: 'ward_type', render: (t) => <Tag>{t === 'general' ? 'عام' : 'خاص'}</Tag> }
-              ]} 
-              rowKey="id" 
-            />
-          </Card>
-        </Col>
-
-        {/* الأسرة */}
-        <Col lg={16} xs={24}>
-          <Card title="سجل الأسرة" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => {
-            form.resetFields(); // 🧹 تنظيف الحقول قبل الفتح
-            setIsBedModalOpen(true);
-          }} disabled={wards.length === 0}>سرير جديد</Button>}>
-            <Table 
-              dataSource={beds} 
-              loading={loading}
-              columns={[
-                { title: 'رقم السرير', dataIndex: 'bed_number', render: (n) => <b className="text-blue-600">سرير {n}</b> },
-                { title: 'الجناح', dataIndex: ['hims_wards', 'name'] },
-                { title: 'الحالة', dataIndex: 'status', render: (s) => <Tag color={s === 'available' ? 'green' : 'red'}>{s === 'available' ? 'متاح' : 'مشغول'}</Tag> },
-                { title: 'السعر اليومي', dataIndex: 'daily_rate', render: (v) => `${v} EGP` }
-              ]} 
-              rowKey="id" 
-            />
-          </Card>
-        </Col>
-      </Row>
+      <Card className="rounded-3xl shadow-lg border-none overflow-hidden">
+        <Table 
+          dataSource={beds} 
+          columns={columns} 
+          rowKey="id" 
+          loading={loading}
+          pagination={false}
+        />
+      </Card>
 
       {/* مودال إضافة جناح */}
-      <Modal title="إضافة جناح جديد" open={isWardModalOpen} onCancel={() => setIsWardModalOpen(false)} onOk={() => form.submit()}>
-        <Form form={form} layout="vertical" onFinish={handleAddWard}>
-          <Form.Item name="name" label="اسم الجناح" rules={[{ required: true }]}><Input placeholder="مثال: جناح الباطنة" /></Form.Item>
-          <Form.Item name="ward_type" label="نوع الجناح" initialValue="general">
-            <Select options={[{ label: 'عام', value: 'general' }, { label: 'خاص / VIP', value: 'private' }, { label: 'عناية مركزة', value: 'icu' }]} />
+      <Modal title="إضافة جناح / قسم جديد" open={isWardModalVisible} onCancel={() => setIsWardModalVisible(false)} onOk={() => wardForm.submit()} confirmLoading={loading}>
+        <Form form={wardForm} layout="vertical" onFinish={handleCreateWard}>
+          <Form.Item name="name" label="اسم الجناح" rules={[{ required: true, message: 'يرجى إدخال اسم الجناح' }]}>
+            <Input placeholder="مثال: جناح العمليات، قسم الباطنة" />
+          </Form.Item>
+          <Form.Item name="floor" label="الطابق">
+            <Input placeholder="مثال: الأرضي، الأول..." />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* مودال إضافة سرير */}
-      <Modal title="إضافة سرير جديد" open={isBedModalOpen} onCancel={() => setIsBedModalOpen(false)} onOk={() => form.submit()}>
-        <Form form={form} layout="vertical" onFinish={handleAddBed}>
-          <Form.Item name="ward_id" label="الجناح التابع له" rules={[{ required: true }]}>
-            <Select 
-              placeholder="اختر الجناح"
-              options={wards.map(w => ({ label: w.name, value: w.id }))}
-            />
+      <Modal title="إضافة سرير جديد" open={isBedModalVisible} onCancel={() => setIsBedModalVisible(false)} onOk={() => bedForm.submit()} confirmLoading={loading}>
+        <Form form={bedForm} layout="vertical" onFinish={handleCreateBed}>
+          <Form.Item name="ward_id" label="الجناح / القسم" rules={[{ required: true }]}>
+            <Select placeholder="اختر الجناح التابع له السرير">
+              {wards.map(w => <Select.Option key={w.id} value={w.id}>{w.name}</Select.Option>)}
+            </Select>
           </Form.Item>
-          <Form.Item name="bed_number" label="رقم السرير" rules={[{ required: true }]}><Input placeholder="مثال: 101" /></Form.Item>
-          <Form.Item name="daily_rate" label="تكلفة الإقامة اليومية" initialValue={500}><InputNumber className="w-full" suffix="EGP" /></Form.Item>
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item name="bed_number" label="رقم السرير" rules={[{ required: true }]}>
+                <Input placeholder="مثال: B-101" />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="daily_rate" label="تكلفة الإقامة اليومية (EGP)" initialValue={0}>
+                <InputNumber className="w-full" min={0} />
+              </Form.Item>
+            </Col>
+          </Row>
         </Form>
       </Modal>
     </div>

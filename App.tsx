@@ -162,11 +162,17 @@ import MedicalBilling from './modules/hims/pages/MedicalBilling';
 import { LabDashboard } from './modules/hims/pages/LabDashboard';
 import { BloodBankDashboard as BloodBankManager } from './modules/hims/pages/BloodBankDashboard';
 import { NurseStation } from './modules/hims/pages/NurseStation';
+import { RadiologyDashboard } from './modules/hims/pages/RadiologyDashboard';
+import { LabSpecimenTracking } from './modules/hims/pages/LabSpecimenTracking';
 import { ERTriageBoard } from './modules/hims/pages/ERTriageBoard';
 import { PharmacyDashboard } from './modules/hims/pages/PharmacyDashboard';
 import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
 import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
 import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
+import StaffRosterManager from './modules/hims/pages/StaffRosterManager';
+import { DoctorKPIs } from './modules/hims/pages/DoctorKPIs';
+import { HIMSExecutiveDashboard } from './modules/hims/pages/HIMSExecutiveDashboard';
+import { HIMSProfitabilityReports } from './modules/hims/pages/HIMSProfitabilityReports';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -408,13 +414,19 @@ const MainLayout = () => {
                       <Route path="doctor-desktop" element={<DoctorDesktop />} />
                       <Route path="billing" element={<MedicalBilling />} />
                       <Route path="lab" element={<LabDashboard />} />
+                      <Route path="lab-tracking" element={<LabSpecimenTracking />} />
                       <Route path="blood-bank" element={<BloodBankManager />} />
+                      <Route path="radiology" element={<RadiologyDashboard />} />
                       <Route path="nurse-station" element={<NurseStation />} />
                       <Route path="er-triage" element={<ERTriageBoard />} />
                       <Route path="pharmacy" element={<PharmacyDashboard />} />
                       <Route path="admissions" element={<AdmissionManager />} />
                       <Route path="wards-management" element={<WardBedManager />} />
                       <Route path="surgeries" element={<SurgeryScheduler />} />
+                      <Route path="staff-roster" element={<StaffRosterManager />} />
+                      <Route path="doctor-kpis" element={<DoctorKPIs />} />
+                      <Route path="admin" element={<HIMSExecutiveDashboard />} />
+                      <Route path="profitability" element={<HIMSProfitabilityReports />} />
                     </Routes>
                   </ModuleGuard>
                 } />

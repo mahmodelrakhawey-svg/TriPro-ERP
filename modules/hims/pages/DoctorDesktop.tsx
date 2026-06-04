@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { himsService } from '@/services/himsService';
-import { Card, Table, Tag, Button, Row, Col, Typography, Badge, Space, message, Alert, Tooltip } from 'antd';
-import { UserOutlined, PlayCircleOutlined, HistoryOutlined, MedicineBoxOutlined, ExclamationCircleOutlined, ExperimentOutlined, CameraOutlined, AlertOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Button, Row, Col, Typography, Badge, Space, message, Alert, Tooltip, Modal, List } from 'antd';
+import { UserOutlined, PlayCircleOutlined, HistoryOutlined, MedicineBoxOutlined, ExclamationCircleOutlined, ExperimentOutlined, CameraOutlined, AlertOutlined, FileSearchOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { PatientMedicalRecord } from '../components/PatientMedicalRecord';
 import { PrescriptionForm } from '../components/PrescriptionForm';
 import { OrderManagement } from '../components/OrderManagement';
 import { DischargeManager } from '../components/DischargeManager';
 import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/supabaseClient';
 
 const { Title, Text } = Typography;
 
@@ -16,6 +17,8 @@ export const DoctorDesktop: React.FC = () => {
   const [activeVisit, setActiveVisit] = useState<any>(null);
   const [emergencyAlerts, setEmergencyAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [resultsModal, setResultsModal] = useState<{ visible: boolean, type: 'lab' | 'rad', data: any[] }>({ visible: false, type: 'lab', data: [] });
+  const [financialStatus, setFinancialStatus] = useState<{ cleared: boolean, balance: number }>({ cleared: false, balance: 0 });
 
   const fetchQueue = async () => {
     if (!currentUser) return;
@@ -36,14 +39,37 @@ export const DoctorDesktop: React.FC = () => {
 
   useEffect(() => { fetchQueue(); }, [currentUser, userRole]);
 
+  const checkFinancialClearance = async (vId: string) => {
+    const { data } = await supabase.from('hims_billing').select('payment_status, total_amount, patient_share_amount').eq('id', vId).single();
+    if (data) {
+      setFinancialStatus({ cleared: data.payment_status === 'paid', balance: data.patient_share_amount });
+    }
+  };
+
   const startConsultation = async (record: any) => {
     try {
       await himsService.startConsultation(record.id);
         
       setActiveVisit(record);
+      checkFinancialClearance(record.id); // التحقق المالي بمجرد فتح الكشف
+     
       message.success(`بدأ الكشف على المريض: ${record.hims_patients?.full_name}`);
       fetchQueue();
     } catch (e) { message.error('فشل بدء الكشف'); }
+  };
+
+  // محرك عرض النتائج للطبيب
+  const viewResults = async (visitId: string, type: 'lab' | 'rad') => {
+    setLoading(true);
+    const table = type === 'lab' ? 'hims_lab_orders' : 'hims_radiology_orders';
+    const { data } = await supabase
+      .from(table)
+      .select('*, test:hims_lab_tests(test_name, unit, normal_range)')
+      .eq('visit_id', visitId)
+      .eq('status', 'completed');
+
+    setResultsModal({ visible: true, type, data: data || [] });
+    setLoading(false);
   };
 
   const columns = [
@@ -54,16 +80,24 @@ export const DoctorDesktop: React.FC = () => {
         <div className="flex items-center gap-2">
           <b>{record.hims_patients?.full_name}</b>
           {record.hims_lab_orders?.some((o: any) => o.status === 'completed') && (
-            <Tooltip title="نتائج مختبر جاهزة">
+            <Tooltip title="انقر لعرض نتائج المختبر الجاهزة">
               <Badge dot status="processing">
-                <ExperimentOutlined className="text-blue-500" />
+                <ExperimentOutlined
+                  className={`${
+                    record.hims_lab_orders?.some((o: any) => o.is_critical) ? 'text-red-500 animate-pulse' : 'text-blue-500'
+                  } cursor-pointer hover:scale-125 transition-transform`}
+                  onClick={(e) => { e.stopPropagation(); viewResults(record.id, 'lab'); }}
+                />
               </Badge>
             </Tooltip>
           )}
           {record.hims_radiology_orders?.some((o: any) => o.status === 'completed') && (
             <Tooltip title="نتائج أشعة جاهزة">
               <Badge dot status="warning">
-                <CameraOutlined className="text-purple-500" />
+                <CameraOutlined 
+                  className="text-purple-500 cursor-pointer hover:scale-125 transition-transform" 
+                  onClick={(e) => { e.stopPropagation(); viewResults(record.id, 'rad'); }} 
+                />
               </Badge>
             </Tooltip>
           )}
@@ -90,7 +124,7 @@ export const DoctorDesktop: React.FC = () => {
         <Col lg={8} xs={24}>
           {emergencyAlerts.length > 0 && (
             <Alert
-              message="تنبيه حالات حرجة!"
+              title="تنبيه حالات حرجة!"
               description={`يوجد ${emergencyAlerts.length} مريض في الطوارئ تجاوزوا زمن الانتظار المسموح.`}
               type="error"
               showIcon
@@ -114,11 +148,31 @@ export const DoctorDesktop: React.FC = () => {
                     <div>
                       <Title level={4} style={{ color: 'white', margin: 0 }}>{activeVisit.hims_patients?.full_name}</Title>
                       <Text style={{ color: 'rgba(255,255,255,0.8)' }}>رقم الهوية: {activeVisit.hims_patients?.national_id}</Text>
+                      
+                      {/* 🚨 درع الأمان: التنبيه بالحساسية */}
+                      {activeVisit.hims_patients?.allergies && activeVisit.hims_patients.allergies.length > 0 && (
+                        <div className="mt-2">
+                          <Tooltip title="المريض يعاني من حساسية تجاه بعض المواد">
+                            <Tag color="volcano" icon={<ExclamationCircleOutlined />} className="animate-bounce border-none font-bold">
+                              حساسية: {activeVisit.hims_patients.allergies.join('، ')}
+                            </Tag>
+                          </Tooltip>
+                        </div>
+                      )}
                     </div>
                   </Space>
                   <div className="flex gap-2">
-                    <Tag color="gold">زيارة جارية</Tag>
-                    <DischargeManager visitId={activeVisit.id} onSuccess={() => setActiveVisit(null)} />
+                    <Space>
+                      {financialStatus.cleared ? (
+                        <Tag color="green" icon={<CheckCircleOutlined />}>خالص مالياً</Tag>
+                      ) : (
+                        <Tooltip title={`المبلغ المتبقي: ${financialStatus.balance} EGP`}>
+                          <Tag color="error" icon={<ExclamationCircleOutlined />}>معلق مالياً</Tag>
+                        </Tooltip>
+                      )}
+                      <Tag color="gold">زيارة جارية</Tag>
+                      <DischargeManager visitId={activeVisit.id} onSuccess={() => setActiveVisit(null)} />
+                    </Space>
                   </div>
                 </div>
               </Card>
@@ -140,6 +194,40 @@ export const DoctorDesktop: React.FC = () => {
           )}
         </Col>
       </Row>
+
+      {/* مودال عرض نتائج الفحوصات (مختبر / أشعة) */}
+      <Modal
+        title={<b><FileSearchOutlined /> {resultsModal.type === 'lab' ? 'نتائج المختبر التفصيلية' : 'تقارير الأشعة والتشخيص التصويري'}</b>}
+        open={resultsModal.visible}
+        onCancel={() => setResultsModal({ ...resultsModal, visible: false })}
+        footer={[<Button key="close" onClick={() => setResultsModal({ ...resultsModal, visible: false })}>إغلاق</Button>]}
+        width={resultsModal.type === 'lab' ? 800 : 600}
+      >
+        <List
+          dataSource={resultsModal.data}
+          loading={loading}
+          renderItem={(item: any) => (
+            <List.Item className="border-b mb-2 pb-2 last:border-none">
+              <div className="w-full">
+                <div className="flex justify-between items-center mb-1">
+                  <Text strong className="text-blue-700">{item.test?.test_name || item.scan_type}</Text>
+                  <Tag color="green">{new Date(item.created_at).toLocaleDateString('ar-EG')}</Tag>
+                </div>
+                <div className={`${item.is_critical ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'} p-3 rounded-lg border`}>
+                  <Text className={`text-lg font-black ${item.is_critical ? 'text-red-600' : ''}`}>
+                    {item.result_value || 'بانتظار التقرير...'}
+                    {item.is_critical && <Tag color="error" className="mr-2">قيمة حرجة 🚨</Tag>}
+                  </Text>
+                  {resultsModal.type === 'lab' && item.test && (
+                    <div className="text-xs text-slate-400 mt-1">المعدل الطبيعي: {item.test.normal_range} {item.test.unit}</div>
+                  )}
+                </div>
+              </div>
+            </List.Item>
+          )}
+          locale={{ emptyText: "لا توجد نتائج مكتملة متاحة للعرض حالياً" }}
+        />
+      </Modal>
     </div>
   );
 };

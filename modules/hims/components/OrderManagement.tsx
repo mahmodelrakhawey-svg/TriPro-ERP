@@ -86,85 +86,104 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
 
   return (
     <Card className="rounded-2xl shadow-sm border-slate-200">
-      <Tabs defaultActiveKey="1">
-        <Tabs.TabPane tab={<span><ExperimentOutlined /> طلب تحاليل</span>} key="1">
-          <div className="space-y-4">
-            <Select
-              mode="multiple"
-              style={{ width: '100%' }}
-              placeholder="اختر الفحوصات المطلوبة..."
-              value={selectedTests}
-              onChange={setSelectedTests}
-            >
-              {labTests.map(t => <Option key={t.id} value={t.id}>{t.test_name}</Option>)}
-            </Select>
-            <Button 
-              type="primary" 
-              block 
-              icon={<PlusOutlined />} 
-              onClick={() => placeOrders('lab')}
-              loading={loading}
-              disabled={selectedTests.length === 0}
-            >
-              اعتماد طلب المختبر
-            </Button>
-          </div>
-        </Tabs.TabPane>
-        
-        <Tabs.TabPane tab={<span><CameraOutlined /> طلب أشعة</span>} key="2">
-          <div className="space-y-4">
-            <Select
-              mode="multiple"
-              style={{ width: '100%' }}
-              placeholder="اختر الفحوصات التصويرية المطلوبة..."
-              value={selectedRads}
-              onChange={setSelectedRads}
-            >
-              {radTypes.map(t => <Option key={t.id} value={t.id}>{t.name}</Option>)}
-            </Select>
-            <Button 
-              type="primary" 
-              block 
-              icon={<PlusOutlined />} 
-              onClick={() => placeOrders('radiology')}
-              loading={loading}
-              disabled={selectedRads.length === 0}
-            >
-              اعتماد طلب الأشعة
-            </Button>
-          </div>
-        </Tabs.TabPane>
-
-        <Tabs.TabPane tab={<span><HeartOutlined /> بنك الدم</span>} key="4">
-          <div className="flex gap-2">
-            <Select className="flex-1" value={bloodRequest.type} onChange={v => setBloodRequest({...bloodRequest, type: v})}>
-              {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(t => <Option key={t} value={t}>{t}</Option>)}
-            </Select>
-            <InputNumber min={1} value={bloodRequest.units} onChange={v => setBloodRequest({...bloodRequest, units: v || 1})} />
-            <Button danger icon={<PlusOutlined />} onClick={requestBlood} loading={loading}>طلب دم</Button>
-          </div>
-        </Tabs.TabPane>
-
-        <Tabs.TabPane tab={<span><ToolOutlined /> طلب جراحة</span>} key="5">
-          <div className="space-y-3">
-            <Input 
-                placeholder="اسم العملية الجراحية..." 
-                value={surgeryRequest.name} 
-                onChange={e => setSurgeryRequest({...surgeryRequest, name: e.target.value})} 
-            />
-            <DatePicker showTime className="w-full" placeholder="موعد العملية المقترح" onChange={v => setSurgeryRequest({...surgeryRequest, date: v})} />
-            <Button type="primary" block icon={<PlusOutlined />} onClick={requestSurgery} loading={loading}>تأكيد طلب الجراحة</Button>
-          </div>
-        </Tabs.TabPane>
-
-        <Tabs.TabPane tab={<span><MedicineBoxOutlined /> خدمات تمريضية</span>} key="3">
-          <div className="space-y-2">
-             <Tag closable>غيار على جرح</Tag>
-             <Tag closable>تركيب محاليل</Tag>
-             <Button type="dashed" block size="small">إضافة خدمة إضافية</Button>
-          </div>
-        </Tabs.TabPane>
-      </Tabs>
+      <Tabs 
+        defaultActiveKey="1"
+        items={[
+          {
+            key: '1',
+            label: <span><ExperimentOutlined /> طلب تحاليل</span>,
+            children: (
+              <div className="space-y-4">
+                <Select
+                  mode="multiple"
+                  style={{ width: '100%' }}
+                  placeholder="اختر الفحوصات المطلوبة..."
+                  value={selectedTests}
+                  onChange={setSelectedTests}
+                >
+                  {labTests.map(t => <Option key={t.id} value={t.id}>{t.test_name}</Option>)}
+                </Select>
+                <Button 
+                  type="primary" 
+                  block 
+                  icon={<PlusOutlined />} 
+                  onClick={() => placeOrders('lab')}
+                  loading={loading}
+                  disabled={selectedTests.length === 0}
+                >
+                  اعتماد طلب المختبر
+                </Button>
+              </div>
+            )
+          },
+          {
+            key: '2',
+            label: <span><CameraOutlined /> طلب أشعة</span>,
+            children: (
+              <div className="space-y-4">
+                <Select
+                  mode="multiple"
+                  style={{ width: '100%' }}
+                  placeholder="اختر الفحوصات التصويرية المطلوبة..."
+                  value={selectedRads}
+                  onChange={setSelectedRads}
+                >
+                  {radTypes.map(t => <Option key={t.id} value={t.id}>{t.name}</Option>)}
+                </Select>
+                <Button 
+                  type="primary" 
+                  block 
+                  icon={<PlusOutlined />} 
+                  onClick={() => placeOrders('radiology')}
+                  loading={loading}
+                  disabled={selectedRads.length === 0}
+                >
+                  اعتماد طلب الأشعة
+                </Button>
+              </div>
+            )
+          },
+          {
+            key: '4',
+            label: <span><HeartOutlined /> بنك الدم</span>,
+            children: (
+              <div className="flex gap-2">
+                <Select className="flex-1" value={bloodRequest.type} onChange={v => setBloodRequest({...bloodRequest, type: v})}>
+                  {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(t => <Option key={t} value={t}>{t}</Option>)}
+                </Select>
+                <InputNumber min={1} value={bloodRequest.units} onChange={v => setBloodRequest({...bloodRequest, units: v || 1})} />
+                <Button danger icon={<PlusOutlined />} onClick={requestBlood} loading={loading}>طلب دم</Button>
+              </div>
+            )
+          },
+          {
+            key: '5',
+            label: <span><ToolOutlined /> طلب جراحة</span>,
+            children: (
+              <div className="space-y-3">
+                <Input 
+                    placeholder="اسم العملية الجراحية..." 
+                    value={surgeryRequest.name} 
+                    onChange={e => setSurgeryRequest({...surgeryRequest, name: e.target.value})} 
+                />
+                <DatePicker showTime className="w-full" placeholder="موعد العملية المقترح" onChange={v => setSurgeryRequest({...surgeryRequest, date: v})} />
+                <Button type="primary" block icon={<PlusOutlined />} onClick={requestSurgery} loading={loading}>تأكيد طلب الجراحة</Button>
+              </div>
+            )
+          },
+          {
+            key: '3',
+            label: <span><MedicineBoxOutlined /> خدمات تمريضية</span>,
+            children: (
+              <div className="space-y-2">
+                 <Tag closable>غيار على جرح</Tag>
+                 <Tag closable>تركيب محاليل</Tag>
+                 <Button type="dashed" block size="small">إضافة خدمة إضافية</Button>
+              </div>
+            )
+          }
+        ]}
+      />
     </Card>
   );
 };

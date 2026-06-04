@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٣‏/٦‏/٢٠٢٦، ٨:٥٢:٤١ م
+📅 تاريخ التحديث: ٤‏/٦‏/٢٠٢٦، ٣:٥٤:٠٩ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -107,14 +107,17 @@
       📄 DoctorDesktop.tsx
       📄 ERTriageBoard.tsx
       📄 HIMSExecutiveDashboard.tsx
+      📄 HIMSProfitabilityReports.tsx
       📄 InpatientDashboard.tsx
       📄 InsuranceClaimsManager.tsx
       📄 LabDashboard.tsx
+      📄 LabSpecimenTracking.tsx
       📄 MedicalBilling.tsx
       📄 NurseStation.tsx
       📄 PatientManager.tsx
       📄 PharmacyDashboard.tsx
       📄 RadiologyDashboard.tsx
+      📄 StaffRosterManager.tsx
       📄 SurgeryScheduler.tsx
   📁 hooks/
     📄 usePermissions.ts
@@ -276,6 +279,7 @@
   📄 InvoiceItemsList.tsx
   📄 LandingPage.tsx
   📄 Login.tsx
+  📄 LuxuryReportEngine.ts
   📄 Maintenance.tsx
   📄 manufacturing_module.sql
   📄 NotificationCenter.tsx
@@ -439,6 +443,7 @@
   📄 ArchiveManager.tsx
   📄 backup_script.sh
   📄 BackupRestoreManager.tsx
+  📄 ClinicalPharmacy.tsx
   📄 complete_manufacturing_module.sql
   📄 construction_module.sql
   📄 create-client.ts
@@ -717,11 +722,16 @@ import MedicalBilling from './modules/hims/pages/MedicalBilling';
 import { LabDashboard } from './modules/hims/pages/LabDashboard';
 import { BloodBankDashboard as BloodBankManager } from './modules/hims/pages/BloodBankDashboard';
 import { NurseStation } from './modules/hims/pages/NurseStation';
+import { RadiologyDashboard } from './modules/hims/pages/RadiologyDashboard';
+import { LabSpecimenTracking } from './modules/hims/pages/LabSpecimenTracking';
 import { ERTriageBoard } from './modules/hims/pages/ERTriageBoard';
 import { PharmacyDashboard } from './modules/hims/pages/PharmacyDashboard';
 import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
 import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
 import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
+import StaffRosterManager from './modules/hims/pages/StaffRosterManager';
+import { HIMSExecutiveDashboard } from './modules/hims/pages/HIMSExecutiveDashboard';
+import { HIMSProfitabilityReports } from './modules/hims/pages/HIMSProfitabilityReports';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -963,13 +973,18 @@ const MainLayout = () => {
                       <Route path="doctor-desktop" element={<DoctorDesktop />} />
                       <Route path="billing" element={<MedicalBilling />} />
                       <Route path="lab" element={<LabDashboard />} />
+                      <Route path="lab-tracking" element={<LabSpecimenTracking />} />
                       <Route path="blood-bank" element={<BloodBankManager />} />
+                      <Route path="radiology" element={<RadiologyDashboard />} />
                       <Route path="nurse-station" element={<NurseStation />} />
                       <Route path="er-triage" element={<ERTriageBoard />} />
                       <Route path="pharmacy" element={<PharmacyDashboard />} />
                       <Route path="admissions" element={<AdmissionManager />} />
                       <Route path="wards-management" element={<WardBedManager />} />
                       <Route path="surgeries" element={<SurgeryScheduler />} />
+                      <Route path="staff-roster" element={<StaffRosterManager />} />
+                      <Route path="admin" element={<HIMSExecutiveDashboard />} />
+                      <Route path="profitability" element={<HIMSProfitabilityReports />} />
                     </Routes>
                   </ModuleGuard>
                 } />

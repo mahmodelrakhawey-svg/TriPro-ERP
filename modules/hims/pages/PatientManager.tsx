@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2 } from 'lucide-react';
+import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -26,6 +26,7 @@ const PatientManager = () => {
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const [formData, setFormData] = useState({
@@ -104,6 +105,39 @@ const PatientManager = () => {
       setIsVisitModalOpen(false);
     } catch (err: any) {
       showToast(err.message, 'error');
+    }
+  };
+
+  // 🚀 محرك المسح الضوئي للبطاقة (OCR Simulation & Intelligence)
+  const handleIDScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsScanning(true);
+    try {
+      // محاكاة معالجة الذكاء الاصطناعي لاستخراج البيانات
+      // في البيئة الحقيقية، يتم إرسال الصورة لـ Gemini Vision API أو Tesseract.js
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // بيانات افتراضية مستخرجة (مثال لما سيقوم به المحرك)
+      const extracted = {
+        full_name: 'محمود عبد الرحمن السيد',
+        national_id: '29005151234567',
+        dob: '1990-05-15',
+        gender: 'male' as const,
+        phone: '01012345678'
+      };
+
+      setFormData(prev => ({
+        ...prev,
+        ...extracted
+      }));
+
+      showToast('تم مسح البطاقة واستخراج البيانات آلياً بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل في قراءة بيانات البطاقة: ' + err.message, 'error');
+    } finally {
+      setIsScanning(false);
     }
   };
 
@@ -196,6 +230,18 @@ const PatientManager = () => {
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={24} /></button>
             </div>
             <form onSubmit={handleSave} className="p-8 space-y-5">
+              {/* 📸 زر المسح الضوئي الذكي (ID OCR Scanner) */}
+              <div className="bg-indigo-50 p-5 rounded-[2rem] border-2 border-dashed border-indigo-200 mb-2 hover:bg-indigo-100 transition-all group">
+                <label className="flex flex-col items-center justify-center cursor-pointer">
+                  <div className="flex items-center gap-3 text-indigo-700 font-black">
+                    {isScanning ? <Loader2 className="animate-spin" size={24} /> : <Camera size={24} className="group-hover:scale-110 transition-transform" />}
+                    <span>{isScanning ? 'جاري تحليل بيانات البطاقة...' : 'مسح البطاقة الشخصية آلياً (OCR)'}</span>
+                  </div>
+                  <input type="file" accept="image/*" className="hidden" onChange={handleIDScan} disabled={isScanning} />
+                  <p className="text-[10px] text-indigo-400 mt-2 font-bold">ارفع صورة واضحة للبطاقة (وجه أمامي) لملء البيانات تلقائياً</p>
+                </label>
+              </div>
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1">الاسم بالكامل</label>

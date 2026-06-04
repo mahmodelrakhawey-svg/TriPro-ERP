@@ -68,7 +68,8 @@ DECLARE
         'hims_medication_log',
         'hims_billing_items',
         'hims_clinical_notes',
-        'hims_nursing_activities'
+        'hims_nursing_activities',
+        'hims_icd10_codes'
     ];
     BEGIN
 
@@ -106,7 +107,8 @@ DECLARE
         'hims_lab_orders', 'hims_appointments', 'hims_doctors', 'hims_wards', 
         'hims_beds', 'hims_lab_tests', 'hims_radiology_orders', 'hims_surgeries',
         'hims_insurance_claims', 'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions',
-        'hims_medication_log', 'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities'
+        'hims_medication_log', 'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities',
+        'hims_icd10_codes'
     ];
 BEGIN
     FOREACH t IN ARRAY hims_tables LOOP

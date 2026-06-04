@@ -39,7 +39,7 @@ export const ProjectInsights: React.FC<ProjectInsightsProps> = ({ projectId }) =
       {/* 🚨 نظام الإنذار المبكر */}
       {liquidity?.risk_level === 'CRITICAL 🔴' && (
         <Alert
-          message="تحذير نفاذ السيولة"
+          title="تحذير نفاذ السيولة"
           description={liquidity.message}
           type="error"
           showIcon
@@ -56,7 +56,7 @@ export const ProjectInsights: React.FC<ProjectInsightsProps> = ({ projectId }) =
               value={metrics?.cpi} 
               precision={2}
               prefix={<DashboardOutlined />}
-              valueStyle={{ color: metrics?.cpi >= 1 ? '#3f8600' : '#cf1322' }}
+              styles={{ content: { color: metrics?.cpi >= 1 ? '#3f8600' : '#cf1322' } }}
             />
             <Tag color={metrics?.cpi >= 1 ? 'green' : 'red'} className="mt-2">
               {metrics?.cost_status}

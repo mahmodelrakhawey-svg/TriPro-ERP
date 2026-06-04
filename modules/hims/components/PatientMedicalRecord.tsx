@@ -41,16 +41,21 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
 
     // Prepare vital signs data for charting
     const chartData = (vitals || []).map((v: any) => {
-      const bpParts = v.vital_signs?.bp?.split('/') || [];
+      const vs = v.vital_signs || {};
+      const bpParts = vs.bp?.split('/') || [];
+      const safeParse = (val: any) => {
+        const p = parseFloat(val);
+        return isNaN(p) ? 0 : p;
+      };
       return {
         date: dayjs(v.created_at).format('YYYY-MM-DD HH:mm'),
-        temp: parseFloat(v.vital_signs?.temp),
-        pulse: parseFloat(v.vital_signs?.pulse),
-        spo2: parseFloat(v.vital_signs?.spo2),
-        systolic_bp: parseFloat(bpParts[0]),
-        diastolic_bp: parseFloat(bpParts[1]),
+        temp: safeParse(vs.temp),
+        pulse: safeParse(vs.pulse),
+        spo2: safeParse(vs.spo2),
+        systolic_bp: safeParse(bpParts[0]),
+        diastolic_bp: safeParse(bpParts[1]),
       };
-    }).filter((d: any) => d.temp || d.pulse || d.spo2 || d.systolic_bp || d.diastolic_bp) // Filter out empty data points
+    }).filter((d: any) => d.temp > 0 || d.pulse > 0 || d.spo2 > 0 || d.systolic_bp > 0)
       .reverse(); // Charting usually goes from oldest to newest
 
     setHistory(visits || []);
@@ -66,10 +71,10 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
 
   const renderVitalsChart = () => (
     <Card className="rounded-2xl border-none min-h-[300px]">
-      {vitalsChartData.length > 0 ? (
+      {vitalsChartData && vitalsChartData.length > 0 ? (
         <ResponsiveContainer width="100%" height={300}>
           <LineChart
-            data={vitalsChartData}
+            data={vitalsChartData || []} // 🛡️ ضمان تمرير مصفوفة دائماً لمنع خطأ slice
             margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
           >
             <CartesianGrid strokeDasharray="3 3" />
@@ -139,7 +144,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
                         <Statistic 
                           value={res.result_value} 
                           suffix={res.hims_lab_tests?.unit} 
-                          styles={{ content: { color: '#1677ff' } }} 
+                          valueStyle={{ color: '#1677ff' }} // 🎨 تحديث لمعايير AntD v5
                         />
                         <Badge status="processing" text={dayjs(res.created_at).format('DD/MM')} />
                       </div>
