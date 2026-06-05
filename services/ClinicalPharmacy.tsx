@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Table, Tag, Button, Card, Modal, List, Badge, Typography, Space, Tooltip, Alert } from 'antd';
+import { Table, Tag, Button, Card, Modal, List, Badge, Typography, Space, Tooltip, Alert, Input } from 'antd';
 import { MedicineBoxOutlined, WarningOutlined, CheckCircleOutlined, BarcodeOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useToastNotification } from '@/utils/toastUtils';
@@ -12,6 +12,7 @@ export default function ClinicalPharmacy() {
   const [loading, setLoading] = useState(true);
   const [selectedPresc, setSelectedPresc] = useState(null);
   const [detailsModalVisible, setDetailsModal] = useState(false);
+  const [barcodeSearch, setBarcodeSearch] = useState('');
   const toast = useToastNotification();
 
   useEffect(() => {
@@ -33,6 +34,25 @@ export default function ClinicalPharmacy() {
     if (error) toast.error('فشل جلب الوصفات الطبية');
     else setPrescriptions(data || []);
     setLoading(false);
+  };
+
+  const handleBarcodeSearch = async (value: string) => {
+    const code = value.trim();
+    if (!code) return;
+
+    // البحث عن الروشتة عبر معرفها (الذي يطبع كباركود)
+    const { data, error } = await supabase
+      .from('hims_prescriptions')
+      .select(`*, patient:visit_id(hims_patients(full_name)), doctor:doctor_id(profile_id(full_name))`)
+      .or(`id.eq.${code},diagnosis.ilike.%${code}%`) // دعم البحث بالمعرف أو النص
+      .single();
+
+    if (data) {
+      handleViewDetails(data);
+      setBarcodeSearch('');
+    } else {
+      toast.error('لم يتم العثور على روشتة بهذا الكود ❌');
+    }
   };
 
   const checkMedicationStatus = async (medications) => {
@@ -114,7 +134,14 @@ export default function ClinicalPharmacy() {
       <Card className="mb-6 shadow-sm">
         <Space size="large">
           <Badge status="processing" text="وصفات بانتظار الصرف" />
-          <Button icon={<BarcodeOutlined />}>مسح باركود الروشتة</Button>
+          <Input 
+            prefix={<BarcodeOutlined className="text-blue-500" />} 
+            placeholder="امسح باركود الروشتة هنا..." 
+            className="w-80 rounded-xl"
+            value={barcodeSearch}
+            onChange={e => setBarcodeSearch(e.target.value)}
+            onPressEnter={() => handleBarcodeSearch(barcodeSearch)}
+          />
         </Space>
       </Card>
 

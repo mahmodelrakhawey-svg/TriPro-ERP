@@ -65,11 +65,11 @@ DECLARE
         'hims_wards', 'hims_beds', 'hims_lab_tests', 'hims_lab_orders', 'hims_radiology_orders',
         'hims_appointments', 'hims_surgeries', 'hims_insurance_claims', 'hims_settings',
         'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions', 'hims_radiology_types',
-        'hims_medication_log',
-        'hims_billing_items',
-        'hims_clinical_notes',
-        'hims_nursing_activities',
-        'hims_icd10_codes'
+        'hims_medication_log', 'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities',
+        'hims_icd10_codes', 'hims_drug_interactions', 'hims_staff_roster', 'hims_lab_specimens',
+        'hims_nurse_tasks'
+        'saas_business_activities',
+        'saas_modules'
     ];
     BEGIN
 
@@ -108,13 +108,17 @@ DECLARE
         'hims_beds', 'hims_lab_tests', 'hims_radiology_orders', 'hims_surgeries',
         'hims_insurance_claims', 'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions',
         'hims_medication_log', 'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities',
-        'hims_icd10_codes'
+        'hims_icd10_codes',
+        'hims_drug_interactions', 'hims_staff_roster', 'hims_lab_specimens', 'hims_nurse_tasks'
     ];
 BEGIN
     FOREACH t IN ARRAY hims_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "HIMS_Admin_Policy_%I" ON public.%I', t, t);
         EXECUTE format('CREATE POLICY "HIMS_Admin_Policy_%I" ON public.%I FOR ALL TO authenticated 
-            USING ((organization_id = public.get_my_org() OR organization_id IS NULL) AND (public.get_my_role() IN (''admin'', ''manager'', ''super_admin''))) 
+            USING (
+                (organization_id = public.get_my_org())
+                OR (public.get_my_role() = ''super_admin'' AND public.get_my_org() IS NULL)
+            )
             WITH CHECK (organization_id = public.get_my_org())', t, t);
     END LOOP;
 END $$;
@@ -197,7 +201,10 @@ BEGIN
     FOREACH t IN ARRAY tables_with_org_id LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Org_Access_Policy_%I" ON public.%I;', t, t);
         EXECUTE format('CREATE POLICY "Org_Access_Policy_%I" ON public.%I FOR ALL TO authenticated 
-            USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') 
+            USING (
+                organization_id = public.get_my_org() -- المستخدم العادي يرى شركته
+                OR (public.get_my_role() = ''super_admin'' AND public.get_my_org() IS NULL) -- السوبر يرى الكل في الوضع العالمي فقط
+            ) 
             WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', 
             t, t);
     END LOOP;
@@ -318,6 +325,7 @@ USING (
 DO $$ 
 DECLARE
     tbl text;
+    has_org_id boolean;
     -- قائمة شاملة لكل جداول النظام لضمان الصلاحيات المطلقة للسوبر آدمن
     all_system_tables text[] := ARRAY(
         SELECT tablename
@@ -330,14 +338,32 @@ BEGIN
         -- حذف أي نسخة قديمة من سياسة التجاوز
         EXECUTE format('DROP POLICY IF EXISTS "SuperAdmin_Universal_Access" ON public.%I;', tbl);
         
-        -- إذا كان الجدول يحتوي على عمود organization_id، نتأكد من السماح بالعمليات حتى لو كان فارغاً للسوبر آدمن (هذا الجزء لم يعد ضرورياً مع السياسة العامة)
-        -- إنشاء السياسة الجديدة التي تسمح بكل العمليات للسوبر أدمن
-        EXECUTE format('
-            CREATE POLICY "SuperAdmin_Universal_Access" ON public.%I 
-            FOR ALL TO authenticated
-            USING (public.get_my_role() = ''super_admin'')
-            WITH CHECK (public.get_my_role() = ''super_admin'');
-        ', tbl);
+        -- 🛡️ فحص وجود عمود organization_id قبل إنشاء السياسة (حل خطأ 42703)
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns 
+            WHERE table_schema = 'public' AND table_name = tbl AND column_name = 'organization_id'
+        ) INTO has_org_id;
+
+        -- التعديل: السوبر أدمن يلتزم بالمنظمة المختارة (Context-Aware)
+        IF has_org_id THEN
+            EXECUTE format('
+                CREATE POLICY "SuperAdmin_Universal_Access" ON public.%I 
+                FOR ALL TO authenticated
+                USING (
+                    public.get_my_role() = ''super_admin'' 
+                    AND (public.get_my_org() IS NULL OR organization_id = public.get_my_org())
+                )
+                 WITH CHECK (public.get_my_role() = ''super_admin'');
+            ', tbl);
+        ELSE
+            -- جداول الإعدادات العامة التي لا تحتوي على عمود منظمة (مثل جداول تعريف الأنشطة)
+            EXECUTE format('
+                CREATE POLICY "SuperAdmin_Universal_Access" ON public.%I 
+                FOR ALL TO authenticated
+                USING (public.get_my_role() = ''super_admin'')
+                 WITH CHECK (public.get_my_role() = ''super_admin'');
+            ', tbl);
+        END IF;
     END LOOP;
 END $$;
 

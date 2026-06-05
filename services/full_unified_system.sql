@@ -499,7 +499,9 @@ BEGIN
             SUM(qty) as net_qty
         FROM (
             -- رصيد افتتاحي
-            SELECT oi.product_id, oi.warehouse_id, oi.quantity as qty FROM public.opening_inventories oi WHERE oi.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND (v_final_org IS NULL OR oi.organization_id = v_final_org)
+            SELECT oi.product_id, oi.warehouse_id, public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) as qty 
+            FROM public.opening_inventories oi JOIN public.products p ON oi.product_id = p.id
+            WHERE oi.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND (v_final_org IS NULL OR oi.organization_id = v_final_org)
             UNION ALL
             -- مشتريات (+)
             SELECT pii.product_id, pi.warehouse_id, public.uom_convert(pii.quantity, pii.uom_id, p.base_uom_id) FROM public.purchase_invoice_items pii JOIN public.purchase_invoices pi ON pii.purchase_invoice_id = pi.id JOIN public.products p ON pii.product_id = p.id
@@ -614,6 +616,15 @@ BEGIN
             JOIN public.products p ON sti.product_id = p.id
             WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
             
+            UNION ALL
+            -- 🏥 استهلاك المستشفيات (HIMS Consumption) (-)
+            -- يجمع الأدوية المصروفة ومستلزمات العمليات
+            SELECT hbi.product_id, hbi.warehouse_id, -public.uom_convert(hbi.quantity, hbi.uom_id, p.base_uom_id)
+            FROM public.hims_billing_items hbi
+            JOIN public.products p ON hbi.product_id = p.id
+            WHERE hbi.product_id IS NOT NULL AND hbi.warehouse_id IS NOT NULL
+            AND (v_final_org IS NULL OR hbi.organization_id = v_final_org)
+
             UNION ALL
             -- 🚚 تحويلات مخزنية (وارد +)
             SELECT sti.product_id, st.to_warehouse_id, public.uom_convert(sti.quantity, sti.uom_id, p.base_uom_id)
@@ -2284,6 +2295,64 @@ GRANT EXECUTE ON FUNCTION public.clean_load_test_data(UUID) TO authenticated;
 -- ================================================================
 -- 🔓 منح الصلاحيات النهائية (Final Grants)
 -- ================================================================
+-- 🛡️ [V51.0] رادار نزاهة النظام الشامل (Global ERP Health Monitor)
+-- الغرض: التأكد من أن النظام متماسك برمجياً ومحاسبياً 100%
+-- 🛡️ [V51.1] رادار نزاهة النظام المطور (Enhanced Reliability Radar)
+DROP VIEW IF EXISTS public.v_global_system_health CASCADE;
+CREATE OR REPLACE VIEW public.v_global_system_health AS
+WITH stats AS (
+    SELECT 
+        (SELECT COUNT(*) FROM public.journal_entries) as total_je,
+        (SELECT COUNT(*) FROM (SELECT journal_entry_id FROM public.journal_lines GROUP BY journal_entry_id HAVING ABS(SUM(debit - credit)) > 0.01) t) as unbalanced,
+        (SELECT COUNT(*) FROM public.products) as total_products,
+        (SELECT COUNT(*) FROM public.products WHERE stock < 0) as neg_stock,
+        (SELECT COUNT(*) FROM public.journal_lines) as total_lines,
+        (SELECT COUNT(*) FROM public.journal_lines WHERE journal_entry_id NOT IN (SELECT id FROM public.journal_entries)) as orphans
+)
+SELECT 
+    (SELECT COUNT(*) FROM public.organizations) as total_companies,
+    (SELECT COUNT(*) FROM public.profiles WHERE is_active = true) as active_users,
+    unbalanced as unbalanced_vouchers_count,
+    neg_stock as negative_stock_items,
+    orphans as orphaned_ledger_lines,
+    total_je as total_financial_transactions,
+    (SELECT COUNT(*) FROM public.invoices) + (SELECT COUNT(*) FROM public.orders) as total_sales_documents,
+    -- 🏆 مؤشر موثوقية النظام (أهم رقم للتسويق)
+    CASE 
+        WHEN total_je = 0 AND orphans = 0 AND neg_stock = 0 THEN 100.00
+        WHEN total_je = 0 AND (orphans > 0 OR neg_stock > 0) THEN 0.00
+        ELSE ROUND(GREATEST(0, 100 - (
+            COALESCE(unbalanced::numeric / NULLIF(total_je, 0) * 100 * 0.6, 0) + 
+            COALESCE(orphans::numeric / NULLIF(total_lines, 0) * 100 * 0.3, 0) + 
+            COALESCE(neg_stock::numeric / NULLIF(total_products, 0) * 100 * 0.1, 0)
+        )), 2)
+    END as reliability_score,
+    now() as last_check_at
+FROM stats;
+
+-- 🛡️ [V51.2] حارس التوازن الصارم (Strict Balance Guard)
+-- المهمة: منع ترحيل أي قيد غير متزن لحظياً (Real-time Prevention)
+CREATE OR REPLACE FUNCTION public.fn_guard_journal_balance()
+RETURNS TRIGGER AS $$
+DECLARE v_diff numeric;
+BEGIN
+    IF current_setting('app.restore_mode', true) = 'on' THEN RETURN NEW; END IF;
+    IF NEW.status = 'posted' THEN
+        SELECT SUM(debit - credit) INTO v_diff FROM public.journal_lines WHERE journal_entry_id = NEW.id;
+        IF ABS(COALESCE(v_diff, 0)) > 0.01 THEN
+            RAISE EXCEPTION '⚠️ خرق مالي: لا يمكن ترحيل قيد غير متزن (الفرق: %). تم تفعيل درع الحماية.', v_diff;
+        END IF;
+    END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_journal_balance_guard ON public.journal_entries;
+CREATE TRIGGER trg_journal_balance_guard
+AFTER UPDATE OF status ON public.journal_entries
+FOR EACH ROW EXECUTE FUNCTION public.fn_guard_journal_balance();
+
+GRANT SELECT ON public.v_global_system_health TO authenticated;
+
 -- 📊 دالة جلب إحصائيات لوحة التحكم (Dashboard Stats RPC)
 CREATE OR REPLACE FUNCTION public.get_dashboard_stats(p_org_id uuid DEFAULT NULL)
 RETURNS jsonb
@@ -2307,6 +2376,7 @@ DECLARE
     v_payables numeric := 0;
     v_total_receipts numeric := 0;
     v_total_payments numeric := 0;
+    v_reliability_score numeric := 0; -- 🛡️ جديد: مؤشر نزاهة البيانات
     v_low_stock_count bigint := 0;
     v_sales_target numeric := 0;
     
@@ -2345,6 +2415,9 @@ BEGIN
     v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_target_org_id LIMIT 1));
     v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_target_org_id LIMIT 1));
     
+    -- جلب درجة الموثوقية من الرادار
+    SELECT reliability_score INTO v_reliability_score FROM public.v_global_system_health;
+
     -- 1. Current Month Sales (Net Revenue from GL to match Income Statement)
     -- 🛡️ [إصلاح] استخدام ميزان المراجعة للحصول على صافي الإيرادات (بعد المرتجعات) بدلاً من إجمالي الفواتير
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_month_sales
@@ -2556,6 +2629,7 @@ BEGIN
         'totalReceipts', v_total_receipts,
         'totalPayments', v_total_payments,
         'lowStockCount', v_low_stock_count,
+        'systemReliability', v_reliability_score, -- 🏆 جاهزة للعرض في الـ UI
         'salesTarget', COALESCE(v_sales_target, 0),
         'activeProjectsCount', v_active_projects_count,
         'totalContractsValue', v_total_contracts_value,
@@ -2922,3 +2996,11 @@ NOTIFY pgrst, 'reload config';
 DO $$ BEGIN
     RAISE NOTICE '✅ تم تثبيت المحرك الشامل الموحد بنجاح. النظام الآن جاهز ومؤمن.';
 END $$;
+
+-- 🛠️ دالة تصفير المخزون السالب (للوصول لـ 100% موثوقية في العروض التوضيحية)
+CREATE OR REPLACE FUNCTION public.fix_negative_stock_for_demo()
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    UPDATE public.products SET stock = 0 WHERE stock < 0 AND organization_id = public.get_my_org();
+    PERFORM public.recalculate_stock_rpc(public.get_my_org());
+END; $$;

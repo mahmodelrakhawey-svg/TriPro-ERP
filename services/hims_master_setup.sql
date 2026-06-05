@@ -6,6 +6,7 @@
 -- 0. التأكد من وجود جداول البنية التحتية لنظام الساس
 CREATE TABLE IF NOT EXISTS public.saas_business_activities (
     code TEXT PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     name_ar TEXT NOT NULL,
     name_en TEXT,
     icon TEXT,
@@ -15,10 +16,21 @@ CREATE TABLE IF NOT EXISTS public.saas_business_activities (
 
 CREATE TABLE IF NOT EXISTS public.saas_modules (
     key TEXT PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     name_ar TEXT NOT NULL,
     parent_key TEXT REFERENCES public.saas_modules(key),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- 🛡️ [Security Healing] ترميم جداول البنية التحتية للساس
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='saas_business_activities' AND column_name='organization_id') THEN
+        ALTER TABLE public.saas_business_activities ADD COLUMN organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='saas_modules' AND column_name='organization_id') THEN
+        ALTER TABLE public.saas_modules ADD COLUMN organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org();
+    END IF;
+END $$;
 
 -- 1. إضافة "مستشفى / مركز طبي" إلى قائمة الأنشطة المتاحة في منصة الساس
 INSERT INTO saas_business_activities (code, name_ar, name_en, icon, module_key)
@@ -69,11 +81,20 @@ BEGIN
       (p_org_id, 'أشعة سينية صدر (X-Ray)', 'RAD-001', 'radiology', 350),
       (p_org_id, 'أشعة مقطعية (CT Scan)', 'RAD-002', 'radiology', 1200);
 
-    -- ضبط الحسابات الافتراضية للفوترة الطبية في شجرة الحسابات (COA)
-    -- نفترض وجود حسابات إيرادات طبية (4101) وذمم تأمين (1205)
+    -- 🛡️ [V52.9] ضبط الحسابات الافتراضية للفوترة الطبية (Smart Accounting Alignment)
+    -- نعتمد على الحسابات المولدة في initialize_egyptian_coa لضمان التناغم
     INSERT INTO hims_settings (organization_id, default_revenue_account, default_insurance_account, default_pharmacy_warehouse)
-    SELECT p_org_id, id, id, null FROM accounts WHERE code IN ('4101', '1205') LIMIT 2;
-
+    SELECT 
+        p_org_id, 
+        -- حساب إيرادات المبيعات (411) كبديل للإيرادات الطبية
+        (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '411' LIMIT 1),
+        -- حساب محتجز ضمان عملاء (1249) أو حساب ذمم التأمين
+        (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1249' LIMIT 1),
+        -- أول مستودع يتم إنشاؤه للمنظمة
+        (SELECT id FROM public.warehouses WHERE organization_id = p_org_id AND deleted_at IS NULL LIMIT 1)
+    ON CONFLICT (organization_id) DO UPDATE SET
+        default_revenue_account = EXCLUDED.default_revenue_account,
+        default_insurance_account = EXCLUDED.default_insurance_account;
 END;
 $$ LANGUAGE plpgsql;
 

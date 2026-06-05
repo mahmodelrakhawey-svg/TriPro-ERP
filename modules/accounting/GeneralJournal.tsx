@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -25,6 +25,8 @@ const getEntrySource = (reference: string) => {
     if (ref.startsWith('ASSET-')) return { label: 'أصل ثابت', color: 'bg-cyan-100 text-cyan-700' };
     if (ref.startsWith('CHQ-')) return { label: 'شيك', color: 'bg-indigo-50 text-indigo-600' };
     if (ref.startsWith('SHIFT-')) return { label: 'إغلاق وردية', color: 'bg-indigo-100 text-indigo-700' };
+    if (ref.startsWith('PHARM-')) return { label: 'صرف صيدلية', color: 'bg-teal-100 text-teal-700' };
+    if (ref.startsWith('HIMS-')) return { label: 'فاتورة طبية', color: 'bg-rose-100 text-rose-700' };
     if (ref.startsWith('MAN-')) return { label: 'رصيد افتتاحي', color: 'bg-slate-100 text-slate-500' };
     return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
 };

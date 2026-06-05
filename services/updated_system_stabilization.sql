@@ -1030,10 +1030,21 @@ DECLARE
     v_org_id uuid := COALESCE(p_org_id, public.get_my_org());
     v_count bigint;
 BEGIN
+    -- 🛡️ [V14.1] تفعيل وضع الاستعادة لتجاوز صمامات أمان المنظمة أثناء عملية الترميم الجراحي
+    PERFORM set_config('app.restore_mode', 'on', true);
+
     -- 1. إصلاح السجلات اليتيمة في المحاسبة
     DELETE FROM public.journal_lines WHERE journal_entry_id NOT IN (SELECT id FROM public.journal_entries);
     GET DIAGNOSTICS v_count = ROW_COUNT;
     task_name := 'تنظيف خطوط القيود اليتيمة'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
+
+    -- 1.5. إصلاح السجلات اليتيمة في المستندات (توسيع نطاق التنظيف)
+    DELETE FROM public.invoice_items WHERE invoice_id NOT IN (SELECT id FROM public.invoices);
+    DELETE FROM public.purchase_invoice_items WHERE purchase_invoice_id NOT IN (SELECT id FROM public.purchase_invoices);
+    DELETE FROM public.order_items WHERE order_id NOT IN (SELECT id FROM public.orders);
+    DELETE FROM public.order_item_modifiers WHERE order_item_id NOT IN (SELECT id FROM public.order_items);
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+    task_name := 'تنظيف بنود المستندات اليتيمة'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
 
     -- 2. إعادة موازنة القيود (توجيه الفروق لحساب الوسيط)
     WITH unbalanced AS (
@@ -1042,6 +1053,13 @@ BEGIN
     )
     SELECT COUNT(*) FROM (SELECT public.fix_unbalanced_journal_entry(journal_entry_id) FROM unbalanced) t INTO v_count;
     task_name := 'إعادة توازن قيود اليومية'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
+
+    -- 🛡️ حماية: إذا لم يتم العثور على منظمة سياقية، نتوقف هنا بعد التنظيف العام لضمان عدم الانهيار
+    IF v_org_id IS NULL THEN
+        task_name := 'إكمال التنظيف العام (لم يتم تحديد منظمة للإصلاح التخصصي)'; status := 'SKIPPED'; impact_count := 0; 
+        PERFORM set_config('app.restore_mode', 'off', true);
+        RETURN;
+    END IF;
 
     -- 3. مزامنة أنواع الأصناف (ضمان عدم تحولها لـ STOCK بشكل خاطئ)
     UPDATE public.products SET product_type = 'RAW_MATERIAL' WHERE mfg_type = 'raw' AND product_type != 'RAW_MATERIAL' AND organization_id = v_org_id;
@@ -1071,6 +1089,9 @@ BEGIN
     );
     GET DIAGNOSTICS v_count = ROW_COUNT;
     task_name := 'حذف قيود المستندات المكررة'; status := 'DONE'; impact_count := v_count; RETURN NEXT;
+
+    -- 🔙 إيقاف وضع الاستعادة للعودة للوضع الأمني الطبيعي
+    PERFORM set_config('app.restore_mode', 'off', true);
 
 END; $$;
 

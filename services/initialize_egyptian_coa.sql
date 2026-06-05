@@ -154,6 +154,7 @@ BEGIN
     -- الإيرادات
 
     ('411', 'إيراد مبيعات بضاعة', 'revenue', false, '41'),
+    ('41101', 'إيرادات تشغيل وخدمات متنوعة', 'revenue', false, '41'), -- 🚀 مطلوب لربط مديول HIMS
     ('412', 'مردودات ومسموحات مبيعات', 'revenue', false, '41'),
     ('413', 'خصم مسموح به', 'revenue', false, '41'),
     ('421', 'إيرادات متنوعة', 'revenue', false, '42'),
@@ -204,6 +205,16 @@ BEGIN
         INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
         ('4113', 'إيرادات مبيعات إنتاج تام', 'revenue', false, '41'),
         ('4114', 'إيرادات مبيعات مخلفات إنتاج', 'revenue', false, '41');
+    END IF;
+
+    -- 🏥 تخصيص حسابات نشاط المستشفيات (HIMS Foundation)
+    IF p_activity_type IN ('hospital', 'medical', 'clinic', 'مستشفى', 'مركز طبي', 'صيدلية', 'pharmacy') THEN
+        INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
+        ('10304', 'مخزون الأدوية والمستلزمات الطبية', 'asset', false, '103'),
+        ('122101', 'ذمم شركات التأمين الطبي', 'asset', false, '122'),
+        ('4115', 'إيرادات الكشوفات والعمليات', 'revenue', false, '41'),
+        ('41101', 'إيرادات طبية متنوعة', 'revenue', false, '41'),
+        ('4116', 'إيرادات الإقامة والتمريض', 'revenue', false, '41');
     END IF;
 
     -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
@@ -345,6 +356,16 @@ BEGIN
             'BANK_ACCOUNTS', v_bank_main_id -- ربط حساب البنك الرئيسي
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
+
+    -- 🛡️ تحديث روابط HIMS المخصصة إذا كان النشاط طبياً
+    IF p_activity_type IN ('hospital', 'medical', 'clinic') THEN
+        UPDATE public.company_settings 
+        SET account_mappings = account_mappings || jsonb_build_object(
+            'HIMS_REVENUE_OTHER', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '41101' LIMIT 1),
+            'HIMS_MEDICINE_INV', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '10304' LIMIT 1),
+            'HIMS_REVENUE', (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '4115' LIMIT 1)
+        ) WHERE organization_id = p_org_id;
+    END IF;
 
     -- تأسيس الأدوار الافتراضية للمنظمة لضمان ظهورها في شاشة الصلاحيات
     INSERT INTO public.roles (organization_id, name, description) VALUES
