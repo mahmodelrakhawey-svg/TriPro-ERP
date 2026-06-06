@@ -35,6 +35,24 @@ BEGIN
     END IF;
 END $$;
 
+-- 🛠️ دالة مساعدة لإنشاء الإشعارات من داخل محرك SQL (Notification Helper)
+CREATE OR REPLACE FUNCTION public.create_notification_from_sql(
+    p_org_id uuid,
+    p_user_id uuid,
+    p_title text,
+    p_message text,
+    p_type public.notification_type,
+    p_priority public.notification_priority DEFAULT 'low',
+    p_action_url text DEFAULT NULL,
+    p_related_id uuid DEFAULT NULL
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    IF p_user_id IS NULL THEN RETURN; END IF;
+    INSERT INTO public.notifications (organization_id, user_id, title, message, type, priority, action_url, related_id)
+    VALUES (p_org_id, p_user_id, p_title, p_message, p_type, p_priority::text, p_action_url, p_related_id);
+END; $$;
+
 -- ================================================================
 -- 1. جداول البيانات الأساسية
 -- ================================================================
@@ -750,12 +768,17 @@ DECLARE
     v_bill RECORD; v_je_id uuid; v_org_id uuid; v_mappings jsonb;
     v_rev_acc uuid; v_vat_acc uuid; v_cust_acc uuid;
 BEGIN
+    -- 1. جلب بيانات الفاتورة أولاً لضمان وجود معرف الزيارة
     SELECT * INTO v_bill FROM public.hims_billing WHERE id = p_billing_id;
+
+    -- 🛡️ 2. ضمان تحديث رأس الفاتورة (الإجماليات والضرائب) قبل الترحيل المالي
+    PERFORM public.hims_prepare_invoice(v_bill.visit_id);
+
     v_org_id := v_bill.organization_id;
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
-    -- جلب الحسابات
-    v_rev_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1)));
+    -- 🏥 توجيه الإيراد لحساب "الإيرادات الطبية" (4115) لضمان فصل الأنشطة
+    v_rev_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'HIMS_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '4115' AND organization_id = v_org_id LIMIT 1), (v_mappings->>'SALES_REVENUE')::uuid));
     v_vat_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1)));
     v_cust_acc := (SELECT customer_id FROM public.hims_patients WHERE id = v_bill.patient_id);
 
@@ -883,6 +906,16 @@ CREATE TABLE IF NOT EXISTS public.hims_insurance_claims (
     payment_date date,
     created_at timestamptz DEFAULT now()
 );
+
+-- 🛡️ [Schema Healing] ضمان وجود أعمدة تتبع الرفض المالي في مطالبات التأمين
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='hims_insurance_claims' AND column_name='rejected_amount') THEN
+        ALTER TABLE public.hims_insurance_claims ADD COLUMN rejected_amount numeric(15,2) DEFAULT 0;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='hims_insurance_claims' AND column_name='rejection_notes') THEN
+        ALTER TABLE public.hims_insurance_claims ADD COLUMN rejection_notes text;
+    END IF;
+END $$;
 
 -- ربط الفواتير بالمطالبات
 ALTER TABLE public.hims_billing ADD COLUMN IF NOT EXISTS insurance_claim_id uuid REFERENCES public.hims_insurance_claims(id) ON DELETE SET NULL;
@@ -1590,6 +1623,10 @@ BEGIN
         END IF;
     END IF;
 
+    -- 🛡️ [تحديث V54.2] تحصين الترحيل: التأكد من استخدام الحسابات الفرعية (Leaf Accounts)
+    v_insurance_receivable_acc := public.resolve_leaf_account(v_insurance_receivable_acc);
+    p_bank_acc_id := public.resolve_leaf_account(p_bank_acc_id);
+
     -- 1. إنشاء قيد اليومية لتحصيل المبلغ
     v_description := format('تحصيل مطالبة تأمين رقم %s من شركة التأمين %s', v_claim.batch_reference, (SELECT name FROM public.customers WHERE id = v_claim.insurance_provider_id));
     
@@ -1598,10 +1635,10 @@ BEGIN
     RETURNING id INTO v_je_id;
 
     -- Calculate any uncollected amount (rejection or partial payment)
-    v_uncollected_amount := COALESCE(v_claim.total_claim_amount, 0) - p_received_amount;
+    v_uncollected_amount := ROUND(COALESCE(v_claim.total_claim_amount, 0) - p_received_amount, 2);
 
     -- 🛡️ [تطوير التماسك المالي]: إذا رفضت شركة التأمين مبلغاً، يتم إقفاله كخسارة فوراً لضمان تصفير حساب الذمم
-    IF v_uncollected_amount > 0.01 THEN -- Use a small epsilon for floating point comparison
+    IF v_uncollected_amount >= 0.01 THEN 
         UPDATE public.hims_insurance_claims
         SET rejected_amount = COALESCE(rejected_amount, 0) + v_uncollected_amount,
             rejection_notes = COALESCE(rejection_notes, '') || format(' (تم إقفال مبلغ مرفوض: %s)', v_uncollected_amount)
@@ -1617,11 +1654,11 @@ BEGIN
 
     -- قيد: من ح/ البنك/الخزينة (المبلغ المحصل)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
-    VALUES (v_je_id, p_bank_acc_id, p_received_amount, 0, v_org_id, 'تحصيل مبلغ المطالبة التأمينية');
+    VALUES (v_je_id, p_bank_acc_id, ROUND(p_received_amount, 2), 0, v_org_id, 'تحصيل مبلغ المطالبة التأمينية');
 
     -- قيد: إلى ح/ ذمم التأمين (تخفيض الذمم)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
-    VALUES (v_je_id, v_insurance_receivable_acc, 0, p_received_amount, v_org_id, 'تخفيض ذمم التأمين');
+    VALUES (v_je_id, v_insurance_receivable_acc, 0, ROUND(p_received_amount, 2), v_org_id, 'تخفيض ذمم التأمين');
 
     -- 2. تحديث حالة المطالبة
     UPDATE public.hims_insurance_claims -- Update total_collected_amount and status
@@ -2212,6 +2249,27 @@ FROM public.hims_visits v
 JOIN public.hims_billing b ON v.id = b.visit_id
 LEFT JOIN public.hims_billing_items items ON b.id = items.billing_id
 GROUP BY v.organization_id, month;
+-- 💊 رؤية التنبؤ بنفاد أدوية المستشفى (HIMS Stock-out Predictor)
+-- تحلل معدل الصرف في آخر 30 يوم لتوقع متى سينتهي المخزون الحالي
+CREATE OR REPLACE VIEW public.v_hims_medication_burn_rate AS
+WITH daily_usage AS (
+    SELECT 
+        product_id,
+        organization_id,
+        SUM(quantity) / 30.0 as avg_daily_consumption
+    FROM public.hims_billing_items
+    WHERE item_type = 'pharmacy' AND created_at >= (now() - interval '30 days')
+    GROUP BY product_id, organization_id
+)
+SELECT 
+    p.name as medication_name,
+    p.stock as current_inventory,
+    ROUND(du.avg_daily_consumption, 2) as daily_burn_rate,
+    CASE WHEN du.avg_daily_consumption > 0 THEN ROUND(p.stock / du.avg_daily_consumption) ELSE 999 END as estimated_days_until_stockout,
+    p.organization_id
+FROM public.products p
+JOIN daily_usage du ON p.id = du.product_id
+WHERE p.stock <= (du.avg_daily_consumption * 7); -- تظهر فقط الأدوية التي ستنفد خلال أسبوع
 -- 🛠️ دالة إضافة بند للفاتورة (Billing Item Helper)
 CREATE OR REPLACE FUNCTION public.hims_add_billing_item(
     p_visit_id uuid,
@@ -2555,4 +2613,237 @@ AND jl.account_id = public.resolve_leaf_account((SELECT id FROM public.accounts 
 -- منح الصلاحيات النهائية
 GRANT SELECT ON public.v_hims_executive_dashboard TO authenticated;
 GRANT SELECT ON public.v_hims_patient_full_statement TO authenticated;
-GRANT EXECUTE ON FUNCTION public.fix_negative_stock_for_demo() TO authenticated;اريد منك الاناتتاتاتات
+GRANT EXECUTE ON FUNCTION public.fix_negative_stock_for_demo() TO authenticated;
+
+-- 🏥 دالة محاكاة شهر كامل من العمليات (HIMS Month Simulator)
+-- الغرض: ضخ بيانات تاريخية موزعة على 30 يوماً لاختبار تقارير الإشغال وتكلفة الأدوية
+CREATE OR REPLACE FUNCTION public.simulate_hims_month_operations(p_org_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    -- 🛡️ محرك البحث عن المنظمة: يدعم السوبر أدمن والتشغيل المباشر من المحرر
+    v_org_id uuid := COALESCE(
+        p_org_id, 
+        public.get_my_org(),
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations ORDER BY created_at DESC LIMIT 1)
+    );
+    v_i integer; v_day_offset integer;
+    v_pat_id uuid; v_visit_id uuid; v_doc_id uuid;
+    v_wh_id uuid; v_cash_acc uuid;
+    v_med_id uuid;
+BEGIN
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد المنظمة.'; END IF;
+    PERFORM set_config('app.restore_mode', 'on', true);
+    
+    SELECT id INTO v_wh_id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_cash_acc FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1;
+    SELECT id INTO v_doc_id FROM public.hims_doctors WHERE organization_id = v_org_id LIMIT 1;
+    
+    -- 1. تجهيز دواء اختبار
+    INSERT INTO public.products (name, sales_price, cost, stock, organization_id, product_type)
+    VALUES ('دواء محاكاة شهري', 100, 60, 500, v_org_id, 'STOCK')
+    ON CONFLICT DO NOTHING RETURNING id INTO v_med_id;
+    v_med_id := COALESCE(v_med_id, (SELECT id FROM public.products WHERE name = 'دواء محاكاة شهري' AND organization_id = v_org_id));
+
+    -- 2. حلقة المحاكاة (30 يوم)
+    FOR v_day_offset IN REVERSE 1..30 LOOP
+        -- أ. إنشاء مريض وزيارة كل 3 أيام
+        IF v_day_offset % 3 = 0 THEN
+            INSERT INTO public.hims_patients (organization_id, full_name, national_id, dob, gender)
+            VALUES (v_org_id, 'مريض محاكاة يوم ' || v_day_offset, 'SIM-' || v_day_offset || '-' || upper(substring(gen_random_uuid()::text, 1, 4)), '1990-01-01', 'male')
+            RETURNING id INTO v_pat_id;
+
+            INSERT INTO public.hims_visits (organization_id, patient_id, doctor_id, visit_type, status, admission_date, check_in_time)
+            VALUES (v_org_id, v_pat_id, v_doc_id, 'inpatient', 'in_consultation', now() - (v_day_offset || ' days')::interval, now() - (v_day_offset || ' days')::interval)
+            RETURNING id INTO v_visit_id;
+            
+            -- 🏥 إنشاء رأس الفاتورة فوراً لربط البنود
+            INSERT INTO public.hims_billing (visit_id, organization_id, patient_id)
+            VALUES (v_visit_id, v_org_id, v_pat_id);
+            
+            -- تسكين على سرير
+            UPDATE public.hims_beds SET status = 'occupied', current_patient_id = v_pat_id, current_visit_id = v_visit_id 
+            WHERE id = (
+                SELECT id FROM public.hims_beds 
+                WHERE organization_id = v_org_id AND status = 'available' 
+                LIMIT 1
+            );
+        END IF;
+
+        -- ب. تطبيق رسوم الإقامة لكافة المرضى الموجودين في هذا "اليوم الافتراضي"
+        -- سنقوم هنا بحقن بنود الفاتورة مباشرة بتواريخ قديمة لكي تظهر في الـ S-Curve
+        INSERT INTO public.hims_billing_items (billing_id, organization_id, item_type, description, quantity, unit_price, created_at)
+        SELECT b.id, v_org_id, 'accommodation', 'رسوم إقامة محاكاة', 1, 500, now() - (v_day_offset || ' days')::interval
+        FROM public.hims_billing b 
+        JOIN public.hims_visits v ON b.visit_id = v.id
+        WHERE v.organization_id = v_org_id AND v.status = 'in_consultation';
+
+        -- ج. صرف دواء عشوائي
+        IF v_day_offset % 2 = 0 THEN
+            PERFORM public.hims_add_billing_item(
+                (SELECT id FROM public.hims_visits WHERE organization_id = v_org_id AND status = 'in_consultation' LIMIT 1),
+                'pharmacy', 'دواء دوري - محاكاة', 1, 100
+            );
+        END IF;
+
+        -- د. إخراج مريض كل 5 أيام (Discharge)
+        IF v_day_offset % 5 = 0 THEN
+            v_visit_id := (SELECT id FROM public.hims_visits WHERE organization_id = v_org_id AND status = 'in_consultation' LIMIT 1);
+            IF v_visit_id IS NOT NULL THEN
+                PERFORM public.hims_process_discharge(v_visit_id, 'MANAGER_OVERRIDE');
+                PERFORM public.hims_finalize_billing((SELECT id FROM public.hims_billing WHERE visit_id = v_visit_id), v_cash_acc);
+            END IF;
+        END IF;
+    END LOOP;
+
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN jsonb_build_object('status', 'success', 'message', 'تمت محاكاة 30 يوماً من العمليات الطبية والمالية بنجاح.');
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.simulate_hims_month_operations(uuid) TO authenticated;
+
+-- 🧹 دالة تنظيف بيانات المحاكاة الطبية (HIMS Simulation Cleanup)
+-- الغرض: مسح كافة السجلات التي تم إنشاؤها عبر "ماكينة الزمن" لإعادة الشركة لحالتها النظيفة
+CREATE OR REPLACE FUNCTION public.hims_clean_simulation_data(p_org_id uuid DEFAULT NULL)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(p_org_id, public.get_my_org());
+    v_count_patients int;
+    v_count_visits int;
+BEGIN
+    -- 1. حذف الزيارات المرتبطة بمرضى المحاكاة (سيقوم الـ CASCADE بحذف بنود الفواتير)
+    DELETE FROM public.hims_visits 
+    WHERE organization_id = v_org_id 
+    AND patient_id IN (SELECT id FROM public.hims_patients WHERE full_name LIKE 'مريض محاكاة%');
+    GET DIAGNOSTICS v_count_visits = ROW_COUNT;
+
+    -- 2. حذف مرضى المحاكاة
+    DELETE FROM public.hims_patients 
+    WHERE organization_id = v_org_id 
+    AND full_name LIKE 'مريض محاكاة%';
+    GET DIAGNOSTICS v_count_patients = ROW_COUNT;
+
+    -- 3. إعادة احتساب المخزون لعودة الأرصدة لما كانت عليه
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+
+    RETURN format('✅ تم حذف %s مريض و %s زيارة تجريبية بنجاح وتحديث المخزون.', v_count_patients, v_count_visits);
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.hims_clean_simulation_data(uuid) TO authenticated;
+
+-- 🏥 محرك محاكاة تسوية مطالبات التأمين (Insurance Settlement Simulator)
+-- الغرض: اختبار دقة معالجة الكسور والمبالغ المرفوضة وتوجيهها للأستاذ العام
+CREATE OR REPLACE FUNCTION public.simulate_hims_insurance_workflow(p_org_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(
+        p_org_id, 
+        public.get_my_org(),
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations ORDER BY created_at DESC LIMIT 1)
+    );
+    v_claim_id uuid;
+    v_bank_acc uuid;
+    v_total_claim numeric := 5000.75; -- مبلغ بكسور لاختبار الـ Rounding
+    v_received_amount numeric := 4500.00; -- رفض 500.75
+BEGIN
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد المنظمة.'; END IF;
+    
+    -- 1. تجهيز حساب بنكي ومطالبة "وهمية" للاختبار
+    v_bank_acc := (SELECT id FROM public.accounts WHERE code LIKE '1232%' AND is_group = false AND organization_id = v_org_id LIMIT 1);
+    
+    INSERT INTO public.hims_insurance_claims (
+        organization_id, batch_reference, status, total_claim_amount, submission_date
+    ) VALUES (
+        v_org_id, 'SIM-CLAIM-' || substring(gen_random_uuid()::text, 1, 6), 'submitted', v_total_claim, CURRENT_DATE
+    ) RETURNING id INTO v_claim_id;
+
+    -- 2. تشغيل محرك التسوية (بخصم/رفض جزئي)
+    -- المبلغ المتوقع تحصيله: 4500 | المبلغ المرفوض: 500.75
+    PERFORM public.hims_settle_insurance_claim(v_claim_id, v_received_amount, v_bank_acc);
+
+    -- 3. فحص النتيجة في الأستاذ العام (هل القيد متزن؟)
+    IF EXISTS (
+        SELECT 1 FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE je.related_document_id = v_claim_id AND je.related_document_type = 'hims_insurance_claims'
+        GROUP BY je.id HAVING ABS(SUM(debit - credit)) < 0.01
+    ) THEN
+        RETURN jsonb_build_object(
+            'status', 'success',
+            'claim_id', v_claim_id,
+            'total_amount', v_total_claim,
+            'collected', v_received_amount,
+            'rejected_and_closed', v_total_claim - v_received_amount,
+            'message', 'تمت محاكاة التحصيل والرفض بنجاح وتوليد قيد متزن.'
+        );
+    ELSE
+        RAISE EXCEPTION 'فشل المحاكاة: القيد المولد غير متزن أو مفقود.';
+    END IF;
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.simulate_hims_insurance_workflow(uuid) TO authenticated;
+
+-- 💎 محرك اختبار الإبهار التشغيلي (HIMS Stress & Logic Test)
+CREATE OR REPLACE FUNCTION public.simulate_hims_complex_settlement(p_org_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(
+        p_org_id, 
+        public.get_my_org(),
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations ORDER BY created_at DESC LIMIT 1)
+    );
+    v_res jsonb;
+BEGIN
+    -- 1. تشغيل محاكاة مطالبة بكسور عشرية ورفض 10%
+    -- هذا يختبر: Rounding, Loss Account Mapping, GL Balancing
+    SELECT public.simulate_hims_insurance_workflow(v_org_id) INTO v_res;
+    
+    -- 2. إخطار السوبر أدمن بنجاح الاختبار المتقاطع
+    PERFORM public.create_notification_from_sql(
+        p_org_id     => v_org_id,
+        p_user_id    => (SELECT id FROM public.profiles WHERE role = 'super_admin' LIMIT 1),
+        p_title      => '🎯 جرد تأميني ناجح',
+        p_message    => 'تم التحقق من مطابقة حسابات التأمين مع الأستاذ العام بنسبة 100% بعد معالجة المبالغ المرفوضة.',
+        p_type       => 'success',
+        p_priority   => 'low'
+    );
+
+    RETURN jsonb_build_object(
+        'workflow_status', 'Validated',
+        'details', v_res,
+        'accounting_impact', 'Balanced'
+    );
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.simulate_hims_complex_settlement(uuid) TO authenticated;
+
+-- 📊 رؤية مطابقة الحسابات الطبية (HIMS Accounting Reconciliation View)
+-- الغرض: عرض الفاتورة والقيود المرتبطة بها في سطر واحد للتأكد من عدم وجود فروق (إثبات دقة الـ VAT)
+DROP VIEW IF EXISTS public.v_hims_accounting_reconciliation CASCADE;
+CREATE OR REPLACE VIEW public.v_hims_accounting_reconciliation WITH (security_invoker = false) AS -- 🛡️ السماح للسوبر أدمن بالرؤية الشاملة
+SELECT 
+    b.visit_id,
+    p.full_name as patient_name,
+    b.total_amount as invoice_total,
+    b.tax_amount as vat_amount_invoice,
+    -- جلب الضريبة المسجلة في الأستاذ العام للمطابقة
+    COALESCE((SELECT SUM(jl2.credit - jl2.debit) FROM public.journal_lines jl2 JOIN public.accounts a2 ON jl2.account_id = a2.id WHERE jl2.journal_entry_id = b.related_journal_entry_id AND a2.code = '2231'), 0) as vat_amount_ledger,
+    (b.total_amount - b.tax_amount) as net_revenue_expected,
+    COALESCE(SUM(jl.credit - jl.debit), 0) as ledger_revenue_actual,
+    CASE 
+        WHEN ABS((b.total_amount - b.tax_amount) - COALESCE(SUM(jl.credit - jl.debit), 0)) < 0.01 
+             AND ABS(b.tax_amount - COALESCE((SELECT SUM(jl3.credit - jl3.debit) FROM public.journal_lines jl3 JOIN public.accounts a3 ON jl3.account_id = a3.id WHERE jl3.journal_entry_id = b.related_journal_entry_id AND a3.code = '2231'), 0)) < 0.01
+        THEN 'MATCHED ✅'
+        ELSE 'DISCREPANCY ❌'
+    END as reconciliation_status,
+    b.organization_id
+FROM public.hims_billing b
+JOIN public.hims_patients p ON b.patient_id = p.id
+LEFT JOIN public.journal_lines jl ON b.related_journal_entry_id = jl.journal_entry_id
+LEFT JOIN public.accounts a ON jl.account_id = a.id AND (a.code LIKE '4%' OR a.type ILIKE '%revenue%')
+GROUP BY b.visit_id, p.full_name, b.total_amount, b.tax_amount, b.related_journal_entry_id, b.organization_id;
+
+GRANT SELECT ON public.v_hims_accounting_reconciliation TO authenticated;

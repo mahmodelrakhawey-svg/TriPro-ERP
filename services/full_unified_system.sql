@@ -426,29 +426,29 @@ RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_backup record;
     v_table_name text;
-    v_row jsonb;
     v_count int := 0;
+    v_total_inserted int := 0;
 BEGIN
     -- 1. جلب بيانات النسخة والتحقق من وجودها
     SELECT * INTO v_backup FROM public.organization_backups WHERE id = p_backup_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'النسخة الاحتياطية غير موجودة.'; END IF;
 
-    -- 🛡️ تفعيل وضع الاستعادة لتجاوز قيود الـ RLS والمشغلات (Triggers) أثناء العملية
+    -- 🛡️ تفعيل وضع الاستعادة وتعطيل القيود مؤقتاً
     PERFORM set_config('app.restore_mode', 'on', true);
+    -- ملاحظة: في PostgreSQL لا يمكن تعطيل القيود إلا داخل Transaction، ونحن هنا بالفعل داخل واحد.
 
-    -- 2. استرجاع قائمة الجداول من حقل backup_data وتفريغ البيانات الحالية
+    -- 2. استرجاع قائمة الجداول وتفريغ البيانات (ترتيب الحذف مهم ولكن ON DELETE CASCADE تتكفل بمعظمه)
     FOR v_table_name IN SELECT jsonb_object_keys(v_backup.backup_data)
     LOOP
-        -- أ. حذف البيانات الحالية للمنظمة من الجدول المستهدف
+        -- أ. حذف البيانات الحالية (باستخدام حماية لمنع حذف بيانات منظمات أخرى)
         EXECUTE format('DELETE FROM public.%I WHERE organization_id = %L', v_table_name, v_backup.organization_id);
 
-        -- ب. إعادة حقن السجلات من النسخة الاحتياطية (Row by Row من الـ JSON)
-        FOR v_row IN SELECT * FROM jsonb_array_elements(v_backup.backup_data -> v_table_name)
-        LOOP
-            EXECUTE format('INSERT INTO public.%I SELECT * FROM jsonb_populate_record(NULL::public.%I, %L)', 
-                           v_table_name, v_table_name, v_row);
-            v_count := v_count + 1;
-        END LOOP;
+        -- ب. إعادة حقن السجلات باستخدام Bulk Insert لتحسين الأداء (V52.0)
+        EXECUTE format('INSERT INTO public.%I SELECT * FROM jsonb_populate_recordset(NULL::public.%I, %L)', 
+                       v_table_name, v_table_name, v_backup.backup_data -> v_table_name);
+        
+        GET DIAGNOSTICS v_count = ROW_COUNT;
+        v_total_inserted := v_total_inserted + v_count;
     END LOOP;
 
     -- 🚀 إعادة تنشيط محرك المخزون لضمان دقة الأرصدة بعد الاستعادة
@@ -467,10 +467,54 @@ BEGIN
         'تمت استعادة بيانات المنظمة من نسخة احتياطية رقم: ' || p_backup_id,
         auth.uid(),
         v_backup.organization_id,
-        jsonb_build_object('backup_id', p_backup_id, 'records_count', v_count, 'backup_date', v_backup.backup_date)
+        jsonb_build_object('backup_id', p_backup_id, 'records_count', v_total_inserted, 'backup_date', v_backup.backup_date)
     );
     
-    RETURN '✅ تمت الاستعادة بنجاح. إجمالي السجلات المسترجعة: ' || v_count;
+    RETURN '✅ تمت الاستعادة بنجاح. إجمالي السجلات المسترجعة: ' || v_total_inserted;
+END; $$;
+
+-- 🛠️ دالة التحقق الشامل من شمولية النسخة (Comprehensiveness Check)
+-- الغرض: مقارنة هيكل الجداول الحالي مع محتويات النسخة لضمان عدم سقوط أي مديول (مثل المستشفيات)
+CREATE OR REPLACE FUNCTION public.verify_backup_comprehensiveness(p_backup_id uuid)
+RETURNS TABLE (
+    "اسم الجدول" text,
+    "الحالة في النسخة" text,
+    "عدد السجلات في النسخة" int,
+    "عدد السجلات الحالية بالشركة" bigint
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_backup record;
+    v_tbl record;
+BEGIN
+    -- 1. جلب بيانات النسخة
+    SELECT * INTO v_backup FROM public.organization_backups WHERE id = p_backup_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'النسخة الاحتياطية غير موجودة.'; END IF;
+
+    -- 2. المسح الشامل لجميع الجداول التي تخص المنظمات (SaaS Tables)
+    FOR v_tbl IN 
+        SELECT DISTINCT c.table_name
+        FROM information_schema.columns c
+        JOIN information_schema.tables t ON c.table_name = t.table_name
+        WHERE c.table_schema = 'public' 
+          AND c.column_name = 'organization_id'
+          AND t.table_type = 'BASE TABLE'
+          AND c.table_name NOT IN ('organizations', 'organization_backups', 'profiles')
+    LOOP
+        "اسم الجدول" := v_tbl.table_name;
+        
+        IF v_backup.backup_data ? "اسم الجدول" THEN
+            "الحالة في النسخة" := '✅ مشمول';
+            "عدد السجلات في النسخة" := jsonb_array_length(v_backup.backup_data -> "اسم الجدول");
+        ELSE
+            "الحالة في النسخة" := '❌ مفقود من النسخة';
+            "عدد السجلات في النسخة" := 0;
+        END IF;
+
+        EXECUTE format('SELECT COUNT(*) FROM public.%I WHERE organization_id = %L', v_tbl.table_name, v_backup.organization_id)
+        INTO "عدد السجلات الحالية بالشركة";
+
+        RETURN NEXT;
+    END LOOP;
 END; $$;
 
 -- ================================================================
@@ -2904,10 +2948,13 @@ BEGIN
         ('10302', 'مخزون المنتج التام', 'asset', false, '103'),
         ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
         ('1221', 'العملاء', 'asset', false, '122'),
+        ('122101', 'ذمم شركات التأمين الطبي', 'asset', false, '122'),
         ('1231', 'النقدية بالصندوق', 'asset', false, '123'),
         ('201', 'الموردين', 'liability', false, '22'),
         ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
-        ('411', 'إيراد المبيعات', 'revenue', false, '4'),
+        ('41', 'إيرادات النشاط (المبيعات)', 'revenue', true, '4'),
+        ('411', 'إيراد المبيعات', 'revenue', false, '41'),
+        ('41101', 'إيرادات تشغيل وخدمات متنوعة', 'revenue', false, '41'),
         ('42', 'إيرادات أخرى', 'revenue', true, '4'),
         ('425', 'إيراد تشغيل معدات داخلي', 'revenue', false, '42'),
         ('511', 'تكلفة البضاعة المباعة', 'expense', false, '5'),
@@ -2966,6 +3013,7 @@ GRANT EXECUTE ON FUNCTION public.run_daily_backups_all_orgs() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.close_financial_year(integer, date, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.reopen_financial_year(integer, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.restore_organization_from_backup(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.verify_backup_comprehensiveness(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.validate_backup_integrity(uuid, jsonb) TO authenticated;
 
 -- 🕒 جدولة النسخ الاحتياطي التلقائي (Automated SaaS Backup)
@@ -3004,3 +3052,90 @@ BEGIN
     UPDATE public.products SET stock = 0 WHERE stock < 0 AND organization_id = public.get_my_org();
     PERFORM public.recalculate_stock_rpc(public.get_my_org());
 END; $$;
+
+-- 🛠️ دالة فحص الجاهزية للإطلاق (SaaS Pre-Launch Health Check)
+-- الغرض: التأكد من سلامة الشركة محاسبياً وتقنياً قبل الاستخدام الفعلي
+CREATE OR REPLACE FUNCTION public.check_company_launch_readiness(p_org_id uuid DEFAULT public.get_my_org())
+RETURNS TABLE (
+    "المعيار" text,
+    "الحالة" text,
+    "التفاصيل" text
+) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 1. فحص توازن القيود
+    "المعيار" := 'توازن القيود المحاسبية';
+    IF EXISTS (SELECT 1 FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id 
+               WHERE je.organization_id = p_org_id GROUP BY je.id HAVING ABS(SUM(debit - credit)) > 0.01) THEN
+        "الحالة" := '❌ خطأ'; "التفاصيل" := 'يوجد قيود غير متزنة في الأستاذ العام.';
+    ELSE
+        "الحالة" := '✅ سليم'; "التفاصيل" := 'كافة القيود المرحلة متزنة تماماً.';
+    END IF;
+    RETURN NEXT;
+
+    -- 2. فحص إعدادات الربط المحاسبي
+    "المعيار" := 'ربط الحسابات السيادية';
+    IF EXISTS (SELECT 1 FROM public.company_settings WHERE organization_id = p_org_id 
+               AND (account_mappings->>'CASH' IS NULL OR account_mappings->>'SALES_REVENUE' IS NULL)) THEN
+        "الحالة" := '⚠️ تحذير'; "التفاصيل" := 'إعدادات الربط المحاسبي (النقدية/المبيعات) غير مكتملة.';
+    ELSE
+        "الحالة" := '✅ سليم'; "التفاصيل" := 'تم ربط الحسابات الأساسية بنجاح.';
+    END IF;
+    RETURN NEXT;
+
+    -- 3. فحص المخزون السالب
+    "المعيار" := 'سلامة أرصدة المخزون';
+    IF EXISTS (SELECT 1 FROM public.products WHERE organization_id = p_org_id AND stock < 0) THEN
+        "الحالة" := '⚠️ تحذير'; "التفاصيل" := 'يوجد أصناف برصيد سالب، قد تؤثر على دقة التكلفة.';
+    ELSE
+        "الحالة" := '✅ سليم'; "التفاصيل" := 'لا يوجد مخزون سالب حالياً.';
+    END IF;
+    RETURN NEXT;
+
+    -- 4. فحص النسخ الاحتياطي
+    "المعيار" := 'وجود نسخة احتياطية';
+    IF EXISTS (SELECT 1 FROM public.organization_backups WHERE organization_id = p_org_id) THEN
+        "الحالة" := '✅ سليم'; "التفاصيل" := 'تم أخذ نسخة احتياطية واحدة على الأقل لهذه الشركة.';
+    ELSE
+        "الحالة" := '❌ خطر'; "التفاصيل" := 'لم يتم إنشاء أي نسخة احتياطية لهذه الشركة حتى الآن.';
+    END IF;
+    RETURN NEXT;
+END; $$;
+
+-- 🛡️ [V51.5] درع تدقيق الفواتير (Deep Invoice Audit)
+-- المهمة: رصد أي محاولة لتغيير الأسعار أو الخصومات بعد صدور الفاتورة
+CREATE OR REPLACE FUNCTION public.fn_audit_sensitive_invoice_changes()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF (OLD.total_amount IS DISTINCT FROM NEW.total_amount) OR 
+       (OLD.discount_amount IS DISTINCT FROM NEW.discount_amount) OR
+       (OLD.status = 'posted' AND NEW.status = 'draft') THEN
+        
+        INSERT INTO public.security_logs (
+            event_type, 
+            description, 
+            performed_by, 
+            organization_id, 
+            metadata
+        ) VALUES (
+            'invoice_tampering_alert',
+            format('تعديل حساس في مبالغ الفاتورة رقم %s', NEW.invoice_number),
+            auth.uid(),
+            NEW.organization_id,
+            jsonb_build_object(
+                'invoice_id', NEW.id,
+                'old_total', OLD.total_amount,
+                'new_total', NEW.total_amount,
+                'old_discount', OLD.discount_amount,
+                'new_status', NEW.status
+            )
+        );
+    END IF;
+    RETURN NEW;
+END; $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_audit_invoice_changes ON public.invoices;
+CREATE TRIGGER trg_audit_invoice_changes
+BEFORE UPDATE ON public.invoices
+FOR EACH ROW EXECUTE FUNCTION public.fn_audit_sensitive_invoice_changes();
+
+GRANT EXECUTE ON FUNCTION public.check_company_launch_readiness(uuid) TO authenticated;

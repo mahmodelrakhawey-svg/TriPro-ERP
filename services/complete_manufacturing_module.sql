@@ -435,6 +435,13 @@ material_summary AS (
         )
         GROUP BY mr.production_order_id, mri.raw_material_id
     ) safe_mats GROUP BY po_id
+),
+byproduct_summary AS (
+    -- 🛡️ حساب إجمالي قيمة المنتجات العرضية لتخفيض تكلفة المنتج الرئيسي
+    SELECT op.production_order_id, SUM(bl.quantity * bl.market_value_per_unit) as total_byproduct_value
+    FROM public.mfg_byproducts_logs bl
+    JOIN public.mfg_order_progress op ON bl.order_progress_id = op.id
+    GROUP BY op.production_order_id
 )
 SELECT
     po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.status, po.organization_id,
@@ -444,21 +451,20 @@ SELECT
     -- تكاليف فعلية (تظهر صفر إذا لم يبدأ الإنتاج)
     ROUND((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0)), 2) as actual_labor,
     ROUND(COALESCE(ms.total_material_cost, 0), 2) as actual_material,
-    ROUND((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 2) as total_actual_cost,
-    -- صافي الربح: يعتمد على التكلفة الفعلية للأوامر المنتهية، أو التقديرية للمسودات ليعطي فكرة عن الربحية المتوقعة
+    -- التكلفة الفعلية الإجمالية (خامات + عمالة + أعباء - منتجات عرضية)
+    ROUND((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0) - COALESCE(bs.total_byproduct_value, 0)), 2) as total_actual_cost,
     ROUND((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - 
-          COALESCE(NULLIF((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 0), po.quantity_to_produce * sc.std_cost_per_unit, 0), 2) as net_profit,
+          COALESCE(NULLIF((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0) - COALESCE(bs.total_byproduct_value, 0)), 0), po.quantity_to_produce * sc.std_cost_per_unit, 0), 2) as net_profit,
     CASE WHEN (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) > 0
-         THEN ROUND((((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - 
-                    COALESCE(NULLIF((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 0), po.quantity_to_produce * sc.std_cost_per_unit, 0)) / 
-                    (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) * 100), 2)
+         THEN ROUND(((po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) - COALESCE(NULLIF((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0) - COALESCE(bs.total_byproduct_value, 0)), 0), po.quantity_to_produce * sc.std_cost_per_unit, 0)) / (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) * 100, 2)
+
          ELSE 0 END as margin_percentage
 FROM public.mfg_production_orders po
 JOIN public.products p ON po.product_id = p.id
 LEFT JOIN standard_costs sc ON p.id = sc.product_id
 LEFT JOIN labor_summary ls ON po.id = ls.production_order_id
-LEFT JOIN material_summary ms ON po.id = ms.po_id;
-
+LEFT JOIN material_summary ms ON po.id = ms.po_id
+LEFT JOIN byproduct_summary bs ON po.id = bs.production_order_id;
 -- 📊 رؤية تقييم WIP
 DROP VIEW IF EXISTS public.v_mfg_wip_valuation CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_wip_valuation WITH (security_invoker = true) AS
@@ -856,7 +862,7 @@ BEGIN
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     WHERE (
-        (je.related_document_id = p_order_id AND je.related_document_type IN ('mfg_order', 'mfg_step'))
+        (je.related_document_id = p_order_id AND je.related_document_type IN ('mfg_order', 'mfg_step', 'mfg_byproduct'))
         OR (je.related_document_type = 'mfg_material_request' AND je.related_document_id IN (SELECT id FROM public.mfg_material_requests WHERE production_order_id = p_order_id))
     ) AND jl.account_id = v_wip_acc;
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند
@@ -938,7 +944,7 @@ BEGIN
 
                 -- تجنب القسمة على صفر إذا كان المخزون القديم والكمية المنتجة صفر
                 IF (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce) > 0 THEN
-                    v_new_wac := ROUND(((COALESCE(v_old_stock, 0) * COALESCE(v_old_wac, 0)) + v_total_cost) / (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce), 4);
+                    v_new_wac := ROUND(((COALESCE(v_old_stock, 0) * COALESCE(v_old_wac, 0)) + v_accumulated_wip) / (COALESCE(v_old_stock, 0) + v_order.quantity_to_produce), 4);
                     UPDATE public.products
                     SET weighted_average_cost = v_new_wac,
                         cost = v_new_wac, -- تحديث حقل التكلفة الأساسي لتوحيد المرجعية
@@ -968,10 +974,10 @@ BEGIN
         -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
         VALUES (now()::date, (CASE WHEN p_final_status = 'completed' THEN 'إغلاق إنتاج: ' ELSE 'خسارة رفض إنتاج: ' END) || v_order.order_number, 'MFG-FIN-' || v_order.order_number, 'posted', v_org_id, true, p_order_id, 'mfg_order') RETURNING id INTO v_je_id;
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, CASE WHEN p_final_status = 'completed' THEN v_fg_acc ELSE v_loss_acc END, v_accumulated_wip, 0, COALESCE('إثبات المنتج التام المصنع: ' || v_order.order_number, 'إغلاق إنتاج'), v_org_id);
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_je_id, CASE WHEN p_final_status = 'completed' THEN v_fg_acc ELSE v_loss_acc END, v_total_cost, 0, 'إثبات المنتج التام', v_org_id);
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_je_id, v_wip_acc, 0, v_total_cost, 'إقفال WIP', v_org_id);
+        VALUES (v_je_id, v_wip_acc, 0, v_accumulated_wip, COALESCE('إقفال تكاليف الإنتاج تحت التشغيل: ' || v_order.order_number, 'تفريغ WIP'), v_org_id);
     END IF;
 
     -- 5. العمليات التكميلية

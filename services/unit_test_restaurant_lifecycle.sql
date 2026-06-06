@@ -869,6 +869,45 @@ BEGIN
     -- بقية الاختبارات...
     RETURN QUERY SELECT 'Restaurant & POS'::text, 'HEALTHY 🟢'::text, 'دورة المطاعم سليمة'::text;
 END; $$;
+-- 🧪 اختبار وحدة: فحص الجاهزية للإطلاق (Readiness Logic Test)
+CREATE OR REPLACE FUNCTION public.unit_test_launch_readiness()
+RETURNS TABLE(test_step text, status text, observation text) 
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid; v_je_id uuid;
+BEGIN
+    -- 🛡️ محرك البحث عن المنظمة: يدعم السوبر أدمن والتشغيل المباشر من المحرر
+    v_org_id := COALESCE(
+        public.get_my_org(), 
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations LIMIT 1)
+    );
+    
+    -- 1. فحص الحالة الحالية (المفترض أنها سليمة)
+    test_step := '1. الفحص الطبيعي للشركة';
+    status := 'RUNNING'; observation := 'جاري تشغيل الفحص على المنظمة: ' || (SELECT name FROM public.organizations WHERE id = v_org_id); RETURN NEXT;
+    
+    -- 2. تعمد إنشاء "قيد غير متزن" لاختبار ذكاء الدالة
+    -- نستخدم وضع الاستعادة لتجاوز درع الحماية trg_journal_balance_guard مؤقتاً لغرض الاختبار
+    PERFORM set_config('app.restore_mode', 'on', true);
+    
+    INSERT INTO public.journal_entries (description, organization_id, status, transaction_date)
+    VALUES ('قيد اختبار عطل التوازن', v_org_id, 'posted', now()::date) RETURNING id INTO v_je_id;
+    
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id)
+    VALUES (v_je_id, (SELECT id FROM public.accounts WHERE organization_id = v_org_id LIMIT 1), 100, 0, v_org_id);
+    
+    test_step := '2. فحص بعد تعمد كسر التوازن';
+    IF EXISTS (SELECT 1 FROM public.check_company_launch_readiness(v_org_id) WHERE "الحالة" = '❌ خطأ') THEN
+        status := 'SUCCESS ✅'; observation := 'الدالة اكتشفت القيد غير المتزن بنجاح.';
+    ELSE
+        status := 'FAILED ❌'; observation := 'الدالة فشلت في اكتشاف خلل التوازن.';
+    END IF;
+    
+    -- تنظيف القيد التجريبي وإعادة الوضع الأمني
+    DELETE FROM public.journal_entries WHERE id = v_je_id;
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN NEXT;
+END; $$;
 
 -- لتشغيل كافة الاختبارات:
 -- SELECT * FROM public.test_full_restaurant_lifecycle();
@@ -1032,11 +1071,16 @@ DECLARE
     v_total_revenue numeric;
     v_org_count int;
     v_global_liquidity numeric;
-    v_project_profitability numeric;
+    v_project_stats jsonb;
+    v_hims_stats jsonb;
     v_module_breakdown jsonb;
+    v_risk_signals jsonb;
+    v_reliability_score numeric;
+    v_critical_alerts_count int;
 BEGIN
     -- جلب إجمالي الإيرادات من كافة الشركات والموديولات
-    SELECT SUM(credit - debit) INTO v_total_revenue 
+    -- 411: مبيعات، 4115: طبية، 4111: مطاعم
+    SELECT COALESCE(SUM(credit - debit), 0) INTO v_total_revenue 
     FROM public.journal_lines jl
     JOIN public.accounts a ON jl.account_id = a.id
     WHERE a.code LIKE '4%' AND a.is_group = false;
@@ -1047,9 +1091,39 @@ BEGIN
     JOIN public.accounts a ON jl.account_id = a.id
     WHERE (a.code LIKE '1231%' OR a.code LIKE '1232%') AND a.is_group = false;
 
-    -- حساب صافي ربحية المشاريع النشطة (إيرادات المستخلصات - التكاليف الفعلية)
-    SELECT SUM(net_profit) INTO v_project_profitability 
-    FROM public.v_project_profitability;
+    -- 🏗️ إحصائيات المقاولات المجمعة
+    SELECT jsonb_build_object(
+        'total_billed', COALESCE(SUM(total_revenue), 0),
+        'active_projects', COUNT(*),
+        'avg_completion', COALESCE(AVG(financial_completion_pct), 0),
+        'loss_making_projects', COUNT(*) FILTER (WHERE net_profit < 0)
+    ) INTO v_project_stats FROM public.v_project_profitability;
+
+    -- 🚩 رادار المخاطر (Cross-Module Risk Radar)
+    SELECT jsonb_build_object(
+        'critical_stock_outs', (SELECT COUNT(*) FROM public.products WHERE stock <= 0 AND product_type = 'STOCK'),
+        'overdue_receivables', (SELECT COALESCE(SUM(total_amount - paid_amount), 0) FROM public.invoices WHERE due_date < CURRENT_DATE AND status != 'paid'),
+        'unbalanced_vouchers', (
+            SELECT COUNT(*) FROM (
+                SELECT journal_entry_id FROM public.journal_lines 
+                GROUP BY journal_entry_id HAVING ABS(SUM(debit - credit)) > 0.01
+            ) t
+        )
+    ) INTO v_risk_signals;
+
+    -- 🏥 إحصائيات المستشفيات المجمعة (تغطية الهدف القادم)
+    SELECT jsonb_build_object(
+        'total_patients', (SELECT COUNT(*) FROM public.hims_patients),
+        'avg_occupancy', COALESCE((SELECT AVG(occupancy_rate) FROM public.v_hims_bed_utilization), 0),
+        'pending_claims', COALESCE((SELECT SUM(total_claim_amount) FROM public.hims_insurance_claims WHERE status = 'submitted'), 0)
+    ) INTO v_hims_stats;
+
+    -- 🛡️ مؤشرات سلامة المنصة (Global Health & Reliability)
+    SELECT reliability_score INTO v_reliability_score FROM public.v_global_system_health;
+    
+    SELECT COUNT(*) INTO v_critical_alerts_count 
+    FROM public.notifications 
+    WHERE priority = 'high' AND is_read = false;
 
     SELECT COUNT(*) INTO v_org_count FROM public.organizations WHERE is_active = true;
 
@@ -1066,10 +1140,14 @@ BEGIN
     RETURN jsonb_build_object(
         'global_revenue', COALESCE(v_total_revenue, 0),
         'global_liquidity', COALESCE(v_global_liquidity, 0),
-        'active_projects_profit', COALESCE(v_project_profitability, 0),
+        'construction_kpis', v_project_stats,
+        'medical_kpis', v_hims_stats,
         'active_organizations', v_org_count,
-        'module_performance', v_module_breakdown,
-        'system_health', 'Excellent',
+        'revenue_by_module', v_module_breakdown,
+        'risk_radar', v_risk_signals,
+        'platform_reliability_pct', v_reliability_score,
+        'critical_alerts_active', v_critical_alerts_count,
+        'system_health', CASE WHEN v_reliability_score > 90 THEN 'Excellent' WHEN v_reliability_score > 70 THEN 'Stable' ELSE 'Needs Attention' END,
         'last_update', now()
     );
 END; $$;

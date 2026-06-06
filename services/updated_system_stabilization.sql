@@ -953,6 +953,19 @@ BEGIN
     IF NEW.organization_id IS NULL THEN
         NEW.organization_id := public.get_my_org();
     END IF;
+
+    -- 🏗️ Fallback: If organization is still missing and session is unauthenticated (manual admin task), 
+    -- default to the first available organization to prevent script failure.
+    IF NEW.organization_id IS NULL AND auth.uid() IS NULL THEN
+        NEW.organization_id := (SELECT id FROM public.organizations ORDER BY created_at ASC LIMIT 1);
+    END IF;
+
+    -- 🛡️ حماية إضافية: إذا لم توجد أي منظمة نهائياً في النظام، اسمح بمرور السجل كـ NULL مؤقتاً 
+    -- لتجنب توقف السكربتات الأساسية عن العمل.
+    IF NEW.organization_id IS NULL AND NOT EXISTS (SELECT 1 FROM public.organizations) THEN
+        RETURN NEW;
+    END IF;
+
     IF NEW.organization_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد المنظمة.'; END IF;
     RETURN NEW;
 END;

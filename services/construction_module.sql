@@ -342,7 +342,57 @@ BEGIN
         RAISE EXCEPTION '⚠️ تجاوز حرج للميزانية! إجمالي المصاريف (%) سيتجاوز سقف المشروع (%).', 
             (v_current_spent + v_expense.amount), v_total_budget;
     END IF;
+-- 🛠️ دالة تحويل عُهدة موظف إلى خصم من الراتب (Custody to Payroll Link)
+-- الغرض: في حال لم يقم الموظف بتسوية العهدة، يمكن للمدير تحويلها كخصم في مسير الرواتب القادم
+CREATE OR REPLACE FUNCTION public.fn_construction_link_custody_to_payroll(p_custody_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_custody RECORD;
+    v_month int := EXTRACT(MONTH FROM now());
+    v_year int := EXTRACT(YEAR FROM now());
+BEGIN
+    SELECT * INTO v_custody FROM public.project_custodies WHERE id = p_custody_id;
+    
+    IF v_custody.current_balance <= 0 THEN
+        RAISE EXCEPTION '⚠️ لا يوجد رصيد متبقي في العهدة للتحويل.';
+    END IF;
 
+    -- إدراج الرصيد المتبقي كاستقطاع في جدول متغيرات الرواتب
+    INSERT INTO public.payroll_variables (employee_id, month, year, type, amount, organization_id, is_processed)
+    VALUES (v_custody.employee_id, v_month, v_year, 'deduction', v_custody.current_balance, v_custody.organization_id, false);
+
+    -- إغلاق العهدة في مديول المقاولات
+    UPDATE public.project_custodies SET status = 'closed', current_balance = 0 WHERE id = p_custody_id;
+
+    INSERT INTO public.security_logs (event_type, description, organization_id, metadata)
+    VALUES ('custody_to_payroll', format('تم تحويل عهدة الموظف %s إلى خصم من الراتب بقيمة %s', v_custody.employee_id, v_custody.current_balance), v_custody.organization_id, jsonb_build_object('custody_id', p_custody_id));
+END; $$;
+
+-- 🔔 دالة فحص تنبيهات فك محتجز الضمان (Retention Release Monitor)
+CREATE OR REPLACE FUNCTION public.fn_construction_check_retention_releases(p_org_id uuid DEFAULT NULL)
+RETURNS integer LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(p_org_id, public.get_my_org());
+    v_row RECORD;
+    v_count int := 0;
+BEGIN
+    FOR v_row IN 
+        SELECT p.name as project_name, pb.billing_number, pb.retention_amount, pb.retention_release_date
+        FROM public.project_progress_billings pb
+        JOIN public.projects p ON pb.project_id = p.id
+        WHERE pb.organization_id = v_org_id 
+          AND pb.retention_release_date = CURRENT_DATE
+          AND pb.status = 'approved'
+    LOOP
+        PERFORM public.create_notification_from_sql(
+            v_org_id, NULL, '🔔 موعد فك محتجز ضمان',
+            format('حان موعد فك محتجز الضمان بقيمة %s للمستخلص رقم %s في مشروع %s', v_row.retention_amount, v_row.billing_number, v_row.project_name),
+            'retention_release_alert', 'high'
+        );
+        v_count := v_count + 1;
+    END LOOP;
+    RETURN v_count;
+END; $$;
     -- تحديد حساب عهدة الموظف (نفترض وجود ربط في جدول الموظفين أو كود مالي)
     -- تم التعديل للكود 1224 ليتوافق مع الدليل المصري
     v_employee_acc := (SELECT id FROM public.accounts WHERE code = '1224' AND organization_id = v_expense.organization_id LIMIT 1);
@@ -474,8 +524,8 @@ BEGIN
     SELECT * INTO v_project FROM public.projects WHERE id = v_issue.project_id;
 
     v_inv_acc := public.resolve_leaf_account(COALESCE(
-        (SELECT (account_mappings->>'INVENTORY')::UUID FROM public.company_settings WHERE organization_id = v_issue.organization_id),
-        (SELECT id FROM public.accounts WHERE code = '1231' AND organization_id = v_issue.organization_id LIMIT 1)
+        (SELECT (account_mappings->>'INVENTORY_RAW_MATERIALS')::UUID FROM public.company_settings WHERE organization_id = v_issue.organization_id),
+        (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_issue.organization_id LIMIT 1)
     ));
 
     FOR v_item IN SELECT * FROM public.project_material_issue_items WHERE issue_id = p_issue_id LOOP
@@ -779,9 +829,9 @@ BEGIN
     GROUP BY p.id;
 
     v_duration_days := GREATEST(v_project_end - v_project_start, 1);
-    v_daily_planned_cost := v_bac / v_duration_days;
+        v_daily_planned_cost := COALESCE(v_bac, 0) / v_duration_days;
 
-    IF v_project_start IS NULL THEN RETURN '[]'::jsonb; END IF;
+    IF v_project_start IS NULL OR v_bac = 0 THEN RETURN '[]'::jsonb; END IF;
 
     WITH monthly_series AS (
         SELECT (generate_series(
@@ -1024,18 +1074,58 @@ DECLARE
     v_org_id UUID;
     v_project_acc UUID;
     v_je_id UUID;
+    v_accrued_sal_acc UUID;
+    v_mappings JSONB;
+    v_budget_limit NUMERIC;
 BEGIN
     SELECT organization_id, cost_center_account_id INTO v_org_id, v_project_acc 
     FROM public.projects WHERE id = p_project_id;
+
+    -- 🚀 [تطوير V1.2]: تحديث معدل الساعة لحظياً من ملف الموظف قبل الجمع لضمان الدقة المالية
+    UPDATE public.project_site_attendance psa
+    SET hourly_rate = COALESCE(e.hourly_rate, (e.salary / 240.0), 0)
+    FROM public.employees e WHERE psa.employee_id = e.id
+    AND psa.project_id = p_project_id AND psa.attendance_date = p_attendance_date AND psa.status = 'draft';
 
     SELECT SUM(total_day_cost) INTO v_total_cost 
     FROM public.project_site_attendance 
     WHERE project_id = p_project_id AND attendance_date = p_attendance_date AND status = 'draft';
 
-    IF v_total_cost > 0 THEN
-        -- هنا يتم إنشاء القيد (من ح/ تكاليف المشروع إلى ح/ الأجور المستحقة)
-        -- تم اختصار القيد للتركيز على منطق الربط
-        UPDATE public.project_site_attendance SET status = 'approved' 
+    IF COALESCE(v_total_cost, 0) > 0 THEN
+        -- 🛡️ [رادار الميزانية]: فحص التجاوز قبل الترحيل
+        SELECT COALESCE(SUM(total_price * 0.4), 0) INTO v_budget_limit 
+        FROM public.project_boq WHERE project_id = p_project_id; -- نفترض أن العمالة 40% من المقايسة
+
+        IF v_total_cost > v_budget_limit AND v_budget_limit > 0 THEN
+            INSERT INTO public.notifications (user_id, title, message, priority, type, organization_id)
+            SELECT id, '⚠️ تجاوز تكلفة عمالة', 
+                   format('تكلفة العمالة اليومية (%s) تجاوزت المخصص التقديري للمشروع.', v_total_cost),
+                   'high', 'system_alert', v_org_id
+            FROM public.profiles WHERE organization_id = v_org_id AND role IN ('admin', 'manager');
+        END IF;
+
+        SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+        
+        -- جلب حساب الأجور المستحقة (2251)
+        v_accrued_sal_acc := public.resolve_leaf_account(COALESCE(
+            (v_mappings->>'ACCRUED_SALARIES')::UUID,
+            (SELECT id FROM public.accounts WHERE code = '2251' AND organization_id = v_org_id LIMIT 1)
+        ));
+
+        IF v_accrued_sal_acc IS NULL OR v_project_acc IS NULL THEN RAISE EXCEPTION 'فشل الترحيل: حساب الأجور أو مركز التكلفة غير معرف.'; END IF;
+
+        -- إنشاء القيد المحاسبي المزدوج
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+        VALUES (p_attendance_date, 'إثبات أجور عمالة موقع - مشروع ' || (SELECT name FROM public.projects WHERE id = p_project_id), 'SITE-LAB-' || substring(p_project_id::text, 1, 4), 'posted', v_org_id, true, p_project_id, 'site_attendance')
+        RETURNING id INTO v_je_id;
+
+        -- مدين: تكاليف المشروع | دائن: أجور مستحقة
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES 
+            (v_je_id, v_project_acc, v_total_cost, 0, 'تكلفة عمالة يومية - الموقع', v_org_id),
+            (v_je_id, v_accrued_sal_acc, 0, v_total_cost, 'استحقاق أجور عمالة الموقع', v_org_id);
+
+        UPDATE public.project_site_attendance SET status = 'approved', related_journal_entry_id = v_je_id 
         WHERE project_id = p_project_id AND attendance_date = p_attendance_date;
     END IF;
 END;
@@ -1242,15 +1332,18 @@ BEGIN
         SELECT sc.created_at::DATE AS transaction_date, 'عقد: ' || sc.contract_name AS description, 0.00 AS debit, sc.total_value AS credit
         FROM public.subcontractor_contracts sc WHERE sc.subcontractor_id = p_subcontractor_id AND sc.organization_id = p_organization_id
         UNION ALL
-        SELECT sb.billing_date, 'مستخلص رقم: ' || sb.billing_number, 0.00 AS debit, sb.net_amount AS credit
+        SELECT sb.billing_date, 'مستخلص معتمد رقم: ' || sb.billing_number, 0.00 AS debit, sb.net_amount AS credit
         FROM public.subcontractor_billings sb JOIN public.subcontractor_contracts sc ON sb.contract_id = sc.id
         WHERE sc.subcontractor_id = p_subcontractor_id AND sc.organization_id = p_organization_id AND sb.status = 'approved'
         UNION ALL
-        -- الدفعات النقدية من الأستاذ العام المرتبطة بالمقاول عبر الوصف
-        SELECT je.transaction_date, 'صرف: ' || je.description, jl.credit AS debit, 0.00 AS credit
+        -- الدفعات النقدية والتحويلات من الأستاذ العام المرتبطة بالمقاول
+        SELECT je.transaction_date, 'سداد مالي: ' || je.description, 
+               CASE WHEN jl.debit > 0 THEN jl.debit ELSE jl.credit END AS debit, 
+               0.00 AS credit
         FROM public.journal_lines jl JOIN public.journal_entries je ON jl.journal_entry_id = je.id
-        WHERE je.organization_id = p_organization_id AND je.description ILIKE '%' || (SELECT name FROM public.subcontractors WHERE id = p_subcontractor_id) || '%'
-        AND jl.account_id IN (SELECT id FROM public.accounts WHERE code IN ('201', '221') AND organization_id = p_organization_id)
+        WHERE je.organization_id = p_organization_id 
+        AND (je.description ILIKE '%' || (SELECT name FROM public.subcontractors WHERE id = p_subcontractor_id) || '%' OR je.reference ILIKE '%' || (SELECT name FROM public.subcontractors WHERE id = p_subcontractor_id) || '%')
+        AND jl.account_id IN (SELECT id FROM public.accounts WHERE code IN ('201', '221') AND organization_id = p_organization_id) -- حساب الموردين/المقاولين
     )
     SELECT st.transaction_date, st.description, st.debit, st.credit, SUM(st.credit - st.debit) OVER (ORDER BY st.transaction_date, st.description) AS balance
     FROM sub_transactions st ORDER BY st.transaction_date, st.description;
@@ -1362,3 +1455,104 @@ BEGIN
       AND pb.retention_release_date IS NOT NULL
       AND pb.retention_release_date <= (CURRENT_DATE + INTERVAL '30 days');
 END; $$;
+
+-- 🏗️ دالة محاكاة دورة حياة مشروع مقاولات (Construction Lifecycle Simulator)
+-- الغرض: ضخ بيانات تجريبية متكاملة لاختبار منحنى S-Curve وتقارير الربحية ومراكز التكلفة
+CREATE OR REPLACE FUNCTION public.simulate_construction_project_lifecycle(p_org_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    -- 🛡️ محرك البحث عن المنظمة: يدعم السوبر أدمن والتشغيل المباشر من المحرر
+    v_org_id uuid := COALESCE(
+        p_org_id, 
+        public.get_my_org(), 
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations ORDER BY created_at DESC LIMIT 1)
+    );
+    v_project_id uuid; v_cust_id uuid; v_wh_id uuid; v_prod_id uuid;
+    v_sub_id uuid; v_contract_id uuid; v_billing_id uuid; v_issue_id uuid;
+    v_cash_acc uuid;
+BEGIN
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد المنظمة.'; END IF;
+    
+    -- 🛡️ تفعيل وضع الاستعادة لتجاوز القيود أثناء ضخ البيانات التاريخية
+    PERFORM set_config('app.restore_mode', 'on', true);
+
+    -- 1. تجهيز المعرفات الأساسية (العميل، المستودع، الخامات، النقدية)
+    SELECT id INTO v_cust_id FROM public.customers WHERE organization_id = v_org_id LIMIT 1;
+    SELECT id INTO v_wh_id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1;
+    SELECT id INTO v_prod_id FROM public.products WHERE organization_id = v_org_id AND mfg_type = 'raw' LIMIT 1;
+    SELECT id INTO v_cash_acc FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1;
+
+    -- 2. إنشاء المشروع (أبراج النيل التجريبية)
+    INSERT INTO public.projects (name, contract_value, customer_id, organization_id, status, start_date, end_date)
+    VALUES ('مشروع محاكاة - أبراج النيل', 1000000, v_cust_id, v_org_id, 'active', CURRENT_DATE - INTERVAL '90 days', CURRENT_DATE + INTERVAL '270 days')
+    RETURNING id INTO v_project_id;
+
+    -- 3. إضافة بنود المقايسة (BOQ) لتوليد الميزانية المخططة
+    INSERT INTO public.project_boq (project_id, item_name, unit, estimated_quantity, unit_price, organization_id, product_id)
+    VALUES 
+        (v_project_id, 'أعمال الخرسانة المسلحة', 'm3', 200, 3000, v_org_id, v_prod_id),
+        (v_project_id, 'أعمال التشطيبات والواجهات', 'm2', 1000, 1200, v_org_id, NULL);
+
+    -- 4. صرف مواد للموقع (تحميل تكاليف خامات فعلية)
+    IF v_prod_id IS NOT NULL AND v_wh_id IS NOT NULL THEN
+        INSERT INTO public.project_material_issues (project_id, warehouse_id, issue_number, organization_id, status, issue_date)
+        VALUES (v_project_id, v_wh_id, 'SIM-ISS-01', v_org_id, 'draft', CURRENT_DATE - INTERVAL '60 days')
+        RETURNING id INTO v_issue_id;
+
+        INSERT INTO public.project_material_issue_items (issue_id, product_id, quantity, unit_cost, organization_id, uom_id)
+        VALUES (v_issue_id, v_prod_id, 100, 150, v_org_id, (SELECT base_uom_id FROM public.products WHERE id = v_prod_id));
+
+        PERFORM public.fn_approve_material_issue(v_issue_id);
+    END IF;
+
+    -- 5. التعاقد مع مقاول باطن وإصدار مستخلص له (تحميل تكاليف مقاولين)
+    INSERT INTO public.subcontractors (name, specialty, organization_id)
+    VALUES ('مقاول الخرسانة التجريبي', 'خرسانات', v_org_id)
+    RETURNING id INTO v_sub_id;
+
+    INSERT INTO public.subcontractor_contracts (project_id, subcontractor_id, contract_name, total_value, organization_id)
+    VALUES (v_project_id, v_sub_id, 'عقد توريد مصنعيات صب', 300000, v_org_id)
+    RETURNING id INTO v_contract_id;
+
+    INSERT INTO public.subcontractor_billings (contract_id, billing_number, billing_date, gross_amount, retention_amount, organization_id, status, vat_amount)
+    VALUES (v_contract_id, 'SUB-SIM-01', CURRENT_DATE - INTERVAL '30 days', 80000, 4000, v_org_id, 'draft', 11200)
+    RETURNING id INTO v_billing_id;
+
+    PERFORM public.fn_approve_sub_billing(v_billing_id);
+
+    -- 6. إصدار مستخلص للعميل (إثبات إيرادات مستحقة)
+    INSERT INTO public.project_progress_billings (project_id, billing_number, billing_date, completion_percentage, gross_amount, retention_amount, advance_deduction, organization_id, status, vat_amount)
+    VALUES (v_project_id, 'CUST-SIM-01', CURRENT_DATE - INTERVAL '15 days', 20, 200000, 10000, 15000, v_org_id, 'draft', 28000)
+    RETURNING id INTO v_billing_id;
+
+    PERFORM public.fn_approve_project_billing(v_billing_id);
+
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN jsonb_build_object(
+        'status', 'success', 
+        'project_id', v_project_id, 
+        'message', 'تمت محاكاة مشروع أبراج النيل بنجاح شاملة المواد والمقاولين والمستخلصات والقيود المحاسبية.'
+    );
+END; $$;
+
+-- 🧹 دالة تنظيف بيانات محاكاة المقاولات (Construction Simulation Cleanup)
+CREATE OR REPLACE FUNCTION public.clean_construction_simulation_data(p_org_id uuid DEFAULT NULL)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(p_org_id, public.get_my_org());
+    v_count int;
+BEGIN
+    DELETE FROM public.projects 
+    WHERE organization_id = v_org_id 
+    AND name LIKE 'مشروع محاكاة%';
+    GET DIAGNOSTICS v_count = ROW_COUNT;
+
+    DELETE FROM public.subcontractors WHERE organization_id = v_org_id AND name LIKE '%التجريبي';
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+
+    RETURN format('✅ تم حذف %s مشروع محاكاة بنجاح وتصفية الحسابات المرتبطة.', v_count);
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.simulate_construction_project_lifecycle(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.clean_construction_simulation_data(uuid) TO authenticated;

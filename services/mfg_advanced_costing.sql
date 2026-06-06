@@ -111,6 +111,34 @@ JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
 JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
 WHERE op.status = 'completed';
 
+-- 📊 رؤية تحليل انحراف الكفاءة (Worker Efficiency Variance BI)
+-- تقارن بين الدقائق المعيارية المسموح بها وبين الدقائق الفعلية التي استغرقها العامل
+CREATE OR REPLACE VIEW public.v_mfg_efficiency_variance_analytics WITH (security_invoker = true) AS
+SELECT 
+    e.full_name as worker_name,
+    rs.operation_name as step_name,
+    po.order_number,
+    op.produced_qty,
+    -- الوقت المعياري الكلي = (وقت الوحدة * الكمية)
+    (rs.standard_time_minutes * op.produced_qty) as allowed_minutes,
+    -- الوقت الفعلي المستغرق بالدقائق
+    ROUND(EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60.0, 2) as actual_minutes,
+    -- الانحراف (القيمة السالبة تعني تأخير، الموجبة تعني كفاءة أعلى)
+    ROUND((rs.standard_time_minutes * op.produced_qty) - (EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60.0), 2) as time_variance_mins,
+    -- نسبة الكفاءة
+    CASE 
+        WHEN EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) > 0 
+        THEN ROUND(((rs.standard_time_minutes * op.produced_qty) / (EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 60.0) * 100), 2)
+        ELSE 100 
+    END as efficiency_percentage,
+    op.organization_id,
+    op.actual_end_time as production_date
+FROM public.mfg_order_progress op
+JOIN public.mfg_production_orders po ON op.production_order_id = po.id
+JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
+JOIN public.employees e ON op.employee_id = e.id
+WHERE op.status = 'completed';
+
 -- ================================================================
 -- 2. الرؤى التقاريرية (Cost Accounting Views)
 -- ================================================================
@@ -127,11 +155,11 @@ WITH stage_data AS (
         CASE 
             WHEN op.status = 'completed' THEN op.produced_qty
             WHEN op.material_completion_pct >= rs.material_addition_point THEN op.produced_qty
-            ELSE (op.produced_qty * (op.material_completion_pct / 100))
+            ELSE (op.produced_qty * (op.material_completion_pct / 100.0))
         END as material_eq_units,
         CASE 
             WHEN op.status = 'completed' THEN op.produced_qty
-            ELSE (op.produced_qty * (op.conversion_completion_pct / 100))
+            ELSE (op.produced_qty * (op.conversion_completion_pct / 100.0))
         END as conversion_eq_units
     FROM public.mfg_order_progress op
     JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
@@ -482,9 +510,9 @@ END; $$;
 -- 🛠️ دالة تسجيل المنتج العرضي (By-product) وتخفيض التكلفة
 CREATE OR REPLACE FUNCTION public.mfg_record_byproduct(p_progress_id uuid, p_product_id uuid, p_qty numeric, p_market_value numeric) 
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_org_id uuid; v_je_id uuid; v_mappings jsonb;
+DECLARE v_org_id uuid; v_order_id uuid; v_je_id uuid; v_mappings jsonb;
 BEGIN
-    SELECT organization_id INTO v_org_id FROM public.mfg_order_progress WHERE id = p_progress_id;
+    SELECT organization_id, production_order_id INTO v_org_id, v_order_id FROM public.mfg_order_progress WHERE id = p_progress_id;
     
     INSERT INTO public.mfg_byproducts_logs (order_progress_id, product_id, quantity, market_value_per_unit, organization_id)
     VALUES (p_progress_id, p_product_id, p_qty, p_market_value, v_org_id);
@@ -493,19 +521,19 @@ BEGIN
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type)
-    VALUES (now()::date, 'إثبات منتج عرضي مخفض للتكلفة', 'BY-PROD', 'posted', v_org_id, p_progress_id, 'mfg_byproduct')
+    VALUES (now()::date, 'إثبات منتج عرضي - تخفيض تكلفة WIP', 'BY-PROD', 'posted', v_org_id, v_order_id, 'mfg_byproduct')
     RETURNING id INTO v_je_id;
 
     -- من ح/ المخزون (المنتج العرضي)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
     VALUES (v_je_id, 
-            COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1)), 
+            public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1))), 
             (p_qty * p_market_value), 0, 'مخزون منتج عرضي', v_org_id);
 
     -- إلى ح/ الإنتاج تحت التشغيل (تخفيض تكلفة الأمر الرئيسي)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
     VALUES (v_je_id, 
-            COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1)), 
+            public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1))), 
             0, (p_qty * p_market_value), 'تخفيض تكلفة WIP بمنتج عرضي', v_org_id);
 
     PERFORM public.recalculate_stock_rpc(v_org_id);
@@ -897,6 +925,127 @@ BEGIN
         PERFORM cron.schedule('mfg-active-cost-check', '0 * * * *', 'SELECT public.mfg_check_active_cost_overruns(15);');
     END IF;
 END $$;
+
+-- 💎 محرك محاكاة توزيع التكاليف (Overhead Flow Simulator)
+-- المهمة: ضخ مصاريف فعلية وتوزيعها لاختبار دقة حساب تكلفة المنتج التام
+CREATE OR REPLACE FUNCTION public.simulate_mfg_overhead_flow(p_org_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(
+        p_org_id, 
+        public.get_my_org(),
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations ORDER BY created_at DESC LIMIT 1)
+    );
+    v_ovh_acc uuid; v_je_id uuid; v_alloc_id uuid;
+    v_cash_acc uuid;
+BEGIN
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد المنظمة لتشغيل محاكاة التكاليف.'; END IF;
+
+    -- 1. ضخ مصروف كهرباء وصيانة في الأستاذ العام (حسابات 5141، 5142)
+    v_ovh_acc := public.resolve_leaf_account((SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '5141' LIMIT 1));
+    v_cash_acc := public.resolve_leaf_account((SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1));
+
+    IF v_ovh_acc IS NULL OR v_cash_acc IS NULL THEN
+        RAISE EXCEPTION 'فشل المحاكاة: حساب الكهرباء (5141) أو النقدية (1231) غير موجود لهذه المنظمة.';
+    END IF;
+    
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted)
+    VALUES (CURRENT_DATE, 'فاتورة كهرباء المصنع - محاكاة', 'SIM-OVH-01', 'posted', v_org_id, true)
+    RETURNING id INTO v_je_id;
+
+    -- مدين: كهرباء المصنع (10,000 ريال) | دائن: النقدية
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id)
+    VALUES 
+        (v_je_id, v_ovh_acc, 10000, 0, v_org_id),
+        (v_je_id, v_cash_acc, 0, 10000, v_org_id);
+
+    -- 2. تشغيل محرك التوزيع الفعلي (Actual Allocation)
+    -- سيقوم هذا المحرك بجلب الـ 10,000 وتوزيعها على وحدات الإنتاج المعادلة (Equivalent Units)
+    v_alloc_id := public.mfg_allocate_actual_overhead((CURRENT_DATE - INTERVAL '30 days')::date, CURRENT_DATE, 'توزيع شهر الاختبار - محاكاة');
+
+    RETURN jsonb_build_object(
+        'status', 'success',
+        'overhead_injected', 10000,
+        'allocation_journal_id', v_alloc_id,
+        'message', CASE 
+            WHEN v_alloc_id IS NOT NULL THEN '✅ تم ضخ التكاليف (10,000) وتوزيعها بنجاح على الإنتاج القائم.'
+            ELSE '⚠️ تم ضخ التكاليف، لكن لم يتم التوزيع لعدم وجود أوامر إنتاج نشطة (EQ Units = 0).'
+        END,
+        'next_step', CASE 
+            WHEN v_alloc_id IS NULL THEN 'قم ببدء أمر إنتاج جديد وتسجيل تقدم في إحدى مراحله ثم أعد المحاولة.'
+            ELSE 'يمكنك الآن مراجعة تقرير "تشريح تكلفة الوحدة" لرؤية نصيب المنتج من الكهرباء.'
+        END
+    );
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.simulate_mfg_overhead_flow(uuid) TO authenticated;
+
+-- 💎 محرك المحاكاة الشامل (Full Manufacturing Cycle Simulator)
+-- المهمة: إنشاء طلب، تسجيل تقدمه، وضخ/توزيع الأعباء في خطوة واحدة لضمان ظهور نتائج مبهرة في BI
+CREATE OR REPLACE FUNCTION public.simulate_full_mfg_cycle(p_org_id uuid DEFAULT NULL)
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_org_id uuid := COALESCE(
+        p_org_id, 
+        public.get_my_org(),
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations ORDER BY created_at DESC LIMIT 1)
+    );
+    v_prod_id uuid; v_order_id uuid; v_res jsonb; v_wc_id uuid; v_route_id uuid;
+BEGIN
+    -- 1. 🛡️ محرك التجهيز الذكي: ضمان وجود الهيكل الكامل للمصنع الافتراضي بشكل مستقل
+    SELECT id INTO v_prod_id FROM public.products WHERE organization_id = v_org_id AND name = 'منتج مصنع افتراضي' LIMIT 1;
+    IF v_prod_id IS NULL THEN
+        INSERT INTO public.products (name, mfg_type, product_type, sales_price, cost, organization_id)
+        VALUES ('منتج مصنع افتراضي', 'standard', 'MANUFACTURED', 100, 50, v_org_id) RETURNING id INTO v_prod_id;
+    END IF;
+
+    SELECT id INTO v_wc_id FROM public.mfg_work_centers WHERE organization_id = v_org_id LIMIT 1;
+    IF v_wc_id IS NULL THEN
+        INSERT INTO public.mfg_work_centers (name, hourly_rate, overhead_rate, organization_id)
+        VALUES ('مركز تجميع آلي', 25, 15, v_org_id) RETURNING id INTO v_wc_id;
+    END IF;
+
+    SELECT id INTO v_route_id FROM public.mfg_routings WHERE product_id = v_prod_id AND organization_id = v_org_id AND is_default = true LIMIT 1;
+    IF v_route_id IS NULL THEN
+        INSERT INTO public.mfg_routings (product_id, name, organization_id, is_default)
+        VALUES (v_prod_id, 'المسار القياسي', v_org_id, true) RETURNING id INTO v_route_id;
+        
+        INSERT INTO public.mfg_routing_steps (routing_id, step_order, work_center_id, operation_name, standard_time_minutes, organization_id, conversion_weight)
+        VALUES (v_route_id, 1, v_wc_id, 'مرحلة التصنيع الوحيدة', 60, v_org_id, 100);
+    END IF;
+    
+    -- 2. إنشاء أمر إنتاج جديد (SIM-FULL)
+    INSERT INTO public.mfg_production_orders (order_number, product_id, quantity_to_produce, status, organization_id)
+    VALUES ('SIM-FULL-' || substring(gen_random_uuid()::text, 1, 6), v_prod_id, 10, 'draft', v_org_id)
+    RETURNING id INTO v_order_id;
+
+    -- 3. بدء الأمر وتوليد المراحل
+    PERFORM public.mfg_start_production_order(v_order_id);
+
+    -- 4. محاكاة تقدم العمل (لضمان وجود إنتاج معادل EQ Units > 0)
+    -- نحدث كافة المراحل لضمان ظهور الوحدات المعادلة بغض النظر عن عدد الخطوات الموالدة
+    UPDATE public.mfg_order_progress 
+    SET status = 'active', 
+        actual_start_time = now() - interval '1 hour', 
+        produced_qty = 10, 
+        conversion_completion_pct = 50,
+        material_completion_pct = 100
+    WHERE production_order_id = v_order_id;
+
+    -- 5. تشغيل محرك ضخ وتوزيع التكاليف
+    SELECT public.simulate_mfg_overhead_flow(v_org_id) INTO v_res;
+
+    RETURN jsonb_build_object(
+        'status', 'success',
+        'simulated_order_id', v_order_id,
+        'allocation_details', v_res,
+        'message', '✅ تمت الدورة بنجاح: تم إنشاء الطلب، تسجيل "إنتاج معادل"، وتوزيع تكاليف الكهرباء عليه.'
+    );
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.simulate_full_mfg_cycle(uuid) TO authenticated;
 
 DO $$ 
 BEGIN

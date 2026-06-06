@@ -33,6 +33,7 @@ BEGIN
         ELSE 0.14 
     END;
     SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
+    DROP TABLE IF EXISTS coa_temp;
     CREATE TEMPORARY TABLE coa_temp (
         code text PRIMARY KEY,
         name text NOT NULL,
@@ -99,6 +100,7 @@ BEGIN
         -- العملاء والمدينون
 
     ('1221', 'العملاء', 'asset', false, '122'),
+    ('122101', 'ذمم شركات التأمين الطبي', 'asset', false, '122'),
     ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'asset', false, '122'),
     ('1223', 'سلف الموظفين', 'asset', false, '122'),
         ('1224', 'عهد موظفين', 'asset', false, '122'),
@@ -211,10 +213,11 @@ BEGIN
     IF p_activity_type IN ('hospital', 'medical', 'clinic', 'مستشفى', 'مركز طبي', 'صيدلية', 'pharmacy') THEN
         INSERT INTO coa_temp (code, name, type, is_group, parent_code) VALUES
         ('10304', 'مخزون الأدوية والمستلزمات الطبية', 'asset', false, '103'),
-        ('122101', 'ذمم شركات التأمين الطبي', 'asset', false, '122'),
         ('4115', 'إيرادات الكشوفات والعمليات', 'revenue', false, '41'),
-        ('41101', 'إيرادات طبية متنوعة', 'revenue', false, '41'),
         ('4116', 'إيرادات الإقامة والتمريض', 'revenue', false, '41');
+
+        -- تحديث المسمى ليكون أكثر دقة للنشاط الطبي بدلاً من الحذف لتجنب تكرار الكود
+        UPDATE coa_temp SET name = 'إيرادات طبية متنوعة' WHERE code = '41101';
     END IF;
 
     -- 3. حقن الحسابات في الجدول الرئيسي (public.accounts)
