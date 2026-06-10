@@ -72,7 +72,8 @@ import {
     FlaskConical,
     Bed
 } from 'lucide-react';
-
+import { Wrench } from 'lucide-react'; // Import Wrench icon
+ 
 const Sidebar: React.FC = () => {
   const { organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, can } = useAccounting();
   const location = useLocation();
@@ -238,7 +239,9 @@ const Sidebar: React.FC = () => {
     { type: 'section', label: 'إدارة المستشفيات (HIMS)' },
     { to: '/hims/admin', label: 'لوحة القيادة الاستراتيجية', icon: BarChart, color: 'text-indigo-600', module: 'hims', permission: 'hims_core.view' },
     { to: '/hims/patients', label: 'سجلات المرضى الرقمية', icon: Users, color: 'text-blue-400', module: 'hims', permission: 'hims_core.view' },
+    { to: '/hims/doctors', label: 'تعريف الأطباء وتخصصاتهم', icon: UserCheck, color: 'text-blue-500', module: 'hims', permission: 'hims_core.view' },
     { to: '/hims/staff-roster', label: 'إدارة مناوبات الطاقم', icon: CalendarRange, color: 'text-blue-400', module: 'hims', permission: 'hims_core.view' },
+    { to: '/hims/services', label: 'إدارة الخدمات الطبية (تحاليل/أشعة)', icon: Wrench, color: 'text-slate-400', module: 'hims', permission: 'hims_core.manage' },
     { to: '/hims/wards-management', label: 'إعداد الأجنحة والأسرة', icon: Settings, color: 'text-slate-400', module: 'hims', permission: 'hims_core.view' },
     { to: '/hims/admissions', label: 'إدارة القبول والتسكين', icon: Bed, color: 'text-indigo-500', module: 'hims', permission: 'hims_inpatient.view' },
     { to: '/hims/er-triage', label: 'رادار فرز الطوارئ (Triage)', icon: Activity, color: 'text-red-400', module: 'hims', permission: 'hims_clinical.view' },

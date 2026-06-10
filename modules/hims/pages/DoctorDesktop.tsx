@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { himsService } from '@/services/himsService';
-import { Card, Table, Tag, Button, Row, Col, Typography, Badge, Space, message, Alert, Tooltip, Modal, List } from 'antd';
+import { Card, Table, Tag, Button, Row, Col, Typography, Badge, Space, message, Alert, Tooltip, Modal, List, Empty } from 'antd';
 import { UserOutlined, PlayCircleOutlined, HistoryOutlined, MedicineBoxOutlined, ExclamationCircleOutlined, ExperimentOutlined, CameraOutlined, AlertOutlined, FileSearchOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { PatientMedicalRecord } from '../components/PatientMedicalRecord';
 import { PrescriptionForm } from '../components/PrescriptionForm';
@@ -40,7 +40,22 @@ export const DoctorDesktop: React.FC = () => {
   useEffect(() => { fetchQueue(); }, [currentUser, userRole]);
 
   const checkFinancialClearance = async (vId: string) => {
-    const { data } = await supabase.from('hims_billing').select('payment_status, total_amount, patient_share_amount').eq('id', vId).single();
+    let orgId = currentUser?.organization_id;
+    if (!orgId) {
+      const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', vId).single();
+      orgId = vData?.organization_id;
+    }
+
+    if (!orgId) return;
+
+    // تصحيح: البحث يجب أن يكون بعمود visit_id وليس id الفاتورة
+    const { data } = await supabase
+      .from('hims_billing')
+      .select('payment_status, total_amount, patient_share_amount')
+      .eq('visit_id', vId) 
+      .eq('organization_id', orgId)
+      .maybeSingle(); // استخدام maybeSingle لتجنب خطأ 406 في حال عدم وجود فاتورة بعد
+      
     if (data) {
       setFinancialStatus({ cleared: data.payment_status === 'paid', balance: data.patient_share_amount });
     }
@@ -60,12 +75,27 @@ export const DoctorDesktop: React.FC = () => {
 
   // محرك عرض النتائج للطبيب
   const viewResults = async (visitId: string, type: 'lab' | 'rad') => {
+    let orgId = currentUser?.organization_id;
+    if (!orgId) {
+      const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+      orgId = vData?.organization_id;
+    }
+
+    if (!orgId) return;
+
     setLoading(true);
     const table = type === 'lab' ? 'hims_lab_orders' : 'hims_radiology_orders';
+    
+    // 🛡️ ذكاء برمجية: تخصيص جملة الاستعلام حسب نوع الفحص لمنع خطأ 400
+    const selectStr = type === 'lab' 
+      ? '*, test:hims_lab_tests(test_name, unit, normal_range)' 
+      : '*';
+
     const { data } = await supabase
       .from(table)
-      .select('*, test:hims_lab_tests(test_name, unit, normal_range)')
+      .select(selectStr)
       .eq('visit_id', visitId)
+      .eq('organization_id', orgId)
       .eq('status', 'completed');
 
     setResultsModal({ visible: true, type, data: data || [] });
@@ -148,6 +178,7 @@ export const DoctorDesktop: React.FC = () => {
                     <div>
                       <Title level={4} style={{ color: 'white', margin: 0 }}>{activeVisit.hims_patients?.full_name}</Title>
                       <Text style={{ color: 'rgba(255,255,255,0.8)' }}>رقم الهوية: {activeVisit.hims_patients?.national_id}</Text>
+                      <div className="text-xs font-bold bg-white/20 px-2 py-1 rounded mt-1">العيادة: {(currentUser as any)?.full_name || 'غير معروف'} ({userRole})</div>
                       
                       {/* 🚨 درع الأمان: التنبيه بالحساسية */}
                       {activeVisit.hims_patients?.allergies && activeVisit.hims_patients.allergies.length > 0 && (
@@ -203,30 +234,37 @@ export const DoctorDesktop: React.FC = () => {
         footer={[<Button key="close" onClick={() => setResultsModal({ ...resultsModal, visible: false })}>إغلاق</Button>]}
         width={resultsModal.type === 'lab' ? 800 : 600}
       >
-        <List
-          dataSource={resultsModal.data}
-          loading={loading}
-          renderItem={(item: any) => (
-            <List.Item className="border-b mb-2 pb-2 last:border-none">
-              <div className="w-full">
-                <div className="flex justify-between items-center mb-1">
-                  <Text strong className="text-blue-700">{item.test?.test_name || item.scan_type}</Text>
-                  <Tag color="green">{new Date(item.created_at).toLocaleDateString('ar-EG')}</Tag>
-                </div>
-                <div className={`${item.is_critical ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'} p-3 rounded-lg border`}>
-                  <Text className={`text-lg font-black ${item.is_critical ? 'text-red-600' : ''}`}>
-                    {item.result_value || 'بانتظار التقرير...'}
-                    {item.is_critical && <Tag color="error" className="mr-2">قيمة حرجة 🚨</Tag>}
-                  </Text>
-                  {resultsModal.type === 'lab' && item.test && (
-                    <div className="text-xs text-slate-400 mt-1">المعدل الطبيعي: {item.test.normal_range} {item.test.unit}</div>
-                  )}
+        <div className="space-y-4 py-2">
+          {loading ? (
+            <div className="text-center py-10"><Badge status="processing" text="جاري تحميل النتائج..." /></div>
+          ) : resultsModal.data.length === 0 ? (
+            <Empty description="لا توجد نتائج مكتملة متاحة للعرض حالياً" />
+          ) : (
+            resultsModal.data.map((item: any, idx: number) => (
+              <div key={idx} className="border-b last:border-none mb-4 pb-4">
+                <div className="w-full">
+                  <div className="flex justify-between items-center mb-2">
+                    <Text strong className="text-blue-700">{item.test?.test_name || item.scan_type}</Text>
+                    <Tag color="green">{new Date(item.created_at).toLocaleDateString('ar-EG')}</Tag>
+                  </div>
+                  <div className={`${item.is_critical ? 'bg-red-50 border-red-200' : 'bg-slate-50 border-slate-100'} p-4 rounded-xl border`}>
+                    <div className={`text-sm whitespace-pre-wrap leading-relaxed ${item.is_critical ? 'text-red-600 font-bold' : 'text-slate-700'}`}>
+                      {/* 🛡️ ذكاء عرض المحتوى: النتيجة للمختبر والتقرير للأشعة */}
+                      {resultsModal.type === 'lab' 
+                        ? (item.result_value || 'بانتظار النتيجة...') 
+                        : (item.report_text || 'بانتظار التقرير التشخيصي...')}
+                      
+                      {item.is_critical && <Tag color="error" className="mr-2">قيمة حرجة 🚨</Tag>}
+                    </div>
+                    {resultsModal.type === 'lab' && item.test && (
+                      <div className="text-xs text-slate-400 mt-2">المعدل الطبيعي: {item.test.normal_range} {item.test.unit}</div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </List.Item>
+            ))
           )}
-          locale={{ emptyText: "لا توجد نتائج مكتملة متاحة للعرض حالياً" }}
-        />
+        </div>
       </Modal>
     </div>
   );

@@ -7,7 +7,7 @@ import { useToast } from '../context/ToastContext';
 export interface UserProfile {
   id: string;
   full_name: string | null;
-  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef' | 'owner';
+  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef' | 'owner' | 'medical_director';
   organization_id: string | null;
   is_active: boolean;
   avatar_url?: string;

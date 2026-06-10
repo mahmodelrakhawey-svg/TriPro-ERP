@@ -11,7 +11,7 @@ type UserProfile = {
   id: string;
   email?: string; // إضافة البريد الإلكتروني للنوع
   full_name: string | null;
-  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef';
+  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef' | 'medical_director' | 'owner';
   is_active: boolean;
   created_at: string;
   organizations?: { name: string }; // إضافة اسم المنظمة للنوع
@@ -19,7 +19,7 @@ type UserProfile = {
 };
 
 const UserManager = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -57,10 +57,10 @@ const UserManager = () => {
         .from('profiles')
         .select('*, organizations(name)');
 
-      const orgId = (currentUser as any)?.organization_id;
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
-      // 🛡️ إذا كان المستخدم ليس سوبر أدمن، نفلتر بالمنظمة الخاصة به
-      if (currentUserRole !== 'super_admin' && orgId && orgId !== 'null' && orgId !== '') {
+      // 🛡️ عزل البيانات: الفلترة بالمؤسسة النشطة لضمان الـ SaaS Multi-tenancy
+      if (orgId && orgId !== 'null' && orgId !== '' && currentUserRole !== 'super_admin') {
         query = query.eq('organization_id', orgId);
       }
 
@@ -213,7 +213,7 @@ const UserManager = () => {
             full_name: newUserData.fullName,
             role: newUserData.role,
             app_role: newUserData.role,
-            org_id: (currentUser as any)?.organization_id || null, // 🛡️ منع استخدام معرف المستخدم كمعرف للمنظمة
+            org_id: currentSelectedOrgId || (currentUser as any)?.organization_id || null, 
           }
         }
       });
@@ -222,6 +222,28 @@ const UserManager = () => {
 
       if (authError) throw authError;
       if (!authData.user) throw new Error("لم يتم إرجاع بيانات المستخدم بعد الإنشاء.");
+
+      // 🛡️ صمام أمان: التحقق من وجود البروفايل بعد إنشاء المستخدم
+      // إذا فشل التريجر (handle_new_user) لأي سبب، نقوم بإنشاء البروفايل يدوياً
+      const { data: existingProfile, error: fetchProfileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+
+      if (fetchProfileError) console.error("Error checking for existing profile:", fetchProfileError);
+
+      if (!existingProfile) {
+        console.warn("Profile not found after user signup, attempting manual profile creation.");
+        const { error: profileInsertError } = await supabase.from('profiles').insert({
+          id: authData.user.id,
+          full_name: newUserData.fullName,
+          email: newUserData.email,
+          role: newUserData.role,
+          organization_id: currentSelectedOrgId || (currentUser as any)?.organization_id || null,
+        });
+        if (profileInsertError) throw profileInsertError;
+      }
 
       // ملاحظة: لم نعد بحاجة لتحديث الملف الشخصي من هنا.
       // التريجر (handle_new_user) في قاعدة البيانات سيقوم بذلك تلقائياً
@@ -438,9 +460,12 @@ const UserManager = () => {
                     {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">Super Admin</option>}
                     <option value="admin">Admin</option>
                     <option value="manager">Manager</option>
+                    <option value="medical_director">مدير طبي (Medical Director)</option>
                     <option value="accountant">Accountant</option>
                     <option value="viewer">Viewer</option>
                     <option value="demo">Demo (تجريبي)</option>
+                    <option value="chef">Chef (شيف)</option>
+                    <option value="owner">Owner (مالك)</option>
                   </select>
                 </td>
                 <td className="px-6 py-4 text-center">
@@ -564,10 +589,12 @@ const UserManager = () => {
                             <option value="viewer">Viewer (مشاهدة فقط)</option>
                             <option value="accountant">Accountant (محاسب)</option>
                             <option value="manager">Manager (مدير)</option>
+                            <option value="medical_director">Medical Director (مدير طبي)</option>
                             <option value="admin">Admin (مسؤول)</option>
                             {currentUserRole === 'super_admin' && <option value="super_admin">Super Admin (مدير النظام)</option>}
                             <option value="demo">Demo (تجريبي)</option>
                             <option value="chef">Chef (شيف مطبخ)</option>
+                            <option value="owner">Owner (مالك منشأة)</option>
                         </select>
                     </div>
 

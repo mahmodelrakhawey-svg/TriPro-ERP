@@ -10,59 +10,82 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
   const [history, setHistory] = useState<any[]>([]);
   const [labResults, setLabResults] = useState<any[]>([]);
   const [vitalsHistory, setVitalsHistory] = useState<any[]>([]);
+  const [currentMedications, setCurrentMedications] = useState<any[]>([]);
   const [vitalsChartData, setVitalsChartData] = useState<any[]>([]);
 
   const fetchData = async () => {
     if (!patientId || patientId === "") return; // 🛡️ حماية من خطأ UUID الفارغ
     setLoading(true);
-    // جلب سجل الزيارات
-    const { data: visits } = await supabase
-      .from('hims_visits')
-      .select('*')
-      .eq('patient_id', patientId)
-      .order('created_at', { ascending: false });
+    try {
+      // جلب سجل الزيارات
+      const { data: visits, error: visitsError } = await supabase
+        .from('hims_visits')
+        .select('*')
+        .eq('patient_id', patientId)
+        .order('created_at', { ascending: false });
+      if (visitsError) throw visitsError;
 
-    // جلب نتائج المختبرات
-    // تحديث: إضافة فلترة لضمان جلب تحاليل هذا المريض فقط عبر ربط الزيارة
-    const { data: labs } = await supabase
-      .from('hims_lab_orders')
-      .select('*, hims_visits!inner(patient_id), hims_lab_tests(*)')
-      .eq('hims_visits.patient_id', patientId)
-      .eq('status', 'completed')
-      .order('created_at', { ascending: false });
+      // جلب نتائج المختبرات
+      const { data: labs, error: labsError } = await supabase
+        .from('hims_lab_orders')
+        .select('*, hims_visits!inner(patient_id), hims_lab_tests(*)')
+        .eq('hims_visits.patient_id', patientId)
+        .eq('status', 'completed')
+        .order('created_at', { ascending: false });
+      if (labsError) throw labsError;
 
-    // جلب سجل العلامات الحيوية من الزيارات السابقة
-    const { data: vitals } = await supabase
-      .from('hims_visits')
-      .select('created_at, vital_signs')
-      .eq('patient_id', patientId)
-      .not('vital_signs', 'is', null)
-      .order('created_at', { ascending: false });
+      // جلب سجل العلامات الحيوية من الزيارات السابقة
+      const { data: vitals, error: vitalsError } = await supabase
+        .from('hims_visits')
+        .select('created_at, vital_signs')
+        .eq('patient_id', patientId)
+        .not('vital_signs', 'is', null)
+        .order('created_at', { ascending: false });
+      if (vitalsError) throw vitalsError;
 
-    // Prepare vital signs data for charting
-    const chartData = (vitals || []).map((v: any) => {
-      const vs = v.vital_signs || {};
-      const bpParts = vs.bp?.split('/') || [];
-      const safeParse = (val: any) => {
-        const p = parseFloat(val);
-        return isNaN(p) ? 0 : p;
-      };
-      return {
-        date: dayjs(v.created_at).format('YYYY-MM-DD HH:mm'),
-        temp: safeParse(vs.temp),
-        pulse: safeParse(vs.pulse),
-        spo2: safeParse(vs.spo2),
-        systolic_bp: safeParse(bpParts[0]),
-        diastolic_bp: safeParse(bpParts[1]),
-      };
-    }).filter((d: any) => d.temp > 0 || d.pulse > 0 || d.spo2 > 0 || d.systolic_bp > 0)
-      .reverse(); // Charting usually goes from oldest to newest
+      // جلب الأدوية الحالية (الروشتات) من جميع زيارات المريض
+      const visitIds = (visits || []).map(v => v.id);
+      let allMedications: any[] = [];
+      if (visitIds.length > 0) {
+        const { data: prescriptions, error: prescriptionsError } = await supabase
+          .from('hims_prescriptions')
+          .select('medications')
+          .in('visit_id', visitIds);
+        if (prescriptionsError) throw prescriptionsError;
+        allMedications = prescriptions?.flatMap(p => p.medications) || [];
+      }
 
-    setHistory(visits || []);
-    setLabResults(labs || []);
-    setVitalsHistory(vitals || []);
-    setVitalsChartData(chartData);
-    setLoading(false);
+      // Prepare vital signs data for charting
+      const chartData = (vitals || []).map((v: any) => {
+        const vs = v.vital_signs || {};
+        const bpParts = vs.bp?.split('/') || [];
+        const safeParse = (val: any) => {
+          const p = parseFloat(val);
+          return isNaN(p) ? 0 : p;
+        };
+        return {
+          date: dayjs(v.created_at).format('YYYY-MM-DD HH:mm'),
+          temp: safeParse(vs.temp),
+          pulse: safeParse(vs.pulse),
+          spo2: safeParse(vs.spo2),
+          systolic_bp: safeParse(bpParts[0]),
+          diastolic_bp: safeParse(bpParts[1]),
+        };
+      }).filter((d: any) => d.temp > 0 || d.pulse > 0 || d.spo2 > 0 || d.systolic_bp > 0)
+        .reverse(); // Charting usually goes from oldest to newest
+
+      setHistory(visits || []);
+      setLabResults(labs || []);
+      setVitalsHistory(vitals || []);
+      setCurrentMedications(allMedications);
+      setVitalsChartData(chartData);
+    } catch (error: any) {
+      console.error("Error fetching patient medical record data:", error);
+      // يمكنك إضافة رسالة تنبيه للمستخدم هنا إذا أردت
+      // message.error("فشل في جلب بيانات الملف الطبي: " + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -121,8 +144,8 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
                       mode="end" // تحديث من right إلى end
                       items={history.map(visit => ({
                         color: visit.status === 'discharged' ? 'green' : 'blue',
-                        label: dayjs(visit.created_at).format('YYYY-MM-DD'),
-                        children: (
+                        title: dayjs(visit.created_at).format('YYYY-MM-DD'),
+                        content: (
                           <>
                             <b>{visit.visit_type === 'emergency' ? '🚨 طوارئ' : '📅 عيادة'}</b>: {visit.chief_complaint || 'كشف دوري'}
                           </>
@@ -178,7 +201,19 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
           {
             key: '4',
             label: <span><MedicineBoxOutlined /> الأدوية الحالية</span>,
-            children: <List bordered className="bg-white rounded-2xl" dataSource={['Panadol 500mg', 'Amoxicillin']} renderItem={item => <List.Item>{item}</List.Item>} />
+            children: (
+              <List 
+                bordered 
+                className="bg-white rounded-2xl" 
+                dataSource={currentMedications} 
+                renderItem={item => (
+                  <List.Item>
+                    {item.drug_name} - {item.dosage} ({item.frequency})
+                  </List.Item>
+                )} 
+                locale={{ emptyText: "لا توجد أدوية جارية حالياً" }}
+              />
+            )
           },
           {
             key: '5',

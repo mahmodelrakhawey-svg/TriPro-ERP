@@ -2,20 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Empty, message, Modal, Form, Input, Divider, Space } from 'antd';
 import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, FileTextOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
 
 const { Title, Text } = Typography;
 
 export const RadiologyDashboard: React.FC = () => {
+  const { currentUser } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [form] = Form.useForm();
 
   const fetchOrders = async () => {
+    const orgId = currentUser?.organization_id;
+    if (!orgId) return;
+
     setLoading(true);
     const { data } = await supabase
       .from('hims_radiology_orders') 
       .select('*, hims_visits(id, doctor_id, hims_patients(id, full_name))')
+      .eq('organization_id', orgId)
       .eq('status', 'pending');
     setOrders(data || []);
     setLoading(false);

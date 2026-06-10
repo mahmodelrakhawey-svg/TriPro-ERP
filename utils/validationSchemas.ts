@@ -237,7 +237,7 @@ export const createPurchaseInvoiceSchema = z.object({
 
 const baseEmployeeSchema = z.object({
   full_name: nameSchema,
-  role: z.enum(['super_admin', 'admin', 'manager', 'accountant', 'viewer', 'demo', 'chef', 'owner']),
+  role: z.enum(['super_admin', 'admin', 'manager', 'accountant', 'viewer', 'demo', 'chef', 'owner', 'medical_director']),
   basic_salary: amountSchema, // هنا نستخدم amountSchema بدون قيد .positive()
   hire_date: dateSchema,
   organization_id: idSchema.optional(),
@@ -542,7 +542,7 @@ export const createUserManagerUserSchema = z.object({
   email: emailSchema,
   password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
   fullName: nameSchema,
-  role: z.enum(['super_admin', 'admin', 'manager', 'accountant', 'viewer', 'demo', 'chef']),
+  role: z.enum(['super_admin', 'admin', 'manager', 'accountant', 'viewer', 'demo', 'chef', 'owner', 'medical_director']),
 });
 
 export const resetPasswordSchema = z.object({

@@ -5,6 +5,7 @@ import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { usePagination } from '../../../components/usePagination';
 import { Modal, Form, Select, Input, Button } from 'antd';
+import { PatientMedicalRecord } from '../components/PatientMedicalRecord';
 
 type Patient = {
   id: string;
@@ -23,6 +24,7 @@ const PatientManager = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
+  const [isMedicalRecordModalOpen, setIsMedicalRecordModalOpen] = useState(false);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [doctors, setDoctors] = useState<any[]>([]);
   const [loadingDoctors, setLoadingDoctors] = useState(false);
@@ -80,14 +82,22 @@ const PatientManager = () => {
   useEffect(() => {
     if (isVisitModalOpen) {
       const fetchDoctors = async () => {
+        const orgId = organization?.id || currentUser?.organization_id;
+        if (!orgId) return;
+
         setLoadingDoctors(true);
-        const { data } = await supabase.from('hims_doctors').select('id, specialization, profiles(full_name)');
+        const { data } = await supabase
+          .from('hims_doctors')
+          // 🛡️ توحيد: جلب الاسم من رابط البروفايل الصحيح لضمان ظهور اسم الطبيب في القائمة
+          .select('id, specialization, is_active, profile:profile_id(full_name)')
+          .eq('organization_id', orgId)
+          .eq('is_active', true);
         setDoctors(data || []);
         setLoadingDoctors(false);
       };
       fetchDoctors();
     }
-  }, [isVisitModalOpen]);
+  }, [isVisitModalOpen, organization?.id, currentUser?.organization_id]);
 
   const handleStartVisit = async (values: any) => {
     try {
@@ -106,6 +116,11 @@ const PatientManager = () => {
     } catch (err: any) {
       showToast(err.message, 'error');
     }
+  };
+
+  const handleViewMedicalRecord = (patient: Patient) => {
+    setSelectedPatient(patient);
+    setIsMedicalRecordModalOpen(true);
   };
 
   // 🚀 محرك المسح الضوئي للبطاقة (OCR Simulation & Intelligence)
@@ -209,7 +224,7 @@ const PatientManager = () => {
             </div>
             <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 gap-2">
                <button className="bg-slate-800 text-white py-2 rounded-xl text-xs font-bold hover:bg-slate-900 transition-colors flex items-center justify-center gap-1">
-                 <FileText size={14} /> ملف المريض
+                 <FileText size={14} /> <span onClick={() => handleViewMedicalRecord(patient)}>ملف المريض</span>
                </button>
                <button 
                 onClick={() => { setSelectedPatient(patient); setIsVisitModalOpen(true); }}
@@ -330,7 +345,7 @@ const PatientManager = () => {
             <Select 
               loading={loadingDoctors} 
               placeholder="اختر الطبيب المناسب..."
-              options={doctors.map(d => ({ label: `${d.profiles?.full_name} (${d.specialization})`, value: d.id }))}
+              options={doctors.map(d => ({ label: `${d.profile?.full_name || 'طبيب غير مسمى'} (${d.specialization})`, value: d.id }))}
             />
           </Form.Item>
           <Form.Item name="triage_level" label="مستوى الفرز (للطوارئ فقط)">
@@ -346,6 +361,17 @@ const PatientManager = () => {
           </Form.Item>
           <Button type="primary" htmlType="submit" block size="large" className="bg-blue-600 rounded-xl font-bold h-12">اعتماد الدخول وتحويل للطبيب</Button>
         </Form>
+      </Modal>
+
+      {/* مودال عرض الملف الطبي */}
+      <Modal
+        title={<b>الملف الطبي للمريض: {selectedPatient?.full_name}</b>}
+        open={isMedicalRecordModalOpen}
+        onCancel={() => setIsMedicalRecordModalOpen(false)}
+        footer={null}
+        width="80%"
+      >
+        {selectedPatient && <PatientMedicalRecord patientId={selectedPatient.id} />}
       </Modal>
     </div>
   );

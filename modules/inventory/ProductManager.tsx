@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -24,6 +24,7 @@ type Item = {
   purchase_price: number; // هذا هو حقل التكلفة
   weighted_average_cost?: number; // متوسط التكلفة
   stock: number; // هذا هو حقل المخزون
+  item_type?: string; 
   product_type: 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL';
   inventory_account_id: string | null;
   cogs_account_id: string | null;
@@ -320,11 +321,11 @@ const ProductManager = () => {
         sales_price: item.sales_price || 0,
         description: item.description || '',
         purchase_price: item.purchase_price || 0,
-        unit: item.unit || 'قطعة', // Removed (item as any)
+        unit: item.unit || 'قطعة',
         base_uom_id: item.base_uom_id || '',
         purchase_uom_id: item.purchase_uom_id || '',
         sale_uom_id: item.sale_uom_id || '',
-        product_type: item.product_type, // Use item.product_type directly
+        product_type: (item.item_type || item.product_type) as any, 
         inventory_account_id: inventoryAccId || '',
         cogs_account_id: cogsAccId || '',
         sales_account_id: salesAccId || '',
@@ -1036,6 +1037,9 @@ const ProductManager = () => {
             offer_end_date: formData.offer_end_date || null,
             offer_max_qty: formData.offer_max_qty || null,
             available_modifiers: formData.available_modifiers || [],
+            item_type: formData.product_type,
+            mfg_type: formData.product_type === 'RAW_MATERIAL' ? 'raw' : 
+                      formData.product_type === 'MANUFACTURED' ? 'standard' : null,
             labor_cost: formData.labor_cost || 0,
             overhead_cost: formData.overhead_cost || 0,
             is_overhead_percentage: formData.is_overhead_percentage || false
@@ -1060,6 +1064,7 @@ const ProductManager = () => {
           purchase_price: formData.purchase_price,
           cost: formData.purchase_price, // Set initial cost to purchase price
           stock: formData.product_type === 'STOCK' ? formData.opening_stock : 999999,
+          item_type: formData.product_type,
           product_type: formData.product_type,
           inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
           cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.cogs_account_id : null,

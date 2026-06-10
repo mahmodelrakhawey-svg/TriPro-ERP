@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -529,7 +529,7 @@ const StockCard = () => {
               sales_price: item.sales_price || 0,
               purchase_price: item.purchase_price || 0,
               unit: item.unit || 'قطعة',
-              product_type: (item as any).product_type || (item as any).item_type || ((item as any).mfg_type ? 'MANUFACTURED' : 'STOCK'),
+              product_type: (item as any).item_type || (item as any).product_type || ((item as any).mfg_type ? 'MANUFACTURED' : 'STOCK'),
               inventory_account_id: inventoryAccId || '',
               cogs_account_id: cogsAccId || '',
               sales_account_id: salesAccId || '',
@@ -578,6 +578,7 @@ const StockCard = () => {
               purchase_price: editFormData.purchase_price,
               product_type: editFormData.product_type,
               unit: editFormData.unit,
+              item_type: editFormData.product_type,
               requires_serial: editFormData.requires_serial,
               labor_cost: editFormData.labor_cost,
               overhead_cost: editFormData.overhead_cost,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm, useFieldArray, SubmitHandler, Controller } from 'react-hook-form';
 import { Button, Input, Table, Space, Card, Typography, message, Select, Spin, InputNumber } from 'antd';
 import { PlusOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
@@ -32,14 +32,46 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
   const [loadingProducts, setLoadingProducts] = useState(false);
 
   // محرك البحث في الأصناف المخزنية (الأدوية)
-  const handleProductSearch = async (query: string) => {
-    if (!query || query.length < 2) return;
+  const handleProductSearch = async (query: string = "") => {
     setLoadingProducts(true);
-    const { data } = await supabase
+
+    // 🛡️ ذكاء برمجي: جلب كود المؤسسة من الزيارة إذا لم يتوفر في حساب الطبيب
+    let orgId = currentUser?.organization_id;
+    if (!orgId && visitId) {
+      const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+      orgId = vData?.organization_id;
+    }
+
+    console.log("PrescriptionForm: Final orgId used for product search:", orgId); // Added for debugging
+
+    if (!orgId) {
+      setLoadingProducts(false);
+      console.warn("PrescriptionForm: Org ID is null or undefined, cannot fetch products."); // Added for debugging
+      return;
+    }
+    
+    let queryBuilder = supabase
       .from('products')
       .select('id, name, sales_price, stock')
-      .ilike('name', `%${query}%`)
-      .limit(20);
+      .eq('organization_id', orgId)
+      // 🛡️ مرونة برمجية: التحقق من نوع الصنف في الحقلين (Product/Item) لضمان ظهور الأدوية في المستشفيات القديمة
+      // كما تم إزالة فلتر الكمية (>0) ليتمكن الطبيب من رؤية الدواء المتاح في الدليل حتى لو نفذ رصيده
+      .or('product_type.eq.STOCK,item_type.eq.STOCK')
+      .is('deleted_at', null); 
+
+    // لم نعد بحاجة لهذا الشرط لأننا نريد البحث حتى بحرف واحد أو بدون حروف للتحميل الأولي
+    // if (!query || query.length < 2) return;
+    if (query) {
+      queryBuilder = queryBuilder.ilike('name', `%${query}%`);
+    }
+
+    const { data, error } = await queryBuilder.limit(20);
+
+    if (error) {
+      console.error("PrescriptionForm: Error fetching products:", error); // Keep this
+      // لا تزعج الطبيب برسائل خطأ متكررة إذا كان يبحث
+      setProductOptions([]); // التأكد من مسح الخيارات على الخطأ
+    }
 
     setProductOptions(data?.map(p => ({
       label: `${p.name} (المتوفر: ${p.stock})`,
@@ -47,6 +79,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
       name: p.name,
       price: p.sales_price || 0
     })) || []);
+    console.log("PrescriptionForm: Products fetched:", data); // Added for debugging
     setLoadingProducts(false);
   };
   const handleICDSearch = async (query: string) => {
@@ -65,12 +98,23 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
     setLoadingICD(false);
   };
 
+  // جلب قائمة أولية للأدوية عند تحميل الشاشة
+  useEffect(() => {
+    handleProductSearch();
+  }, [currentUser?.organization_id, visitId]);
+
   const { fields, append, remove } = useFieldArray({ control, name: 'medications' as never });
 
   const onSave: SubmitHandler<Prescription> = async (data) => {
+    let orgId = currentUser?.organization_id;
+    if (!orgId) {
+      const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+      orgId = vData?.organization_id;
+    }
+
     const payload = {
         ...data,
-        organization_id: currentUser?.organization_id
+        organization_id: orgId
     };
 
     const { error } = await supabase.from('hims_prescriptions').insert(payload);
@@ -131,6 +175,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
                           placeholder="ابحث عن الدواء..."
                           filterOption={false}
                           onSearch={handleProductSearch}
+                          onFocus={() => { if (productOptions.length === 0) handleProductSearch(); }}
                           loading={loadingProducts}
                           options={productOptions}
                           onChange={(val, option: any) => {

@@ -4,6 +4,7 @@ import { CalendarOutlined, PlusOutlined, UserOutlined, ClockCircleOutlined } fro
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -12,6 +13,7 @@ const { RangePicker } = DatePicker;
 const StaffRosterManager: React.FC = () => {
     const { organization } = useAccounting();
     const { showToast } = useToast();
+    const { currentUser } = useAuth(); // إضافة currentUser من AuthContext
     const [loading, setLoading] = useState(false);
     const [rosterData, setRosterData] = useState([]);
     const [onDutyData, setOnDutyData] = useState([]);
@@ -21,22 +23,26 @@ const StaffRosterManager: React.FC = () => {
     const [form] = Form.useForm();
 
     const fetchData = async () => {
+        const orgId = organization?.id || currentUser?.organization_id;
+        if (!orgId) return;
+
         setLoading(true);
         try {
             // 1. جلب سجل المناوبات الكامل
             const { data: roster } = await supabase
                 .from('hims_staff_roster')
                 .select('*, staff:profiles(full_name), ward:hims_wards(name)')
+                .eq('organization_id', orgId)
                 .order('shift_start', { ascending: false });
             setRosterData(roster || []);
 
             // 2. استدعاء الدالة الذكية: من المناوب الآن؟
-            const { data: onDuty } = await supabase.rpc('hims_get_current_on_duty');
+            const { data: onDuty } = await supabase.rpc('hims_get_current_on_duty', { p_dept_id: null });
             setOnDutyData(onDuty || []);
 
             // 3. جلب القوائم المساعدة (الموظفين والأجنحة)
-            const { data: profiles } = await supabase.from('profiles').select('id, full_name');
-            const { data: wardList } = await supabase.from('hims_wards').select('id, name');
+            const { data: profiles } = await supabase.from('profiles').select('id, full_name').eq('organization_id', orgId);
+            const { data: wardList } = await supabase.from('hims_wards').select('id, name').eq('organization_id', orgId);
             
             setStaffList(profiles || []);
             setWards(wardList || []);

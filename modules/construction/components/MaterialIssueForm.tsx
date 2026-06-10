@@ -127,8 +127,9 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
           product_id: item.productId,
           quantity: item.quantity,
           unit_cost: item.unitCost,
-          uom_id: item.uomId,
-          boq_item_id: item.boqItemId || null
+          uom_id: item.uomId || null,
+          boq_item_id: item.boqItemId || null,
+          organization_id: organization?.id
         })));
 
       if (itemsError) throw itemsError;

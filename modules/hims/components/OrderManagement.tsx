@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Tabs, Select, Button, Table, Tag, message, Typography, InputNumber, Input, DatePicker } from 'antd';
 import { ExperimentOutlined, CameraOutlined, MedicineBoxOutlined, PlusOutlined, HeartOutlined, ToolOutlined } from '@ant-design/icons';
+import { useAuth } from '@/context/AuthContext';
 
 const { Option } = Select;
 
 export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
+  const { currentUser } = useAuth();
   const [labTests, setLabTests] = useState<any[]>([]);
   const [radTypes, setRadTypes] = useState<any[]>([]);
   const [selectedTests, setSelectedTests] = useState<string[]>([]);
@@ -16,33 +18,62 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
 
   useEffect(() => {
     const fetchMasters = async () => {
+      setLoading(true);
+      let orgId = (currentUser as any)?.organization_id;
+
+      if (!orgId && currentUser?.id) {
+        const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
+        orgId = profile?.organization_id;
+      }
+      
+      if (!orgId && visitId) {
+        const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+        orgId = vData?.organization_id;
+      }
+
+      if (!orgId) {
+        setLoading(false);
+        return;
+      }
+
       const [labRes, radRes] = await Promise.all([
-        supabase.from('hims_lab_tests').select('*'),
-        supabase.from('hims_radiology_types').select('*')
+        supabase.from('hims_lab_tests').select('*').eq('organization_id', orgId).order('test_name'),
+        supabase.from('hims_radiology_types').select('*').eq('organization_id', orgId).order('name')
       ]);
       setLabTests(labRes.data || []);
       setRadTypes(radRes.data || []);
+      setLoading(false);
     };
     fetchMasters();
-  }, []);
+  }, [currentUser, visitId]);
 
   const placeOrders = async (type: 'lab' | 'radiology') => {
     setLoading(true);
     try {
+      // جلب كود المؤسسة من الزيارة الحالية لضمان ظهور الطلب في القوائم
+      const { data: visitData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+      const orgId = visitData?.organization_id;
+
       if (type === 'lab') {
         const orders = selectedTests.map(testId => ({
           visit_id: visitId,
           test_id: testId,
-          status: 'pending'
+          status: 'pending',
+          organization_id: orgId
         }));
         const { error } = await supabase.from('hims_lab_orders').insert(orders);
         if (error) throw error;
       } else if (type === 'radiology') {
-        const orders = selectedRads.map(radId => ({
-          visit_id: visitId,
-          rad_type_id: radId,
-          status: 'pending'
-        }));
+        // 🐛 إصلاح: إرسال اسم الفحص (scan_type) بدلاً من المعرف (rad_type_id)
+        const orders = selectedRads.map(radId => {
+          const radType = radTypes.find(rt => rt.id === radId);
+          return {
+            visit_id: visitId,
+            scan_type: radType ? radType.name : 'غير محدد', // استخدام اسم الفحص
+            status: 'pending',
+            organization_id: orgId
+          };
+        });
         const { error } = await supabase.from('hims_radiology_orders').insert(orders);
         if (error) throw error;
       }
@@ -97,12 +128,11 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
                 <Select
                   mode="multiple"
                   style={{ width: '100%' }}
-                  placeholder="اختر الفحوصات المطلوبة..."
+                  placeholder="اختر التحاليل المطلوبة..."
                   value={selectedTests}
                   onChange={setSelectedTests}
-                >
-                  {labTests.map(t => <Option key={t.id} value={t.id}>{t.test_name}</Option>)}
-                </Select>
+                  options={labTests.map(t => ({ label: t.test_name, value: t.id }))}
+                />
                 <Button 
                   type="primary" 
                   block 

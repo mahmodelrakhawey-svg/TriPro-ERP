@@ -71,22 +71,23 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
       setLoading(true);
       if (!organization?.id) throw new Error('فشل تحديد المنظمة النشطة');
 
-      // حذف القديم وإضافة الجديد (تبسيط للنسخة الأولى)
-      await supabase.from('project_boq')
-        .delete()
-        .eq('project_id', projectId)
-        .eq('organization_id', organization.id);
-
-      const { error } = await supabase.from('project_boq').insert(
-        items.map(item => ({ 
-          ...item, 
-          project_id: projectId,
-          organization_id: organization.id 
-        }))
+      // استخدام upsert بدلاً من الحذف والإضافة للحفاظ على سلامة البيانات والربط
+      const { error } = await supabase.from('project_boq').upsert(
+        items.map(item => {
+          // نستبعد فقط الحقول المحسوبة والجمالية، ونحافظ على الـ id إذا كان موجوداً
+          const { total_price, created_at, showAnalysis, ...rest } = item as any;
+          return {
+            ...rest, 
+            project_id: projectId,
+            organization_id: organization.id 
+          };
+        }),
+        { onConflict: 'id' } // التحديث يتم بناءً على معرف البند
       );
 
       if (error) throw error;
       showToast('تم حفظ المقايسة بنجاح', 'success');
+      fetchBOQ(); // إعادة جلب البيانات لمزامنة الـ IDs الجديدة من السيرفر
     } catch (error: any) {
       showToast(error.message, 'error');
     } finally {

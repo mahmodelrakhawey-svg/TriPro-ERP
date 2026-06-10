@@ -3,6 +3,7 @@ import { Table, Tag, Button, Card, Modal, List, Badge, Typography, Space, Toolti
 import { MedicineBoxOutlined, WarningOutlined, CheckCircleOutlined, BarcodeOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useToastNotification } from '@/utils/toastUtils';
+import { useAccounting } from '@/context/AccountingContext';
 import { format } from 'date-fns';
 
 const { Text, Title } = Typography;
@@ -13,6 +14,7 @@ export default function ClinicalPharmacy() {
   const [selectedPresc, setSelectedPresc] = useState(null);
   const [detailsModalVisible, setDetailsModal] = useState(false);
   const [barcodeSearch, setBarcodeSearch] = useState('');
+  const { currentUser } = useAccounting();
   const toast = useToastNotification();
 
   useEffect(() => {
@@ -20,6 +22,9 @@ export default function ClinicalPharmacy() {
   }, []);
 
   const fetchPendingPrescriptions = async () => {
+    const orgId = currentUser?.organization_id;
+    if (!orgId) return;
+
     setLoading(true);
     const { data, error } = await supabase
       .from('hims_prescriptions')
@@ -28,6 +33,7 @@ export default function ClinicalPharmacy() {
         patient:visit_id(hims_patients(full_name)),
         doctor:doctor_id(profile_id(full_name))
       `)
+      .eq('organization_id', orgId)
       .eq('status', 'pending')
       .order('created_at', { ascending: false });
 
@@ -37,6 +43,9 @@ export default function ClinicalPharmacy() {
   };
 
   const handleBarcodeSearch = async (value: string) => {
+    const orgId = currentUser?.organization_id;
+    if (!orgId) return;
+
     const code = value.trim();
     if (!code) return;
 
@@ -44,6 +53,7 @@ export default function ClinicalPharmacy() {
     const { data, error } = await supabase
       .from('hims_prescriptions')
       .select(`*, patient:visit_id(hims_patients(full_name)), doctor:doctor_id(profile_id(full_name))`)
+      .eq('organization_id', orgId)
       .or(`id.eq.${code},diagnosis.ilike.%${code}%`) // دعم البحث بالمعرف أو النص
       .single();
 

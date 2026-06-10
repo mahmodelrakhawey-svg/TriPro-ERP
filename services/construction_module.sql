@@ -1082,15 +1082,15 @@ BEGIN
     FROM public.projects WHERE id = p_project_id;
 
     -- 🚀 [تطوير V1.2]: تحديث معدل الساعة لحظياً من ملف الموظف قبل الجمع لضمان الدقة المالية
+    -- نستخدم COALESCE لضمان عدم فقدان قيمة hourly_rate المدخلة من الواجهة إذا لم يكن للموظف معدل ساعة أو راتب محدد
     UPDATE public.project_site_attendance psa
-    SET hourly_rate = COALESCE(e.hourly_rate, (e.salary / 240.0), 0)
+    SET hourly_rate = COALESCE(e.hourly_rate, (e.salary / 240.0), psa.hourly_rate, 0)
     FROM public.employees e WHERE psa.employee_id = e.id
     AND psa.project_id = p_project_id AND psa.attendance_date = p_attendance_date AND psa.status = 'draft';
 
     SELECT SUM(total_day_cost) INTO v_total_cost 
     FROM public.project_site_attendance 
     WHERE project_id = p_project_id AND attendance_date = p_attendance_date AND status = 'draft';
-
     IF COALESCE(v_total_cost, 0) > 0 THEN
         -- 🛡️ [رادار الميزانية]: فحص التجاوز قبل الترحيل
         SELECT COALESCE(SUM(total_price * 0.4), 0) INTO v_budget_limit 
@@ -1127,6 +1127,11 @@ BEGIN
 
         UPDATE public.project_site_attendance SET status = 'approved', related_journal_entry_id = v_je_id 
         WHERE project_id = p_project_id AND attendance_date = p_attendance_date;
+    ELSE
+        -- إذا كانت التكلفة الإجمالية 0 (مثلاً، ساعات العمل 0 أو معدل الساعة 0)،
+        -- يجب تحديث الحالة إلى 'approved' لمنع إعادة المعالجة، ولكن لا يتم إنشاء قيد محاسبي.
+        UPDATE public.project_site_attendance SET status = 'approved'
+        WHERE project_id = p_project_id AND attendance_date = p_attendance_date AND status = 'draft';
     END IF;
 END;
 $$;

@@ -170,9 +170,11 @@ import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
 import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
 import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
 import StaffRosterManager from './modules/hims/pages/StaffRosterManager';
+import DoctorManager from './modules/hims/pages/DoctorManager';
 import { DoctorKPIs } from './modules/hims/pages/DoctorKPIs';
 import { HIMSExecutiveDashboard } from './modules/hims/pages/HIMSExecutiveDashboard';
 import { HIMSProfitabilityReports } from './modules/hims/pages/HIMSProfitabilityReports';
+import { HIMSServicesManager } from './modules/hims/pages/HIMSServicesManager';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -411,6 +413,7 @@ const MainLayout = () => {
                   <ModuleGuard module="hims">
                     <Routes>
                       <Route path="patients" element={<PatientManager />} />
+                      <Route path="doctors" element={<DoctorManager />} />
                       <Route path="doctor-desktop" element={<DoctorDesktop />} />
                       <Route path="billing" element={<MedicalBilling />} />
                       <Route path="lab" element={<LabDashboard />} />
@@ -425,6 +428,7 @@ const MainLayout = () => {
                       <Route path="surgeries" element={<SurgeryScheduler />} />
                       <Route path="staff-roster" element={<StaffRosterManager />} />
                       <Route path="doctor-kpis" element={<DoctorKPIs />} />
+                      <Route path="services" element={<HIMSServicesManager />} />
                       <Route path="admin" element={<HIMSExecutiveDashboard />} />
                       <Route path="profitability" element={<HIMSProfitabilityReports />} />
                     </Routes>

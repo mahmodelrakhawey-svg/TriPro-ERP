@@ -285,6 +285,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const can = (module: string, action: string): boolean => {
     // السماح للمدير العام ومدير المنظمة بالوصول الكامل
     if (userRole === 'super_admin' || userRole === 'admin') return true;    
+
+    // المدير الطبي يمتلك صلاحية كاملة على موديول المستشفيات
+    if (userRole === 'medical_director' && (module === 'hims' || module.startsWith('hims'))) {
+      return true;
+    }
+    
     // تحسين قيود الديمو: منع الحذف ومنع تعديل الإعدادات الحساسة
     if (userRole === 'demo') {
         if (action === 'delete') return false; // ممنوع الحذف نهائياً

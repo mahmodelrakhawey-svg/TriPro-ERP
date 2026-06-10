@@ -38,7 +38,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
   const [isCreating, setIsCreating] = useState(false);
   const [showApprovalDialog, setShowApprovalDialog] = useState<string | null>(null);
   const [newBilling, setNewBilling] = useState({
-    billing_number: '',
+    billing_number: `SUB-BILL-${Date.now().toString().slice(-6)}`, // 🏗️ فرض بادئة لتمييز القيد آلياً
     billing_date: new Date().toISOString().split('T')[0],
     gross_amount: 0,
     retention_amount: 0,
@@ -119,6 +119,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
     try {
       const { error } = await supabase.from('subcontractor_billings').insert([{
         ...newBilling,
+        retention_release_date: newBilling.retention_release_date || null,
         contract_id: contractId,
         organization_id: organization?.id,
         status: 'draft'

@@ -79,6 +79,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
       setLoading(true);
       const { error } = await supabase.from('project_progress_billings').insert({
         ...newBilling,
+        retention_release_date: newBilling.retention_release_date || null,
         project_id: projectId,
         organization_id: organization.id,
         status: 'draft'

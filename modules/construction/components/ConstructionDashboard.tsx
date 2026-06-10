@@ -57,16 +57,20 @@ const ConstructionDashboard = () => {
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [materialVariances, setMaterialVariances] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
-  const { settings } = useAccounting();
+  const { settings, currentUser } = useAccounting();
   const { showToast } = useToast();
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
+      const orgId = currentUser?.organization_id;
+      if (!orgId) return;
+
       // جلب المشاريع مع مؤشرات الأداء من الرؤية التي أنشأناها
       const { data, error } = await supabase
         .from('v_project_performance_dashboard')
-        .select('*');
+        .select('*')
+        .eq('organization_id', orgId);
 
       if (error) throw error;
 

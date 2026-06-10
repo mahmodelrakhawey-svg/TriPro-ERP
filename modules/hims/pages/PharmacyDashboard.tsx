@@ -16,10 +16,18 @@ export const PharmacyDashboard: React.FC = () => {
   const fetchPendingPrescriptions = async () => {
     if (!currentUser) return;
     setLoading(true);
+    
+    let orgId = (currentUser as any)?.organization_id;
+    if (!orgId) {
+      const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
+      orgId = profile?.organization_id;
+    }
+
     const { data } = await supabase
       .from('hims_prescriptions')
       .select('*, hims_visits!inner(hims_patients(id, full_name, national_id, phone, allergies))')
       .eq('status', 'pending')
+      .eq('organization_id', orgId)
       .order('created_at', { ascending: false });
 
     setPrescriptions(data || []);
@@ -227,8 +235,13 @@ export const PharmacyDashboard: React.FC = () => {
                 { title: 'المخزن', dataIndex: 'current_stock', render: (s, r) => <Tag color={s >= r.qty ? 'green' : 'red'}>{s}</Tag> }, // ✅ عرض المخزون الفعلي
                 { title: 'الصلاحية', dataIndex: 'expiry_date', render: (d, r) => { // ✅ عرض الصلاحية
                   if (!d) return <Tag>غير محدد</Tag>;
-                  const isExpired = dayjs(d).isBefore(dayjs(), 'day');
-                  return <Tag color={isExpired ? 'red' : 'green'}>{dayjs(d).format('YYYY-MM-DD')}</Tag>;
+                  const expiryDate = dayjs(d);
+                  const isExpired = expiryDate.isBefore(dayjs(), 'day');
+                  const isNearExpiry = expiryDate.isBefore(dayjs().add(3, 'month'), 'day');
+                  
+                  return <Tag color={isExpired ? 'red' : isNearExpiry ? 'orange' : 'green'}>
+                    {expiryDate.format('YYYY-MM-DD')} {isExpired ? '(منتهي!)' : isNearExpiry ? '(قريب)' : ''}
+                  </Tag>;
                 }},
                 { title: 'الحالة', render: (_, r) => ( // ✅ حالة المسح
                   r.is_scanned ? <Tag color="blue" icon={<CheckCircleOutlined />}>تم المسح</Tag> : <Tag>بانتظار المسح</Tag>

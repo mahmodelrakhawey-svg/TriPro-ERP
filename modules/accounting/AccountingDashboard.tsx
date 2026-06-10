@@ -146,11 +146,14 @@ export default function AccountingDashboard() {
   }, []);
 
   useEffect(() => {
-    // جلب بيانات انحرافات التصنيع من الـ View الجديد
-    supabase.from('v_mfg_material_variances').select('*').limit(3).then(({data}) => {
-      if (data) setMfgVariances(data);
+    const orgId = currentUser?.organization_id;
+    if (!orgId) return;
+
+    // جلب بيانات انحرافات التصنيع للمنظمة الحالية فقط لمنع تسريب البيانات في الحساب العالمي
+    supabase.from('v_mfg_material_variances').select('*').eq('organization_id', orgId).limit(3).then(({data}) => {
+      if (data) setMfgVariances(data as any);
     });
-  }, [selectedYear]);
+  }, [selectedYear, currentUser?.organization_id]);
 
   const { metrics, monthlyData, expenseData, revenueData, weeklyCashData, recentEntries } = useMemo(() => {
       // Debugging: Check if data is loaded
@@ -361,58 +364,79 @@ export default function AccountingDashboard() {
       }
       
       if (!window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات، سلف موظفين...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات، الموظفين.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟')) return;
-      
+
       const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
       if (confirmation !== 'حذف') return;
+
+      const orgId = currentUser?.organization_id;
+      if (!orgId) return;
 
       setLoading(true);
       try {
           // 1. حذف التفاصيل (Lines)
           const tablesLines = [
-              'journal_lines', 'invoice_items', 'purchase_invoice_items', 
-              'quotation_items', 'purchase_order_items', 'sales_return_items', 
-              'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items', 
-          'inventory_count_items', 'payroll_items',
-          'mfg_qc_inspections', 'mfg_batch_serials', 'mfg_production_variances', 
-          'mfg_scrap_logs', 'mfg_material_request_items',
-          'work_order_material_usage', 'mfg_actual_material_usage', 
-          'mfg_order_progress',              
-          'order_items', 'kitchen_orders', 'payments'
+              'journal_lines', 'invoice_items', 'purchase_invoice_items',
+              'quotation_items', 'purchase_order_items', 'sales_return_items',
+              'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items',
+              'inventory_count_items', 'payroll_items', 'inventory_transactions',
+              'order_items', 'kitchen_orders', 'payments', 'order_item_modifiers', 'order_discounts',
+              'receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments',
+              'project_boq', 'project_material_issue_items',
+              'employee_allowances', 'payroll_variables',
+              'system_error_logs', 'security_logs', 'budgets', 'notification_audit_log',
+              'project_attachments', 'project_inspections', 'subcontractor_billings', 'project_milestones',
+              'project_custody_expenses', 'project_change_orders',
+              'equipment_usage_logs', 'project_site_attendance', 'project_tool_custody',
+              'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities', 'hims_lab_orders', 'hims_clinical_measurements',
+              'hims_medication_log', 'hims_radiology_orders', 'hims_blood_donations', 'hims_blood_transfusions', 'hims_patient_vitals',
+              'hims_lab_specimens', 'hims_nurse_tasks', 'hims_staff_roster',
+              'mfg_step_attachments', 'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_production_variances', 'mfg_operation_logs',
+              'mfg_batch_serials', 'mfg_qc_inspections', 'mfg_material_request_items', 'mfg_byproducts_logs',
+              'mfg_beginning_wip_inventory', 'mfg_alerts_log', 'mfg_period_cost_snapshots',
+              'work_order_costs', 'work_order_material_usage', 'mfg_order_progress' // mfg_order_progress should be cleared before mfg_production_orders
           ];
           
           for (const table of tablesLines) {
           try {
-              await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+              await supabase.from(table).delete().eq('organization_id', orgId);
+          } catch (e: any) {
+              // Log specific error for debugging, but continue with other tables
+              console.warn(`Table ${table} could not be cleared or does not exist: ${e.message}`);
+          }
+       }
+
+          // Clear modifier_groups and modifiers if they are considered transactional for orders
+          // However, they are more like master data for product configuration, so keeping them out of handleClearTransactions
+          // If they need to be cleared, they should be in handleClearMasterData
+
+          // 2. حذف المستندات (Documents)
+          const tablesDocs = [
+              'invoices', 'purchase_invoices', 'quotations', 'purchase_orders',
+              'sales_returns', 'purchase_returns', 'credit_notes', 'debit_notes',
+              'receipt_vouchers', 'payment_vouchers', 'cheques',
+              'stock_transfers', 'stock_adjustments', 'inventory_counts',
+              'payrolls', 'employee_advances', 'bank_reconciliations', 'cash_closings',
+              'opening_inventories', 'project_daily_reports', 'pos_cash_drawer_logs',
+              'orders', 'table_sessions', 'shifts', 'rejected_cash_closings', 'restaurant_customer_points',
+              'sales_orders', 'delivery_orders', 'notifications',
+              'project_progress_billings', 'project_custodies', 'project_material_issues', 'project_change_orders', 'subcontractor_contracts', 'projects',
+              'hims_billing', 'hims_visits', 'hims_prescriptions', 'hims_appointments', 'hims_surgeries', 'hims_insurance_claims', 'hims_admissions', 'hims_triage_records',
+              'mfg_material_requests', 'mfg_production_orders', 'work_orders'
+          ];
+          
+          for (const table of tablesDocs) {
+          try {
+              await supabase.from(table).delete().eq('organization_id', orgId);
           } catch (e) {
               console.warn(`Table ${table} could not be cleared or does not exist`);
           }
        }
 
-          // 2. حذف المستندات (Documents)
-          const tablesDocs = [
-              'invoices', 'purchase_invoices', 'quotations', 'purchase_orders', 
-              'sales_returns', 'purchase_returns', 'credit_notes', 'debit_notes',
-              'receipt_vouchers', 'payment_vouchers', 'cheques', 
-              'stock_transfers', 'stock_adjustments', 'inventory_counts',
-              'payrolls', 'employee_advances', 'bank_reconciliations', 'cash_closings',
-              'opening_inventories', 'mfg_production_orders', 'mfg_material_requests', 'work_orders',
-              // جداول مستندات المطعم
-              'orders', 'table_sessions', 'shifts', 'rejected_cash_closings'
-          ];
-          
-          for (const table of tablesDocs) {
-          try {
-              await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
-          } catch (e) {
-              console.warn(`Table ${table} could not be cleared or does not exist`);
-          }
-     }
-
           // 3. حذف القيود اليومية (Journal Entries)
-          await supabase.from('journal_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          await supabase.from('journal_entries').delete().eq('organization_id', orgId);
           
           // 4. تصفير أرصدة الحسابات
-          await supabase.from('accounts').update({ balance: 0 }).neq('id', '00000000-0000-0000-0000-000000000000');
+          await supabase.from('accounts').update({ balance: 0 }).eq('organization_id', orgId);
           
           // 5. تصفير حالة طاولات المطعم (جعلها متاحة)
           await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).neq('id', '00000000-0000-0000-0000-000000000000');
@@ -424,66 +448,7 @@ export default function AccountingDashboard() {
           window.location.reload();
       } catch (e: any) {
           console.error(e);
-          showToast('حدث خطأ أثناء التصفير: ' + e.message, 'error');
-      } finally {
-          setLoading(false);
-      }
-  };
-
-  const handleClearManufacturingOnly = async () => {
-      if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin') {
-          showToast('هذا الإجراء متاح فقط للمدير العام', 'warning');
-          return;
-      }
-
-      if (!window.confirm('⚠️ تحذير مديول التصنيع ⚠️\n\nسيتم حذف جميع أوامر التشغيل، استهلاك المواد، وقيود التكاليف الصناعية فقط.\nلن تتأثر المبيعات أو المشتريات أو الحسابات.\n\nهل تريد الاستمرار؟')) return;
-
-      setLoading(true);
-      try {
-          // 1. حذف حركات الاستهلاك والقيود المرتبطة بمديول التصنيع
-          // حذف قيود اليومية المرتبطة بالتصنيع أولاً
-          const { data: mfgEntries } = await supabase
-              .from('journal_entries')
-              .select('id')
-              .or('reference.ilike.MFG-%,description.ilike.%تصنيع%');
-
-          if (mfgEntries && mfgEntries.length > 0) {
-              const entryIds = mfgEntries.map(e => e.id);
-              await supabase.from('journal_lines').delete().in('journal_entry_id', entryIds);
-              await supabase.from('journal_entries').delete().in('id', entryIds);
-          }
-
-          // 2. حذف حركات مديول التصنيع
-          const mfgTables = [
-              'mfg_qc_inspections',
-              'mfg_scrap_logs',
-              'mfg_batch_serials',
-              'mfg_production_variances',
-              'mfg_material_request_items',
-              'mfg_material_requests',
-              'mfg_order_progress',
-              'mfg_actual_material_usage',
-              'mfg_production_orders',
-              'work_orders'
-          ];
-
-          for (const table of mfgTables) {
-              try {
-                  await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
-              } catch (e) {
-                  console.warn(`Table ${table} might not exist or is empty`);
-              }
-          }
-
-          // 3. إعادة احتساب المخزون للحفاظ على التوازن
-          await supabase.rpc('recalculate_stock_rpc');
-          await clearCache();
-
-          showToast('تم تصفير مديول التصنيع بنجاح وإعادة احتساب المخزون ✅', 'success');
-          window.location.reload();
-      } catch (e: any) {
-          console.error(e);
-          showToast('حدث خطأ أثناء تصفير مديول التصنيع: ' + e.message, 'error');
+          showToast('حدث خطأ أثناء تصفير العمليات: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -506,20 +471,25 @@ export default function AccountingDashboard() {
       
       const confirmation = window.prompt('للتأكيد، اكتب "حذف" في المربع أدناه:');
       if (confirmation !== 'حذف') return;
+      
+      const orgId = currentUser?.organization_id;
+      if (!orgId) return;
 
       setLoading(true);
       try {
           // محاولة حذف الجداول المرتبطة بالأصناف أولاً
-          try { await supabase.from('modifiers').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
-          try { await supabase.from('modifier_groups').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
-          try { await supabase.from('bill_of_materials').delete().neq('product_id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
-          try { await supabase.from('mfg_actual_material_usage').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
-          try { await supabase.from('work_order_material_usage').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
-          try { await supabase.from('opening_inventories').delete().neq('id', '00000000-0000-0000-0000-000000000000'); } catch (e) {}
+          try { await supabase.from('modifiers').delete().eq('organization_id', orgId); } catch (e) {}
+          try { await supabase.from('modifier_groups').delete().eq('organization_id', orgId); } catch (e) {}
+          try { await supabase.from('bill_of_materials').delete().eq('organization_id', orgId); } catch (e) {}
+          try { await supabase.from('opening_inventories').delete().eq('organization_id', orgId); } catch (e) {}
 
           const tables = ['products', 'customers', 'suppliers', 'employees', 'item_categories', 'menu_categories'];
-          for (const table of tables) {
-              const { error } = await supabase.from(table).delete().neq('id', '00000000-0000-0000-0000-000000000000');
+          // Add HIMS and Construction master data that can be cleared if desired
+          const masterTablesToClear = [...tables, 'hims_patients', 'hims_doctors', 'hims_wards', 'hims_beds', 'hims_lab_tests', 'hims_radiology_types', 'hims_icd10_codes', 'hims_drug_interactions', 'hims_staff_roster', 'hims_settings', 'hims_blood_donors', 'subcontractors', 'projects', 'project_boq', 'subcontractor_contracts', 'equipment', 'project_tool_custody', 'mfg_work_centers', 'bill_of_materials', 'mfg_routings', 'mfg_routing_steps', 'mfg_step_materials'];
+
+          // Clear master data tables
+          for (const table of masterTablesToClear) {
+              const { error } = await supabase.from(table).delete().eq('organization_id', orgId);
               if (error) throw error;
           }
           
@@ -590,14 +560,6 @@ export default function AccountingDashboard() {
                     >
                         <Trash2 size={16} />
                         تصفير العمليات
-                    </button>
-                    <button 
-                        onClick={handleClearManufacturingOnly}
-                        className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-100 transition-colors shadow-sm font-bold text-sm"
-                        title="تصفير مديول التصنيع فقط (أوامر الشغل والتكاليف)"
-                    >
-                        <Activity size={16} />
-                        تصفير التصنيع
                     </button>
                     <button 
                         onClick={handleClearMasterData}

@@ -33,7 +33,8 @@ export const SurgeryScheduler: React.FC = () => {
     // جلب الأطباء (الجراحين)
     const { data: docs } = await supabase
       .from('hims_doctors')
-      .select('id, specialization, profiles(full_name)')
+      // 🛡️ توحيد: استخدام profile_id لربط اسم الجراح
+      .select('id, specialization, profile:profile_id(full_name)')
       .eq('is_active', true);
     setDoctors(docs || []);
 
@@ -91,7 +92,7 @@ export const SurgeryScheduler: React.FC = () => {
       type: s.status === 'completed' ? 'success' : s.status === 'in_progress' ? 'processing' : 'warning',
       content: `${dayjs(s.scheduled_start).format('HH:mm')} - ${s.surgery_name}`,
       room: s.room_number,
-      surgeon: s.doctor?.profiles.full_name
+      surgeon: s.doctor?.profiles?.full_name || 'طبيب غير محدد'
     }));
   };
 
@@ -156,7 +157,7 @@ export const SurgeryScheduler: React.FC = () => {
                       </Tag>
                     </div>
                     <div className="text-xs text-slate-500 mb-4 space-y-1">
-                      <div><UserOutlined className="ml-1 text-blue-400" /> الجراح: <b>{item.doctor?.profiles.full_name}</b></div>
+                      <div><UserOutlined className="ml-1 text-blue-400" /> الجراح: <b>{item.doctor?.profiles?.full_name || 'غير معروف'}</b></div>
                       <div><ClockCircleOutlined className="ml-1 text-blue-400" /> التوقيت: {dayjs(item.scheduled_start).format('HH:mm')}</div>
                     </div>
                     {item.status === 'scheduled' && (
@@ -206,7 +207,7 @@ export const SurgeryScheduler: React.FC = () => {
             <Form.Item name="doctor_id" label="الجراح المسؤول" rules={[{ required: true }]}>
               <Select placeholder="اختر الجراح">
                 {doctors.map(d => (
-                  <Select.Option key={d.id} value={d.id}>{d.profiles?.full_name} ({d.specialization})</Select.Option>
+                  <Select.Option key={d.id} value={d.id}>{d.profile?.full_name} ({d.specialization})</Select.Option>
                 ))}
               </Select>
             </Form.Item>
