@@ -31,11 +31,18 @@ const PatientManager = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    full_name: string;
+    national_id: string;
+    dob: string;
+    gender: Patient['gender'];
+    blood_type: string;
+    phone: string;
+  }>({
     full_name: '',
     national_id: '',
     dob: '',
-    gender: 'male' as const,
+    gender: 'male',
     blood_type: 'O+',
     phone: ''
   });
@@ -201,8 +208,37 @@ const PatientManager = () => {
                 {patient.full_name[0]}
               </div>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={16} /></button>
-                <button className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>
+                <button 
+                  onClick={() => {
+                    setEditingId(patient.id);
+                    setFormData({
+                      full_name: patient.full_name,
+                      national_id: patient.national_id,
+                      dob: patient.dob,
+                      gender: patient.gender,
+                      blood_type: patient.blood_type,
+                      phone: patient.phone || ''
+                    });
+                    setIsModalOpen(true);
+                  }}
+                  className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+                >
+                  <Edit2 size={16} />
+                </button>
+                <button 
+                  onClick={async () => {
+                    if (window.confirm('هل أنت متأكد من حذف بيانات هذا المريض نهائياً؟')) {
+                      const { error } = await supabase.from('hims_patients').delete().eq('id', patient.id);
+                      if (error) showToast(error.message, 'error');
+                      else {
+                        showToast('تم حذف المريض بنجاح', 'success');
+                        refresh();
+                      }
+                    }
+                  }}
+                  className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                  <Trash2 size={16} />
+                </button>
               </div>
             </div>
             <h3 className="font-bold text-slate-800 text-lg mb-1">{patient.full_name}</h3>
@@ -241,7 +277,9 @@ const PatientManager = () => {
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="bg-slate-50 p-6 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-xl font-black text-slate-800">تسجيل مريض جديد</h2>
+              <h2 className="text-xl font-black text-slate-800">
+                {editingId ? 'تعديل بيانات المريض' : 'تسجيل مريض جديد'}
+              </h2>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={24} /></button>
             </div>
             <form onSubmit={handleSave} className="p-8 space-y-5">
@@ -316,7 +354,7 @@ const PatientManager = () => {
                 </div>
               </div>
               <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all active:scale-95">
-                حفظ بيانات المريض وفتح ملف مالي
+                {editingId ? 'تحديث البيانات' : 'حفظ بيانات المريض وفتح ملف مالي'}
               </button>
             </form>
           </div>
