@@ -875,13 +875,6 @@ FOR EACH ROW EXECUTE FUNCTION public.fn_sync_employee_names();
 -- ============================================================
 DO $$
 BEGIN
-    -- سياسة الوصول لجدول التسويات البنكية
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'bank_reconciliations') THEN
-        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can manage their org bank reconciliations' AND tablename = 'bank_reconciliations') THEN
-            CREATE POLICY "Users can manage their org bank reconciliations" ON public.bank_reconciliations FOR ALL TO authenticated USING (organization_id = public.get_my_org());
-        END IF;
-    END IF;
-
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'notifications') THEN
         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notifications' AND column_name = 'notification_type') THEN
             IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'notifications' AND column_name = 'type') THEN
@@ -892,12 +885,6 @@ BEGIN
                 -- For now, just ensure 'notification_type' is nullable if 'type' exists to avoid conflicts.
                 ALTER TABLE public.notifications ALTER COLUMN notification_type DROP NOT NULL;
             END IF;
-        END IF;
-    END IF;
-
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'notifications') THEN
-        IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can create notifications' AND tablename = 'notifications') THEN
-            CREATE POLICY "Users can create notifications" ON public.notifications FOR INSERT TO authenticated WITH CHECK (public.get_my_role() != 'demo');
         END IF;
     END IF;
 END $$;

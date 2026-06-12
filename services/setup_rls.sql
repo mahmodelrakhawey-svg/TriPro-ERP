@@ -8,15 +8,54 @@
 -- 🔓 منح الصلاحيات الأساسية (Critical Grants)
 -- =================================================================
 -- تم إلغاء المنح العام الواسع لضمان مبدأ Least Privilege
-DO $$
-DECLARE
-    t text;
+-- =================================================================
+-- 🛡️ محرك التطهير والتوحيد (The Security Hardening Engine)
+-- الوصف: حذف كافة السياسات القديمة والمكررة قبل إعادة البناء
+-- =================================================================
+DO $$ 
+DECLARE 
+    tbl text;
+    pol text;
+    -- قائمة السياسات القديمة المطلوب تطهيرها لضمان عدم الازدواجية
+    legacy_policies text[] := ARRAY[
+        'Org_Data_Access', 'SuperAdmin_Access', 'SaaS_Org_Isolation', 
+        'item_categories_isolation', 'menu_categories_isolation',
+        'SaaS_Project_Isolation', 'SaaS_BOQ_Isolation',
+        'SaaS_Sub_Contract_Isolation', 'SaaS_Sub_Billing_Isolation',
+        'SaaS_Subcontractor_Isolation', 'SaaS_Inspection_Isolation',
+        'SaaS_Change_Order_Isolation', 'SaaS_Site_Attendance_Isolation',
+        'SaaS_Equipment_Isolation', 'SaaS_Equipment_Usage_Isolation',
+        'SaaS_Tool_Custody_Isolation', 'SaaS_Material_Issue_Isolation',
+        'SaaS_Custody_Isolation', 'SaaS_Custody_Exp_Isolation',
+        'SaaS_Billing_Attachment_Isolation', 'SaaS_Project_Attachment_Isolation',
+        'SaaS_WA_Queue_Isolation', 'work_order_costs_saas_policy',
+        'Alerts_SaaS_Policy', 'Byproducts_SaaS_Policy', 'Snapshots_SaaS_Policy',
+        'BeginningWIP_SaaS_Policy', 'Users can only see their organization''s budgets', 
+        'Users can manage their org bank reconciliations',
+        'Attachments_SaaS_Policy',
+        'Settings_Select_Policy',
+        'settings_update_policy',
+        'profiles_select_policy', -- سيتم إعادة بنائها بشكل أنظف
+        'Staff can manage kitchen_orders', -- حماية استباقية
+        'Restricted_Payrolls_Select', 'Restricted_Payroll_Items_Select', 'HR_Manage_Payrolls',
+        'profiles_public_read', 'profiles_admin_manage_policy', 'permissions_read_policy',
+        'permissions_select_policy', 'roles_read_policy', 'Journal_Entries_Isolation',
+        'Org_SuperAdmin_Select_All', 'SuperAdmin_Select_All_Orgs'
+    ];
 BEGIN
-    FOR t IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
-        -- نمنح الصلاحيات الأساسية فقط، والـ RLS تتكفل بالباقي
-        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', t);
+    FOR tbl IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+        -- 1. منح الصلاحيات الأساسية
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', tbl);
+        
+        -- 2. حذف السياسات القديمة والمكررة
+        FOREACH pol IN ARRAY legacy_policies LOOP
+            EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', pol, tbl);
+        END LOOP;
+
+        -- 3. تفعيل RLS (لضمان الشمولية)
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl);
     END LOOP;
-    RAISE NOTICE '✅ Permissions granted surgically.';
+    RAISE NOTICE '✅ System Purged and Permissions Granted.';
 END $$;
 
 -- Existing grants
@@ -48,6 +87,7 @@ DECLARE
         'inventory_count_items', 'stock_transfers', 'stock_transfer_items', 
         'opening_inventories', 'credit_notes', 'debit_notes', 'work_orders', 
         'work_order_costs', 'mfg_work_centers', 'mfg_routings', 'mfg_routing_steps', 
+        'debit_notes', 'work_orders', 'work_order_costs', 'mfg_work_centers', 'company_settings',
         'mfg_production_orders', 'mfg_order_progress', 'mfg_step_materials', 
         'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 
         'mfg_production_variances', 
@@ -97,29 +137,22 @@ USING (
     OR (organization_id IS NOT NULL AND organization_id = (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid)
 );
 
--- 🛡️ سياسة الوصول الشامل لمدراء المستشفى (HIMS Admin Override)
--- تضمن هذه السياسة أن الأدمن يرى كافة المرضى والزيارات والروشتات دون قيود الطبيب المعالج
+-- 🛡️ تنظيف سياسات المستشفى القديمة (سيتم الاعتماد على السياسة العامة للمنظمات والسوبر أدمن)
 DO $$ 
 DECLARE 
     t text;
-    hims_tables text[] := ARRAY[
-        'hims_patients', 'hims_visits', 'hims_prescriptions', 'hims_billing', 
-        'hims_lab_orders', 'hims_appointments', 'hims_doctors', 'hims_wards', 
-        'hims_beds', 'hims_lab_tests', 'hims_radiology_orders', 'hims_surgeries',
-        'hims_insurance_claims', 'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions',
+    hims_legacy_tables text[] := ARRAY[
+        'hims_patients', 'hims_doctors', 'hims_visits', 'hims_prescriptions', 'hims_billing',
+        'hims_wards', 'hims_beds', 'hims_lab_tests', 'hims_lab_orders', 'hims_radiology_orders',
+        'hims_appointments', 'hims_surgeries', 'hims_insurance_claims', 'hims_settings',
+        'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions', 'hims_radiology_types',
         'hims_medication_log', 'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities',
-        'hims_icd10_codes',
-        'hims_drug_interactions', 'hims_staff_roster', 'hims_lab_specimens', 'hims_nurse_tasks'
+        'hims_icd10_codes', 'hims_drug_interactions', 'hims_staff_roster', 'hims_lab_specimens',
+        'hims_nurse_tasks'
     ];
 BEGIN
-    FOREACH t IN ARRAY hims_tables LOOP
+    FOREACH t IN ARRAY hims_legacy_tables LOOP
         EXECUTE format('DROP POLICY IF EXISTS "HIMS_Admin_Policy_%I" ON public.%I', t, t);
-        EXECUTE format('CREATE POLICY "HIMS_Admin_Policy_%I" ON public.%I FOR ALL TO authenticated 
-            USING (
-                (organization_id = public.get_my_org())
-                OR (public.get_my_role() = ''super_admin'' AND public.get_my_org() IS NULL)
-            )
-            WITH CHECK (organization_id = public.get_my_org())', t, t);
     END LOOP;
 END $$;
 
@@ -195,66 +228,28 @@ DECLARE
         WHERE c.table_schema = 'public' 
         AND c.column_name = 'organization_id'
         AND t.table_type = 'BASE TABLE' -- 🛡️ حماية: استهداف الجداول الأساسية فقط وتجاهل الـ Views
-        AND c.table_name NOT IN ('profiles', 'organizations', 'company_settings', 'notifications', 'payrolls', 'payroll_items') -- الجداول التي لها سياسات خاصة
+        AND c.table_name NOT IN ('profiles', 'organizations', 'notifications', 'payrolls', 'payroll_items') -- الجداول التي لها سياسات خاصة
     );
 BEGIN
     FOREACH t IN ARRAY tables_with_org_id LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Org_Access_Policy_%I" ON public.%I;', t, t);
+        -- Policy for regular users: scoped to their organization
         EXECUTE format('CREATE POLICY "Org_Access_Policy_%I" ON public.%I FOR ALL TO authenticated 
-            USING (
-                organization_id = public.get_my_org() -- المستخدم العادي يرى شركته
-                OR (public.get_my_role() = ''super_admin'' AND public.get_my_org() IS NULL) -- السوبر يرى الكل في الوضع العالمي فقط
-            ) 
-            WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', 
+            USING (organization_id = public.get_my_org()) 
+            WITH CHECK (organization_id = public.get_my_org());', 
             t, t);
     END LOOP;
 END $$;
 
 -- سياسة السوبر أدمن على المنظمات
-DROP POLICY IF EXISTS "Org_SuperAdmin_Policy" ON organizations;
-CREATE POLICY "Org_SuperAdmin_Policy" ON organizations FOR ALL TO authenticated USING (public.get_my_role() = 'super_admin');
-
 DROP POLICY IF EXISTS "Org_Select_Policy" ON organizations;
 CREATE POLICY "Org_Select_Policy" ON organizations FOR SELECT TO authenticated USING (id = public.get_my_org() OR public.get_my_role() = 'super_admin' OR (auth.jwt() -> 'user_metadata' ->> 'role') = 'super_admin');
 
--- 2. إعدادات الشركة (Company Settings)
--- قراءة للجميع (المصادق عليهم) والسوبر أدمن
-DROP POLICY IF EXISTS "Settings_Select_Policy" ON company_settings;
-CREATE POLICY "Settings_Select_Policy" ON company_settings 
-FOR SELECT TO authenticated 
-USING (
-    organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin'
-);
 
--- تعديل للمدراء فقط
-DROP POLICY IF EXISTS "settings_update_policy" ON company_settings;
-CREATE POLICY "settings_update_policy" ON company_settings FOR UPDATE TO authenticated USING (public.is_admin() AND (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin'));
 
 -- 3. البيانات الأساسية (Products, Customers, Suppliers, Accounts)
 -- السوبر أدمن يرى الجميع، والمستخدم يرى بيانات منظمته فقط
 
-
--- سياسة المرفقات الشاملة (ضمان رؤية مرفقات الشركة فقط لكافة أنواع السندات)
-DO $$ 
-DECLARE t text;
-BEGIN
-    FOREACH t IN ARRAY ARRAY['receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments', 'organization_backups', 'notifications'] LOOP
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
-            -- التأكد من وجود العمود لتجنب الخطأ 42703 في حال تخطي الملف الرابع
-            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org()', t);
-            
-            -- 🛡️ إضافة عمود priority المفقود لجدول الإشعارات لتجنب خطأ PGRST204
-            IF t = 'notifications' THEN
-                EXECUTE 'ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS priority text DEFAULT ''info''';
-                EXECUTE 'ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS action_url text';
-                EXECUTE 'ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS related_id uuid';
-            END IF;
-            
-            EXECUTE format('DROP POLICY IF EXISTS "Attachments_SaaS_Policy" ON public.%I;', t);
-            EXECUTE format('CREATE POLICY "Attachments_SaaS_Policy" ON public.%I FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', t);
-        END IF;
-    END LOOP;
-END $$;
 
 -- إضافة سياسة إدارة المطبخ المفقودة
 DO $$ BEGIN
@@ -270,7 +265,6 @@ END $$;
 
 -- تم إزالتها لأن السياسة العامة Org_Access_Policy_journal_entries تغطيها بشكل أفضل
 
--- حماية سجل الأخطاء (كل شركة ترى أخطائها فقط، والسوبر أدمن يرى الجميع)
 DROP POLICY IF EXISTS "System_Logs_Isolation" ON system_error_logs;
 CREATE POLICY "System_Logs_Isolation" ON system_error_logs 
 FOR ALL TO authenticated 
@@ -338,32 +332,15 @@ BEGIN
         -- حذف أي نسخة قديمة من سياسة التجاوز
         EXECUTE format('DROP POLICY IF EXISTS "SuperAdmin_Universal_Access" ON public.%I;', tbl);
         
-        -- 🛡️ فحص وجود عمود organization_id قبل إنشاء السياسة (حل خطأ 42703)
-        SELECT EXISTS (
-            SELECT 1 FROM information_schema.columns 
-            WHERE table_schema = 'public' AND table_name = tbl AND column_name = 'organization_id'
-        ) INTO has_org_id;
-
-        -- التعديل: السوبر أدمن يلتزم بالمنظمة المختارة (Context-Aware)
-        IF has_org_id THEN
+        -- Policy for SuperAdmin: truly universal access for all tables
+        -- This policy grants super_admin full access regardless of organization_id or get_my_org() context.
+        -- It applies to all tables, whether they have organization_id or not.
             EXECUTE format('
                 CREATE POLICY "SuperAdmin_Universal_Access" ON public.%I 
                 FOR ALL TO authenticated
-                USING (
-                    public.get_my_role() = ''super_admin'' 
-                    AND (public.get_my_org() IS NULL OR organization_id = public.get_my_org())
-                )
-                 WITH CHECK (public.get_my_role() = ''super_admin'');
+            USING (public.get_my_role() = ''super_admin'')
+            WITH CHECK (public.get_my_role() = ''super_admin'');
             ', tbl);
-        ELSE
-            -- جداول الإعدادات العامة التي لا تحتوي على عمود منظمة (مثل جداول تعريف الأنشطة)
-            EXECUTE format('
-                CREATE POLICY "SuperAdmin_Universal_Access" ON public.%I 
-                FOR ALL TO authenticated
-                USING (public.get_my_role() = ''super_admin'')
-                 WITH CHECK (public.get_my_role() = ''super_admin'');
-            ', tbl);
-        END IF;
     END LOOP;
 END $$;
 
