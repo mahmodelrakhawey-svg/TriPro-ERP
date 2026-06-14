@@ -36,7 +36,7 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<MilestoneFormData>({
     resolver: zodResolver(milestoneSchema) as any,
     defaultValues: {
-      projectId,
+      project_id: projectId,
       title: '',
       expected_start_date: new Date().toISOString().split('T')[0],
       expected_end_date: new Date(new Date().setDate(new Date().getDate() + 7)).toISOString().split('T')[0], // 7 days from now
@@ -73,7 +73,6 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
         .from('project_milestones')
         .insert([{
           ...formData,
-          project_id: projectId,
           organization_id: organization?.id
         }]);
 

@@ -238,14 +238,14 @@ export const createPurchaseInvoiceSchema = z.object({
 const baseEmployeeSchema = z.object({
   full_name: nameSchema,
   role: z.enum(['super_admin', 'admin', 'manager', 'accountant', 'viewer', 'demo', 'chef', 'owner', 'medical_director']),
-  basic_salary: amountSchema, // هنا نستخدم amountSchema بدون قيد .positive()
+  basic_salary: amountSchema,
   hire_date: dateSchema,
   organization_id: idSchema.optional(),
   is_active: z.boolean().default(true),
 });
 
 export const createEmployeeSchema = baseEmployeeSchema.extend({
-  basic_salary: amountSchema.positive('الراتب يجب أن يكون أكبر من 0'), // هنا نضيف قيد .positive()
+  basic_salary: amountSchema.positive('الراتب يجب أن يكون أكبر من 0'),
 });
 
 export const updateEmployeeSchema = baseEmployeeSchema.partial(); // وهنا نستخدم .partial() على المخطط الأساسي
@@ -498,7 +498,7 @@ export const dailyReportSchema = z.object({
 });
 
 export const milestoneSchema = z.object({
-  projectId: idSchema,
+  project_id: idSchema,
   title: z.string().min(5, 'عنوان المرحلة مطلوب (5 أحرف على الأقل)'),
   expected_start_date: dateSchema,
   expected_end_date: dateSchema,

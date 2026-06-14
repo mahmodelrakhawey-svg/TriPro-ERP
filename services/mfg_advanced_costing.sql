@@ -96,13 +96,13 @@ SELECT
     -- جلب معدل الساعة الحقيقي (أو الراتب مقسوماً على 240 ساعة شهرية)
     COALESCE(
         e.hourly_rate, 
-        (NULLIF(e.salary, 0) / 240.0), 
+        (NULLIF(e.basic_salary, 0) / 240.0), 
         wc.hourly_rate
     ) as employee_actual_rate,
     -- التكلفة الفعلية = الساعات * المعدل الحقيقي
     ROUND(
         (EXTRACT(EPOCH FROM (op.actual_end_time - op.actual_start_time)) / 3600.0) * 
-        COALESCE(e.hourly_rate, (NULLIF(e.salary, 0) / 240.0), wc.hourly_rate), 
+        COALESCE(e.hourly_rate, (NULLIF(e.basic_salary, 0) / 240.0), wc.hourly_rate), 
         2
     ) as actual_labor_cost
 FROM public.mfg_order_progress op
@@ -393,7 +393,7 @@ SELECT
     COALESCE(ROUND(ct.total_ovh / NULLIF(eu.total_conversion_eq_units, 0), 2), 0) as overhead_unit_cost,
     COALESCE(ROUND(
         (mt.total_mat / NULLIF(eu.total_material_eq_units, 0)) + 
-        ((ct.total_lab + ct.total_ovh) / NULLIF(eu.total_conversion_eq_units, 0))
+        ((NULLIF(ct.total_lab, 0) + ct.total_ovh) / NULLIF(eu.total_conversion_eq_units, 0))
     , 2), 0) as total_actual_unit_cost,
     p.manufacturing_cost as standard_unit_cost,
     po.organization_id

@@ -39,6 +39,16 @@ BEGIN
         END IF;
     END LOOP;
 
+    -- 🛡️ توحيد مسمى الراتب الأساسي ليتوافق مع كافة مديولات النظام (محصور في public)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='employees' AND column_name='salary') THEN
+        ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+    END IF;
+
+    -- 🚀 تنشيط ذاكرة المخطط فوراً لضمان تعرف الـ API على المسمى الجديد
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='employees' AND column_name='basic_salary') THEN
+        EXECUTE 'NOTIFY pgrst, ''reload config''';
+    END IF;
+
     -- ترميم أعمدة التكلفة في جدول المنتجات
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products' AND table_schema = 'public' AND table_type = 'BASE TABLE') THEN
         ALTER TABLE public.products ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0;

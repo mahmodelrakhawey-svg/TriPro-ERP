@@ -142,7 +142,7 @@ DECLARE
         'modifier_groups', 'modifiers', 'organization_backups', 'invitations',
         'quotations', 'quotation_items',
         'roles', 'role_permissions', 'notifications', 'notification_preferences',
-        'assets', 'delivery_orders', 'payments'
+        'assets', 'delivery_orders', 'payments', 'project_milestones'
     ];
 BEGIN
     FOREACH t IN ARRAY tables_to_ensure LOOP
@@ -771,6 +771,11 @@ DO $$ BEGIN
         -- إزالة قيود NOT NULL المسببة للأخطاء
         ALTER TABLE public.employees ALTER COLUMN name DROP NOT NULL;
         ALTER TABLE public.employees ALTER COLUMN full_name DROP NOT NULL;
+
+        -- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع مديول المقاولات والتصنيع
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employees' AND column_name='salary') THEN
+            ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+        END IF;
 
         -- مزامنة البيانات التاريخية
         UPDATE public.employees SET full_name = name WHERE full_name IS NULL AND name IS NOT NULL;

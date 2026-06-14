@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -18,7 +18,7 @@ const EmployeeManager = () => {
     full_name: '',
     position: '',
     department: '',
-    salary: 0,
+    basic_salary: 0,
     hire_date: new Date().toISOString().split('T')[0],
     phone: '',
     email: '',
@@ -34,7 +34,7 @@ const EmployeeManager = () => {
         full_name: employee.full_name,
         position: employee.position || '',
         department: employee.department || '',
-        salary: employee.salary || 0,
+        basic_salary: employee.basic_salary || 0,
         hire_date: employee.hire_date || new Date().toISOString().split('T')[0],
         phone: employee.phone || '',
         email: employee.email || '',
@@ -47,7 +47,7 @@ const EmployeeManager = () => {
         full_name: '',
         position: '',
         department: '',
-        salary: 0,
+        basic_salary: 0,
         hire_date: new Date().toISOString().split('T')[0],
         phone: '',
         email: '',
@@ -65,7 +65,7 @@ const EmployeeManager = () => {
     const validationResult = createEmployeeSchema.safeParse({ // تم توحيد هذا المتغير
         full_name: formData.full_name,
         role: 'viewer', // دور افتراضي للموظف ليتوافق مع السكيما (يمكن إضافة اختيار الدور للنموذج لاحقاً)
-        basic_salary: formData.salary,
+        basic_salary: formData.basic_salary,
         hire_date: formData.hire_date,
         is_active: formData.status === 'active',
         // الحقول الأخرى مثل phone, email, position, department يمكن إضافتها إلى السكيما إذا كانت مطلوبة للتحقق
@@ -193,7 +193,7 @@ const EmployeeManager = () => {
                         </div>
                         <div className="flex items-center gap-2">
                             <DollarSign size={14} className="text-slate-400" />
-                            <span className="font-bold text-slate-800">{(employee.salary || 0).toLocaleString()}</span>
+                            <span className="font-bold text-slate-800">{(employee.basic_salary || 0).toLocaleString()}</span>
                         </div>
                     </div>
 
@@ -232,8 +232,8 @@ const EmployeeManager = () => {
                             <input type="text" value={formData.department} onChange={e => setFormData({...formData, department: e.target.value})} className="w-full border rounded-lg p-2.5 focus:border-blue-500 outline-none" />
                         </div>
                         <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">الراتب الأساسي</label>
-                            <input type="number" value={formData.salary} onChange={e => setFormData({...formData, salary: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2.5 focus:border-blue-500 outline-none" />
+                            <label className="block text-sm font-bold text-slate-700 mb-1">الراتب الأساسي (Basic Salary)</label>
+                            <input type="number" value={formData.basic_salary} onChange={e => setFormData({...formData, basic_salary: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2.5 focus:border-blue-500 outline-none" />
                         </div>
                         <div>
                             <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ التعيين</label>

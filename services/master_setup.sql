@@ -87,6 +87,11 @@ BEGIN
             ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
             ALTER COLUMN name DROP NOT NULL,
             ALTER COLUMN full_name DROP NOT NULL;
+
+        -- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع كافة مديولات النظام
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='employees' AND column_name='salary') THEN
+            ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+        END IF;
     END IF;
 
     -- 🛡️ ترميم جدول الفواتير (Invoices Healing)
@@ -1037,7 +1042,7 @@ CREATE TABLE IF NOT EXISTS public.employees (
     position text,
     phone text,
     email text,
-    salary numeric DEFAULT 0,
+    basic_salary numeric DEFAULT 0,
     hire_date date,
     department text,
     notes text,              -- 🛠️ الإصلاح المطلوب لخطأ السكيما

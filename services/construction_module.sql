@@ -112,6 +112,19 @@ BEGIN
         ALTER TABLE public.project_boq ADD COLUMN profit_margin_pct NUMERIC(5,2) DEFAULT 0;
     END IF;
 
+    -- 🛡️ توحيد مسمى الراتب الأساسي (لضمان عمل ترحيل العمالة)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='employees' AND column_name='salary') THEN
+        ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+    END IF;
+
+    -- 🛡️ ترميم جدول المراحل الزمنية لضمان توافق المسميات (Milestones Naming Sync)
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='project_milestones' AND column_name='projectId') THEN
+        ALTER TABLE public.project_milestones RENAME COLUMN "projectId" TO project_id;
+    END IF;
+
+    -- 🚀 تنشيط ذاكرة المخطط فوراً (Force Schema Cache Reload)
+    EXECUTE 'NOTIFY pgrst, ''reload config''';
+
     -- تحديث المستخلصات لتشمل الضرائب وتواريخ الفك
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_progress_billings' AND column_name='advance_deduction') THEN
         ALTER TABLE public.project_progress_billings ADD COLUMN advance_deduction NUMERIC(15,2) DEFAULT 0;
@@ -1082,9 +1095,9 @@ BEGIN
     FROM public.projects WHERE id = p_project_id;
 
     -- 🚀 [تطوير V1.2]: تحديث معدل الساعة لحظياً من ملف الموظف قبل الجمع لضمان الدقة المالية
-    -- نستخدم COALESCE لضمان عدم فقدان قيمة hourly_rate المدخلة من الواجهة إذا لم يكن للموظف معدل ساعة أو راتب محدد
+    -- تم إضافة NULLIF لتجاهل الأصفار والبحث عن أول قيمة حقيقية أكبر من الصفر
     UPDATE public.project_site_attendance psa
-    SET hourly_rate = COALESCE(e.hourly_rate, (e.salary / 240.0), psa.hourly_rate, 0)
+    SET hourly_rate = COALESCE(NULLIF(e.hourly_rate, 0), NULLIF(e.basic_salary / 240.0, 0), NULLIF(psa.hourly_rate, 0), 0)
     FROM public.employees e WHERE psa.employee_id = e.id
     AND psa.project_id = p_project_id AND psa.attendance_date = p_attendance_date AND psa.status = 'draft';
 
@@ -1115,8 +1128,8 @@ BEGIN
         IF v_accrued_sal_acc IS NULL OR v_project_acc IS NULL THEN RAISE EXCEPTION 'فشل الترحيل: حساب الأجور أو مركز التكلفة غير معرف.'; END IF;
 
         -- إنشاء القيد المحاسبي المزدوج
-        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
-        VALUES (p_attendance_date, 'إثبات أجور عمالة موقع - مشروع ' || (SELECT name FROM public.projects WHERE id = p_project_id), 'SITE-LAB-' || substring(p_project_id::text, 1, 4), 'posted', v_org_id, true, p_project_id, 'site_attendance')
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
+        VALUES (p_attendance_date, 'إثبات أجور عمالة موقع - مشروع ' || (SELECT name FROM public.projects WHERE id = p_project_id), 'SITE-LAB-' || substring(p_project_id::text, 1, 4), 'posted', v_org_id, p_project_id, 'site_attendance', true)
         RETURNING id INTO v_je_id;
 
         -- مدين: تكاليف المشروع | دائن: أجور مستحقة
@@ -1128,10 +1141,8 @@ BEGIN
         UPDATE public.project_site_attendance SET status = 'approved', related_journal_entry_id = v_je_id 
         WHERE project_id = p_project_id AND attendance_date = p_attendance_date;
     ELSE
-        -- إذا كانت التكلفة الإجمالية 0 (مثلاً، ساعات العمل 0 أو معدل الساعة 0)،
-        -- يجب تحديث الحالة إلى 'approved' لمنع إعادة المعالجة، ولكن لا يتم إنشاء قيد محاسبي.
-        UPDATE public.project_site_attendance SET status = 'approved'
-        WHERE project_id = p_project_id AND attendance_date = p_attendance_date AND status = 'draft';
+        -- 🛡️ منع الترحيل الصامت للتكلفة الصفرية وتنبيه المستخدم
+        RAISE EXCEPTION '⚠️ لا يمكن ترحيل تكلفة صفرية. يرجى التأكد من وجود "راتب أساسي" للموظف (مهندس صلاح) في ملفه الشخصي أولاً.';
     END IF;
 END;
 $$;
