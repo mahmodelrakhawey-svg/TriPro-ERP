@@ -198,7 +198,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             supabase.from('sales_returns').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
             supabase.from('receipt_vouchers').select('amount').eq('customer_id', formData.customerId).not('voucher_number', 'like', 'DEP-%'),
             supabase.from('credit_notes').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
-            supabase.from('cheques').select('amount').eq('party_id', formData.customerId).eq('type', 'incoming').neq('status', 'rejected'),
+            supabase.from('cheques').select('amount, status').eq('party_id', formData.customerId).eq('type', 'incoming'),
             supabase.from('journal_lines')
               .select('debit, credit, journal_entries!inner(description, status, related_document_id)')
               .eq('journal_entries.status', 'posted')
@@ -219,6 +219,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
           const restOrdersDebit = restOrders.data?.reduce((sum, o) => sum + (Number(o.subtotal) + Number(o.total_tax)), 0) || 0;
 
+          const activeChequesCredit = chq.data?.filter(c => c.status !== 'rejected')?.reduce((sum, cq) => sum + Number(cq.amount), 0) || 0;
+
           const debit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + 
                         opening + 
                         manualDebit + 
@@ -227,7 +229,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           const credit = (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
                          (rec.data?.reduce((sum, rc) => sum + Number(rc.amount), 0) || 0) +
                          (cn.data?.reduce((sum, c) => sum + Number(c.total_amount), 0) || 0) +
-                         (chq.data?.reduce((sum, cq) => sum + Number(cq.amount), 0) || 0) + 
+                         activeChequesCredit + 
                          manualCredit + 
                          restPaymentsCredit;
 

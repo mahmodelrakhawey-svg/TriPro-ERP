@@ -261,11 +261,30 @@ export const ChequesPage = () => {
   };
 
   const handleRejectCheque = async (cheque: any) => {
-      if (!window.confirm('هل أنت متأكد من رفض هذا الشيك؟ سيتم إنشاء قيد عكسي لإعادة المديونية/الدائنية.')) return;
+      const rejectionReason = prompt(`الرجاء إدخال سبب رفض الشيك رقم ${cheque.cheque_number}:`);
+      if (!rejectionReason) {
+          showToast('سبب الرفض مطلوب لإتمام العملية محاسبياً.', 'warning');
+          return;
+      }
       
       try {
-          const actionDate = new Date().toISOString().split('T')[0];
-          await updateChequeStatus(cheque.id, 'rejected', actionDate);
+          if (cheque.type === 'incoming') {
+              // استدعاء الدالة الذكية لإنشاء القيد العكسي آلياً: من ح/ العملاء إلى ح/ أوراق القبض
+              const { error } = await supabase.rpc('reject_incoming_cheque', {
+                  p_cheque_id: cheque.id,
+                  p_rejection_reason: rejectionReason,
+                  p_user_id: currentUser?.id
+              });
+              if (error) throw error;
+          } else {
+              // استدعاء الدالة لرفض الشيكات الصادرة: من ح/ أوراق الدفع إلى ح/ الموردين
+              const { error } = await supabase.rpc('reject_outgoing_cheque', {
+                  p_cheque_id: cheque.id,
+                  p_rejection_reason: rejectionReason,
+                  p_user_id: currentUser?.id
+              });
+              if (error) throw error;
+          }
           
           // إشعار المورد عند رفض شيك صادر
           if (cheque.type === 'outgoing') {
@@ -280,6 +299,7 @@ export const ChequesPage = () => {
               }
           }
 
+          showToast('تم رفض الشيك بنجاح وتوليد القيد العكسي في دفتر اليومية ✅', 'success');
           fetchData();
       } catch (err: any) {
           showToast('خطأ: ' + err.message, 'error');

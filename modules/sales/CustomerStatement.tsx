@@ -101,10 +101,9 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             .eq('status', 'posted'); // Assuming credit notes have a status
         // 5. Fetch Cheques (Credit)
         const { data: cheques } = await supabase.from('cheques')
-            .select('id, cheque_number, due_date, amount, created_at, related_journal_entry_id')
+            .select('id, cheque_number, due_date, amount, created_at, related_journal_entry_id, status')
             .eq('party_id', selectedCustomerId)
-            .eq('type', 'incoming')
-            .neq('status', 'rejected');
+            .eq('type', 'incoming');
 
         // 6. Fetch Restaurant Orders (Debit) - جلب طلبات المطعم (توصيل/سفري/محلي)
         const { data: restOrders } = await supabase.from('orders')
@@ -186,7 +185,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
         cheques?.forEach(chq => allTrans.push({
             id: chq.id,
-            date: chq.created_at ? chq.created_at.split('T')[0] : chq.due_date, 
+            date: chq.created_at ? chq.created_at.split('T')[0] : chq.due_date,
             type: 'receipt', 
             ref: chq.cheque_number, 
             desc: `شيك رقم ${chq.cheque_number}`, 
@@ -194,6 +193,10 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             credit: chq.amount,
             isPosted: !!chq.related_journal_entry_id
         }));
+
+        // ملاحظة للمحاسب: تم تعطيل الإضافة اليدوية هنا لأن الدالة الجديدة 
+        // تقوم بإنشاء قيد يومية فعلي سيتم التقاطه تلقائياً في قسم filteredManual
+        // cheques?.filter(c => c.status === 'rejected')?.forEach(chq => ...
 
         // إضافة حركات المطعم (مدين)
         restOrders?.forEach(ord => {
