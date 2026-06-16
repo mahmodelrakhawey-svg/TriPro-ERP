@@ -117,7 +117,8 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_order_items') THEN ALTER TABLE public.sales_order_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mfg_actual_material_usage') THEN ALTER TABLE public.mfg_actual_material_usage ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'stock_transfer_items') THEN ALTER TABLE public.stock_transfer_items ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id); END IF;
-    
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'customers') THEN ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true; END IF;
+   
     -- 🛡️ إضافة سياسات الأمان للوحدات
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'uoms') THEN
         EXECUTE 'CREATE POLICY "Org_Access_Policy_uoms" ON public.uoms FOR ALL TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'')';
@@ -144,14 +145,31 @@ END; $$;
 
 CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _org_id uuid;
+DECLARE _role text;
+DECLARE _user_id uuid := auth.uid();
 BEGIN
-    -- الأولوية لبيانات التوكن (JWT) لسرعة الأداء في الـ RLS
-    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+    -- 1. الأولوية لـ org_id في التوكن (JWT Claims) لسرعة الأداء ودعم التبديل بين الشركات
+    _org_id := COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid,
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid
+    );
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
     
-    -- Fallback للبحث في البروفايل
-    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = auth.uid() LIMIT 1;
-    RETURN _org_id;
+    -- 2. Fallback: جلب المنظمة من البروفايل (المصدر الثابت)
+    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+
+    -- 3. [جديد] إذا كان المستخدم موثقاً ودوره 'admin' (وليس 'super_admin') ولم يتم تحديد منظمة بعد،
+    -- ابحث عن أول منظمة يكون هذا المستخدم مديراً لها في جدول الأدوار.
+    IF _user_id IS NOT NULL AND _role = 'admin' AND _org_id IS NULL THEN
+        SELECT r.organization_id INTO _org_id
+        FROM public.roles r JOIN public.role_permissions rp ON r.id = rp.role_id JOIN public.permissions p ON rp.permission_id = p.id
+        WHERE r.organization_id IS NOT NULL AND r.name = 'admin' AND p.module = 'admin' AND p.action = 'manage' LIMIT 1;
+        IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    END IF;
+
+    RETURN NULL;
+
 END; $$;
 
 -- 🛠️ دالة تحويل الكميات بين الوحدات (UoM Conversion Logic)
@@ -1522,6 +1540,7 @@ BEGIN
     IF NOT p_skip_recalc THEN
         PERFORM public.recalculate_stock_rpc(v_org_id);
     END IF;
+    PERFORM public.recalculate_all_system_balances(v_org_id); -- 🚀 تحديث أرصدة العملاء والموردين
 END; $$;
 
 -- 🛠️ دالة ترحيل فاتورة المشتريات (Approve Purchase Invoice) - V50.0
@@ -2352,25 +2371,29 @@ GRANT EXECUTE ON FUNCTION public.clean_load_test_data(UUID) TO authenticated;
 -- 🛡️ [V51.0] رادار نزاهة النظام الشامل (Global ERP Health Monitor)
 -- الغرض: التأكد من أن النظام متماسك برمجياً ومحاسبياً 100%
 -- 🛡️ [V51.1] رادار نزاهة النظام المطور (Enhanced Reliability Radar)
+-- [تحديث SaaS]: تم تحويل الرؤية لتكون متوافقة مع تعدد الشركات لضمان عزل الإحصائيات
 DROP VIEW IF EXISTS public.v_global_system_health CASCADE;
 CREATE OR REPLACE VIEW public.v_global_system_health AS
 WITH stats AS (
     SELECT 
-        (SELECT COUNT(*) FROM public.journal_entries) as total_je,
-        (SELECT COUNT(*) FROM (SELECT journal_entry_id FROM public.journal_lines GROUP BY journal_entry_id HAVING ABS(SUM(debit - credit)) > 0.01) t) as unbalanced,
-        (SELECT COUNT(*) FROM public.products) as total_products,
-        (SELECT COUNT(*) FROM public.products WHERE stock < 0) as neg_stock,
-        (SELECT COUNT(*) FROM public.journal_lines) as total_lines,
-        (SELECT COUNT(*) FROM public.journal_lines WHERE journal_entry_id NOT IN (SELECT id FROM public.journal_entries)) as orphans
+        o.id as organization_id,
+        (SELECT COUNT(*) FROM public.journal_entries je WHERE je.organization_id = o.id) as total_je,
+        (SELECT COUNT(*) FROM (SELECT journal_entry_id FROM public.journal_lines jl2 WHERE jl2.organization_id = o.id GROUP BY journal_entry_id HAVING ABS(SUM(debit - credit)) > 0.01) t) as unbalanced,
+        (SELECT COUNT(*) FROM public.products p WHERE p.organization_id = o.id) as total_products,
+        (SELECT COUNT(*) FROM public.products p WHERE p.organization_id = o.id AND stock < 0) as neg_stock,
+        (SELECT COUNT(*) FROM public.journal_lines jl WHERE jl.organization_id = o.id) as total_lines,
+        (SELECT COUNT(*) FROM public.journal_lines jl WHERE jl.organization_id = o.id AND journal_entry_id NOT IN (SELECT id FROM public.journal_entries)) as orphans
+    FROM public.organizations o
 )
 SELECT 
-    (SELECT COUNT(*) FROM public.organizations) as total_companies,
-    (SELECT COUNT(*) FROM public.profiles WHERE is_active = true) as active_users,
+    organization_id,
+    (SELECT COUNT(*) FROM public.profiles p WHERE p.organization_id = stats.organization_id AND p.is_active = true) as active_users,
     unbalanced as unbalanced_vouchers_count,
     neg_stock as negative_stock_items,
     orphans as orphaned_ledger_lines,
     total_je as total_financial_transactions,
-    (SELECT COUNT(*) FROM public.invoices) + (SELECT COUNT(*) FROM public.orders) as total_sales_documents,
+    (SELECT COUNT(*) FROM public.invoices i WHERE i.organization_id = stats.organization_id) + 
+    (SELECT COUNT(*) FROM public.orders ord WHERE ord.organization_id = stats.organization_id) as total_sales_documents,
     -- 🏆 مؤشر موثوقية النظام (أهم رقم للتسويق)
     CASE 
         WHEN total_je = 0 AND orphans = 0 AND neg_stock = 0 THEN 100.00
@@ -2470,7 +2493,7 @@ BEGIN
     v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_target_org_id LIMIT 1));
     
     -- جلب درجة الموثوقية من الرادار
-    SELECT reliability_score INTO v_reliability_score FROM public.v_global_system_health;
+    SELECT reliability_score INTO v_reliability_score FROM public.v_global_system_health WHERE organization_id = v_target_org_id;
 
     -- 1. Current Month Sales (Net Revenue from GL to match Income Statement)
     -- 🛡️ [إصلاح] استخدام ميزان المراجعة للحصول على صافي الإيرادات (بعد المرتجعات) بدلاً من إجمالي الفواتير
@@ -2992,6 +3015,27 @@ EXCEPTION WHEN OTHERS THEN
 END; $$;
 
 GRANT EXECUTE ON FUNCTION public.run_global_system_repair(uuid) TO authenticated;
+
+-- 📊 دالة جلب العملاء المتجاوزين لحد الائتمان
+DROP FUNCTION IF EXISTS public.get_over_limit_customers(uuid);
+CREATE OR REPLACE FUNCTION public.get_over_limit_customers(p_org_id uuid)
+RETURNS TABLE (
+    id uuid,
+    name text,
+    total_debt numeric,
+    credit_limit numeric
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT c.id, c.name, c.balance, c.credit_limit
+    FROM public.customers c
+    WHERE c.organization_id = p_org_id AND c.balance > c.credit_limit AND c.balance > 0 AND (c.deleted_at IS NULL);
+END;
+$$;
+GRANT EXECUTE ON FUNCTION public.get_over_limit_customers(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.purge_deleted_records() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.fix_returns_schema() TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_dashboard_stats(uuid) TO authenticated;

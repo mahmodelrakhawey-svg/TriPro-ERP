@@ -3,17 +3,26 @@ import { supabase } from '../supabaseClient';
 import { ArrowRight, ShieldAlert, TrendingDown } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-export const DashboardAlerts = () => {
+export const DashboardAlerts = ({ orgId }: { orgId?: string }) => {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchAlerts = async () => {
+      // 🛡️ صمام أمان: لا تحاول جلب التنبيهات إذا لم يتم تحديد شركة (حالة السوبر أدمن عند الدخول)
+      if (!orgId) {
+        setAlerts([]);
+        setLoading(false);
+        return;
+      }
+
       try {
         // جلب المشاريع النشطة التي تعاني من انحراف في التكاليف (CPI < 1)
+        // 🚀 تم إضافة فلتر المنظمة لضمان عدم ظهور مشاريع شركات أخرى للسوبر أدمن
         const { data, error } = await supabase
           .from('v_project_performance_dashboard')
           .select('*')
+          .eq('organization_id', orgId)
           .lt('cpi', 0.9); // إنذار مبكر عند انخفاض الكفاءة تحت 90%
 
         if (error) throw error;
@@ -26,7 +35,7 @@ export const DashboardAlerts = () => {
     };
 
     fetchAlerts();
-  }, []);
+  }, [orgId]); // 🔄 التحديث التلقائي عند تبديل الشركة في السايدبار
 
   if (loading || alerts.length === 0) return null;
 

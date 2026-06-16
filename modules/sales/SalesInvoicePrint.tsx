@@ -45,15 +45,15 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
         <div className="flex gap-8">
             <div>
                 <span className="block text-xs text-slate-500 font-bold mb-1">رقم الفاتورة</span>
-                <span className="text-xl font-black font-mono">{invoice.invoiceNumber}</span>
+                <span className="text-xl font-black font-mono">{invoice.invoiceNumber || invoice.invoice_number}</span>
             </div>
             <div>
                 <span className="block text-xs text-slate-500 font-bold mb-1">التاريخ</span>
-                <span className="text-xl font-bold">{invoice.date}</span>
+                <span className="text-xl font-bold">{invoice.date || invoice.invoice_date}</span>
             </div>
             <div>
                 <span className="block text-xs text-slate-500 font-bold mb-1">العميل</span>
-                <span className="text-lg font-bold">{invoice.customerName}</span>
+                <span className="text-lg font-bold">{invoice.customerName || invoice.customers?.name || invoice.customer_name}</span>
             </div>
         </div>
         <div className="text-left">
@@ -81,7 +81,7 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
                     <td className="py-3 px-4 font-bold">{item.productName || item.products?.name || 'N/A'}</td>
                     <td className="py-3 px-4 text-center">{item.uomName || '-'}</td>
                     <td className="py-3 px-4 text-center">{Number(item.quantity).toLocaleString()}</td>
-                    <td className="py-3 px-4 text-center">{Number(item.unitPrice || item.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="py-3 px-4 text-center">{Number(item.unitPrice || item.price || item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     <td className="py-3 px-4 text-center font-bold">{Number(item.total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
             ))}
@@ -93,25 +93,25 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
         <div className="w-1/3 space-y-2">
             <div className="flex justify-between text-slate-600">
                 <span>الإجمالي قبل الضريبة:</span>
-                <span className="font-bold">{Number(invoice.subtotal).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-bold">{Number(invoice.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
             <div className="flex justify-between text-slate-600">
-                <span>ضريبة القيمة المضافة (15%):</span>
-                <span className="font-bold">{Number(invoice.taxAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span>ضريبة القيمة المضافة ({((companySettings?.vat_rate || 0.14) * 100).toFixed(0)}%):</span>
+                <span className="font-bold">{Number(invoice.taxAmount || invoice.tax_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
             <div className="flex justify-between text-slate-900 text-xl font-black border-t-2 border-slate-800 pt-2">
                 <span>الإجمالي النهائي:</span>
-                <span>{Number(invoice.totalAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {invoice.currency || 'EGP'}</span>
+                <span>{Number(invoice.totalAmount || invoice.total_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {invoice.currency || 'EGP'}</span>
             </div>
             <div className="text-center pt-2 border-t border-slate-200 mt-2">
-                <p className="text-sm font-bold text-slate-600">{tafqeet(Number(invoice.totalAmount), invoice.currency || 'EGP')}</p>
+                <p className="text-sm font-bold text-slate-600">{tafqeet(Number(invoice.totalAmount || invoice.total_amount || 0), invoice.currency || 'EGP')}</p>
             </div>
         </div>
       </div>
 
       {/* Footer */}
       <div className="mt-auto pt-8 border-t border-slate-200 text-center text-xs text-slate-400">
-        <p>شكراً لتعاملكم معنا</p>
+        <p className="text-base font-bold text-slate-800 mb-1">{companySettings?.footer_text || 'شكراً لتعاملكم معنا'}</p>
         <p className="mt-1">{new Date().toLocaleString('ar-EG')}</p>
       </div>
     </div>

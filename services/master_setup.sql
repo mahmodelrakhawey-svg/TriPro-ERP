@@ -357,25 +357,32 @@ END; $$;
 CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE _org_id uuid;
 DECLARE _role text;
+DECLARE _user_id uuid := auth.uid();
 BEGIN
-    -- 1. جلب المنظمة والدور من البروفايل مباشرة (المصدر الأكثر ثقة)
-    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    -- 1. الأولوية لـ org_id في التوكن (JWT Claims) لسرعة الأداء ودعم التبديل بين الشركات
+    _org_id := COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid,
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid
+    );
+
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
 
-    -- 2. السوبر أدمن: البحث في التوكن (في حال كان يتنقل بين الشركات)
-    _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid;
+   -- 2. Fallback: جلب المنظمة من البروفايل (المصدر الثابت)
+    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = _user_id LIMIT 1;
     IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
 
-    -- 🛡️ صمام أمان: إذا كان المستخدم موثقاً ولم يتم تحديد منظمة، ارفع خطأ
-    -- 🚀 تحديث: التحقق المزدوج من الدور لمنع الخطأ عند السوبر أدمن
-    IF _org_id IS NULL AND auth.uid() IS NOT NULL THEN
-        -- إذا لم نجد الدور في المتغير، نجلب الدور العام
-        _role := COALESCE(_role, public.get_my_role());
-        IF _role NOT IN ('super_admin', 'owner', 'demo') THEN
-            RAISE EXCEPTION 'فشل تحديد المنظمة للمستخدم الموثق. يرجى التأكد من ربط المستخدم بمنظمة.';
-        END IF;
-    END IF;
-    RETURN _org_id;
+    -- 3. [جديد] إذا كان المستخدم موثقاً ودوره 'admin' (وليس 'super_admin') ولم يتم تحديد منظمة بعد，
+    -- ابحث عن أول منظمة يكون هذا المستخدم مديراً لها في جدول الأدوار.
+    -- هذا يعالج حالة "المدير العالمي" الذي يدخل لشركة معينة دون أن يكون organization_id في البروفايل أو الـ JWT.
+    IF _user_id IS NOT NULL AND _role = 'admin' AND _org_id IS NULL THEN
+        SELECT r.organization_id INTO _org_id
+        FROM public.roles r
+        JOIN public.role_permissions rp ON r.id = rp.role_id
+        JOIN public.permissions p ON rp.permission_id = p.id
+        WHERE r.organization_id IS NOT NULL AND r.name = 'admin' AND p.module = 'admin' AND p.action = 'manage'
+        LIMIT 1;
+        IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    END IF;    RETURN NULL;
 END; $$;
 
 CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$

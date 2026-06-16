@@ -233,10 +233,10 @@ DECLARE
 BEGIN
     FOREACH t IN ARRAY tables_with_org_id LOOP
         EXECUTE format('DROP POLICY IF EXISTS "Org_Access_Policy_%I" ON public.%I;', t, t);
-        -- Policy for regular users: scoped to their organization
+        -- Policy for regular users: scoped to their organization, or super_admin bypass
         EXECUTE format('CREATE POLICY "Org_Access_Policy_%I" ON public.%I FOR ALL TO authenticated 
-            USING (organization_id = public.get_my_org()) 
-            WITH CHECK (organization_id = public.get_my_org());', 
+            USING (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'') 
+            WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = ''super_admin'');', 
             t, t);
     END LOOP;
 END $$;
@@ -250,7 +250,11 @@ CREATE POLICY "Org_Select_Policy" ON organizations FOR SELECT TO authenticated U
 -- 3. البيانات الأساسية (Products, Customers, Suppliers, Accounts)
 -- السوبر أدمن يرى الجميع، والمستخدم يرى بيانات منظمته فقط
 
-
+-- Policy for organizations table: allows admins to update their own org, and super_admins to update any
+DROP POLICY IF EXISTS "Org_Update_Policy" ON public.organizations;
+CREATE POLICY "Org_Update_Policy" ON public.organizations FOR UPDATE TO authenticated
+USING (id = public.get_my_org() OR public.get_my_role() = 'super_admin')
+WITH CHECK (id = public.get_my_org() OR public.get_my_role() = 'super_admin');
 -- إضافة سياسة إدارة المطبخ المفقودة
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kitchen_orders') THEN
@@ -403,3 +407,31 @@ CREATE POLICY "Public_Category_Read_Policy" ON public.item_categories FOR SELECT
 
 DROP POLICY IF EXISTS "Public_UoM_Read_Policy" ON public.uoms;
 CREATE POLICY "Public_UoM_Read_Policy" ON public.uoms FOR SELECT TO anon USING (true);
+
+-- =================================================================
+-- 📦 سياسات تخزين الشعارات (Supabase Storage RLS)
+-- =================================================================
+-- الغرض: السماح برفع شعارات الشركات وتحديثها من قبل المديرين
+
+-- 1. التأكد من وجود الحاوية (Bucket) وإعدادها كـ Public
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('logos', 'logos', true)
+ON CONFLICT (id) DO UPDATE SET public = true;
+
+-- 3. سياسة القراءة: الجميع (بما في ذلك الزوار) يمكنهم رؤية الشعارات
+DROP POLICY IF EXISTS "Logo_Public_Read" ON storage.objects;
+CREATE POLICY "Logo_Public_Read" ON storage.objects FOR SELECT TO public 
+USING (bucket_id = 'logos');
+
+-- 4. سياسة الرفع والتعديل: مخصصة للمدير (Admin) والسوبر أدمن فقط
+DROP POLICY IF EXISTS "Logo_Admin_Manage" ON storage.objects;
+CREATE POLICY "Logo_Admin_Manage" ON storage.objects 
+FOR ALL TO authenticated 
+USING (
+    bucket_id = 'logos' 
+    AND (public.get_my_role() = 'super_admin' OR public.get_my_role() = 'admin')
+)
+WITH CHECK (
+    bucket_id = 'logos' 
+    AND (public.get_my_role() = 'super_admin' OR public.get_my_role() = 'admin')
+);

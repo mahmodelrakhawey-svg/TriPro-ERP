@@ -54,6 +54,9 @@ const Dashboard = () => {
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [newSalesTarget, setNewSalesTarget] = useState('');
 
+  // 🛡️ تحديد معرف الشركة النشط ليتم استخدامه في الاستعلامات والـ JSX لضمان عزل البيانات (SaaS Isolation)
+  const orgId = currentUser?.role === 'super_admin' ? currentSelectedOrgId : (currentUser as any)?.organization_id;
+
   const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#64748b'];
 
   // دالة حساب إحصائيات الشهر الحالي محلياً لضمان الدقة 100%
@@ -61,10 +64,7 @@ const Dashboard = () => {
     // Effect for non-demo (real) users, relies on RPC
     const fetchRealData = async () => {
       if (currentUser && currentUser.role !== 'demo') {
-        // 🛡️ تحديد معرف الشركة: إذا كان سوبر أدمن نأخذ الشركة المختارة من السايدبار، وإذا كان أدمن نأخذ شركته الثابتة
-        const orgId = currentUser.role === 'super_admin' ? currentSelectedOrgId : (currentUser as any)?.organization_id;
-
-        // 🛑 صمام أمان: إذا لم يتم تحديد شركة بعد (حالة السوبر أدمن عند الدخول الأول)، لا تحاول جلب البيانات
+        //  صمام أمان: إذا لم يتم تحديد شركة بعد (حالة السوبر أدمن عند الدخول الأول)، لا تحاول جلب البيانات
         if (!orgId) {
             setLoading(false);
             // تصفير الإحصائيات لعدم عرض بيانات قديمة من شركة أخرى لضمان النزاهة
@@ -435,8 +435,12 @@ const Dashboard = () => {
                 </div>
             )}
 
-            {/* 🏗️ تنبيهات تجاوز الميزانية للمقاولات */}
-            <DashboardAlerts />
+            {/* 🏗️ تنبيهات تجاوز الميزانية للمقاولات - تظهر فقط إذا كان المديول مفعلاً وهناك مشاريع نشطة */}
+            {stats.activeProjectsCount > 0 && (
+                <div className="animate-in slide-in-from-top-4 duration-700">
+                    <DashboardAlerts orgId={orgId} />
+                </div>
+            )}
 
             {/* Stats Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 dashboard-stats">
