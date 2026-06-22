@@ -189,51 +189,63 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               return;
           }
 
-          // 🚀 تحديث: استخدام منطق الحساب الشامل لضمان مطابقة الرصيد مع كشف الحساب
           const customer: any = customers.find(c => c.id === formData.customerId);
-          const opening = Number(customer?.opening_balance || 0);
-
-          const [inv, ret, rec, cn, chq, manual, restOrders] = await Promise.all([
-            supabase.from('invoices').select('total_amount, paid_amount').eq('customer_id', formData.customerId).neq('status', 'draft'),
-            supabase.from('sales_returns').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
-            supabase.from('receipt_vouchers').select('amount').eq('customer_id', formData.customerId).not('voucher_number', 'like', 'DEP-%'),
-            supabase.from('credit_notes').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
-            supabase.from('cheques').select('amount, status').eq('party_id', formData.customerId).eq('type', 'incoming'),
-            supabase.from('journal_lines')
-              .select('debit, credit, journal_entries!inner(description, status, related_document_id)')
-              .eq('journal_entries.status', 'posted')
-              .filter('journal_entries.description', 'ilike', `%${customer?.name}%`),
-            supabase.from('orders').select('id, subtotal, total_tax').eq('customer_id', formData.customerId).neq('status', 'CANCELLED'),
-          ]);
-
-          let restPaymentsCredit = 0;
-          if (restOrders.data && restOrders.data.length > 0) {
-            const { data: pData } = await supabase.from('payments')
-              .select('amount')
-              .in('order_id', restOrders.data.map(o => o.id));
-            restPaymentsCredit = pData?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+          if (!customer) {
+              setCustomerBalance(0);
+              return;
           }
 
-          const manualDebit = manual.data?.reduce((sum, m) => sum + Number(m.debit), 0) || 0;
-          const manualCredit = manual.data?.reduce((sum, m) => sum + Number(m.credit), 0) || 0;
+          const customerAcc = getSystemAccount('CUSTOMERS');
+          if (!customerAcc) {
+              console.error("Customer A/R account not found for balance calculation.");
+              setCustomerBalance(0);
+              return;
+          }
 
-          const restOrdersDebit = restOrders.data?.reduce((sum, o) => sum + (Number(o.subtotal) + Number(o.total_tax)), 0) || 0;
+          // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + القيود اليدوية التي تذكر اسمه
+          const [
+              invRes, recRes, retRes, cnRes, chqRes, ordRes,
+              manualEntriesRes // Fetch manual entries that mention the customer
+          ] = await Promise.all([
+              supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+              supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+              supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+              supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+              supabase.from('cheques').select('related_journal_entry_id').eq('party_id', customer.id).eq('type', 'incoming').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+              supabase.from('orders').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+              supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${customer.name}%`)
+          ]);
 
-          const activeChequesCredit = chq.data?.filter(c => c.status !== 'rejected')?.reduce((sum, cq) => sum + Number(cq.amount), 0) || 0;
+          const allEntryIds = new Set<string>();
+          invRes.data?.forEach(i => i.related_journal_entry_id && allEntryIds.add(i.related_journal_entry_id));
+          recRes.data?.forEach(r => r.related_journal_entry_id && allEntryIds.add(r.related_journal_entry_id));
+          retRes.data?.forEach(r => r.related_journal_entry_id && allEntryIds.add(r.related_journal_entry_id));
+          cnRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
+          chqRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
+          ordRes.data?.forEach(o => o.related_journal_entry_id && allEntryIds.add(o.related_journal_entry_id));
+          manualEntriesRes.data?.forEach(je => allEntryIds.add(je.id)); // Add IDs from manual entries
 
-          const debit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + 
-                        opening + 
-                        manualDebit + 
-                        restOrdersDebit;
+          let movement = 0;
+          if (allEntryIds.size > 0) {
+              const { data: ledgerLines } = await supabase.from('journal_lines')
+                .select('debit, credit')
+                .in('journal_entry_id', Array.from(allEntryIds))
+                .eq('account_id', customerAcc.id);
 
-          const credit = (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
-                         (rec.data?.reduce((sum, rc) => sum + Number(rc.amount), 0) || 0) +
-                         (cn.data?.reduce((sum, c) => sum + Number(c.total_amount), 0) || 0) +
-                         activeChequesCredit + 
-                         manualCredit + 
-                         restPaymentsCredit;
+              movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.debit) - Number(l.credit)), 0) || 0;
+          }
+          
+          // Add unposted restaurant sales (if any)
+          const { data: openOrders } = await supabase.from('orders')
+            .select('grand_total')
+            .eq('customer_id', customer.id)
+            .eq('organization_id', userOrgId)
+            .is('related_journal_entry_id', null)
+            .neq('status', 'CANCELLED');
 
-            setCustomerBalance(debit - credit);
+          const unpostedRestaurantSales = openOrders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
+
+          setCustomerBalance(Number(customer.opening_balance || 0) + movement + unpostedRestaurantSales);
 
             // 🔍 التحقق من الفواتير المتأخرة
             const { data: overdueData } = await supabase

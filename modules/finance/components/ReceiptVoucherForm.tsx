@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -52,46 +52,71 @@ const ReceiptVoucherForm = () => {
       if (!formData.customerId) { setDynamicBalance(null); return; }
       
       const customer: any = customers.find(c => c.id === formData.customerId);
-      const opening = Number(customer?.opening_balance || 0);
+      if (!customer) return;
 
-      const [inv, ret, rec, cn, chq, manual, restOrders, restPayments] = await Promise.all([
-        supabase.from('invoices').select('total_amount, paid_amount').eq('customer_id', formData.customerId).neq('status', 'draft'),
-        supabase.from('sales_returns').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
-        supabase.from('receipt_vouchers').select('amount').eq('customer_id', formData.customerId).not('voucher_number', 'like', 'DEP-%'),
-        supabase.from('credit_notes').select('total_amount').eq('customer_id', formData.customerId).eq('status', 'posted'),
-        supabase.from('cheques').select('amount').eq('party_id', formData.customerId).eq('type', 'incoming').neq('status', 'rejected'),
-        supabase.from('journal_lines')
-          .select('debit, credit, journal_entries!inner(description, status, related_document_id)')
-          .eq('journal_entries.status', 'posted')
-          .filter('journal_entries.description', 'ilike', `%${customer?.name}%`),
-        supabase.from('orders').select('subtotal, total_tax').eq('customer_id', formData.customerId).neq('status', 'CANCELLED'),
-        // إصلاح جلب مدفوعات المطعم عبر معرفات الطلبات الخاصة بالعميل
-        supabase.from('payments').select('amount, orders!inner(customer_id)')
-          .eq('orders.customer_id', formData.customerId)
+      // Get user's organization ID
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) {
+          console.error("Organization ID not found for balance calculation.");
+          setDynamicBalance(null);
+          return;
+      }
+
+      const customerAcc = getSystemAccount('CUSTOMERS');
+      if (!customerAcc) {
+          console.error("Customer A/R account not found for balance calculation.");
+          setDynamicBalance(null);
+          return;
+      }
+
+      // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + القيود اليدوية التي تذكر اسمه
+      const [
+          invRes, recRes, retRes, cnRes, chqRes, ordRes,
+          manualEntriesRes // Fetch manual entries that mention the customer
+      ] = await Promise.all([
+          supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+          supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+          supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+          supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+          supabase.from('cheques').select('related_journal_entry_id').eq('party_id', customer.id).eq('type', 'incoming').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+          supabase.from('orders').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+          supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${customer.name}%`)
       ]);
 
-      const manualDebit = manual.data?.reduce((sum, m) => sum + Number(m.debit), 0) || 0;
-      const manualCredit = manual.data?.reduce((sum, m) => sum + Number(m.credit), 0) || 0;
+      const allEntryIds = new Set<string>();
+      invRes.data?.forEach(i => i.related_journal_entry_id && allEntryIds.add(i.related_journal_entry_id));
+      recRes.data?.forEach(r => r.related_journal_entry_id && allEntryIds.add(r.related_journal_entry_id));
+      retRes.data?.forEach(r => r.related_journal_entry_id && allEntryIds.add(r.related_journal_entry_id));
+      cnRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
+      chqRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
+      ordRes.data?.forEach(o => o.related_journal_entry_id && allEntryIds.add(o.related_journal_entry_id));
+      manualEntriesRes.data?.forEach(je => allEntryIds.add(je.id)); // Add IDs from manual entries
 
-      const restOrdersDebit = restOrders.data?.reduce((sum, o) => sum + (Number(o.subtotal) + Number(o.total_tax)), 0) || 0;
-      const restPaymentsCredit = restPayments.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0;
+      let movement = 0;
+      if (allEntryIds.size > 0) {
+          const { data: ledgerLines } = await supabase.from('journal_lines')
+            .select('debit, credit')
+            .in('journal_entry_id', Array.from(allEntryIds))
+            .eq('account_id', customerAcc.id);
 
-      const debit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + 
-                    opening + 
-                    manualDebit + 
-                    restOrdersDebit;
+          movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.debit) - Number(l.credit)), 0) || 0;
+      }
+      
+      // إذا كان هناك مبيعات مطعم لم تُرحل بعد كقيود يومية (وردية مفتوحة) نأخذها في الحسبان
+      const { data: openOrders } = await supabase.from('orders')
+        .select('grand_total')
+        .eq('customer_id', customer.id)
+        .eq('organization_id', userOrgId)
+        .is('related_journal_entry_id', null)
+        .neq('status', 'CANCELLED');
 
-      const credit = (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
-                     (rec.data?.reduce((sum, rc) => sum + Number(rc.amount), 0) || 0) +
-                     (cn.data?.reduce((sum, c) => sum + Number(c.total_amount), 0) || 0) +
-                     (chq.data?.reduce((sum, cq) => sum + Number(cq.amount), 0) || 0) + 
-                     manualCredit + 
-                     restPaymentsCredit;
+      const unpostedRestaurantSales = openOrders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
 
-      setDynamicBalance(debit - credit);
+      setDynamicBalance(Number(customer.opening_balance || 0) + movement + unpostedRestaurantSales);
     };
     getRealBalance();
-  }, [formData.customerId]);
+  }, [formData.customerId, customers, getSystemAccount]); // Added getSystemAccount to dependencies
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);

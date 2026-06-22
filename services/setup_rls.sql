@@ -228,7 +228,7 @@ DECLARE
         WHERE c.table_schema = 'public' 
         AND c.column_name = 'organization_id'
         AND t.table_type = 'BASE TABLE' -- 🛡️ حماية: استهداف الجداول الأساسية فقط وتجاهل الـ Views
-        AND c.table_name NOT IN ('profiles', 'organizations', 'notifications', 'payrolls', 'payroll_items') -- الجداول التي لها سياسات خاصة
+        AND c.table_name NOT IN ('profiles', 'organizations', 'notifications', 'payrolls', 'payroll_items', 'hims_icd10_codes') -- الجداول التي لها سياسات خاصة
     );
 BEGIN
     FOREACH t IN ARRAY tables_with_org_id LOOP
@@ -240,6 +240,26 @@ BEGIN
             t, t);
     END LOOP;
 END $$;
+
+-- 🌍 سياسات حماية جدول أكواد تشخيص الأمراض (hims_icd10_codes)
+-- السماح لجميع المستخدمين المسجلين بالاستعلام عن كافة الأكواد لضمان الفوترة ومطالبات التأمين
+DROP POLICY IF EXISTS "hims_icd10_codes_select" ON public.hims_icd10_codes;
+CREATE POLICY "hims_icd10_codes_select" ON public.hims_icd10_codes
+    FOR SELECT TO authenticated USING (true);
+
+-- تقييد الإضافة والتعديل والحذف لمعاملات منظمة المستخدم نفسها أو السوبر أدمن
+DROP POLICY IF EXISTS "hims_icd10_codes_insert" ON public.hims_icd10_codes;
+CREATE POLICY "hims_icd10_codes_insert" ON public.hims_icd10_codes
+    FOR INSERT TO authenticated WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+
+DROP POLICY IF EXISTS "hims_icd10_codes_update" ON public.hims_icd10_codes;
+CREATE POLICY "hims_icd10_codes_update" ON public.hims_icd10_codes
+    FOR UPDATE TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin') WITH CHECK (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+
+DROP POLICY IF EXISTS "hims_icd10_codes_delete" ON public.hims_icd10_codes;
+CREATE POLICY "hims_icd10_codes_delete" ON public.hims_icd10_codes
+    FOR DELETE TO authenticated USING (organization_id = public.get_my_org() OR public.get_my_role() = 'super_admin');
+
 
 -- سياسة السوبر أدمن على المنظمات
 DROP POLICY IF EXISTS "Org_Select_Policy" ON organizations;

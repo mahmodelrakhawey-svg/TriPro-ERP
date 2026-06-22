@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -53,37 +53,26 @@ const PaymentVoucherForm = () => {
       if (!formData.supplierId) { setDynamicBalance(null); return; }
       
       const supplier: any = suppliers.find(s => s.id === formData.supplierId);
-      const opening = Number(supplier?.opening_balance || 0);
+      if (!supplier) return;
 
-      const [inv, pay, ret, dn, chq, manual, manualJournalEntries] = await Promise.all([
-        supabase.from('purchase_invoices').select('total_amount, paid_amount').eq('supplier_id', formData.supplierId).neq('status', 'draft'),
-        supabase.from('payment_vouchers').select('amount').eq('supplier_id', formData.supplierId),
-        supabase.from('purchase_returns').select('total_amount').eq('supplier_id', formData.supplierId).eq('status', 'posted'),
-        supabase.from('debit_notes').select('total_amount').eq('supplier_id', formData.supplierId),
-        supabase.from('cheques').select('amount').eq('party_id', formData.supplierId).eq('type', 'outgoing').neq('status', 'rejected'),
-        supabase.from('journal_lines')
-          .select('debit, credit, journal_entries!inner(description, status, related_document_id)')
-          .eq('journal_entries.status', 'posted')
-          .filter('journal_entries.description', 'ilike', `%${supplier?.name}%`),
-        supabase.from('journal_entries')
-          .select('id, reference, description, transaction_date, journal_lines!inner(debit, credit, account_id)')
-          .eq('status', 'posted')
-          .is('related_document_id', null)
-          .ilike('description', `%${supplier?.name}%`)
-      ]);
+      // Get user's organization ID
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
 
-      const manualCredit = manual.data?.reduce((sum, m) => sum + Number(m.credit), 0) || 0;
-      const manualDebit = manual.data?.reduce((sum, m) => sum + Number(m.debit), 0) || 0;
+      // 🛡️ الحل الجذري: حساب الرصيد من واقع الأستاذ العام مباشرة (مطابقة للاستاذ وكشف الحساب)
+      const supplierAcc = getSystemAccount('SUPPLIERS');
+      const { data: ledgerLines } = await supabase
+        .from('journal_lines')
+        .select('debit, credit, journal_entries!inner(description, status, organization_id)')
+        .eq('account_id', supplierAcc?.id)
+        .eq('journal_entries.status', 'posted')
+        .eq('journal_entries.organization_id', userOrgId)
+        .ilike('journal_entries.description', `%${supplier.name}%`);
 
-      const credit = (inv.data?.reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0) + 
-                     opening + 
-                     manualCredit;
-      const debit = (pay.data?.reduce((sum, p) => sum + Number(p.amount), 0) || 0) +
-                    (ret.data?.reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
-                    (dn.data?.reduce((sum, d) => sum + Number(d.total_amount), 0) || 0) +
-                    (chq.data?.reduce((sum, c) => sum + Number(c.amount), 0) || 0) + manualDebit;
-
-      setDynamicBalance(credit - debit);
+      // للموردين: الرصيد = (الدائن "مديونية" - المدين "سداد")
+      const movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.credit) - Number(l.debit)), 0) || 0;
+      setDynamicBalance(Number(supplier.opening_balance || 0) + movement);
     };
     getRealBalance();
   }, [formData.supplierId]);

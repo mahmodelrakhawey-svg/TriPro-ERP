@@ -19,6 +19,40 @@ export interface Prescription {
   medications: Medication[];
 }
 
+// قائمة أكواد ICD-10 الأكثر شيوعاً لتشخيص الأمراض والفوترة الطبية للتأمين
+const COMMON_ICD10_CODES = [
+  { code: 'I10', descAr: 'ارتفاع ضغط الدم الأساسي', descEn: 'Essential (primary) hypertension' },
+  { code: 'E11.9', descAr: 'داء السكري من النوع الثاني بدون مضاعفات', descEn: 'Type 2 diabetes mellitus without complications' },
+  { code: 'J06.9', descAr: 'التهاب حاد في الجهاز التنفسي العلوي غير محدد', descEn: 'Acute upper respiratory infection, unspecified' },
+  { code: 'R50.9', descAr: 'حمى غير محددة', descEn: 'Fever, unspecified' },
+  { code: 'R10.9', descAr: 'ألم في البطن غير محدد', descEn: 'Unspecified abdominal pain' },
+  { code: 'K21.9', descAr: 'ارتجاع المريء بدون التهاب مريء', descEn: 'Gastro-esophageal reflux disease without esophagitis' },
+  { code: 'M54.5', descAr: 'ألم أسفل الظهر', descEn: 'Low back pain' },
+  { code: 'N39.0', descAr: 'التهاب المسالك البولية، موقع غير محدد', descEn: 'Urinary tract infection, site not specified' },
+  { code: 'J45.909', descAr: 'الربو غير المحدد بدون مضاعفات', descEn: 'Unspecified asthma, uncomplicated' },
+  { code: 'R05', descAr: 'سعال / كحة', descEn: 'Cough' },
+  { code: 'H66.90', descAr: 'التهاب الأذن الوسطى غير محدد', descEn: 'Otitis media, unspecified' },
+  { code: 'G43.909', descAr: 'الصداع النصفي غير محدد', descEn: 'Migraine, unspecified' },
+  { code: 'R51', descAr: 'صداع', descEn: 'Headache' },
+  { code: 'K29.70', descAr: 'التهاب المعدة غير محدد بدون نزيف', descEn: 'Gastritis, unspecified, without bleeding' },
+  { code: 'B34.9', descAr: 'عدوى فيروسية غير محددة', descEn: 'Viral infection, unspecified' },
+  { code: 'L20.9', descAr: 'التهاب الجلد التأتبي غير محدد (إكزيما)', descEn: 'Atopic dermatitis, unspecified' },
+  { code: 'A09', descAr: 'التهاب المعدة والأمعاء المعدي (نزلات معوية حادة)', descEn: 'Infectious gastroenteritis and colitis, unspecified' },
+  { code: 'R11.10', descAr: 'قيء غير محدد', descEn: 'Vomiting, unspecified' },
+  { code: 'E03.9', descAr: 'قصور الغدة الدرقية غير محدد', descEn: 'Hypothyroidism, unspecified' },
+  { code: 'F41.9', descAr: 'اضطراب القلق غير محدد', descEn: 'Anxiety disorder, unspecified' },
+  { code: 'F32.9', descAr: 'اضطراب اكتئابي جسيم غير محدد', descEn: 'Major depressive disorder, unspecified' },
+  { code: 'J02.9', descAr: 'التهاب البلعوم الحاد غير محدد (التهاب اللوزتين/الحلق)', descEn: 'Acute pharyngitis, unspecified' },
+  { code: 'J01.90', descAr: 'التهاب الجيوب الأنفية الحاد غير محدد', descEn: 'Acute sinusitis, unspecified' },
+  { code: 'K52.9', descAr: 'التهاب الأمعاء والمعدة غير المعدي غير محدد', descEn: 'Noninfective gastroenteritis and colitis, unspecified' },
+  { code: 'M79.1', descAr: 'آلام العضلات (التهاب عضلي)', descEn: 'Myalgia' },
+  { code: 'N18.9', descAr: 'مرض الكلى المزمن غير محدد', descEn: 'Chronic kidney disease, unspecified' },
+  { code: 'E78.5', descAr: 'ارتفاع دهون الدم غير محدد', descEn: 'Hyperlipidemia, unspecified' },
+  { code: 'D64.9', descAr: 'أنيميا / فقر الدم غير محدد', descEn: 'Anemia, unspecified' },
+  { code: 'R07.9', descAr: 'ألم في الصدر غير محدد', descEn: 'Chest pain, unspecified' },
+  { code: 'R42', descAr: 'دوار ودوخة', descEn: 'Dizziness and giddiness' }
+];
+
 export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => {
   const { currentUser } = useAuth();
   const { register, control, handleSubmit, setValue, watch } = useForm<Prescription>({
@@ -82,25 +116,57 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
     console.log("PrescriptionForm: Products fetched:", data); // Added for debugging
     setLoadingProducts(false);
   };
-  const handleICDSearch = async (query: string) => {
-    if (!query || query.length < 2) return;
-    setLoadingICD(true);
-    const { data } = await supabase
-      .from('v_hims_icd10_search') 
-      .select('display_name')
-      .or(`code.ilike.%${query}%,description_ar.ilike.%${query}%`)
-      .limit(20);
 
-    setIcdOptions(data?.map(i => ({
-      label: i.display_name,
-      value: i.display_name
-    })) || []);
+  const handleICDSearch = async (query: string = "") => {
+    setLoadingICD(true);
+    
+    // 1. فلترة القائمة المحلية كبداية وسرعة استجابة فورية
+    const localFiltered = COMMON_ICD10_CODES.filter(i => 
+      !query || 
+      i.code.toLowerCase().includes(query.toLowerCase()) ||
+      i.descAr.includes(query) ||
+      i.descEn.toLowerCase().includes(query.toLowerCase())
+    ).map(i => ({
+      label: `${i.code} - ${i.descAr} (${i.descEn})`,
+      value: `${i.code} - ${i.descAr}`
+    }));
+
+    // 2. البحث في قاعدة البيانات إذا كان هناك نص بحث يزيد عن أو يساوي حرفين
+    let dbResults: { label: string; value: string }[] = [];
+    if (query && query.length >= 2) {
+      try {
+        const { data, error } = await supabase
+          .from('v_hims_icd10_search') 
+          .select('display_name')
+          .or(`code.ilike.%${query}%,description_ar.ilike.%${query}%`)
+          .limit(20);
+
+        if (!error && data) {
+          dbResults = data.map(i => ({
+            label: i.display_name,
+            value: i.display_name
+          }));
+        }
+      } catch (err) {
+        console.error("Failed to query ICD10 from database:", err);
+      }
+    }
+
+    // 3. دمج النتائج بدون تكرار
+    const merged = [...localFiltered, ...dbResults];
+    const uniqueMap = new Map();
+    merged.forEach(item => {
+      uniqueMap.set(item.value, item);
+    });
+
+    setIcdOptions(Array.from(uniqueMap.values()).slice(0, 30));
     setLoadingICD(false);
   };
 
-  // جلب قائمة أولية للأدوية عند تحميل الشاشة
+  // جلب قائمة أولية للأدوية والأكواد عند تحميل الشاشة
   useEffect(() => {
     handleProductSearch();
+    handleICDSearch("");
   }, [currentUser?.organization_id, visitId]);
 
   const { fields, append, remove } = useFieldArray({ control, name: 'medications' as never });

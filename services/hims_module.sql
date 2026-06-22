@@ -2304,6 +2304,77 @@ BEGIN
     WHERE id = v_bill_id;
 END; $$;
 
+-- 🧪 دالة اعتماد نتيجة المختبر وخصم الكواشف والمستلزمات من المخزن
+CREATE OR REPLACE FUNCTION public.hims_complete_lab_with_inventory(
+    p_order_id uuid,
+    p_result text,
+    p_consumables jsonb, -- مصفوفة المستهلكات [{product_id, qty}]
+    p_is_critical boolean DEFAULT false
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_order record; v_item record; v_org_id uuid; v_journal_id uuid;
+    v_total_cost numeric(18,2) := 0; v_prd_id uuid; v_qty numeric;
+    v_cost_price numeric; v_inv_account_id uuid; v_exp_account_id uuid;
+    v_mappings jsonb;
+BEGIN
+    -- 1. جلب بيانات الفحص المطلوب
+    SELECT * INTO v_order FROM public.hims_lab_orders WHERE id = p_order_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Lab order not found'; END IF;
+    v_org_id := v_order.organization_id;
+
+    -- 2. تحديث حالة الطلب والنتيجة
+    UPDATE public.hims_lab_orders
+    SET status = 'completed',
+        result_text = p_result,
+        is_critical = p_is_critical,
+        completed_at = now()
+    WHERE id = p_order_id;
+
+    -- 3. جلب التوجيه المحاسبي
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_inv_account_id := public.resolve_leaf_account(COALESCE(
+        (v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, 
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10302' LIMIT 1)
+    ));
+    v_exp_account_id := public.resolve_leaf_account(COALESCE(
+        (v_mappings->>'COGS')::uuid, 
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '511' LIMIT 1)
+    ));
+
+    -- 4. خصم المستهلكات من المخزن واحتساب قيمة القيود إذا وجدت
+    IF p_consumables IS NOT NULL AND jsonb_array_length(p_consumables) > 0 THEN
+        INSERT INTO public.journal_entries (organization_id, transaction_date, description, reference, status, related_document_id, related_document_type, is_posted)
+        VALUES (v_org_id, CURRENT_DATE, 'استهلاك كواشف تحاليل - فحص رقم: ' || p_order_id::text, 'LAB-' || substring(p_order_id::text, 1, 8), 'posted', p_order_id, 'hims_lab_order', true)
+        RETURNING id INTO v_journal_id;
+
+        FOR v_item IN SELECT * FROM jsonb_to_recordset(p_consumables) AS x(product_id uuid, qty numeric)
+        LOOP
+            v_prd_id := v_item.product_id;
+            v_qty := v_item.qty;
+
+            SELECT COALESCE(weighted_average_cost, cost, purchase_price, 0) INTO v_cost_price
+            FROM public.products WHERE id = v_prd_id AND organization_id = v_org_id;
+
+            -- خصم الكمية من مستودع المختبر
+            UPDATE public.products SET stock = stock - v_qty 
+            WHERE id = v_prd_id AND organization_id = v_org_id;
+
+            v_total_cost := v_total_cost + (v_qty * v_cost_price);
+        END LOOP;
+
+        -- تسجيل أطراف القيد المحاسبي
+        IF v_total_cost > 0 THEN
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+            VALUES 
+                (v_journal_id, v_exp_account_id, v_total_cost, 0, v_org_id, 'مصروف استهلاك كواشف ومواد مختبر'),
+                (v_journal_id, v_inv_account_id, 0, v_total_cost, v_org_id, 'مخزن كواشف ومستلزمات المختبر');
+        END IF;
+        
+        PERFORM public.recalculate_stock_rpc(v_org_id);
+    END IF;
+END; $$;
+
 -- 🚨 رادار الطوارئ لمراقبة زمن الانتظار (Emergency Wait-Time Monitor)
 DROP VIEW IF EXISTS public.v_hims_emergency_triage_monitor CASCADE;
 DROP VIEW IF EXISTS public.v_hims_emergency_triage_monitor CASCADE;

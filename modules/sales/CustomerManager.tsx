@@ -74,43 +74,91 @@ const CustomerManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
-        const filter = { organization_id: userOrgId };
+        // ⚖️ جلب كافة حركات الأستاذ العام لحساب العملاء لهذه المنظمة
+        const customerAcc = getSystemAccount('CUSTOMERS');
+        if (!customerAcc) {
+            console.error("Customer A/R account not found for balance calculation.");
+            setStatsLoading(false);
+            return;
+        }
 
-        // Fetch invoices (debit)
-        const { data: invoices } = await supabase.from('invoices').select('customer_id, total_amount, invoice_date').match(filter).neq('status', 'draft');
-        // Fetch receipts (credit)
-        const { data: receipts } = await supabase.from('receipt_vouchers').select('customer_id, amount').match(filter);
-        // Fetch sales returns (credit)
-        const { data: returns } = await supabase.from('sales_returns').select('customer_id, total_amount').match(filter).neq('status', 'draft');
-        // Fetch credit notes (credit)
-        const { data: creditNotes } = await supabase.from('credit_notes').select('customer_id, total_amount').match(filter);
-        // Fetch collected cheques (credit)
-        const { data: cheques } = await supabase.from('cheques')
-            .select('party_id, amount')
-            .match(filter)
-            .eq('type', 'incoming')
-            .eq('status', 'collected');
+        // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + القيود اليدوية التي تذكر اسمه
+        const [
+            invRes, recRes, retRes, cnRes, chqRes, ordRes,
+            manualEntriesRes // Fetch manual entries that mention the customer
+        ] = await Promise.all([
+            supabase.from('invoices').select('related_journal_entry_id, customer_id, total_amount, invoice_date').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('receipt_vouchers').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('sales_returns').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('credit_notes').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('cheques').select('related_journal_entry_id, party_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('orders').select('related_journal_entry_id, customer_id, grand_total').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('journal_entries').select('id, description').eq('organization_id', userOrgId).eq('status', 'posted')
+        ]);
 
-        const newStats: Record<string, any> = {};
+        const allEntryIds = new Set<string>();
+        const entryToCustomer: Record<string, string> = {}; // To map entry ID back to customer ID
 
-        // Initialize stats
-        customers.forEach(c => { newStats[c.id] = { balance: 0, totalSales: 0, lastInvoice: null }; });
+        invRes.data?.forEach(i => { if (i.related_journal_entry_id) { allEntryIds.add(i.related_journal_entry_id); entryToCustomer[i.related_journal_entry_id] = i.customer_id; } });
+        recRes.data?.forEach(r => { if (r.related_journal_entry_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
+        retRes.data?.forEach(r => { if (r.related_journal_entry_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
+        cnRes.data?.forEach(c => { if (c.related_journal_entry_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.customer_id; } });
+        chqRes.data?.forEach(c => { if (c.related_journal_entry_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.party_id; } });
+        ordRes.data?.forEach(o => { if (o.related_journal_entry_id) { allEntryIds.add(o.related_journal_entry_id); entryToCustomer[o.related_journal_entry_id] = o.customer_id; } });
 
-        // Calculate invoices
-        invoices?.forEach(inv => {
-            if (!newStats[inv.customer_id]) return;
-            newStats[inv.customer_id].balance += Number(inv.total_amount);
-            newStats[inv.customer_id].totalSales += Number(inv.total_amount);
-            if (!newStats[inv.customer_id].lastInvoice || inv.invoice_date > newStats[inv.customer_id].lastInvoice) {
-                newStats[inv.customer_id].lastInvoice = inv.invoice_date;
+        // For manual entries, check if description contains customer name
+        manualEntriesRes.data?.forEach(je => {
+            const desc = (je.description || '').toLowerCase();
+            const matchingCustomer = customers.find(c => desc.includes(c.name.toLowerCase()));
+            if (matchingCustomer) {
+                allEntryIds.add(je.id);
+                entryToCustomer[je.id] = matchingCustomer.id;
             }
         });
 
-        // Subtract payments and returns
-        receipts?.forEach(p => { if (newStats[p.customer_id]) newStats[p.customer_id].balance -= Number(p.amount); });
-        returns?.forEach(r => { if (newStats[r.customer_id]) newStats[r.customer_id].balance -= Number(r.total_amount); });
-        creditNotes?.forEach(cn => { if (newStats[cn.customer_id]) newStats[cn.customer_id].balance -= Number(cn.total_amount); });
-        cheques?.forEach(c => { if (newStats[c.party_id]) newStats[c.party_id].balance -= Number(c.amount); });
+
+        const newStats: Record<string, any> = {};
+        customers.forEach(c => { 
+          newStats[c.id] = { balance: Number(c.opening_balance || 0), totalSales: 0, lastInvoice: null }; 
+        });
+
+        if (allEntryIds.size > 0) {
+            const { data: ledgerLines } = await supabase.from('journal_lines')
+              .select('journal_entry_id, debit, credit')
+              .in('journal_entry_id', Array.from(allEntryIds))
+              .eq('account_id', customerAcc.id);
+
+            ledgerLines?.forEach(line => {
+                const custId = entryToCustomer[line.journal_entry_id];
+                if (custId && newStats[custId]) newStats[custId].balance += (Number(line.debit) - Number(line.credit));
+            });
+        }
+
+        // 📈 تحديث إحصائيات المبيعات الإضافية (معرض + مطعم) والتاريخ
+        invRes.data?.forEach(inv => {
+          if (newStats[inv.customer_id]) {
+            newStats[inv.customer_id].totalSales += Number(inv.total_amount);
+            if (!newStats[inv.customer_id].lastInvoice || inv.invoice_date > newStats[inv.customer_id].lastInvoice) {
+              newStats[inv.customer_id].lastInvoice = inv.invoice_date;
+            }
+          }
+        });
+        ordRes.data?.forEach(ord => {
+          if (newStats[ord.customer_id]) newStats[ord.customer_id].totalSales += Number(ord.grand_total);
+        });
+
+        // 📈 تحديث إحصائيات المبيعات الإضافية (معرض + مطعم) والتاريخ
+        invRes.data?.forEach(inv => {
+          if (newStats[inv.customer_id]) {
+            newStats[inv.customer_id].totalSales += Number(inv.total_amount);
+            if (!newStats[inv.customer_id].lastInvoice || inv.invoice_date > newStats[inv.customer_id].lastInvoice) {
+              newStats[inv.customer_id].lastInvoice = inv.invoice_date;
+            }
+          }
+        });
+        ordRes.data?.forEach(ord => {
+          if (newStats[ord.customer_id]) newStats[ord.customer_id].totalSales += Number(ord.grand_total);
+        });
 
         setStats(newStats);
     } catch (error) { console.error("Error fetching stats", error); } finally { setStatsLoading(false); }

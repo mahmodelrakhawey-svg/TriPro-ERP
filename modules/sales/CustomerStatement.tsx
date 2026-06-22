@@ -48,15 +48,15 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     }
   }, [searchParams, initialCustomerId]);
 
-  const fetchStatement = async () => {
+  const fetchStatement = async () => { // 🛡️ إعادة كتابة شاملة لضمان التطابق مع الأستاذ العام
     if (!selectedCustomerId) return;
     setLoading(true);
 
     if (currentUser?.role === 'demo') {
         setTransactions([
-            { id: 'd1', date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-101', description: 'فاتورة مبيعات آجلة', debit: 5000, credit: 0, balance: 5000, isPosted: true },
-            { id: 'd2', date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0], type: 'receipt', reference: 'RV-DEMO-55', description: 'دفعة نقدية من الحساب', debit: 0, credit: 2000, balance: 3000, isPosted: true },
-            { id: 'd3', date: new Date().toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-102', description: 'فاتورة مبيعات جديدة', debit: 1500, credit: 0, balance: 4500, isPosted: true }
+            { id: 'd1', date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-101', description: 'فاتورة مبيعات آجلة', debit: 5000, credit: 0, balance: 5000, isPosted: true }, // Example data
+            { id: 'd2', date: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0], type: 'receipt', reference: 'RV-DEMO-55', description: 'دفعة نقدية من الحساب', debit: 0, credit: 2000, balance: 3000, isPosted: true }, // Example data
+            { id: 'd3', date: new Date().toISOString().split('T')[0], type: 'invoice', reference: 'INV-DEMO-102', description: 'فاتورة مبيعات جديدة', debit: 1500, credit: 0, balance: 4500, isPosted: true } // Example data
         ]);
         setOpeningBalance(0);
         setClosingBalance(4500);
@@ -103,7 +103,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         const { data: cheques } = await supabase.from('cheques')
             .select('id, cheque_number, due_date, amount, created_at, related_journal_entry_id, status')
             .eq('party_id', selectedCustomerId)
-            .eq('type', 'incoming');
+            .eq('type', 'incoming'); // 🔓 إظهار كافة الشيكات، المرفوض سيتم معادلته بقيد الرفض لاحقاً
 
         // 6. Fetch Restaurant Orders (Debit) - جلب طلبات المطعم (توصيل/سفري/محلي)
         const { data: restOrders } = await supabase.from('orders')
@@ -126,7 +126,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           const desc = (je.description || '').toLowerCase();
           const custName = (selectedCustomer?.name || '').toLowerCase();
           const isTarget = desc.includes(custName) || ref.includes('OB-');
-          const isForbidden = ref.includes('COLL-') || ref.includes('TRF-') || ref.includes('CHQ-'); 
+          const isForbidden = ref.includes('COLL-') || ref.includes('TRF-'); 
           return isTarget && !isForbidden;
         }) || [];
 
@@ -237,14 +237,16 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         filteredManual.forEach(je => {
             const isDuplicate = allTrans.some(t => {
                 const clean = (r: any) => r?.toString().trim().toUpperCase().replace(/^(CHQ-|RV-|INV-|COLL-|TRF-|OB-)/i, '') || '';
+                const cleanManual = (r: any) => r?.toString().trim().toUpperCase().replace(/^(CHQ-|RV-|INV-|COLL-|TRF-|OB-)/i, '') || '';
                 const r1 = clean(t.ref);
-                const r2 = clean(je.reference);
-                return r1 === r2 && r1 !== '' && r1 !== 'NULL';
+                const r2 = cleanManual(je.reference);
+                // لا نعتبر قيد الرفض REJ تكراراً أبداً لأنه حركة عكسية ضرورية
+                return r1 === r2 && r1 !== '' && r1 !== 'NULL' && !je.reference.startsWith('REJ-');
             });
 
             if (!isDuplicate) {
                 const customerLines = je.journal_lines?.filter((l: any) => l.accounts.code.startsWith('122')) || [];
-                const debit = customerLines.reduce((sum: number, l: any) => sum + Number(l.debit), 0);
+                const debit = customerLines.reduce((sum: number, l: any) => sum + Number(l.debit), 0); 
                 const credit = customerLines.reduce((sum: number, l: any) => sum + Number(l.credit), 0);
 
                 allTrans.push({
@@ -565,17 +567,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                                       {/* إخفاء البادئات عند العرض فقط ليكون المظهر أنيقاً وموحداً */}
                                       {t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-)/, '')}
                                       {!t.isPosted && t.type !== 'pos_order' && (
-                                          <div className="flex items-center gap-1">
-                                              <span title="هذا المستند ليس له قيد يومية!">
-                                                  <AlertTriangle size={14} className="text-red-500" />
-                                              </span>
-                                              <button 
-                                                onClick={() => handleFixEntry(t.id, t.reference, t.type)}
-                                                className="bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded text-[10px] hover:bg-indigo-100 transition-colors flex items-center gap-1 border border-indigo-200"
-                                              >
-                                                  <RefreshCw size={10} /> إصلاح القيد
-                                              </button>
-                                          </div>
+                                          <span title="هذا المستند ليس له قيد يومية!"><AlertTriangle size={14} className="text-red-500" /></span>
                                       )}
                                       {t.type === 'pos_order' && !t.isPosted && (
                                           <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded border border-amber-200 font-bold">
