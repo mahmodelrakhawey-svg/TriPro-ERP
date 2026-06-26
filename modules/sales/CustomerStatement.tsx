@@ -23,7 +23,7 @@ interface CustomerStatementProps {
 }
 
 const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId }) => {
-  const { customers, settings, currentUser, approveInvoice } = useAccounting();
+  const { customers, settings, currentUser, approveInvoice, accounts } = useAccounting();
   const [searchParams] = useSearchParams();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
   const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
@@ -79,15 +79,21 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             return;
         }
 
-        // ملاحظة: getSystemAccount غير معرّف في هذا الملف حالياً.
-        // لذلك نعتمد على مسارات/مصفوفات الحسابات داخل سياق AccountingContext.
-        // إذا كانت لديك دالة بديلة فعّلها هنا.
-        const customerAcc = settings?.accounts?.find((a: any) => a?.code === 'CUSTOMERS') || null;
+        // حساب العملاء: كود الدليل المصري هو 1221 (Accounts(code) = 1221)
+        // يعتمد على accounts المحملة من context.
+        const customersAccountCode = '1221';
+        // @ts-ignore
+        const customerAcc = (accounts || []).find((a: any) => String(a?.code) === customersAccountCode) || null;
+
+
+
         if (!customerAcc) {
-            showToast('تعذر تحديد حساب العملاء (CUSTOMERS).', 'error');
+            showToast('تعذر تحديد حساب العملاء (CUSTOMERS). يرجى التأكد من وجود الحساب بكود 1221 داخل دليل الحسابات لهذه المنظمة.', 'error');
             setLoading(false);
             return;
         }
+
+
 
         // 1. جلب كافة حركات الأستاذ العام لحساب العميل المحدد
         const { data: ledgerLines, error: ledgerError } = await supabase
@@ -98,11 +104,14 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             `)
             .eq('account_id', customerAcc.id)
             .eq('organization_id', userOrgId)
+
             .eq('journal_entries.status', 'posted')
-            .ilike('journal_entries.description', `%${selectedCustomer?.name}%`) // فلترة مبدئية باسم العميل
-            .order('journal_entries.transaction_date', { ascending: true });
+            // لا نعتمد على وجود اسم العميل داخل description لأن ترحيل القيود قد لا يكتب اسم العميل نصاً
+            .gte('journal_entries.transaction_date', startDate)
+            .lte('journal_entries.transaction_date', endDate)
 
         if (ledgerError) throw ledgerError;
+
 
         let allTrans: Transaction[] = [];
         let unpostedCount = 0;
