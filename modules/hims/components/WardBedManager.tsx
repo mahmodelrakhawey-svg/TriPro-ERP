@@ -9,10 +9,21 @@ export const WardBedManager: React.FC = () => {
   const [beds, setBeds] = useState<any[]>([]);
   const [wards, setWards] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+
   const [isWardModalVisible, setIsWardModalVisible] = useState(false);
   const [isBedModalVisible, setIsBedModalVisible] = useState(false);
+
+  const [isWardEditModalVisible, setIsWardEditModalVisible] = useState(false);
+  const [isBedEditModalVisible, setIsBedEditModalVisible] = useState(false);
+
+  const [editingWard, setEditingWard] = useState<any | null>(null);
+  const [editingBed, setEditingBed] = useState<any | null>(null);
+
   const [wardForm] = Form.useForm();
   const [bedForm] = Form.useForm();
+
+  const [wardEditForm] = Form.useForm();
+  const [bedEditForm] = Form.useForm();
 
   const fetchBedsStatus = async () => {
     if (!currentUser?.organization_id) return;
@@ -96,20 +107,87 @@ export const WardBedManager: React.FC = () => {
     setLoading(false);
   };
 
+  const handleDeleteWard = async (wardId: string) => {
+    setLoading(true);
+    const { error } = await supabase.from('hims_wards').delete().eq('id', wardId);
+    if (error) message.error('فشل حذف الجناح: ' + error.message);
+    else {
+      message.success('تم حذف الجناح بنجاح ✅');
+      fetchWards();
+      fetchBedsStatus();
+    }
+    setLoading(false);
+  };
+
+  const handleDeleteBed = async (bedId: string) => {
+    setLoading(true);
+    const { error } = await supabase.from('hims_beds').delete().eq('id', bedId);
+    if (error) message.error('فشل حذف السرير: ' + error.message);
+    else {
+      message.success('تم حذف السرير بنجاح ✅');
+      fetchBedsStatus();
+    }
+    setLoading(false);
+  };
+
+  const handleUpdateWard = async (values: any) => {
+    if (!editingWard?.id) return;
+    setLoading(true);
+    const { error } = await supabase.from('hims_wards').update({
+      name: values.name,
+      floor: values.floor,
+      ward_type: values.ward_type
+    }).eq('id', editingWard.id);
+
+    if (error) message.error('فشل تعديل الجناح: ' + error.message);
+    else {
+      message.success('تم تعديل الجناح بنجاح ✅');
+      setIsWardEditModalVisible(false);
+      setEditingWard(null);
+      fetchWards();
+      fetchBedsStatus();
+    }
+    setLoading(false);
+  };
+
+  const handleUpdateBed = async (values: any) => {
+    if (!editingBed?.id) return;
+    setLoading(true);
+    const { error } = await supabase.from('hims_beds').update({
+      ward_id: values.ward_id,
+      bed_number: values.bed_number,
+      daily_rate: values.daily_rate
+    }).eq('id', editingBed.id);
+
+    if (error) message.error('فشل تعديل السرير: ' + error.message);
+    else {
+      message.success('تم تعديل السرير بنجاح ✅');
+      setIsBedEditModalVisible(false);
+      setEditingBed(null);
+      fetchBedsStatus();
+      fetchWards();
+    }
+    setLoading(false);
+  };
+
   const columns = [
-    { 
-      title: 'رقم السرير', 
-      dataIndex: 'bed_number', 
+    {
+      title: 'رقم السرير',
+      dataIndex: 'bed_number',
       key: 'bed_number',
       render: (text: string) => <b className="text-blue-700">{text}</b>
     },
-    { 
-      title: 'الجناح / القسم', 
-      render: (r: any) => <span>{r.ward?.name} (الطابق: {r.ward?.floor})</span> 
+    {
+      title: 'الجناح / القسم',
+      render: (r: any) => (
+        <div className="flex items-center gap-2">
+          <span>{r.ward?.name} (الطابق: {r.ward?.floor})</span>
+        </div>
+      )
     },
-    { 
-      title: 'الحالة الحالية', 
-      dataIndex: 'status', 
+    {
+      title: 'الحالة الحالية',
+      dataIndex: 'status',
       render: (status: string) => {
         const colors: any = {
           available: 'success',
@@ -132,9 +210,9 @@ export const WardBedManager: React.FC = () => {
       render: (record: any) => (
         <Space>
           {record.status === 'cleaning' && (
-            <Button 
-              type="primary" 
-              icon={<CheckCircleOutlined />} 
+            <Button
+              type="primary"
+              icon={<CheckCircleOutlined />}
               className="bg-emerald-600 border-none"
               onClick={() => handleMarkReady(record.id)}
               loading={loading}
@@ -143,8 +221,84 @@ export const WardBedManager: React.FC = () => {
             </Button>
           )}
           {record.status === 'available' && (
-             <Button icon={<ToolOutlined />} size="small">طلب صيانة</Button>
+            <Button icon={<ToolOutlined />} size="small">طلب صيانة</Button>
           )}
+        </Space>
+      ),
+    },
+    {
+      title: 'تعديل / حذف',
+      key: 'edit_delete',
+      render: (record: any) => (
+        <Space>
+          <Button
+            size="small"
+            onClick={() => {
+              setEditingBed(record);
+              bedEditForm.setFieldsValue({
+                ward_id: record.ward_id,
+                bed_number: record.bed_number,
+                daily_rate: record.daily_rate ?? 0,
+              });
+              setIsBedEditModalVisible(true);
+            }}
+          >
+            تعديل السرير
+          </Button>
+          <Button
+            size="small"
+            danger
+            onClick={() => {
+              Modal.confirm({
+                title: 'حذف السرير؟',
+                content: `سيتم حذف السرير رقم ${record.bed_number}`,
+                okText: 'حذف',
+                cancelText: 'إلغاء',
+                okButtonProps: { danger: true, loading },
+                onOk: () => handleDeleteBed(record.id)
+              });
+            }}
+          >
+            حذف
+          </Button>
+
+          <Button
+            size="small"
+            onClick={() => {
+              const ward = wards.find(w => w.id === record.ward_id);
+              if (!ward) {
+                message.error('تعذر العثور على بيانات الجناح');
+                return;
+              }
+              setEditingWard(ward);
+              wardEditForm.setFieldsValue({
+                name: ward.name,
+                floor: ward.floor,
+                ward_type: ward.ward_type,
+              });
+              setIsWardEditModalVisible(true);
+            }}
+          >
+            تعديل الجناح
+          </Button>
+          <Button
+            size="small"
+            danger
+            onClick={() => {
+              const wardId = record.ward_id;
+              if (!wardId) return;
+              Modal.confirm({
+                title: 'حذف الجناح؟',
+                content: 'سيتم حذف الجناح مع جميع أسرّته المرتبطة (Cascade).',
+                okText: 'حذف',
+                cancelText: 'إلغاء',
+                okButtonProps: { danger: true, loading },
+                onOk: () => handleDeleteWard(wardId)
+              });
+            }}
+          >
+            حذف الجناح
+          </Button>
         </Space>
       ),
     },
@@ -205,6 +359,35 @@ export const WardBedManager: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+        </Form>
+      </Modal>
+
+      {/* مودال تعديل جناح */}
+      <Modal title="تعديل جناح / قسم" open={isWardEditModalVisible} onCancel={() => setIsWardEditModalVisible(false)} onOk={() => wardEditForm.submit()} confirmLoading={loading}>
+        <Form form={wardEditForm} layout="vertical" onFinish={handleUpdateWard}>
+          <Form.Item name="name" label="اسم الجناح" rules={[{ required: true, message: 'يرجى إدخال اسم الجناح' }]}>
+            <Input placeholder="اسم الجناح" />
+          </Form.Item>
+          <Form.Item name="floor" label="الطابق">
+            <Input placeholder="مثال: الأرضي، الأول..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* مودال تعديل سرير */}
+      <Modal title="تعديل سرير" open={isBedEditModalVisible} onCancel={() => setIsBedEditModalVisible(false)} onOk={() => bedEditForm.submit()} confirmLoading={loading}>
+        <Form form={bedEditForm} layout="vertical" onFinish={handleUpdateBed}>
+          <Form.Item name="ward_id" label="الجناح / القسم" rules={[{ required: true }]}>
+            <Select placeholder="اختر الجناح التابع له السرير">
+              {wards.map(w => <Select.Option key={w.id} value={w.id}>{w.name}</Select.Option>)}
+            </Select>
+          </Form.Item>
+          <Form.Item name="bed_number" label="رقم السرير" rules={[{ required: true, message: 'يرجى إدخال رقم السرير' }]}>
+            <Input placeholder="مثال: B-101" />
+          </Form.Item>
+          <Form.Item name="daily_rate" label="تكلفة الإقامة اليومية (EGP)" initialValue={0}>
+            <InputNumber className="w-full" min={0} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>

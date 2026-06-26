@@ -773,9 +773,24 @@ DO $$ BEGIN
         ALTER TABLE public.employees ALTER COLUMN full_name DROP NOT NULL;
 
         -- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع مديول المقاولات والتصنيع
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='employees' AND column_name='salary') THEN
-            ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
-        END IF;
+-- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع مديول المقاولات والتصنيع
+IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema='public'
+    AND table_name='employees'
+    AND column_name='salary'
+)
+AND NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema='public'
+    AND table_name='employees'
+    AND column_name='basic_salary'
+)
+THEN
+    ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+END IF;
 
         -- مزامنة البيانات التاريخية
         UPDATE public.employees SET full_name = name WHERE full_name IS NULL AND name IS NOT NULL;

@@ -48,15 +48,37 @@ export const LabDashboard: React.FC = () => {
   const submitResult = async () => {
     if (!resultValue) return message.warning('يرجى إدخال النتيجة أولاً');
     setLoading(true);
+
+    // تمهيد/تنظيف payload بما يتوافق مع SQL: jsonb_to_recordset(p_consumables) AS (product_id uuid, qty numeric)
+    const sanitizedConsumables = selectedReagents
+      .map((r) => {
+        const qtyNum = typeof r.qty === 'number' ? r.qty : Number(r.qty);
+        return {
+          product_id: r.product_id,
+          qty: qtyNum,
+        };
+      })
+      .filter(
+        (r) =>
+          typeof r.product_id === 'string' &&
+          r.product_id.length > 10 && // UUID-ish guard
+          typeof r.qty === 'number' &&
+          Number.isFinite(r.qty) &&
+          r.qty > 0
+      );
+
     const { error } = await supabase.rpc('hims_complete_lab_with_inventory', {
       p_order_id: selectedOrder.id,
       p_result: resultValue,
-      p_consumables: selectedReagents.map(r => ({ product_id: r.product_id, qty: r.qty }))
+      p_consumables: sanitizedConsumables,
     });
 
     setLoading(false);
     if (error) {
-      message.error('فشل حفظ النتيجة: ' + error.message);
+      const details = (error as any)?.details;
+      message.error(
+        'فشل حفظ النتيجة: ' + error.message + (details ? ('\n' + details) : '')
+      );
     } else {
       message.success('تم تسجيل النتيجة وتحديث حساب المريض ✅');
       setSelectedOrder(null);

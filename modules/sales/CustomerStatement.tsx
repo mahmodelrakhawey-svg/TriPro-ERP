@@ -48,7 +48,12 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     }
   }, [searchParams, initialCustomerId]);
 
+  const handleFixAll = async () => {
+    showToast('هذه الميزة غير مفعلة حالياً.', 'warning');
+  };
+
   const fetchStatement = async () => { // 🛡️ إعادة كتابة شاملة لضمان التطابق مع الأستاذ العام
+
     if (!selectedCustomerId) return;
     setLoading(true);
 
@@ -74,132 +79,83 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             return;
         }
 
-        const filter = { customer_id: selectedCustomerId, organization_id: userOrgId };       
-        // 1. Fetch Invoices (Debit)
-        const { data: invoices } = await supabase.from('invoices')
-            .select('id, invoice_number, invoice_date, total_amount, paid_amount, related_journal_entry_id')
-            .match(filter) // Apply filter here
-            .neq('status', 'draft');
-
-        // 2. Fetch Returns (Credit)
-        const { data: returns } = await supabase.from('sales_returns')
-            .select('id, return_number, return_date, total_amount, related_journal_entry_id')
-            .match(filter) // Apply filter here
-            .eq('status', 'posted');
-
-        // 3. Fetch Receipts (Credit)
-        const { data: receipts } = await supabase.from('receipt_vouchers')
-            .select('id, voucher_number, receipt_date, amount, notes, related_journal_entry_id')
-            .match(filter) // Apply filter here
-            // استبعاد سندات التأمين (التي تبدأ بـ DEP-)
-            .not('voucher_number', 'like', 'DEP-%');
-
-        // 4. Fetch Credit Notes (Credit)
-        const { data: creditNotes } = await supabase.from('credit_notes')
-            .select('id, credit_note_number, note_date, total_amount, related_journal_entry_id')
-            .match(filter) // Apply filter here
-            .eq('status', 'posted'); // Assuming credit notes have a status
-        // 5. Fetch Cheques (Credit)
-        const { data: cheques } = await supabase.from('cheques')
-            .select('id, cheque_number, due_date, amount, created_at, related_journal_entry_id, status')
-            .eq('party_id', selectedCustomerId)
-            .eq('type', 'incoming'); // 🔓 إظهار كافة الشيكات، المرفوض سيتم معادلته بقيد الرفض لاحقاً
-
-        // 6. Fetch Restaurant Orders (Debit) - جلب طلبات المطعم (توصيل/سفري/محلي)
-        const { data: restOrders } = await supabase.from('orders')
-            .select('id, order_number, created_at, grand_total, order_type, status, related_journal_entry_id')
-            .match(filter) // Apply filter here
-            .neq('status', 'CANCELLED');
-            
-        const { data: manualEntries } = await supabase.from('journal_entries')
-            .select(`
-                id, reference, transaction_date, description, status, related_document_type,
-                journal_lines!inner(debit, credit, account_id, accounts!inner(code))
-            `)
-            .eq('organization_id', userOrgId)
-            .eq('status', 'posted')
-            .filter('journal_lines.accounts.code', 'ilike', '1221%'); // تحديد حساب العملاء بدقة
-
-        // فلترة القيود يدوياً لضمان استبعاد COLL و TRF ومنع التداخل
-        const filteredManual = manualEntries?.filter(je => {
-          const ref = (je.reference || '').toString().trim().toUpperCase();
-          const desc = (je.description || '').toLowerCase();
-          const custName = (selectedCustomer?.name || '').toLowerCase();
-          const isTarget = desc.includes(custName) || ref.includes('OB-');
-          const isForbidden = ref.includes('COLL-') || ref.includes('TRF-'); 
-          return isTarget && !isForbidden;
-        }) || [];
-
-        // 7. Fetch Restaurant Payments (Credit) - جلب مدفوعات المطعم المرتبطة
-        let restPayments: any[] = [];
-        if (restOrders && restOrders.length > 0) {
-            const orderIds = restOrders.map(o => o.id);
-            const { data: payData } = await supabase.from('payments')
-                .select('id, order_id, amount, created_at, payment_method, organization_id')
-                .in('order_id', orderIds);
-            restPayments = payData?.filter(p => p.organization_id === userOrgId) || []; // Apply filter here
+        // ملاحظة: getSystemAccount غير معرّف في هذا الملف حالياً.
+        // لذلك نعتمد على مسارات/مصفوفات الحسابات داخل سياق AccountingContext.
+        // إذا كانت لديك دالة بديلة فعّلها هنا.
+        const customerAcc = settings?.accounts?.find((a: any) => a?.code === 'CUSTOMERS') || null;
+        if (!customerAcc) {
+            showToast('تعذر تحديد حساب العملاء (CUSTOMERS).', 'error');
+            setLoading(false);
+            return;
         }
 
-        // Combine all transactions
-        let allTrans: any[] = [];
+        // 1. جلب كافة حركات الأستاذ العام لحساب العميل المحدد
+        const { data: ledgerLines, error: ledgerError } = await supabase
+            .from('journal_lines')
+            .select(`
+                debit, credit,
+                journal_entries(id, reference, transaction_date, description, status, related_document_id, related_document_type)
+            `)
+            .eq('account_id', customerAcc.id)
+            .eq('organization_id', userOrgId)
+            .eq('journal_entries.status', 'posted')
+            .ilike('journal_entries.description', `%${selectedCustomer?.name}%`) // فلترة مبدئية باسم العميل
+            .order('journal_entries.transaction_date', { ascending: true });
 
-        invoices?.forEach(inv => {
-            allTrans.push({
-                id: inv.id,
-                type: 'invoice',
-                date: inv.invoice_date, ref: inv.invoice_number, desc: 'فاتورة مبيعات', 
-                debit: inv.total_amount, credit: 0, 
-                isPosted: !!inv.related_journal_entry_id // فحص وجود القيد
-            });
-            // إضافة سطر سداد إذا كان هناك مبلغ مدفوع مقدماً في الفاتورة
-            if (inv.paid_amount && inv.paid_amount > 0) {
-                allTrans.push({
-                    id: inv.id, // ربط سطر السداد بنفس معرف الفاتورة للإصلاح
-                    date: inv.invoice_date, type: 'receipt', ref: inv.invoice_number, desc: 'دفعة مقدمة مع الفاتورة', 
-                    debit: 0, credit: inv.paid_amount,
-                    isPosted: !!inv.related_journal_entry_id
-                });
+        if (ledgerError) throw ledgerError;
+
+        let allTrans: Transaction[] = [];
+        let unpostedCount = 0;
+
+        // 2. معالجة كل سطر قيد من الأستاذ العام
+        ledgerLines?.forEach(line => {
+            const je = line.journal_entries;
+            if (!je) return;
+
+            // تحديد نوع المستند من الوصف أو المرجع
+            // (Supabase types for select/join are not strongly inferred here, so we keep it flexible)
+            let type: Transaction['type'] = 'invoice';
+            const jeAny: any = je;
+            let ref = jeAny.reference || jeAny.id;
+            let desc = jeAny.description || 'قيد يومية';
+            let isPosted = jeAny.status === 'posted';
+
+            if (ref.startsWith('INV-')) type = 'invoice';
+            else if (ref.startsWith('RV-')) type = 'receipt';
+            else if (ref.startsWith('SR-')) type = 'return';
+            else if (ref.startsWith('CN-')) type = 'credit_note';
+            else if (ref.startsWith('CHQ-')) type = 'receipt'; // For incoming cheques
+            else if (ref.startsWith('REJ-')) type = 'receipt'; // For rejected cheques reversal
+            else if (ref.startsWith('OB-')) type = 'invoice'; // Opening Balance
+            else if ((je as any).related_document_type === 'order') type = 'pos_order';
+
+            // إذا كان القيد يمثل دفعة مقدمة مع فاتورة، يتم التعامل معه كـ receipt
+            if (desc.includes('دفعة مقدمة مع الفاتورة') && type === 'invoice') {
+                type = 'receipt';
             }
+
+            allTrans.push({
+                id: (line as any).id, // استخدام معرف سطر القيد لضمان التفرد
+                date: (je as any).transaction_date,
+                type: type,
+                reference: ref,
+                description: desc,
+                debit: Number((line as any).debit),
+                credit: Number((line as any).credit),
+                balance: 0, // سيتم حسابها لاحقاً
+                isPosted: isPosted
+            });
         });
 
-        returns?.forEach(ret => allTrans.push({
-            id: ret.id,
-            date: ret.return_date, type: 'return', ref: ret.return_number, desc: 'مرتجع مبيعات', 
-            debit: 0, credit: ret.total_amount,
-            isPosted: !!ret.related_journal_entry_id
-        }));
+        // 3. إضافة مبيعات المطاعم غير المرحّلة (التي لم تُنشأ لها قيود يومية بعد)
+        const { data: openOrders } = await supabase.from('orders')
+            .select('id, order_number, created_at, grand_total, order_type, status')
+            .eq('customer_id', selectedCustomerId)
+            .eq('organization_id', userOrgId)
+            .is('related_journal_entry_id', null)
+            .neq('status', 'CANCELLED');
 
-        receipts?.forEach(rec => allTrans.push({
-            id: rec.id,
-            date: rec.receipt_date, type: 'receipt', ref: rec.voucher_number, desc: rec.notes || 'سند قبض', 
-            debit: 0, credit: rec.amount,
-            isPosted: !!rec.related_journal_entry_id
-        }));
-
-        creditNotes?.forEach(cn => allTrans.push({
-            id: cn.id,
-            date: cn.note_date, type: 'credit_note', ref: cn.credit_note_number, desc: 'إشعار دائن', 
-            debit: 0, credit: cn.total_amount,
-            isPosted: !!cn.related_journal_entry_id
-        }));
-
-        cheques?.forEach(chq => allTrans.push({
-            id: chq.id,
-            date: chq.created_at ? chq.created_at.split('T')[0] : chq.due_date,
-            type: 'receipt', 
-            ref: chq.cheque_number, 
-            desc: `شيك رقم ${chq.cheque_number}`, 
-            debit: 0, 
-            credit: chq.amount,
-            isPosted: !!chq.related_journal_entry_id
-        }));
-
-        // ملاحظة للمحاسب: تم تعطيل الإضافة اليدوية هنا لأن الدالة الجديدة 
-        // تقوم بإنشاء قيد يومية فعلي سيتم التقاطه تلقائياً في قسم filteredManual
-        // cheques?.filter(c => c.status === 'rejected')?.forEach(chq => ...
-
-        // إضافة حركات المطعم (مدين)
-        restOrders?.forEach(ord => {
+        openOrders?.forEach(ord => {
             const total = Number(ord.grand_total) || 0;
             if (total > 0) {
                 let typeLabel = 'طلب مطعم';
@@ -209,87 +165,42 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
                 allTrans.push({
                     id: ord.id,
-                    date: ord.created_at ? ord.created_at.split('T')[0] : '', 
+                    date: ord.created_at ? ord.created_at.split('T')[0] : '',
                     type: 'pos_order',
-                    ref: ord.order_number,
-                    desc: typeLabel,
-                    debit: total, 
-                    isPosted: !!ord.related_journal_entry_id,
-                    credit: 0
+                    reference: ord.order_number,
+                    description: typeLabel,
+                    debit: total,
+                    credit: 0,
+                    balance: 0,
+                    isPosted: false // غير مرحّل
                 });
+                unpostedCount++;
             }
         });
 
-        // إضافة مدفوعات المطعم (دائن)
-        restPayments?.forEach(pay => {
-            allTrans.push({
-                id: pay.id,
-                date: pay.created_at,
-                type: 'receipt',
-                ref: 'POS-PAY',
-                desc: `سداد طلب مطعم (${pay.payment_method === 'CASH' ? 'نقدي' : 'شبكة'})`,
-                debit: 0, 
-                isPosted: true, // مدفوعات المطعم ترحل ضمن قيد الوردية
-                credit: pay.amount
-            });
-        });
-
-        filteredManual.forEach(je => {
-            const isDuplicate = allTrans.some(t => {
-                const clean = (r: any) => r?.toString().trim().toUpperCase().replace(/^(CHQ-|RV-|INV-|COLL-|TRF-|OB-)/i, '') || '';
-                const cleanManual = (r: any) => r?.toString().trim().toUpperCase().replace(/^(CHQ-|RV-|INV-|COLL-|TRF-|OB-)/i, '') || '';
-                const r1 = clean(t.ref);
-                const r2 = cleanManual(je.reference);
-                // لا نعتبر قيد الرفض REJ تكراراً أبداً لأنه حركة عكسية ضرورية
-                return r1 === r2 && r1 !== '' && r1 !== 'NULL' && !je.reference.startsWith('REJ-');
-            });
-
-            if (!isDuplicate) {
-                const customerLines = je.journal_lines?.filter((l: any) => l.accounts.code.startsWith('122')) || [];
-                const debit = customerLines.reduce((sum: number, l: any) => sum + Number(l.debit), 0); 
-                const credit = customerLines.reduce((sum: number, l: any) => sum + Number(l.credit), 0);
-
-                allTrans.push({
-                    id: je.id, date: je.transaction_date, type: 'invoice', ref: je.reference, 
-                    desc: je.description, debit, credit, isPosted: true
-                });
-            }
-        });
-
-        // Sort chronologically
+        // 4. فرز الحركات زمنياً
         allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        // Calculate opening balance and period transactions
-        let openBal = 0;
+        // 5. حساب الرصيد الافتتاحي والرصيد الجاري
+        let openBal = Number(selectedCustomer?.opening_balance || 0);
         const periodTrans: Transaction[] = [];
 
         allTrans.forEach(t => {
             if (t.date < startDate) {
                 openBal += (t.debit - t.credit);
-            } else if (t.date <= endDate) {
-                periodTrans.push({
-                    id: t.id, // استخدام المعرف الحقيقي فقط
-                    date: t.date,
-                    type: t.type,
-                    reference: t.ref,
-                    description: t.desc,
-                    debit: t.debit,
-                    credit: t.credit,
-                    balance: 0,
-                    isPosted: t.isPosted
-                });
+            } else if (t.date >= startDate && t.date <= endDate) {
+                periodTrans.push(t);
             }
         });
 
-        // Calculate running balance
         let runningBal = openBal;
         const finalTrans = periodTrans.map(t => {
             runningBal += (t.debit - t.credit);
             return { ...t, balance: runningBal };
         });
 
-        // إصلاح: تجاهل طلبات المطعم من عداد المستندات غير المرحة لأنها ترحل مجمعاً مع الوردية
-        setUnpostedCount(finalTrans.filter(t => !t.isPosted && t.type !== 'pos_order').length);
+        // 6. تحديث الحالات
+        setUnpostedCount(unpostedCount + finalTrans.filter(t => !t.isPosted && t.type !== 'pos_order').length);
         setOpeningBalance(openBal);
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
@@ -302,120 +213,16 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     }
   };
 
-  const handleFixEntry = async (id: string, ref: string, type: string) => {
-        const typeLabel = type === 'invoice' ? 'فاتورة' : type === 'return' ? 'مرتجع' : 'مستند';
-          if (window.confirm(`جاري فحص وتصحيح الربط المحاسبي لـ ${typeLabel} رقم ${ref}. هل تريد المتابعة؟`)) {
-          try {
-                 setLoading(true);
-              
-              // 1. الوقاية من التكرار: ابحث أولاً في دفتر اليومية عن قيد موجود مسبقاً لهذا المستند
-              const { data: existingEntry } = await supabase
-                  .from('journal_entries')
-                  .select('id, related_document_id')
-                  .or(`related_document_id.eq.${id},reference.eq.${ref}`)
-                  .maybeSingle();
-
-              if (existingEntry) {
-                  // إذا وجدنا القيد عن طريق المرجع ولكن الرابط التقني مفقود، نقوم بإصلاحه في جدول القيود أيضاً
-                  if (!existingEntry.related_document_id) {
-                      await supabase.from('journal_entries').update({ related_document_id: id }).eq('id', existingEntry.id);
-                  }
-
-                  // إذا وجدنا القيد، نقوم فقط بتحديث الرابط في جدول المستند (دون إنشاء قيد جديد)
-                  const table = type === 'invoice' ? 'invoices' : type === 'return' ? 'sales_returns' : 'credit_notes';
-                  await supabase.from(table).update({ related_journal_entry_id: existingEntry.id, status: 'posted' }).eq('id', id);
-                  showToast(`تم العثور على القيد رقم ${ref} وإعادة ربطه بنجاح ✅`, 'success');
-              } else {
-                  // 2. إذا لم نجد القيد، نقوم بإنشائه بالطريقة الرسمية
-                  let success = false;
-                  if (type === 'invoice') {
-                      success = await approveInvoice(id);
-                  } else if (type === 'return') {
-                      const { error } = await supabase.rpc('approve_sales_return', { p_return_id: id });
-                      if (error) throw error;
-                      success = true;
-                  } else if (type === 'credit_note') {
-                      const { error } = await supabase.rpc('approve_credit_note', { p_note_id: id });
-                      if (error) throw error;
-                      success = true;
-                  }
-
-                  if (success) {
-                      showToast(`تم إنشاء قيد يومية جديد لـ ${typeLabel} رقم ${ref} بنجاح ✅`, 'success');
-                  } else {
-                      throw new Error('فشلت عملية الاعتماد المحاسبي');
-                  }         
-              }
-              await fetchStatement(); 
-
-          } catch (error: any) {
-              showToast('فشل إصلاح القيد: ' + error.message, 'error');
-              } finally {
-              setLoading(false);          
-          }
-      }
-  };
-
-  const handleFixAll = async () => {
-      const fixableTypes = ['invoice', 'return', 'credit_note'];
-      const unposted = transactions.filter(t => !t.isPosted && fixableTypes.includes(t.type));
-      
-      if (unposted.length === 0) return;
-
-      if (window.confirm(`هل تريد محاولة إصلاح جميع المستندات الـ (${unposted.length}) دفعة واحدة؟ سيقوم النظام بإنشاء كافة القيود المفقودة آلياً.`)) {
-          setLoading(true);
-          let successes = 0;
-          for (const t of unposted) {
-              try {
-                  // 1. الوقاية: ابحث أولاً في دفتر اليومية عن قيد موجود مسبقاً لهذا المستند
-                  const { data: existingEntry } = await supabase
-                      .from('journal_entries')
-                      .select('id, related_document_id')
-                      .or(`related_document_id.eq.${t.id},reference.eq.${t.reference}`)
-                      .maybeSingle();
-
-                  if (existingEntry) {
-                      // إصلاح الرابط المفقود في جدول القيود
-                      if (!existingEntry.related_document_id) {
-                          await supabase.from('journal_entries').update({ related_document_id: t.id }).eq('id', existingEntry.id);
-                      }
-
-                      // إذا وجدنا القيد، نقوم فقط بتحديث الرابط في جدول المستند
-                      const table = t.type === 'invoice' ? 'invoices' : t.type === 'return' ? 'sales_returns' : 'credit_notes';
-                      await supabase.from(table).update({ related_journal_entry_id: existingEntry.id, status: 'posted' }).eq('id', t.id);
-                      successes++;
-                  } else {
-                      // 2. إذا لم نجد القيد، نقوم بإنشائه بالطريقة الرسمية المنضبطة
-                      let success = false;
-                      if (t.type === 'invoice') {
-                          success = await approveInvoice(t.id);
-                      } else if (t.type === 'return') {
-                          const { error: rpcError } = await supabase.rpc('approve_sales_return', { p_return_id: t.id });
-                          if (!rpcError) success = true;
-                      } else if (t.type === 'credit_note') {
-                          const { error: rpcError } = await supabase.rpc('approve_credit_note', { p_note_id: t.id });
-                          if (!rpcError) success = true;
-                      }
-                      if (success) successes++;
-                  }
-              } catch (e) { console.error(e); }
-          }
-          showToast(`اكتملت العملية: تم إصلاح ${successes} مستند بنجاح ✅`, 'success');
-          fetchStatement();
-          setLoading(false);
-      }
-  };
-
-  // Fetch data when filters change
+  // Fetch data when filters change (including selectedCustomer for opening_balance)
   useEffect(() => {
-      if (selectedCustomerId) {
+      if (selectedCustomerId && selectedCustomer) {
           fetchStatement();
       } else {
           setTransactions([]);
           setOpeningBalance(0);
           setClosingBalance(0);
       }
-  }, [selectedCustomerId, startDate, endDate]);
+  }, [selectedCustomerId, startDate, endDate, selectedCustomer]);
 
   const handleExportExcel = () => {
     const data = [

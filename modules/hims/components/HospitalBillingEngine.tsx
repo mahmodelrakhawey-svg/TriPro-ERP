@@ -34,7 +34,7 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
 
       // 3. جلب تفاصيل الخدمات (أدوية، تحاليل، إقامة) لضمان الشفافية المحاسبية الكاملة
       const { data: items } = await supabase
-        .from('hims_billing_details')
+        .from('hims_billing_items')
         .select('*')
         .eq('billing_id', billId)
         .order('item_type', { ascending: true });

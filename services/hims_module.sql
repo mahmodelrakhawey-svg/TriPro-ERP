@@ -341,6 +341,7 @@ CREATE TABLE IF NOT EXISTS public.hims_lab_orders (
 -- �️ ترميم هيكل جدول طلبات المختبر لضمان وجود أعمدة التنبيهات الحرجة
 DO $$ BEGIN
     ALTER TABLE public.hims_lab_orders ADD COLUMN IF NOT EXISTS is_critical boolean DEFAULT false;
+    ALTER TABLE public.hims_lab_orders ADD COLUMN IF NOT EXISTS completed_at timestamptz;
 END $$;
 
 -- � جدول بنود الفاتورة التفصيلية (Detailed Billing Items)
@@ -2326,7 +2327,7 @@ BEGIN
     -- 2. تحديث حالة الطلب والنتيجة
     UPDATE public.hims_lab_orders
     SET status = 'completed',
-        result_text = p_result,
+        result_value = p_result,
         is_critical = p_is_critical,
         completed_at = now()
     WHERE id = p_order_id;

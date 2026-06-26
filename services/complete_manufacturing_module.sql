@@ -862,7 +862,8 @@ BEGIN
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     WHERE (
-        (je.related_document_id = p_order_id AND je.related_document_type IN ('mfg_order', 'mfg_step', 'mfg_byproduct'))
+        (je.related_document_id = p_order_id AND je.related_document_type IN ('mfg_order', 'mfg_byproduct'))
+        OR (je.related_document_type = 'mfg_step' AND je.related_document_id IN (SELECT id FROM public.mfg_order_progress WHERE production_order_id = p_order_id))
         OR (je.related_document_type = 'mfg_material_request' AND je.related_document_id IN (SELECT id FROM public.mfg_material_requests WHERE production_order_id = p_order_id))
     ) AND jl.account_id = v_wip_acc;
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند
