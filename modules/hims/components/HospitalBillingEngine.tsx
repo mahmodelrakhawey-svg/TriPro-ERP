@@ -62,14 +62,20 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
 
   const postToGL = async () => {
     if (!bill) return;
-    if (!settings?.defaultTreasuryId) {
+
+    // يدعم اسمي الحقل المحتملين حسب ما يرجعه الـ RPC:
+    // - defaultTreasuryId (CamelCase)
+    // - default_treasury_id (SnakeCase)
+    const treasuryId = settings?.defaultTreasuryId ?? settings?.default_treasury_id;
+
+    if (!treasuryId) {
       return message.error('يرجى ضبط الخزينة الافتراضية في إعدادات المنشأة أولاً ⚠️');
     }
 
     setLoading(true);
-    const { error } = await supabase.rpc('hims_finalize_billing', { 
-      p_billing_id: bill.id, 
-      p_cash_acc: settings.defaultTreasuryId
+    const { error } = await supabase.rpc('hims_finalize_billing', {
+      p_billing_id: bill.id,
+      p_cash_acc: treasuryId
     });
 
     if (error) message.error(error.message);

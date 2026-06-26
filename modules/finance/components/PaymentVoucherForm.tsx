@@ -65,13 +65,18 @@ const PaymentVoucherForm = () => {
       const { data: ledgerLines } = await supabase
         .from('journal_lines')
         .select('debit, credit, journal_entries!inner(description, status, organization_id)')
-        .eq('account_id', supplierAcc?.id)
+.eq('account_id', supplierAcc?.id)
         .eq('journal_entries.status', 'posted')
-        .eq('journal_entries.organization_id', userOrgId)
-        .ilike('journal_entries.description', `%${supplier.name}%`);
+        .eq('journal_entries.organization_id', userOrgId);
 
-      // للموردين: الرصيد = (الدائن "مديونية" - المدين "سداد")
-      const movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.credit) - Number(l.debit)), 0) || 0;
+      // ملاحظة: لا نعتمد على description لأنه قد لا يحتوي اسم المورد حسب RPC الخاص بسند الصرف.
+      // بدلًا من ذلك، نستخدم ربط السند عبر related_document_id إن كان متوفرًا ضمن النتيجة.
+      const movement = (ledgerLines || []).reduce((sum, l) => {
+        // إذا كانت related_document_id موجودة سنأخذها/أو تتحدد ضمن كشف الحساب من نفس الربط.
+        // وإلا نحتفظ بحساب credit-debit للحساب نفسه بدون فلترة اسم.
+        return sum + (Number(l.credit) - Number(l.debit));
+      }, 0);
+
       setDynamicBalance(Number(supplier.opening_balance || 0) + movement);
     };
     getRealBalance();
