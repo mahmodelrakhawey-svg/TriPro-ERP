@@ -80,49 +80,84 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         }
 
         // حساب العملاء: كود الدليل المصري هو 1221 (Accounts(code) = 1221)
-        // يعتمد على accounts المحملة من context.
-        const customersAccountCode = '1221';
-        // @ts-ignore
-        const customerAcc = (accounts || []).find((a: any) => String(a?.code) === customersAccountCode) || null;
+        // مهم: لا نعتمد على accounts المحملة من الـ context لأن عند إنشاء شركة جديدة قد تكون غير محدثة/فارغة.
+        const { data: customerAccounts, error: customerAccError } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('organization_id', userOrgId)
+          .eq('code', '1221')
+          .limit(1);
 
+        if (customerAccError) throw customerAccError;
+        const customerAcc = customerAccounts?.[0] || null;
 
-
-        if (!customerAcc) {
-            showToast('تعذر تحديد حساب العملاء (CUSTOMERS). يرجى التأكد من وجود الحساب بكود 1221 داخل دليل الحسابات لهذه المنظمة.', 'error');
-            setLoading(false);
-            return;
+        if (!customerAcc?.id) {
+          showToast('تعذر تحديد حساب العملاء (CUSTOMERS) بكود 1221 لهذه المنظمة.', 'error');
+          setLoading(false);
+          return;
         }
 
 
 
-        // 1. جلب كافة حركات الأستاذ العام لحساب العميل المحدد
-        const { data: ledgerLines, error: ledgerError } = await supabase
-            .from('journal_lines')
-            .select(`
-                debit, credit,
-                journal_entries(id, reference, transaction_date, description, status, related_document_id, related_document_type)
-            `)
-            .eq('account_id', customerAcc.id)
-            .eq('organization_id', userOrgId)
 
-            .eq('journal_entries.status', 'posted')
-            // لا نعتمد على وجود اسم العميل داخل description لأن ترحيل القيود قد لا يكتب اسم العميل نصاً
-            .gte('journal_entries.transaction_date', startDate)
-            .lte('journal_entries.transaction_date', endDate)
+        // 1) جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل والقيود اليدوية التي تحوي اسمه
+        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes] = await Promise.all([
+            supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('cheques').select('related_journal_entry_id').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('orders').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${selectedCustomer?.name}%`)
+        ]);
 
-        if (ledgerError) throw ledgerError;
+        const customerEntryIds = new Set<string>();
+        invRes.data?.forEach(i => { if (i.related_journal_entry_id) customerEntryIds.add(i.related_journal_entry_id); });
+        recRes.data?.forEach(r => { if (r.related_journal_entry_id) customerEntryIds.add(r.related_journal_entry_id); });
+        retRes.data?.forEach(r => { if (r.related_journal_entry_id) customerEntryIds.add(r.related_journal_entry_id); });
+        cnRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
+        chqRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
+        ordRes.data?.forEach(o => { if (o.related_journal_entry_id) customerEntryIds.add(o.related_journal_entry_id); });
+        manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
 
+        let ledgerLines: any[] = [];
+        let journalEntries: any[] = [];
+
+        if (customerEntryIds.size > 0) {
+            const { data: lines, error: ledgerError } = await supabase
+                .from('journal_lines')
+                .select('id, journal_entry_id, debit, credit, account_id, organization_id')
+                .eq('account_id', customerAcc.id)
+                .eq('organization_id', userOrgId)
+                .in('journal_entry_id', Array.from(customerEntryIds));
+
+            if (ledgerError) throw ledgerError;
+            ledgerLines = lines || [];
+
+            const journalEntryIds = Array.from(new Set(ledgerLines.map((l) => l.journal_entry_id).filter(Boolean)));
+            if (journalEntryIds.length > 0) {
+                const { data: entries, error: journalEntriesError } = await supabase
+                    .from('journal_entries')
+                    .select('id, reference, transaction_date, description, status, related_document_id, related_document_type')
+                    .in('id', journalEntryIds)
+                    .eq('organization_id', userOrgId);
+
+                if (journalEntriesError) throw journalEntriesError;
+                journalEntries = entries || [];
+            }
+        }
+
+        const journalEntryById = new Map((journalEntries || []).map((je) => [je.id, je]));
 
         let allTrans: Transaction[] = [];
         let unpostedCount = 0;
 
-        // 2. معالجة كل سطر قيد من الأستاذ العام
-        ledgerLines?.forEach(line => {
-            const je = line.journal_entries;
+        // 2. معالجة كل سطر قيد من الأستاذ العام للعميل المختار
+        ledgerLines.forEach(line => {
+            const je = journalEntryById.get(line.journal_entry_id);
             if (!je) return;
 
             // تحديد نوع المستند من الوصف أو المرجع
-            // (Supabase types for select/join are not strongly inferred here, so we keep it flexible)
             let type: Transaction['type'] = 'invoice';
             const jeAny: any = je;
             let ref = jeAny.reference || jeAny.id;
@@ -136,7 +171,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             else if (ref.startsWith('CHQ-')) type = 'receipt'; // For incoming cheques
             else if (ref.startsWith('REJ-')) type = 'receipt'; // For rejected cheques reversal
             else if (ref.startsWith('OB-')) type = 'invoice'; // Opening Balance
-            else if ((je as any).related_document_type === 'order') type = 'pos_order';
+            else if (jeAny.related_document_type === 'order') type = 'pos_order';
 
             // إذا كان القيد يمثل دفعة مقدمة مع فاتورة، يتم التعامل معه كـ receipt
             if (desc.includes('دفعة مقدمة مع الفاتورة') && type === 'invoice') {
@@ -144,19 +179,20 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             }
 
             allTrans.push({
-                id: (line as any).id, // استخدام معرف سطر القيد لضمان التفرد
-                date: (je as any).transaction_date,
+                id: line.id, // استخدام معرف سطر القيد لضمان التفرد
+                date: je.transaction_date,
                 type: type,
                 reference: ref,
                 description: desc,
-                debit: Number((line as any).debit),
-                credit: Number((line as any).credit),
+                debit: Number(line.debit),
+                credit: Number(line.credit),
                 balance: 0, // سيتم حسابها لاحقاً
                 isPosted: isPosted
             });
         });
 
         // 3. إضافة مبيعات المطاعم غير المرحّلة (التي لم تُنشأ لها قيود يومية بعد)
+        // 3) إضافة مبيعات المطاعم غير المرحّلة (التي لم تُنشأ لها قيود يومية بعد)
         const { data: openOrders } = await supabase.from('orders')
             .select('id, order_number, created_at, grand_total, order_type, status')
             .eq('customer_id', selectedCustomerId)
@@ -186,6 +222,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                 unpostedCount++;
             }
         });
+
 
         // 4. فرز الحركات زمنياً
         allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -342,7 +379,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
       )}
 
       {selectedCustomerId && (
-          <div id="printable-statement" className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-8 animate-in fade-in">
+          <div id="printable-statement" className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-8 animate-in fade-in print:break-after-page">
+
               <div className="flex justify-between mb-8 border-b pb-6">
                   <div>
                       <h1 className="text-2xl font-bold text-slate-900">{settings.companyName}</h1>

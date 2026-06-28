@@ -97,6 +97,8 @@ const WastageManager = () => {
                         { accountId: inventoryAcc.id, debit: 0, credit: totalLostCost, description: 'تخفيض المخزون نتيجة التلف' }
                     ]
                 });
+            } else {
+                showToast('تنبيه: تم تسجيل الهالك مخزنياً، ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات المطلوبة في شجرة الحسابات.', 'warning');
             }
         }
 

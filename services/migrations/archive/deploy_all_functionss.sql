@@ -2570,7 +2570,9 @@ BEGIN
         INSERT INTO public.stock_adjustment_items (organization_id, stock_adjustment_id, product_id, quantity, type)
         VALUES (v_count.organization_id, v_adj_id, v_item.product_id, v_item.difference, CASE WHEN v_item.difference > 0 THEN 'in' ELSE 'out' END);
         
-        v_total_val := v_total_val + (v_item.difference * COALESCE((SELECT purchase_price FROM public.products WHERE id = v_item.product_id), 0));
+        v_total_val := v_total_val + (v_item.difference * COALESCE(
+            (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) 
+             FROM public.products WHERE id = v_item.product_id), 0));
     END LOOP;
 
     -- 3. المحاسبة الآلية للفروقات

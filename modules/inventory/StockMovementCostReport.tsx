@@ -81,7 +81,7 @@ const StockMovementCostReport = () => {
       // 3. جلب التسويات المخزنية (Stock Adjustments)
       let queryAdjustments = supabase
         .from('stock_adjustment_items')
-        .select('quantity, stock_adjustments!inner(id, adjustment_number, status)') // Removed organization_id from inner select
+        .select('quantity, stock_adjustments!inner(id, adjustment_number, adjustment_date, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
         .eq('stock_adjustments.status', 'posted')
         .eq('organization_id', userOrgId);

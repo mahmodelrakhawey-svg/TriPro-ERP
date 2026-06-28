@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -806,7 +806,8 @@ const ProductManager = () => {
                       product_id: newProduct.id,
                       warehouse_id: targetWarehouseId,
                       quantity: Number(stock),
-                      cost: Number(purchase_price) || 0
+                      cost: Number(purchase_price) || 0,
+                      organization_id: orgId
                   });
 
                   const totalValue = Number(stock) * (Number(purchase_price) || 0);
@@ -819,15 +820,16 @@ const ProductManager = () => {
                           transaction_date: new Date().toISOString().split('T')[0],
                           description: `رصيد افتتاحي (استيراد) - ${newProduct.name}`.substring(0, 255),
                           status: 'posted', // تصحيح: يجب أن يكون posted
-                          user_id: user?.id || currentUser?.id // تصحيح اسم العمود
+                          user_id: user?.id || currentUser?.id, // تصحيح اسم العمود
+                          organization_id: orgId
                       }).select().single();
 
                       if (entry) { // Use handleError for consistency
                           await supabase.from('journal_lines').insert([
                               // من حـ/ المخزون
-                              { journal_entry_id: entry.id, account_id: defaultInventory, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}` },
+                              { journal_entry_id: entry.id, account_id: defaultInventory, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}`, organization_id: orgId },
                               // إلى حـ/ الأرصدة الافتتاحية
-                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}` }
+                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
                           ]);
                       }
                   }
@@ -1098,7 +1100,8 @@ const ProductManager = () => {
                     product_id: newProduct.id,
                     warehouse_id: defaultWarehouseId,
                     quantity: formData.opening_stock,
-                    cost: formData.purchase_price
+                    cost: formData.purchase_price,
+                    organization_id: orgId
                 });
                 
                 // إنشاء القيد المحاسبي يدوياً لضمان ظهوره في دفتر اليومية // Use handleError for consistency
@@ -1115,13 +1118,14 @@ const ProductManager = () => {
                           transaction_date: new Date().toISOString().split('T')[0],
                           description: `رصيد افتتاحي - ${newProduct.name}`.substring(0, 255),
                           status: 'posted',
-                          user_id: user?.id || currentUser?.id // تصحيح اسم العمود
+                          user_id: user?.id || currentUser?.id, // تصحيح اسم العمود
+                          organization_id: orgId
                       }).select().single();
 
                       if (entry) { // Use handleError for consistency
                           await supabase.from('journal_lines').insert([
-                              { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}` },
-                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}` }
+                              { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}`, organization_id: orgId },
+                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
                           ]);
                       }
                 }

@@ -91,9 +91,11 @@ const ItemProfitReport = () => {
 
         const qty = Number(item.quantity);
         const revenue = Number(item.total);
+        const lineCost = Number(item.cost || item.products.weighted_average_cost || item.products.purchase_price || 0);
         
         productMap[item.product_id].quantitySold += qty;
         productMap[item.product_id].totalRevenue += revenue;
+        productMap[item.product_id].totalCost += (qty * lineCost);
       });
       
       // دمج بيانات المطعم
@@ -114,13 +116,16 @@ const ItemProfitReport = () => {
             margin: 0
           };
         }
-        productMap[item.product_id].quantitySold += Number(item.quantity);
+        const qty = Number(item.quantity);
+        const lineCost = Number(item.unit_cost || item.products.weighted_average_cost || item.products.purchase_price || 0);
+        productMap[item.product_id].quantitySold += qty;
         productMap[item.product_id].totalRevenue += Number(item.total_price);
+        productMap[item.product_id].totalCost += (qty * lineCost);
       });
 
       // 3. حساب الأرباح والهوامش
       const processedData = Object.values(productMap).map(p => {
-          const totalCost = p.quantitySold * p.currentCost;
+          const totalCost = p.totalCost;
           const grossProfit = p.totalRevenue - totalCost;
           const margin = p.totalRevenue > 0 ? (grossProfit / p.totalRevenue) * 100 : 0;
           const avgSellingPrice = p.quantitySold > 0 ? p.totalRevenue / p.quantitySold : 0;

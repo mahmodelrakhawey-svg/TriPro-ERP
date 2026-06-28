@@ -760,6 +760,55 @@ BEGIN
     PERFORM public.recalculate_stock_rpc(p_org_id, p_product_id);
 END; $$;
 
+-- 🛠️ دالة اعتماد الجرد المخزني (Post Inventory Count)
+CREATE OR REPLACE FUNCTION public.post_inventory_count(p_count_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_count record; v_item record; v_adj_id uuid; v_adj_no text; v_total_val numeric := 0;
+    v_inv_acc uuid; v_adj_acc uuid; v_je_id uuid; v_mappings jsonb;
+BEGIN
+    SELECT * INTO v_count FROM public.inventory_counts WHERE id = p_count_id AND status = 'draft';
+    IF NOT FOUND THEN RAISE EXCEPTION 'الجرد غير موجود أو تم اعتماده مسبقاً'; END IF;
+
+    v_adj_no := 'ADJ-CNT-' || v_count.count_number;
+
+    -- 1. إنشاء رأس التسوية
+    INSERT INTO public.stock_adjustments (organization_id, warehouse_id, adjustment_date, adjustment_number, reason, status)
+    VALUES (v_count.organization_id, v_count.warehouse_id, v_count.count_date, v_adj_no, 'تسوية ناتجة عن جرد: ' || v_count.count_number, 'posted')
+    RETURNING id INTO v_adj_id;
+
+    -- 2. نقل الفروقات واحتساب القيمة بالتكلفة الفعلية أو المتوسط المرجح
+    FOR v_item IN SELECT * FROM public.inventory_count_items WHERE inventory_count_id = p_count_id AND difference <> 0 LOOP
+        INSERT INTO public.stock_adjustment_items (organization_id, stock_adjustment_id, product_id, quantity, type)
+        VALUES (v_count.organization_id, v_adj_id, v_item.product_id, v_item.difference, CASE WHEN v_item.difference > 0 THEN 'in' ELSE 'out' END);
+        
+        v_total_val := v_total_val + (v_item.difference * COALESCE(
+            (SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) 
+             FROM public.products WHERE id = v_item.product_id), 0));
+    END LOOP;
+
+    -- 3. المحاسبة الآلية للفروقات
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_count.organization_id;
+    v_inv_acc := COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_count.organization_id LIMIT 1));
+    v_adj_acc := COALESCE((v_mappings->>'INVENTORY_ADJUSTMENTS')::uuid, (SELECT id FROM public.accounts WHERE code = '512' AND organization_id = v_count.organization_id LIMIT 1));
+
+    IF v_total_val <> 0 AND v_inv_acc IS NOT NULL AND v_adj_acc IS NOT NULL THEN
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
+        VALUES (v_count.count_date, 'قيد تسوية جرد رقم ' || v_count.count_number, v_adj_no, 'posted', v_count.organization_id, true, v_adj_id, 'stock_adjustment')
+        RETURNING id INTO v_je_id;
+
+        IF v_total_val > 0 THEN
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id) VALUES (v_je_id, v_inv_acc, v_total_val, 0, v_count.organization_id), (v_je_id, v_adj_acc, 0, v_total_val, v_count.organization_id);
+        ELSE
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id) VALUES (v_je_id, v_adj_acc, ABS(v_total_val), 0, v_count.organization_id), (v_je_id, v_inv_acc, 0, ABS(v_total_val), v_count.organization_id);
+        END IF;
+    END IF;
+
+    UPDATE public.inventory_counts SET status = 'posted' WHERE id = p_count_id;
+    PERFORM public.recalculate_stock_rpc(v_count.organization_id);
+    RETURN v_adj_id;
+END; $$;
+
 -- 🛠️ دالة تسجيل الهالك (Record Wastage)
 CREATE OR REPLACE FUNCTION public.record_wastage(
     p_date date,

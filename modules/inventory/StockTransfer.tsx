@@ -41,7 +41,8 @@ const StockTransfer = () => {
 
     // التحقق من الرصيد في المستودع المصدر (اختياري، لكن مفضل)
     if (formData.fromWarehouseId) {
-        const stockInSource = product.warehouseStock?.[formData.fromWarehouseId] || 0;
+        const warehouseStockMap = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
+        const stockInSource = warehouseStockMap?.[formData.fromWarehouseId] || 0;
         if (qty > stockInSource) {
             if (!window.confirm(`تنبيه: الكمية المطلوبة (${qty}) أكبر من الرصيد المتوفر في المستودع المصدر (${stockInSource}). هل تريد المتابعة؟`)) {
                 return;
