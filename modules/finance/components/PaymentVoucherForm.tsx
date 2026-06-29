@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -58,29 +58,75 @@ const PaymentVoucherForm = () => {
       // Get user's organization ID
       const { data: { session } } = await supabase.auth.getSession();
       const userOrgId = session?.user?.user_metadata?.org_id;
-      if (!userOrgId) return;
+      if (!userOrgId) {
+          console.error("Organization ID not found for balance calculation.");
+          setDynamicBalance(null);
+          return;
+      }
 
-      // 🛡️ الحل الجذري: حساب الرصيد من واقع الأستاذ العام مباشرة (مطابقة للاستاذ وكشف الحساب)
       const supplierAcc = getSystemAccount('SUPPLIERS');
-      const { data: ledgerLines } = await supabase
-        .from('journal_lines')
-        .select('debit, credit, journal_entries!inner(description, status, organization_id)')
-.eq('account_id', supplierAcc?.id)
-        .eq('journal_entries.status', 'posted')
-        .eq('journal_entries.organization_id', userOrgId);
+      if (!supplierAcc) {
+          console.error("Supplier account not found for balance calculation.");
+          setDynamicBalance(null);
+          return;
+      }
 
-      // ملاحظة: لا نعتمد على description لأنه قد لا يحتوي اسم المورد حسب RPC الخاص بسند الصرف.
-      // بدلًا من ذلك، نستخدم ربط السند عبر related_document_id إن كان متوفرًا ضمن النتيجة.
-      const movement = (ledgerLines || []).reduce((sum, l) => {
-        // إذا كانت related_document_id موجودة سنأخذها/أو تتحدد ضمن كشف الحساب من نفس الربط.
-        // وإلا نحتفظ بحساب credit-debit للحساب نفسه بدون فلترة اسم.
-        return sum + (Number(l.credit) - Number(l.debit));
-      }, 0);
+      // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالمورد + القيود اليدوية التي تذكر اسمه
+      // نظراً لأن بعض المستندات (مثل فواتير المشتريات) قد لا تسجل حقل related_journal_entry_id في جدولها المباشر،
+      // فإننا نجلب معرفات المستندات أولاً ثم نبحث عنها في جدول القيود اليومية عبر related_document_id.
+      const [
+          pinvRes, payRes, pretRes, dnRes, chqRes
+      ] = await Promise.all([
+          supabase.from('purchase_invoices').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
+          supabase.from('payment_vouchers').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
+          supabase.from('purchase_returns').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
+          supabase.from('debit_notes').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
+          supabase.from('cheques').select('id').eq('party_id', supplier.id).eq('type', 'outgoing').eq('organization_id', userOrgId)
+      ]);
+
+      const docIds = new Set<string>();
+      pinvRes.data?.forEach(i => docIds.add(i.id));
+      payRes.data?.forEach(p => docIds.add(p.id));
+      pretRes.data?.forEach(r => docIds.add(r.id));
+      dnRes.data?.forEach(d => docIds.add(d.id));
+      chqRes.data?.forEach(c => docIds.add(c.id));
+
+      const allEntryIds = new Set<string>();
+
+      // 1. جلب القيود المرتبطة بهذه المستندات
+      if (docIds.size > 0) {
+          const { data: relatedEntries } = await supabase.from('journal_entries')
+              .select('id')
+              .eq('organization_id', userOrgId)
+              .eq('status', 'posted')
+              .in('related_document_id', Array.from(docIds));
+          relatedEntries?.forEach(je => allEntryIds.add(je.id));
+      }
+
+      // 2. جلب القيود اليدوية التي تذكر اسم المورد في البيان
+      const { data: manualEntries } = await supabase.from('journal_entries')
+          .select('id')
+          .eq('organization_id', userOrgId)
+          .eq('status', 'posted')
+          .is('related_document_id', null)
+          .ilike('description', `%${supplier.name}%`);
+      manualEntries?.forEach(je => allEntryIds.add(je.id));
+
+      let movement = 0;
+      if (allEntryIds.size > 0) {
+          const { data: ledgerLines } = await supabase.from('journal_lines')
+            .select('debit, credit')
+            .in('journal_entry_id', Array.from(allEntryIds))
+            .eq('account_id', supplierAcc.id);
+
+          // رصيد المورد دائن، لذا الحركات الدائنة تزيد الرصيد والحركات المدينة تخفضه
+          movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.credit) - Number(l.debit)), 0) || 0;
+      }
 
       setDynamicBalance(Number(supplier.opening_balance || 0) + movement);
     };
     getRealBalance();
-  }, [formData.supplierId]);
+  }, [formData.supplierId, suppliers, getSystemAccount]);
   
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
