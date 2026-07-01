@@ -30,6 +30,7 @@ DECLARE
     v_total_amount_base numeric;
     v_tax_amount_base numeric;
     v_net_amount_base numeric;
+    v_mappings jsonb; -- 🚀 مضاف للربط المحاسبي المتعدد
 BEGIN
     -- أ. التحقق من الفاتورة
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
@@ -44,9 +45,10 @@ BEGIN
     IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
 
     -- ب. جلب الحسابات
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- مخزون المنتج التام (فرعي)
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' LIMIT 1; -- ضريبة مدخلات (مصر)
-    SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' LIMIT 1; -- الموردين (مصر)
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT_INPUT')::uuid, (v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1));
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
 
     IF v_inventory_acc_id IS NULL OR v_supplier_acc_id IS NULL THEN
         RAISE EXCEPTION 'حسابات المخزون أو الموردين غير معرّفة في دليل الحسابات';
@@ -105,12 +107,22 @@ BEGIN
     ) RETURNING id INTO v_journal_id;
 
     -- هـ. إنشاء أسطر القيد (بالعملة المحلية)
-    -- 1. المدين: المخزون (صافي القيمة)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, v_inventory_acc_id, v_net_amount_base, 0, 'مخزون - فاتورة مشتريات ' || v_invoice.invoice_number, v_org_id);
+    -- 1. المدين: المخزون (صافي القيمة لكل منتج حسب حسابه الخاص)
+    FOR v_item IN 
+        SELECT 
+            COALESCE(p.inventory_account_id, v_inventory_acc_id) as acc_id,
+            SUM(pii.quantity * pii.unit_price * v_exchange_rate) as total_cost
+        FROM public.purchase_invoice_items pii
+        JOIN public.products p ON pii.product_id = p.id
+        WHERE pii.purchase_invoice_id = p_invoice_id
+        GROUP BY COALESCE(p.inventory_account_id, v_inventory_acc_id)
+    LOOP
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_item.acc_id, v_item.total_cost, 0, 'مخزون - فاتورة مشتريات ' || v_invoice.invoice_number, v_org_id);
+    END LOOP;
 
     -- 2. المدين: ضريبة المدخلات
-    IF v_tax_amount_base > 0 THEN
+    IF v_tax_amount_base > 0 AND v_vat_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_vat_acc_id, v_tax_amount_base, 0, 'ضريبة مدخلات - فاتورة ' || v_invoice.invoice_number, v_org_id);
     END IF;

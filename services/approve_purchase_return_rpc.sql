@@ -22,18 +22,21 @@ DECLARE
     v_vat_acc_id uuid;
     v_supplier_acc_id uuid;
     v_journal_id uuid;
+    v_mappings jsonb; -- 🚀 مضاف للربط المحاسبي
 BEGIN
     -- أ. التحقق من المرتجع
     SELECT * INTO v_return FROM public.purchase_returns WHERE id = p_return_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'مرتجع المشتريات غير موجود'; END IF;
     IF v_return.status = 'posted' THEN RAISE EXCEPTION 'المرتجع مرحل بالفعل'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    -- تحديد المنظمة من المرتجع لضمان عزل البيانات في نظام SaaS
+    v_org_id := v_return.organization_id;
 
     -- ب. جلب الحسابات
-    SELECT id INTO v_inventory_acc_id FROM public.accounts WHERE code = '10302' LIMIT 1; -- مخزون المنتج التام (فرعي)
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1241' LIMIT 1; -- ضريبة مدخلات
-    SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '201' LIMIT 1; -- الموردين
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
+    v_vat_acc_id := COALESCE((v_mappings->>'VAT_INPUT')::uuid, (v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1));
+    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
 
     IF v_inventory_acc_id IS NULL OR v_supplier_acc_id IS NULL THEN
         RAISE EXCEPTION 'حسابات المخزون أو الموردين غير معرّفة في دليل الحسابات';
@@ -70,12 +73,22 @@ BEGIN
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
     VALUES (v_journal_id, v_supplier_acc_id, v_return.total_amount, 0, 'مرتجع مشتريات - ' || v_return.return_number, v_org_id);
 
-    -- 2. الدائن: المخزون (صافي القيمة)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, v_inventory_acc_id, 0, (v_return.total_amount - COALESCE(v_return.tax_amount, 0)), 'مخزون - مرتجع مشتريات ' || v_return.return_number, v_org_id);
+    -- 2. الدائن: المخزون (صافي القيمة لكل منتج حسب حسابه الخاص)
+    FOR v_item IN 
+        SELECT 
+            COALESCE(p.inventory_account_id, v_inventory_acc_id) as acc_id,
+            SUM(pri.total) as total_cost
+        FROM public.purchase_return_items pri
+        JOIN public.products p ON pri.product_id = p.id
+        WHERE pri.purchase_return_id = p_return_id
+        GROUP BY COALESCE(p.inventory_account_id, v_inventory_acc_id)
+    LOOP
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_item.acc_id, 0, v_item.total_cost, 'مخزون - مرتجع مشتريات ' || v_return.return_number, v_org_id);
+    END LOOP;
 
     -- 3. الدائن: ضريبة المدخلات (عكس)
-    IF COALESCE(v_return.tax_amount, 0) > 0 THEN
+    IF COALESCE(v_return.tax_amount, 0) > 0 AND v_vat_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_vat_acc_id, 0, v_return.tax_amount, 'ضريبة مدخلات (عكس) - مرتجع ' || v_return.return_number, v_org_id);
     END IF;

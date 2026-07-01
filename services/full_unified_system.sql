@@ -1578,8 +1578,24 @@ BEGIN
     IF v_invoice.tax_amount > 0 THEN INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_vat_acc_id, 0, v_invoice.tax_amount, 'ضريبة مخرجات', v_org_id); END IF;
     
     IF v_total_cost > 0 THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة مبيعات', v_org_id);
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inv_acc_id, 0, v_total_cost, 'صرف مخزون تام', v_org_id);
+        FOR v_item IN 
+            SELECT 
+                COALESCE(p.inventory_account_id, v_inv_acc_id) as inv_acc,
+                COALESCE(p.cogs_account_id, v_cogs_acc_id) as cogs_acc,
+                SUM(COALESCE(ii.cost, 0) * public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id)) as total_item_cost
+            FROM public.invoice_items ii
+            JOIN public.products p ON ii.product_id = p.id
+            WHERE ii.invoice_id = p_invoice_id
+            GROUP BY COALESCE(p.inventory_account_id, v_inv_acc_id), COALESCE(p.cogs_account_id, v_cogs_acc_id)
+        LOOP
+            IF v_item.total_item_cost > 0 THEN
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+                VALUES (v_journal_id, v_item.cogs_acc, v_item.total_item_cost, 0, 'تكلفة مبيعات', v_org_id);
+                
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+                VALUES (v_journal_id, v_item.inv_acc, 0, v_item.total_item_cost, 'صرف مخزون تام', v_org_id);
+            END IF;
+        END LOOP;
     END IF;
 
     -- 5. تحديث حالة الفاتورة وربطها بالقيد
@@ -1636,12 +1652,35 @@ BEGIN
     -- توليد القيد المحاسبي
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1));
+    v_vat_in_id := COALESCE((v_mappings->>'VAT_INPUT')::uuid, (v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '1241' AND organization_id = v_org_id LIMIT 1));
     v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code = '201' AND organization_id = v_org_id LIMIT 1));
 
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted) 
     VALUES (v_invoice.invoice_date, 'فاتورة مشتريات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_invoice.invoice_number, 'posted', v_org_id, p_invoice_id, 'purchase_invoice', true) RETURNING id INTO v_journal_id;
     
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_inventory_acc_id, v_invoice.subtotal, 0, 'إثبات مشتريات', v_org_id), (v_journal_id, v_supplier_acc_id, 0, v_invoice.total_amount, 'استحقاق مورد', v_org_id);
+    -- 1. المدين: المخزون (مقسم حسب حساب المخزون الخاص بكل منتج)
+    FOR v_item IN 
+        SELECT 
+            COALESCE(p.inventory_account_id, v_inventory_acc_id) as acc_id,
+            SUM(pii.total) as total_cost
+        FROM public.purchase_invoice_items pii
+        JOIN public.products p ON pii.product_id = p.id
+        WHERE pii.purchase_invoice_id = p_invoice_id
+        GROUP BY COALESCE(p.inventory_account_id, v_inventory_acc_id)
+    LOOP
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_item.acc_id, v_item.total_cost, 0, 'إثبات مشتريات - مخزون', v_org_id);
+    END LOOP;
+
+    -- 2. المدين: ضريبة المدخلات
+    IF COALESCE(v_invoice.tax_amount, 0) > 0 AND v_vat_in_id IS NOT NULL THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES (v_journal_id, v_vat_in_id, v_invoice.tax_amount, 0, 'ضريبة مدخلات', v_org_id);
+    END IF;
+
+    -- 3. الدائن: المورد (إجمالي الفاتورة)
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+    VALUES (v_journal_id, v_supplier_acc_id, 0, v_invoice.total_amount, 'استحقاق مورد', v_org_id);
 
     UPDATE public.purchase_invoices SET status = 'posted' WHERE id = p_invoice_id;
     IF NOT p_skip_recalc THEN
