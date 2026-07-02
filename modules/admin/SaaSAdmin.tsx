@@ -40,6 +40,7 @@ const AVAILABLE_MODULES = [
   { id: 'purchases', label: 'المشتريات والموردين' },
   { id: 'inventory', label: 'المخازن والأصناف' },
   { id: 'restaurant', label: 'مديول المطاعم' },
+  { id: 'retail', label: 'نقاط بيع التجزئة (هايبرماركت)' },
   { id: 'hr', label: 'الموارد البشرية' },
   { id: 'manufacturing', label: 'التصنيع والإنتاج' },
   { id: 'construction', label: 'المقاولات والمشاريع' },

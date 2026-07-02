@@ -230,6 +230,7 @@ const Sidebar: React.FC = () => {
     // المطعم ونقاط البيع
     { type: 'section', label: 'المطعم والبيع' },
     { to: '/pos', label: 'نقطة البيع', icon: Utensils, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.pos' },
+    { to: '/retail-pos', label: 'نقطة بيع التجزئة (هايبرماركت)', icon: ShoppingCart, color: 'text-rose-400', module: 'retail', permission: 'sales.view' },
     { to: '/kds', label: 'شاشة المطبخ', icon: ChefHat, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/kitchen-end-day', label: 'جرد نهاية اليوم', icon: ClipboardCheck, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/restaurant-analytics', label: 'مركز ذكاء المطاعم (BI)', icon: Sparkles, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },

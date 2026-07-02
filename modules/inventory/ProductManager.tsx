@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -1954,11 +1954,24 @@ const ProductManager = () => {
                     </div>
                     <div className="col-span-2 md:col-span-1">
                         <label className="block text-sm font-bold mb-1 text-slate-700">الكود (SKU)</label>
-                        <input type="text" value={formData.sku} onChange={e => setFormData({...formData, sku: e.target.value})} className="w-full border rounded-lg p-2 font-mono" />
+                        <input 
+                          type="text" 
+                          value={formData.sku} 
+                          onChange={e => setFormData({...formData, sku: e.target.value})} 
+                          onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
+                          className="w-full border rounded-lg p-2 font-mono" 
+                        />
                     </div>
                     <div className="col-span-2 md:col-span-1">
                         <label className="block text-sm font-bold mb-1 text-slate-700">الباركود</label>
-                        <input type="text" value={formData.barcode} onChange={e => setFormData({...formData, barcode: e.target.value})} className="w-full border rounded-lg p-2 font-mono" placeholder="Scan..." />
+                        <input 
+                          type="text" 
+                          value={formData.barcode} 
+                          onChange={e => setFormData({...formData, barcode: e.target.value})} 
+                          onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
+                          className="w-full border rounded-lg p-2 font-mono" 
+                          placeholder="Scan..." 
+                        />
                     </div>
                     <div>
                         <label className="block text-sm font-bold mb-1 text-slate-700">حد الطلب (للتنبيهات)</label>

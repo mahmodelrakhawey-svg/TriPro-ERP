@@ -150,7 +150,8 @@ const PurchaseInvoiceForm = () => {
       return products
           .filter(p =>
               p.name.toLowerCase().includes(term) ||
-              (p.sku && p.sku.toLowerCase().includes(term))
+              (p.sku && p.sku.toLowerCase().includes(term)) ||
+              (p.barcode && p.barcode.toLowerCase().includes(term))
           )
           .sort((a, b) => {
               const aName = a.name.toLowerCase();
@@ -194,6 +195,25 @@ const PurchaseInvoiceForm = () => {
       }
       setProductSearchTerm('');
       setShowProductResults(false);
+  };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+          e.preventDefault();
+          const term = productSearchTerm.trim().toLowerCase();
+          if (!term) return;
+
+          const exactMatch = products.find(p => 
+              (p.barcode && p.barcode.toLowerCase() === term) ||
+              (p.sku && p.sku.toLowerCase() === term)
+          );
+
+          if (exactMatch) {
+              addProductToInvoice(exactMatch);
+          } else if (filteredProducts.length === 1) {
+              addProductToInvoice(filteredProducts[0]);
+          }
+      }
   };
 
   const handleItemChange = (index: number, field: string, value: any) => {
@@ -472,10 +492,11 @@ const PurchaseInvoiceForm = () => {
             <div className="relative">
               <input 
                 type="text" 
-                placeholder="ابحث عن صنف (أرز، زيت...) للإضافة السريعة..."
+                placeholder="ابحث بالاسم أو امسح الباركود للإضافة السريعة..."
                 value={productSearchTerm}
                 onChange={(e) => { setProductSearchTerm(e.target.value); setShowProductResults(true); }}
                 onFocus={() => setShowProductResults(true)}
+                onKeyDown={handleSearchKeyDown}
                 className="w-full border-2 border-slate-100 rounded-xl px-4 py-2.5 pr-10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
               />
               <Search className="absolute right-3 top-3 text-slate-400" size={18} />

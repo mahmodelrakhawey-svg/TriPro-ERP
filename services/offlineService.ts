@@ -11,13 +11,27 @@ export interface QueuedOrder {
   error?: string;
 }
 
+export interface CachedProduct {
+  id: string;
+  name: string;
+  barcode: string | null;
+  sku: string | null;
+  sales_price: number;
+  cost: number;
+  category_id: string | null;
+  stock: number;
+  image_url?: string | null;
+}
+
 class OfflineDB extends Dexie {
   queuedOrders!: Table<QueuedOrder>;
+  products!: Table<CachedProduct, string>;
 
   constructor() {
     super('TriProOfflineDB');
-    this.version(1).stores({
-      queuedOrders: '++id, status, createdAt', // Primary key and indexes
+    this.version(2).stores({
+      queuedOrders: '++id, status, createdAt',
+      products: 'id, barcode, name',
     });
   }
 }
@@ -41,6 +55,40 @@ export const offlineService = {
     } catch (error) {
       console.error('Failed to queue order:', error);
       throw new Error('Failed to save order locally.');
+    }
+  },
+
+  /**
+   * Syncs products from Supabase and stores them locally in IndexedDB.
+   */
+  async syncProductsLocally(orgId: string): Promise<void> {
+    if (!navigator.onLine) return;
+    try {
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, barcode, sku, sales_price, cost, category_id, stock, image_url')
+        .eq('organization_id', orgId);
+      
+      if (error) throw error;
+      
+      if (data) {
+        await db.products.clear();
+        const productsToCache: CachedProduct[] = data.map(p => ({
+          id: p.id,
+          name: p.name,
+          barcode: p.barcode || null,
+          sku: p.sku || null,
+          sales_price: Number(p.sales_price || 0),
+          cost: Number(p.cost || 0),
+          category_id: p.category_id || null,
+          stock: Number(p.stock || 0),
+          image_url: p.image_url || null
+        }));
+        await db.products.bulkAdd(productsToCache);
+        console.log(`Synced ${productsToCache.length} products locally.`);
+      }
+    } catch (error) {
+      console.error('Failed to sync products locally:', error);
     }
   },
 

@@ -258,6 +258,7 @@ export interface Product {
   half_wholesale_price?: number;
   cost: number;
   sku?: string;
+  barcode?: string | null;
   weight?: number;
   stock?: number;
   warehouse_stock?: { [warehouseId: string]: number };

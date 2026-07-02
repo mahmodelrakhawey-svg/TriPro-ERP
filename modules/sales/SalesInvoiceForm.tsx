@@ -369,7 +369,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       const term = productSearchTerm.toLowerCase();
       return products.filter(p =>
           p.name.toLowerCase().includes(term) ||
-          (p.sku && p.sku.toLowerCase().includes(term))
+          (p.sku && p.sku.toLowerCase().includes(term)) ||
+          (p.barcode && p.barcode.toLowerCase().includes(term))
       ).slice(0, 8);
   }, [productSearchTerm, products]);
 
@@ -416,14 +417,18 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const handleBarcodeSearch = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const sku = e.currentTarget.value.trim();
-      if (!sku) return;
+      const code = e.currentTarget.value.trim().toLowerCase();
+      if (!code) return;
 
-      const product = products.find(p => p.sku === sku);
+      const product = products.find(p => 
+        (p.barcode && p.barcode.toLowerCase() === code) ||
+        (p.sku && p.sku.toLowerCase() === code)
+      );
 
       if (product) {
-        addProductToInvoice(product); // Use handleError for consistency
+        addProductToInvoice(product); 
         e.currentTarget.value = ''; 
+        setProductSearchTerm('');
       } else {
         showToast('المنتج غير موجود أو الباركود غير صحيح', 'error');
       }

@@ -145,6 +145,7 @@ import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 import About from './components/About';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './modules/restaurant/components/POS/PosScreen';
+import RetailPosScreen from './modules/retail/components/POS/RetailPosScreen';
 import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
 import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
 import RestaurantSalesReport from './modules/restaurant/reports/RestaurantSalesReport';
@@ -579,6 +580,7 @@ const MainLayout = () => {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} /> 
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
+                <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
                 <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> 
                 <Route path="/kitchen-end-day" element={<ModuleGuard module="restaurant"><KitchenEndDayCount /></ModuleGuard>} /> 
                 <Route path="*" element={<Navigate to="/" replace />} />
