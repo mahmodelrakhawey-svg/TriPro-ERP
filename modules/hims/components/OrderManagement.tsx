@@ -70,6 +70,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           return {
             visit_id: visitId,
             scan_type: radType ? radType.name : 'غير محدد', // استخدام اسم الفحص
+            price: radType ? (radType.price || 0) : 0, // تمرير السعر لقاعدة البيانات
             status: 'pending',
             organization_id: orgId
           };

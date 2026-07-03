@@ -189,7 +189,8 @@ export default function RetailPosScreen() {
       // 2. Sync products locally
       await offlineService.syncProductsLocally(currentUser.organization_id);
 
-      // 3. Check if this user has an active shift on this device (check localStorage)
+      // 3. Check if this user has an active shift on this device (check localStorage or database)
+      let activeShiftDb = null;
       const cachedShift = localStorage.getItem(`tripro_shift_${currentUser.id}`);
       if (cachedShift) {
         const parsed = JSON.parse(cachedShift);
@@ -202,11 +203,33 @@ export default function RetailPosScreen() {
           .single();
 
         if (!shiftErr && dbShift) {
-          setActiveShift(dbShift);
-          setSelectedTerminal(dbShift.pos_terminals || null);
+          activeShiftDb = dbShift;
         } else {
           localStorage.removeItem(`tripro_shift_${currentUser.id}`);
         }
+      }
+
+      // If not found in localStorage or cached shift was invalid, check DB for any open shift of this user
+      if (!activeShiftDb) {
+        const { data: dbShift, error: shiftErr } = await supabase
+          .from('shifts')
+          .select('*, pos_terminals(*)')
+          .eq('user_id', currentUser.id)
+          .eq('organization_id', currentUser.organization_id)
+          .is('end_time', null)
+          .order('start_time', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!shiftErr && dbShift) {
+          activeShiftDb = dbShift;
+        }
+      }
+
+      if (activeShiftDb) {
+        setActiveShift(activeShiftDb);
+        setSelectedTerminal(activeShiftDb.pos_terminals || null);
+        localStorage.setItem(`tripro_shift_${currentUser.id}`, JSON.stringify(activeShiftDb));
       }
     } catch (err) {
       console.error('Error in setup:', err);
@@ -237,7 +260,7 @@ export default function RetailPosScreen() {
       // Call start shift rpc
       const { data: newShift, error } = await supabase.rpc('start_pos_shift', {
         p_opening_balance: Number(openingBalance) || 0,
-        p_resume_existing: false,
+        p_resume_existing: false, // 🛡️ إنشاء وردية جديدة صراحة (ويفشل إذا كانت هناك وردية مفتوحة)
         p_treasury_account_id: treasuryId,
         p_user_id: currentUser.id,
         p_org_id: currentUser.organization_id,
@@ -246,7 +269,7 @@ export default function RetailPosScreen() {
 
       if (error) throw error;
 
-      if (newShift) {
+      if (newShift && newShift.id) {
         // Fetch the full shift record
         const { data: fullShift } = await supabase
           .from('shifts')

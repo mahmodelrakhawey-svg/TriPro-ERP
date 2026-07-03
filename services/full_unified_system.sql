@@ -928,12 +928,20 @@ CREATE OR REPLACE FUNCTION public.create_restaurant_order(
 ) RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE 
     v_order_id uuid; v_item jsonb; v_order_num text; v_tax_rate numeric; 
+    v_tax_enabled boolean; -- 🛡️ للتحقق من تفعيل الضريبة في إعدادات الشركة
     v_subtotal numeric := 0; v_final_wh_id uuid; v_org_id uuid; v_order_item_id uuid; v_delivery_fee numeric := 0; v_item_cost numeric;
 BEGIN
     v_org_id := COALESCE(p_org_id, public.get_my_org());
     v_final_wh_id := COALESCE(p_warehouse_id, (SELECT default_warehouse_id FROM public.company_settings WHERE organization_id = v_org_id LIMIT 1));
     
-    SELECT vat_rate INTO v_tax_rate FROM public.company_settings WHERE organization_id = v_org_id;
+    -- جلب معدل الضريبة وحالة التفعيل من إعدادات الشركة
+    SELECT vat_rate, COALESCE(enable_tax, true) INTO v_tax_rate, v_tax_enabled 
+    FROM public.company_settings WHERE organization_id = v_org_id;
+    
+    IF NOT v_tax_enabled THEN
+        v_tax_rate := 0;
+    END IF;
+
     v_order_num := 'ORD-' || to_char(now(), 'YYMMDD') || '-' || upper(substring(gen_random_uuid()::text, 1, 4));
 
     INSERT INTO public.orders (session_id, user_id, order_type, notes, status, customer_id, order_number, organization_id, warehouse_id)

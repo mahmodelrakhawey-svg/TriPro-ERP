@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
-import { Table, Tag, Input, Button, Modal, message, Card, Typography, Select, Space, Divider, InputNumber } from 'antd';
+import { Table, Tag, Input, Button, Modal, message, Card, Typography, Select, Space, Divider, InputNumber, Tooltip } from 'antd';
 import { ExperimentOutlined, CheckCircleOutlined, EditOutlined, BoxPlotOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
 
@@ -16,9 +16,10 @@ export const LabDashboard: React.FC = () => {
   const fetchOrders = async () => {
     if (!currentUser?.organization_id) return;
     const { data } = await supabase.from('hims_lab_orders')
-      .select('*, hims_visits(doctor_id, hims_patients(id, full_name)), hims_lab_tests(test_name, normal_range, unit)')
+      .select('*, hims_visits(doctor_id, hims_patients(id, full_name), hims_billing(payment_status, insurance_provider_id)), hims_lab_tests(test_name, normal_range, unit)')
       .eq('organization_id', currentUser.organization_id)
       .eq('status', 'pending');
+    console.log('🧪 Lab Dashboard Orders Fetch:', data);
     setOrders(data || []);
   };
 
@@ -93,10 +94,38 @@ export const LabDashboard: React.FC = () => {
   const columns = [
     { title: 'المريض', dataIndex: ['hims_visits', 'hims_patients', 'full_name'] },
     { title: 'الفحص المطلوب', dataIndex: ['hims_lab_tests', 'test_name'] },
-    { title: 'الحالة', render: () => <Tag color="orange">قيد الانتظار</Tag> },
-    { title: 'إجراء', render: (record: any) => (
-      <Button icon={<EditOutlined />} onClick={() => setSelectedOrder(record)}>إدخال النتيجة</Button>
-    )}
+    { 
+      title: 'حالة السداد بالخزينة', 
+      render: (record: any) => {
+        const visitBilling = record.hims_visits?.hims_billing;
+        const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
+        if (billing?.insurance_provider_id) {
+          return <Tag color="green">موافقة تأمينية 🛡️</Tag>;
+        }
+        const isPaid = billing?.payment_status === 'paid';
+        return isPaid ? (
+          <Tag color="success">مدفوع بالخزينة ✅</Tag>
+        ) : (
+          <Tag color="error">غير مدفوع (توجيه للصندوق) ⚠️</Tag>
+        );
+      }
+    },
+    { title: 'إجراء', render: (record: any) => {
+      const visitBilling = record.hims_visits?.hims_billing;
+      const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
+      const isPaid = billing?.payment_status === 'paid' || billing?.insurance_provider_id;
+      return (
+        <Tooltip title={!isPaid ? "يجب على المريض سداد قيمة الفحص في الخزينة أولاً" : ""}>
+          <Button 
+            icon={<EditOutlined />} 
+            onClick={() => setSelectedOrder(record)}
+            disabled={!isPaid}
+          >
+            إدخال النتيجة
+          </Button>
+        </Tooltip>
+      );
+    }}
   ];
 
   return (

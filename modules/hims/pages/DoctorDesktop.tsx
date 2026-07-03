@@ -51,13 +51,14 @@ export const DoctorDesktop: React.FC = () => {
     // تصحيح: البحث يجب أن يكون بعمود visit_id وليس id الفاتورة
     const { data } = await supabase
       .from('hims_billing')
-      .select('payment_status, total_amount, patient_share_amount')
+      .select('payment_status, total_amount, patient_paid_amount, insurance_covered_amount')
       .eq('visit_id', vId) 
       .eq('organization_id', orgId)
       .maybeSingle(); // استخدام maybeSingle لتجنب خطأ 406 في حال عدم وجود فاتورة بعد
       
     if (data) {
-      setFinancialStatus({ cleared: data.payment_status === 'paid', balance: data.patient_share_amount });
+      const remainingBalance = Math.max(0, (data.total_amount || 0) - (data.insurance_covered_amount || 0) - (data.patient_paid_amount || 0));
+      setFinancialStatus({ cleared: data.payment_status === 'paid', balance: remainingBalance });
     }
   };
 

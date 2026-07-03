@@ -176,6 +176,7 @@ import { DoctorKPIs } from './modules/hims/pages/DoctorKPIs';
 import { HIMSExecutiveDashboard } from './modules/hims/pages/HIMSExecutiveDashboard';
 import { HIMSProfitabilityReports } from './modules/hims/pages/HIMSProfitabilityReports';
 import { HIMSServicesManager } from './modules/hims/pages/HIMSServicesManager';
+import { AppointmentManager } from './modules/hims/pages/AppointmentManager';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -414,6 +415,7 @@ const MainLayout = () => {
                   <ModuleGuard module="hims">
                     <Routes>
                       <Route path="patients" element={<PatientManager />} />
+                      <Route path="appointments" element={<AppointmentManager />} />
                       <Route path="doctors" element={<DoctorManager />} />
                       <Route path="doctor-desktop" element={<DoctorDesktop />} />
                       <Route path="billing" element={<MedicalBilling />} />

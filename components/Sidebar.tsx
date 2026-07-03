@@ -46,6 +46,7 @@ import {
   Scissors,
   Camera,
   FilePlus,
+  Calendar,
   CalendarRange,
   Microscope,
   Search,
@@ -239,6 +240,7 @@ const Sidebar: React.FC = () => {
     // موديول المستشفيات (HIMS)
     { type: 'section', label: 'إدارة المستشفيات (HIMS)' },
     { to: '/hims/admin', label: 'لوحة القيادة الاستراتيجية', icon: BarChart, color: 'text-indigo-600', module: 'hims', permission: 'hims_core.view' },
+    { to: '/hims/appointments', label: 'حجز ومتابعة المواعيد', icon: Calendar, color: 'text-indigo-500', module: 'hims', permission: 'hims_core.view' },
     { to: '/hims/patients', label: 'سجلات المرضى الرقمية', icon: Users, color: 'text-blue-400', module: 'hims', permission: 'hims_core.view' },
     { to: '/hims/doctors', label: 'تعريف الأطباء وتخصصاتهم', icon: UserCheck, color: 'text-blue-500', module: 'hims', permission: 'hims_core.view' },
     { to: '/hims/staff-roster', label: 'إدارة مناوبات الطاقم', icon: CalendarRange, color: 'text-blue-400', module: 'hims', permission: 'hims_core.view' },

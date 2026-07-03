@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Tag, Button, Card, Typography, Empty, message, Modal, Form, Input, Divider, Space } from 'antd';
+import { Table, Tag, Button, Card, Typography, Empty, message, Modal, Form, Input, Divider, Space, Tooltip } from 'antd';
 import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, FileTextOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
@@ -20,7 +20,7 @@ export const RadiologyDashboard: React.FC = () => {
     setLoading(true);
     const { data } = await supabase
       .from('hims_radiology_orders') 
-      .select('*, hims_visits(id, doctor_id, hims_patients(id, full_name))')
+      .select('*, hims_visits(id, doctor_id, hims_patients(id, full_name), hims_billing(payment_status, insurance_provider_id))')
       .eq('organization_id', orgId)
       .eq('status', 'pending');
     setOrders(data || []);
@@ -79,21 +79,42 @@ export const RadiologyDashboard: React.FC = () => {
       dataIndex: 'scan_type',
       render: (t: string) => <Tag color="blue" className="font-bold">{t}</Tag>
     },
-    { title: 'الحالة', render: (record: any) => <Tag color={record.status === 'pending' ? 'magenta' : 'green'}>{record.status === 'pending' ? 'قيد الانتظار' : 'مكتمل'}</Tag> },
-    { title: 'إجراء', render: (record: any) => (
-      record.status === 'pending' ? (
-        <Button 
-          type="primary"
-          icon={<CameraOutlined />} 
-          onClick={() => openReportModal(record)}
-          className="bg-indigo-600 border-none"
-        >
-          كتابة التقرير
-        </Button>
+    { 
+      title: 'حالة السداد بالخزينة', 
+      render: (record: any) => {
+        const visitBilling = record.hims_visits?.hims_billing;
+        const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
+        if (billing?.insurance_provider_id) {
+          return <Tag color="green">موافقة تأمينية 🛡️</Tag>;
+        }
+        const isPaid = billing?.payment_status === 'paid';
+        return isPaid ? (
+          <Tag color="success">مدفوع بالخزينة ✅</Tag>
+        ) : (
+          <Tag color="error">غير مدفوع (توجيه للصندوق) ⚠️</Tag>
+        );
+      }
+    },
+    { title: 'إجراء', render: (record: any) => {
+      const visitBilling = record.hims_visits?.hims_billing;
+      const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
+      const isPaid = billing?.payment_status === 'paid' || billing?.insurance_provider_id;
+      return record.status === 'pending' ? (
+        <Tooltip title={!isPaid ? "يجب سداد قيمة الأشعة بالخزينة أولاً" : ""}>
+          <Button 
+            type="primary"
+            icon={<CameraOutlined />} 
+            onClick={() => openReportModal(record)}
+            className={isPaid ? "bg-indigo-600 border-none font-bold" : ""}
+            disabled={!isPaid}
+          >
+            كتابة التقرير
+          </Button>
+        </Tooltip>
       ) : (
         <Tag color="green">مكتمل</Tag>
-      )
-    )}
+      );
+    }}
   ];
 
   return (

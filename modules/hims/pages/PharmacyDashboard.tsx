@@ -25,7 +25,7 @@ export const PharmacyDashboard: React.FC = () => {
 
     const { data } = await supabase
       .from('hims_prescriptions')
-      .select('*, hims_visits!inner(hims_patients(id, full_name, national_id, phone, allergies))')
+      .select('*, hims_visits!inner(hims_patients(id, full_name, national_id, phone, allergies), hims_billing(payment_status, insurance_provider_id))')
       .eq('status', 'pending')
       .eq('organization_id', orgId)
       .order('created_at', { ascending: false });
@@ -130,19 +130,41 @@ export const PharmacyDashboard: React.FC = () => {
       render: (meds: any[]) => <Badge count={meds?.length} showZero color="blue" /> 
     },
     { 
+      title: 'حالة السداد بالخزينة', 
+      render: (record: any) => {
+        const visitBilling = record.hims_visits?.hims_billing;
+        const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
+        if (billing?.insurance_provider_id) {
+          return <Tag color="green">موافقة تأمينية 🛡️</Tag>;
+        }
+        const isPaid = billing?.payment_status === 'paid';
+        return isPaid ? (
+          <Tag color="success">مدفوع بالخزينة ✅</Tag>
+        ) : (
+          <Tag color="error">غير مدفوع (توجيه للصندوق) ⚠️</Tag>
+        );
+      }
+    },
+    { 
       title: 'إجراء', 
-      render: (record: any) => (
-        <Tooltip title="فتح تفاصيل الروشتة لتجهيز العلاج">
-          <Button 
-            type="primary" 
-            icon={<MedicineBoxOutlined />} 
-            onClick={() => handleReviewOrder(record)}
-            className="bg-emerald-600 border-none rounded-lg font-bold"
-          >
-            تحضير وصرف
-          </Button>
-        </Tooltip>
-      ) 
+      render: (record: any) => {
+        const visitBilling = record.hims_visits?.hims_billing;
+        const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
+        const isPaid = billing?.payment_status === 'paid' || billing?.insurance_provider_id;
+        return (
+          <Tooltip title={!isPaid ? "يجب سداد قيمة الروشتة بالخزينة أولاً" : "فتح تفاصيل الروشتة لتجهيز العلاج"}>
+            <Button 
+              type="primary" 
+              icon={<MedicineBoxOutlined />} 
+              onClick={() => handleReviewOrder(record)}
+              className={isPaid ? "bg-emerald-600 border-none rounded-lg font-bold" : ""}
+              disabled={!isPaid}
+            >
+              تحضير وصرف
+            </Button>
+          </Tooltip>
+        );
+      } 
     }
   ];
 
