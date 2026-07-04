@@ -44,6 +44,10 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
     retention_amount: 0,
     advance_deduction: 0,
     retention_release_date: '', // 🏗️ جديد
+    vat_rate: 14, // نسبة ضريبة القيمة المضافة الافتراضية
+    vat_amount: 0,
+    wht_rate: 1,  // نسبة خصم الأرباح التجارية الافتراضية
+    wht_amount: 0,
   });
   const [scores, setScores] = useState({ quality: 5, timeliness: 5 });
   const { showToast } = useToast();
@@ -77,26 +81,32 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
   };
 
   // 🏗️ أتمتة حساب الاستقطاعات عند تغيير مبلغ الأعمال
+  // 🏗️ أتمتة حساب الاستقطاعات والضرائب لمستخلص مقاول الباطن
   useEffect(() => {
     if (contractDetails && newBilling.gross_amount > 0) {
       // حساب محتجز الضمان (مثلاً 5%)
       const retention = (newBilling.gross_amount * (contractDetails.retention_percentage || 0)) / 100;
       
       // حساب استهلاك الدفعة المقدمة (بناءً على نسبة الدفعة من إجمالي العقد)
-      // إذا كان العقد بـ 100 ألف والدفعة المقدمة كانت 10 آلاف (10%)، نخصم 10% من كل مستخلص
       let suggestedDeduction = 0;
       if (contractDetails.total_value > 0 && contractDetails.advance_payment_balance > 0) {
         const advanceRate = 0.1; // يمكن جعلها ديناميكية لاحقاً، نفترض 10% كمعيار سوقي
         suggestedDeduction = Math.min(newBilling.gross_amount * advanceRate, contractDetails.advance_payment_balance);
       }
 
+      // حساب الضرائب تلقائياً لمستخلص مقاول الباطن
+      const vat = (newBilling.gross_amount * newBilling.vat_rate) / 100;
+      const wht = (newBilling.gross_amount * newBilling.wht_rate) / 100;
+
       setNewBilling(prev => ({ 
         ...prev, 
         retention_amount: retention,
-        advance_deduction: suggestedDeduction
+        advance_deduction: suggestedDeduction,
+        vat_amount: vat,
+        wht_amount: wht
       }));
     }
-  }, [newBilling.gross_amount, contractDetails]);
+  }, [newBilling.gross_amount, newBilling.vat_rate, newBilling.wht_rate, contractDetails]);
 
   const fetchBillings = async () => {
     if (!organization?.id) return;
@@ -248,6 +258,27 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
                   className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 bg-emerald-50/20" 
                 />
               </div>
+              <div className="border-t border-dashed pt-4 mt-2">
+                <h4 className="text-xs font-black text-slate-400 mb-3 uppercase">الضرائب والرسوم القانونية</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">ضريبة القيمة المضافة (VAT) %</label>
+                    <input type="number" value={newBilling.vat_rate} onChange={e => setNewBilling({...newBilling, vat_rate: parseFloat(e.target.value) || 0})} className="w-full p-2 rounded-xl border border-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">مبلغ ضريبة القيمة المضافة</label>
+                    <input type="number" readOnly value={newBilling.vat_amount} className="w-full p-2 rounded-xl bg-gray-50 border border-gray-100 font-bold text-blue-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">خصم أرباح تجارية (WHT) %</label>
+                    <input type="number" value={newBilling.wht_rate} onChange={e => setNewBilling({...newBilling, wht_rate: parseFloat(e.target.value) || 0})} className="w-full p-2 rounded-xl border border-gray-200" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-600 mb-1">مبلغ الخصم (يُطرح من الصافي)</label>
+                    <input type="number" readOnly value={newBilling.wht_amount} className="w-full p-2 rounded-xl bg-gray-50 border border-gray-100 font-bold text-red-600" />
+                  </div>
+                </div>
+              </div>
               <button type="submit" disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all">
                 {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> حفظ المستخلص</>}
               </button>
@@ -284,6 +315,18 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
                 <span className="text-xs text-blue-400 block mb-1">استرداد دفعة</span>
                 <div className="font-bold text-blue-600">-{bill.advance_deduction.toLocaleString()}</div>
               </div>
+              {(bill as any).vat_amount > 0 && (
+                <div>
+                  <span className="text-xs text-indigo-400 block mb-1">القيمة المضافة (+VAT)</span>
+                  <div className="font-bold text-indigo-600">+{((bill as any).vat_amount || 0).toLocaleString()}</div>
+                </div>
+              )}
+              {(bill as any).wht_amount > 0 && (
+                <div>
+                  <span className="text-xs text-red-400 block mb-1">خصم تجاري (-WHT)</span>
+                  <div className="font-bold text-red-600">-{((bill as any).wht_amount || 0).toLocaleString()}</div>
+                </div>
+              )}
               <div className="border-r pr-6">
                 <span className="text-xs text-green-500 block mb-1 font-bold">صافي المستحق</span>
                 <div className="text-lg font-black text-green-700">{bill.net_amount.toLocaleString()}</div>

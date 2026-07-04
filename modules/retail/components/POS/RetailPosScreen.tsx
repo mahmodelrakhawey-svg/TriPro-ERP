@@ -61,8 +61,12 @@ export default function RetailPosScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CachedProduct[]>([]);
   
-  // Payment State
+  // Payment & Loyalty State
   const [amountPaid, setAmountPaid] = useState<number>(0);
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD'>('CASH');
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<any[]>([]);
   
   // Printing Receipt State
   const [receiptOrder, setReceiptOrder] = useState<any>(null);
@@ -89,6 +93,45 @@ export default function RetailPosScreen() {
   // Focus references
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const printAreaRef = useRef<HTMLDivElement>(null);
+
+  // Calculations
+  const isTaxEnabled = settings?.enable_tax !== false;
+  const vatRate = isTaxEnabled ? (settings?.vat_rate !== undefined ? Number(settings.vat_rate) : 0.14) : 0;
+
+  const subtotal = cart.reduce((sum, item) => {
+    const price = item.product.sales_price;
+    const qty = item.weight !== undefined ? item.weight : item.quantity;
+    return sum + (price * qty);
+  }, 0);
+
+  const tax = subtotal * vatRate;
+  const total = subtotal + tax;
+
+  // Customer Search effect (Loyalty)
+  useEffect(() => {
+    const searchCustomers = async () => {
+      if (!customerSearch.trim()) {
+        setCustomerResults([]);
+        return;
+      }
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name, phone')
+        .eq('organization_id', currentUser?.organization_id)
+        .or(`name.ilike.%${customerSearch}%,phone.ilike.%${customerSearch}%`)
+        .limit(5);
+      setCustomerResults(data || []);
+    };
+    const timer = setTimeout(searchCustomers, 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch, currentUser]);
+
+  // Handle Card Auto Amount Paid
+  useEffect(() => {
+    if (paymentMethod === 'CARD') {
+      setAmountPaid(total);
+    }
+  }, [paymentMethod, total]);
 
   // Detect internet connection changes
   useEffect(() => {
@@ -156,6 +199,56 @@ export default function RetailPosScreen() {
       };
     }
   }, [activeShift]);
+
+  // Keyboard Shortcuts Handler (F-keys control)
+  useEffect(() => {
+    if (!activeShift) return;
+
+    const handleShortcuts = (e: KeyboardEvent) => {
+      // F8: Pay
+      if (e.key === 'F8') {
+        e.preventDefault();
+        if (cart.length > 0 && amountPaid >= total && !isPrinting) {
+          handlePayment();
+        } else if (cart.length === 0) {
+          showToast('سلة التسوق فارغة!', 'error');
+        } else if (amountPaid < total) {
+          showToast('المبلغ المدفوع أقل من إجمالي الفاتورة', 'error');
+        }
+      }
+      // F9: Focus Amount Paid input
+      if (e.key === 'F9') {
+        e.preventDefault();
+        const paidInput = document.querySelector('input[placeholder*="المستلم"]') as HTMLInputElement;
+        paidInput?.focus();
+        paidInput?.select();
+      }
+      // F2: Clear Cart
+      if (e.key === 'F2') {
+        e.preventDefault();
+        if (cart.length > 0 && window.confirm('هل أنت متأكد من رغبتك في إفراغ سلة التسوق؟')) {
+          setCart([]);
+          setAmountPaid(0);
+        }
+      }
+      // F4: Focus Search input
+      if (e.key === 'F4') {
+        e.preventDefault();
+        const searchInput = document.querySelector('input[placeholder*="بحث سريع"]') as HTMLInputElement;
+        searchInput?.focus();
+        searchInput?.select();
+      }
+      // Escape: Return focus to Barcode and clear search
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setSearchQuery('');
+        barcodeInputRef.current?.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleShortcuts);
+    return () => window.removeEventListener('keydown', handleShortcuts);
+  }, [activeShift, cart, amountPaid, total, isPrinting]);
 
   const fetchTerminalsAndCheckShifts = async () => {
     if (!currentUser) return;
@@ -366,11 +459,27 @@ export default function RetailPosScreen() {
   // Handle barcode submission
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const code = barcodeInput.trim();
+    let code = barcodeInput.trim();
     if (!code) return;
 
     setBarcodeInput('');
     playBeep();
+
+    let multiplier = 1;
+    // 🛡️ Parse quantity multiplier (e.g. 5*barcode or 5xbarcode)
+    if (code.includes('*')) {
+      const parts = code.split('*');
+      if (parts.length === 2 && !isNaN(Number(parts[0])) && Number(parts[0]) > 0) {
+        multiplier = Math.round(Number(parts[0]));
+        code = parts[1].trim();
+      }
+    } else if (code.toLowerCase().includes('x')) {
+      const parts = code.toLowerCase().split('x');
+      if (parts.length === 2 && !isNaN(Number(parts[0])) && Number(parts[0]) > 0) {
+        multiplier = Math.round(Number(parts[0]));
+        code = parts[1].trim();
+      }
+    }
 
     try {
       let matchedProduct: CachedProduct | undefined;
@@ -395,7 +504,7 @@ export default function RetailPosScreen() {
       }
 
       if (matchedProduct) {
-        addToCart(matchedProduct, weight);
+        addToCart(matchedProduct, weight, multiplier);
       } else {
         showToast(`لم يتم العثور على صنف بالرمز: ${code}`, 'error');
       }
@@ -405,26 +514,25 @@ export default function RetailPosScreen() {
   };
 
   // Add Product to Cart
-  const addToCart = (product: CachedProduct, weight?: number) => {
+  const addToCart = (product: CachedProduct, weight?: number, multiplier: number = 1) => {
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
         if (weight !== undefined) {
-          // Weight products replace weight or sum? Usually scales issue unique weight labels, so we append as a separate entry or sum
           return prev.map(item => 
             item.product.id === product.id 
-              ? { ...item, quantity: item.quantity + 1, weight: (item.weight || 0) + weight }
+              ? { ...item, quantity: item.quantity + multiplier, weight: (item.weight || 0) + (weight * multiplier) }
               : item
           );
         } else {
           return prev.map(item => 
             item.product.id === product.id 
-              ? { ...item, quantity: item.quantity + 1 }
+              ? { ...item, quantity: item.quantity + multiplier }
               : item
           );
         }
       }
-      return [...prev, { product, quantity: 1, weight }];
+      return [...prev, { product, quantity: multiplier, weight: weight !== undefined ? weight * multiplier : undefined }];
     });
   };
 
@@ -456,19 +564,6 @@ export default function RetailPosScreen() {
     runSearch();
   }, [searchQuery]);
 
-  // Calculations
-  const isTaxEnabled = settings?.enable_tax !== false;
-  const vatRate = isTaxEnabled ? (settings?.vat_rate !== undefined ? Number(settings.vat_rate) : 0.14) : 0;
-
-  const subtotal = cart.reduce((sum, item) => {
-    const price = item.product.sales_price;
-    const qty = item.weight !== undefined ? item.weight : item.quantity;
-    return sum + (price * qty);
-  }, 0);
-
-  const tax = subtotal * vatRate;
-  const total = subtotal + tax;
-
   // Process Checkout
   const handlePayment = async () => {
     if (cart.length === 0) {
@@ -499,7 +594,10 @@ export default function RetailPosScreen() {
         notes: 'مبيعات كاشير تجزئة سريعة',
         items: itemsPayload,
         warehouseId: selectedTerminal.warehouse_id || '00000000-0000-0000-0000-000000000000',
-        orgId: currentUser.organization_id
+        orgId: currentUser.organization_id,
+        customerId: selectedCustomer?.id || null,
+        paymentMethod: paymentMethod,
+        paymentAmount: total
       };
 
       let orderId: string | null = null;
@@ -512,7 +610,7 @@ export default function RetailPosScreen() {
           p_order_type: 'TAKEAWAY',
           p_notes: 'مبيعات كاشير تجزئة سريعة',
           p_items: itemsPayload,
-          p_customer_id: null,
+          p_customer_id: selectedCustomer?.id || null,
           p_warehouse_id: selectedTerminal.warehouse_id || null,
           p_delivery_info: null,
           p_org_id: currentUser.organization_id
@@ -544,7 +642,7 @@ export default function RetailPosScreen() {
 
           const { error: payErr } = await supabase.rpc('complete_restaurant_order', {
             p_order_id: orderId,
-            p_payment_method: 'CASH',
+            p_payment_method: paymentMethod,
             p_amount: total,
             p_cash_account_id: treasuryId,
             p_org_id: currentUser.organization_id,
@@ -588,6 +686,8 @@ export default function RetailPosScreen() {
       setCart([]);
       setAmountPaid(0);
       setSearchQuery('');
+      setSelectedCustomer(null);
+      setPaymentMethod('CASH');
 
       // Auto trigger print after render
       setTimeout(() => {
@@ -877,23 +977,110 @@ export default function RetailPosScreen() {
           {/* Right Column (Payment & Quick Keys) */}
           <div className="w-[40%] bg-slate-950/60 p-6 flex flex-col justify-between">
             
-            {/* Quick cash input buttons */}
+            {/* Customer Loyalty Search */}
+            <div className="space-y-4">
+              <h3 className="font-black text-sm text-slate-400 flex items-center gap-1.5">
+                <User size={16} /> العميل وبرنامج الولاء
+              </h3>
+              <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
+                {selectedCustomer ? (
+                  <div className="flex justify-between items-center bg-indigo-950/40 p-3 rounded-xl border border-indigo-900/30">
+                    <div>
+                      <div className="font-bold text-white text-sm">{selectedCustomer.name}</div>
+                      <div className="text-xs text-indigo-300 font-mono">{selectedCustomer.phone || 'بدون هاتف'}</div>
+                    </div>
+                    <button 
+                      onClick={() => setSelectedCustomer(null)}
+                      className="text-xs bg-slate-900 hover:bg-slate-800 text-red-400 px-2.5 py-1 rounded-lg border border-slate-800 transition-all font-bold"
+                    >
+                      إلغاء
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <input 
+                      type="text"
+                      value={customerSearch}
+                      onChange={e => setCustomerSearch(e.target.value)}
+                      placeholder="ابحث عن العميل بالاسم أو رقم الهاتف..."
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-indigo-500 outline-none"
+                    />
+                    {customerResults.length > 0 && (
+                      <div className="absolute left-0 right-0 mt-1 bg-slate-950 border border-slate-850 rounded-xl shadow-2xl z-50 overflow-hidden max-h-40 overflow-y-auto">
+                        {customerResults.map(c => (
+                          <div 
+                            key={c.id}
+                            onClick={() => {
+                              setSelectedCustomer(c);
+                              setCustomerSearch('');
+                              setCustomerResults([]);
+                            }}
+                            className="p-2.5 border-b border-slate-800/50 hover:bg-slate-900 cursor-pointer flex justify-between items-center text-xs transition-all"
+                          >
+                            <span className="font-bold text-white">{c.name}</span>
+                            <span className="text-slate-500 font-mono">{c.phone}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Payment Method Selector */}
+            <div className="space-y-4">
+              <h3 className="font-black text-sm text-slate-400 flex items-center gap-1.5">
+                <Coins size={16} /> طريقة الدفع
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={() => setPaymentMethod('CASH')}
+                  className={`py-3 rounded-xl font-black flex items-center justify-center gap-2 border transition-all text-sm ${
+                    paymentMethod === 'CASH' 
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/10' 
+                      : 'bg-slate-950 border-slate-800 hover:bg-slate-900 text-slate-400'
+                  }`}
+                >
+                  💵 دفع نقدي (كاش)
+                </button>
+                <button 
+                  onClick={() => setPaymentMethod('CARD')}
+                  className={`py-3 rounded-xl font-black flex items-center justify-center gap-2 border transition-all text-sm ${
+                    paymentMethod === 'CARD' 
+                      ? 'bg-indigo-600 border-indigo-500 text-white shadow-lg shadow-indigo-500/10' 
+                      : 'bg-slate-950 border-slate-800 hover:bg-slate-900 text-slate-400'
+                  }`}
+                >
+                  💳 بطاقة بنكية (فيزا)
+                </button>
+              </div>
+            </div>
+
+            {/* Cash Input Drawer / Card Info */}
             <div className="space-y-4">
               <h3 className="font-black text-sm text-slate-400 flex items-center gap-1.5">
                 <Coins size={16} /> حساب النقدية المقبوضة
               </h3>
 
               <div className="bg-slate-950 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-inner">
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 mb-2">المبلغ المستلم من العميل</label>
-                  <input 
-                    type="number" 
-                    value={amountPaid || ''} 
-                    onChange={e => setAmountPaid(Number(e.target.value))}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-4 text-left text-3xl font-black text-white font-mono focus:border-indigo-500 outline-none"
-                    placeholder={`0.00 ${currencySymbol}`}
-                  />
-                </div>
+                {paymentMethod === 'CASH' ? (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-500 mb-2">المبلغ المستلم من العميل</label>
+                    <input 
+                      type="number" 
+                      value={amountPaid || ''} 
+                      onChange={e => setAmountPaid(Number(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-4 text-left text-3xl font-black text-white font-mono focus:border-indigo-500 outline-none"
+                      placeholder={`0.00 ${currencySymbol}`}
+                    />
+                  </div>
+                ) : (
+                  <div className="bg-indigo-950/20 p-4 rounded-xl border border-indigo-900/30 text-center">
+                    <span className="block text-xs text-indigo-400/80 mb-1">المبلغ المطلوب خصمه من البطاقة البنكية</span>
+                    <span className="text-3xl font-black font-mono text-indigo-400">{total.toFixed(2)} {currencySymbol}</span>
+                  </div>
+                )}
 
                 {/* Quick cash adder buttons */}
                 <div className="grid grid-cols-4 gap-2">
@@ -1125,6 +1312,23 @@ export default function RetailPosScreen() {
           }
         }
       `}</style>
+
+      {/* ⌨️ Keyboard Shortcuts Info Bar */}
+      {activeShift && (
+        <footer className="bg-slate-950 border-t border-slate-800 px-6 py-2 flex justify-between items-center text-xs text-slate-500 font-bold select-none">
+          <div className="flex items-center gap-4">
+            <span>⌨️ أزرار التحكم السريع:</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F8</kbd> الدفع والطباعة</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F9</kbd> تحديد المبلغ المستلم</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F4</kbd> بحث بالاسم</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F2</kbd> تفريغ السلة</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">Esc</kbd> مسح والرجوع للباركود</span>
+          </div>
+          <div>
+            <span>💡 نصيحة للكاشير: يمكنك إدخال الكمية متبوعة بنجمة ثم الباركود للضرب السريع (مثال: <span className="font-mono text-indigo-400">5*barcode</span>)</span>
+          </div>
+        </footer>
+      )}
 
     </div>
   );

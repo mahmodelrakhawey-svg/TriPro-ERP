@@ -9,7 +9,7 @@ RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_patient_id uuid; v_doc_fee numeric := 0; v_med_cost numeric := 0;
     v_lab_cost numeric := 0; v_rad_cost numeric := 0; v_stay_cost numeric := 0;
-    v_blood_cost numeric := 0; v_subtotal numeric := 0; v_tax numeric := 0; 
+    v_blood_cost numeric := 0; v_surgery_cost numeric := 0; v_subtotal numeric := 0; v_tax numeric := 0; 
     v_vat_rate numeric; v_total numeric := 0; v_bill_id uuid; v_org_id uuid;
 BEGIN
     -- 1. التحقق وجلب المنظمة وبيانات المريض
@@ -45,8 +45,14 @@ BEGIN
     FROM public.hims_blood_transfusions 
     WHERE visit_id = p_visit_id;
 
+    -- 7.5. تكلفة العمليات الجراحية المكتملة المرفقة بالفاتورة
+    SELECT COALESCE(SUM(bi.total_price), 0) INTO v_surgery_cost
+    FROM public.hims_billing_items bi
+    JOIN public.hims_billing b ON b.id = bi.billing_id
+    WHERE b.visit_id = p_visit_id AND bi.item_type = 'surgery';
+
     -- 8. حساب الإجماليات والضرائب
-    v_subtotal := COALESCE(v_doc_fee, 0) + COALESCE(v_med_cost, 0) + COALESCE(v_lab_cost, 0) + COALESCE(v_rad_cost, 0) + COALESCE(v_stay_cost, 0) + v_blood_cost;
+    v_subtotal := COALESCE(v_doc_fee, 0) + COALESCE(v_med_cost, 0) + COALESCE(v_lab_cost, 0) + COALESCE(v_rad_cost, 0) + COALESCE(v_stay_cost, 0) + v_blood_cost + v_surgery_cost;
     v_tax := v_subtotal * v_vat_rate;
     v_total := v_subtotal + v_tax;
 
@@ -68,7 +74,8 @@ BEGIN
     RETURNING id INTO v_bill_id;
 
     -- 10. تفكيك وبناء تفاصيل بنود الفاتورة للشفافية المطلقة (Billing Items Breakdown)
-    DELETE FROM public.hims_billing_items WHERE billing_id = v_bill_id;
+    -- نقوم بحذف البنود غير الجراحية فقط للحفاظ على العمليات التي تم إغلاقها وصرف مستلزماتها
+    DELETE FROM public.hims_billing_items WHERE billing_id = v_bill_id AND item_type != 'surgery';
     
     -- أ. بند الكشف الطبي
     IF v_doc_fee > 0 THEN

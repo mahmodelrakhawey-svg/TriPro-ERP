@@ -59,6 +59,9 @@ const GuestMenuLayout = () => {
   const [isModifierModalOpen, setIsModifierModalOpen] = useState(false);
   const [productForModifiers, setProductForModifiers] = useState<Product | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [tableName, setTableName] = useState<string>('');
+  const [restaurantName, setRestaurantName] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
     const fetchData = async () => {
@@ -74,13 +77,15 @@ const GuestMenuLayout = () => {
         // 1. تحديد المنظمة (المطعم) من خلال رمز الطاولة الممسوح
         const { data: tableData, error: tableError } = await supabase
           .from('restaurant_tables')
-          .select('organization_id')
+          .select('name, organization:organization_id(name), organization_id')
           .eq('qr_access_key', qrKey)
           .maybeSingle();
 
         if (tableError) throw tableError;
         if (!tableData) throw new Error('لم يتم العثور على بيانات الطاولة. يرجى إعادة مسح الرمز.');
 
+        setTableName(tableData.name);
+        setRestaurantName((tableData as any).organization?.name || '');
         const orgId = tableData.organization_id;
 
         // 2. جلب التصنيفات والمنتجات الخاصة بهذا المطعم فقط
@@ -114,9 +119,16 @@ const GuestMenuLayout = () => {
   }, []);
 
   const filteredProducts = useMemo(() => {
-    if (selectedCategory === 'all') return products;
-    return products.filter(p => p.category_id === selectedCategory);
-  }, [products, selectedCategory]);
+    let results = products;
+    if (selectedCategory !== 'all') {
+      results = results.filter(p => p.category_id === selectedCategory);
+    }
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      results = results.filter(p => p.name.toLowerCase().includes(query));
+    }
+    return results;
+  }, [products, selectedCategory, searchQuery]);
 
   const addToCart = (product: Product) => {
     if (product.has_modifiers) {
@@ -170,12 +182,14 @@ const GuestMenuLayout = () => {
       }).filter(item => item.quantity > 0);
     });
   };
-const updateItemNotes = (localId: string, newNotes: string) => {
+
+  const updateItemNotes = (localId: string, newNotes: string) => {
     setCart(prev => prev.map(item =>
       item.localId === localId ? { ...item, notes: newNotes } : item
     ));
   };
-  const sendOrder = async () => {
+
+  const sendOrder = async (isPaid: boolean = false) => {
     if (cart.length === 0) return;
     
     // تنظيف رمز QR (إزالة المسافات الزائدة) دون فرض regex صارم
@@ -205,7 +219,9 @@ const updateItemNotes = (localId: string, newNotes: string) => {
 
       const { error } = await supabase.rpc('create_public_order', {
         p_qr_key: cleanQrKey,
-        p_items: payloadItems
+        p_items: payloadItems,
+        p_is_paid: isPaid,
+        p_payment_method: isPaid ? 'CARD' : 'CASH'
       });
       
       if (error) throw error; // ملاحظة للمطور: دالة 'create_public_order' في قاعدة البيانات هي المسؤولة عن إنشاء طلبات المطبخ (kitchen_orders)
@@ -251,10 +267,32 @@ const updateItemNotes = (localId: string, newNotes: string) => {
   return (
     <div className="bg-slate-100 min-h-screen font-sans" dir="rtl">
       <header className="bg-white shadow-sm p-4 sticky top-0 z-20">
-        <h1 className="text-2xl font-black text-slate-800 text-center">قائمة الطعام</h1>
-        <div className="flex items-center space-x-2 rtl:space-x-reverse overflow-x-auto pb-2 mt-4 -mb-2">
+        <div className="text-center">
+          {restaurantName && <h2 className="text-xs font-bold text-slate-400 mb-0.5">{restaurantName}</h2>}
+          <h1 className="text-xl font-black text-slate-800">{tableName || 'قائمة الطعام'}</h1>
+        </div>
+
+        {/* 🔍 Search Input Bar */}
+        <div className="mt-3 relative">
+          <input 
+            type="text"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="ابحث عن وجبة أو مشروب..."
+            className="w-full bg-slate-100 border border-slate-200 rounded-xl px-4 py-2 pr-10 text-xs outline-none focus:border-blue-500 focus:bg-white transition-all text-slate-700 placeholder:text-slate-400"
+          />
+          <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-slate-400">
+            <Utensils size={14} />
+          </div>
+        </div>
+
+        {/* Categories Bar */}
+        <div className="flex items-center space-x-2 rtl:space-x-reverse overflow-x-auto pb-2 mt-3 -mb-2 scrollbar-none">
+          <button onClick={() => setSelectedCategory('all')} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${selectedCategory === 'all' ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            الكل
+          </button>
           {categories.map(cat => (
-            <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-colors ${selectedCategory === cat.id ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}>
+            <button key={cat.id} onClick={() => setSelectedCategory(cat.id)} className={`px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all ${selectedCategory === cat.id ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               {cat.name}
             </button>
           ))}
@@ -275,7 +313,7 @@ const updateItemNotes = (localId: string, newNotes: string) => {
         cart={cart} 
         onUpdate={updateCart} 
         onUpdateNotes={updateItemNotes} 
-        onSendOrder={sendOrder} 
+        onSendOrder={() => sendOrder(false)} 
         onPayOnline={() => { setIsCartOpen(false); setIsPaymentModalOpen(true); }}
         isSending={isSending} 
         total={cartTotal} 
@@ -301,7 +339,7 @@ const updateItemNotes = (localId: string, newNotes: string) => {
         total={cartTotal}
         onSuccess={async () => {
             setIsPaymentModalOpen(false);
-            await sendOrder();
+            await sendOrder(true);
         }} 
       />
     </div>

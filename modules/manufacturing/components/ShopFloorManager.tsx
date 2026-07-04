@@ -154,20 +154,34 @@ const ShopFloorManager = () => {
           <title>بطاقة تشغيل - ${task.order_number}</title>
           <style>
             @media print { body { margin: 0; } }
-            body { font-family: 'Segoe UI', Tahoma, sans-serif; padding: 10px; text-align: center; width: 80mm; border: 1px solid #eee; }
-            .title { font-weight: bold; font-size: 14px; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 10px; }
-            .item { font-size: 12px; margin: 5px 0; }
-            .uuid { font-family: monospace; font-size: 10px; background: #f0f0f0; padding: 5px; margin-top: 10px; display: block; }
-            .barcode-placeholder { border: 1px solid #000; height: 40px; margin: 10px 0; display: flex; items-center; justify-content: center; font-size: 10px; }
+            body { font-family: 'Segoe UI', Tahoma, sans-serif; padding: 10px; text-align: center; width: 80mm; border: 1px solid #ddd; border-radius: 8px; margin: auto; }
+            .title { font-weight: bold; font-size: 14px; border-bottom: 2px solid #000; padding-bottom: 5px; margin-bottom: 10px; color: #1e293b; }
+            .item { font-size: 11px; margin: 4px 0; text-align: right; }
+            .barcode-section { margin-top: 15px; border-top: 1px dashed #ccc; padding-top: 10px; }
+            .barcode-title { font-size: 10px; font-weight: bold; margin-bottom: 5px; color: #475569; }
+            .barcode-placeholder { border: 1px dashed #64748b; height: 35px; margin: 5px 0; display: flex; align-items: center; justify-content: center; font-size: 9px; font-family: monospace; background: #fafafa; border-radius: 4px; }
+            .uuid { font-family: monospace; font-size: 9px; color: #64748b; display: block; word-break: break-all; }
           </style>
         </head>
         <body onload="window.print(); window.close();">
-          <div class="title">بطاقة مرحلة إنتاجية</div>
+          <div class="title">بطاقة تشغيل باركود ذكية</div>
           <div class="item"><b>رقم الطلب:</b> ${task.order_number}</div>
           <div class="item"><b>المنتج:</b> ${task.product_name}</div>
           <div class="item"><b>المرحلة:</b> ${task.operation_name}</div>
-          <div class="barcode-placeholder">|||||||||||||||||||||||||||||||||||||</div>
-          <span class="uuid">${task.progress_id}</span>
+          
+          <!-- باركود بدء العمل -->
+          <div class="barcode-section">
+            <div class="barcode-title">📥 1. امسح لبدء المرحلة (Start)</div>
+            <div class="barcode-placeholder">START-${task.progress_id}</div>
+            <span class="uuid">START-${task.progress_id}</span>
+          </div>
+
+          <!-- باركود إنهاء العمل -->
+          <div class="barcode-section">
+            <div class="barcode-title">✅ 2. امسح لإنهاء المرحلة (Complete)</div>
+            <div class="barcode-placeholder">DONE-${task.progress_id}</div>
+            <span class="uuid">DONE-${task.progress_id}</span>
+          </div>
         </body>
       </html>
     `);

@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٤‏/٦‏/٢٠٢٦، ٣:٥٤:٠٩ م
+📅 تاريخ التحديث: ٤‏/٧‏/٢٠٢٦، ٥:١٩:١٣ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -105,9 +105,12 @@
       📄 AppointmentManager.tsx
       📄 BloodBankDashboard.tsx
       📄 DoctorDesktop.tsx
+      📄 DoctorKPIs.tsx
+      📄 DoctorManager.tsx
       📄 ERTriageBoard.tsx
       📄 HIMSExecutiveDashboard.tsx
       📄 HIMSProfitabilityReports.tsx
+      📄 HIMSServicesManager.tsx
       📄 InpatientDashboard.tsx
       📄 InsuranceClaimsManager.tsx
       📄 LabDashboard.tsx
@@ -242,6 +245,10 @@
     📁 types.ts/
     📁 utils/
       📄 runRestaurantFlowTest.ts
+  📁 retail/
+    📁 components/
+      📁 POS/
+        📄 RetailPosScreen.tsx
   📁 sales/
     📄 CreditNoteForm.tsx
     📄 CreditNoteList.tsx
@@ -402,6 +409,8 @@
     📄 2026-04-05_auto_assign_qr_orders.sql
     📄 2026-04-06_fix_sales_account_missing.sql
     📄 2026-04-10_fix_sync_role_permissions.sql
+    📄 2026-07-02_retail_pos_setup.sql
+    📄 2026-07-03_fix_tax_disabled_orders.sql
     📄 add_account_mappings.sql
     📄 add_category_image.sql
     📄 add_created_by_columns.sql
@@ -417,9 +426,7 @@
     📄 approve_debit_note_rpc.sql
     📄 approve_payment_voucher_rpc.sql
     📄 approve_purchase_invoice_rpc.sql
-    📄 approve_purchase_return_rpc.sql
     📄 approve_receipt_voucher_rpc.sql
-    📄 approve_sales_return_rpc.sql
     📄 cash_closing_setup.sql
     📄 create_missing_tables.sql
     📄 database_updates_2026-04-05.sql
@@ -428,6 +435,7 @@
     📄 increase_user_limit.sql
     📄 inventory_costing_setup.sql
     📄 optimize_database_performance.sql
+    📄 recalculate_customer_balances_fix.sql
     📄 recalculate_stock_v4.sql
     📄 rejected_closings_setup.sql
     📄 reports_functions.sql
@@ -440,6 +448,8 @@
     📄 update_products_schema_v2.sql
     📄 voucher_attachments_setup.sql
   📄 accountService.ts
+  📄 approve_purchase_return_rpc.sql
+  📄 approve_sales_return_rpc.sql
   📄 ArchiveManager.tsx
   📄 backup_script.sh
   📄 BackupRestoreManager.tsx
@@ -452,6 +462,7 @@
   📄 geminiService.ts
   📄 hims_master_setup.sql
   📄 hims_module.sql
+  📄 hims_updates.sql
   📄 himsService.ts
   📄 index.ts
   📄 initialize_egyptian_coa.sql
@@ -468,11 +479,13 @@
   📄 ReportBuilder.tsx
   📄 restaurant_analytics_views.sql
   📄 RestaurantAnalytics.tsx
+  📄 seed_icd10_codes.sql
   📄 setup_rls.sql
   📄 SiteAttendanceManager.tsx
   📄 SiteImageGallery.tsx
   📄 SubcontractorPaymentButton.tsx
   📄 supabaseClient.ts
+  📄 surgery_functions.sql
   📄 unit_test_restaurant_lifecycle.sql
   📄 updated_system_stabilization.sql
   📄 UserManagement.tsx
@@ -518,6 +531,7 @@
     "@types/nodemailer": "^7.0.11",
     "antd": "^6.4.3",
     "date-fns": "^4.2.1",
+    "dayjs": "^1.11.21",
     "dexie": "^4.3.0",
     "dexie-react-hooks": "^4.2.0",
     "html2canvas": "^1.4.1",
@@ -705,6 +719,7 @@ import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 import About from './components/About';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './modules/restaurant/components/POS/PosScreen';
+import RetailPosScreen from './modules/retail/components/POS/RetailPosScreen';
 import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
 import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
 import RestaurantSalesReport from './modules/restaurant/reports/RestaurantSalesReport';
@@ -730,8 +745,12 @@ import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
 import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
 import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
 import StaffRosterManager from './modules/hims/pages/StaffRosterManager';
+import DoctorManager from './modules/hims/pages/DoctorManager';
+import { DoctorKPIs } from './modules/hims/pages/DoctorKPIs';
 import { HIMSExecutiveDashboard } from './modules/hims/pages/HIMSExecutiveDashboard';
 import { HIMSProfitabilityReports } from './modules/hims/pages/HIMSProfitabilityReports';
+import { HIMSServicesManager } from './modules/hims/pages/HIMSServicesManager';
+import { AppointmentManager } from './modules/hims/pages/AppointmentManager';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -970,6 +989,8 @@ const MainLayout = () => {
                   <ModuleGuard module="hims">
                     <Routes>
                       <Route path="patients" element={<PatientManager />} />
+                      <Route path="appointments" element={<AppointmentManager />} />
+                      <Route path="doctors" element={<DoctorManager />} />
                       <Route path="doctor-desktop" element={<DoctorDesktop />} />
                       <Route path="billing" element={<MedicalBilling />} />
                       <Route path="lab" element={<LabDashboard />} />
@@ -983,6 +1004,8 @@ const MainLayout = () => {
                       <Route path="wards-management" element={<WardBedManager />} />
                       <Route path="surgeries" element={<SurgeryScheduler />} />
                       <Route path="staff-roster" element={<StaffRosterManager />} />
+                      <Route path="doctor-kpis" element={<DoctorKPIs />} />
+                      <Route path="services" element={<HIMSServicesManager />} />
                       <Route path="admin" element={<HIMSExecutiveDashboard />} />
                       <Route path="profitability" element={<HIMSProfitabilityReports />} />
                     </Routes>
@@ -1133,6 +1156,7 @@ const MainLayout = () => {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/about" element={<About />} /> 
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
+                <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
                 <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> 
                 <Route path="/kitchen-end-day" element={<ModuleGuard module="restaurant"><KitchenEndDayCount /></ModuleGuard>} /> 
                 <Route path="*" element={<Navigate to="/" replace />} />
@@ -1229,7 +1253,7 @@ import { useToast } from '../context/ToastContext';
 export interface UserProfile {
   id: string;
   full_name: string | null;
-  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef' | 'owner';
+  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef' | 'owner' | 'medical_director';
   organization_id: string | null;
   is_active: boolean;
   avatar_url?: string;
