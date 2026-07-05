@@ -144,7 +144,7 @@ const StockMovementCostReport = () => {
         .select('quantity, unit_cost, orders!inner(id, created_at, order_number, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId)
-        .eq('orders.status', 'COMPLETED');
+        .in('orders.status', ['COMPLETED', 'PAID']);
 
       const { data: restBoms } = await supabase
         .from('bill_of_materials')
@@ -158,7 +158,7 @@ const StockMovementCostReport = () => {
             .from('order_items') // 🛡️ إضافة id للجدول المرتبط
             .select('quantity, product_id, orders!inner(id, created_at, order_number, status)')
             .in('product_id', pIds)
-            .eq('orders.status', 'COMPLETED');
+            .in('orders.status', ['COMPLETED', 'PAID']);
           // Add organization_id filter to queryRestConsumption
           queryRestConsumption = queryRestConsumption.eq('organization_id', userOrgId);
       }

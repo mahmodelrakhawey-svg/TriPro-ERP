@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -19,10 +19,16 @@ const FinancialRatios = () => {
     setLoadingData(true);
     if (currentUser?.role === 'demo') {
         // For demo, we'll use the existing `entries` data but filter it by date
-        setLedgerLines(entries.filter(e => e.status === 'posted' && (e.transaction_date || e.date) >= startDate && (e.transaction_date || e.date) <= endDate).flatMap(entry => entry.lines.map(line => ({
-            ...line,
-            journal_entries: { transaction_date: entry.transaction_date || entry.date, status: entry.status }
-        }))));
+        const filteredEntries = entries.filter(e => e.status === 'posted' && (e.transaction_date || e.date) >= startDate && (e.transaction_date || e.date) <= endDate);
+        const lines = filteredEntries.flatMap(entry => {
+            const entryLines = entry.journal_lines || entry.lines || [];
+            return entryLines.map((line: any) => ({
+                ...line,
+                accountId: line.account_id || line.accountId,
+                journal_entries: { transaction_date: entry.transaction_date || entry.date, status: entry.status }
+            }));
+        });
+        setLedgerLines(lines);
         setLoadingData(false);
         return;
     }

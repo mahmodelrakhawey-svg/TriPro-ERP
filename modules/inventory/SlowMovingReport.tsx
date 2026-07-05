@@ -74,7 +74,7 @@ const SlowMovingReport = () => {
         .from('order_items')
         .select('product_id, quantity, orders!inner(created_at, status)')
         .eq('orders.organization_id', userOrgId) // 🔒 فلترة طلبات المطاعم حسب المنظمة
-        .eq('orders.status', 'COMPLETED')
+        .in('orders.status', ['COMPLETED', 'PAID'])
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`),
 

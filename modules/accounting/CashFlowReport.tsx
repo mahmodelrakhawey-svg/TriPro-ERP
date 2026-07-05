@@ -25,9 +25,9 @@ export default function CashFlowReport() {
 
   const cashAccounts = useMemo(() => {
     return (accounts || []).filter(acc => 
-      !acc.isGroup &&
+      !(acc.isGroup || acc.is_group) &&
       (String(acc.type).toLowerCase() === 'asset') &&
-      (acc.code.startsWith('123') || acc.name.includes('صندوق') || acc.name.includes('بنك') || acc.name.includes('نقد'))
+      (acc.code?.startsWith('123') || acc.name?.includes('صندوق') || acc.name?.includes('بنك') || acc.name?.includes('نقد') || acc.name?.includes('خزينة'))
     );
   }, [accounts]);
 
@@ -59,19 +59,23 @@ export default function CashFlowReport() {
     (entries || []).filter(Boolean).forEach(entry => {
       if (entry.status !== 'posted') return;
 
-      (entry.lines || []).forEach((line, index) => {
-        if (accountIds.includes(line.accountId)) {
-          if (entry.date < startDate) {
-            openBal += (line.debit - line.credit);
-          } else if (entry.date <= endDate) {
+      const entryLines = entry.journal_lines || entry.lines || [];
+      entryLines.forEach((line: any, index: number) => {
+        const lineAccountId = line.account_id || line.accountId;
+        if (accountIds.includes(lineAccountId)) {
+          const entryDate = (entry.transaction_date || entry.date || '').split('T')[0];
+          if (entryDate < startDate) {
+            openBal += ((Number(line.debit) || 0) - (Number(line.credit) || 0));
+          } else if (entryDate <= endDate) {
+            const acc = accounts.find(a => a.id === lineAccountId);
             periodTransactions.push({
               id: `${entry.id}-${index}`, // Unique key using index to avoid duplicates
-              date: entry.date,
+              date: entryDate,
               reference: entry.reference,
               description: line.description || entry.description,
-              accountName: line.accountName || 'غير معروف',
-              debit: line.debit,
-              credit: line.credit,
+              accountName: acc ? acc.name : (line.accountName || 'غير معروف'),
+              debit: Number(line.debit) || 0,
+              credit: Number(line.credit) || 0,
               balance: 0 // Will be calculated next
             });
           }

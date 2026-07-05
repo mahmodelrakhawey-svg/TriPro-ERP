@@ -64,7 +64,7 @@ const ItemProfitReport = () => {
         .from('order_items')
         .select('quantity, total_price, unit_cost, product_id, products(name, sku, weighted_average_cost, purchase_price), orders!inner(created_at, status)')
         .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة
-        .eq('orders.status', 'COMPLETED')
+        .in('orders.status', ['COMPLETED', 'PAID'])
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);
 

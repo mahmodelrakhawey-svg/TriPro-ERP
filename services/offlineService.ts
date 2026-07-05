@@ -29,9 +29,9 @@ class OfflineDB extends Dexie {
 
   constructor() {
     super('TriProOfflineDB');
-    this.version(2).stores({
+    this.version(3).stores({
       queuedOrders: '++id, status, createdAt',
-      products: 'id, barcode, name',
+      products: 'id, barcode, sku, name',
     });
   }
 }

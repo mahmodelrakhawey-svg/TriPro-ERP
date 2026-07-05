@@ -332,7 +332,15 @@ const UserManager = () => {
             event_type: 'password_reset',
             description: `تم إعادة تعيين كلمة المرور للمستخدم ${resetPasswordData.userId}`,
             target_user_id: resetPasswordData.userId,
-            performed_by: (await supabase.auth.getUser()).data.user?.id
+            performed_by: (await supabase.auth.getUser()).data.user?.id,
+            metadata: {
+                changes: {
+                    'إعادة تعيين كلمة المرور': {
+                        from: 'كلمة المرور القديمة',
+                        to: 'تم إنشاء كلمة مرور جديدة وإرسالها للمستخدم بنجاح'
+                    }
+                }
+            }
         });
 
         // إرسال تنبيه للمدراء (أو للمستخدم نفسه إذا كان النظام يدعم ذلك)

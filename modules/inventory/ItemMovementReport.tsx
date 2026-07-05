@@ -152,7 +152,7 @@ const ItemMovementReport = () => {
         .from('order_items')
         .select('quantity, order_id, orders!inner(created_at, order_number, status, user_id)')
         .eq('product_id', selectedProductId)
-        .eq('orders.status', 'COMPLETED');
+        .in('orders.status', ['COMPLETED', 'PAID']);
 
       // ب. استهلاك المواد الخام (إذا كان الصنف مادة خام لوجبة)
       const { data: restaurantBoms } = await supabase
@@ -167,7 +167,7 @@ const ItemMovementReport = () => {
             .from('order_items')
             .select('quantity, product_id, order_id, orders!inner(created_at, order_number, status, user_id)')
             .in('product_id', parentIds)
-            .eq('orders.status', 'COMPLETED');
+            .in('orders.status', ['COMPLETED', 'PAID']);
           if (parentOrders) restaurantConsumption = parentOrders;
       }
 

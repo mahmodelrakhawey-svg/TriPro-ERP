@@ -13,6 +13,11 @@ type StockMovement = {
   docNumber: string;
   productName: string;
   quantity: number;
+  uomId?: string | null;
+  baseUomId?: string | null;
+  baseUnitName?: string;
+  displayQty?: number;
+  displayUnitName?: string;
   warehouseName: string;
   notes?: string;
 };
@@ -25,6 +30,16 @@ const DetailedStockMovementReport = () => {
   const [selectedWarehouse, setSelectedWarehouse] = useState('');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uoms, setUoms] = useState<any[]>([]);
+  const [displayUnit, setDisplayUnit] = useState<'base' | 'original'>('base');
+
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const { data } = await supabase.from('uoms').select('*');
+      if (data) setUoms(data);
+    };
+    fetchUoms();
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -47,7 +62,7 @@ const DetailedStockMovementReport = () => {
       // 1. المبيعات (Sales) - إخراج (OUT)
       let salesQuery = supabase
         .from('invoice_items')
-        .select('quantity, product_id, products(name), invoices!inner(id, invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), invoices!inner(id, invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
         .eq('organization_id', userOrgId)
         .neq('invoices.status', 'draft')
         .gte('invoices.invoice_date', startDate)
@@ -66,6 +81,9 @@ const DetailedStockMovementReport = () => {
           docNumber: item.invoices.invoice_number,
           productName: item.products?.name,
           quantity: item.quantity,
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
           warehouseName: item.invoices.warehouses?.name,
           notes: item.invoices.notes
         });
@@ -74,7 +92,7 @@ const DetailedStockMovementReport = () => {
       // 2. المشتريات (Purchases) - إدخال (IN)
       let purchaseQuery = supabase
         .from('purchase_invoice_items')
-        .select('quantity, product_id, products(name), purchase_invoices!inner(id, invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), purchase_invoices!inner(id, invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
         .eq('organization_id', userOrgId)
         .neq('purchase_invoices.status', 'draft')
         .gte('purchase_invoices.invoice_date', startDate)
@@ -93,6 +111,9 @@ const DetailedStockMovementReport = () => {
           docNumber: item.purchase_invoices.invoice_number,
           productName: item.products?.name,
           quantity: item.quantity,
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
           warehouseName: item.purchase_invoices.warehouses?.name,
           notes: item.purchase_invoices.notes
         });
@@ -101,7 +122,7 @@ const DetailedStockMovementReport = () => {
       // 3. مرتجع مبيعات (Sales Return) - إدخال (IN)
       let salesRetQuery = supabase
         .from('sales_return_items')
-        .select('quantity, product_id, products(name), sales_returns!inner(id, return_number, return_date, warehouse_id, warehouses(name), notes, status)')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), sales_returns!inner(id, return_number, return_date, warehouse_id, warehouses(name), notes, status)')
         .eq('organization_id', userOrgId)
         .eq('sales_returns.status', 'posted')
         .gte('sales_returns.return_date', startDate)
@@ -120,6 +141,9 @@ const DetailedStockMovementReport = () => {
           docNumber: item.sales_returns.return_number,
           productName: item.products?.name,
           quantity: item.quantity,
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
           warehouseName: item.sales_returns.warehouses?.name,
           notes: item.sales_returns.notes
         });
@@ -128,7 +152,7 @@ const DetailedStockMovementReport = () => {
       // 4. مرتجع مشتريات (Purchase Return) - إخراج (OUT)
       let purRetQuery = supabase
         .from('purchase_return_items')
-        .select('quantity, product_id, products(name), purchase_returns!inner(return_number, return_date, warehouse_id, warehouses(name), notes, status)')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), purchase_returns!inner(return_number, return_date, warehouse_id, warehouses(name), notes, status)')
         .eq('organization_id', userOrgId)
         .eq('purchase_returns.status', 'posted')
         .gte('purchase_returns.return_date', startDate)
@@ -147,6 +171,9 @@ const DetailedStockMovementReport = () => {
           docNumber: item.purchase_returns.return_number,
           productName: item.products?.name,
           quantity: item.quantity,
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
           warehouseName: item.purchase_returns.warehouses?.name,
           notes: item.purchase_returns.notes
         });
@@ -227,7 +254,7 @@ const DetailedStockMovementReport = () => {
       // 6. التسويات المخزنية (Stock Adjustments) - تشمل تسويات الجرد واليدوية
       let adjustmentsQuery = supabase
         .from('stock_adjustment_items')
-        .select('quantity, product_id, products(name), stock_adjustments!inner(adjustment_number, adjustment_date, status, warehouse_id, warehouses(name), reason)')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), stock_adjustments!inner(adjustment_number, adjustment_date, status, warehouse_id, warehouses(name), reason)')
         .eq('organization_id', userOrgId)
         .eq('stock_adjustments.status', 'posted')
         .gte('stock_adjustments.adjustment_date', startDate)
@@ -248,6 +275,9 @@ const DetailedStockMovementReport = () => {
           docNumber: item.stock_adjustments.adjustment_number,
           productName: item.products?.name,
           quantity: Math.abs(qty),
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
           warehouseName: item.stock_adjustments.warehouses?.name,
           notes: item.stock_adjustments.reason
         });
@@ -256,7 +286,7 @@ const DetailedStockMovementReport = () => {
       // 7. التحويلات المخزنية (Stock Transfers)
       let transfersQuery = supabase
         .from('stock_transfer_items')
-        .select('quantity, product_id, products(name), stock_transfers!inner(transfer_number, transfer_date, from_warehouse_id, to_warehouse_id, status, notes)')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), stock_transfers!inner(transfer_number, transfer_date, from_warehouse_id, to_warehouse_id, status, notes)')
         .eq('organization_id', userOrgId)
         .eq('stock_transfers.status', 'posted')
         .gte('stock_transfers.transfer_date', startDate)
@@ -281,6 +311,9 @@ const DetailedStockMovementReport = () => {
                       docNumber: t.transfer_number,
                       productName: item.products?.name,
                       quantity: item.quantity,
+                      uomId: item.uom_id,
+                      baseUomId: item.products?.base_uom_id,
+                      baseUnitName: item.products?.unit,
                       warehouseName: getWName(t.from_warehouse_id),
                       notes: `إلى: ${getWName(t.to_warehouse_id)} - ${t.notes || ''}`
                   });
@@ -293,19 +326,23 @@ const DetailedStockMovementReport = () => {
                       docNumber: t.transfer_number,
                       productName: item.products?.name,
                       quantity: item.quantity,
+                      uomId: item.uom_id,
+                      baseUomId: item.products?.base_uom_id,
+                      baseUnitName: item.products?.unit,
                       warehouseName: getWName(t.to_warehouse_id),
                       notes: `من: ${getWName(t.from_warehouse_id)} - ${t.notes || ''}`
                   });
               }
           } else {
-              // عرض عام (بدون فلتر مستودع): نعرض التحويل كحركتين (أو حركة واحدة توضيحية)
-              // الأفضل عرضها كحركة "نقل" ولكن الهيكل الحالي يدعم IN/OUT.
-              // سنعرضها كحركة OUT من المصدر وحركة IN للمستلم ليكون التقرير دقيقاً وتفصيلياً
+              // عرض عام (بدون فلتر مستودع)
               allMovements.push({
                   id: `TRN-DOC-${t.transfer_number}-${item.product_id}`,
                   date: t.transfer_date,
                   type: 'IN',
-                  quantity: 0, // كمية 0 لعدم التأثير على الرصيد الإجمالي للشركة
+                  quantity: 0,
+                  uomId: item.uom_id,
+                  baseUomId: item.products?.base_uom_id,
+                  baseUnitName: item.products?.unit,
                   docType: 'تحويل مخزني (داخلي)',
                   docNumber: t.transfer_number,
                   productName: item.products?.name,
@@ -319,15 +356,12 @@ const DetailedStockMovementReport = () => {
       // أ. مباشر
       const { data: restDirect } = await supabase
         .from('order_items')
-        .select('quantity, product_id, products(name), orders!inner(created_at, order_number, status)')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), orders!inner(created_at, order_number, status, warehouse_id)')
         .eq('orders.organization_id', userOrgId)
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`)
-        .eq('orders.status', 'COMPLETED');
+        .in('orders.status', ['COMPLETED', 'PAID']);
 
-      if (selectedProduct) { /* Filter applied in next step if needed or assume query filters supported */ }
-      // ملاحظة: orders ليس لها warehouse_id مباشر في الهيكل القديم، قد تكون مرتبطة بـ session -> table، سنفترض "المطعم"
-      
       restDirect?.forEach((item: any) => {
           if (selectedProduct && item.product_id !== selectedProduct) return;
           allMovements.push({
@@ -338,20 +372,19 @@ const DetailedStockMovementReport = () => {
               docNumber: item.orders.order_number,
               productName: item.products?.name,
               quantity: item.quantity,
-              warehouseName: 'المطعم',
+              uomId: item.uom_id,
+              baseUomId: item.products?.base_uom_id,
+              baseUnitName: item.products?.unit,
+              warehouseName: getWName(item.orders.warehouse_id),
               notes: 'بيع مباشر'
           });
       });
-      
-      // لاستهلاك المواد الخام في تقرير التفصيلي، نحتاج لمنطق BOM مشابه لما سبق.
-      // للتبسيط، سنكتفي بالمبيعات المباشرة هنا أو يمكن تكرار منطق BOM من التقارير السابقة.
 
       // 8. رصيد أول المدة (Opening Inventory)
       let openingQuery = supabase
         .from('opening_inventories')
-        .select('quantity, product_id, products(name), warehouse_id, created_at, organization_id')
+        .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), warehouse_id, created_at, organization_id')
         .eq('organization_id', userOrgId)
-        // ملاحظة: تاريخ الإنشاء هو تاريخ الحركة هنا تقريباً
         .gte('created_at', `${startDate}T00:00:00`)
         .lte('created_at', `${endDate}T23:59:59`);
 
@@ -368,6 +401,9 @@ const DetailedStockMovementReport = () => {
               docNumber: '-',
               productName: item.products?.name,
               quantity: item.quantity,
+              uomId: item.uom_id,
+              baseUomId: item.products?.base_uom_id,
+              baseUnitName: item.products?.unit,
               warehouseName: getWName(item.warehouse_id),
               notes: 'بضاعة أول المدة'
           });
@@ -388,15 +424,42 @@ const DetailedStockMovementReport = () => {
     fetchData();
   }, [startDate, endDate, selectedProduct, selectedWarehouse]);
 
+  const processedMovements = useMemo(() => {
+    const convertQty = (qty: number, fromUomId: string | null | undefined, toUomId: string | null | undefined) => {
+      if (!fromUomId || !toUomId || fromUomId === toUomId) return qty;
+      const fromUom = uoms.find(u => u.id === fromUomId);
+      const toUom = uoms.find(u => u.id === toUomId);
+      if (!fromUom || !toUom) return qty;
+      
+      let fromRatio = Number(fromUom.ratio) || 1;
+      let toRatio = Number(toUom.ratio) || 1;
+      
+      if (fromUom.uom_type === 'smaller') fromRatio = 1.0 / fromRatio;
+      if (toUom.uom_type === 'smaller') toRatio = 1.0 / toRatio;
+      
+      return (qty * fromRatio) / toRatio;
+    };
+
+    return movements.map(m => {
+      const displayQty = displayUnit === 'base' ? convertQty(m.quantity, m.uomId, m.baseUomId) : m.quantity;
+      const displayUnitName = displayUnit === 'base' ? (m.baseUnitName || 'قطعة') : (uoms.find(u => u.id === m.uomId)?.name || m.baseUnitName || 'قطعة');
+      return {
+        ...m,
+        displayQty,
+        displayUnitName
+      };
+    });
+  }, [movements, displayUnit, uoms]);
+
   const exportToExcel = () => {
-    const data = movements.map(m => ({
+    const data = processedMovements.map(m => ({
       'التاريخ': m.date,
       'نوع المستند': m.docType,
       'رقم المستند': m.docNumber,
       'الصنف': m.productName,
       'المستودع': m.warehouseName,
-      'وارد': m.type === 'IN' ? m.quantity : 0,
-      'صادر': m.type === 'OUT' ? m.quantity : 0,
+      'وارد': m.type === 'IN' ? `${m.displayQty} ${m.displayUnitName}` : 0,
+      'صادر': m.type === 'OUT' ? `${m.displayQty} ${m.displayUnitName}` : 0,
       'ملاحظات': m.notes || ''
     }));
 
@@ -448,6 +511,13 @@ const DetailedStockMovementReport = () => {
             {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </div>
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-sm font-bold text-slate-700 mb-1">وحدة عرض الكميات</label>
+          <select value={displayUnit} onChange={e => setDisplayUnit(e.target.value as 'base' | 'original')} className="w-full border rounded-lg p-2 bg-white">
+            <option value="base">الوحدة الأصغر (قطعة / زجاجة)</option>
+            <option value="original">الوحدة الأصلية للحركة (كرتونة / قطعة)</option>
+          </select>
+        </div>
         <button onClick={fetchData} className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 font-bold h-[42px]">
             عرض
         </button>
@@ -458,7 +528,7 @@ const DetailedStockMovementReport = () => {
         
         {loading ? (
             <div className="p-12 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={32} /></div>
-        ) : movements.length === 0 ? (
+        ) : processedMovements.length === 0 ? (
             <div className="p-12 text-center text-slate-500">لا توجد حركات مخزنية في هذه الفترة</div>
         ) : (
             <div className="overflow-x-auto">
@@ -476,7 +546,7 @@ const DetailedStockMovementReport = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {movements.map((move, idx) => (
+                        {processedMovements.map((move, idx) => (
                             <tr key={idx} className="hover:bg-slate-50">
                                 <td className="p-3 whitespace-nowrap">{move.date}</td>
                                 <td className="p-3">
@@ -492,10 +562,10 @@ const DetailedStockMovementReport = () => {
                                 <td className="p-3 font-bold">{move.productName}</td>
                                 <td className="p-3 text-slate-500">{move.warehouseName}</td>
                                 <td className="p-3 text-center font-bold text-emerald-600 bg-emerald-50/30">
-                                    {move.type === 'IN' ? move.quantity : '-'}
+                                    {move.type === 'IN' ? `${move.displayQty?.toLocaleString()} ${move.displayUnitName}` : '-'}
                                 </td>
                                 <td className="p-3 text-center font-bold text-red-600 bg-red-50/30">
-                                    {move.type === 'OUT' ? move.quantity : '-'}
+                                    {move.type === 'OUT' ? `${move.displayQty?.toLocaleString()} ${move.displayUnitName}` : '-'}
                                 </td>
                                 <td className="p-3 text-slate-500 text-xs max-w-xs truncate" title={move.notes}>{move.notes || '-'}</td>
                             </tr>
@@ -505,10 +575,10 @@ const DetailedStockMovementReport = () => {
                         <tr>
                             <td colSpan={5} className="p-3 text-left">الإجمالي:</td>
                             <td className="p-3 text-center text-emerald-700">
-                                {movements.filter(m => m.type === 'IN').reduce((sum, m) => sum + m.quantity, 0)}
+                                {processedMovements.filter(m => m.type === 'IN').reduce((sum, m) => sum + (m.displayQty || 0), 0)?.toLocaleString()}
                             </td>
                             <td className="p-3 text-center text-red-700">
-                                {movements.filter(m => m.type === 'OUT').reduce((sum, m) => sum + m.quantity, 0)}
+                                {processedMovements.filter(m => m.type === 'OUT').reduce((sum, m) => sum + (m.displayQty || 0), 0)?.toLocaleString()}
                             </td>
                             <td></td>
                         </tr>

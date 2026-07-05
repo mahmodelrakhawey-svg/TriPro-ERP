@@ -59,7 +59,7 @@ const TopSellingReport = () => {
         .from('order_items')
         .select('quantity, total_price, product_id, products:product_id(name, sku), orders!inner(created_at, status)')
         .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة لضمان العزل
-        .eq('orders.status', 'COMPLETED')
+        .in('orders.status', ['COMPLETED', 'PAID'])
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);
 

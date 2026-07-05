@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { supabase } from '../../../supabaseClient';
@@ -85,18 +85,22 @@ const BankReconciliationForm = () => {
     const lines: any[] = [];
     entries?.forEach(entry => { // إضافة علامة الاستفهام (?) هنا للتحقق من أن entries ليس null أو undefined
         if (entry.status === 'posted') {
-            entry.lines?.forEach((line: any) => { // 🛡️ إضافة حماية هنا أيضاً لأن بعض القيود قد لا تحتوي على مصفوفة lines
+            const entryLines = entry.journal_lines || entry.lines || [];
+            entryLines?.forEach((line: any) => { // 🛡️ إضافة حماية هنا أيضاً لأن بعض القيود قد لا تحتوي على مصفوفة lines
+                const lineAccountId = line.account_id || line.accountId;
                 // التحقق من الحساب واستبعاد ما تم تسويته سابقاً
-                if (line.accountId === selectedAccountId && line.id && !allPreviouslyReconciledIds.has(line.id)) {
+                if (lineAccountId === selectedAccountId && line.id && !allPreviouslyReconciledIds.has(line.id)) {
                     // تصفية حسب التاريخ (فقط الحركات حتى تاريخ الكشف)
-                    if (entry.date <= statementDate) {
+                    const entryDate = (entry.transaction_date || entry.date || '').split('T')[0];
+                    if (entryDate <= statementDate) {
                         lines.push({
                             ...line,
-                            date: entry.date,
+                            accountId: lineAccountId,
+                            date: entryDate,
                             reference: entry.reference,
                             entryId: entry.id,
-                            type: line.debit > 0 ? 'debit' : 'credit',
-                            amount: line.debit > 0 ? line.debit : line.credit
+                            type: (Number(line.debit) || 0) > 0 ? 'debit' : 'credit',
+                            amount: (Number(line.debit) || 0) > 0 ? (Number(line.debit) || 0) : (Number(line.credit) || 0)
                         });
                     }
                 }

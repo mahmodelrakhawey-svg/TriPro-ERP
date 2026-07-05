@@ -20,26 +20,28 @@ const PerformanceComparisonReport = () => {
 
     const periodEntries = entries.filter(e => 
       e.status === 'posted' && 
-      e.date >= start && 
-      e.date <= end &&
+      (e.transaction_date || e.date || '').split('T')[0] >= start && 
+      (e.transaction_date || e.date || '').split('T')[0] <= end &&
       !e.reference?.startsWith('CLOSE-')
     );
 
     periodEntries.forEach(entry => {
-      entry.lines.forEach(line => {
-        const account = accounts.find(a => a.id === line.accountId);
+      const entryLines = entry.journal_lines || entry.lines || [];
+      entryLines.forEach(line => {
+        const lineAccountId = line.account_id || line.accountId;
+        const account = accounts.find(a => a.id === lineAccountId);
         if (!account) return;
 
         const type = (account.type || '').toLowerCase();
-        const isRevenue = type.includes('revenue') || type.includes('إيراد') || account.code.startsWith('4');
-        const isExpense = type.includes('expense') || type.includes('مصروف') || type.includes('تكلفة') || account.code.startsWith('5');
+        const isRevenue = type.includes('revenue') || type.includes('إيراد') || account.code?.startsWith('4');
+        const isExpense = type.includes('expense') || type.includes('مصروف') || type.includes('تكلفة') || account.code?.startsWith('5');
 
         if (isRevenue) {
            // الإيرادات دائنة (دائن - مدين)
-           revenue += (line.credit - line.debit);
+           revenue += ((Number(line.credit) || 0) - (Number(line.debit) || 0));
         } else if (isExpense) {
            // المصروفات مدينة (مدين - دائن)
-           expenses += (line.debit - line.credit);
+           expenses += ((Number(line.debit) || 0) - (Number(line.credit) || 0));
         }
       });
     });

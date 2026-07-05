@@ -31,8 +31,9 @@ const TrialBalanceAdvanced = () => {
             .flatMap(entry => {
                 // استنتاج نوع الحساب بناءً على نوع القيد لضمان عرض بيانات واقعية
                 const ref = (entry.reference || '').toUpperCase();
+                const entryLines = entry.journal_lines || entry.lines || [];
                 
-                return entry.lines.map((line, idx) => {
+                return entryLines.map((line: any, idx: number) => {
                     let smartAccountId = line.accountId || line.account_id;
                     
                     // إذا كان الحساب غير معروف في الديمو، نمنحه هوية بناءً على السياق
@@ -58,10 +59,10 @@ const TrialBalanceAdvanced = () => {
 
                     return {
                         account_id: smartAccountId,
-                        debit: line.debit,
-                        credit: line.credit,
+                        debit: Number(line.debit) || 0,
+                        credit: Number(line.credit) || 0,
                         journal_entries: {
-                            transaction_date: entry.date,
+                            transaction_date: entry.transaction_date || entry.date,
                             status: entry.status
                         }
                     };

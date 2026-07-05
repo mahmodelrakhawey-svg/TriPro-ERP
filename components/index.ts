@@ -44,7 +44,14 @@ export const runOrphanedFilesCleanup = async () => {
     await supabase.from('security_logs').insert({
       event_type: 'automated_cleanup',
       description: `تم تنظيف ${orphanedDocs.length} ملف يتيم تلقائياً بنجاح ✅`,
-      metadata: { deleted_count: orphanedDocs.length }
+      metadata: {
+        changes: {
+          'الملفات المحذوفة': {
+            from: `${orphanedDocs.length} ملف يتيم في الحاوية (Storage)`,
+            to: 'تم تفريغ وحذف الملفات اليتيمة لتوفير المساحة'
+          }
+        }
+      }
     });
 
     return { success: true, deleted: orphanedDocs.length };

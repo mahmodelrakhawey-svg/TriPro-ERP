@@ -143,6 +143,7 @@ const Settings = () => {
       productionWarehouseId: '',
       rawMaterialsWarehouseId: ''
   });
+  const [originalSettings, setOriginalSettings] = useState<any>(null);
   const [cloudBackups, setCloudBackups] = useState<CloudBackup[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { showToast } = useToast();
@@ -175,13 +176,12 @@ const Settings = () => {
         const sData = data as any;
         if (sData) {
             setSettingsId(sData.id);
-            setFormData({
+            const loaded = {
                 companyName: sData.company_name || '',
                 taxNumber: sData.tax_number || '',
                 phone: sData.phone || '',
                 address: sData.address || '',
                 footerText: sData.footer_text || '',
-                // تحويل الضريبة من كسر عشري (0.14) إلى نسبة مئوية (14) للعرض
                 vatRate: sData.vat_rate ? (sData.vat_rate <= 1 ? sData.vat_rate * 100 : sData.vat_rate) : 14,
                 currency: sData.currency || '',
                 logoUrl: sData.logo_url || '',
@@ -195,7 +195,9 @@ const Settings = () => {
                 defaultTreasuryId: sData.default_treasury_id || '',
                 productionWarehouseId: sData.production_warehouse_id || '',
                 rawMaterialsWarehouseId: sData.raw_material_warehouse_id || ''
-            });
+            };
+            setFormData(loaded);
+            setOriginalSettings(loaded);
         }
         setLoading(false);
     };
@@ -286,13 +288,52 @@ const Settings = () => {
 
         if (error) throw error;
 
+        // حساب التغييرات المحددة لتسجيلها في تفاصيل سجل الأمان
+        const changes: Record<string, { from: any, to: any }> = {};
+        const fieldLabels: Record<string, string> = {
+            companyName: 'اسم الشركة',
+            taxNumber: 'الرقم الضريبي',
+            phone: 'الهاتف',
+            address: 'العنوان',
+            footerText: 'نص التذييل',
+            vatRate: 'نسبة الضريبة',
+            currency: 'العملة',
+            enableTax: 'تفعيل الضريبة',
+            allowNegativeStock: 'السماح بالبيع بالسالب',
+            preventPriceModification: 'منع تعديل الأسعار',
+            maxCashDeficitLimit: 'الحد الأقصى لعجز النقدية',
+            decimalPlaces: 'الخانة العشرية',
+            defaultWarehouseId: 'المخزن الافتراضي',
+            defaultTreasuryId: 'الخزينة الافتراضية',
+            productionWarehouseId: 'مخزن الإنتاج',
+            rawMaterialsWarehouseId: 'مخزن المواد الخام'
+        };
+
+        if (originalSettings) {
+            Object.keys(formData).forEach((key) => {
+                const oldValue = (originalSettings as any)[key];
+                const newValue = (formData as any)[key];
+                if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+                    const label = fieldLabels[key] || key;
+                    changes[label] = {
+                        from: oldValue === null || oldValue === undefined ? 'لا يوجد' : String(oldValue),
+                        to: newValue === null || newValue === undefined ? 'لا يوجد' : String(newValue)
+                    };
+                }
+            });
+        }
+
         // تسجيل العملية في سجلات الأمان
         await supabase.from('security_logs').insert({
             event_type: 'settings_update',
             description: `تم تحديث إعدادات المنشأة بواسطة ${(currentUser as any)?.full_name}`,
-                organization_id: (currentUser as any)?.organization_id,
-                performed_by: currentUser?.id
+            organization_id: (currentUser as any)?.organization_id,
+            performed_by: currentUser?.id,
+            metadata: { changes }
         });
+
+        // تحديث القيمة الأصلية المسجلة للتغييرات التالية
+        setOriginalSettings({ ...formData });
 
         showToast("تم حفظ الإعدادات بنجاح ✅", 'success');
       } catch (err: any) {

@@ -318,7 +318,6 @@ export default function RetailPosScreen() {
           activeShiftDb = dbShift;
         }
       }
-
       if (activeShiftDb) {
         setActiveShift(activeShiftDb);
         setSelectedTerminal(activeShiftDb.pos_terminals || null);
@@ -492,14 +491,14 @@ export default function RetailPosScreen() {
         // Search by Barcode or SKU fallback
         matchedProduct = await db.products.where('barcode').equals(productCode).first();
         if (!matchedProduct) {
-          matchedProduct = await db.products.filter(p => p.sku === productCode).first();
+          matchedProduct = await db.products.where('sku').equals(productCode).first();
         }
         weight = parsedWeight;
       } else {
         // 2. Search by normal barcode or SKU fallback
         matchedProduct = await db.products.where('barcode').equals(code).first();
         if (!matchedProduct) {
-          matchedProduct = await db.products.filter(p => p.sku === code).first();
+          matchedProduct = await db.products.where('sku').equals(code).first();
         }
       }
 

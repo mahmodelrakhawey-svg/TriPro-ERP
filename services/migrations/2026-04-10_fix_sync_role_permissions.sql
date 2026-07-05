@@ -1,39 +1,59 @@
 -- =================================================================
--- إصلاح مشكلة تكرار الصلاحيات عند المزامنة (Conflict 409)
--- التاريخ: 10 إبريل 2026
--- الوصف: تحديث دالة sync_role_permissions لتجنب خطأ Unique Violation
+-- إصلاح مشكلة تكرار الصلاحيات عند المزامنة والتعارض في الدوال (PGRST203)
+-- التاريخ: 10 إبريل 2026 (تحديث: 5 يوليو 2026)
+-- الوصف: تحديث دالة sync_role_permissions لتستخدم UUID[] ودعم الأمان والـ ON CONFLICT
 -- =================================================================
 
--- يجب حذف الدالة أولاً إذا كان نوع الإرجاع قد تغير (مثلاً من void إلى JSONB) لتجنب خطأ 42P13
-DROP FUNCTION IF EXISTS public.sync_role_permissions(UUID, INT[]);
+-- 1. حذف الدوال القديمة لتجنب تعارض الحمولة الزائدة (Overloading Conflict)
+DROP FUNCTION IF EXISTS public.sync_role_permissions(uuid, integer[]);
+DROP FUNCTION IF EXISTS public.sync_role_permissions(uuid, uuid[]);
 
+-- 2. إعادة إنشاء الدالة بالنمط الصحيح والآمن
 CREATE OR REPLACE FUNCTION public.sync_role_permissions(
-    p_role_id UUID,
-    p_permission_ids INT[] -- تأكد من أن النوع مطابق لجدولك (INT أو BIGINT)
+    p_role_id uuid,
+    p_permission_ids uuid[]
 )
-RETURNS JSONB
+RETURNS void
 LANGUAGE plpgsql
-SECURITY DEFINER -- لضمان امتلاك صلاحيات التعديل الكافية
+SECURITY DEFINER -- لضمان امتلاك صلاحيات التعديل الكافية وتخطي قيود الـ RLS
 AS $$
+DECLARE
+    v_org_id uuid;
+    v_role_name text;
 BEGIN
-    -- 1. حذف كافة الصلاحيات الحالية المرتبطة بهذا الدور
-    -- هذه الخطوة ضرورية لضمان أن الصلاحيات النهائية هي فقط ما تم إرساله في المصفوفة
-    DELETE FROM public.role_permissions
-    WHERE role_id = p_role_id;
-
-    -- 2. إدخال الصلاحيات الجديدة
-    -- نستخدم unnest لتحويل المصفوفة إلى أسطر لسهولة الإدخال
-    IF p_permission_ids IS NOT NULL AND array_length(p_permission_ids, 1) > 0 THEN
-        INSERT INTO public.role_permissions (role_id, permission_id)
-        SELECT p_role_id, elem
-        FROM unnest(p_permission_ids) AS elem
-        ON CONFLICT (role_id, permission_id) DO NOTHING; -- حماية إضافية ضد وجود قيم مكررة في المصفوفة المرسلة
+    -- أ. جلب معلومات الدور المستهدف لضمان الأمان
+    SELECT organization_id, name INTO v_org_id, v_role_name 
+    FROM public.roles 
+    WHERE id = p_role_id;
+    
+    -- ب. 🛡️ التحقق من الصلاحيات: السماح للسوبر أدمن بالمزامنة لأي شركة، أو للمستخدم العادي ضمن شركته فقط
+    IF v_org_id IS NULL OR (v_org_id != public.get_my_org() AND public.get_my_role() != 'super_admin') THEN
+        RAISE EXCEPTION 'غير مصرح لك بتعديل صلاحيات هذا الدور.';
     END IF;
 
-    RETURN jsonb_build_object('success', true, 'message', 'Permissions synced successfully');
+    -- ج. 🛡️ حماية دور الأدمن: منع المدير من سحب صلاحية "إدارة الصلاحيات" عن نفسه
+    IF v_role_name = 'admin' AND public.get_my_role() != 'super_admin' THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM public.permissions 
+            WHERE id = ANY(p_permission_ids) AND module = 'admin' AND action = 'manage'
+        ) THEN
+            RAISE EXCEPTION 'تحذير أمني: لا يمكنك سحب صلاحية "إدارة الصلاحيات" من دور المدير لضمان استمرار قدرتك على إدارة النظام.';
+        END IF;
+    END IF;
 
-EXCEPTION
-    WHEN OTHERS THEN
-        RETURN jsonb_build_object('success', false, 'error', SQLERRM);
+    -- د. مسح الصلاحيات الحالية (ضمن معاملة واحدة)
+    DELETE FROM public.role_permissions 
+    WHERE role_id = p_role_id AND organization_id = v_org_id;
+
+    -- هـ. إضافة الصلاحيات الجديدة مع تجنب التكرار واستخدام ON CONFLICT
+    IF p_permission_ids IS NOT NULL AND array_length(p_permission_ids, 1) > 0 THEN
+        INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
+        SELECT DISTINCT p_role_id, elem, v_org_id
+        FROM unnest(p_permission_ids) AS elem
+        ON CONFLICT (role_id, permission_id) DO NOTHING;
+    END IF;
 END;
 $$;
+
+-- 3. تحديث ذاكرة التخزين المؤقت لـ PostgREST
+NOTIFY pgrst, 'reload schema';

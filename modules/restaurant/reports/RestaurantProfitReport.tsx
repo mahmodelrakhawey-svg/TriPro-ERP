@@ -78,7 +78,7 @@ const RestaurantProfitReport = () => {
         .from('order_items')
         .select('product_id, quantity, orders!inner(created_at, status, organization_id)')
         .eq('orders.organization_id', userOrgId)
-        .eq('orders.status', 'COMPLETED')
+        .in('orders.status', ['COMPLETED', 'PAID'])
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);
 

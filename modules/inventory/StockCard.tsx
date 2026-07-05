@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -20,6 +20,7 @@ interface Product {
   description?: string | null;
   image_url?: string | null;
   unit?: string;
+  base_uom_id?: string | null;
 }
 
 type Transaction = {
@@ -27,6 +28,10 @@ type Transaction = {
   date: string;
   type: 'IN' | 'OUT';
   quantity: number;
+  uomId?: string | null;
+  qtyInBase?: number;
+  displayQty?: number;
+  displayUnitName?: string;
   documentType: string;
   documentNumber: string;
   warehouseName?: string;
@@ -78,6 +83,16 @@ const StockCard = () => {
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
   const [priceHistory, setPriceHistory] = useState<any[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [uoms, setUoms] = useState<any[]>([]);
+  const [displayUnit, setDisplayUnit] = useState<'base' | 'original'>('base');
+
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const { data } = await supabase.from('uoms').select('*');
+      if (data) setUoms(data);
+    };
+    fetchUoms();
+  }, []);
   const [isRecalculating, setIsRecalculating] = useState(false);
   const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
   const [openingFormData, setOpeningFormData] = useState({ warehouseId: '', quantity: 0, cost: 0 });
@@ -119,25 +134,25 @@ const StockCard = () => {
 
     try {
       // بناء الاستعلامات لجلب الحركات من جداول مختلفة
-      let querySales = supabase.from('invoice_items').select('quantity, invoices!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('invoices.status', 'draft').neq('invoices.status', 'cancelled');
-      let queryPurchases = supabase.from('purchase_invoice_items').select('quantity, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).in('purchase_invoices.status', ['posted', 'paid']);
-      let querySalesReturns = supabase.from('sales_return_items').select('quantity, sales_returns!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).eq('sales_returns.status', 'posted');
-      let queryPurchaseReturns = supabase.from('purchase_return_items').select('quantity, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).eq('purchase_returns.status', 'posted');
-      let queryAdjustments = supabase.from('stock_adjustment_items').select('quantity, stock_adjustments!inner(id, adjustment_date, adjustment_number, warehouse_id, created_at, reason, status)').eq('product_id', selectedProductId).neq('stock_adjustments.status', 'draft').neq('stock_adjustments.status', 'cancelled');
-      let queryTransfers = supabase.from('stock_transfer_items').select('quantity, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('stock_transfers.status', 'draft').neq('stock_transfers.status', 'cancelled');
+      let querySales = supabase.from('invoice_items').select('quantity, uom_id, invoices!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('invoices.status', 'draft').neq('invoices.status', 'cancelled');
+      let queryPurchases = supabase.from('purchase_invoice_items').select('quantity, uom_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).in('purchase_invoices.status', ['posted', 'paid']);
+      let querySalesReturns = supabase.from('sales_return_items').select('quantity, uom_id, sales_returns!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).eq('sales_returns.status', 'posted');
+      let queryPurchaseReturns = supabase.from('purchase_return_items').select('quantity, uom_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).eq('purchase_returns.status', 'posted');
+      let queryAdjustments = supabase.from('stock_adjustment_items').select('quantity, uom_id, stock_adjustments!inner(id, adjustment_date, adjustment_number, warehouse_id, created_at, reason, status)').eq('product_id', selectedProductId).neq('stock_adjustments.status', 'draft').neq('stock_adjustments.status', 'cancelled');
+      let queryTransfers = supabase.from('stock_transfer_items').select('quantity, uom_id, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('stock_transfers.status', 'draft').neq('stock_transfers.status', 'cancelled');
       // إضافة استعلام الرصيد الافتتاحي
-      let queryOpening = supabase.from('opening_inventories').select('id, quantity, warehouse_id, created_at').eq('product_id', selectedProductId);
+      let queryOpening = supabase.from('opening_inventories').select('id, quantity, uom_id, warehouse_id, created_at').eq('product_id', selectedProductId);
       // إضافة استعلامات مديول التصنيع
       let queryMfgFinished = supabase.from('mfg_production_orders').select('id, order_number, end_date, quantity_to_produce, warehouse_id, created_at, status').eq('product_id', selectedProductId).eq('status', 'completed');
-      let queryMfgRaw = supabase.from('mfg_material_request_items').select('quantity_issued, mfg_material_requests!inner(request_number, issue_date, created_at, status)').eq('raw_material_id', selectedProductId).eq('mfg_material_requests.status', 'issued');
+      let queryMfgRaw = supabase.from('mfg_material_request_items').select('quantity_issued, uom_id, mfg_material_requests!inner(request_number, issue_date, created_at, status)').eq('raw_material_id', selectedProductId).eq('mfg_material_requests.status', 'issued');
       let queryMfgScrap = supabase.from('mfg_scrap_logs').select('id, quantity, reason, created_at').eq('product_id', selectedProductId);
 
       // --- حركات المطعم ---
       // 1. مبيعات المطعم (بيع مباشر للصنف)
       let queryRestDirect = supabase.from('order_items')
-        .select('id, quantity, unit_cost, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
+        .select('id, quantity, unit_cost, uom_id, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
         .eq('product_id', selectedProductId)
-        .eq('orders.status', 'COMPLETED');
+        .in('orders.status', ['COMPLETED', 'PAID']);
 
       // 2. استهلاك المطعم (إذا كان الصنف مادة خام)
       const { data: boms } = await supabase.from('bill_of_materials')
@@ -148,9 +163,9 @@ const StockCard = () => {
       if (boms && boms.length > 0) {
           const parentIds = boms.map(b => b.product_id);
           queryRestConsumption = supabase.from('order_items')
-            .select('id, product_id, quantity, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
+            .select('id, product_id, quantity, uom_id, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
             .in('product_id', parentIds)
-            .eq('orders.status', 'COMPLETED');
+            .in('orders.status', ['COMPLETED', 'PAID']);
       }
 
       // تطبيق فلتر المستودع إذا تم اختياره
@@ -185,6 +200,7 @@ const StockCard = () => {
           date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
           type: 'IN',
           quantity: item.quantity,
+          uomId: item.uom_id,
           documentType: 'رصيد افتتاحي',
           documentNumber: '-',
           warehouseName: getWName(item.warehouse_id),
@@ -200,6 +216,7 @@ const StockCard = () => {
           date: item.invoices.invoice_date,
           type: 'OUT',
           quantity: item.quantity,
+          uomId: item.uom_id,
           documentType: 'فاتورة مبيعات',
           documentNumber: item.invoices.invoice_number,
           warehouseName: getWName(item.invoices.warehouse_id),
@@ -215,6 +232,7 @@ const StockCard = () => {
           date: item.purchase_invoices.invoice_date,
           type: 'IN',
           quantity: item.quantity,
+          uomId: item.uom_id,
           documentType: 'فاتورة مشتريات',
           documentNumber: item.purchase_invoices.invoice_number,
           warehouseName: getWName(item.purchase_invoices.warehouse_id),
@@ -230,6 +248,7 @@ const StockCard = () => {
           date: item.end_date || item.created_at.split('T')[0],
           type: 'IN',
           quantity: item.quantity_to_produce,
+          uomId: null,
           documentType: 'إنتاج تام',
           documentNumber: item.order_number,
           warehouseName: getWName(item.warehouse_id),
@@ -244,6 +263,7 @@ const StockCard = () => {
           date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at.split('T')[0],
           type: 'OUT',
           quantity: item.quantity_issued,
+          uomId: item.uom_id,
           documentType: 'صرف خامات (إنتاج)',
           documentNumber: item.mfg_material_requests.request_number,
           warehouseName: getWName(item.mfg_material_requests.warehouse_id),
@@ -258,6 +278,7 @@ const StockCard = () => {
           date: item.created_at.split('T')[0],
           type: 'OUT',
           quantity: item.quantity,
+          uomId: null,
           documentType: 'تصنيع (هالك)',
           documentNumber: '-',
           createdAt: item.created_at,
@@ -272,6 +293,7 @@ const StockCard = () => {
           date: item.sales_returns.return_date,
           type: 'IN',
           quantity: item.quantity,
+          uomId: item.uom_id,
           documentType: 'مرتجع مبيعات',
           documentNumber: item.sales_returns.return_number,
           warehouseName: getWName(item.sales_returns.warehouse_id),
@@ -287,6 +309,7 @@ const StockCard = () => {
           date: item.purchase_returns.return_date,
           type: 'OUT',
           quantity: item.quantity,
+          uomId: item.uom_id,
           documentType: 'مرتجع مشتريات',
           documentNumber: item.purchase_returns.return_number,
           warehouseName: getWName(item.purchase_returns.warehouse_id),
@@ -302,6 +325,7 @@ const StockCard = () => {
           date: item.stock_adjustments.adjustment_date,
           type: item.quantity >= 0 ? 'IN' : 'OUT',
           quantity: Math.abs(item.quantity),
+          uomId: item.uom_id,
           documentType: 'تسوية مخزنية',
           documentNumber: item.stock_adjustments.adjustment_number,
           warehouseName: getWName(item.stock_adjustments.warehouse_id),
@@ -324,6 +348,7 @@ const StockCard = () => {
                         date: t.transfer_date,
                         type: 'OUT',
                         quantity: item.quantity,
+                        uomId: item.uom_id,
                         documentType: 'تحويل صادر',
                         documentNumber: t.transfer_number,
                         warehouseName: `إلى: ${getWName(t.to_warehouse_id)}`,
@@ -337,6 +362,7 @@ const StockCard = () => {
                         date: t.transfer_date,
                         type: 'IN',
                         quantity: item.quantity,
+                        uomId: item.uom_id,
                         documentType: 'تحويل وارد',
                         documentNumber: t.transfer_number,
                         warehouseName: `من: ${getWName(t.from_warehouse_id)}`,
@@ -351,7 +377,8 @@ const StockCard = () => {
                     id: `TRN-DOC-${t.id}-${item.product_id}`,
                     date: t.transfer_date,
                     type: 'IN',
-                    quantity: 0, // كمية 0 لعدم التأثير على الرصيد الإجمالي
+                    quantity: 0,
+                    uomId: item.uom_id,
                     documentType: 'تحويل مخزني (داخلي)',
                     documentNumber: t.transfer_number,
                     warehouseName: `${getWName(t.from_warehouse_id)} ➔ ${getWName(t.to_warehouse_id)}`,
@@ -369,6 +396,7 @@ const StockCard = () => {
               date: item.orders.created_at,
               type: 'OUT',
               quantity: item.quantity,
+              uomId: item.uom_id,
               documentType: 'مبيعات مطعم',
               documentNumber: item.orders.order_number,
               warehouseName: getWName(item.orders.warehouse_id),
@@ -387,6 +415,7 @@ const StockCard = () => {
                   date: item.orders.created_at,
                   type: 'OUT',
                   quantity: consumedQty,
+                  uomId: null,
                   documentType: 'استهلاك مطعم',
                   documentNumber: item.orders.order_number,
                   warehouseName: getWName(item.orders.warehouse_id),
@@ -411,11 +440,27 @@ const StockCard = () => {
         return createdA - createdB;
       });
 
+      const convertQty = (qty: number, fromUomId: string | null | undefined, toUomId: string | null | undefined) => {
+        if (!fromUomId || !toUomId || fromUomId === toUomId) return qty;
+        const fromUom = uoms.find(u => u.id === fromUomId);
+        const toUom = uoms.find(u => u.id === toUomId);
+        if (!fromUom || !toUom) return qty;
+        
+        let fromRatio = Number(fromUom.ratio) || 1;
+        let toRatio = Number(toUom.ratio) || 1;
+        
+        if (fromUom.uom_type === 'smaller') fromRatio = 1.0 / fromRatio;
+        if (toUom.uom_type === 'smaller') toRatio = 1.0 / toRatio;
+        
+        return (qty * fromRatio) / toRatio;
+      };
+
       let balance = 0;
       const txnsWithBalance = allTxns.map(t => {
-        if (t.type === 'IN') balance += t.quantity;
-        else balance -= t.quantity;
-        return { ...t, balance };
+        const qtyInBase = convertQty(t.quantity, t.uomId, selectedProduct?.base_uom_id);
+        if (t.type === 'IN') balance += qtyInBase;
+        else balance -= qtyInBase;
+        return { ...t, qtyInBase, balance };
       });
 
       // عكس الترتيب للعرض (الأحدث أولاً)
@@ -436,17 +481,29 @@ const StockCard = () => {
     (!endDate || t.date <= endDate)
   );
 
-  const handleExportExcel = () => {
-    if (filteredTransactions.length === 0) return;
+  const processedTransactions = useMemo(() => {
+    return filteredTransactions.map(t => {
+      const displayQty = displayUnit === 'base' ? t.qtyInBase : t.quantity;
+      const displayUnitName = displayUnit === 'base' ? (selectedProduct?.unit || '') : (uoms.find(u => u.id === t.uomId)?.name || selectedProduct?.unit || '');
+      return {
+        ...t,
+        displayQty,
+        displayUnitName
+      };
+    });
+  }, [filteredTransactions, displayUnit, uoms, selectedProduct]);
 
-    const data = filteredTransactions.map(t => ({
+  const handleExportExcel = () => {
+    if (processedTransactions.length === 0) return;
+
+    const data = processedTransactions.map(t => ({
       'التاريخ': new Date(t.date).toLocaleDateString('ar-EG'),
       'نوع الحركة': t.documentType,
       'المستند': t.documentNumber || '-',
       'المستودع': t.warehouseName || '-',
-      'وارد (+)': t.type === 'IN' ? t.quantity : 0,
-      'صادر (-)': t.type === 'OUT' ? t.quantity : 0,
-      'الرصيد': t.balance,
+      'وارد (+)': t.type === 'IN' ? `${t.displayQty} ${t.displayUnitName}` : '-',
+      'صادر (-)': t.type === 'OUT' ? `${t.displayQty} ${t.displayUnitName}` : '-',
+      'الرصيد': `${t.balance?.toLocaleString()} ${selectedProduct?.unit || ''}`,
       'ملاحظات': t.notes || '-'
     }));
 
@@ -752,8 +809,8 @@ const StockCard = () => {
       }));
   }, [priceHistory]);
 
-  const totalIn = filteredTransactions.reduce((sum, t) => t.type === 'IN' ? sum + t.quantity : sum, 0);
-  const totalOut = filteredTransactions.reduce((sum, t) => t.type === 'OUT' ? sum + t.quantity : sum, 0);
+  const totalIn = processedTransactions.reduce((sum, t) => t.type === 'IN' ? sum + (t.displayQty || 0) : sum, 0);
+  const totalOut = processedTransactions.reduce((sum, t) => t.type === 'OUT' ? sum + (t.displayQty || 0) : sum, 0);
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -857,6 +914,17 @@ const StockCard = () => {
             onChange={e => setEndDate(e.target.value)}
           />
         </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">وحدة عرض الكميات</label>
+          <select 
+            className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+            value={displayUnit} 
+            onChange={e => setDisplayUnit(e.target.value as 'base' | 'original')}
+          >
+            <option value="base">الوحدة الأصغر (مثل: قطعة / زجاجة)</option>
+            <option value="original">الوحدة الأصلية للحركة (كرتونة / علبة / قطعة)</option>
+          </select>
+        </div>
       </div>
 
       {selectedProductId && (
@@ -947,27 +1015,27 @@ const StockCard = () => {
                 </tr>
                 </thead>
                 <tbody className="divide-y">
-                {filteredTransactions.map(t => (
+                {processedTransactions.map(t => (
                     <tr key={t.id} className={`hover:bg-slate-50 transition-colors ${t.warehouseName === 'غير محدد' ? 'bg-amber-50' : ''}`}>
                         <td className="p-4 text-slate-600 font-medium">{new Date(t.date).toLocaleDateString('ar-EG')}</td>
                         <td className="p-4 font-bold text-slate-700">{t.documentType}</td>
                         <td className="p-4 font-mono text-sm text-slate-500">{t.documentNumber || '-'}</td>
                         <td className="p-4 text-sm">{t.warehouseName}</td>
                         <td className="p-4 text-center font-bold text-emerald-600 bg-emerald-50/30">
-                            {t.type === 'IN' ? t.quantity : '-'}
+                            {t.type === 'IN' ? `${t.displayQty?.toLocaleString()} ${t.displayUnitName}` : '-'}
                         </td>
                         <td className="p-4 text-center font-bold text-red-600 bg-red-50/30">
-                            {t.type === 'OUT' ? t.quantity : '-'}
+                            {t.type === 'OUT' ? `${t.displayQty?.toLocaleString()} ${t.displayUnitName}` : '-'}
                         </td>
                         <td className={`p-4 text-center font-black ${t.balance && t.balance < 0 ? 'text-red-600' : 'text-slate-800'} bg-slate-50`} dir="ltr">
-                            {t.balance?.toLocaleString()}
+                            {t.balance?.toLocaleString()} {selectedProduct?.unit || ''}
                         </td>
                         <td className="p-4 text-sm text-slate-500 max-w-xs truncate" title={t.notes}>
                             {t.notes || '-'}
                         </td>
                     </tr>
                 ))}
-                {filteredTransactions.length === 0 && (
+                {processedTransactions.length === 0 && (
                     <tr><td colSpan={8} className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
                         <AlertCircle size={32} />
                         لا توجد حركات مسجلة لهذا الصنف في هذا النطاق
@@ -977,10 +1045,14 @@ const StockCard = () => {
                 <tfoot className="font-bold border-t-2 border-slate-300 text-sm">
                     <tr className="bg-slate-200 text-slate-900">
                         <td colSpan={4} className="p-4 text-left text-slate-600">الإجمالي:</td>
-                        <td className="p-4 text-center text-emerald-700 bg-emerald-50/30">{totalIn}</td>
-                        <td className="p-4 text-center text-red-700 bg-red-50/30">{totalOut}</td>
+                        <td className="p-4 text-center text-emerald-700 bg-emerald-50/30">
+                            {totalIn?.toLocaleString()} {displayUnit === 'base' ? (selectedProduct?.unit || '') : ''}
+                        </td>
+                        <td className="p-4 text-center text-red-700 bg-red-50/30">
+                            {totalOut?.toLocaleString()} {displayUnit === 'base' ? (selectedProduct?.unit || '') : ''}
+                        </td>
                         <td className="p-4 text-center text-slate-800" dir="ltr">
-                            {filteredTransactions.length > 0 ? filteredTransactions[0].balance?.toLocaleString() : 0}
+                            {processedTransactions.length > 0 ? `${processedTransactions[0].balance?.toLocaleString()} ${selectedProduct?.unit || ''}` : `0 ${selectedProduct?.unit || ''}`}
                         </td>
                         <td></td>
                     </tr>
