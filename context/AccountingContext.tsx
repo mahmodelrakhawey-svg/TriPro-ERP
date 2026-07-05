@@ -748,7 +748,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_resume_existing: false, // 🛡️ تصحيح: عند الضغط على زر "بدء" نريد إنشاء وردية جديدة فعلاً وليس مجرد استئناف
       p_treasury_account_id: treasuryAcc?.id || null,
       p_user_id: currentUser?.id,
-      p_org_id: targetOrgId
+      p_org_id: targetOrgId,
+      p_terminal_id: null // 🛡️ نمرر null صراحة لمنع تداخل توقيع الدالة (Overload Ambiguity) في PostgreSQL
     }); 
     if (error) throw error;
     await refreshData(); 

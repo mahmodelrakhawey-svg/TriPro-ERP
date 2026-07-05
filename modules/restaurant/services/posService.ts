@@ -21,7 +21,8 @@ export const posService = {
         p_resume_existing: true, // استئناف الوردية إذا كانت موجودة
         p_treasury_account_id: treasuryId,
         p_user_id: userId,
-        p_org_id: orgId
+        p_org_id: orgId,
+        p_terminal_id: null // 🛡️ نمرر null صراحة لمنع تداخل توقيع الدالة (Overload Ambiguity) في PostgreSQL
       });
 
       if (error) throw error;

@@ -1200,7 +1200,12 @@ const PosScreen = () => {
     }, [restaurantTables]);
 
     const handleStartShift = async (amount: number) => {
-      await startShift(amount);
+      try {
+        await startShift(amount);
+        showToast('تم بدء الوردية بنجاح ✅', 'success');
+      } catch (err: any) {
+        showToast(err.message || 'حدث خطأ أثناء بدء الوردية', 'error');
+      }
     };
 
     const handleOpenCloseShiftModal = async () => {
