@@ -49,7 +49,40 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   }, [searchParams, initialCustomerId]);
 
   const handleFixAll = async () => {
-    showToast('هذه الميزة غير مفعلة حالياً.', 'warning');
+    const unposted = transactions.filter(t => t.type === 'pos_order' && !t.isPosted);
+    
+    if (unposted.length === 0) {
+      showToast('لا توجد طلبات غير مرحلة للعميل.', 'info');
+      return;
+    }
+
+    setLoading(true);
+    let successCount = 0;
+    try {
+      for (const ord of unposted) {
+        const { error } = await supabase.rpc('post_order_journal_entry', {
+          p_order_id: ord.id
+        });
+
+        if (error) {
+          console.error(`Failed to post order ${ord.reference}:`, error.message);
+        } else {
+          successCount++;
+        }
+      }
+
+      if (successCount > 0) {
+        showToast(`تم ترحيل عدد (${successCount}) طلبات بنجاح ومطابقة الأستاذ العام.`, 'success');
+        await fetchStatement();
+      } else {
+        showToast('فشل ترحيل الطلبات. يرجى التحقق من قاعدة البيانات.', 'error');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast('حدث خطأ غير متوقع: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const fetchStatement = async () => { // 🛡️ إعادة كتابة شاملة لضمان التطابق مع الأستاذ العام
