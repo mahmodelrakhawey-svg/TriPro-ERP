@@ -24,6 +24,7 @@ interface PaymentVoucher {
   notes: string;
   payment_method: string;
   related_journal_entry_id?: string;
+  supplier_id?: string | null;
   suppliers?: {
     name: string;
   };
@@ -146,7 +147,11 @@ const PaymentVoucherList = () => {
   };
 
   const handleEdit = (voucher: PaymentVoucher) => {
-    navigate('/payment-voucher', { state: { voucherToEdit: voucher } });
+    if (voucher.supplier_id) {
+      navigate('/payment-voucher', { state: { voucherToEdit: voucher } });
+    } else {
+      navigate('/expense-voucher', { state: { voucherToEdit: voucher } });
+    }
   };
 
   const handleDeleteVoucher = async (voucher: PaymentVoucher) => {

@@ -131,10 +131,37 @@ BEGIN
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
     VALUES (v_journal_id, v_supplier_acc_id, 0, v_total_amount_base, 'استحقاق مورد - فاتورة ' || v_invoice.invoice_number, v_org_id);
 
-    -- و. تحديث حالة الفاتورة
-    UPDATE public.purchase_invoices 
-    SET status = 'posted',
-        related_journal_entry_id = v_journal_id
-    WHERE id = p_invoice_id;
+    -- 4. إثبات السداد الفوري (إن وجد)
+    IF COALESCE(v_invoice.paid_amount, 0) > 0 AND v_invoice.treasury_account_id IS NOT NULL THEN
+        -- سطر مدين للمورد (تخفيض المديونية بقيمة السداد)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_supplier_acc_id, v_invoice.paid_amount * v_exchange_rate, 0, 'سداد فوري - فاتورة مشتريات ' || v_invoice.invoice_number, v_org_id);
+
+        -- سطر دائن للخزينة/البنك (نقص النقدية)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_invoice.treasury_account_id, 0, v_invoice.paid_amount * v_exchange_rate, 'دفع نقدي - فاتورة مشتريات ' || v_invoice.invoice_number, v_org_id);
+        
+        -- تحديث حالة الفاتورة لتصبح مدفوعة بالكامل إذا تطابق المبلغ
+        IF ABS(COALESCE(v_invoice.paid_amount, 0) - COALESCE(v_invoice.total_amount, 0)) < 0.01 THEN
+            UPDATE public.purchase_invoices 
+            SET status = 'paid',
+                related_journal_entry_id = v_journal_id
+            WHERE id = p_invoice_id;
+        ELSE
+            UPDATE public.purchase_invoices 
+            SET status = 'posted',
+                related_journal_entry_id = v_journal_id
+            WHERE id = p_invoice_id;
+        END IF;
+    ELSE
+        -- و. تحديث حالة الفاتورة
+        UPDATE public.purchase_invoices 
+        SET status = 'posted',
+            related_journal_entry_id = v_journal_id
+        WHERE id = p_invoice_id;
+    END IF;
+
+    -- إعادة احتساب أرصدة الأستاذ العام وكشوف الحسابات للشركة
+    PERFORM public.recalculate_all_system_balances(v_org_id);
 END;
 $$;

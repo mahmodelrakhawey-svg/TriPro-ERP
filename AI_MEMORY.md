@@ -1,5 +1,5 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٤‏/٧‏/٢٠٢٦، ٥:١٩:١٣ م
+📅 تاريخ التحديث: ٨‏/٧‏/٢٠٢٦، ٣:١٥:٣٣ م
 ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
@@ -30,6 +30,7 @@
   📁 admin/
     📄 auto_setup_new_org.sql
     📄 DataMigrationCenter.tsx
+    📄 PermissionsManager.test.tsx
     📄 PermissionsManager.tsx
     📄 RecycleBin.tsx
     📄 SaaSAdmin.tsx
@@ -248,6 +249,7 @@
   📁 retail/
     📁 components/
       📁 POS/
+        📄 RetailPosScreen.test.tsx
         📄 RetailPosScreen.tsx
   📁 sales/
     📄 CreditNoteForm.tsx
@@ -411,6 +413,15 @@
     📄 2026-04-10_fix_sync_role_permissions.sql
     📄 2026-07-02_retail_pos_setup.sql
     📄 2026-07-03_fix_tax_disabled_orders.sql
+    📄 2026-07-04_mfg_barcode_commands.sql
+    📄 2026-07-04_qr_menu_online_payment.sql
+    📄 2026-07-05_automatic_deletion_audit.sql
+    📄 2026-07-05_secure_created_by_defaults.sql
+    📄 2026-07-06_fix_restaurant_modifiers_schema.sql
+    📄 2026-07-06_pos_credit_posting.sql
+    📄 2026-07-06_restaurant_process_split_payment.sql
+    📄 2026-07-06_restaurant_sync_categories.sql
+    📄 2026-07-06_restaurant_table_session_operations.sql
     📄 add_account_mappings.sql
     📄 add_category_image.sql
     📄 add_created_by_columns.sql
@@ -1378,6 +1389,8 @@ interface AccountingContextType {
   addPaymentVoucher: (voucher: any) => Promise<void>;
   // --- دوال الأصول والشيكات ---
   addAsset: (asset: any) => Promise<void>;
+  updateAsset: (id: string, updates: any) => Promise<void>;
+  deleteAsset: (id: string) => Promise<void>;
   runDepreciation: (id?: string, amount?: number, date?: string) => Promise<void>;
   revaluateAsset: (id: string, val: number, date: string, accId: string) => Promise<void>;
   addCheque: (cheque: any) => Promise<void>;
@@ -1539,7 +1552,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       supabase.from('suppliers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
       supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
-      supabase.from('assets').select('*').eq('organization_id', fetchOrgId),
+      supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
       supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
       ]);
 
@@ -1843,6 +1856,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     await refreshData(); 
   };
+  const updateAsset = async (id: string, updates: any) => {
+    const { error } = await supabase.from('assets').update(updates).eq('id', id);
+    if (error) throw error;
+    await refreshData();
+  };
+  const deleteAsset = async (id: string) => {
+    const { error } = await supabase.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    await refreshData();
+  };
   const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
   const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { await supabase.from('assets').update({ current_value: val }).eq('id', id); refreshData(); };
   const addCheque = async (cheque: any) => { 
@@ -1859,7 +1882,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await supabase.from('cheques').update(updatePayload).eq('id', id); 
     refreshData(); 
   };     
-  const addTransfer = async (transfer: any) => { await supabase.rpc('add_treasury_transfer', transfer); refreshData(); };
+  const addTransfer = async (transfer: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const targetUserId = currentUser?.id;
+    const { error } = await supabase.rpc('add_treasury_transfer', {
+      p_from_account_id: transfer.sourceAccountId,
+      p_to_account_id: transfer.destinationAccountId,
+      p_amount: transfer.amount,
+      p_transfer_date: transfer.date,
+      p_notes: transfer.description || '',
+      p_org_id: targetOrgId,
+      p_user_id: targetUserId
+    });
+    if (error) throw error;
+    await refreshData(); 
+  };
   const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const permanentDeleteItem = async (table: string, id: string) => { const { error } = await supabase.from(table).delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const exportJournalToCSV = () => { /* Logic */ };
@@ -1994,7 +2031,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_resume_existing: false, // 🛡️ تصحيح: عند الضغط على زر "بدء" نريد إنشاء وردية جديدة فعلاً وليس مجرد استئناف
       p_treasury_account_id: treasuryAcc?.id || null,
       p_user_id: currentUser?.id,
-      p_org_id: targetOrgId
+      p_org_id: targetOrgId,
+      p_terminal_id: null // 🛡️ نمرر null صراحة لمنع تداخل توقيع الدالة (Overload Ambiguity) في PostgreSQL
     }); 
     if (error) throw error;
     await refreshData(); 
@@ -2083,7 +2121,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     deleteSupplier, approveInvoice, approvePurchaseInvoice, convertPoToInvoice,
     addOpeningBalanceTransaction, addPaymentVoucher,
     // Assets & Cheques
-    addAsset, runDepreciation, revaluateAsset, addCheque, updateChequeStatus, addTransfer,
+    addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateChequeStatus, addTransfer,
     restoreItem, permanentDeleteItem, exportJournalToCSV,
     // HR
     addEmployee, updateEmployee, deleteEmployee, runPayroll,

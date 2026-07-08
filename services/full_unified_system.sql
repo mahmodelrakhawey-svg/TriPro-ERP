@@ -1614,10 +1614,24 @@ BEGIN
         END LOOP;
     END IF;
 
-    -- 5. تحديث حالة الفاتورة وربطها بالقيد
-    UPDATE public.invoices SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_invoice_id;
+    -- 5. إثبات السداد الفوري/الدفعة المقدمة (إن وجد)
+    IF COALESCE(v_invoice.paid_amount, 0) > 0 AND v_invoice.treasury_account_id IS NOT NULL THEN
+        -- سطر مدين للخزينة/البنك (زيادة النقدية)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_invoice.treasury_account_id, v_invoice.paid_amount, 0, 'تحصيل نقدي - فاتورة مبيعات ' || v_invoice.invoice_number, v_org_id);
 
-    -- 🚀 6. تحديث المخزون الشامل لجميع المستودعات (الخصم اللحظي)
+        -- سطر دائن للعميل (تخفيض المديونية)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_cust_acc_id, 0, v_invoice.paid_amount, 'سداد فوري من العميل - فاتورة مبيعات ' || v_invoice.invoice_number, v_org_id);
+    END IF;
+
+    -- 6. تحديث حالة الفاتورة وربطها بالقيد
+    UPDATE public.invoices 
+    SET status = CASE WHEN ABS(COALESCE(paid_amount, 0) - COALESCE(total_amount, 0)) < 0.01 THEN 'paid' ELSE 'posted' END, 
+        related_journal_entry_id = v_journal_id 
+    WHERE id = p_invoice_id;
+
+    -- 🚀 7. تحديث المخزون الشامل لجميع المستودعات (الخصم اللحظي)
     IF NOT p_skip_recalc THEN
         PERFORM public.recalculate_stock_rpc(v_org_id);
     END IF;
@@ -1698,10 +1712,32 @@ BEGIN
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
     VALUES (v_journal_id, v_supplier_acc_id, 0, v_invoice.total_amount, 'استحقاق مورد', v_org_id);
 
-    UPDATE public.purchase_invoices SET status = 'posted' WHERE id = p_invoice_id;
+    -- 4. إثبات السداد الفوري (إن وجد)
+    IF COALESCE(v_invoice.paid_amount, 0) > 0 AND v_invoice.treasury_account_id IS NOT NULL THEN
+        -- سطر مدين للمورد (تخفيض المديونية بقيمة السداد)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_supplier_acc_id, v_invoice.paid_amount, 0, 'سداد فوري - فاتورة مشتريات ' || v_invoice.invoice_number, v_org_id);
+
+        -- سطر دائن للخزينة/البنك (نقص النقدية)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_invoice.treasury_account_id, 0, v_invoice.paid_amount, 'دفع نقدي - فاتورة مشتريات ' || v_invoice.invoice_number, v_org_id);
+        
+        -- تحديث حالة الفاتورة لتصبح مدفوعة بالكامل إذا تطابق المبلغ
+        IF ABS(COALESCE(v_invoice.paid_amount, 0) - COALESCE(v_invoice.total_amount, 0)) < 0.01 THEN
+            UPDATE public.purchase_invoices SET status = 'paid' WHERE id = p_invoice_id;
+        ELSE
+            UPDATE public.purchase_invoices SET status = 'posted' WHERE id = p_invoice_id;
+        END IF;
+    ELSE
+        UPDATE public.purchase_invoices SET status = 'posted' WHERE id = p_invoice_id;
+    END IF;
+
     IF NOT p_skip_recalc THEN
         PERFORM public.recalculate_stock_rpc(v_org_id);
     END IF;
+
+    -- إعادة احتساب أرصدة الأستاذ العام وكشوف الحسابات للشركة
+    PERFORM public.recalculate_all_system_balances(v_org_id);
 END; $$;
 
 -- 🛠️ الأسماء المستعارة (Aliases) لضمان توافق RPC مع الواجهة الأمامية
@@ -3034,6 +3070,16 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_return_items' AND column_name = 'purchase_return_id') THEN
             EXECUTE 'ALTER TABLE public.purchase_return_items RENAME COLUMN return_id TO purchase_return_id';
             v_log_message := v_log_message || 'Renamed return_id to purchase_return_id in purchase_return_items. ';
+            v_count := v_count + 1;
+        END IF;
+    END IF;
+
+    -- 🛠️ إضافة عمود current_value لجدول الأصول إذا لم يكن موجوداً
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'assets' AND table_type = 'BASE TABLE') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'assets' AND column_name = 'current_value') THEN
+            EXECUTE 'ALTER TABLE public.assets ADD COLUMN current_value numeric DEFAULT 0';
+            EXECUTE 'UPDATE public.assets SET current_value = COALESCE(purchase_cost, 0)';
+            v_log_message := v_log_message || 'Added current_value column to assets table. ';
             v_count := v_count + 1;
         END IF;
     END IF;

@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -71,12 +71,12 @@ const PayrollRun = () => {
       const preparedData = employees.map(emp => {
         const empAdvances = advances.filter(adv => adv.employee_id === emp.id);
         const totalAdvances = empAdvances.reduce((sum, adv) => sum + adv.amount, 0);
-        const netSalary = (emp.salary || 0) - totalAdvances;
+        const netSalary = (emp.basic_salary || 0) - totalAdvances;
         
         return {
           employee_id: emp.id,
           full_name: emp.full_name || emp.name || 'موظف بدون اسم', // حماية من القيم الفارغة
-          gross_salary: emp.salary || 0,
+          gross_salary: emp.basic_salary || 0,
           additions: 0,
           payroll_tax: 0,
           advances_deducted: totalAdvances,

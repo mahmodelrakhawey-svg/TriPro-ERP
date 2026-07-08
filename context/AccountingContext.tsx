@@ -132,11 +132,15 @@ interface AccountingContextType {
   addPaymentVoucher: (voucher: any) => Promise<void>;
   // --- دوال الأصول والشيكات ---
   addAsset: (asset: any) => Promise<void>;
+  updateAsset: (id: string, updates: any) => Promise<void>;
+  deleteAsset: (id: string) => Promise<void>;
   runDepreciation: (id?: string, amount?: number, date?: string) => Promise<void>;
   revaluateAsset: (id: string, val: number, date: string, accId: string) => Promise<void>;
   addCheque: (cheque: any) => Promise<void>;
   updateChequeStatus: (id: string, status: string, date: string, bankId?: string) => Promise<void>;
   addTransfer: (transfer: any) => Promise<void>;
+  updateTransfer: (id: string, transfer: any) => Promise<void>;
+  deleteTransfer: (id: string) => Promise<void>;
   restoreItem: (table: string, id: string) => Promise<{ success: boolean; message?: string }>;
   permanentDeleteItem: (table: string, id: string) => Promise<{ success: boolean; message?: string }>;
   exportJournalToCSV: () => void;
@@ -293,7 +297,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       supabase.from('suppliers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
       supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
-      supabase.from('assets').select('*').eq('organization_id', fetchOrgId),
+      supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
       supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
       ]);
 
@@ -597,6 +601,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     await refreshData(); 
   };
+  const updateAsset = async (id: string, updates: any) => {
+    const { error } = await supabase.from('assets').update(updates).eq('id', id);
+    if (error) throw error;
+    await refreshData();
+  };
+  const deleteAsset = async (id: string) => {
+    const { error } = await supabase.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    await refreshData();
+  };
   const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
   const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { await supabase.from('assets').update({ current_value: val }).eq('id', id); refreshData(); };
   const addCheque = async (cheque: any) => { 
@@ -613,7 +627,122 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await supabase.from('cheques').update(updatePayload).eq('id', id); 
     refreshData(); 
   };     
-  const addTransfer = async (transfer: any) => { await supabase.rpc('add_treasury_transfer', transfer); refreshData(); };
+  const addTransfer = async (transfer: any) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const targetUserId = currentUser?.id;
+    const { error } = await supabase.rpc('add_treasury_transfer', {
+      p_from_account_id: transfer.sourceAccountId,
+      p_to_account_id: transfer.destinationAccountId,
+      p_amount: transfer.amount,
+      p_transfer_date: transfer.date,
+      p_notes: transfer.description || '',
+      p_org_id: targetOrgId,
+      p_user_id: targetUserId
+    });
+    if (error) throw error;
+    await refreshData(); 
+  };
+
+  const updateTransfer = async (id: string, transfer: any) => {
+    try {
+      const { error } = await supabase.rpc('update_treasury_transfer', {
+        p_journal_entry_id: id,
+        p_from_account_id: transfer.sourceAccountId,
+        p_to_account_id: transfer.destinationAccountId,
+        p_amount: transfer.amount,
+        p_transfer_date: transfer.date,
+        p_notes: transfer.description || ''
+      });
+      
+      if (error) {
+        // Fallback to direct REST if RPC doesn't exist
+        const isFuncMissing = error.code === 'P0001' || 
+                              error.message?.includes('function') || 
+                              error.message?.includes('does not exist');
+        if (isFuncMissing) {
+          console.warn("RPC update_treasury_transfer not found, falling back to direct REST updates");
+          const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+
+          // Update journal entry
+          const { error: entryError } = await supabase.from('journal_entries').update({
+            transaction_date: transfer.date,
+            description: transfer.description || ''
+          }).eq('id', id);
+          if (entryError) throw entryError;
+
+          // Delete old journal lines
+          const { error: linesDeleteError } = await supabase.from('journal_lines').delete().eq('journal_entry_id', id);
+          if (linesDeleteError) throw linesDeleteError;
+
+          // Insert new journal lines
+          const { error: linesInsertError } = await supabase.from('journal_lines').insert([
+            {
+              journal_entry_id: id,
+              account_id: transfer.destinationAccountId,
+              debit: transfer.amount,
+              credit: 0,
+              description: 'تحويل وارد: ' + (transfer.description || ''),
+              organization_id: targetOrgId
+            },
+            {
+              journal_entry_id: id,
+              account_id: transfer.sourceAccountId,
+              debit: 0,
+              credit: transfer.amount,
+              description: 'تحويل صادر: ' + (transfer.description || ''),
+              organization_id: targetOrgId
+            }
+          ]);
+          if (linesInsertError) throw linesInsertError;
+
+          // Recalculate balances
+          await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+        } else {
+          throw error;
+        }
+      }
+      await refreshData();
+    } catch (error: any) {
+      console.error('Error updating transfer:', error);
+      throw error;
+    }
+  };
+
+  const deleteTransfer = async (id: string) => {
+    try {
+      const { error } = await supabase.rpc('delete_treasury_transfer', {
+        p_journal_entry_id: id
+      });
+      
+      if (error) {
+        // Fallback to direct REST if RPC doesn't exist
+        const isFuncMissing = error.code === 'P0001' || 
+                              error.message?.includes('function') || 
+                              error.message?.includes('does not exist');
+        if (isFuncMissing) {
+          console.warn("RPC delete_treasury_transfer not found, falling back to direct REST deletion");
+          const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+
+          // Delete journal lines first
+          const { error: linesError } = await supabase.from('journal_lines').delete().eq('journal_entry_id', id);
+          if (linesError) throw linesError;
+
+          // Delete journal entry
+          const { error: entryError } = await supabase.from('journal_entries').delete().eq('id', id);
+          if (entryError) throw entryError;
+
+          // Recalculate balances
+          await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+        } else {
+          throw error;
+        }
+      }
+      await refreshData();
+    } catch (error: any) {
+      console.error('Error deleting transfer:', error);
+      throw error;
+    }
+  };
   const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const permanentDeleteItem = async (table: string, id: string) => { const { error } = await supabase.from(table).delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const exportJournalToCSV = () => { /* Logic */ };
@@ -838,7 +967,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     deleteSupplier, approveInvoice, approvePurchaseInvoice, convertPoToInvoice,
     addOpeningBalanceTransaction, addPaymentVoucher,
     // Assets & Cheques
-    addAsset, runDepreciation, revaluateAsset, addCheque, updateChequeStatus, addTransfer,
+    addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
     restoreItem, permanentDeleteItem, exportJournalToCSV,
     // HR
     addEmployee, updateEmployee, deleteEmployee, runPayroll,

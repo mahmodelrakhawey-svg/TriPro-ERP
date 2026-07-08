@@ -1,12 +1,12 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Building, Plus, Activity, Save, Printer, PlayCircle, X, TrendingUp } from 'lucide-react';
+import { Building, Plus, Activity, Save, Printer, PlayCircle, X, TrendingUp, Pencil, Trash2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { z } from 'zod';
 
 const AssetManager = () => {
-  const { assets, addAsset, runDepreciation, revaluateAsset, accounts } = useAccounting();
+  const { assets, addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, accounts } = useAccounting();
   const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -31,6 +31,19 @@ const AssetManager = () => {
       newValue: 0,
       date: new Date().toISOString().split('T')[0],
       accountId: ''
+  });
+
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editAssetId, setEditAssetId] = useState<string | null>(null);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    purchaseDate: '',
+    purchaseCost: 0,
+    salvageValue: 0,
+    usefulLife: 5,
+    assetAccountId: '',
+    accumulatedDepreciationAccountId: '',
+    depreciationExpenseAccountId: ''
   });
 
   const handleRunPeriodDepreciation = async () => {
@@ -99,10 +112,11 @@ const AssetManager = () => {
   };
 
   const openRevaluationModal = (asset: any) => {
+      const currentVal = asset.currentValue || asset.current_value || 0;
       setRevaluationData({
           assetId: asset.id,
-          currentValue: asset.currentValue,
-          newValue: asset.currentValue,
+          currentValue: currentVal,
+          newValue: currentVal,
           date: new Date().toISOString().split('T')[0],
           accountId: ''
       });
@@ -125,6 +139,71 @@ const AssetManager = () => {
       }
       await revaluateAsset(revaluationData.assetId, revaluationData.newValue, revaluationData.date, revaluationData.accountId);
       setIsRevaluationModalOpen(false);
+  };
+
+  const openEditModal = (asset: any) => {
+      setEditAssetId(asset.id);
+      setEditFormData({
+          name: asset.name || '',
+          purchaseDate: asset.purchaseDate || asset.purchase_date || '',
+          purchaseCost: asset.purchaseCost || asset.purchase_cost || 0,
+          salvageValue: asset.salvageValue || asset.salvage_value || 0,
+          usefulLife: asset.usefulLife || asset.useful_life || 5,
+          assetAccountId: asset.assetAccountId || asset.asset_account_id || '',
+          accumulatedDepreciationAccountId: asset.accumulatedDepreciationAccountId || asset.accumulated_depreciation_account_id || '',
+          depreciationExpenseAccountId: asset.depreciationExpenseAccountId || asset.depreciation_expense_account_id || ''
+      });
+      setIsEditModalOpen(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!editAssetId) return;
+
+      const assetSchema = z.object({
+          name: z.string().min(1, 'اسم الأصل مطلوب'),
+          purchaseDate: z.string().min(1, 'تاريخ الشراء مطلوب'),
+          purchaseCost: z.number().min(0, 'التكلفة يجب أن تكون 0 أو أكثر'),
+          salvageValue: z.number().min(0, 'قيمة الخردة يجب أن تكون 0 أو أكثر'),
+          usefulLife: z.number().min(0.1, 'العمر الإنتاجي يجب أن يكون أكبر من 0'),
+          assetAccountId: z.string().min(1, 'حساب الأصل مطلوب'),
+      });
+
+      const validationResult = assetSchema.safeParse(editFormData);
+      if (!validationResult.success) {
+          showToast(validationResult.error.issues[0].message, 'warning');
+          return;
+      }
+
+      const updatedAssetData = {
+          name: editFormData.name,
+          purchase_date: editFormData.purchaseDate,
+          purchase_cost: editFormData.purchaseCost,
+          salvage_value: editFormData.salvageValue,
+          useful_life: editFormData.usefulLife,
+          asset_account_id: editFormData.assetAccountId,
+          accumulated_depreciation_account_id: editFormData.accumulatedDepreciationAccountId || null,
+          depreciation_expense_account_id: editFormData.depreciationExpenseAccountId || null
+      };
+
+      try {
+          await updateAsset(editAssetId, updatedAssetData);
+          showToast('تم تعديل الأصل بنجاح ✅', 'success');
+          setIsEditModalOpen(false);
+      } catch (err: any) {
+          showToast('فشل تعديل الأصل: ' + err.message, 'error');
+      }
+  };
+
+  const handleDeleteClick = async (asset: any) => {
+      if (window.confirm(`هل أنت متأكد من حذف الأصل "${asset.name}"؟`)) {
+          try {
+              await deleteAsset(asset.id);
+              showToast('تم حذف الأصل بنجاح ✅', 'success');
+          } catch (err: any) {
+              showToast('فشل حذف الأصل: ' + err.message, 'error');
+          }
+      }
   };
 
   return (
@@ -216,6 +295,20 @@ const AssetManager = () => {
                     title="إعادة تقييم"
                   >
                     <TrendingUp size={14} />
+                  </button>
+                  <button 
+                    onClick={() => openEditModal(asset)}
+                    className="text-xs px-2 py-1 rounded border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 flex items-center gap-1"
+                    title="تعديل"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteClick(asset)}
+                    className="text-xs px-2 py-1 rounded border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 flex items-center gap-1"
+                    title="حذف"
+                  >
+                    <Trash2 size={14} />
                   </button>
                 </td>
               </tr>
@@ -325,8 +418,8 @@ const AssetManager = () => {
                 </div>
                 <form onSubmit={handleRevaluationSubmit} className="space-y-4">
                     <div className="bg-slate-50 p-3 rounded-lg text-sm">
-                        <div className="flex justify-between mb-1"><span>القيمة الحالية:</span> <span className="font-bold">{revaluationData.currentValue.toLocaleString()}</span></div>
-                        <div className="flex justify-between text-blue-600"><span>الفرق:</span> <span className="font-bold" dir="ltr">{(revaluationData.newValue - revaluationData.currentValue).toLocaleString()}</span></div>
+                        <div className="flex justify-between mb-1"><span>القيمة الحالية:</span> <span className="font-bold">{(revaluationData.currentValue || 0).toLocaleString()}</span></div>
+                        <div className="flex justify-between text-blue-600"><span>الفرق:</span> <span className="font-bold" dir="ltr">{((revaluationData.newValue || 0) - (revaluationData.currentValue || 0)).toLocaleString()}</span></div>
                     </div>
                     <div>
                         <label className="block text-sm font-bold mb-1">القيمة الجديدة (بعد التقييم)</label>
@@ -350,6 +443,69 @@ const AssetManager = () => {
                     </button>
                 </form>
             </div>
+        </div>
+      )}
+      {/* Edit Asset Modal */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 my-8 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg">تعديل الأصل الثابت</h3>
+              <button onClick={() => setIsEditModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+            </div>
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold mb-1">اسم الأصل</label>
+                <input required type="text" className="w-full border rounded p-2" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold mb-1">تاريخ الشراء</label>
+                  <input required type="date" className="w-full border rounded p-2" value={editFormData.purchaseDate} onChange={e => setEditFormData({...editFormData, purchaseDate: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">التكلفة</label>
+                  <input required type="number" className="w-full border rounded p-2" value={editFormData.purchaseCost || ''} onChange={e => setEditFormData({...editFormData, purchaseCost: parseFloat(e.target.value) || 0})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold mb-1">قيمة الخردة</label>
+                  <input required type="number" className="w-full border rounded p-2" value={editFormData.salvageValue || ''} onChange={e => setEditFormData({...editFormData, salvageValue: parseFloat(e.target.value) || 0})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">العمر الإنتاجي (سنوات)</label>
+                  <input required type="number" className="w-full border rounded p-2" value={editFormData.usefulLife || ''} onChange={e => setEditFormData({...editFormData, usefulLife: parseFloat(e.target.value) || 0})} />
+                </div>
+              </div>
+              <div>
+                  <label className="block text-sm font-bold mb-1">حساب الأصل (الميزانية)</label>
+                  <select required className="w-full border rounded p-2" value={editFormData.assetAccountId} onChange={e => setEditFormData({...editFormData, assetAccountId: e.target.value})}>
+                      <option value="">-- اختر --</option>
+                      {assetAccounts.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                  </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                  <div>
+                      <label className="block text-sm font-bold mb-1">حساب مجمع الإهلاك</label>
+                      <select className="w-full border rounded p-2" value={editFormData.accumulatedDepreciationAccountId} onChange={e => setEditFormData({...editFormData, accumulatedDepreciationAccountId: e.target.value})}>
+                          <option value="">اختر (اختياري)...</option>
+                          {accounts.filter(a => !a.isGroup && (a.code.startsWith('13') || a.name.includes('مجمع'))).map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                      </select>
+                  </div>
+                  <div>
+                      <label className="block text-sm font-bold mb-1">حساب مصروف الإهلاك</label>
+                      <select className="w-full border rounded p-2" value={editFormData.depreciationExpenseAccountId} onChange={e => setEditFormData({...editFormData, depreciationExpenseAccountId: e.target.value})}>
+                          <option value="">اختر (اختياري)...</option>
+                          {expenseAccounts.map(a => <option key={a.id} value={a.id}>{a.code} - {a.name}</option>)}
+                      </select>
+                  </div>
+              </div>
+
+              <button type="submit" className="w-full bg-blue-600 text-white py-2 rounded font-bold mt-4 flex items-center justify-center gap-2"><Save size={18} /> حفظ التغييرات</button>
+              <button type="button" onClick={() => setIsEditModalOpen(false)} className="w-full bg-slate-100 text-slate-600 py-2 rounded mt-2">إلغاء</button>
+            </form>
+          </div>
         </div>
       )}
     </div>

@@ -5,9 +5,11 @@ import { Save, Loader2, Wallet, Calendar, FileText, DollarSign, AlertCircle, Che
 import { supabase } from '../../../supabaseClient';
 import { ExpenseVoucherPrint } from '../reports/ExpenseVoucherPrint';
 import { z } from 'zod';
+import { useLocation } from 'react-router-dom';
 
 const ExpenseVoucherForm = () => {
   const { accounts, costCenters, updateVoucher, addEntry, currentUser, addDemoEntry } = useAccounting();
+  const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [expenseSearchTerm, setExpenseSearchTerm] = useState('');
@@ -139,6 +141,12 @@ const ExpenseVoucherForm = () => {
         setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (location.state && location.state.voucherToEdit) {
+      loadVoucher(location.state.voucherToEdit);
+    }
+  }, [location.state]);
 
   const handleNew = () => {
     setIsEditing(false);

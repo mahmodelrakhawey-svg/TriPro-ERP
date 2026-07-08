@@ -1001,6 +1001,13 @@ BEGIN
             result_msg := result_msg || 'تم تصحيح purchase_return_items. ';
         END IF;
     END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'assets' AND table_type = 'BASE TABLE') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'assets' AND column_name = 'current_value') THEN
+            ALTER TABLE public.assets ADD COLUMN current_value numeric DEFAULT 0;
+            UPDATE public.assets SET current_value = COALESCE(purchase_cost, 0);
+            result_msg := result_msg || 'تمت إضافة عمود القيمة الحالية للأصول. ';
+        END IF;
+    END IF;
     IF result_msg = '' THEN RETURN 'الهيكل سليم بالفعل.'; END IF;
     RETURN result_msg;
 END;
