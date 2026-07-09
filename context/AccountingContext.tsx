@@ -482,7 +482,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     refreshData(); 
   };
   const deleteCustomer = async (id: string, reason?: string) => { 
-    const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
     if (error) throw error;
     refreshData(); 
   };
@@ -503,7 +503,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     refreshData(); 
   };
   const deleteSupplier = async (id: string, reason?: string) => { 
-    const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), notes: reason }).eq('id', id);
+    const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
     if (error) throw error;
     refreshData(); 
   };
@@ -542,7 +542,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       refreshData();
     }
   };
-  const addOpeningBalanceTransaction = async (id: string, type: string, amount: number, date: string, name: string) => { await supabase.rpc('add_opening_balance', { p_id: id, p_type: type, p_amount: amount, p_date: date, p_name: name }); refreshData(); };
+  const addOpeningBalanceTransaction = async (id: string, type: string, amount: number, date: string, name: string) => {
+    const { error } = await supabase.rpc('add_opening_balance', {
+      p_id: id,
+      p_type: type,
+      p_amount: amount,
+      p_date: date,
+      p_name: name
+    });
+    if (error) {
+      showToast('فشل تسجيل القيد الافتتاحي: ' + error.message, 'error');
+    } else {
+      showToast('تم تسجيل الرصيد الافتتاحي وتحديث الحسابات بنجاح ✅', 'success');
+      refreshData();
+    }
+  };
   const addPaymentVoucher = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('vouchers').insert({ ...data, type: 'payment', organization_id: targetOrgId }); 

@@ -107,7 +107,7 @@ const SupplierManager = () => {
         const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').eq('status', 'collected');
 
         const newStats: Record<string, any> = {};
-        suppliers.forEach(s => { newStats[s.id] = { balance: 0, totalPurchases: 0, lastInvoice: null }; });
+        suppliers.forEach(s => { newStats[s.id] = { balance: Number(s.opening_balance || 0), totalPurchases: 0, lastInvoice: null }; });
 
         invoices?.forEach(inv => {
             if (!newStats[inv.supplier_id]) return;

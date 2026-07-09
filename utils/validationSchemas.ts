@@ -21,11 +21,11 @@ export const textSchema = z.string().max(5000, 'النص طويل جداً');
 
 export const createCustomerSchema = z.object({
   name: nameSchema,
-  email: emailSchema.optional(),
-  phone: phoneSchema.optional(),
-  tax_number: z.string().optional(),
-  address: z.string().max(500, 'العنوان طويل جداً').optional(),
-  credit_limit: amountSchema.optional(),
+  email: emailSchema.optional().nullable().or(z.literal('')),
+  phone: phoneSchema.optional().nullable().or(z.literal('')),
+  tax_number: z.string().optional().nullable().or(z.literal('')),
+  address: z.string().max(500, 'العنوان طويل جداً').optional().nullable().or(z.literal('')),
+  credit_limit: amountSchema.optional().nullable(),
 });
 
 export const updateCustomerSchema = createCustomerSchema.partial();
@@ -37,11 +37,11 @@ export type UpdateCustomer = z.infer<typeof updateCustomerSchema>;
 
 export const createSupplierSchema = z.object({
   name: nameSchema,
-  email: emailSchema.optional(),
-  phone: phoneSchema.optional(),
-  tax_number: z.string().optional(),
-  address: z.string().max(500).optional(),
-  payment_terms: z.string().max(200).optional(),
+  email: emailSchema.optional().nullable().or(z.literal('')),
+  phone: phoneSchema.optional().nullable().or(z.literal('')),
+  tax_number: z.string().optional().nullable().or(z.literal('')),
+  address: z.string().max(500).optional().nullable().or(z.literal('')),
+  payment_terms: z.string().max(200).optional().nullable().or(z.literal('')),
 });
 
 export const updateSupplierSchema = createSupplierSchema.partial();
