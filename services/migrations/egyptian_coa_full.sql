@@ -44,7 +44,16 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('1114', 'وسائل النقل والانتقال', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
 ('1115', 'الأثاث والتجهيزات المكتبية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
 ('1116', 'أجهزة حاسب آلي وبرمجيات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
-('1119', 'مجمع إهلاك الأصول الثابتة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')); -- طبيعته دائنة
+('1119', 'مجمع إهلاك الأصول الثابتة', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')), -- طبيعته دائنة
+('11192', 'مجمع إهلاك المباني والإنشاءات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
+('11193', 'مجمع إهلاك الآلات والمعدات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
+('11194', 'مجمع إهلاك وسائل النقل والانتقال (السيارات)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
+('11195', 'مجمع إهلاك الأثاث والتجهيزات المكتبية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
+('11196', 'مجمع إهلاك أجهزة حاسب آلي وبرمجيات', 'ASSET', false, (SELECT id FROM accounts WHERE code = '111')),
+('112', 'استثمارات مالية', 'ASSET', false, (SELECT id FROM accounts WHERE code = '11')),
+('113', 'قروض ممنوحة للغير', 'ASSET', false, (SELECT id FROM accounts WHERE code = '11')),
+('118', 'أصول غير ملموسة', 'ASSET', true, (SELECT id FROM accounts WHERE code = '11')),
+('1181', 'مصاريف تأسيس', 'ASSET', false, (SELECT id FROM accounts WHERE code = '118'));
 
 -- 12 الأصول المتداولة
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
@@ -63,7 +72,10 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('1221', 'العملاء', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
 ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
 ('1223', 'سلف الموظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
-('1224', 'عهد موظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122'));
+('1224', 'عهد موظفين', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
+('1225', 'مخصص ديون مشكوك فيها', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
+('1226', 'مخصص أجيوم', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122')),
+('1227', 'مخصص خصم مسموح به', 'ASSET', false, (SELECT id FROM accounts WHERE code = '122'));
 
 -- 123 النقدية وما في حكمها (بنوك ومحافظ)
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
@@ -112,7 +124,8 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 -- 21 الخصوم غير المتداولة
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('21', 'الخصوم غير المتداولة', 'LIABILITY', true, (SELECT id FROM accounts WHERE code = '2')),
-('211', 'قروض طويلة الأجل', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '21'));
+('211', 'قروض طويلة الأجل', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '21')),
+('212', 'قرض السندات', 'LIABILITY', false, (SELECT id FROM accounts WHERE code = '21'));
 
 -- 22 الخصوم المتداولة
 INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
@@ -156,7 +169,8 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('42', 'إيرادات أخرى', 'REVENUE', true, (SELECT id FROM accounts WHERE code = '4')),
 ('421', 'إيرادات متنوعة', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42')),
 ('422', 'إيراد خصومات وجزاءات الموظفين', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42')),
-('423', 'فوائد بنكية دائنة', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42'));
+('423', 'فوائد بنكية دائنة', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42')),
+('424', 'إيراد استثمارات', 'REVENUE', false, (SELECT id FROM accounts WHERE code = '42'));
 
 -- ============================================================
 -- 5. المصروفات (Expenses)
@@ -183,6 +197,7 @@ INSERT INTO public.accounts (code, name, type, is_group, parent_id) VALUES
 ('532', 'إيجار مقرات إدارية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('533', 'إهلاك الأصول الثابتة', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('534', 'رسوم ومصروفات بنكية', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
+('5342', 'مصروف فائدة قرض السندات', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('535', 'كهرباء ومياه وغاز', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('536', 'اتصالات وإنترنت', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),
 ('537', 'صيانة وإصلاح', 'EXPENSE', false, (SELECT id FROM accounts WHERE code = '53')),

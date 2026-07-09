@@ -1278,6 +1278,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                 onChange={(e) => setFormData({...formData, warehouseId: e.target.value})}
                                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none bg-white"
                             >
+                                <option value="">-- اختر المستودع --</option>
                                 {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
                             </select>
                         </div>

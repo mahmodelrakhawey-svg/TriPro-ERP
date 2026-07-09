@@ -227,6 +227,7 @@ const PurchaseReturnForm = () => {
           <div>
             <label className="block text-sm font-bold text-slate-700 mb-1">المستودع</label>
             <select required value={formData.warehouseId} onChange={e => setFormData({ ...formData, warehouseId: e.target.value })} className="w-full border rounded-lg p-2">
+              <option value="">-- اختر المستودع --</option>
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>

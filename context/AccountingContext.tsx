@@ -301,7 +301,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
       ]);
 
-      setAccounts(accs.data || []);
+      setAccounts((accs.data || []).map((acc: any) => ({
+        ...acc,
+        type: acc.type ? acc.type.toUpperCase() : acc.type
+      })));
       setEntries(ents.data || []);
       setAssets(assetData.data || []);
       setBudgets(budgetData.data || []);

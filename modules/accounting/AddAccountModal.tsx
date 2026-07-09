@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType, Account } from '../../types';
 import { X, Save } from 'lucide-react';
@@ -86,7 +86,7 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
         setError(`خطأ في التكويد: يجب أن يبدأ كود الحساب بكود الأب (${parentAcc.code}) لضمان دقة التقارير الآلية.`);
         return;
       }
-      if (parentAcc && parentAcc.type !== result.data.type) {
+      if (parentAcc && parentAcc.type?.toUpperCase() !== result.data.type?.toUpperCase()) {
         setError(`تعارض في النوع: الحساب الابن يجب أن يتبع نفس نوع الأب (${parentAcc.type}).`);
         return;
       }
