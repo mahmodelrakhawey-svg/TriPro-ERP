@@ -883,38 +883,61 @@ CREATE TABLE IF NOT EXISTS public.purchase_return_items (
 
 -- 🛠️ دالة تحويل أمر الشراء إلى فاتورة (PO to Invoice Converter)
 DROP FUNCTION IF EXISTS public.convert_po_to_invoice(uuid, uuid);
-CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_warehouse_id uuid)
-RETURNS uuid AS $$
+DROP FUNCTION IF EXISTS public.convert_po_to_invoice(uuid, uuid, uuid);
+CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_warehouse_id uuid DEFAULT NULL, p_org_id uuid DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_inv_id uuid;
-    v_po record;
+    v_po record; v_invoice_id uuid; v_inv_num text; v_target_org_id uuid;
 BEGIN
-    -- 1. جلب بيانات أمر الشراء الأصلي
-    SELECT * INTO v_po FROM public.purchase_orders WHERE id = p_po_id;
-    
-    -- 2. إنشاء رأس فاتورة المشتريات كمسودة
-    INSERT INTO public.purchase_invoices (
-        organization_id, supplier_id, warehouse_id, invoice_date, 
-        total_amount, status, notes
-    ) VALUES (
-        v_po.organization_id, v_po.supplier_id, p_warehouse_id, now(),
-        v_po.total_amount, 'draft', 'محولة آلياً من أمر شراء رقم ' || v_po.order_number
-    ) RETURNING id INTO v_inv_id;
+    -- 🛡️ تحديد المنظمة لضمان ظهور الفاتورة في السجل الصحيح
+    v_target_org_id := COALESCE(p_org_id, public.get_my_org());
 
-    -- 3. نقل البنود مع الحفاظ على وحدة القياس المختارة (UoM Integrity)
+    SELECT * INTO v_po FROM public.purchase_orders WHERE id = p_po_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'أمر الشراء غير موجود'; END IF;
+    v_target_org_id := COALESCE(v_target_org_id, v_po.organization_id);
+
+    v_inv_num := 'PI-FROM-' || COALESCE(v_po.order_number, substring(p_po_id::text, 1, 8));
+
+    -- 🛡️ إنشاء رأس فاتورة المشتريات كمسودة
+    INSERT INTO public.purchase_invoices (
+        invoice_number, supplier_id, user_id, invoice_date, total_amount, tax_amount, subtotal,
+        status, warehouse_id, organization_id, notes, currency, exchange_rate
+    ) VALUES (
+        v_inv_num, 
+        v_po.supplier_id, 
+        auth.uid(), -- user_id
+        now()::date, -- invoice_date
+        COALESCE(v_po.total_amount, 0), 
+        COALESCE(v_po.tax_amount, 0),
+        COALESCE(v_po.total_amount, 0) - COALESCE(v_po.tax_amount, 0),
+        'draft',
+        COALESCE(p_warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id AND deleted_at IS NULL ORDER BY name ASC LIMIT 1)),
+        v_target_org_id,
+        'محولة من أمر شراء رقم: ' || COALESCE(v_po.order_number, 'بدون رقم'),
+        'EGP', 
+        1
+    ) RETURNING id INTO v_invoice_id;
+
+    -- 3. نقل البنود مع الحفاظ على وحدة القياس والإجماليات لضمان صحة القيود المحاسبية
     INSERT INTO public.purchase_invoice_items (
-        organization_id, purchase_invoice_id, product_id, quantity, uom_id, unit_price
+        purchase_invoice_id, product_id, quantity, unit_price, uom_id, total, organization_id
     )
     SELECT 
-        organization_id, v_inv_id, product_id, quantity, uom_id, unit_price
-    FROM public.purchase_order_items
-    WHERE purchase_order_id = p_po_id;
+        v_invoice_id, 
+        product_id, 
+        quantity, 
+        unit_price, 
+        uom_id, 
+        COALESCE(total, quantity * unit_price), 
+        v_target_org_id
+    FROM public.purchase_order_items 
+    WHERE order_id = p_po_id;
 
     -- 4. تحديث حالة الطلب لضمان عدم تكرار الفوترة
-    UPDATE public.purchase_orders SET status = 'received' WHERE id = p_po_id;
+    UPDATE public.purchase_orders SET status = 'invoiced' WHERE id = p_po_id;
 
-    RETURN v_inv_id;
-END; $$ LANGUAGE plpgsql;
+    RETURN v_invoice_id;
+END; $$;
 
 -- الخزينة والسندات
 CREATE TABLE IF NOT EXISTS public.receipt_vouchers (

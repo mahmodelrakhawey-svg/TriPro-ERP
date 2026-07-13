@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -39,6 +39,18 @@ const GeneralJournal = () => {
   const toast = useToastNotification();
   const [isRefreshing, setIsRefreshing] = useState(false);
   
+  // Advanced filters state
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [filterAccountId, setFilterAccountId] = useState('');
+  const [filterAmount, setFilterAmount] = useState('');
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterSource, setFilterSource] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  
+  const [matchingEntryIds, setMatchingEntryIds] = useState<string[] | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -54,21 +66,193 @@ const GeneralJournal = () => {
   useEffect(() => {
       const timer = setTimeout(() => {
           setDebouncedSearch(searchTerm);
-          setPage(1);
       }, 500);
       return () => clearTimeout(timer);
   }, [searchTerm]);
 
+  // البحث المتقدم في الحسابات والمبالغ والبيانات عبر الجداول المرتبطة
+  useEffect(() => {
+    const performSearch = async () => {
+      // إذا لم يكن هناك كلمة بحث أو حساب أو مبلغ، فنعرض كل النتائج
+      if (!debouncedSearch && !filterAccountId && !filterAmount) {
+        setMatchingEntryIds(null);
+        return;
+      }
+
+      setIsSearching(true);
+      try {
+        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        
+        let matchingLinesQuery = supabase
+          .from('journal_lines')
+          .select('journal_entry_id')
+          .eq('organization_id', orgId);
+
+        const conditions: string[] = [];
+
+        // 1. الفلترة حسب الحساب
+        if (filterAccountId) {
+          conditions.push(`account_id.eq.${filterAccountId}`);
+        }
+
+        // تنظيف نص البحث من الفواصل (مثل تحويل 22,800 إلى 22800)
+        const cleanSearch = debouncedSearch.replace(/,/g, '').trim();
+
+        // 2. الفلترة حسب المبلغ
+        if (filterAmount) {
+          const amtVal = parseFloat(filterAmount.replace(/,/g, ''));
+          if (!isNaN(amtVal)) {
+            conditions.push(`debit.eq.${amtVal}`, `credit.eq.${amtVal}`);
+            // دعم البحث عن مبالغ تقريبية/عشرية (مثل البحث عن 799.62 للقيم 799.618)
+            conditions.push(`debit.gte.${amtVal - 0.01}`, `debit.lte.${amtVal + 0.01}`);
+            conditions.push(`credit.gte.${amtVal - 0.01}`, `credit.lte.${amtVal + 0.01}`);
+          }
+        }
+
+        // 3. الفلترة حسب نص البحث
+        if (cleanSearch) {
+          // إذا كان البحث رقماً، نقارنه بالمبالغ مباشرة وبشكل تقريبي
+          const numVal = parseFloat(cleanSearch);
+          if (!isNaN(numVal)) {
+            conditions.push(`debit.eq.${numVal}`, `credit.eq.${numVal}`);
+            conditions.push(`debit.gte.${numVal - 0.01}`, `debit.lte.${numVal + 0.01}`);
+            conditions.push(`credit.gte.${numVal - 0.01}`, `credit.lte.${numVal + 0.01}`);
+          }
+
+          // البحث في وصف السطر
+          conditions.push(`description.ilike.%${cleanSearch}%`);
+
+          // البحث في اسم أو كود الحساب
+          const matchingAccounts = accounts.filter(acc => 
+            acc.name.toLowerCase().includes(cleanSearch.toLowerCase()) || 
+            acc.code.includes(cleanSearch)
+          );
+
+          // تجنب استخدام .in() مع فواصل تفادياً لمشاكل تفسير PostgREST للفاصلة كفاصل شروط
+          matchingAccounts.forEach(acc => {
+            conditions.push(`account_id.eq.${acc.id}`);
+          });
+        }
+
+        if (conditions.length > 0) {
+          matchingLinesQuery = matchingLinesQuery.or(conditions.join(','));
+        }
+
+        const { data: lines, error } = await matchingLinesQuery;
+        if (error) throw error;
+
+        // تجميع المعرفات الفريدة
+        const ids = Array.from(new Set((lines || []).map(l => l.journal_entry_id)));
+
+        // البحث أيضاً في الجدول الرئيسي للقيود (journal_entries) بمرجع القيد أو البيان
+        if (cleanSearch) {
+          const { data: entries, error: entriesError } = await supabase
+            .from('journal_entries')
+            .select('id')
+            .eq('organization_id', orgId)
+            .or(`reference.ilike.%${cleanSearch}%,description.ilike.%${cleanSearch}%`);
+
+          if (!entriesError && entries) {
+            entries.forEach(e => ids.push(e.id));
+          }
+        }
+
+        setMatchingEntryIds(Array.from(new Set(ids)));
+      } catch (err) {
+        console.error("Error performing search:", err);
+      } finally {
+        setIsSearching(false);
+      }
+    };
+
+    performSearch();
+  }, [debouncedSearch, filterAccountId, filterAmount, accounts, currentUser]);
+
   // إعداد استعلام البيانات مع الفلترة
   const queryModifier = useCallback((query: any) => {
-    if (debouncedSearch) {
-        query = query.or(`reference.ilike.%${debouncedSearch}%,description.ilike.%${debouncedSearch}%`);
+    // 1. تصفية حسب القيود المطابقة لبحث الحسابات والمبالغ والسطور
+    if (matchingEntryIds !== null) {
+        if (matchingEntryIds.length > 0) {
+            query = query.in('id', matchingEntryIds);
+        } else {
+            query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+        }
     }
+    
+    // 2. تصفية حسب المستخدم
     if (selectedUser) {
         query = query.eq('user_id', selectedUser);
     }
+
+    // 3. تصفية حسب الحالة (مرحل / مسودة)
+    if (filterStatus) {
+        query = query.eq('status', filterStatus);
+    }
+
+    // 4. تصفية حسب مصدر القيد
+    if (filterSource) {
+        if (filterSource === 'sales_invoice') {
+            query = query.like('reference', 'INV-%');
+        } else if (filterSource === 'purchase_invoice') {
+            query = query.or('reference.like.PI-%,reference.like.PUR-%,reference.like.PINV-%');
+        } else if (filterSource === 'receipt_voucher') {
+            query = query.or('reference.like.RCT-%,reference.like.RV-%');
+        } else if (filterSource === 'payment_voucher') {
+            query = query.or('reference.like.PAY-%,reference.like.PV-%');
+        } else if (filterSource === 'asset_depreciation') {
+            query = query.or('reference.like.DEP-%,reference.like.ASSET-%');
+        } else if (filterSource === 'treasury_transfer') {
+            query = query.like('reference', 'TRN-%');
+        } else if (filterSource === 'stock_adjustment') {
+            query = query.like('reference', 'ADJ-%');
+        } else if (filterSource === 'payroll') {
+            query = query.like('reference', 'PAYROLL-%');
+        } else if (filterSource === 'shift_closing') {
+            query = query.like('reference', 'SHIFT-%');
+        } else if (filterSource === 'pharmacy') {
+            query = query.like('reference', 'PHARM-%');
+        } else if (filterSource === 'hims') {
+            query = query.like('reference', 'HIMS-%');
+        } else if (filterSource === 'opening_balance') {
+            query = query.like('reference', 'MAN-%');
+        } else if (filterSource === 'manual_journal') {
+            query = query
+                .not('reference', 'like', 'INV-%')
+                .not('reference', 'like', 'PUR-%')
+                .not('reference', 'like', 'PINV-%')
+                .not('reference', 'like', 'PI-%')
+                .not('reference', 'like', 'RCT-%')
+                .not('reference', 'like', 'RV-%')
+                .not('reference', 'like', 'PAY-%')
+                .not('reference', 'like', 'PV-%')
+                .not('reference', 'like', 'DEP-%')
+                .not('reference', 'like', 'TRN-%')
+                .not('reference', 'like', 'ADJ-%')
+                .not('reference', 'like', 'PAYROLL-%')
+                .not('reference', 'like', 'CLOSE-%')
+                .not('reference', 'like', 'SR-%')
+                .not('reference', 'like', 'SRET-%')
+                .not('reference', 'like', 'PR-%')
+                .not('reference', 'like', 'PRET-%')
+                .not('reference', 'like', 'ASSET-%')
+                .not('reference', 'like', 'CHQ-%')
+                .not('reference', 'like', 'SHIFT-%')
+                .not('reference', 'like', 'PHARM-%')
+                .not('reference', 'like', 'HIMS-%')
+                .not('reference', 'like', 'MAN-%');
+        }
+    }
+
+    // 5. تصفية حسب التواريخ
+    if (startDate) {
+        query = query.gte('transaction_date', startDate);
+    }
+    if (endDate) {
+        query = query.lte('transaction_date', endDate);
+    }
+
     return query;
-  }, [debouncedSearch, selectedUser]);
+  }, [matchingEntryIds, selectedUser, filterStatus, filterSource, startDate, endDate]);
 
   const { 
     data: serverEntries, 
@@ -84,6 +268,19 @@ const GeneralJournal = () => {
     orderBy: 'transaction_date',
     ascending: false
   }, queryModifier);
+
+  // إعادة تحميل الصفحة الأولى عند تغير الفلاتر
+  useEffect(() => {
+      setPage(1);
+      refresh();
+  }, [matchingEntryIds, selectedUser, filterStatus, filterSource, startDate, endDate, refresh]);
+
+  // ترتيب الحسابات الفرعية
+  const sortedAccounts = useMemo(() => {
+    return [...accounts]
+      .filter(a => !a.isGroup)
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [accounts]);
 
   // تنسيق البيانات وربط الحسابات
   const journalEntries = useMemo(() => {
@@ -293,6 +490,13 @@ const GeneralJournal = () => {
                 />
                 <Filter className="absolute left-3 top-2.5 text-slate-400" size={16} />
             </div>
+            <button 
+                onClick={() => setShowAdvanced(!showAdvanced)} 
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${showAdvanced ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+            >
+                <Filter size={16} />
+                {showAdvanced ? 'إخفاء الفلاتر' : 'فلاتر متقدمة'}
+            </button>
             <button onClick={() => window.print()} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold text-sm">
                 <Printer size={16} /> طباعة
             </button>
@@ -312,8 +516,105 @@ const GeneralJournal = () => {
         </div>
       </div>
 
+      {showAdvanced && (
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 animate-in fade-in slide-in-from-top-2 duration-200" dir="rtl">
+            <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">الحساب المتأثر</label>
+                <select
+                    value={filterAccountId}
+                    onChange={(e) => setFilterAccountId(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 bg-white"
+                >
+                    <option value="">كل الحسابات</option>
+                    {sortedAccounts.map(a => (
+                        <option key={a.id} value={a.id}>{a.code} - {a.name}</option>
+                    ))}
+                </select>
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">المبلغ المالي</label>
+                <input
+                    type="number"
+                    step="any"
+                    placeholder="مبلغ مدين أو دائن..."
+                    value={filterAmount}
+                    onChange={(e) => setFilterAmount(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-right"
+                    dir="ltr"
+                />
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">مصدر القيد</label>
+                <select
+                    value={filterSource}
+                    onChange={(e) => setFilterSource(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 bg-white"
+                >
+                    <option value="">كل المصادر</option>
+                    <option value="manual_journal">قيد يدوي (JE)</option>
+                    <option value="sales_invoice">فاتورة مبيعات (INV)</option>
+                    <option value="purchase_invoice">فاتورة مشتريات (PI/PUR/PINV)</option>
+                    <option value="receipt_voucher">سند قبض (RCT/RV)</option>
+                    <option value="payment_voucher">سند صرف (PAY/PV)</option>
+                    <option value="asset_depreciation">إهلاك أصول (DEP/ASSET)</option>
+                    <option value="treasury_transfer">تحويل خزينة (TRN)</option>
+                    <option value="stock_adjustment">تسوية مخزنية (ADJ)</option>
+                    <option value="payroll">رواتب (PAYROLL)</option>
+                    <option value="shift_closing">إغلاق وردية (SHIFT)</option>
+                    <option value="hims">فاتورة طبية (HIMS)</option>
+                </select>
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">حالة القيد</label>
+                <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 bg-white"
+                >
+                    <option value="">كل الحالات</option>
+                    <option value="posted">مرحّل</option>
+                    <option value="draft">مسودة</option>
+                </select>
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">من تاريخ</label>
+                <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                />
+            </div>
+            <div>
+                <label className="block text-xs font-bold text-slate-500 mb-1">إلى تاريخ</label>
+                <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                />
+            </div>
+            <div className="flex items-end md:col-span-2">
+                <button
+                    onClick={() => {
+                        setFilterAccountId('');
+                        setFilterAmount('');
+                        setFilterStatus('');
+                        setFilterSource('');
+                        setStartDate('');
+                        setEndDate('');
+                        setSearchTerm('');
+                    }}
+                    className="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-300 font-bold text-xs transition-colors"
+                >
+                    إعادة تعيين الفلاتر
+                </button>
+            </div>
+        </div>
+      )}
+
       <div className="space-y-4">
-        {loading ? (
+        {loading || isSearching ? (
             <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-600" size={32} /></div>
         ) : journalEntries.length === 0 ? (
             <div className="text-center py-10 text-slate-500">لا توجد قيود مطابقة للبحث.</div>

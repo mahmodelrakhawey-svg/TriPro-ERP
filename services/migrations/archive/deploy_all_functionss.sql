@@ -660,9 +660,20 @@ BEGIN
         1
     ) RETURNING id INTO v_invoice_id;
 
-    INSERT INTO public.purchase_invoice_items (purchase_invoice_id, product_id, quantity, unit_price, organization_id)
-    SELECT v_invoice_id, product_id, quantity, unit_price, v_target_org_id
-    FROM public.purchase_order_items WHERE order_id = p_po_id;
+    -- 3. نقل البنود مع الحفاظ على وحدة القياس والإجماليات لضمان صحة القيود المحاسبية
+    INSERT INTO public.purchase_invoice_items (
+        purchase_invoice_id, product_id, quantity, unit_price, uom_id, total, organization_id
+    )
+    SELECT 
+        v_invoice_id, 
+        product_id, 
+        quantity, 
+        unit_price, 
+        uom_id, 
+        COALESCE(total, quantity * unit_price), 
+        v_target_org_id
+    FROM public.purchase_order_items 
+    WHERE order_id = p_po_id;
 
     UPDATE public.purchase_orders SET status = 'invoiced' WHERE id = p_po_id;
     RETURN v_invoice_id;

@@ -209,7 +209,7 @@ const PurchaseOrderForm = () => {
                 <td className="p-3">{item.name}</td>
                 <td className="p-3">
                     <select 
-                        value={item.uomId} 
+                        value={item.uomId || ''} 
                         onChange={e => updateItem(idx, 'uomId', e.target.value)}
                         className="w-full border rounded p-1 text-xs bg-white"
                     >

@@ -59,7 +59,7 @@ const BalanceSheet = () => {
     }
   }, [asOfDate, currentUser, accounts]); // إضافة accounts لضمان التحديث عند تحميل البيانات
 
-  const { assetRows, liabilityRows, equityRows, netIncome } = useMemo(() => {
+  const { assetRows, liabilityRows, equityRows, netIncome, priorRetainedEarnings } = useMemo(() => {
     if (currentUser?.role === 'demo') {
         const assets: BalanceRow[] = [];
         const liabilities: BalanceRow[] = [];
@@ -85,22 +85,45 @@ const BalanceSheet = () => {
                 currentNetIncome -= balance;
             }
         });
-        return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: currentNetIncome };
+        return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: currentNetIncome, priorRetainedEarnings: 0 };
     }
 
     // =================================================================================
     // 🔒 منطق النسخة الأصلية (Production Logic) - للمستخدمين الحقيقيين
     // =================================================================================
     const accountBalances: Record<string, number> = {};
+    let priorPnlSum = 0;
+    let currentPnlSum = 0;
+
+    const currentYear = new Date(asOfDate).getFullYear();
+    const currentYearStart = `${currentYear}-01-01`;
+
+    // خريطة لتسريع البحث عن تصنيف الحسابات
+    const accountMap = new Map<string, any>();
+    accounts.forEach(acc => accountMap.set(acc.id, acc));
+
     ledgerLines.forEach(line => {
       if (!accountBalances[line.account_id]) accountBalances[line.account_id] = 0;
       accountBalances[line.account_id] += (line.debit - line.credit);
+
+      const acc = accountMap.get(line.account_id);
+      if (acc) {
+        const type = (acc.type || '').toLowerCase().trim();
+        const code = String(acc.code || '');
+        if (type.includes('revenue') || type.includes('expense') || code.startsWith('4') || code.startsWith('5')) {
+          const transactionDate = line.journal_entries?.transaction_date;
+          if (transactionDate && transactionDate < currentYearStart) {
+            priorPnlSum += (line.debit - line.credit);
+          } else {
+            currentPnlSum += (line.debit - line.credit);
+          }
+        }
+      }
     });
 
     const assets: BalanceRow[] = [];
     const liabilities: BalanceRow[] = [];
     const equity: BalanceRow[] = [];
-    let pnlSum = 0;
 
     accounts.forEach(acc => {
       if (acc.isGroup || !accountBalances[acc.id]) return;
@@ -115,13 +138,17 @@ const BalanceSheet = () => {
         liabilities.push({ account: acc, amount: -rawBalance });
       } else if (type.includes('equity') || code.startsWith('3')) {
         equity.push({ account: acc, amount: -rawBalance });
-      } else if (type.includes('revenue') || type.includes('expense') || code.startsWith('4') || code.startsWith('5')) {
-        pnlSum += rawBalance;
       }
     });
 
-    return { assetRows: assets, liabilityRows: liabilities, equityRows: equity, netIncome: -pnlSum };
-  }, [accounts, ledgerLines, currentUser]);
+    return { 
+      assetRows: assets, 
+      liabilityRows: liabilities, 
+      equityRows: equity, 
+      netIncome: -currentPnlSum, 
+      priorRetainedEarnings: -priorPnlSum 
+    };
+  }, [accounts, ledgerLines, currentUser, asOfDate]);
 
   const filterRows = (rows: BalanceRow[]) => {
     if (!searchTerm) return rows;
@@ -138,7 +165,7 @@ const BalanceSheet = () => {
 
   const totalAssets = filteredAssetRows.reduce((sum, r) => sum + r.amount, 0);
   const totalLiabilities = filteredLiabilityRows.reduce((sum, r) => sum + r.amount, 0);
-  const totalEquity = filteredEquityRows.reduce((sum, r) => sum + r.amount, 0) + netIncome;
+  const totalEquity = filteredEquityRows.reduce((sum, r) => sum + r.amount, 0) + (priorRetainedEarnings || 0) + netIncome;
   const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
   
   // التحقق من التوازن
@@ -164,6 +191,9 @@ const BalanceSheet = () => {
     // حقوق الملكية
     csvRows.push(['حقوق الملكية', '']);
     equityRows.forEach(row => csvRows.push([`"${row.account.name}"`, row.amount.toFixed(2)]));
+    if (priorRetainedEarnings) {
+      csvRows.push(['أرباح (خسائر) مرحلة', priorRetainedEarnings.toFixed(2)]);
+    }
     csvRows.push(['صافي الدخل (أرباح الفترة)', netIncome.toFixed(2)]);
     csvRows.push(['إجمالي حقوق الملكية', totalEquity.toFixed(2)]);
     csvRows.push(['', '']);
@@ -297,6 +327,15 @@ const BalanceSheet = () => {
                                 <td className="py-2 text-left font-mono">{row.amount.toLocaleString('en-US', {minimumFractionDigits: 2})}</td>
                             </tr>
                         ))}
+                        {/* أرباح (خسائر) مرحلة من سنوات سابقة */}
+                        {priorRetainedEarnings !== 0 && (
+                            <tr className="border-b border-slate-50 bg-slate-50 hover:bg-slate-100">
+                                <td className="py-2 font-bold text-slate-600">أرباح (خسائر) مرحلة</td>
+                                <td className="py-2 text-left font-mono font-bold text-slate-600">
+                                    {priorRetainedEarnings.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                                </td>
+                            </tr>
+                        )}
                         {/* صافي الدخل للفترة الحالية */}
                         <tr className="border-b border-slate-50 bg-yellow-50">
                             <td className="py-2 font-bold">صافي الدخل (أرباح الفترة)</td>
