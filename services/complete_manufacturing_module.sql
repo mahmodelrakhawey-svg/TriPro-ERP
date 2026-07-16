@@ -1015,7 +1015,7 @@ BEGIN
     v_loss_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1))); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
     v_wip_variance_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WIP_VARIANCE_ACCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1))); -- Fallback to COGS
 
-    IF COALESCE(v_total_cost, 0) > 0 AND v_wip_acc IS NOT NULL AND v_fg_acc IS NOT NULL THEN
+    IF (COALESCE(v_accumulated_wip, 0) > 0 OR COALESCE(v_total_cost, 0) > 0) AND v_wip_acc IS NOT NULL AND v_fg_acc IS NOT NULL THEN
         -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
         VALUES (now()::date, (CASE WHEN p_final_status = 'completed' THEN 'إغلاق إنتاج: ' ELSE 'خسارة رفض إنتاج: ' END) || v_order.order_number, 'MFG-FIN-' || v_order.order_number, 'posted', v_org_id, true, p_order_id, 'mfg_order') RETURNING id INTO v_je_id;
