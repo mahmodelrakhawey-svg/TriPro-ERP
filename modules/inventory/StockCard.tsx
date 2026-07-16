@@ -144,8 +144,26 @@ const StockCard = () => {
       let queryOpening = supabase.from('opening_inventories').select('id, quantity, uom_id, warehouse_id, created_at').eq('product_id', selectedProductId);
       // إضافة استعلامات مديول التصنيع
       let queryMfgFinished = supabase.from('mfg_production_orders').select('id, order_number, end_date, quantity_to_produce, warehouse_id, created_at, status').eq('product_id', selectedProductId).eq('status', 'completed');
-      let queryMfgRaw = supabase.from('mfg_material_request_items').select('quantity_issued, uom_id, mfg_material_requests!inner(request_number, issue_date, created_at, status)').eq('raw_material_id', selectedProductId).eq('mfg_material_requests.status', 'issued');
+      let queryMfgRaw = supabase.from('mfg_material_request_items').select('quantity_issued, uom_id, mfg_material_requests!inner(request_number, issue_date, created_at, status, production_order_id, mfg_production_orders(warehouse_id))').eq('raw_material_id', selectedProductId).eq('mfg_material_requests.status', 'issued');
       let queryMfgScrap = supabase.from('mfg_scrap_logs').select('id, quantity, reason, created_at').eq('product_id', selectedProductId);
+      let queryMfgActual = supabase.from('mfg_actual_material_usage')
+        .select(`
+          id,
+          actual_quantity,
+          uom_id,
+          created_at,
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              order_number,
+              warehouse_id,
+              created_at
+            )
+          )
+        `)
+        .eq('raw_material_id', selectedProductId);
 
       // --- حركات المطعم ---
       // 1. مبيعات المطعم (بيع مباشر للصنف)
@@ -183,11 +201,11 @@ const StockCard = () => {
       }
 
       // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap] = await Promise.all([
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual] = await Promise.all([
         querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
         queryRestDirect,
         queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
-        queryMfgFinished, queryMfgRaw, queryMfgScrap
+        queryMfgFinished, queryMfgRaw, queryMfgScrap, queryMfgActual
       ]);
 
       const allTxns: Transaction[] = [];
@@ -256,8 +274,48 @@ const StockCard = () => {
         });
       });
 
-      // معالجة التصنيع - خامات منصرفة
+      // معالجة التصنيع - خامات مستهلكة فعلياً (الاستهلاك المباشر بالمرحلة)
+      const ordersWithActualUsage = new Set<string>();
+      mfgActual.data?.forEach((item: any) => {
+        const po = item.mfg_order_progress?.mfg_production_orders;
+        if (!po) return;
+
+        // فلترة المستودع برمجياً
+        if (selectedWarehouseId && po.warehouse_id !== selectedWarehouseId) {
+          return;
+        }
+
+        ordersWithActualUsage.add(po.id);
+
+        allTxns.push({
+          id: `MFG-ACTUAL-${item.id}`,
+          date: item.created_at ? item.created_at.split('T')[0] : po.created_at.split('T')[0],
+          type: 'OUT',
+          quantity: item.actual_quantity || 0,
+          uomId: item.uom_id,
+          documentType: 'استهلاك خامات (إنتاج)',
+          documentNumber: po.order_number,
+          warehouseName: getWName(po.warehouse_id),
+          createdAt: item.created_at,
+          notes: 'استهلاك فعلي للمواد بالمرحلة'
+        });
+      });
+
+      // معالجة التصنيع - خامات منصرفة بطلب صرف (فقط في حال عدم وجود استهلاك فعلي لنفس الأمر)
       mfgRaw.data?.forEach((item: any) => {
+        const po = item.mfg_material_requests?.mfg_production_orders;
+        const warehouseId = po?.warehouse_id;
+
+        // فلترة المستودع برمجياً
+        if (selectedWarehouseId && warehouseId !== selectedWarehouseId) {
+          return;
+        }
+
+        const poId = item.mfg_material_requests?.production_order_id;
+        if (poId && ordersWithActualUsage.has(poId)) {
+          return; // تم تدوين الاستهلاك الفعلي بالفعل، نتخطى طلب الصرف منعاً للازدواجية
+        }
+
         allTxns.push({
           id: `MFG-OUT-${item.mfg_material_requests.request_number}`,
           date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at.split('T')[0],
@@ -266,8 +324,9 @@ const StockCard = () => {
           uomId: item.uom_id,
           documentType: 'صرف خامات (إنتاج)',
           documentNumber: item.mfg_material_requests.request_number,
-          warehouseName: getWName(item.mfg_material_requests.warehouse_id),
-          notes: 'استهلاك مواد أولية'
+          warehouseName: getWName(warehouseId),
+          createdAt: item.mfg_material_requests.created_at,
+          notes: 'استهلاك مواد أولية (طلب صرف)'
         });
       });
 

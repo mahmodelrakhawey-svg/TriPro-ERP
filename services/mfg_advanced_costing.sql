@@ -533,7 +533,7 @@ BEGIN
     -- إلى ح/ الإنتاج تحت التشغيل (تخفيض تكلفة الأمر الرئيسي)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
     VALUES (v_je_id, 
-            public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1))), 
+            public.resolve_mfg_wip_account(v_org_id), 
             0, (p_qty * p_market_value), 'تخفيض تكلفة WIP بمنتج عرضي', v_org_id);
 
     PERFORM public.recalculate_stock_rpc(v_org_id);

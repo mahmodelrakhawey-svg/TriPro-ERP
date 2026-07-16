@@ -138,6 +138,20 @@ const CashFlowStatement = () => {
              // مجمع الإهلاك (دائن) يزيد، وهو ما يعكس مصروف الإهلاك
              if (firstDigit === '5') { // مصروف
                  operating.push({ label: `إهلاك ${acc.name}`, amount: movement }); // المصروف موجب هنا لأنه مدين، ونريد إضافته
+             } else if (firstDigit === '1') { // مجمع إهلاك
+                 // لمنع الازدواجية: هل هناك حساب مصروف يبدأ بـ 5 ويحتوي على "إهلاك" وله حركة؟
+                 const hasDepreciationExpense = accounts.some(a => {
+                     const aCode = String(a.code || '');
+                     const aName = String(a.name || '');
+                     const aType = String(a.type || '').toLowerCase();
+                     const aMovement = movements[a.id] || 0;
+                     return aCode.startsWith('5') && 
+                            (aType.includes('depreciation') || aType.includes('إهلاك') || aName.includes('إهلاك')) &&
+                            Math.abs(aMovement) >= 0.01;
+                 });
+                 if (!hasDepreciationExpense) {
+                     operating.push({ label: `تغير في ${acc.name}`, amount: -movement });
+                 }
              }
         }
         // الأصول الثابتة (Fixed Assets) - أنشطة استثمارية

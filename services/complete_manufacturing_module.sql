@@ -697,6 +697,60 @@ BEGIN
     WHERE id = p_progress_id AND status = 'pending'; -- فقط إذا كانت المرحلة معلقة
 END; $$;
 
+-- 1️⃣ دالة مساعدة لحل حساب الإنتاج تحت التشغيل (WIP) للتصنيع وتفادي القيد على حسابات المشاريع
+CREATE OR REPLACE FUNCTION public.resolve_mfg_wip_account(p_org_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_mappings jsonb;
+    v_wip_acc uuid;
+    v_wip_code text;
+    v_mfg_wip_acc uuid;
+BEGIN
+    -- أ. البحث أولاً في خريطة الربط المحاسبي المحددة من الإعدادات
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = p_org_id;
+    v_wip_acc := (v_mappings->>'INVENTORY_WIP')::uuid;
+    
+    -- ب. في حال عدم الربط، يتم البحث عن الحساب الافتراضي كود 10303
+    IF v_wip_acc IS NULL THEN
+        SELECT id, code INTO v_wip_acc, v_wip_code FROM public.accounts 
+        WHERE code = '10303' AND organization_id = p_org_id LIMIT 1;
+    END IF;
+    
+    -- ج. كخط دفاع أخير، نرجع لحساب المخزون الرئيسي كود 103
+    IF v_wip_acc IS NULL THEN
+        SELECT id, code INTO v_wip_acc, v_wip_code FROM public.accounts 
+        WHERE code = '103' AND organization_id = p_org_id LIMIT 1;
+    END IF;
+
+    IF v_wip_acc IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- د. إذا كان الحساب المختار ليس مجموعة (Leaf Account)، نستخدمه مباشرة
+    IF NOT EXISTS (SELECT 1 FROM public.accounts WHERE id = v_wip_acc AND is_group = true) THEN
+        RETURN v_wip_acc;
+    END IF;
+
+    -- هـ. إذا كان الحساب مجموعة، نبحث عن حساب فرعي داخله لا يمثل مشروعاً (حتى لا تذهب قيود التصنيع لحسابات المشاريع)
+    SELECT id INTO v_mfg_wip_acc FROM public.accounts
+    WHERE parent_id = v_wip_acc 
+      AND is_group = false 
+      AND name NOT LIKE 'مشروع:%' 
+      AND name NOT LIKE 'Project:%'
+    ORDER BY code LIMIT 1;
+
+    -- و. إذا لم نجد حساباً فرعياً مناسباً للتصنيع، نقوم بإنشاء حساب مخصص للتصنيع فوراً تحت الحساب الرئيسي
+    IF v_mfg_wip_acc IS NULL THEN
+        SELECT code INTO v_wip_code FROM public.accounts WHERE id = v_wip_acc;
+        
+        INSERT INTO public.accounts (organization_id, name, code, parent_id, type, is_active, is_group)
+        VALUES (p_org_id, 'مخزون إنتاج تحت التشغيل - تصنيع', v_wip_code || '-mfg', v_wip_acc, 'asset', true, false)
+        RETURNING id INTO v_mfg_wip_acc;
+    END IF;
+
+    RETURN v_mfg_wip_acc;
+END; $$;
+
 -- 🛠️ دالة إكمال مرحلة إنتاج (Complete Step) - النسخة المحسنة
 CREATE OR REPLACE FUNCTION public.mfg_complete_step(p_progress_id uuid, p_qty numeric)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
@@ -775,11 +829,7 @@ BEGIN
 
     -- جلب الحسابات (نستخدم كود 10303 للإنتاج تحت التشغيل و 10301 للمواد الخام)
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    v_wip_acc := public.resolve_leaf_account(COALESCE(
-        (v_mappings->>'INVENTORY_WIP')::uuid,
-        (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1),
-        (SELECT id FROM public.accounts WHERE code = '103' AND organization_id = v_org_id LIMIT 1)
-    ));
+    v_wip_acc := public.resolve_mfg_wip_account(v_org_id);
     v_inv_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid,
                          (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1)));
     v_labor_acc := public.resolve_leaf_account(COALESCE(
@@ -849,13 +899,7 @@ BEGIN
 
     -- جلب حسابات الربط والتعامل مع حسابات المجموعات
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    v_wip_acc := COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1));
-    
-    -- 🛡️ منع الترحيل للحسابات الرئيسية: البحث عن حساب فرعي إذا كان المختار مجموعة
-    -- 🛡️ [V51.0] جلب حسابات الربط والتحصين ضد حسابات المجموعات
-    IF EXISTS (SELECT 1 FROM public.accounts WHERE id = v_wip_acc AND is_group = true) THEN
-        v_wip_acc := (SELECT id FROM public.accounts WHERE parent_id = v_wip_acc AND is_group = false ORDER BY code LIMIT 1);
-    END IF;
+    v_wip_acc := public.resolve_mfg_wip_account(v_org_id);
 
     -- 🛡️ [V51.2] الضربة القاضية: حساب رصيد WIP الحقيقي للأمر من كافة القيود (Step + MR)
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_accumulated_wip
@@ -966,7 +1010,7 @@ BEGIN
     END IF;
 
     -- 4. المحرك المحاسبي المحصن ضد حسابات المجموعات (V51.0)
-    v_wip_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_WIP')::uuid, (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1))); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
+    v_wip_acc := public.resolve_mfg_wip_account(v_org_id); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
     v_fg_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1))); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
     v_loss_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WASTAGE_EXPENSE')::uuid, (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1))); -- 🛡️ [V51.0] التأكد من وجود حساب انحراف WIP
     v_wip_variance_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'WIP_VARIANCE_ACCOUNT')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1))); -- Fallback to COGS
@@ -1461,7 +1505,7 @@ BEGIN
         (v_mappings->>'WASTAGE_EXPENSE')::uuid,
         (SELECT id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id LIMIT 1)
     ));
-    v_wip_acc := public.resolve_leaf_account((SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1));
+    v_wip_acc := public.resolve_mfg_wip_account(v_org_id);
 
     IF v_scrap_acc IS NOT NULL AND v_cost > 0 THEN
         INSERT INTO public.journal_entries (
@@ -1633,6 +1677,7 @@ SET search_path = public AS $$
 DECLARE
     v_request record; v_item record; v_org_id uuid; v_je_id uuid; v_mappings jsonb; v_current_stock numeric;
     v_inv_raw_acc uuid; v_wip_acc uuid; v_total_issued_cost numeric := 0; v_product_cost numeric;
+    v_item_has_actual_usage boolean;
 BEGIN
     SELECT * INTO v_request FROM public.mfg_material_requests WHERE id = p_request_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'طلب صرف المواد غير موجود'; END IF;
@@ -1640,39 +1685,50 @@ BEGIN
     v_org_id := v_request.organization_id;
 
     FOR v_item IN SELECT * FROM public.mfg_material_request_items WHERE material_request_id = p_request_id LOOP
-        -- 🚀 فحص التوفر بالكمية الأساسية (Base Unit)
-        DECLARE
-            v_base_qty numeric := public.uom_convert(v_item.quantity_requested, v_item.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_item.raw_material_id));
-        BEGIN
-            SELECT COALESCE(stock, 0) INTO v_current_stock FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
-            
-            IF v_current_stock < v_base_qty THEN
-            RAISE EXCEPTION 'نقص في المخزون للمادة %', (SELECT name FROM public.products WHERE id = v_item.raw_material_id);
-            END IF;
+        -- 🛡️ التحقق مما إذا تم استهلاك هذا الصنف بالفعل في خطوات الإنتاج لتجنب التكرار والازدواجية
+        SELECT EXISTS (
+            SELECT 1 FROM public.mfg_order_progress op
+            JOIN public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
+            WHERE op.production_order_id = v_request.production_order_id
+              AND amu.raw_material_id = v_item.raw_material_id
+        ) INTO v_item_has_actual_usage;
 
-            UPDATE public.products SET stock = stock - v_base_qty
-            WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+        IF v_item_has_actual_usage THEN
+            -- إذا تم استهلاكه في أرضية المصنع، نكتفي بتسجيل صرفه ورقياً لتفادي ازدواجية الخصم والقيود وتجنب خطأ نقص المخزون
+            UPDATE public.mfg_material_request_items 
+            SET quantity_issued = v_item.quantity_requested 
+            WHERE id = v_item.id;
+        ELSE
+            -- 🚀 فحص التوفر بالكمية الأساسية والخصم الفعلي للمواد التي لم تستهلك بعد
+            DECLARE
+                v_base_qty numeric := public.uom_convert(v_item.quantity_requested, v_item.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_item.raw_material_id));
+            BEGIN
+                SELECT COALESCE(stock, 0) INTO v_current_stock FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+                
+                IF v_current_stock < v_base_qty THEN
+                    RAISE EXCEPTION 'نقص في المخزون للمادة %', (SELECT name FROM public.products WHERE id = v_item.raw_material_id);
+                END IF;
 
-            SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) INTO v_product_cost
-            FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
-            
-            v_total_issued_cost := v_total_issued_cost + (v_base_qty * v_product_cost);
-            UPDATE public.mfg_material_request_items SET quantity_issued = v_item.quantity_requested WHERE id = v_item.id;
-        END;
+                UPDATE public.products SET stock = stock - v_base_qty
+                WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+
+                SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) INTO v_product_cost
+                FROM public.products WHERE id = v_item.raw_material_id AND organization_id = v_org_id;
+                
+                v_total_issued_cost := v_total_issued_cost + (v_base_qty * v_product_cost);
+                UPDATE public.mfg_material_request_items SET quantity_issued = v_item.quantity_requested WHERE id = v_item.id;
+            END;
+        END IF;
     END LOOP;
 
     UPDATE public.mfg_material_requests SET status = 'issued', issued_by = auth.uid(), issue_date = now() WHERE id = p_request_id;
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_inv_raw_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1)));
-    v_wip_acc := public.resolve_leaf_account(COALESCE(
-        (v_mappings->>'INVENTORY_WIP')::uuid,
-        (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id LIMIT 1),
-        (SELECT id FROM public.accounts WHERE code = '103' AND organization_id = v_org_id LIMIT 1)
-    ));
+    v_wip_acc := public.resolve_mfg_wip_account(v_org_id);
 
-    -- إزالة شرط الصرامة على v_wip_acc لضمان إنشاء القيد حتى لو تم الترحيل لحساب المخزون الرئيسي
-    IF v_total_issued_cost > 0 AND v_inv_raw_acc IS NOT NULL THEN
+    -- إنشاء القيد فقط للمواد التي تم صرفها حديثاً ولم تقيد بعد في الخطوات الإنتاجية
+    IF v_total_issued_cost > 0 AND v_inv_raw_acc IS NOT NULL AND v_wip_acc IS NOT NULL THEN
         INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type)
         VALUES (now()::date, 'صرف مواد لأمر الإنتاج رقم: ' || (SELECT order_number FROM public.mfg_production_orders WHERE id = v_request.production_order_id), v_request.request_number, 'posted', v_org_id, true, p_request_id, 'mfg_material_request')
         RETURNING id INTO v_je_id;

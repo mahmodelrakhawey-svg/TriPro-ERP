@@ -455,6 +455,8 @@ const MainLayout = () => {
                       <Route path="unit-cost-drilldown" element={<UnitCostDrillDown />} />
                       <Route path="alerts-log" element={<ManufacturingAlertsLog />} />
                       <Route path="closing" element={<CostClosingDashboard />} />
+                      <Route path="raw-materials-turnover" element={<RawMaterialsTurnover />} />
+                      <Route path="wip-monthly-summary" element={<WIPMonthlySummaryReport />} />
                     </Routes>
                   </ModuleGuard>
                 } />
