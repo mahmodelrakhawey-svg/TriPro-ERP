@@ -16,8 +16,8 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
   const [products, setProducts] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     productId: '',
-    quantity: 0,
-    marketValue: 0
+    quantity: '',
+    marketValue: ''
   });
 
   useEffect(() => {
@@ -44,8 +44,8 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
       const { error } = await supabase.rpc('mfg_record_byproduct', {
         p_progress_id: progressId,
         p_product_id: formData.productId,
-        p_qty: formData.quantity,
-        p_market_value: formData.marketValue
+        p_qty: parseFloat(formData.quantity) || 0,
+        p_market_value: parseFloat(formData.marketValue) || 0
       });
 
       if (error) throw error;
@@ -100,7 +100,7 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
                 type="number" step="any"
                 className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-indigo-500"
                 value={formData.quantity}
-                onChange={e => setFormData({...formData, quantity: parseFloat(e.target.value)})}
+                onChange={e => setFormData({...formData, quantity: e.target.value})}
                 required
               />
             </div>
@@ -111,7 +111,7 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
                   type="number" step="0.01"
                   className="w-full border rounded-lg p-2.5 pr-8 outline-none focus:ring-2 focus:ring-indigo-500"
                   value={formData.marketValue}
-                  onChange={e => setFormData({...formData, marketValue: parseFloat(e.target.value)})}
+                  onChange={e => setFormData({...formData, marketValue: e.target.value})}
                   required
                 />
                 <DollarSign className="w-4 h-4 absolute left-3 top-3.5 text-gray-400" />

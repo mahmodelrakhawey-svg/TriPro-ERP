@@ -829,6 +829,7 @@ GRANT SELECT ON public.v_mfg_equivalent_units TO authenticated;
 GRANT SELECT ON public.v_mfg_cost_reconciliation_report TO authenticated;
 GRANT SELECT ON public.v_mfg_unit_cost_anatomy TO authenticated;
 GRANT SELECT ON public.v_mfg_unit_cost_variance TO authenticated;
+GRANT SELECT ON public.v_mfg_cost_trends TO authenticated;
 
 -- 🔄 إجبار المحرك على تحديث كاش النظام (Force Schema Cache Reload)
 NOTIFY pgrst, 'reload config';
