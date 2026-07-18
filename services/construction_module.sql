@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS public.project_progress_billings (
     net_amount NUMERIC(15,2) GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction) STORED,
     related_journal_entry_id UUID REFERENCES public.journal_entries(id) ON DELETE SET NULL,
     status TEXT DEFAULT 'draft',
+    items_progress JSONB DEFAULT '{}',
     created_by UUID REFERENCES auth.users(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -125,7 +126,7 @@ BEGIN
     -- 🚀 تنشيط ذاكرة المخطط فوراً (Force Schema Cache Reload)
     EXECUTE 'NOTIFY pgrst, ''reload config''';
 
-    -- تحديث المستخلصات لتشمل الضرائب وتواريخ الفك
+    -- تحديث المستخلصات لتشمل الضرائب وتواريخ الفك والبنود
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_progress_billings' AND column_name='advance_deduction') THEN
         ALTER TABLE public.project_progress_billings ADD COLUMN advance_deduction NUMERIC(15,2) DEFAULT 0;
     END IF;
@@ -136,6 +137,10 @@ BEGIN
         ALTER TABLE public.project_progress_billings ADD COLUMN wht_rate NUMERIC(5,2) DEFAULT 0;
         ALTER TABLE public.project_progress_billings ADD COLUMN wht_amount NUMERIC(15,2) DEFAULT 0;
         ALTER TABLE public.project_progress_billings ADD COLUMN retention_release_date DATE;
+    END IF;
+
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='project_progress_billings' AND column_name='items_progress') THEN
+        ALTER TABLE public.project_progress_billings ADD COLUMN items_progress JSONB DEFAULT '{}';
     END IF;
 
     -- إعادة بناء net_amount لـ project_progress_billings ليشمل الضرائب
@@ -188,6 +193,25 @@ CREATE TABLE IF NOT EXISTS public.subcontractor_contracts (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- جدول بنود عقود مقاولي الباطن (تفصيلي بالبنود)
+CREATE TABLE IF NOT EXISTS public.subcontractor_contract_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    contract_id UUID NOT NULL REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    item_name TEXT NOT NULL,
+    unit TEXT,
+    quantity NUMERIC(15,2) DEFAULT 0,
+    unit_price NUMERIC(15,2) DEFAULT 0,
+    total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- سياسات الأمان RLS لجدول البنود
+ALTER TABLE public.subcontractor_contract_items ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "SaaS_Sub_Contract_Items_Isolation" ON public.subcontractor_contract_items
+    FOR ALL USING (organization_id = public.get_my_org());
+
 CREATE TABLE IF NOT EXISTS public.subcontractor_billings (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
@@ -199,7 +223,8 @@ CREATE TABLE IF NOT EXISTS public.subcontractor_billings (
     advance_deduction NUMERIC(15,2) DEFAULT 0, -- استرداد الدفعة المقدمة (خصم)
     net_amount NUMERIC(15,2) GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction) STORED,
     status TEXT DEFAULT 'draft',
-    related_journal_entry_id UUID REFERENCES public.journal_entries(id)
+    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
+    items_progress JSONB DEFAULT '{}' -- تخزين نسب إنجاز البنود للمقاول
 );
 
 -- 5. دالة اعتماد المستخلص وتوليد القيد المحاسبي

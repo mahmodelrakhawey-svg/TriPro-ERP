@@ -67,6 +67,17 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
   };
 
   const saveBOQ = async () => {
+    const generateUUID = () => {
+      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return crypto.randomUUID();
+      }
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+    };
+
     try {
       setLoading(true);
       if (!organization?.id) throw new Error('فشل تحديد المنظمة النشطة');
@@ -74,10 +85,11 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
       // استخدام upsert بدلاً من الحذف والإضافة للحفاظ على سلامة البيانات والربط
       const { error } = await supabase.from('project_boq').upsert(
         items.map(item => {
-          // نستبعد فقط الحقول المحسوبة والجمالية، ونحافظ على الـ id إذا كان موجوداً
+          // نستبعد فقط الحقول المحسوبة والجمالية، ونحافظ على الـ id إذا كان موجوداً، أو نولد معرفاً جديداً إذا كان فارغاً
           const { total_price, created_at, showAnalysis, ...rest } = item as any;
           return {
             ...rest, 
+            id: rest.id || generateUUID(),
             project_id: projectId,
             organization_id: organization.id 
           };
