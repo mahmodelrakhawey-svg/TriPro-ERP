@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
+import { useAccounting } from '../../../context/AccountingContext';
 import { 
   Calendar, 
   Calculator, 
@@ -28,6 +29,7 @@ import {
 
 export const CostClosingDashboard: React.FC = () => {
   const { showToast } = useToast();
+  const { organization } = useAccounting();
   const [loading, setLoading] = useState(false);
   const [period, setPeriod] = useState({
     month: new Date().getMonth() + 1,
@@ -51,6 +53,7 @@ export const CostClosingDashboard: React.FC = () => {
 
   // جلب البيانات الأساسية للفترة المختارة
   const fetchPeriodStats = async () => {
+    if (!organization?.id) return;
     setLoading(true);
     try {
       const periodName = `${period.year}-${period.month.toString().padStart(2, '0')}`;
@@ -65,7 +68,8 @@ export const CostClosingDashboard: React.FC = () => {
       // 1. جلب إجمالي قيمة الـ WIP من رؤية المصالحة
       const { data: wipData } = await supabase
         .from('v_mfg_cost_reconciliation_report')
-        .select('cost_assigned_to_wip');
+        .select('cost_assigned_to_wip')
+        .eq('organization_id', organization.id);
       
       const totalWip = (wipData || []).reduce((sum, item) => sum + (item.cost_assigned_to_wip || 0), 0);
 
@@ -73,6 +77,7 @@ export const CostClosingDashboard: React.FC = () => {
       const { data: ovhData } = await supabase
         .from('journal_lines_view')
         .select('balance')
+        .eq('organization_id', organization.id)
         .like('account_code', '514%')
         .gte('transaction_date', startDate)
         .lte('transaction_date', endDate);
@@ -83,19 +88,20 @@ export const CostClosingDashboard: React.FC = () => {
       const { data: trendData } = await supabase
         .from('v_mfg_cost_trends')
         .select('*')
+        .eq('organization_id', organization.id)
         .eq('month_period', periodName)
         .order('avg_actual_unit_cost', { ascending: false })
         .limit(5);
 
       // 4. جلب ومقارنة انحراف المصنع الإجمالي
-      const { data: currentVar } = await supabase.from('v_mfg_cost_trends').select('variance_pct').eq('month_period', periodName);
-      const { data: prevVar } = await supabase.from('v_mfg_cost_trends').select('variance_pct').eq('month_period', prevPeriodName);
+      const { data: currentVar } = await supabase.from('v_mfg_cost_trends').select('variance_pct').eq('organization_id', organization.id).eq('month_period', periodName);
+      const { data: prevVar } = await supabase.from('v_mfg_cost_trends').select('variance_pct').eq('organization_id', organization.id).eq('month_period', prevPeriodName);
 
       const avgCurrent = currentVar?.length ? currentVar.reduce((s, i) => s + i.variance_pct, 0) / currentVar.length : 0;
       const avgPrev = prevVar?.length ? prevVar.reduce((s, i) => s + i.variance_pct, 0) / prevVar.length : 0;
 
       // جلب آخر فترة مغلقة فعلياً من قاعدة البيانات
-      const { data: lastSnap } = await supabase.from('mfg_period_cost_snapshots').select('period_name').order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const { data: lastSnap } = await supabase.from('mfg_period_cost_snapshots').select('period_name').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
 
       setStats({
         totalWipValue: totalWip,
@@ -118,13 +124,14 @@ export const CostClosingDashboard: React.FC = () => {
     }
   };
 
-  useEffect(() => { fetchPeriodStats(); }, [period]);
+  useEffect(() => { fetchPeriodStats(); }, [period, organization?.id]);
 
   // جلب بيانات تقرير المصالحة
   const fetchReconciliationReport = async () => {
+    if (!organization?.id) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase.from('v_mfg_cost_reconciliation_report').select('*');
+      const { data, error } = await supabase.from('v_mfg_cost_reconciliation_report').select('*').eq('organization_id', organization.id);
       if (error) throw error;
       setReconReport(data || []);
       setShowReconModal(true);

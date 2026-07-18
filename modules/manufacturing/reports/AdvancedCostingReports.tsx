@@ -14,7 +14,7 @@ const AdvancedCostingReports = ({ orderId }: { orderId: string }) => {
     const fetchData = async () => {
       setLoading(true);
       const [qtyRes, eqRes, reconRes] = await Promise.all([
-        supabase.from('v_mfg_production_quantity_report').select('*').eq('organization_id', (await supabase.auth.getSession()).data.session?.user.user_metadata.org_id).limit(1).maybeSingle(),
+        supabase.from('v_mfg_production_quantity_report').select('*').eq('order_id', orderId).maybeSingle(),
         supabase.from('v_mfg_equivalent_units').select('*').eq('order_id', orderId).maybeSingle(),
         supabase.from('v_mfg_cost_reconciliation_report').select('*').eq('order_id', orderId).maybeSingle()
       ]);

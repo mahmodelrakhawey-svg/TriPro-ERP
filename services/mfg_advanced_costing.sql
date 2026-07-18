@@ -177,6 +177,39 @@ GROUP BY po.id, po.order_number, po.organization_id;
 
 -- 🛠️ دالة توزيع المصاريف الصناعية غير المباشرة الفعلية (Actual Overhead Allocation)
 -- تقوم بجلب المصاريف من الأستاذ العام وتوزيعها على الأوامر النشطة بناءً على وحدات التحويل المعادلة
+-- 🛠️ دالة مساعدة لحل حساب الأعباء الصناعية المحملة
+CREATE OR REPLACE FUNCTION public.resolve_mfg_applied_overhead_account(p_org_id uuid)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_parent_id uuid;
+    v_acc_id uuid;
+BEGIN
+    SELECT id INTO v_parent_id FROM public.accounts 
+    WHERE code = '514' AND organization_id = p_org_id LIMIT 1;
+    
+    IF v_parent_id IS NULL THEN
+        SELECT id INTO v_parent_id FROM public.accounts 
+        WHERE (name = 'تكاليف صناعية غير مباشرة' OR code = '514') AND organization_id = p_org_id LIMIT 1;
+    END IF;
+    
+    IF v_parent_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    
+    SELECT id INTO v_acc_id FROM public.accounts
+    WHERE parent_id = v_parent_id 
+      AND (code = '514-applied' OR name = 'أعباء صناعية محملة (موزعة)')
+      AND organization_id = p_org_id LIMIT 1;
+      
+    IF v_acc_id IS NULL THEN
+        INSERT INTO public.accounts (organization_id, name, code, parent_id, type, is_active, is_group)
+        VALUES (p_org_id, 'أعباء صناعية محملة (موزعة)', '514-applied', v_parent_id, 'expense', true, false)
+        RETURNING id INTO v_acc_id;
+    END IF;
+    
+    RETURN v_acc_id;
+END; $$;
+
 CREATE OR REPLACE FUNCTION public.mfg_allocate_actual_overhead(p_period_start date, p_period_end date, p_description text)
 RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE 
@@ -192,6 +225,7 @@ BEGIN
     SELECT COALESCE(SUM(debit - credit), 0) INTO v_total_actual_overhead
     FROM public.journal_lines_view 
     WHERE organization_id = v_org_id AND account_code LIKE '514%' 
+    AND account_code != '514-applied'
     AND transaction_date BETWEEN p_period_start AND p_period_end
     AND (related_document_type IS NULL OR related_document_type != 'mfg_overhead'); -- تجنب الازدواجية بشكل برمجي دقيق
 
@@ -199,18 +233,10 @@ BEGIN
     SELECT SUM(total_conversion_eq_units) INTO v_total_eq_units 
     FROM public.v_mfg_equivalent_units WHERE organization_id = v_org_id;
 
+    v_wip_acc := public.resolve_mfg_wip_account(v_org_id);
+    v_applied_ovh_acc := public.resolve_mfg_applied_overhead_account(v_org_id);
 
-    v_wip_acc := public.resolve_leaf_account((SELECT (account_mappings->>'INVENTORY_WIP')::uuid 
-                 FROM public.company_settings WHERE organization_id = v_org_id));
-    -- جلب أول حساب فرعي متاح تحت "التكاليف الصناعية غير المباشرة" (514) بدلاً من الحساب الرئيسي
-    v_applied_ovh_acc := public.resolve_leaf_account((
-        SELECT id FROM public.accounts 
-        WHERE organization_id = v_org_id AND code LIKE '514%' AND is_group = false 
-        ORDER BY code LIMIT 1
-        ));
-
-
-    IF v_total_eq_units > 0 AND v_total_actual_overhead > 0 THEN
+    IF v_total_eq_units > 0 AND v_total_actual_overhead > 0 AND v_wip_acc IS NOT NULL AND v_applied_ovh_acc IS NOT NULL THEN
         v_overhead_per_unit := v_total_actual_overhead / v_total_eq_units;
 
         -- 4. إنشاء قيد التوزيع في الأستاذ العام
@@ -459,7 +485,7 @@ BEGIN
     SELECT 
         rs.operation_name,
         -- خامات المرحلة
-        COALESCE((SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, 0)) 
+        COALESCE((SELECT SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) 
                   FROM public.mfg_actual_material_usage amu 
                   JOIN public.products p ON amu.raw_material_id = p.id 
                   WHERE amu.order_progress_id = op.id), 0) as material_cost,
@@ -469,7 +495,7 @@ BEGIN
         ROUND(COALESCE((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate, 0), 2) as overhead_cost,
         -- الإجمالي الكلي للمرحلة
         ROUND(
-            COALESCE((SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, 0)) FROM public.mfg_actual_material_usage amu JOIN public.products p ON amu.raw_material_id = p.id WHERE amu.order_progress_id = op.id), 0) +
+            COALESCE((SELECT SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) FROM public.mfg_actual_material_usage amu JOIN public.products p ON amu.raw_material_id = p.id WHERE amu.order_progress_id = op.id), 0) +
             COALESCE(op.labor_cost_actual, 0) +
             COALESCE((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate, 0)
         , 2) as total_stage_cost
@@ -485,7 +511,7 @@ RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE v_org_id uuid; v_cost_per_unit numeric; v_je_id uuid; v_mappings jsonb; v_wip_acc uuid; v_loss_acc uuid; v_scrap_inv_acc uuid;
 BEGIN
     SELECT organization_id INTO v_org_id FROM public.mfg_order_progress WHERE id = p_progress_id;
-    SELECT COALESCE(weighted_average_cost, cost, 0) INTO v_cost_per_unit FROM public.products WHERE id = p_material_id;
+    SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0) INTO v_cost_per_unit FROM public.products WHERE id = p_material_id;
     INSERT INTO public.mfg_scrap_logs (order_progress_id, product_id, quantity, is_abnormal, salvage_value_per_unit, reason, organization_id) VALUES (p_progress_id, p_material_id, p_qty, p_is_abnormal, p_salvage_value, p_reason, v_org_id);
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_wip_acc := public.resolve_leaf_account((v_mappings->>'INVENTORY_WIP')::uuid);
@@ -623,14 +649,14 @@ BEGIN
         SELECT 
             rs.operation_name as s_name,
             -- التكاليف الفعلية
-            COALESCE((SELECT SUM(amu.actual_quantity * COALESCE(p.weighted_average_cost, p.cost, 0)) 
+            COALESCE((SELECT SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) 
                       FROM public.mfg_actual_material_usage amu 
                       JOIN public.products p ON amu.raw_material_id = p.id 
                       WHERE amu.order_progress_id = op.id), 0) as act_mat,
             COALESCE(op.labor_cost_actual, 0) as act_lab,
             ROUND(COALESCE((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate, 0), 2) as act_ovh,
             -- التكاليف المعيارية المسموح بها (Standard Allowed for Actual Output)
-            COALESCE((SELECT SUM(sm.quantity_required * op.produced_qty * COALESCE(p.weighted_average_cost, p.cost, 0))
+            COALESCE((SELECT SUM(public.uom_convert(sm.quantity_required * op.produced_qty, sm.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0))
                       FROM public.mfg_step_materials sm
                       JOIN public.products p ON sm.raw_material_id = p.id
                       WHERE sm.step_id = rs.id), 0) as std_mat,

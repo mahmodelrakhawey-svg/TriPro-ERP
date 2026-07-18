@@ -356,8 +356,8 @@ BEGIN
     SELECT COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0) INTO v_cost 
     FROM public.products WHERE id = p_material_id AND organization_id = v_org_id;
 
-    INSERT INTO public.mfg_scrap_logs (order_progress_id, product_id, quantity, scrap_date, reason, organization_id)
-    VALUES (p_progress_id, p_material_id, p_qty, now()::date, p_reason, v_org_id);
+    INSERT INTO public.mfg_scrap_logs (order_progress_id, product_id, quantity, reason, organization_id)
+    VALUES (p_progress_id, p_material_id, p_qty, p_reason, v_org_id);
 
     UPDATE public.products SET stock = stock - p_qty WHERE id = p_material_id AND organization_id = v_org_id;
 

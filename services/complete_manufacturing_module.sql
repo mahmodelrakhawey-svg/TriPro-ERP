@@ -307,7 +307,7 @@ END; $$;
 
 -- 📊 رؤية محاسبية عامة (ضرورية للوحة التحكم والتقارير المالية)
 DROP VIEW IF EXISTS public.journal_lines_view CASCADE;
-CREATE OR REPLACE VIEW public.journal_lines_view AS
+CREATE OR REPLACE VIEW public.journal_lines_view WITH (security_invoker = true) AS
 SELECT 
     jl.id,
     jl.journal_entry_id,
@@ -493,10 +493,10 @@ GROUP BY po.id, po.order_number, p.name, po.quantity_to_produce, po.status, po.o
 -- 📊 تقرير ملخص شهري WIP
 DROP VIEW IF EXISTS public.v_mfg_wip_monthly_summary CASCADE;
 CREATE OR REPLACE VIEW public.v_mfg_wip_monthly_summary WITH (security_invoker = true) AS
-SELECT to_char(op.actual_end_time, 'YYYY-MM') AS month, p.name AS product_name, wc.name AS work_center_name, po.organization_id,
+SELECT to_char(COALESCE(op.actual_end_time, op.actual_start_time, po.created_at), 'YYYY-MM') AS month, p.name AS product_name, wc.name AS work_center_name, po.organization_id,
        COALESCE(SUM(op.labor_cost_actual), 0) AS monthly_labor_cost,
-       COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0) AS monthly_material_cost,
-       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(rm.weighted_average_cost, rm.cost, rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
+       COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)), 0) AS monthly_material_cost,
+       (COALESCE(SUM(op.labor_cost_actual), 0) + COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)), 0)) AS total_monthly_wip_value
 FROM public.mfg_production_orders po
 JOIN public.products p ON po.product_id = p.id
 JOIN public.mfg_order_progress op ON po.id = op.production_order_id
@@ -504,7 +504,6 @@ JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
 JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
 LEFT JOIN public.mfg_actual_material_usage amu ON op.id = amu.order_progress_id
 LEFT JOIN public.products rm ON amu.raw_material_id = rm.id
-WHERE po.status = 'in_progress'
 GROUP BY 1, 2, 3, 4;
 
 -- 📊 رؤية لوحة التحكم الصناعية (Manufacturing Dashboard View)
@@ -625,7 +624,7 @@ DECLARE
     v_stock_val numeric;
 BEGIN
     -- حساب إجمالي قيمة المواد الخام المستهلكة فعلياً في الفترة للمنظمة بالكامل
-    SELECT COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(p.weighted_average_cost, p.cost, 0)), 0) 
+    SELECT COALESCE(SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)), 0) 
     INTO v_usage_val
     FROM public.mfg_actual_material_usage amu
     JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
@@ -634,7 +633,7 @@ BEGIN
       AND op.actual_end_time::date BETWEEN p_start_date AND p_end_date;
 
     -- حساب إجمالي قيمة مخزون المواد الخام الحالي للمنظمة
-    SELECT COALESCE(SUM(stock * COALESCE(weighted_average_cost, cost, 0)), 0) 
+    SELECT COALESCE(SUM(stock * COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), purchase_price, 0)), 0) 
     INTO v_stock_val 
     FROM public.products 
     WHERE organization_id = p_org_id AND mfg_type = 'raw';
@@ -901,7 +900,7 @@ BEGIN
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_wip_acc := public.resolve_mfg_wip_account(v_org_id);
 
-    -- 🛡️ [V51.2] الضربة القاضية: حساب رصيد WIP الحقيقي للأمر من كافة القيود (Step + MR)
+    -- 🛡️ [V51.2] الضربة القاضية: حساب رصيد WIP الحقيقي للأمر من كافة القيود (Step + MR + Scrap)
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_accumulated_wip
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
@@ -909,6 +908,7 @@ BEGIN
         (je.related_document_id = p_order_id AND je.related_document_type IN ('mfg_order', 'mfg_byproduct'))
         OR (je.related_document_type = 'mfg_step' AND je.related_document_id IN (SELECT id FROM public.mfg_order_progress WHERE production_order_id = p_order_id))
         OR (je.related_document_type = 'mfg_material_request' AND je.related_document_id IN (SELECT id FROM public.mfg_material_requests WHERE production_order_id = p_order_id))
+        OR (je.related_document_type = 'mfg_scrap' AND je.related_document_id IN (SELECT id FROM public.mfg_order_progress WHERE production_order_id = p_order_id))
     ) AND jl.account_id = v_wip_acc;
     -- 🛡️ نظام "استبدال القيد": حذف القيود القديمة لهذا المستند
     DELETE FROM public.journal_entries WHERE related_document_id = p_order_id AND related_document_type = 'mfg_order';

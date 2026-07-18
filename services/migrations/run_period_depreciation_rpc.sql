@@ -1,12 +1,28 @@
 -- 🌟 دالة تشغيل إهلاك الفترة (Bulk Depreciation Run)
 -- تقوم بحساب وتسجيل إهلاك جميع الأصول النشطة لشهر معين
 
+-- 1. التأكد من وجود عمود الحالة (status) في جدول الأصول (assets)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+          AND table_name = 'assets' 
+          AND column_name = 'status'
+    ) THEN
+        ALTER TABLE public.assets ADD COLUMN status text DEFAULT 'active';
+    END IF;
+END $$;
+
+-- 2. إنشاء/تحديث دالة تشغيل الإهلاك للفترة
 CREATE OR REPLACE FUNCTION public.run_period_depreciation(
     p_date date,
     p_org_id uuid
 )
 RETURNS jsonb
 LANGUAGE plpgsql
+SECURITY DEFINER -- 🛡️ تشغيل الصلاحيات بمستوى صلاحيات المنشئ لتخطي قيود RLS عند إدخال قيود اليومية
 AS $$
 DECLARE
     v_asset record;
@@ -20,9 +36,10 @@ BEGIN
     -- المرور على جميع الأصول النشطة التي لم يتم إهلاكها بالكامل
     FOR v_asset IN 
         SELECT * FROM public.assets 
-        WHERE status = 'active' 
+        WHERE COALESCE(status, 'active') = 'active' 
         AND (purchase_cost - salvage_value) > 0
         AND organization_id = p_org_id
+        AND deleted_at IS NULL
     LOOP
         -- 1. التحقق مما إذا كان قد تم إهلاك هذا الأصل في هذا الشهر بالفعل
         PERFORM 1 FROM public.journal_entries 
@@ -43,9 +60,9 @@ BEGIN
             v_monthly_depreciation := 0;
         END IF;
 
-        -- التحقق من أن القسط لا يتجاوز القيمة المتبقية
-        -- (هنا نحتاج لحساب مجمع الإهلاك الحالي، للتبسيط سنفترض أن القسط صحيح ما لم يتجاوز القيمة الدفترية)
-        
+        -- تقريب القيمة لخانين عشريين لمنع مشاكل الكسور الطويلة في القيود
+        v_monthly_depreciation := round(v_monthly_depreciation, 2);
+
         IF v_monthly_depreciation > 0 THEN
             -- 3. تحديد الحسابات
             -- استخدام حسابات الأصل المحددة أو الافتراضية
@@ -77,3 +94,10 @@ BEGIN
     RETURN jsonb_build_object('processed', v_processed_count, 'skipped', v_skipped_count);
 END;
 $$;
+
+-- 3. منح الصلاحيات للمستخدمين لتشغيل الدالة
+GRANT EXECUTE ON FUNCTION public.run_period_depreciation(date, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.run_period_depreciation(date, uuid) TO service_role;
+
+-- 4. تحديث ذاكرة التخزين المؤقت (Cache) لـ PostgREST فوراً
+NOTIFY pgrst, 'reload schema';

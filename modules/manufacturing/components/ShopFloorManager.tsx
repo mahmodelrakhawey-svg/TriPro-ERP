@@ -37,6 +37,11 @@ const ShopFloorManager = () => {
   const [selectedMaterialId, setSelectedMaterialId] = useState('');
   const [scrapQty, setScrapQty] = useState('');
   const [scrapReason, setScrapReason] = useState('');
+  const [scrapIsAbnormal, setScrapIsAbnormal] = useState(false);
+
+  // Step Completion State
+  const [completeModalTask, setCompleteModalTask] = useState<ShopFloorTask | null>(null);
+  const [completeQty, setCompleteQty] = useState('');
 
   const fetchTasks = async () => {
     if (!orgId) return;
@@ -124,10 +129,12 @@ const ShopFloorManager = () => {
     if (!scrapModalTask || !selectedMaterialId || !scrapQty) return;
     
     setProcessing(true);
-    const { error } = await supabase.rpc('mfg_record_scrap', {
+    const { error } = await supabase.rpc('mfg_record_scrap_advanced', {
       p_progress_id: scrapModalTask.progress_id,
       p_material_id: selectedMaterialId,
       p_qty: parseFloat(scrapQty),
+      p_is_abnormal: scrapIsAbnormal,
+      p_salvage_value: 0,
       p_reason: scrapReason
     });
 
@@ -138,6 +145,26 @@ const ShopFloorManager = () => {
       setScrapModalTask(null);
       setScrapQty('');
       setScrapReason('');
+      setScrapIsAbnormal(false);
+      fetchTasks();
+    }
+    setProcessing(false);
+  };
+
+  const handleCompleteStep = async () => {
+    if (!completeModalTask || !completeQty) return;
+    setProcessing(true);
+    const { error } = await supabase.rpc('mfg_complete_step', {
+      p_progress_id: completeModalTask.progress_id,
+      p_qty: parseFloat(completeQty)
+    });
+
+    if (error) {
+      showToast('خطأ في إكمال الخطوة: ' + error.message, 'error');
+    } else {
+      showToast('تم إكمال المرحلة وتحديث الكميات والتكاليف بنجاح ✅', 'success');
+      setCompleteModalTask(null);
+      setCompleteQty('');
       fetchTasks();
     }
     setProcessing(false);
@@ -308,7 +335,14 @@ const ShopFloorManager = () => {
                       )}
                     </div>
                     <button
-                      onClick={() => executeProcess(task.progress_id)}
+                      onClick={() => {
+                        if (task.status === 'active') {
+                          setCompleteModalTask(task);
+                          setCompleteQty(task.target_qty.toString());
+                        } else {
+                          executeProcess(task.progress_id);
+                        }
+                      }}
                       className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-colors ${
                         task.status === 'active' 
                         ? 'bg-green-600 hover:bg-green-700 text-white' 
@@ -370,6 +404,19 @@ const ShopFloorManager = () => {
                     placeholder="وصف العيب الفني..."
                   />
                 </div>
+                <div className="flex items-center gap-3 p-3 bg-amber-50 rounded-lg border border-amber-200 text-right">
+                  <input 
+                    type="checkbox" 
+                    id="isAbnormal"
+                    className="w-5 h-5 text-red-600 rounded"
+                    checked={scrapIsAbnormal}
+                    onChange={e => setScrapIsAbnormal(e.target.checked)}
+                  />
+                  <label htmlFor="isAbnormal" className="text-sm text-amber-800 font-bold cursor-pointer select-none">
+                    تالف غير مسموح به (Abnormal)
+                    <p className="text-[10px] font-normal text-amber-700">سيتم تحميل التكلفة كمصروف خسارة بدلاً من تحميلها على المنتج.</p>
+                  </label>
+                </div>
               </div>
               <div className="p-4 bg-gray-50 flex gap-3">
                 <button
@@ -378,6 +425,55 @@ const ShopFloorManager = () => {
                   className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 transition-colors"
                 >
                   حفظ التالف
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Complete Task Modal - نافذة إدخال كمية الإكمال */}
+        {completeModalTask && (
+          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="bg-green-50 p-4 flex justify-between items-center border-b border-green-100">
+                <h2 className="font-bold text-green-800 flex items-center gap-2">
+                  <CheckCircle size={20} className="text-green-600" /> إكمال المرحلة الإنتاجية
+                </h2>
+                <button onClick={() => setCompleteModalTask(null)} className="text-gray-400 hover:text-gray-600">
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="p-6 space-y-4 text-right">
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm space-y-1">
+                  <p><span className="text-slate-500 font-bold">المنتج:</span> {completeModalTask.product_name}</p>
+                  <p><span className="text-slate-500 font-bold">المرحلة:</span> {completeModalTask.operation_name}</p>
+                  <p><span className="text-slate-500 font-bold">الكمية المستهدفة:</span> {completeModalTask.target_qty}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">الكمية المنجزة الفعلية</label>
+                  <input 
+                    type="number" 
+                    value={completeQty}
+                    onChange={(e) => setCompleteQty(e.target.value)}
+                    className="w-full border-gray-200 rounded-lg focus:ring-green-500 focus:border-green-500 border p-2 font-bold text-center"
+                    placeholder="أدخل الكمية الفعلية..."
+                    min="0.01"
+                    step="any"
+                  />
+                </div>
+              </div>
+              <div className="p-4 bg-gray-50 flex gap-3">
+                <button
+                  onClick={() => setCompleteModalTask(null)}
+                  className="flex-1 bg-slate-200 text-slate-700 py-2 rounded-lg font-bold hover:bg-slate-300 transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button
+                  onClick={handleCompleteStep}
+                  disabled={processing || !completeQty || parseFloat(completeQty) <= 0}
+                  className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  تأكيد وإكمال
                 </button>
               </div>
             </div>
