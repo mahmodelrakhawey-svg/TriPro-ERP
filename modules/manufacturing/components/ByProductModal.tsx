@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { PackagePlus, DollarSign, X, CheckCircle } from 'lucide-react';
@@ -13,11 +13,27 @@ interface ByProductModalProps {
 export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose, progressId, onSuccess }) => {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     productId: '',
     quantity: 0,
     marketValue: 0
   });
+
+  useEffect(() => {
+    const fetchProducts = async () => {
+      const { data, error } = await supabase
+        .from('products')
+        .select('id, name, sku')
+        .order('name', { ascending: true });
+      if (!error && data) {
+        setProducts(data);
+      }
+    };
+    if (isOpen) {
+      fetchProducts();
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -64,14 +80,17 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">المنتج الناتج</label>
-            <input 
-              type="text" 
-              placeholder="ابحث عن صنف أو أدخل المعرف..."
-              className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-indigo-500"
+            <select 
+              className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
               value={formData.productId}
               onChange={e => setFormData({...formData, productId: e.target.value})}
               required
-            />
+            >
+              <option value="">-- اختر المنتج العرضي --</option>
+              {products.map(p => (
+                <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>
+              ))}
+            </select>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

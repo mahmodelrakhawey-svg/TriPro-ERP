@@ -635,6 +635,15 @@ BEGIN
             -- تصنيع تام (+) 
             SELECT product_id, warehouse_id, quantity_to_produce FROM public.mfg_production_orders 
             WHERE UPPER(status) = 'COMPLETED' AND warehouse_id IS NOT NULL AND product_id IS NOT NULL AND (v_final_org IS NULL OR organization_id = v_final_org)
+            
+            UNION ALL
+            -- 🛡️ منتجات عرضية من التصنيع (+)
+            SELECT 
+                bl.product_id, 
+                (SELECT warehouse_id FROM public.mfg_production_orders WHERE id = (SELECT production_order_id FROM public.mfg_order_progress WHERE id = bl.order_progress_id)) as warehouse_id, 
+                bl.quantity as qty
+            FROM public.mfg_byproducts_logs bl
+            WHERE (v_final_org IS NULL OR bl.organization_id = v_final_org)
             UNION ALL
             -- استهلاك خامات (-)
             SELECT amu.raw_material_id, po.warehouse_id, -public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id)

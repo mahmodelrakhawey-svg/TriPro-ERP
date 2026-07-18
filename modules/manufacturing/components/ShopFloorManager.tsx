@@ -2,7 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting as useOrg } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
-import { Play, CheckCircle, Barcode, Loader2, Factory, AlertTriangle, X, Printer, Paperclip, Download, RefreshCw } from 'lucide-react';
+import { Play, CheckCircle, Barcode, Loader2, Factory, AlertTriangle, X, Printer, Paperclip, Download, RefreshCw, PackagePlus } from 'lucide-react';
+import { ByProductModal } from './ByProductModal';
 
 interface ShopFloorTask {
   progress_id: string;
@@ -43,6 +44,9 @@ const ShopFloorManager = () => {
   // Step Completion State
   const [completeModalTask, setCompleteModalTask] = useState<ShopFloorTask | null>(null);
   const [completeQty, setCompleteQty] = useState('');
+
+  // By-product State
+  const [byProductModalTask, setByProductModalTask] = useState<ShopFloorTask | null>(null);
 
   const fetchTasks = async () => {
     if (!orgId) return;
@@ -326,13 +330,22 @@ const ShopFloorManager = () => {
                     <div className="text-sm text-gray-500">
                       الكمية المطلوبة: <span className="font-bold text-gray-900">{task.target_qty}</span>
                       {task.status === 'active' && (
-                        <button 
-                          onClick={() => openScrapModal(task)}
-                          className="mr-3 text-red-500 hover:text-red-700 transition-colors"
-                          title="تسجيل تالف"
-                        >
-                          <AlertTriangle size={18} />
-                        </button>
+                        <>
+                          <button 
+                            onClick={() => openScrapModal(task)}
+                            className="mr-3 text-red-500 hover:text-red-700 transition-colors"
+                            title="تسجيل تالف"
+                          >
+                            <AlertTriangle size={18} />
+                          </button>
+                          <button 
+                            onClick={() => setByProductModalTask(task)}
+                            className="mr-2 text-indigo-500 hover:text-indigo-700 transition-colors"
+                            title="تسجيل منتج عرضي"
+                          >
+                            <PackagePlus size={18} />
+                          </button>
+                        </>
                       )}
                     </div>
                     <button
@@ -488,6 +501,15 @@ const ShopFloorManager = () => {
             </div>
           );
         })()}
+        {/* ByProduct Modal - تسجيل المنتج العرضي */}
+        {byProductModalTask && (
+          <ByProductModal 
+            isOpen={!!byProductModalTask}
+            onClose={() => setByProductModalTask(null)}
+            progressId={byProductModalTask.progress_id}
+            onSuccess={fetchTasks}
+          />
+        )}
       </div>
     </div>
   );
