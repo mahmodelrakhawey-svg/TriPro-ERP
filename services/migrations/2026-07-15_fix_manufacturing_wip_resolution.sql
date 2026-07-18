@@ -136,11 +136,15 @@ DECLARE
     v_usage_qty numeric; v_mat_total_cost numeric := 0; v_labor_cost numeric := 0;
     v_je_id uuid; v_mappings jsonb; v_wip_acc uuid; v_inv_acc uuid; v_labor_acc uuid;
     v_org_id uuid; v_scrap_qty numeric := 0; v_wip_debit_amount numeric := 0; v_has_mr boolean;
+    v_target_qty numeric;
 BEGIN
     SELECT * INTO v_step FROM public.mfg_order_progress WHERE id = p_progress_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سجل تقدم المرحلة غير موجود'; END IF;
     IF v_step.status = 'completed' THEN RETURN; END IF;
     v_org_id := v_step.organization_id;
+
+    -- جلب الكمية المستهدفة لأمر الإنتاج
+    SELECT quantity_to_produce INTO v_target_qty FROM public.mfg_production_orders WHERE id = v_step.production_order_id;
 
     SELECT EXISTS (
         SELECT 1 FROM public.mfg_material_requests 
@@ -149,23 +153,21 @@ BEGIN
         AND id IN (SELECT material_request_id FROM public.mfg_material_request_items WHERE raw_material_id IN (SELECT raw_material_id FROM public.mfg_step_materials WHERE step_id = v_step.step_id))
     ) INTO v_has_mr;
 
-    SELECT COALESCE(SUM(quantity), 0) INTO v_scrap_qty
-    FROM public.mfg_scrap_logs
-    WHERE order_progress_id = p_progress_id;
-
     SELECT rs.standard_time_minutes, wc.hourly_rate
     INTO v_routing_step
     FROM public.mfg_routing_steps rs
     JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
     WHERE rs.id = v_step.step_id;
 
+    -- حساب تكلفة العمالة للكمية الجديدة المضافة فقط
     v_labor_cost := (COALESCE(v_routing_step.standard_time_minutes, 0) / 60.0) * p_qty * COALESCE(v_routing_step.hourly_rate, 0);
 
+    -- تحديث سجل التقدم بالتراكم
     UPDATE public.mfg_order_progress SET
-        status = 'completed',
-        actual_end_time = now(),
-        produced_qty = p_qty,
-        labor_cost_actual = v_labor_cost,
+        status = CASE WHEN (COALESCE(produced_qty, 0) + p_qty) >= v_target_qty THEN 'completed' ELSE 'active' END,
+        actual_end_time = CASE WHEN (COALESCE(produced_qty, 0) + p_qty) >= v_target_qty THEN now() ELSE actual_end_time END,
+        produced_qty = COALESCE(produced_qty, 0) + p_qty,
+        labor_cost_actual = COALESCE(labor_cost_actual, 0) + v_labor_cost,
         qc_verified = NULL
     WHERE id = p_progress_id AND status = 'active';
 
@@ -174,19 +176,25 @@ BEGIN
         FROM public.mfg_step_materials
         WHERE step_id = v_step.step_id
     LOOP
-        v_usage_qty := v_mat.quantity_required * p_qty;
+        v_usage_qty := v_mat.quantity_required * p_qty; -- احتساب استهلاك المواد للكمية الجديدة المضافة فقط
 
         v_mat_total_cost := v_mat_total_cost + (
             public.uom_convert(v_usage_qty, v_mat.uom_id, (SELECT base_uom_id FROM public.products WHERE id = v_mat.raw_material_id)) * 
             COALESCE((SELECT NULLIF(weighted_average_cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT NULLIF(cost, 0) FROM public.products WHERE id = v_mat.raw_material_id), (SELECT purchase_price FROM public.products WHERE id = v_mat.raw_material_id), 0)
         );
 
+        -- نستخدم فلترة تاريخ الإنشاء لمنع تكرار احتساب نفس التالف في استهلاك الكميات المضافة لاحقاً
         INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, uom_id, organization_id)
         VALUES (
             p_progress_id,
             v_mat.raw_material_id,
             v_usage_qty,
-            v_usage_qty + COALESCE((SELECT SUM(quantity) FROM public.mfg_scrap_logs WHERE order_progress_id = p_progress_id AND product_id = v_mat.raw_material_id), 0),
+            v_usage_qty + COALESCE((
+                SELECT SUM(quantity) FROM public.mfg_scrap_logs 
+                WHERE order_progress_id = p_progress_id 
+                AND product_id = v_mat.raw_material_id
+                AND created_at > COALESCE((SELECT MAX(created_at) FROM public.mfg_actual_material_usage WHERE order_progress_id = p_progress_id), '1970-01-01'::timestamptz)
+            ), 0),
             v_mat.uom_id,
             v_org_id
         );

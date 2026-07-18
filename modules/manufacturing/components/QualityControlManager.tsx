@@ -61,7 +61,7 @@ const QualityControlManager = () => {
     setSubmitting(true);
     const { error } = await supabase.rpc('mfg_record_qc_inspection', {
       p_progress_id: id,
-      p_status: status === 'pass' ? 'pass' : 'fail',
+      p_status: status,
       p_notes: notes
     });
     if (error) {

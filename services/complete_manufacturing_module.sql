@@ -12,7 +12,7 @@ BEGIN
     EXECUTE (SELECT string_agg(format('DROP FUNCTION %s CASCADE', oid::regprocedure), '; ')
              FROM pg_proc WHERE proname IN (
                 'mfg_finalize_order', 'mfg_calculate_standard_cost', 'mfg_start_step', 'mfg_complete_step', 
-                'mfg_update_product_standard_cost', 'mfg_record_qc_inspection', 'mfg_record_scrap'
+                'mfg_update_product_standard_cost', 'mfg_record_qc_inspection', 'mfg_record_scrap', 'mfg_get_shop_floor_tasks'
              ) 
              AND pronamespace = 'public'::regnamespace);
 EXCEPTION WHEN OTHERS THEN RAISE NOTICE 'MFG Purge info: %', SQLERRM; END $$;
@@ -758,12 +758,16 @@ DECLARE
     v_usage_qty numeric; v_mat_total_cost numeric := 0; v_labor_cost numeric := 0;
     v_je_id uuid; v_mappings jsonb; v_wip_acc uuid; v_inv_acc uuid; v_labor_acc uuid;
     v_org_id uuid; v_scrap_qty numeric := 0; v_wip_debit_amount numeric := 0; v_has_mr boolean;
+    v_target_qty numeric;
 BEGIN
     -- 1. جلب بيانات التقدم والتحقق من الصلاحية
     SELECT * INTO v_step FROM public.mfg_order_progress WHERE id = p_progress_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سجل تقدم المرحلة غير موجود'; END IF;
     IF v_step.status = 'completed' THEN RETURN; END IF; -- منع التكرار
     v_org_id := v_step.organization_id;
+
+    -- جلب الكمية المستهدفة لأمر الإنتاج
+    SELECT quantity_to_produce INTO v_target_qty FROM public.mfg_production_orders WHERE id = v_step.production_order_id;
 
     -- 🛡️ التحقق هل يوجد طلب صرف مواد (MR) مسبق لهذا الأمر لمنع الازدواجية وعدم الاتزان
     SELECT EXISTS (
@@ -774,11 +778,6 @@ BEGIN
         AND id IN (SELECT material_request_id FROM public.mfg_material_request_items WHERE raw_material_id IN (SELECT raw_material_id FROM public.mfg_step_materials WHERE step_id = v_step.step_id))
     ) INTO v_has_mr;
 
-    -- [جديد] جلب إجمالي التالف المسجل لهذه المرحلة لزيادة الاستهلاك الفعلي
-    SELECT COALESCE(SUM(quantity), 0) INTO v_scrap_qty
-    FROM public.mfg_scrap_logs
-    WHERE order_progress_id = p_progress_id;
-
     -- 2. جلب بيانات مركز العمل لحساب التكلفة
     SELECT rs.standard_time_minutes, wc.hourly_rate
     INTO v_routing_step
@@ -786,15 +785,15 @@ BEGIN
     JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
     WHERE rs.id = v_step.step_id;
 
-    -- حساب تكلفة العمالة بناءً على الزمن المعياري (زمن الوحدة بالدقائق / 60 * الكمية * معدل الساعة)
+    -- حساب تكلفة العمالة بناءً على الزمن المعياري للكمية الحالية المضافة فقط
     v_labor_cost := (COALESCE(v_routing_step.standard_time_minutes, 0) / 60.0) * p_qty * COALESCE(v_routing_step.hourly_rate, 0);
 
-    -- 3. تحديث حالة المرحلة وتكلفة العمالة
+    -- 3. تحديث حالة المرحلة وتكلفة العمالة بالتراكم
     UPDATE public.mfg_order_progress SET
-        status = 'completed',
-        actual_end_time = now(),
-        produced_qty = p_qty,
-        labor_cost_actual = v_labor_cost,
+        status = CASE WHEN (COALESCE(produced_qty, 0) + p_qty) >= v_target_qty THEN 'completed' ELSE 'active' END,
+        actual_end_time = CASE WHEN (COALESCE(produced_qty, 0) + p_qty) >= v_target_qty THEN now() ELSE actual_end_time END,
+        produced_qty = COALESCE(produced_qty, 0) + p_qty,
+        labor_cost_actual = COALESCE(labor_cost_actual, 0) + v_labor_cost,
         qc_verified = NULL -- ✅ يتم وضع علامة على المرحلة بأنها تحتاج لفحص جودة (NULL يعني قيد الانتظار)
     WHERE id = p_progress_id AND status = 'active'; -- تحديث فقط إذا كانت قيد التشغيل
 
@@ -804,7 +803,7 @@ BEGIN
         FROM public.mfg_step_materials
         WHERE step_id = v_step.step_id
     LOOP
-        v_usage_qty := v_mat.quantity_required * p_qty;
+        v_usage_qty := v_mat.quantity_required * p_qty; -- احتساب استهلاك المواد للكمية الجديدة المضافة فقط
 
         -- 🚀 حساب التكلفة بناءً على الكمية المحولة للوحدة الأساسية (Base UoM)
         v_mat_total_cost := v_mat_total_cost + (
@@ -813,12 +812,18 @@ BEGIN
         );
 
         -- ب. تسجيل الاستهلاك الفعلي (بدون تكرار الخصم من المخزن هنا إذا كان هناك MR)
+        -- نستخدم فلترة تاريخ الإنشاء لمنع تكرار احتساب نفس التالف في استهلاك الكميات المضافة لاحقاً
         INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, uom_id, organization_id)
         VALUES (
             p_progress_id,
             v_mat.raw_material_id,
             v_usage_qty,
-            v_usage_qty + COALESCE((SELECT SUM(quantity) FROM public.mfg_scrap_logs WHERE order_progress_id = p_progress_id AND product_id = v_mat.raw_material_id), 0),
+            v_usage_qty + COALESCE((
+                SELECT SUM(quantity) FROM public.mfg_scrap_logs 
+                WHERE order_progress_id = p_progress_id 
+                AND product_id = v_mat.raw_material_id
+                AND created_at > COALESCE((SELECT MAX(created_at) FROM public.mfg_actual_material_usage WHERE order_progress_id = p_progress_id), '1970-01-01'::timestamptz)
+            ), 0),
             v_mat.uom_id,
             v_org_id
         );
@@ -1448,7 +1453,7 @@ BEGIN
             WHEN p_status = 'rework' THEN NULL
             ELSE false
         END,
-        status = CASE WHEN p_status = 'rework' THEN 'in_progress' ELSE status END -- تم التعديل: عند إعادة التشغيل، تعود الحالة إلى 'in_progress'
+        status = CASE WHEN p_status = 'rework' THEN 'active' ELSE status END -- تم التعديل: عند إعادة التشغيل، تعود الحالة إلى 'active'
     WHERE id = p_progress_id;
 END; $$;
 
@@ -1874,7 +1879,8 @@ RETURNS TABLE (
     product_name text,
     operation_name text,
     status text,
-    target_qty numeric
+    target_qty numeric,
+    produced_qty numeric
 ) LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public AS $$
 BEGIN
@@ -1886,7 +1892,8 @@ BEGIN
         p.name,
         COALESCE(rs.operation_name, '') as operation_name, -- Ensure operation_name is never NULL
         op.status,
-        po.quantity_to_produce
+        po.quantity_to_produce,
+        COALESCE(op.produced_qty, 0) as produced_qty
     FROM public.mfg_order_progress op
     JOIN public.mfg_production_orders po ON op.production_order_id = po.id
     JOIN public.products p ON po.product_id = p.id

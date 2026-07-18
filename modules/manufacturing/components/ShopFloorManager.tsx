@@ -12,6 +12,7 @@ interface ShopFloorTask {
   operation_name: string;
   status: 'pending' | 'active' | 'completed';
   target_qty: number;
+  produced_qty: number;
 }
 
 interface StepMaterial {
@@ -338,7 +339,8 @@ const ShopFloorManager = () => {
                       onClick={() => {
                         if (task.status === 'active') {
                           setCompleteModalTask(task);
-                          setCompleteQty(task.target_qty.toString());
+                          const remaining = task.target_qty - (task.produced_qty || 0);
+                          setCompleteQty(remaining > 0 ? remaining.toString() : '0');
                         } else {
                           executeProcess(task.progress_id);
                         }
@@ -431,54 +433,61 @@ const ShopFloorManager = () => {
           </div>
         )}
         {/* Complete Task Modal - نافذة إدخال كمية الإكمال */}
-        {completeModalTask && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-              <div className="bg-green-50 p-4 flex justify-between items-center border-b border-green-100">
-                <h2 className="font-bold text-green-800 flex items-center gap-2">
-                  <CheckCircle size={20} className="text-green-600" /> إكمال المرحلة الإنتاجية
-                </h2>
-                <button onClick={() => setCompleteModalTask(null)} className="text-gray-400 hover:text-gray-600">
-                  <X size={20} />
-                </button>
-              </div>
-              <div className="p-6 space-y-4 text-right">
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm space-y-1">
-                  <p><span className="text-slate-500 font-bold">المنتج:</span> {completeModalTask.product_name}</p>
-                  <p><span className="text-slate-500 font-bold">المرحلة:</span> {completeModalTask.operation_name}</p>
-                  <p><span className="text-slate-500 font-bold">الكمية المستهدفة:</span> {completeModalTask.target_qty}</p>
+        {completeModalTask && (() => {
+          const remainingQty = completeModalTask.target_qty - (completeModalTask.produced_qty || 0);
+          return (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="bg-green-50 p-4 flex justify-between items-center border-b border-green-100">
+                  <h2 className="font-bold text-green-800 flex items-center gap-2">
+                    <CheckCircle size={20} className="text-green-600" /> إكمال المرحلة الإنتاجية
+                  </h2>
+                  <button onClick={() => setCompleteModalTask(null)} className="text-gray-400 hover:text-gray-600">
+                    <X size={20} />
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">الكمية المنجزة الفعلية</label>
-                  <input 
-                    type="number" 
-                    value={completeQty}
-                    onChange={(e) => setCompleteQty(e.target.value)}
-                    className="w-full border-gray-200 rounded-lg focus:ring-green-500 focus:border-green-500 border p-2 font-bold text-center"
-                    placeholder="أدخل الكمية الفعلية..."
-                    min="0.01"
-                    step="any"
-                  />
+                <div className="p-6 space-y-4 text-right">
+                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-100 text-sm space-y-1">
+                    <p><span className="text-slate-500 font-bold">المنتج:</span> {completeModalTask.product_name}</p>
+                    <p><span className="text-slate-500 font-bold">المرحلة:</span> {completeModalTask.operation_name}</p>
+                    <p><span className="text-slate-500 font-bold">الكمية المستهدفة الإجمالية:</span> {completeModalTask.target_qty}</p>
+                    {completeModalTask.produced_qty > 0 && (
+                      <p><span className="text-slate-500 font-bold">الكمية المنجزة سابقاً:</span> {completeModalTask.produced_qty}</p>
+                    )}
+                    <p><span className="text-slate-500 font-bold">الكمية المتبقية للاستكمال:</span> {remainingQty}</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">الكمية الحالية المنجزة (الاستكمال)</label>
+                    <input 
+                      type="number" 
+                      value={completeQty}
+                      onChange={(e) => setCompleteQty(e.target.value)}
+                      className="w-full border-gray-200 rounded-lg focus:ring-green-500 focus:border-green-500 border p-2 font-bold text-center"
+                      placeholder="أدخل الكمية الفعلية الحالية..."
+                      min="0.01"
+                      step="any"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="p-4 bg-gray-50 flex gap-3">
-                <button
-                  onClick={() => setCompleteModalTask(null)}
-                  className="flex-1 bg-slate-200 text-slate-700 py-2 rounded-lg font-bold hover:bg-slate-300 transition-colors"
-                >
-                  إلغاء
-                </button>
-                <button
-                  onClick={handleCompleteStep}
-                  disabled={processing || !completeQty || parseFloat(completeQty) <= 0}
-                  className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
-                >
-                  تأكيد وإكمال
-                </button>
+                <div className="p-4 bg-gray-50 flex gap-3">
+                  <button
+                    onClick={() => setCompleteModalTask(null)}
+                    className="flex-1 bg-slate-200 text-slate-700 py-2 rounded-lg font-bold hover:bg-slate-300 transition-colors"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    onClick={handleCompleteStep}
+                    disabled={processing || !completeQty || parseFloat(completeQty) <= 0}
+                    className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 disabled:opacity-50 transition-colors"
+                  >
+                    تأكيد وإكمال
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
