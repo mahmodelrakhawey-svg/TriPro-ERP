@@ -779,9 +779,18 @@ const StockCard = () => {
           if (error) throw error;
 
           await recalculateStock(selectedProductId);
+          const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+          if (orgId) {
+              try {
+                  await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+              } catch (e) {
+                  console.error('Failed to recalculate balances:', e);
+              }
+          }
+          await refreshData();
           await fetchTransactions();
           setIsOpeningModalOpen(false);
-          showToast('تم حذف رصيد أول المدة بنجاح', 'success');
+          showToast('تم حذف رصيد أول المدة بنجاح ✅', 'success');
       } catch (error: any) {
           showToast('خطأ: ' + error.message, 'error');
       } finally {
@@ -794,7 +803,7 @@ const StockCard = () => {
       e.preventDefault();
       if (!selectedProductId || !openingFormData.warehouseId) return;
 
-      const openingValidation = stockCardOpeningBalanceUpdateSchema.safeParse(openingFormData); // Corrected line
+      const openingValidation = stockCardOpeningBalanceUpdateSchema.safeParse(openingFormData);
       if (!openingValidation.success) {
           showToast(openingValidation.error.issues[0].message, 'warning');
           return;
@@ -827,9 +836,18 @@ const StockCard = () => {
           }
 
           await recalculateStock(selectedProductId); // إعادة احتساب الأرصدة للصنف المحدث
+          const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+          if (orgId) {
+              try {
+                  await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+              } catch (e) {
+                  console.error('Failed to recalculate balances:', e);
+              }
+          }
+          await refreshData();
           await fetchTransactions();
           setIsOpeningModalOpen(false);
-          showToast('تم تحديث رصيد أول المدة بنجاح ✅', 'success');
+          showToast('تم تحديث رصيد أول المدة وتجديد أرصدة النظام بنجاح ✅', 'success');
       } catch (error: any) {
           showToast('خطأ: ' + error.message, 'error');
       } finally {

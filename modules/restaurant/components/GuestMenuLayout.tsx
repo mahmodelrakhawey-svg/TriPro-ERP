@@ -5,6 +5,7 @@ import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star,
 import { useToast } from '../../../context/ToastContext';
 import { ModifierSelectionModal } from './Modals/ModifierSelectionModal';
 import type { SelectedModifier } from '../../../types';
+import { getCurrencySymbol } from '../../../utils/constants';
 
 // --- Types ---
 type Product = {
@@ -61,6 +62,7 @@ const GuestMenuLayout = () => {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [tableName, setTableName] = useState<string>('');
   const [restaurantName, setRestaurantName] = useState<string>('');
+  const [currencyCode, setCurrencyCode] = useState<string>('EGP');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   useEffect(() => {
@@ -88,11 +90,13 @@ const GuestMenuLayout = () => {
         setRestaurantName((tableData as any).organization?.name || '');
         const orgId = tableData.organization_id;
 
-        // 2. جلب التصنيفات والمنتجات الخاصة بهذا المطعم فقط
-        const [categoriesRes, productsRes] = await Promise.all([
+        // 2. جلب التصنيفات والمنتجات والعملة الخاصة بهذا المطعم فقط
+        const [categoriesRes, productsRes, settRes] = await Promise.all([
           supabase.from('menu_categories').select('id, name').eq('organization_id', orgId).order('display_order'),
-          supabase.from('products').select('id, name, sales_price, image_url, category_id, offer_price, offer_start_date, offer_end_date, available_modifiers, cost').eq('organization_id', orgId).eq('product_type', 'MANUFACTURED').eq('is_active', true)
+          supabase.from('products').select('id, name, sales_price, image_url, category_id, offer_price, offer_start_date, offer_end_date, available_modifiers, cost').eq('organization_id', orgId).eq('product_type', 'MANUFACTURED').eq('is_active', true),
+          supabase.from('company_settings').select('currency').eq('organization_id', orgId).maybeSingle()
         ]);
+        if (settRes.data?.currency) setCurrencyCode(settRes.data.currency);
 
         if (categoriesRes.error) throw categoriesRes.error;
         if (productsRes.error) throw productsRes.error;
@@ -305,7 +309,7 @@ const GuestMenuLayout = () => {
         ))}
       </main>
 
-      {cart.length > 0 && <FloatingCartButton cart={cart} onOpenCart={() => setIsCartOpen(true)} total={cartTotal} />}
+      {cart.length > 0 && <FloatingCartButton cart={cart} onOpenCart={() => setIsCartOpen(true)} total={cartTotal} currencyCode={currencyCode} />}
 
       <CartModal 
         isOpen={isCartOpen} 
@@ -317,6 +321,7 @@ const GuestMenuLayout = () => {
         onPayOnline={() => { setIsCartOpen(false); setIsPaymentModalOpen(true); }}
         isSending={isSending} 
         total={cartTotal} 
+        currencyCode={currencyCode}
       />
 
       {productForModifiers && (
@@ -337,6 +342,7 @@ const GuestMenuLayout = () => {
         isOpen={isPaymentModalOpen} 
         onClose={() => setIsPaymentModalOpen(false)} 
         total={cartTotal}
+        currencyCode={currencyCode}
         onSuccess={async () => {
             setIsPaymentModalOpen(false);
             await sendOrder(true);
@@ -395,9 +401,10 @@ interface CartModalProps {
   onPayOnline: () => void;
   isSending: boolean;
   total: number;
+  currencyCode?: string;
 }
 
-const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, onUpdateNotes, onSendOrder, onPayOnline, isSending, total }) => {
+const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, onUpdateNotes, onSendOrder, onPayOnline, isSending, total, currencyCode }) => {
     if (!isOpen) return null;
 
     return (
@@ -424,7 +431,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, 
                                         {item.selectedModifiers.map(m => m.name).join(', ')}
                                       </div>
                                     )}
-                                    <p className="font-black text-blue-600 text-sm">{item.unitPrice.toFixed(2)} SAR</p>
+                                    <p className="font-black text-blue-600 text-sm">{item.unitPrice.toFixed(2)} {getCurrencySymbol(currencyCode)}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <button onClick={() => onUpdate(item.localId, -1)} className="bg-red-100 text-red-600 p-2 rounded-full"><Minus size={12} /></button>
@@ -446,7 +453,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, 
                 <div className="p-4 border-t bg-slate-50 space-y-4">
                     <div className="flex justify-between items-center text-lg font-bold mb-2">
                         <span>الإجمالي</span>
-                        <span>{total.toFixed(2)} SAR</span>
+                        <span>{total.toFixed(2)} {getCurrencySymbol(currencyCode)}</span>
                     </div>
                     
                     <div className="grid gap-3">
@@ -472,7 +479,7 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, 
     );
 };
 
-const FloatingCartButton = ({ cart, onOpenCart, total }: { cart: CartItem[], onOpenCart: () => void, total: number }) => {
+const FloatingCartButton = ({ cart, onOpenCart, total, currencyCode }: { cart: CartItem[], onOpenCart: () => void, total: number, currencyCode?: string }) => {
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
@@ -491,7 +498,7 @@ const FloatingCartButton = ({ cart, onOpenCart, total }: { cart: CartItem[], onO
           <span className="font-bold">عرض السلة</span>
         </div>
         <div className="font-black text-lg">
-          {total.toFixed(2)} SAR
+          {total.toFixed(2)} {getCurrencySymbol(currencyCode)}
         </div>
       </button>
     </div>
@@ -503,9 +510,10 @@ interface GuestPaymentModalProps {
   onClose: () => void;
   total: number;
   onSuccess: () => void;
+  currencyCode?: string;
 }
 
-const GuestPaymentModal: React.FC<GuestPaymentModalProps> = ({ isOpen, onClose, total, onSuccess }) => {
+const GuestPaymentModal: React.FC<GuestPaymentModalProps> = ({ isOpen, onClose, total, onSuccess, currencyCode }) => {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<'form' | 'success'>('form');
 
@@ -537,7 +545,7 @@ const GuestPaymentModal: React.FC<GuestPaymentModalProps> = ({ isOpen, onClose, 
                 
                 <div className="bg-slate-50 p-4 rounded-xl mb-6 text-center border border-slate-100">
                     <p className="text-slate-500 text-xs font-bold mb-1">المبلغ الإجمالي</p>
-                    <p className="text-3xl font-black text-slate-800">{total.toFixed(2)} SAR</p>
+                    <p className="text-3xl font-black text-slate-800">{total.toFixed(2)} {getCurrencySymbol(currencyCode)}</p>
                 </div>
 
                 <div className="space-y-4 mb-6">
@@ -562,7 +570,7 @@ const GuestPaymentModal: React.FC<GuestPaymentModalProps> = ({ isOpen, onClose, 
 
                 <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white font-bold py-3.5 rounded-xl hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 shadow-lg shadow-blue-200">
                     {loading ? <Loader2 className="animate-spin" /> : <Lock size={18} />}
-                    {loading ? 'جاري المعالجة...' : `دفع ${total.toFixed(2)} SAR`}
+                    {loading ? 'جاري المعالجة...' : `دفع ${total.toFixed(2)} ${getCurrencySymbol(currencyCode)}`}
                 </button>
             </form>
         ) : (

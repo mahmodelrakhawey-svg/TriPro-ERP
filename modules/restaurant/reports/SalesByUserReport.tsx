@@ -138,7 +138,7 @@ const userOrgId = session?.user?.user_metadata?.org_id;
                 {reportData.length === 0 && !loading && (<tr><td colSpan={4} className="p-8 text-center text-slate-400 font-bold">لا توجد عمليات بيع مسجلة لهذا المستخدم خلال الفترة</td></tr>)}
             </tbody>
             <tfoot className="bg-slate-100 font-bold text-lg border-t border-slate-200">
-                <tr><td colSpan={2} className="p-4 text-left text-slate-600">الإجمالي الكلي:</td><td className="p-4 text-center text-blue-700">{totalOrders.toLocaleString()}</td><td className="p-4 text-center text-emerald-700">{totalSales.toLocaleString(undefined, { minimumFractionDigits: 2 })} {settings?.currency || 'SAR'}</td></tr>
+                <tr><td colSpan={2} className="p-4 text-left text-slate-600">الإجمالي الكلي:</td><td className="p-4 text-center text-blue-700">{totalOrders.toLocaleString()}</td><td className="p-4 text-center text-emerald-700">{totalSales.toLocaleString(undefined, { minimumFractionDigits: 2 })} {settings?.currency || 'EGP'}</td></tr>
             </tfoot>
         </table>
       </div>

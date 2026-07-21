@@ -59,17 +59,20 @@ const IncomeStatement = () => {
   }, [startDate, endDate, accounts, currentUser]); // إضافة الاعتمادات الناقصة
 
   const reportData = useMemo(() => {
-    // 1. تحديد حسابات الإيرادات والمصروفات
+    // 1. تحديد حسابات الإيرادات والمصروفات حصراً (استبعاد الأصول والخصوم والحقوق)
     const pnlAccounts = accounts.filter(a => {
+      const code = String(a.code || '');
+      if (code.startsWith('1') || code.startsWith('2') || code.startsWith('3')) {
+        return false; // استبعاد كامل للأصول والخصوم وحقوق الملكية
+      }
       const type = (a.type || '').toLowerCase();
       return (
+        code.startsWith('4') || 
+        code.startsWith('5') ||
         type.includes('revenue') || 
         type.includes('expense') || 
         type.includes('إيراد') || 
-        type.includes('مصروف') || 
-        type.includes('تكلفة') ||
-        a.code.startsWith('4') || 
-        a.code.startsWith('5')
+        type.includes('مصروف')
       );
     });
 
@@ -80,8 +83,6 @@ const IncomeStatement = () => {
         accounts.forEach(acc => {
              const type = String(acc.type || '').toLowerCase();
              const isDebitNature = type.includes('asset') || type.includes('expense') || type.includes('أصول') || type.includes('مصروفات') || type.includes('تكلفة');
-             // في الديمو، الرصيد في السياق موجب دائماً حسب الطبيعة.
-             // نحوله إلى (مدين - دائن) ليتوافق مع المنطق أدناه
              if (isDebitNature) {
                  accountBalances[acc.id] = acc.balance || 0;
              } else {
@@ -97,7 +98,7 @@ const IncomeStatement = () => {
     }
 
     const revenues: any[] = [];
-    const cogs: any[] = []; // تكلفة البضاعة المباعة
+    const cogs: any[] = []; // تكلفة البضاعة المباعة والتصنيع
     const expenses: any[] = [];
     let totalRevenue = 0;
     let totalCogs = 0;
@@ -108,22 +109,19 @@ const IncomeStatement = () => {
       if (Math.abs(balance) < 0.0001) return;
 
       const type = (acc.type || '').toLowerCase();
-      const isRevenue = type.includes('revenue') || type.includes('إيراد') || acc.code.startsWith('4');
-      // تحديد تكلفة البضاعة المباعة (تبدأ بـ 501 أو تحتوي على كلمة تكلفة)
-      const isCogs = acc.code.startsWith('511') || acc.code.startsWith('501') || acc.name.includes('تكلفة') || acc.name.toLowerCase().includes('cost');
+      const code = String(acc.code || '');
+      const isRevenue = code.startsWith('4') || type.includes('revenue') || type.includes('إيراد');
+      const isCogs = code.startsWith('51') || code.startsWith('501') || acc.name.includes('تكلفة') || acc.name.includes('أجور عمال');
 
       if (isRevenue) {
-        // الإيرادات دائنة، لذا الرصيد (مدين - دائن) سيكون سالباً، نعكسه ليظهر موجب
         const val = -balance; 
         revenues.push({ ...acc, value: val });
         totalRevenue += val;
       } else if (isCogs) {
-        // تكلفة البضاعة (مدينة)
         const val = balance;
         cogs.push({ ...acc, value: val });
         totalCogs += val;
       } else {
-        // المصروفات الأخرى (مدينة)
         const val = balance;
         expenses.push({ ...acc, value: val });
         totalExpense += val;

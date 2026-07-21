@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { Search, Phone, Hash } from 'lucide-react';
+import { getCurrencySymbol } from '../../../../utils/constants';
 
 interface PendingOrder {
   id: string;
@@ -19,7 +20,7 @@ interface Props {
 }
 
 export const PendingOrdersSidebar: React.FC<Props> = ({ onSelectOrder, refreshTrigger }) => {
-  const { currentSelectedOrgId } = useAccounting();
+  const { currentSelectedOrgId, settings } = useAccounting();
   const [orders, setOrders] = useState<PendingOrder[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
@@ -107,7 +108,7 @@ export const PendingOrdersSidebar: React.FC<Props> = ({ onSelectOrder, refreshTr
                       <Phone size={10} /> {order.customer_phone}
                     </div>
                   )}
-                <div className="text-xl font-black text-gray-900">{Number(order.grand_total).toFixed(2)} ر.س</div>
+                <div className="text-xl font-black text-gray-900">{Number(order.grand_total).toFixed(2)} {getCurrencySymbol(settings?.currency)}</div>
                 </div>
                 <div className="text-[10px] text-gray-400 font-medium">
                   {new Date(order.created_at).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' })}

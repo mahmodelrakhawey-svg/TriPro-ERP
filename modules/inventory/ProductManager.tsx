@@ -1,5 +1,5 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers } from 'lucide-react';
+﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -11,6 +11,7 @@ import { ModifierManagement } from '../restaurant/components/Management/Modifier
 import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import { createProductSchema, bulkOfferSchema, bulkPriceUpdateSchema } from '../../utils/validationSchemas';
+import { getCurrencySymbol } from '../../utils/constants';
 
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
@@ -66,6 +67,7 @@ type ProductFormData = {
   sales_account_id: string;
   image_url: string;
   opening_stock: number;
+  opening_warehouse_id?: string;
   category_id: string | null;
   min_stock_level: number;
   requires_serial: boolean;
@@ -82,7 +84,7 @@ type ProductFormData = {
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry } = useAccounting();
+  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry, settings } = useAccounting();
   const { showToast } = useToast();
   
   // نقلنا تعريفات الحالة للأعلى لمنع خطأ TS2448 (Used before declaration)
@@ -255,6 +257,7 @@ const ProductManager = () => {
     sales_account_id: '',
     image_url: '',
     opening_stock: 0,
+    opening_warehouse_id: '',
     category_id: null,
     min_stock_level: 0, // حقل حد الطلب
     requires_serial: false,
@@ -294,6 +297,27 @@ const ProductManager = () => {
       }
     }
   }, [formData.labor_cost, formData.overhead_cost, formData.is_overhead_percentage, formData.product_type, recipeCost]);
+
+  // جلب سجل الرصيد الافتتاحي المسجل مسبقاً للصنف عند التعديل
+  const [existingOpenings, setExistingOpenings] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (editingId && isModalOpen) {
+      supabase
+        .from('opening_inventories')
+        .select('id, quantity, cost, warehouse_id, created_at, warehouses(name)')
+        .eq('product_id', editingId)
+        .then(({ data, error }) => {
+          if (!error && data) {
+            setExistingOpenings(data);
+          } else {
+            setExistingOpenings([]);
+          }
+        });
+    } else {
+      setExistingOpenings([]);
+    }
+  }, [editingId, isModalOpen]);
 
   const handleOpenModal = async (item?: Item) => {
     const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
@@ -369,6 +393,7 @@ const ProductManager = () => {
         sales_account_id: defaultSales,
         image_url: '',
         opening_stock: 0,
+        opening_warehouse_id: warehouses[0]?.id || '',
         category_id: null,
         min_stock_level: 0,
         expiry_date: '',
@@ -718,7 +743,7 @@ const ProductManager = () => {
         const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || null;
         const defaultCogs = getSystemAccount('COGS')?.id || null;
         const defaultSales = getSystemAccount('SALES_REVENUE')?.id || null;
-        const equityAcc = contextAccounts.find(a => a.code === '3999')?.id; // حساب الأرصدة الافتتاحية
+        const equityAcc = getSystemAccount('OPENING_BALANCES')?.id || getSystemAccount('RETAINED_EARNINGS')?.id || contextAccounts.find(a => a.code === '3999')?.id; // حساب الأرصدة الافتتاحية
         const targetWarehouseId = importWarehouseId || (warehouses.length > 0 ? warehouses[0].id : null);
 
         // 1. التأكد من وجود كافة التصنيفات وإنشاء المفقود منها تلقائياً
@@ -846,6 +871,13 @@ const ProductManager = () => {
         }
 
         queryClient.invalidateQueries({ queryKey: ['products'] });
+        if (orgId && successCount > 0) {
+          try {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+          } catch (e) {
+            console.error('Failed to recalculate balances after bulk import', e);
+          }
+        }
         await refreshData();
         showToast(`تمت العملية:\n✅ تم استيراد: ${successCount} منتج\n❌ فشل: ${failCount}`, 'success');
         
@@ -1094,41 +1126,50 @@ const ProductManager = () => {
 
         // إنشاء الرصيد الافتتاحي والقيد
         if (newProduct && formData.product_type === 'STOCK' && formData.opening_stock > 0) {
-            const defaultWarehouseId = warehouses.length > 0 ? warehouses[0].id : null;
-            if (defaultWarehouseId) {
+            const targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
+            if (targetWarehouseId) {
                 await supabase.from('opening_inventories').insert({
                     product_id: newProduct.id,
-                    warehouse_id: defaultWarehouseId,
+                    warehouse_id: targetWarehouseId,
                     quantity: formData.opening_stock,
-                    cost: formData.purchase_price,
+                    cost: formData.purchase_price || 0,
                     organization_id: orgId
                 });
                 
-                // إنشاء القيد المحاسبي يدوياً لضمان ظهوره في دفتر اليومية // Use handleError for consistency
-                const totalValue = formData.opening_stock * formData.purchase_price;
-                const equityAcc = contextAccounts.find(a => a.code === '3999')?.id;
+                // إنشاء القيد المحاسبي يدوياً لضمان ظهوره في دفتر اليومية
+                const totalValue = formData.opening_stock * (formData.purchase_price || 0);
+                const openingEquityAcc = getSystemAccount('OPENING_BALANCES') || getSystemAccount('RETAINED_EARNINGS') || contextAccounts.find(a => a.code === '3999');
+                const equityAccId = openingEquityAcc?.id;
                 const inventoryAcc = formData.inventory_account_id;
 
-                if (totalValue > 0 && inventoryAcc && equityAcc) {
-                     // استخدام نفس المستخدم الذي تم جلبه مسبقاً أو الحالي
-                     const { data: { user } } = await supabase.auth.getUser(); // يمكن تحسينها أيضاً
+                if (totalValue > 0 && inventoryAcc && equityAccId) {
+                     const { data: { user } } = await supabase.auth.getUser();
                      const ref = `MAN-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
 
                      const { data: entry } = await supabase.from('journal_entries').insert({
                           transaction_date: new Date().toISOString().split('T')[0],
                           description: `رصيد افتتاحي - ${newProduct.name}`.substring(0, 255),
                           status: 'posted',
-                          user_id: user?.id || currentUser?.id, // تصحيح اسم العمود
+                          user_id: user?.id || currentUser?.id,
                           organization_id: orgId
                       }).select().single();
 
-                      if (entry) { // Use handleError for consistency
+                      if (entry) {
                           await supabase.from('journal_lines').insert([
                               { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}`, organization_id: orgId },
-                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
+                              { journal_entry_id: entry.id, account_id: equityAccId, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
                           ]);
                       }
                 }
+            }
+
+            // إعادة احتساب أرصدة الحسابات الإجمالية للنظام
+            if (orgId) {
+              try {
+                await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+              } catch (e) {
+                console.error('Failed to recalculate balances', e);
+              }
             }
         }
         
@@ -2125,12 +2166,76 @@ const ProductManager = () => {
                   </div>
               )}
 
-              {/* حقل الرصيد الافتتاحي (يظهر فقط عند الإضافة) */}
+              {/* حقل الرصيد الافتتاحي (يظهر عند الإضافة لصنف مخزني) */}
               {!editingId && (formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (
-                  <div className="bg-slate-50 p-3 rounded-lg border border-slate-200">
-                      <label className="block text-sm font-bold mb-1 text-slate-700">الرصيد الافتتاحي (الكمية)</label>
-                      <input type="number" min="0" value={formData.opening_stock} onChange={e => setFormData({...formData, opening_stock: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="0" />
-                      <p className="text-xs text-slate-500 mt-1">سيتم إنشاء قيد افتتاحي تلقائي (من ح/ المخزون إلى ح/ الأرصدة الافتتاحية) بقيمة (الكمية × التكلفة).</p>
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+                      <h4 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+                          <PackageOpen className="text-emerald-600" size={18} /> الرصيد الافتتاحي الأولي
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">الكمية الافتتاحية</label>
+                              <input 
+                                  type="number" 
+                                  min="0" 
+                                  value={formData.opening_stock} 
+                                  onChange={e => setFormData({...formData, opening_stock: Math.max(0, parseFloat(e.target.value) || 0)})} 
+                                  className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none text-left font-bold text-emerald-700 bg-white" 
+                                  placeholder="0" 
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-bold mb-1 text-slate-700">المستودع المستهدف <span className="text-red-500">*</span></label>
+                              <select 
+                                  className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none bg-white text-slate-700"
+                                  value={formData.opening_warehouse_id || warehouses[0]?.id || ''}
+                                  onChange={e => setFormData({...formData, opening_warehouse_id: e.target.value})}
+                              >
+                                  {warehouses.map(w => (
+                                      <option key={w.id} value={w.id}>{w.name}</option>
+                                  ))}
+                              </select>
+                          </div>
+                      </div>
+                      {formData.opening_stock > 0 && (
+                          <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-lg text-xs text-emerald-800 space-y-1">
+                              <div className="flex justify-between font-bold">
+                                  <span>قيمة القيد الافتتاحي التقديرية:</span>
+                                  <span>{(formData.opening_stock * (formData.purchase_price || 0)).toLocaleString()} {getCurrencySymbol(settings?.currency)}</span>
+                              </div>
+                              <p className="text-[11px] text-emerald-600">
+                                  سيتم إنشاء قيد افتتاحي متزن (من حـ/ المخزون إلى حـ/ الأرصدة الافتتاحية) وتسجيل الرصيد بالمستودع المحدد تلقائياً.
+                              </p>
+                              {formData.purchase_price <= 0 && (
+                                  <p className="text-amber-700 font-bold flex items-center gap-1 text-[11px]">
+                                      <AlertTriangle size={12} /> تنبيه: سعر التكلفة صفر! يفضل تحديد سعر التكلفة لتقييم القيد الافتتاحي بشكل صحيح.
+                                  </p>
+                              )}
+                          </div>
+                      )}
+                  </div>
+              )}
+
+              {/* إذا كان الصنف قيد التعديل، عرض سجل الرصيد الافتتاحي إن وجد */}
+              {editingId && (formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                      <h4 className="font-bold text-slate-700 text-xs flex items-center gap-2">
+                          <PackageOpen className="text-blue-600" size={16} /> سجل الرصيد الافتتاحي المسجل للصنف:
+                      </h4>
+                      {existingOpenings.length > 0 ? (
+                          <div className="space-y-1 text-xs">
+                              {existingOpenings.map((op: any) => (
+                                  <div key={op.id} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-200 text-slate-700">
+                                      <span>المستودع: <strong>{op.warehouses?.name || 'غير محدد'}</strong></span>
+                                      <span>الكمية: <strong className="text-blue-600">{op.quantity}</strong></span>
+                                      <span>التكلفة: <strong>{op.cost}</strong></span>
+                                      <span>الإجمالي: <strong className="text-emerald-600">{(op.quantity * (op.cost || 0)).toLocaleString()} {getCurrencySymbol(settings?.currency)}</strong></span>
+                                  </div>
+                              ))}
+                          </div>
+                      ) : (
+                          <p className="text-xs text-slate-500 italic">لم يتم تسجيل رصيد افتتاحي لهذا الصنف عند إنشائه.</p>
+                      )}
                   </div>
               )}
 

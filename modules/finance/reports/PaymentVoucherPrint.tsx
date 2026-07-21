@@ -13,7 +13,7 @@ export const PaymentVoucherPrint: React.FC<PaymentVoucherPrintProps> = ({ vouche
   const date = voucher.payment_date || voucher.date;
   const partyName = voucher.suppliers?.name || voucher.partyName || '---';
   const notes = voucher.notes || voucher.description || 'سداد مستحقات';
-  const currency = voucher.currency || 'SAR';
+  const currency = voucher.currency || companySettings?.currency || 'EGP';
 
   return (
     <div className="hidden print:block p-8 bg-white text-black rtl w-full" dir="rtl">

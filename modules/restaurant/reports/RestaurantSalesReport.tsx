@@ -116,7 +116,7 @@ const RestaurantSalesReport = () => {
                 ))}
                 {reportData.length === 0 && !loading && (<tr><td colSpan={5} className="p-8 text-center text-slate-400">لا توجد مبيعات خلال هذه الفترة</td></tr>)}
             </tbody>
-            <tfoot className="bg-slate-100 font-bold text-lg border-t border-slate-200"><tr><td colSpan={3} className="p-4 text-left text-slate-600">الإجمالي الكلي:</td><td className="p-4 text-center text-blue-700">{totalQty.toLocaleString()}</td><td className="p-4 text-center text-emerald-700">{totalSales.toLocaleString(undefined, { minimumFractionDigits: 2 })} {settings?.currency || 'SAR'}</td></tr></tfoot>
+            <tfoot className="bg-slate-100 font-bold text-lg border-t border-slate-200"><tr><td colSpan={3} className="p-4 text-left text-slate-600">الإجمالي الكلي:</td><td className="p-4 text-center text-blue-700">{totalQty.toLocaleString()}</td><td className="p-4 text-center text-emerald-700">{totalSales.toLocaleString(undefined, { minimumFractionDigits: 2 })} {settings?.currency || 'EGP'}</td></tr></tfoot>
         </table>
       </div>
     </div>

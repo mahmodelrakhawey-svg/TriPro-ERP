@@ -3,6 +3,7 @@ import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import { X, CreditCard, Banknote, Wallet, CheckCircle2, Loader2, Receipt, Minus, Plus } from 'lucide-react';
+import { getCurrencySymbol } from '../../../../utils/constants';
 
 interface Props {
   orderId: string;
@@ -221,7 +222,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
               {splitMode ? 'مجموع الأصناف المحددة للتحصيل' : 'المبلغ الإجمالي المطلوب'}
             </span>
             <div className="text-5xl font-black text-slate-900 tracking-tight">
-              {Number(currentTotals.total).toFixed(2)} <span className="text-lg">ر.س</span>
+              {Number(currentTotals.total).toFixed(2)} <span className="text-lg">{getCurrencySymbol(settings?.currency)}</span>
             </div>
           </div>
 

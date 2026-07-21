@@ -50,10 +50,12 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
     const subtotalAfterDiscount = subtotal - discountAmount;
     const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
     const subtotalAfterLoyalty = subtotalAfterDiscount - loyaltyDiscountAmount;
-    const tax = subtotalAfterLoyalty * ((parseFloat(settings.vatRate as any) || 15) / 100);
+    const isTaxEnabled = settings?.enableTax !== false && settings?.enable_tax !== false;
+    const vatPercent = isTaxEnabled ? (settings?.vatRate ?? 14) : 0;
+    const tax = subtotalAfterLoyalty * (vatPercent / 100);
     const total = subtotalAfterLoyalty + tax + (order.deliveryFee || 0);
-    return { subtotal, tax, total, discountAmount };
-  }, [order, settings.vatRate]);
+    return { subtotal, tax, total, discountAmount, isTaxEnabled, vatPercent };
+  }, [order, settings.vatRate, settings.enableTax, settings.enable_tax]);
 
   const newItemsTotal = useMemo(() => {
     if (!order || !order.items) return 0;
@@ -136,8 +138,8 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
         {order.deliveryFee && (
           <div className="flex justify-between text-sm"><span className="text-slate-500">رسوم التوصيل</span><span className="font-semibold">{order.deliveryFee.toFixed(2)}</span></div>
         )}
-        <div className="flex justify-between text-sm"><span className="text-slate-500">الضريبة ({settings.vatRate || 15}%)</span><span className="font-semibold">{finalTotals.tax.toFixed(2)}</span></div>
-        <div className="flex justify-between text-lg font-bold text-slate-800"><span>الإجمالي</span><span>{(Number(finalTotals.total) || 0).toFixed(2)} SAR</span></div>
+        <div className="flex justify-between text-sm"><span className="text-slate-500">{finalTotals.isTaxEnabled ? `الضريبة (${finalTotals.vatPercent}%)` : 'الضريبة (معطلة)'}</span><span className="font-semibold">{finalTotals.tax.toFixed(2)}</span></div>
+        <div className="flex justify-between text-lg font-bold text-slate-800"><span>الإجمالي</span><span>{(Number(finalTotals.total) || 0).toFixed(2)} {settings?.currency || 'EGP'}</span></div>
       </div>
       <div className="p-2 border-t flex gap-2">
         <button onClick={onAddDiscount} className="flex-1 text-xs bg-slate-100 text-slate-600 font-bold py-2 rounded-lg hover:bg-slate-200 flex items-center justify-center gap-1"><Percent size={14}/> خصم</button>

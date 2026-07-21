@@ -17,8 +17,9 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
   const discountAmount = order.discount?.type === 'fixed' ? (Number(order.discount.value) || 0) : subtotalWithModifiers * ((Number(order.discount?.value) || 0) / 100);
   const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
   const subtotalAfterDiscount = subtotalWithModifiers - discountAmount - loyaltyDiscountAmount;
-  const taxRate = (settings as any).vatRate || 15;
-  const tax = subtotalAfterDiscount * (taxRate / 100);
+  const isTaxEnabled = (settings as any).enableTax !== false && (settings as any).enable_tax !== false;
+  const taxRate = isTaxEnabled ? ((settings as any).vatRate ?? 14) : 0;
+  const tax = isTaxEnabled ? subtotalAfterDiscount * (taxRate / 100) : 0;
   const total = subtotalAfterDiscount + tax + (order.deliveryFee || 0);
   const date = new Date().toLocaleString('en-GB', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
 
@@ -100,13 +101,15 @@ export const PrintableInvoice = React.forwardRef<HTMLDivElement, PrintableInvoic
             <span className="font-mono">-{loyaltyDiscountAmount.toFixed(2)}</span>
           </div>
         )}
-        <div className="flex justify-between">
-          <span>ضريبة القيمة المضافة ({taxRate}%):</span>
-          <span className="font-mono">{tax.toFixed(2)}</span>
-        </div>
+        {isTaxEnabled && (
+          <div className="flex justify-between">
+            <span>ضريبة القيمة المضافة ({taxRate}%):</span>
+            <span className="font-mono">{tax.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between text-base font-bold border-t border-dashed border-gray-400 pt-1 mt-1">
           <span>الإجمالي النهائي:</span>
-          <span className="font-mono">{total.toFixed(2)} {(settings as any).currency || 'SAR'}</span>
+          <span className="font-mono">{total.toFixed(2)} {(settings as any).currency || 'EGP'}</span>
         </div>
       </div>
 

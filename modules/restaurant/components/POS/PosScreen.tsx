@@ -181,7 +181,7 @@ const ReservationModal = ({ isOpen, onClose, onConfirm, table }: { isOpen: boole
   );
 };
 
-const MenuItemCard = ({ item, onClick }: { item: Product; onClick: () => void }) => (
+const MenuItemCard = ({ item, onClick, currency }: { item: Product; onClick: () => void; currency?: string }) => (
   <div onClick={onClick} className="bg-white border border-slate-200 rounded-lg p-2 text-center cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all h-full flex flex-col justify-between shadow-sm group overflow-hidden">
     <div className="w-full aspect-[4/3] mb-2 bg-slate-50 rounded-md flex items-center justify-center overflow-hidden relative border border-slate-100">
       {(item as any).image_url ? (
@@ -191,7 +191,7 @@ const MenuItemCard = ({ item, onClick }: { item: Product; onClick: () => void })
       )}
     </div>
     <div className="font-semibold text-slate-800 text-sm line-clamp-2">{item.name}</div>
-    <div className="text-sm font-bold text-blue-600 mt-1">{(item.sales_price || (item as any).price || 0).toFixed(2)} <span className="text-xs font-normal text-slate-500">SAR</span></div>
+    <div className="text-sm font-bold text-blue-600 mt-1">{(item.sales_price || (item as any).price || 0).toFixed(2)} <span className="text-xs font-normal text-slate-500">{currency || 'EGP'}</span></div>
   </div>
 );
 
@@ -1469,7 +1469,7 @@ const PosScreen = () => {
             <div className="flex-1 overflow-y-auto">
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                 {menuItems.map(item => (
-                  <MenuItemCard key={item.id} item={item} onClick={() => addItemToOrder(item)} />
+                  <MenuItemCard key={item.id} item={item} onClick={() => addItemToOrder(item)} currency={settings?.currency || 'EGP'} />
                 ))}
               </div>
             </div>

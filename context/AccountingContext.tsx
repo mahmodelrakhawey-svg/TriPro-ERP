@@ -272,9 +272,72 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         if (selectedOrg) setOrganization(selectedOrg);
       }
 
-      // جلب الإعدادات
+      // جلب الإعدادات وتوحيد الحقول
       const { data: sett } = await supabase.rpc('get_current_company_settings', { p_org_id: fetchOrgId }).maybeSingle();
-      setSettings(sett || {});
+      
+      const normalizeSettings = (raw: any) => {
+        if (!raw || typeof raw !== 'object') return {};
+        
+        let vatRateNum = 14;
+        if (raw.vatRate !== undefined && raw.vatRate !== null) {
+          vatRateNum = Number(raw.vatRate);
+        } else if (raw.vat_rate !== undefined && raw.vat_rate !== null) {
+          vatRateNum = Number(raw.vat_rate);
+        }
+        
+        const vatRatePercentage = vatRateNum <= 1 ? vatRateNum * 100 : vatRateNum;
+        const vatRateDecimal = vatRatePercentage / 100;
+
+        const isTaxEnabled = raw.enableTax !== undefined 
+          ? Boolean(raw.enableTax) 
+          : (raw.enable_tax !== undefined ? Boolean(raw.enable_tax) : true);
+
+        const allowNegativeStock = raw.allowNegativeStock !== undefined 
+          ? Boolean(raw.allowNegativeStock) 
+          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : false);
+
+        const preventPriceModification = raw.preventPriceModification !== undefined 
+          ? Boolean(raw.preventPriceModification) 
+          : (raw.prevent_price_modification !== undefined ? Boolean(raw.prevent_price_modification) : false);
+
+        const maxCashDeficitLimit = raw.maxCashDeficitLimit !== undefined 
+          ? Number(raw.maxCashDeficitLimit) 
+          : (raw.max_cash_deficit_limit !== undefined ? Number(raw.max_cash_deficit_limit) : 500);
+
+        const decimalPlaces = raw.decimalPlaces !== undefined
+          ? Number(raw.decimalPlaces)
+          : (raw.decimal_places !== undefined ? Number(raw.decimal_places) : 2);
+
+        const currency = raw.currency || 'EGP';
+
+        return {
+          ...raw,
+          currency,
+          enableTax: isTaxEnabled,
+          enable_tax: isTaxEnabled,
+          vatRate: vatRatePercentage,
+          vat_rate: vatRateDecimal,
+          allowNegativeStock,
+          allow_negative_stock: allowNegativeStock,
+          preventPriceModification,
+          prevent_price_modification: preventPriceModification,
+          maxCashDeficitLimit,
+          max_cash_deficit_limit: maxCashDeficitLimit,
+          decimalPlaces,
+          decimal_places: decimalPlaces,
+          defaultWarehouseId: raw.defaultWarehouseId || raw.default_warehouse_id || '',
+          default_warehouse_id: raw.default_warehouse_id || raw.defaultWarehouseId || '',
+          defaultTreasuryId: raw.defaultTreasuryId || raw.default_treasury_id || '',
+          default_treasury_id: raw.default_treasury_id || raw.defaultTreasuryId || '',
+          productionWarehouseId: raw.productionWarehouseId || raw.production_warehouse_id || '',
+          production_warehouse_id: raw.production_warehouse_id || raw.productionWarehouseId || '',
+          rawMaterialsWarehouseId: raw.rawMaterialsWarehouseId || raw.raw_material_warehouse_id || '',
+          raw_material_warehouse_id: raw.raw_material_warehouse_id || raw.rawMaterialsWarehouseId || '',
+          accountMappings: raw.accountMappings || raw.account_mappings || {}
+        };
+      };
+
+      setSettings(normalizeSettings(sett || {}));
 
       // جلب الحسابات والمستودعات
       const [accs, ents, vchs, ccs, emps, prods, trns, pinvs, invs, sps, cats, usrs, whs, rTables, mCats, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([

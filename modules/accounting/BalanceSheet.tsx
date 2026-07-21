@@ -110,7 +110,10 @@ const BalanceSheet = () => {
       if (acc) {
         const type = (acc.type || '').toLowerCase().trim();
         const code = String(acc.code || '');
-        if (type.includes('revenue') || type.includes('expense') || code.startsWith('4') || code.startsWith('5')) {
+        const isPnl = !code.startsWith('1') && !code.startsWith('2') && !code.startsWith('3') && (
+          code.startsWith('4') || code.startsWith('5') || type.includes('revenue') || type.includes('expense')
+        );
+        if (isPnl) {
           const transactionDate = line.journal_entries?.transaction_date;
           if (transactionDate && transactionDate < currentYearStart) {
             priorPnlSum += (line.debit - line.credit);
