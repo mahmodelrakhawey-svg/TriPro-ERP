@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 
 const TaxReturnReport = () => {
-    const { accounts, getAccountBalanceInPeriod, settings, addEntry } = useAccounting();
+    const { accounts, getAccountBalanceInPeriod, settings, addEntry, addAccount } = useAccounting();
     const { showToast } = useToast();
     const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
     const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
@@ -44,7 +44,9 @@ const TaxReturnReport = () => {
                     return Number(res || 0);
                 };
 
-                const outAmount = extractAmount(outRes);
+                // 🛡️ ضريبة المخرجات التزام بطبيعتها (دائنة)، وبما أن النظام يحسب الرصيد كـ (مدين - دائن)،
+                // فإن الرصيد الدائن للضريبة المحصلة يظهر كقيمة سالبة. لذلك نقوم بعكس الإشارة لعرضها كقيمة موجبة.
+                const outAmount = -extractAmount(outRes);
                 const inAmount = extractAmount(inRes);
 
                 setCalculatedData({
@@ -88,36 +90,62 @@ const TaxReturnReport = () => {
 
     const handleClosePeriod = async () => {
         if (!reportData) return;
-        if (window.confirm('هل أنت متأكد من إغلاق الفترة الضريبية؟\nسيتم إنشاء قيد تسوية آلي يصفر حسابات الضريبة ويرحل الفرق لحساب التسوية (2105).')) {
+        if (window.confirm('هل أنت متأكد من إغلاق الفترة الضريبية؟\nسيتم إنشاء قيد تسوية آلي يصفر حسابات الضريبة ويرحل الفرق لحساب تسوية الضرائب.')) {
             setClosing(true);
             try {
                 let settlementAcc = accounts.find(a => a.code === '2239' || a.code === '2105'); // 2239: تسوية ضرائب (مقترح)
                 if (!settlementAcc) {
-                     showToast('لم يتم العثور على حساب تسوية الضرائب (2239 أو 2105). يرجى إضافته في دليل الحسابات أولاً.', 'error');
-                     setClosing(false);
-                     return;
+                    const targetCode = reportData.outputVatAcc.code.startsWith('223') ? '2239' : '2105';
+                    if (window.confirm(`لم يتم العثور على حساب تسوية الضرائب (${targetCode}). هل تريد إنشاء الحساب تلقائياً للمتابعة؟`)) {
+                        settlementAcc = await addAccount({
+                            code: targetCode,
+                            name: 'حساب تسوية ضريبة القيمة المضافة',
+                            type: 'LIABILITY',
+                            is_group: false,
+                            parent_id: (reportData.outputVatAcc as any).parent_id || null,
+                            is_active: true
+                        });
+                        showToast(`تم إنشاء حساب التسوية (${targetCode}) بنجاح ✅`, 'success');
+                    } else {
+                        setClosing(false);
+                        return;
+                    }
                 }
 
                 const description = `إغلاق الفترة الضريبية من ${startDate} إلى ${endDate}`;
                 const lines = [];
 
-                // 1. إقفال ضريبة المخرجات (هي دائنة بطبيعتها، نقفلها بالمدين)
+                // 1. إقفال ضريبة المخرجات (تصفير رصيد الحساب)
                 if (reportData.outputVatAmount > 0) {
                     lines.push({ 
                         account_id: reportData.outputVatAcc.id, 
                         debit: reportData.outputVatAmount, 
                         credit: 0, 
-                        description: 'إقفال ضريبة المخرجات' 
+                        description: 'إقفال ضريبة المخرجات (مدين لإقفال الدائن)' 
+                    });
+                } else if (reportData.outputVatAmount < 0) {
+                    lines.push({ 
+                        account_id: reportData.outputVatAcc.id, 
+                        debit: 0, 
+                        credit: Math.abs(reportData.outputVatAmount), 
+                        description: 'إقفال ضريبة المخرجات (دائن لإقفال المدين)' 
                     });
                 }
 
-                // 2. إقفال ضريبة المدخلات (هي مدينة بطبيعتها، نقفلها بالدائن)
+                // 2. إقفال ضريبة المدخلات (تصفير رصيد الحساب)
                 if (reportData.inputVatAmount > 0) {
                     lines.push({ 
                         account_id: reportData.inputVatAcc.id, 
                         debit: 0, 
                         credit: reportData.inputVatAmount, 
-                        description: 'إقفال ضريبة المدخلات' 
+                        description: 'إقفال ضريبة المدخلات (دائن لإقفال المدين)' 
+                    });
+                } else if (reportData.inputVatAmount < 0) {
+                    lines.push({ 
+                        account_id: reportData.inputVatAcc.id, 
+                        debit: Math.abs(reportData.inputVatAmount), 
+                        credit: 0, 
+                        description: 'إقفال ضريبة المدخلات (مدين لإقفال الدائن)' 
                     });
                 }
 
