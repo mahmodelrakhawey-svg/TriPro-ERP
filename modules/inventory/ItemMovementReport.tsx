@@ -137,14 +137,93 @@ const ItemMovementReport = () => {
       const { data: transfers } = await transfersQuery;
 
       // 8. جلب حركات التصنيع (Manufacturing)
-      let manufacturingQuery = supabase
+      // أ. المنتج التام (زيادة)
+      let mfgFinishedQuery = supabase
         .from('mfg_production_orders')
         .select('id, order_number, end_date, quantity_to_produce, product_id, warehouse_id, status')
-        .eq('status', 'completed');
-        
-      if (selectedWarehouseId) manufacturingQuery = manufacturingQuery.eq('warehouse_id', selectedWarehouseId);
-      // ملاحظة: نجلب الكل ثم نفلتر حسب الصنف (منتج تام أو مادة خام) لاحقاً لتعقيد العلاقة
-      const { data: workOrders } = await manufacturingQuery;
+        .eq('product_id', selectedProductId)
+        .eq('status', 'completed')
+        .eq('organization_id', userOrgId);
+      if (selectedWarehouseId) mfgFinishedQuery = mfgFinishedQuery.eq('warehouse_id', selectedWarehouseId);
+      const { data: mfgFinished } = await mfgFinishedQuery;
+
+      // ب. المواد الخام المستهلكة فعلياً (نقصان)
+      let mfgActualQuery = supabase
+        .from('mfg_actual_material_usage')
+        .select(`
+          id,
+          actual_quantity,
+          uom_id,
+          created_at,
+          raw_material_id,
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              order_number,
+              warehouse_id
+            )
+          )
+        `)
+        .eq('raw_material_id', selectedProductId)
+        .eq('organization_id', userOrgId);
+      if (selectedWarehouseId) mfgActualQuery = mfgActualQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouseId);
+      const { data: mfgActuals } = await mfgActualQuery;
+      
+      const ordersWithActualUsage = new Set<string>();
+      mfgActuals?.forEach((item: any) => {
+        const po = item.mfg_order_progress?.mfg_production_orders;
+        if (po) ordersWithActualUsage.add(po.id);
+      });
+
+      // ج. صرف خامات بطلب صرف (نقصان) - فقط إذا لم يكن هناك استهلاك فعلي لنفس الأمر
+      let mfgRawQuery = supabase
+        .from('mfg_material_request_items')
+        .select(`
+          quantity_issued,
+          uom_id,
+          raw_material_id,
+          mfg_material_requests!inner(
+            request_number,
+            issue_date,
+            created_at,
+            status,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              warehouse_id
+            )
+          )
+        `)
+        .eq('raw_material_id', selectedProductId)
+        .eq('organization_id', userOrgId)
+        .eq('mfg_material_requests.status', 'issued');
+      if (selectedWarehouseId) mfgRawQuery = mfgRawQuery.eq('mfg_material_requests.mfg_production_orders.warehouse_id', selectedWarehouseId);
+      const { data: mfgRaws } = await mfgRawQuery;
+
+      // د. الهالك الصناعي (نقصان)
+      let mfgScrapQuery = supabase
+        .from('mfg_scrap_logs')
+        .select(`
+          id,
+          quantity,
+          reason,
+          created_at,
+          product_id,
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              warehouse_id
+            )
+          )
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId);
+      if (selectedWarehouseId) mfgScrapQuery = mfgScrapQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouseId);
+      const { data: mfgScraps } = await mfgScrapQuery;
 
       // 9. جلب مبيعات واستهلاك المطاعم (Restaurant Module)
       // أ. البيع المباشر للصنف
@@ -313,22 +392,65 @@ const ItemMovementReport = () => {
       });
 
       // معالجة التصنيع
-      if (workOrders) {
-          // 1. المنتج التام (زيادة)
-          workOrders.filter((wo: any) => wo.product_id === selectedProductId).forEach((wo: any) => {
-              allMovements.push({
-                  date: wo.end_date,
-                  type: 'in',
-                  quantity: wo.quantity_to_produce,
-                  documentType: 'تصنيع (منتج تام)',
-                  documentNumber: wo.order_number,
-                  userName: 'النظام الآلي'
-              });
+      // 1. المنتج التام (زيادة)
+      mfgFinished?.forEach((wo: any) => {
+          allMovements.push({
+              date: wo.end_date || wo.created_at?.split('T')[0],
+              type: 'in',
+              quantity: Number(wo.quantity_to_produce),
+              documentType: 'تصنيع (منتج تام)',
+              documentNumber: wo.order_number,
+              description: `إنتاج تام - مستودع ${getWName(wo.warehouse_id)}`,
+              userName: 'النظام الآلي'
           });
+      });
 
-          // 2. المواد الخام (نقصان) - يتطلب جلب BOM، للتبسيط سنفترض أن هذا التقرير للمنتج التام حالياً
-          // أو يمكن إضافة منطق BOM هنا إذا لزم الأمر.
-      }
+      // 2. المواد الخام المستهلكة فعلياً (نقصان)
+      mfgActuals?.forEach((item: any) => {
+          const po = item.mfg_order_progress?.mfg_production_orders;
+          if (!po) return;
+          allMovements.push({
+              date: item.created_at?.split('T')[0],
+              type: 'out',
+              quantity: Number(item.actual_quantity),
+              documentType: 'استهلاك خامات (إنتاج)',
+              documentNumber: po.order_number,
+              description: 'استهلاك فعلي للمواد بالمرحلة',
+              userName: 'النظام الآلي'
+          });
+      });
+
+      // 3. صرف خامات بطلبات صرف (نقصان)
+      mfgRaws?.forEach((item: any) => {
+          const po = item.mfg_material_requests?.mfg_production_orders;
+          const poId = item.mfg_material_requests?.production_order_id;
+          if (poId && ordersWithActualUsage.has(poId)) {
+              return; // تخطي طلب الصرف لتجنب الازدواجية
+          }
+          allMovements.push({
+              date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at?.split('T')[0],
+              type: 'out',
+              quantity: Number(item.quantity_issued),
+              documentType: 'صرف خامات (إنتاج)',
+              documentNumber: item.mfg_material_requests.request_number,
+              description: 'استهلاك مواد أولية (طلب صرف)',
+              userName: 'النظام الآلي'
+          });
+      });
+
+      // 4. الهالك الصناعي (نقصان)
+      mfgScraps?.forEach((item: any) => {
+          const po = item.mfg_order_progress?.mfg_production_orders;
+          allMovements.push({
+              date: item.created_at?.split('T')[0],
+              type: 'out',
+              quantity: Number(item.quantity),
+              documentType: 'تصنيع (هالك)',
+              documentNumber: '-',
+              description: `هالك صناعي: ${item.reason}`,
+              userName: 'النظام الآلي'
+          });
+      });
 
       // ترتيب الحركات زمنياً
       allMovements.sort((a, b) => {

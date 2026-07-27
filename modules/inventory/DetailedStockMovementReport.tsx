@@ -183,7 +183,7 @@ const DetailedStockMovementReport = () => {
       // أ. المنتج التام (IN)
       let productionInQuery = supabase
         .from('mfg_production_orders')
-        .select('id, order_number, end_date, quantity_to_produce, product_id, warehouse_id, products(name), warehouses(name), notes')
+        .select('id, order_number, end_date, quantity_to_produce, product_id, products(name, base_uom_id, unit), warehouse_id, warehouses(name), notes')
         .eq('organization_id', userOrgId)
         .eq('status', 'completed')
         .gte('end_date', startDate)
@@ -202,54 +202,162 @@ const DetailedStockMovementReport = () => {
           docNumber: item.order_number,
           productName: item.products?.name,
           quantity: item.quantity_to_produce,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
           warehouseName: item.warehouses?.name,
-          notes: item.notes
+          notes: item.notes || 'إغلاق أمر إنتاج'
         });
       });
 
-      // ب. المواد الخام (OUT)
-      let productionOutQuery = supabase
-        .from('mfg_production_orders')
-        .select('id, order_number, end_date, quantity_to_produce, product_id, warehouse_id, warehouses(name), notes')
+      // ب. المواد الخام المستهلكة فعلياً (OUT)
+      let mfgActualQuery = supabase
+        .from('mfg_actual_material_usage')
+        .select(`
+          id,
+          actual_quantity,
+          uom_id,
+          created_at,
+          raw_material_id,
+          products:raw_material_id(name, base_uom_id, unit),
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              order_number,
+              warehouse_id,
+              warehouses(name)
+            )
+          )
+        `)
         .eq('organization_id', userOrgId)
-        .eq('status', 'completed')
-        .gte('end_date', startDate)
-        .lte('end_date', endDate);
+        .gte('created_at', `${startDate}T00:00:00`)
+        .lte('created_at', `${endDate}T23:59:59`);
+
+      if (selectedProduct) mfgActualQuery = mfgActualQuery.eq('raw_material_id', selectedProduct);
+      if (selectedWarehouse) mfgActualQuery = mfgActualQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouse);
+
+      const { data: mfgActuals } = await mfgActualQuery;
+      const ordersWithActualUsage = new Set<string>();
       
-      if (selectedWarehouse) productionOutQuery = productionOutQuery.eq('warehouse_id', selectedWarehouse);
-      
-      const { data: productionOut } = await productionOutQuery;
-      
-      if (productionOut && productionOut.length > 0) {
-          const productIds = [...new Set(productionOut.map((wo: any) => wo.product_id))];
-          
-          const { data: boms } = await supabase
-            .from('bill_of_materials')
-            .select('product_id, raw_material_id, quantity_required, products:raw_material_id(name)')
-            .in('product_id', productIds);
-            
-          if (boms) {
-              productionOut.forEach((wo: any) => {
-                  const productBoms = boms.filter((b: any) => b.product_id === wo.product_id);
-                  productBoms.forEach((bom: any) => {
-                      if (selectedProduct && bom.raw_material_id !== selectedProduct) return;
-                      
-                      const consumedQty = wo.quantity_to_produce * bom.quantity_required;
-                      allMovements.push({
-                          id: `MFG-OUT-${wo.id}-${bom.raw_material_id}`,
-                          date: wo.end_date,
-                          type: 'OUT',
-                          docType: 'تصنيع (مواد خام)',
-                          docNumber: wo.order_number,
-                          productName: bom.products?.name,
-                          quantity: consumedQty,
-                          warehouseName: wo.warehouses?.name,
-                          notes: wo.notes
-                      });
-                  });
-              });
-          }
-      }
+      mfgActuals?.forEach((item: any) => {
+        const po = item.mfg_order_progress?.mfg_production_orders;
+        if (!po) return;
+        ordersWithActualUsage.add(po.id);
+        
+        allMovements.push({
+          id: `MFG-ACTUAL-${item.id}`,
+          date: item.created_at.split('T')[0],
+          type: 'OUT',
+          docType: 'استهلاك خامات (إنتاج)',
+          docNumber: po.order_number,
+          productName: item.products?.name,
+          quantity: item.actual_quantity,
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
+          warehouseName: po.warehouses?.name || 'المستودع الرئيسي',
+          notes: 'استهلاك فعلي للمواد بالمرحلة'
+        });
+      });
+
+      // ج. صرف خامات بطلبات صرف (فقط في حال عدم وجود استهلاك فعلي لنفس الأمر)
+      let mfgRawQuery = supabase
+        .from('mfg_material_request_items')
+        .select(`
+          quantity_issued,
+          uom_id,
+          raw_material_id,
+          products:raw_material_id(name, base_uom_id, unit),
+          mfg_material_requests!inner(
+            request_number,
+            issue_date,
+            created_at,
+            status,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              warehouse_id,
+              warehouses(name)
+            )
+          )
+        `)
+        .eq('organization_id', userOrgId)
+        .eq('mfg_material_requests.status', 'issued')
+        .gte('mfg_material_requests.issue_date', startDate)
+        .lte('mfg_material_requests.issue_date', endDate);
+
+      if (selectedProduct) mfgRawQuery = mfgRawQuery.eq('raw_material_id', selectedProduct);
+      if (selectedWarehouse) mfgRawQuery = mfgRawQuery.eq('mfg_material_requests.mfg_production_orders.warehouse_id', selectedWarehouse);
+
+      const { data: mfgRaws } = await mfgRawQuery;
+      mfgRaws?.forEach((item: any) => {
+        const po = item.mfg_material_requests?.mfg_production_orders;
+        const poId = item.mfg_material_requests?.production_order_id;
+        if (poId && ordersWithActualUsage.has(poId)) {
+          return; // تخطي طلب الصرف لتجنب الازدواجية
+        }
+        
+        allMovements.push({
+          id: `MFG-OUT-REQ-${item.mfg_material_requests.request_number}-${item.raw_material_id}`,
+          date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at.split('T')[0],
+          type: 'OUT',
+          docType: 'صرف خامات (إنتاج)',
+          docNumber: item.mfg_material_requests.request_number,
+          productName: item.products?.name,
+          quantity: item.quantity_issued,
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
+          warehouseName: po?.warehouses?.name || 'المستودع الرئيسي',
+          notes: 'استهلاك مواد أولية (طلب صرف)'
+        });
+      });
+
+      // د. الهالك الصناعي (OUT)
+      let mfgScrapQuery = supabase
+        .from('mfg_scrap_logs')
+        .select(`
+          id,
+          quantity,
+          reason,
+          created_at,
+          product_id,
+          products(name, base_uom_id, unit),
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              warehouse_id,
+              warehouses(name)
+            )
+          )
+        `)
+        .eq('organization_id', userOrgId)
+        .gte('created_at', `${startDate}T00:00:00`)
+        .lte('created_at', `${endDate}T23:59:59`);
+
+      if (selectedProduct) mfgScrapQuery = mfgScrapQuery.eq('product_id', selectedProduct);
+      if (selectedWarehouse) mfgScrapQuery = mfgScrapQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouse);
+
+      const { data: mfgScraps } = await mfgScrapQuery;
+      mfgScraps?.forEach((item: any) => {
+        const po = item.mfg_order_progress?.mfg_production_orders;
+        allMovements.push({
+          id: `MFG-SCRAP-${item.id}`,
+          date: item.created_at.split('T')[0],
+          type: 'OUT',
+          docType: 'تصنيع (هالك)',
+          docNumber: '-',
+          productName: item.products?.name,
+          quantity: item.quantity,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
+          warehouseName: po?.warehouses?.name || 'المستودع الرئيسي',
+          notes: `هالك صناعي: ${item.reason}`
+        });
+      });
 
       // 6. التسويات المخزنية (Stock Adjustments) - تشمل تسويات الجرد واليدوية
       let adjustmentsQuery = supabase

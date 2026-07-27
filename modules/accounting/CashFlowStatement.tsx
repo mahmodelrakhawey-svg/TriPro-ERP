@@ -118,7 +118,7 @@ const CashFlowStatement = () => {
 
         // تحسين منطق تحديد الأصول الثابتة
         const fixedAssetKeywords = ['سيارات', 'cars', 'vehicles', 'مباني', 'buildings', 'أراضي', 'land', 'أثاث', 'furniture', 'معدات', 'equipment', 'أجهزة', 'devices', 'أصول ثابتة', 'fixed assets', 'machinery', 'آلات', 'تجهيزات', 'وسائل النقل', 'transport', 'انتقال'];
-        const currentAssetKeywords = ['ضريبة', 'vat', 'tax', 'سلف', 'advances', 'عهدة', 'custody', 'مخزون', 'inventory', 'stock', 'عملاء', 'customers', 'receivable', 'أرصدة مدينة', 'أوراق القبض', 'شيكات تحت التحصيل'];
+        const currentAssetKeywords = ['ضريبة', 'vat', 'tax', 'سلف', 'advances', 'عهدة', 'custody', 'مخزون', 'inventory', 'stock', 'عملاء', 'customers', 'receivable', 'أرصدة مدينة', 'أوراق القبض', 'شيكات تحت التحصيل', 'مقدم', 'prepaid', 'مستحق', 'accrued', 'تأمين'];
 
         const hasFixedKeyword = fixedAssetKeywords.some(k => name.includes(k));
         const hasCurrentKeyword = currentAssetKeywords.some(k => name.includes(k));

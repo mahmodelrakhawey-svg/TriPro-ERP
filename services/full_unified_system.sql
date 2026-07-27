@@ -644,6 +644,21 @@ BEGIN
                 bl.quantity as qty
             FROM public.mfg_byproducts_logs bl
             WHERE (v_final_org IS NULL OR bl.organization_id = v_final_org)
+            
+            UNION ALL
+            -- 🛡️ هالك تصنيع (-)
+            SELECT 
+                sl.product_id,
+                COALESCE(
+                    (SELECT po.warehouse_id 
+                     FROM public.mfg_order_progress op 
+                     JOIN public.mfg_production_orders po ON op.production_order_id = po.id 
+                     WHERE op.id = sl.order_progress_id LIMIT 1),
+                    (SELECT id FROM public.warehouses WHERE organization_id = v_final_org LIMIT 1)
+                ) as warehouse_id,
+                -sl.quantity as qty
+            FROM public.mfg_scrap_logs sl
+            WHERE (v_final_org IS NULL OR sl.organization_id = v_final_org)
             UNION ALL
             -- استهلاك خامات (-)
             SELECT amu.raw_material_id, po.warehouse_id, -public.uom_convert(amu.actual_quantity, amu.uom_id, p.base_uom_id)
