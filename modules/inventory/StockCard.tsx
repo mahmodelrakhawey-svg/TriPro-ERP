@@ -145,7 +145,24 @@ const StockCard = () => {
       // إضافة استعلامات مديول التصنيع
       let queryMfgFinished = supabase.from('mfg_production_orders').select('id, order_number, end_date, quantity_to_produce, warehouse_id, created_at, status').eq('product_id', selectedProductId).eq('status', 'completed');
       let queryMfgRaw = supabase.from('mfg_material_request_items').select('quantity_issued, uom_id, mfg_material_requests!inner(request_number, issue_date, created_at, status, production_order_id, mfg_production_orders(warehouse_id))').eq('raw_material_id', selectedProductId).eq('mfg_material_requests.status', 'issued');
-      let queryMfgScrap = supabase.from('mfg_scrap_logs').select('id, quantity, reason, created_at').eq('product_id', selectedProductId);
+      let queryMfgScrap = supabase.from('mfg_scrap_logs')
+        .select(`
+          id,
+          quantity,
+          reason,
+          created_at,
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              order_number,
+              warehouse_id,
+              created_at
+            )
+          )
+        `)
+        .eq('product_id', selectedProductId);
       let queryMfgActual = supabase.from('mfg_actual_material_usage')
         .select(`
           id,
@@ -261,6 +278,9 @@ const StockCard = () => {
 
       // معالجة التصنيع - منتج تام وارد
       mfgFin.data?.forEach((item: any) => {
+        if (selectedWarehouseId && item.warehouse_id !== selectedWarehouseId) {
+          return;
+        }
         allTxns.push({
           id: `MFG-IN-${item.id}`,
           date: item.end_date || item.created_at.split('T')[0],
@@ -332,6 +352,13 @@ const StockCard = () => {
 
       // معالجة التصنيع - الهالك (صادر)
       mfgScrap.data?.forEach((item: any) => {
+        const po = item.mfg_order_progress?.mfg_production_orders;
+        const warehouseId = po?.warehouse_id;
+
+        if (selectedWarehouseId && warehouseId !== selectedWarehouseId) {
+          return;
+        }
+
         allTxns.push({
           id: `MFG-SCRAP-${item.id}`,
           date: item.created_at.split('T')[0],
@@ -339,9 +366,10 @@ const StockCard = () => {
           quantity: item.quantity,
           uomId: null,
           documentType: 'تصنيع (هالك)',
-          documentNumber: '-',
+          documentNumber: po?.order_number || '-',
+          warehouseName: getWName(warehouseId),
           createdAt: item.created_at,
-          notes: `هالك صناعي: ${item.reason}`
+          notes: `هالك صناعي: ${item.reason || ''}`
         });
       });
 
