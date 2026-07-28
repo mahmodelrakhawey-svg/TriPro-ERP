@@ -23,7 +23,7 @@ interface StepMaterial {
 }
 
 const ShopFloorManager = () => {
-  const { organization } = useOrg();
+  const { organization, refreshData } = useOrg();
   const orgId = organization?.id;
   const { showToast } = useToast();
   const [tasks, setTasks] = useState<ShopFloorTask[]>([]);
@@ -152,6 +152,7 @@ const ShopFloorManager = () => {
       setScrapReason('');
       setScrapIsAbnormal(false);
       fetchTasks();
+      refreshData();
     }
     setProcessing(false);
   };
@@ -171,6 +172,7 @@ const ShopFloorManager = () => {
       setCompleteModalTask(null);
       setCompleteQty('');
       fetchTasks();
+      refreshData();
     }
     setProcessing(false);
   };
@@ -507,7 +509,10 @@ const ShopFloorManager = () => {
             isOpen={!!byProductModalTask}
             onClose={() => setByProductModalTask(null)}
             progressId={byProductModalTask.progress_id}
-            onSuccess={fetchTasks}
+            onSuccess={() => {
+              fetchTasks();
+              refreshData();
+            }}
           />
         )}
       </div>
