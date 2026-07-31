@@ -4,27 +4,31 @@ import { HeartTwoTone, MedicineBoxOutlined, UserAddOutlined, PlusCircleOutlined,
 import { Users } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { himsService } from '@/services/himsService';
+import { useAuth } from '@/context/AuthContext';
 
 const { Option } = Select;
 
 export const BloodBankDashboard: React.FC = () => {
+  const { currentUser } = useAuth();
   const [inventory, setInventory] = useState<any[]>([]);
   const [donors, setDonors] = useState<any[]>([]);
   const [isDonorModalVisible, setIsDonorModalOpen] = useState(false);
   const [form] = Form.useForm();
 
   const fetchStock = async () => {
+    if (!currentUser?.organization_id) return;
     const { data } = await supabase
       .from('hims_blood_donations')
       .select('*')
-      .eq('status', 'available');
+      .eq('status', 'available')
+      .eq('organization_id', currentUser.organization_id);
     setInventory(data || []);
 
-    const donorData = await himsService.getDonors();
+    const donorData = await himsService.getDonors(currentUser.organization_id);
     setDonors(donorData || []);
   };
 
-  useEffect(() => { fetchStock(); }, []);
+  useEffect(() => { fetchStock(); }, [currentUser?.organization_id]);
 
   const handleAddDonor = async (values: any) => {
     try {

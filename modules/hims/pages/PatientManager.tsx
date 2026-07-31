@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2 } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
+import { scanNationalID } from '@/services/geminiService';
 import { useToast } from '../../../context/ToastContext';
 import { usePagination } from '../../../components/usePagination';
 import { Modal, Form, Select, Input, Button } from 'antd';
@@ -137,22 +138,26 @@ const PatientManager = () => {
 
     setIsScanning(true);
     try {
-      // محاكاة معالجة الذكاء الاصطناعي لاستخراج البيانات
-      // في البيئة الحقيقية، يتم إرسال الصورة لـ Gemini Vision API أو Tesseract.js
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // بيانات افتراضية مستخرجة (مثال لما سيقوم به المحرك)
-      const extracted = {
-        full_name: 'محمود عبد الرحمن السيد',
-        national_id: '29005151234567',
-        dob: '1990-05-15',
-        gender: 'male' as const,
-        phone: '01012345678'
-      };
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => {
+          const result = reader.result as string;
+          const base64Data = result.split(',')[1];
+          resolve(base64Data);
+        };
+        reader.onerror = (error) => reject(error);
+      });
+      reader.readAsDataURL(file);
+      const base64Data = await base64Promise;
+
+      const extracted = await scanNationalID(base64Data, file.type);
 
       setFormData(prev => ({
         ...prev,
-        ...extracted
+        full_name: extracted.full_name || '',
+        national_id: extracted.national_id || '',
+        dob: extracted.dob || '',
+        gender: extracted.gender || 'male'
       }));
 
       showToast('تم مسح البطاقة واستخراج البيانات آلياً بنجاح ✅', 'success');

@@ -34,16 +34,17 @@ export const HIMSExecutiveDashboard: React.FC = () => {
           forecast_data: data.cashflowForecast?.forecast_data || []
         }
       });
+      
+      const breakdown = data.revenueBreakdown || { pharmacy: 0, services: 0, accommodation: 0 };
+      const totalBreakdown = (breakdown.pharmacy || 0) + (breakdown.services || 0) + (breakdown.accommodation || 0);
+      setCostDistribution([
+        { name: 'الأدوية', value: totalBreakdown > 0 ? Math.round((breakdown.pharmacy / totalBreakdown) * 100) : 0 },
+        { name: 'الخدمات الطبية', value: totalBreakdown > 0 ? Math.round((breakdown.services / totalBreakdown) * 100) : 0 },
+        { name: 'الإقامة', value: totalBreakdown > 0 ? Math.round((breakdown.accommodation / totalBreakdown) * 100) : 0 }
+      ]);
     } else if (error) {
       message.error('فشل جلب إحصائيات الإدارة: ' + error.message);
     }
-
-    // توزيع التكاليف المعياري (يمكن تحويله لبيانات حقيقية لاحقاً من v_hims_revenue_breakdown)
-    setCostDistribution([
-      { name: 'الأدوية', value: 35 },
-      { name: 'الخدمات', value: 45 },
-      { name: 'الإقامة', value: 20 }
-    ]);
 
     setLoading(false);
   };
@@ -66,7 +67,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
               value={stats.dailyRevenue} 
               prefix={<DollarOutlined className="text-emerald-500" />} 
               suffix="EGP" 
-              valueStyle={{ fontWeight: 900 }}
+              styles={{ content: { fontWeight: 900 } }}
             />
           </Card>
         </Col>
@@ -77,7 +78,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
               value={stats.insuranceReceivables} 
               prefix={<RiseOutlined className="text-blue-500" />} 
               suffix="EGP"
-              valueStyle={{ color: '#1d4ed8', fontWeight: 900 }}
+              styles={{ content: { color: '#1d4ed8', fontWeight: 900 } }}
             />
           </Card>
         </Col>
@@ -144,12 +145,21 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         <Col span={8}>
           <Card title="توزيع التكاليف" className="rounded-3xl shadow-sm border-none">
              <div className="space-y-4">
-               <div className="flex justify-between"><span>الأدوية</span><Tag color="green">35%</Tag></div>
-               <Progress percent={35} showInfo={false} strokeColor="#10b981" />
-               <div className="flex justify-between"><span>الخدمات الطبية</span><Tag color="blue">45%</Tag></div>
-               <Progress percent={45} showInfo={false} strokeColor="#3b82f6" />
-               <div className="flex justify-between"><span>الإقامة</span><Tag color="orange">20%</Tag></div>
-               <Progress percent={20} showInfo={false} strokeColor="#f59e0b" />
+               {(() => {
+                 const medsVal = costDistribution.find(d => d.name === 'الأدوية')?.value || 0;
+                 const servVal = costDistribution.find(d => d.name === 'الخدمات الطبية')?.value || 0;
+                 const stayVal = costDistribution.find(d => d.name === 'الإقامة')?.value || 0;
+                 return (
+                   <>
+                     <div className="flex justify-between"><span>الأدوية</span><Tag color="green">{medsVal}%</Tag></div>
+                     <Progress percent={medsVal} showInfo={false} strokeColor="#10b981" />
+                     <div className="flex justify-between"><span>الخدمات الطبية</span><Tag color="blue">{servVal}%</Tag></div>
+                     <Progress percent={servVal} showInfo={false} strokeColor="#3b82f6" />
+                     <div className="flex justify-between"><span>الإقامة</span><Tag color="orange">{stayVal}%</Tag></div>
+                     <Progress percent={stayVal} showInfo={false} strokeColor="#f59e0b" />
+                   </>
+                 );
+               })()}
              </div>
           </Card>
         </Col>

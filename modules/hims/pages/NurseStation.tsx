@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Tag, Row, Col, Progress, Badge, Tooltip, Empty, Modal, Form, Input, message, List, Button, Tabs, Typography } from 'antd';
 import { HeartOutlined, MedicineBoxOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined, FormOutlined, AlertOutlined, DesktopOutlined } from '@ant-design/icons';
+import { useAuth } from '@/context/AuthContext';
 
 const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () => void; onSuccess: () => void }> = ({ visible, visitId, onCancel, onSuccess }) => {
   const [form] = Form.useForm();
@@ -90,32 +91,46 @@ const MedicationMARModal: React.FC<{ visible: boolean; visitId: string; onCancel
 };
 
 export const NurseStation: React.FC = () => {
+  const { currentUser } = useAuth();
   const [beds, setBeds] = useState<any[]>([]);
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<string | null>(null);
   const [marVisit, setMarVisit] = useState<string | null>(null);
 
-  useEffect(() => {
-    const sub = supabase.channel('bed-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_beds' }, fetchBeds)
-      .subscribe();
-    fetchBeds();
-    fetchTasks();
-    return () => { supabase.removeChannel(sub) };
-  }, []);
-
   const fetchBeds = async () => {
+    if (!currentUser?.organization_id) return;
     const { data } = await supabase
       .from('hims_beds')
       .select('*, hims_patients(id, full_name, blood_type), hims_wards(name)')
+      .eq('organization_id', currentUser.organization_id)
       .order('bed_number', { ascending: true });
     
     setBeds(data || []);
   };
+  
   const fetchTasks = async () => {
-    const { data } = await supabase.from('v_hims_overdue_nurse_tasks').select('*');
+    if (!currentUser?.organization_id) return;
+    const { data } = await supabase
+      .from('v_hims_overdue_nurse_tasks')
+      .select('*')
+      .eq('organization_id', currentUser.organization_id);
     setPendingTasks(data || []);
   };
+
+  useEffect(() => {
+    if (!currentUser?.organization_id) return;
+    const sub = supabase.channel('bed-updates')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'hims_beds',
+        filter: `organization_id=eq.${currentUser.organization_id}`
+      }, fetchBeds)
+      .subscribe();
+    fetchBeds();
+    fetchTasks();
+    return () => { supabase.removeChannel(sub) };
+  }, [currentUser?.organization_id]);
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen rtl text-right">

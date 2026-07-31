@@ -178,8 +178,25 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
       orgId = vData?.organization_id;
     }
 
+    // تنظيف الأدوية: فلترة أي صنف لم يتم تحديد الدواء فيه (تجنب أخطاء UUID)
+    const cleanedMeds = (data.medications || [])
+      .filter((m: any) => m.product_id && m.product_id.trim() !== '')
+      .map((m: any) => ({
+        product_id: m.product_id,
+        drug_name: m.drug_name,
+        qty: Number(m.qty) || 1,
+        dosage: m.dosage || '',
+        frequency: m.frequency || ''
+      }));
+
+    if (cleanedMeds.length === 0) {
+      return message.warning("يرجى إضافة دواء واحد على الأقل وتحديده من القائمة بشكل صحيح ⚠️");
+    }
+
     const payload = {
-        ...data,
+        visit_id: data.visit_id,
+        diagnosis: data.diagnosis,
+        medications: cleanedMeds,
         organization_id: orgId
     };
 

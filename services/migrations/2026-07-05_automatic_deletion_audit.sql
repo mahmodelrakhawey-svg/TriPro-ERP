@@ -12,6 +12,11 @@ DECLARE
     v_org_id uuid;
     v_item_name text;
 BEGIN
+    -- 0. التحقق مما إذا كان النظام في وضع الاستعادة أو حذف منظمة لمنع أخطاء القيود المرجعية
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN OLD;
+    END IF;
+
     -- أ. تحديد اسم وتفاصيل العنصر المحذوف بناءً على الجدول المستهدف
     CASE TG_TABLE_NAME
         WHEN 'accounts' THEN

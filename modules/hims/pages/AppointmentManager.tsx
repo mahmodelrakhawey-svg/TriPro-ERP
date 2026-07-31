@@ -273,17 +273,17 @@ export const AppointmentManager: React.FC = () => {
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card className="rounded-2xl border-none shadow-sm bg-white">
-            <Statistic title="مجدول (انتظار حضور)" value={stats.scheduled} valueStyle={{ color: '#1890ff' }} />
+            <Statistic title="مجدول (انتظار حضور)" value={stats.scheduled} styles={{ content: { color: '#1890ff' } }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card className="rounded-2xl border-none shadow-sm bg-white">
-            <Statistic title="حضر / في الكشف" value={stats.arrived} valueStyle={{ color: '#faad14' }} />
+            <Statistic title="حضر / في الكشف" value={stats.arrived} styles={{ content: { color: '#faad14' } }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card className="rounded-2xl border-none shadow-sm bg-white">
-            <Statistic title="حالات مكتملة" value={stats.completed} valueStyle={{ color: '#52c41a' }} prefix={<CheckCircleOutlined />} />
+            <Statistic title="حالات مكتملة" value={stats.completed} styles={{ content: { color: '#52c41a' } }} prefix={<CheckCircleOutlined />} />
           </Card>
         </Col>
       </Row>

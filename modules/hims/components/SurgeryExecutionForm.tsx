@@ -19,24 +19,39 @@ export const SurgeryExecutionForm: React.FC<Props> = ({ surgeryId, visible, onCa
   const [barcodeInput, setBarcodeInput] = useState('');
   const [consumables, setConsumables] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [surgeryPrice, setSurgeryPrice] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       if (!currentUser?.organization_id) return;
       
-      // جلب المستودعات والمنتجات في وقت واحد لتحسين الأداء (SaaS logic)
-      const [whRes, prdRes] = await Promise.all([
+      // جلب المستودعات والمنتجات وتفاصيل العملية في وقت واحد لتحسين الأداء (SaaS logic)
+      const [whRes, prdRes, surgRes] = await Promise.all([
         supabase.from('warehouses').select('id, name').eq('organization_id', currentUser.organization_id),
-        supabase.from('products').select('id, name, stock, barcode, sku').eq('organization_id', currentUser.organization_id).gt('stock', 0)
+        supabase.from('products').select('id, name, stock, barcode, sku').eq('organization_id', currentUser.organization_id).gt('stock', 0),
+        supabase.from('hims_surgeries').select('lead_surgeon_id, hims_doctors(consultation_fee)').eq('id', surgeryId).maybeSingle()
       ]);
 
       setWarehouses(whRes.data || []);
       if (whRes.data && whRes.data.length > 0) setSelectedWarehouse(whRes.data[0].id);
       setProducts(prdRes.data || []);
+
+      let defaultPrice = 0;
+      if (surgRes.data) {
+        const doctor = surgRes.data.hims_doctors;
+        if (doctor) {
+          if (Array.isArray(doctor)) {
+            if (doctor.length > 0) defaultPrice = doctor[0].consultation_fee || 0;
+          } else {
+            defaultPrice = (doctor as any).consultation_fee || 0;
+          }
+        }
+      }
+      setSurgeryPrice(defaultPrice);
     };
 
     if (visible) fetchData();
-  }, [visible, currentUser]);
+  }, [visible, currentUser, surgeryId]);
 
   const addConsumable = (productId: string) => {
     const product = products.find(p => p.id === productId);
@@ -79,7 +94,8 @@ export const SurgeryExecutionForm: React.FC<Props> = ({ surgeryId, visible, onCa
     const { error } = await supabase.rpc('hims_complete_surgery_and_consume', {
       p_surgery_id: surgeryId,
       p_warehouse_id: selectedWarehouse,
-      p_consumables: consumables.map(c => ({ product_id: c.product_id, qty: c.qty }))
+      p_consumables: consumables.map(c => ({ product_id: c.product_id, qty: c.qty })),
+      p_surgery_price: surgeryPrice
     });
 
     if (error) {
@@ -105,15 +121,31 @@ export const SurgeryExecutionForm: React.FC<Props> = ({ surgeryId, visible, onCa
       ]}
     >
       <div className="space-y-4 pt-2">
-        <div>
-          <Typography.Text strong className="text-indigo-700">مستودع الصرف المعتمد:</Typography.Text>
-          <Select
-            className="w-full mt-1"
-            value={selectedWarehouse}
-            onChange={setSelectedWarehouse}
-            options={warehouses.map(w => ({ label: w.name, value: w.id }))}
-            placeholder="اختر المستودع الطبي"
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Typography.Text strong className="text-indigo-700">مستودع الصرف المعتمد:</Typography.Text>
+            <Select
+              className="w-full mt-1"
+              value={selectedWarehouse}
+              onChange={setSelectedWarehouse}
+              options={warehouses.map(w => ({ label: w.name, value: w.id }))}
+              placeholder="اختر المستودع الطبي"
+            />
+          </div>
+          <div>
+            <Typography.Text strong className="text-indigo-700">تكلفة الإجراء الجراحي (سعر العملية):</Typography.Text>
+            <Space.Compact className="w-full mt-1">
+              <InputNumber
+                style={{ width: '100%' }}
+                className="font-bold"
+                value={surgeryPrice}
+                onChange={val => setSurgeryPrice(val)}
+                min={0}
+                placeholder="أدخل قيمة العملية..."
+              />
+              <Button disabled className="bg-slate-100 text-slate-600 font-bold border-slate-300">EGP</Button>
+            </Space.Compact>
+          </div>
         </div>
 
         <div className="bg-indigo-50 p-4 rounded-2xl border border-indigo-100">

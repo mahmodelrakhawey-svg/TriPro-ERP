@@ -64,12 +64,12 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
     }
   };
   // 🚀 استدعاء المحرك الفاخر (لا يستهلك موارد إلا عند الضغط)
-  const printLuxuryInvoice = async () => {
+  const printLuxuryInvoice = async (lang: 'ar' | 'en' = 'ar') => {
     setLoading(true);
     try {
       const { data, error } = await supabase.rpc('hims_get_luxury_invoice_data', { p_visit_id: visitId });
       if (error) throw error;
-      await LuxuryReportEngine.generatePDF(data, 'invoice');
+      await LuxuryReportEngine.generatePDF(data, 'invoice', lang);
     } catch (err: any) {
       message.error('فشل جلب البيانات الفاخرة: ' + err.message);
     }
@@ -304,10 +304,13 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
               value={finalAmountToPay} 
               precision={2} 
               suffix="EGP" 
-              valueStyle={{ color: '#1d4ed8', fontWeight: 900, fontSize: '2rem' }}
+              styles={{ content: { color: '#1d4ed8', fontWeight: 900, fontSize: '2rem' } }}
             />
             <div className="flex flex-col gap-2">
-               <Button icon={<PrinterOutlined />} block onClick={printLuxuryInvoice} className="bg-slate-800 text-white border-none">طباعة فاتورة فندقية</Button>
+                <div className="flex gap-2">
+                  <Button icon={<PrinterOutlined />} onClick={() => printLuxuryInvoice('ar')} className="bg-slate-800 text-white border-none flex-1">فاتورة (عربي)</Button>
+                  <Button icon={<PrinterOutlined />} onClick={() => printLuxuryInvoice('en')} className="bg-slate-600 text-white border-none flex-1">Print (EN)</Button>
+                </div>
                {finalAmountToPay <= 0 && bill.payment_status === 'paid' ? (
                  <Tag color="success" className="px-6 py-4 font-bold text-sm rounded-xl">تم السداد والترحيل بالكامل ✅</Tag>
                ) : (

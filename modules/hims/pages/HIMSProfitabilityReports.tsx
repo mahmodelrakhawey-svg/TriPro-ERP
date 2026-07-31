@@ -4,21 +4,24 @@ import { RiseOutlined, UserOutlined, BankOutlined, FilePdfOutlined, PieChartOutl
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { himsService } from '../../../services/himsService';
 import { useAccounting } from '../../../context/AccountingContext';
+import { useAuth } from '@/context/AuthContext';
 
 const { Title, Text } = Typography;
 
 export const HIMSProfitabilityReports: React.FC = () => {
   const { settings } = useAccounting();
+  const { currentUser } = useAuth();
   const [doctorStats, setDoctorStats] = useState<any[]>([]);
   const [deptStats, setDeptStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchData = async () => {
+    if (!currentUser?.organization_id) return;
     setLoading(true);
     try {
       const [docs, depts] = await Promise.all([
-        himsService.getDoctorProfitability(),
-        himsService.getDeptProfitability()
+        himsService.getDoctorProfitability(currentUser.organization_id),
+        himsService.getDeptProfitability(currentUser.organization_id)
       ]);
       setDoctorStats(docs || []);
       setDeptStats(depts || []);
@@ -26,7 +29,7 @@ export const HIMSProfitabilityReports: React.FC = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [currentUser?.organization_id]);
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 

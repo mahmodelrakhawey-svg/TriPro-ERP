@@ -209,12 +209,17 @@ END; $$;
 -- =========================================================================
 CREATE OR REPLACE FUNCTION public.hims_dispense_prescription(p_prescription_id uuid, p_warehouse_id uuid DEFAULT NULL)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE v_med record; v_org_id uuid; v_visit_id uuid;
-DECLARE v_final_wh_id uuid;
-DECLARE v_sales_price numeric; v_product_name text;
-DECLARE v_bill_status text; DECLARE v_ins_id uuid;
+DECLARE 
+    v_med record; v_org_id uuid; v_visit_id uuid;
+    v_final_wh_id uuid;
+    v_sales_price numeric; v_product_name text;
+    v_bill_status text; v_ins_id uuid;
+    v_total_cogs numeric(18,2) := 0; v_cogs_acc_id uuid; v_inv_acc_id uuid;
+    v_mappings jsonb; v_cost_price numeric; v_journal_id uuid;
 BEGIN
-    SELECT organization_id, visit_id INTO v_org_id, v_visit_id FROM public.hims_prescriptions WHERE id = p_prescription_id;
+    -- 1. جلب معلومات المنظمة والزيارة
+    SELECT organization_id, visit_id INTO v_org_id, v_visit_id 
+    FROM public.hims_prescriptions WHERE id = p_prescription_id;
     
     -- 🛡️ حماية مالية: التحقق من حالة دفع الفاتورة للمرضى النقديين أو وجود جهة تأمين
     SELECT payment_status, insurance_provider_id INTO v_bill_status, v_ins_id 
@@ -236,6 +241,11 @@ BEGIN
         RAISE EXCEPTION '⚠️ فشل الصرف: لم يتم العثور على مستودع صيدلية معرف لهذه المنظمة.';
     END IF;
 
+    -- جلب إعدادات الربط المحاسبي للمنظمة للترحيل المزدوج للتكلفة
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
+    v_cogs_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '511' LIMIT 1)));
+    v_inv_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10302' LIMIT 1)));
+
     FOR v_med IN SELECT * FROM jsonb_to_recordset((SELECT medications FROM public.hims_prescriptions WHERE id = p_prescription_id)) 
         AS x(product_id uuid, qty numeric)
     LOOP
@@ -256,12 +266,19 @@ BEGIN
                 (SELECT stock FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id);
         END IF;
 
-        -- جلب البيانات المالية للصنف
-        SELECT name, sales_price INTO v_product_name, v_sales_price FROM public.products WHERE id = v_med.product_id;
+        -- جلب البيانات المالية وتكلفة الصنف
+        SELECT name, sales_price, 
+               COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0), 
+               COALESCE(inventory_account_id, v_inv_acc_id)
+        INTO v_product_name, v_sales_price, v_cost_price, v_inv_acc_id
+        FROM public.products WHERE id = v_med.product_id;
 
         -- 1. خصم الكمية من المخزن
         UPDATE public.products SET stock = stock - v_med.qty 
         WHERE id = v_med.product_id AND organization_id = v_org_id;
+
+        -- حساب التكلفة الإجمالية للصرف (COGS)
+        v_total_cogs := COALESCE(v_total_cogs, 0) + (v_med.qty * COALESCE(v_cost_price, 0));
 
         -- 2. ترحيل البند فوراً لفاتورة المريض لضمان الشفافية المحاسبية
         PERFORM public.hims_add_billing_item(
@@ -271,9 +288,22 @@ BEGIN
             v_med.qty,
             v_sales_price,
             v_med.product_id,
-            v_final_wh_id
+            v_final_wh_id,
+            (SELECT base_uom_id FROM public.products WHERE id = v_med.product_id)
         );
     END LOOP;
+
+    -- 🛡️ توليد قيد اليومية المزدوج لإثبات تكلفة صرف الأدوية
+    IF v_total_cogs > 0.01 THEN
+        INSERT INTO public.journal_entries (organization_id, transaction_date, description, reference, status, related_document_id, related_document_type, is_posted)
+        VALUES (v_org_id, CURRENT_DATE, 'إثبات تكلفة أدوية مصروفة - روشتة: ' || p_prescription_id::TEXT, 'PHARM-' || substring(p_prescription_id::TEXT, 1, 8), 'posted', p_prescription_id, 'hims_prescription', true)
+        RETURNING id INTO v_journal_id;
+
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES 
+            (v_journal_id, v_cogs_acc_id, v_total_cogs, 0, v_org_id, 'تكلفة أدوية مباعة'),
+            (v_journal_id, v_inv_acc_id, 0, v_total_cogs, v_org_id, 'تخفيض مخزون الصيدلية');
+    END IF;
 
     UPDATE public.hims_prescriptions SET status = 'dispensed' WHERE id = p_prescription_id;
     PERFORM public.recalculate_stock_rpc(v_org_id);

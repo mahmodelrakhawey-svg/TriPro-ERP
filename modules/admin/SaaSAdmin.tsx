@@ -1170,11 +1170,8 @@ const SaaSAdmin: React.FC = () => {
         console.error('Failed to clean up attachments from storage:', err);
       }
 
-      // 3. حذف سجل المنظمة من قاعدة البيانات
-      const { error } = await supabase
-        .from('organizations')
-        .delete()
-        .eq('id', deletingOrg.id);
+      // 3. حذف سجل المنظمة من قاعدة البيانات عبر الدالة الآمنة لضمان التخلص من البيانات والقيود المرجعية
+      const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: deletingOrg.id });
 
       if (error) throw error;
 

@@ -25,8 +25,8 @@ export const DoctorDesktop: React.FC = () => {
     setLoading(true);
     try {
       const [queueData, monitorData] = await Promise.all([
-        himsService.getDoctorQueue(currentUser.id), // الطابور الفعلي للعيادة
-        himsService.getEmergencyMonitor() // حالات الطوارئ للرادار
+        himsService.getDoctorQueue(currentUser.id, currentUser.organization_id), // الطابور الفعلي للعيادة
+        himsService.getEmergencyMonitor(currentUser.organization_id) // حالات الطوارئ للرادار
       ]);
       setQueue(queueData || []);
       // فلترة التنبيهات الخطيرة فقط من رادار الطوارئ

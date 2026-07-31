@@ -102,12 +102,20 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
   const requestSurgery = async () => {
     if (!surgeryRequest.name || !surgeryRequest.date) return message.warning('يرجى إكمال بيانات الجراحة');
     setLoading(true);
+
+    const { data: visitData } = await supabase
+      .from('hims_visits')
+      .select('organization_id, doctor_id')
+      .eq('id', visitId)
+      .single();
+
     const { error } = await supabase.from('hims_surgeries').insert([{
       visit_id: visitId,
       surgery_name: surgeryRequest.name,
       scheduled_start: surgeryRequest.date.toISOString(),
       status: 'scheduled',
-      organization_id: (await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single()).data?.organization_id
+      organization_id: visitData?.organization_id,
+      lead_surgeon_id: visitData?.doctor_id
     }]);
     if (!error) {
         message.success('تمت جدولة العملية الجراحية وإخطار غرفة العمليات 🏥');

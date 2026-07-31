@@ -102,10 +102,14 @@ export const himsService = {
   },
 
   // 6. مراقبة حالات الطوارئ (Emergency Monitor)
-  async getEmergencyMonitor() {
-    const { data, error } = await supabase
+  async getEmergencyMonitor(orgId?: string) {
+    let query = supabase
       .from('v_hims_emergency_triage_monitor')
       .select('*');
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   },
@@ -132,21 +136,29 @@ export const himsService = {
     return data;
   },
   // 20. جلب تقارير ربحية الأطباء
-  async getDoctorProfitability() {
-    const { data, error } = await supabase
+  async getDoctorProfitability(orgId?: string) {
+    let query = supabase
       .from('v_hims_doctor_profitability')
       .select('*')
       .order('total_revenue', { ascending: false });
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   },
 
   // 21. جلب تقارير ربحية الأقسام
-  async getDeptProfitability() {
-    const { data, error } = await supabase
+  async getDeptProfitability(orgId?: string) {
+    let query = supabase
       .from('v_hims_dept_profitability')
       .select('*')
       .order('total_revenue', { ascending: false });
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   },
@@ -163,11 +175,15 @@ export const himsService = {
   },
 
   // 19. جلب قائمة المتبرعين بالدم
-  async getDonors() {
-    const { data, error } = await supabase
+  async getDonors(orgId?: string) {
+    let query = supabase
       .from('hims_blood_donors')
       .select('*')
       .order('full_name', { ascending: true });
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query;
     if (error) throw error;
     return data;
   },
@@ -211,12 +227,15 @@ export const himsService = {
   },
 
   // 15. جلب قائمة المرضى بانتظار الطبيب (Queue Manager)
-  async getDoctorQueue(userId: string) {
-    const { data, error } = await supabase
+  async getDoctorQueue(userId: string, orgId?: string) {
+    let query = supabase
       .from('hims_visits')
       .select('*, hims_patients(id, full_name, national_id), hims_lab_orders(status), hims_radiology_orders(status)')
-      .in('status', ['triaged', 'in_consultation'])
-      .order('created_at', { ascending: true });
+      .in('status', ['triaged', 'in_consultation']);
+    if (orgId) {
+      query = query.eq('organization_id', orgId);
+    }
+    const { data, error } = await query.order('created_at', { ascending: true });
 
     if (error) throw error;
     return data;

@@ -167,7 +167,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
                         <Statistic 
                           value={res.result_value} 
                           suffix={res.hims_lab_tests?.unit} 
-                          valueStyle={{ color: '#1677ff' }} // 🎨 تحديث لمعايير AntD v5
+                          styles={{ content: { color: '#1677ff' } }} // 🎨 تحديث لمعايير AntD v5
                         />
                         <Badge status="processing" text={dayjs(res.created_at).format('DD/MM')} />
                       </div>

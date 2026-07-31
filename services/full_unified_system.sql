@@ -231,22 +231,49 @@ END; $$;
 DROP TRIGGER IF EXISTS trg_protect_system_accounts ON public.accounts;
 CREATE TRIGGER trg_protect_system_accounts BEFORE DELETE ON public.accounts FOR EACH ROW EXECUTE FUNCTION public.fn_protect_system_accounts();
 
--- 🛠️ دالة حذف المنظمة بأمان (تجاوز الحماية السيادية)
 CREATE OR REPLACE FUNCTION public.fn_delete_organization_safe(p_org_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_tables text[] := ARRAY[
+        'notification_audit_log', 'cheque_attachments', 'receipt_voucher_attachments', 
+        'payment_voucher_attachments', 'notification_preferences', 'security_logs', 
+        'journal_attachments', 'order_item_modifiers', 'payroll_variables', 
+        'opening_inventories', 'bill_of_materials', 'order_items', 'kitchen_orders', 
+        'invoice_items', 'purchase_invoice_items', 'journal_lines', 'payroll_items', 
+        'stock_adjustment_items', 'sales_return_items', 'purchase_return_items', 
+        'delivery_orders', 'payments', 'orders', 'invoices', 'purchase_invoices', 
+        'sales_returns', 'purchase_returns', 'journal_entries', 'payrolls', 
+        'stock_adjustments', 'cheques', 'receipt_vouchers', 'payment_vouchers', 
+        'table_sessions', 'shifts', 'work_orders', 'credit_notes', 'debit_notes', 
+        'assets', 'products', 'customers', 'suppliers', 'employees', 
+        'restaurant_tables', 'modifiers', 'modifier_groups', 'accounts', 
+        'cost_centers', 'warehouses', 'invitations', 'budgets', 'company_settings'
+    ];
+    v_t text;
 BEGIN
     -- 1. التحقق من الصلاحيات (يجب أن يكون سوبر أدمن)
     IF public.get_my_role() != 'super_admin' THEN
         RAISE EXCEPTION '⚠️ خطأ أمني: غير مصرح لك بحذف المنظمات من هذا المستوى.';
     END IF;
 
-    -- 2. تفعيل وضع التجاوز (Restore Mode) لتعطيل حماية الحسابات "السيادية"
+    -- 2. تفعيل وضع التجاوز (Restore Mode) لتعطيل حماية الحسابات "السيادية" والتدقيق التلقائي للحذف
     PERFORM set_config('app.restore_mode', 'on', true);
 
-    -- 3. حذف المنظمة (سيتم حذف كل شيء بفضل ON DELETE CASCADE)
+    -- 3. تنظيف متسلسل للبيانات التابعة للمنظمة لمنع تعارض القيود المرجعية
+    FOREACH v_t IN ARRAY v_tables
+    LOOP
+        BEGIN
+            EXECUTE format('DELETE FROM public.%I WHERE organization_id = %L', v_t, p_org_id);
+        EXCEPTION WHEN OTHERS THEN
+            -- نتجاوز أي خطأ في حال عدم وجود الجدول أو العمود في قاعدة البيانات الحالية
+            NULL;
+        END;
+    END LOOP;
+
+    -- 4. حذف المنظمة نهائياً
     DELETE FROM public.organizations WHERE id = p_org_id;
 
-    -- 4. إعادة الوضع الطبيعي
+    -- 5. إعادة الوضع الطبيعي
     PERFORM set_config('app.restore_mode', 'off', true);
 END; $$;
 

@@ -32,24 +32,25 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
     setLoading(false);
   };
 
-  const printDischargeSummary = async () => {
+  const printDischargeSummary = async (lang: 'ar' | 'en' = 'ar') => {
     setLoading(true);
     try {
       // 🚀 استدعاء دالة SQL التي تجمع البيانات
       const { data, error } = await supabase.rpc('get_patient_discharge_summary', { p_visit_id: visitId });
       if (error) throw error;
-      // 🚀 تمرير البيانات للمحرك الفاخر لإنشاء الـ PDF
-      await LuxuryReportEngine.generatePDF(data, 'discharge');
-      message.success('تم توليد تقرير الخروج بنجاح ✅');
+      // 🚀 تمرير البيانات للمحرك الفاخر لإنشاء الـ PDF باللغة المحددة
+      await LuxuryReportEngine.generatePDF(data, 'discharge', lang);
+      message.success(lang === 'ar' ? 'تم توليد تقرير الخروج بنجاح ✅' : 'Discharge summary generated successfully ✅');
     } catch (e) {
-      message.error('فشل جلب بيانات التقرير');
+      message.error(lang === 'ar' ? 'فشل جلب بيانات التقرير' : 'Failed to generate summary report');
     }
     setLoading(false);
   };
 
   return (
     <Space>
-      <Button icon={<PrinterOutlined />} onClick={printDischargeSummary} loading={loading}>طباعة الملخص</Button>
+      <Button icon={<PrinterOutlined />} onClick={() => printDischargeSummary('ar')} loading={loading}>طباعة الملخص (عربي)</Button>
+      <Button icon={<PrinterOutlined />} onClick={() => printDischargeSummary('en')} loading={loading}>Print Summary (EN)</Button>
       <Button danger icon={<LogoutOutlined />} onClick={() => setVisible(true)}>خروج نهائي</Button>
       <Modal
         open={visible}

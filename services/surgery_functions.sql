@@ -4,14 +4,15 @@
 CREATE OR REPLACE FUNCTION public.hims_complete_surgery_and_consume(
     p_surgery_id UUID,
     p_warehouse_id UUID,
-    p_consumables JSONB -- مصفوفة من {product_id, qty}
+    p_consumables JSONB, -- مصفوفة من {product_id, qty}
+    p_surgery_price numeric DEFAULT NULL
 )
 RETURNS VOID AS $$
 DECLARE
     v_org_id UUID;
     v_journal_id UUID;
     v_total_cost DECIMAL(18,2) := 0;
-    v_item JSONB;
+    v_item RECORD;
     v_prd_id UUID;
     v_qty DECIMAL;
     v_cost_price DECIMAL;
@@ -42,10 +43,10 @@ BEGIN
     RETURNING id INTO v_journal_id;
 
     -- 📦 4. معالجة استهلاك المخزن وحساب التكاليف
-    FOR v_item IN SELECT * FROM jsonb_array_elements(p_consumables)
+    FOR v_item IN SELECT * FROM jsonb_to_recordset(p_consumables) AS x(product_id UUID, qty DECIMAL)
     LOOP
-        v_prd_id := (v_item->>'product_id')::UUID;
-        v_qty := (v_item->>'qty')::DECIMAL;
+        v_prd_id := v_item.product_id;
+        v_qty := v_item.qty;
 
         -- جلب تكلفة الصنف (من جدول المنتجات الخاص بالمنظمة)
         SELECT COALESCE(purchase_price, 0) INTO v_cost_price 

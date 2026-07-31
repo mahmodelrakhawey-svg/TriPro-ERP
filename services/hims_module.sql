@@ -556,11 +556,12 @@ CREATE OR REPLACE VIEW public.v_hims_dept_profitability AS
 SELECT 
     w.name as department_name,
     COUNT(v.id) as visit_count,
-    SUM(b.total_amount) as total_revenue,
+    COALESCE(SUM(b.total_amount), 0) as total_revenue,
     w.organization_id
 FROM public.hims_wards w
-JOIN public.hims_visits v ON v.visit_type = 'inpatient' -- نركز على التنويم كمثال للربحية
-JOIN public.hims_billing b ON v.id = b.visit_id
+LEFT JOIN public.hims_beds bd ON bd.ward_id = w.id
+LEFT JOIN public.hims_visits v ON bd.current_visit_id = v.id AND v.visit_type = 'inpatient'
+LEFT JOIN public.hims_billing b ON v.id = b.visit_id
 GROUP BY w.id, w.name, w.organization_id;
 
 GRANT SELECT ON public.v_hims_bed_utilization TO authenticated;
@@ -944,11 +945,13 @@ GRANT ALL ON public.hims_insurance_claims TO authenticated;
 -- ================================================================
 
 DROP FUNCTION IF EXISTS public.hims_complete_surgery_and_consume(uuid, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.hims_complete_surgery_and_consume(uuid, uuid, jsonb, numeric);
 
 CREATE OR REPLACE FUNCTION public.hims_complete_surgery_and_consume(
     p_surgery_id uuid,
     p_warehouse_id uuid,
-    p_consumables jsonb -- [{product_id, qty}]
+    p_consumables jsonb, -- [{product_id, qty}]
+    p_surgery_price numeric DEFAULT NULL
 )
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -982,10 +985,10 @@ BEGIN
     RETURNING id INTO v_journal_id;
 
     -- 4. معالجة المستهلكات، خصم المخزن، وربطها بالفاتورة لضمان التناغم
-    FOR v_item IN SELECT * FROM jsonb_array_elements(p_consumables)
+    FOR v_item IN SELECT * FROM jsonb_to_recordset(p_consumables) AS x(product_id uuid, qty numeric)
     LOOP
-        v_prd_id := (v_item->>'product_id')::uuid;
-        v_qty := (v_item->>'qty')::numeric;
+        v_prd_id := v_item.product_id;
+        v_qty := v_item.qty;
 
         SELECT name, sales_price, COALESCE(weighted_average_cost, cost, purchase_price, 0), base_uom_id
         INTO v_product_name, v_sales_price, v_cost_price, v_uom_id
@@ -1023,7 +1026,7 @@ BEGIN
         'surgery', 
         'إجراء جراحي: ' || v_surgery.surgery_name, 
         1, 
-        COALESCE((SELECT consultation_fee FROM public.hims_doctors WHERE id = v_surgery.lead_surgeon_id), 0)
+        COALESCE(p_surgery_price, (SELECT consultation_fee FROM public.hims_doctors WHERE id = v_surgery.lead_surgeon_id), 0)
     );
 
     -- 7. إخطار الجراح بانتهاء العملية
@@ -1054,43 +1057,88 @@ CREATE OR REPLACE FUNCTION public.hims_dispense_prescription(
 )
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE 
-    v_med record; v_org_id uuid; v_visit_id uuid; v_final_wh_id uuid;
-    v_sales_price numeric; v_product_name text; v_journal_id uuid;
+    v_med record; v_org_id uuid; v_visit_id uuid;
+    v_final_wh_id uuid;
+    v_sales_price numeric; v_product_name text;
+    v_bill_status text; v_ins_id uuid;
     v_total_cogs numeric(18,2) := 0; v_cogs_acc_id uuid; v_inv_acc_id uuid;
-    v_mappings jsonb; v_cost_price numeric;
+    v_mappings jsonb; v_cost_price numeric; v_journal_id uuid;
 BEGIN
-    -- 🛡️ [V54.1] تحسين الاستقرار المالي: تصفير المتغيرات لضمان عدم تراكم أخطاء سابقة
-    v_total_cogs := 0;
-
     SELECT organization_id, visit_id INTO v_org_id, v_visit_id FROM public.hims_prescriptions WHERE id = p_prescription_id;
     
+    -- 🛡️ حماية مالية: التحقق من حالة دفع الفاتورة للمرضى النقديين أو وجود جهة تأمين
+    SELECT payment_status, insurance_provider_id INTO v_bill_status, v_ins_id 
+    FROM public.hims_billing WHERE visit_id = v_visit_id;
+
+    -- يجب أن تكون الفاتورة مسددة بالكامل أو مريض تأميني معتمد للصرف
+    IF v_ins_id IS NULL AND (v_bill_status IS NULL OR v_bill_status != 'paid') THEN
+        RAISE EXCEPTION '⚠️ خطأ أمني: لا يمكن صرف الدواء قبل سداد قيمة الروشتة بالخزينة أولاً.';
+    END IF;
+
+    -- تحديد المستودع: الممرر صراحة > إعدادات الصيدلية > أول مستودع متاح للمنظمة
     v_final_wh_id := COALESCE(
         p_warehouse_id,
         (SELECT default_pharmacy_warehouse FROM public.hims_settings WHERE organization_id = v_org_id),
         (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
     );
 
-    IF v_final_wh_id IS NULL THEN RAISE EXCEPTION 'Pharmacy warehouse not found'; END IF;
+    IF v_final_wh_id IS NULL THEN
+        RAISE EXCEPTION '⚠️ فشل الصرف: لم يتم العثور على مستودع صيدلية معرف لهذه المنظمة.';
+    END IF;
 
+    -- جلب إعدادات الربط المحاسبي للمنظمة للترحيل المزدوج للتكلفة
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_cogs_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '511' LIMIT 1)));
     v_inv_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10302' LIMIT 1)));
 
-    FOR v_med IN SELECT * FROM jsonb_to_recordset((SELECT medications FROM public.hims_prescriptions WHERE id = p_prescription_id)) AS x(product_id uuid, qty numeric)
+    FOR v_med IN SELECT * FROM jsonb_to_recordset((SELECT medications FROM public.hims_prescriptions WHERE id = p_prescription_id)) 
+        AS x(product_id uuid, qty numeric)
     LOOP
-        -- 🚀 إصلاح حاسم: جلب حساب المخزون الخاص بالصنف وتكلفته بشكل صحيح
-        SELECT name, sales_price, COALESCE(weighted_average_cost, cost, 0), COALESCE(inventory_account_id, v_inv_acc_id)
+        -- رقابة مزدوجة: (الكمية + الصلاحية)
+        IF EXISTS (
+            SELECT 1 FROM public.products 
+            WHERE id = v_med.product_id 
+            AND organization_id = v_org_id 
+            AND (expiry_date < CURRENT_DATE)
+        ) THEN
+            RAISE EXCEPTION '⚠️ خطأ أمني: الدواء (%) منتهي الصلاحية ولا يمكن صرفه طبياً.', 
+                (SELECT name FROM public.products WHERE id = v_med.product_id);
+        END IF;
+
+        IF (SELECT stock FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id) < v_med.qty THEN
+            RAISE EXCEPTION '⚠️ عجز مخزني: لا يتوفر رصيد كافٍ للدواء (%). الرصيد المتوفر (%) فقط.', 
+                (SELECT name FROM public.products WHERE id = v_med.product_id),
+                (SELECT stock FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id);
+        END IF;
+
+        -- جلب البيانات المالية وتكلفة الصنف
+        SELECT name, sales_price, 
+               COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0), 
+               COALESCE(inventory_account_id, v_inv_acc_id)
         INTO v_product_name, v_sales_price, v_cost_price, v_inv_acc_id
         FROM public.products WHERE id = v_med.product_id;
 
-        UPDATE public.products SET stock = stock - v_med.qty WHERE id = v_med.product_id AND organization_id = v_org_id;
-        v_total_cogs := v_total_cogs + (v_med.qty * v_cost_price);
-        
-        -- تسجيل في فاتورة المريض
-        PERFORM public.hims_add_billing_item(v_visit_id, 'pharmacy', v_product_name, v_med.qty, v_sales_price, v_med.product_id, v_final_wh_id, (SELECT base_uom_id FROM public.products WHERE id = v_med.product_id));
+        -- 1. خصم الكمية من المخزن
+        UPDATE public.products SET stock = stock - v_med.qty 
+        WHERE id = v_med.product_id AND organization_id = v_org_id;
+
+        -- حساب التكلفة الإجمالية للصرف (COGS)
+        v_total_cogs := COALESCE(v_total_cogs, 0) + (v_med.qty * COALESCE(v_cost_price, 0));
+
+        -- 2. ترحيل البند فوراً لفاتورة المريض لضمان الشفافية المحاسبية
+        PERFORM public.hims_add_billing_item(
+            v_visit_id,
+            'pharmacy',
+            v_product_name,
+            v_med.qty,
+            v_sales_price,
+            v_med.product_id,
+            v_final_wh_id,
+            (SELECT base_uom_id FROM public.products WHERE id = v_med.product_id)
+        );
     END LOOP;
 
-    -- 🛡️ لا ننشئ القيد إلا إذا كانت هناك تكلفة فعلية لضمان نظافة دفتر اليومية
+    -- 🛡️ توليد قيد اليومية المزدوج لإثبات تكلفة صرف الأدوية
     IF v_total_cogs > 0.01 THEN
         INSERT INTO public.journal_entries (organization_id, transaction_date, description, reference, status, related_document_id, related_document_type, is_posted)
         VALUES (v_org_id, CURRENT_DATE, 'إثبات تكلفة أدوية مصروفة - روشتة: ' || p_prescription_id::TEXT, 'PHARM-' || substring(p_prescription_id::TEXT, 1, 8), 'posted', p_prescription_id, 'hims_prescription', true)
@@ -1485,13 +1533,15 @@ BEGIN
 
     -- 2. التحقق من كل دواء في الوصفة
     FOR v_med IN SELECT * FROM jsonb_array_elements(NEW.medications) LOOP
-        SELECT name INTO v_med_name FROM public.products WHERE id = (v_med->>'product_id')::uuid;
-        
-        FOREACH v_allergy IN ARRAY v_allergies LOOP
-            IF v_med_name ILIKE '%' || v_allergy || '%' THEN
-                RAISE EXCEPTION '🚨 خطأ طبي حرج: المريض لديه حساسية مسجلة من (%). لا يمكن اعتماد الوصفة.', v_allergy;
-            END IF;
-        END LOOP;
+        IF (v_med->>'product_id') IS NOT NULL AND (v_med->>'product_id') != '' AND (v_med->>'product_id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+            SELECT name INTO v_med_name FROM public.products WHERE id = (v_med->>'product_id')::uuid;
+            
+            FOREACH v_allergy IN ARRAY v_allergies LOOP
+                IF v_med_name ILIKE '%' || v_allergy || '%' THEN
+                    RAISE EXCEPTION '🚨 خطأ طبي حرج: المريض لديه حساسية مسجلة من (%). لا يمكن اعتماد الوصفة.', v_allergy;
+                END IF;
+            END LOOP;
+        END IF;
     END LOOP;
 
     RETURN NEW;
@@ -1528,15 +1578,18 @@ DECLARE
     v_existing_meds uuid[];
     v_conflict_name text;
 BEGIN
-    -- جلب الأدوية الحالية للمريض من الزيارات النشطة
+    -- جلب الأدوية الحالية للمريض من الزيارات النشطة (مع التحقق من صحة الـ UUID لمنع أخطاء Cast)
     SELECT array_agg((m->>'product_id')::uuid) INTO v_existing_meds
     FROM public.hims_prescriptions p, jsonb_array_elements(p.medications) m
-    WHERE p.visit_id = NEW.visit_id AND p.status = 'dispensed';
+    WHERE p.visit_id = NEW.visit_id AND p.status = 'dispensed'
+    AND (m->>'product_id') IS NOT NULL AND (m->>'product_id') != '' AND (m->>'product_id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
 
     FOR v_med IN SELECT * FROM jsonb_array_elements(NEW.medications) LOOP
-        IF EXISTS (SELECT 1 FROM public.hims_drug_interactions WHERE (product_a_id = (v_med->>'product_id')::uuid AND product_b_id = ANY(v_existing_meds)) OR (product_b_id = (v_med->>'product_id')::uuid AND product_a_id = ANY(v_existing_meds))) THEN
-            SELECT name INTO v_conflict_name FROM public.products WHERE id = (v_med->>'product_id')::uuid;
-            RAISE EXCEPTION '🚨 تنبيه تفاعل دوائي خطير: الدواء (%) يتعارض مع علاجات المريض الحالية.', v_conflict_name;
+        IF (v_med->>'product_id') IS NOT NULL AND (v_med->>'product_id') != '' AND (v_med->>'product_id') ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+            IF EXISTS (SELECT 1 FROM public.hims_drug_interactions WHERE (product_a_id = (v_med->>'product_id')::uuid AND product_b_id = ANY(v_existing_meds)) OR (product_b_id = (v_med->>'product_id')::uuid AND product_a_id = ANY(v_existing_meds))) THEN
+                SELECT name INTO v_conflict_name FROM public.products WHERE id = (v_med->>'product_id')::uuid;
+                RAISE EXCEPTION '🚨 تنبيه تفاعل دوائي خطير: الدواء (%) يتعارض مع علاجات المريض الحالية.', v_conflict_name;
+            END IF;
         END IF;
     END LOOP;
     RETURN NEW;
@@ -1877,6 +1930,13 @@ BEGIN
                 WHERE organization_id = p_org_id
                 ORDER BY total_revenue DESC
             ) d 
+        ),
+        'revenueBreakdown', (
+            SELECT jsonb_build_object(
+                'pharmacy', COALESCE(SUM(pharmacy_revenue), 0),
+                'services', COALESCE(SUM(consultation_revenue + laboratory_revenue), 0),
+                'accommodation', COALESCE(SUM(bed_revenue), 0)
+            ) FROM public.v_hims_revenue_breakdown WHERE organization_id = p_org_id
         )
     ) INTO v_result;
     
@@ -2028,7 +2088,8 @@ SELECT
     w.name as ward_name,
     t.description,
     t.due_at,
-    EXTRACT(EPOCH FROM (now() - t.due_at))/60 as delay_minutes
+    EXTRACT(EPOCH FROM (now() - t.due_at))/60 as delay_minutes,
+    t.organization_id
 FROM public.hims_nurse_tasks t
 JOIN public.hims_visits v ON t.visit_id = v.id
 JOIN public.hims_patients p ON v.patient_id = p.id
@@ -2206,7 +2267,14 @@ BEGIN
     RETURN (
         SELECT jsonb_build_object(
             'patient', (SELECT to_jsonb(p) FROM public.hims_patients p JOIN public.hims_visits v ON p.id = v.patient_id WHERE v.id = p_visit_id),
-            'visit', (SELECT to_jsonb(v) FROM public.hims_visits v WHERE v.id = p_visit_id),
+            'visit', (SELECT jsonb_build_object(
+                        'id', v.id,
+                        'created_at', v.created_at,
+                        'doctor_name', pr.full_name
+                      ) FROM public.hims_visits v 
+                      LEFT JOIN public.hims_doctors d ON v.doctor_id = d.id
+                      LEFT JOIN public.profiles pr ON d.profile_id = pr.id
+                      WHERE v.id = p_visit_id),
             'clinical_notes', (SELECT jsonb_agg(cn) FROM public.hims_clinical_notes cn WHERE cn.visit_id = p_visit_id),
             'diagnosis', (SELECT diagnosis FROM public.hims_prescriptions WHERE visit_id = p_visit_id ORDER BY created_at DESC LIMIT 1),
             'vitals', (SELECT vital_signs FROM public.hims_visits WHERE id = p_visit_id),
