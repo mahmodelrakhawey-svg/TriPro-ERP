@@ -19,6 +19,7 @@ type Customer = {
   credit_limit?: number;
   opening_balance?: number;
   balance?: number; // Added for sorting and display
+  customer_type?: 'individual' | 'insurance_provider';
 };
 
 const CustomerManager = () => {
@@ -534,7 +535,16 @@ const CustomerManager = () => {
                 <tbody className="divide-y divide-slate-100">
                     {sortedCustomers.map(customer => (
                     <tr key={customer.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="p-4 font-bold text-slate-800">{customer.name}</td>
+                        <td className="p-4 font-bold text-slate-800">
+                          <div className="flex items-center gap-2">
+                            {customer.name}
+                            {customer.customer_type === 'insurance_provider' && (
+                              <span className="px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded-full font-bold">
+                                شركة تأمين 🛡️
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td className="p-4 text-slate-600 font-mono">{customer.phone || '-'}</td>
                         <td className="p-4 text-slate-600">{customer.email || '-'}</td>
                         <td className={`p-4 font-mono font-bold ${stats[customer.id]?.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
@@ -581,6 +591,17 @@ const CustomerManager = () => {
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div><label className="block text-sm font-bold mb-1">اسم العميل</label><input required type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border rounded-lg p-2" /></div>
+              <div>
+                <label className="block text-sm font-bold mb-1">نوع العميل</label>
+                <select 
+                  value={formData.customer_type || 'individual'} 
+                  onChange={e => setFormData({...formData, customer_type: e.target.value as any})} 
+                  className="w-full border rounded-lg p-2 font-bold bg-white"
+                >
+                  <option value="individual">عميل فردي / مريض</option>
+                  <option value="insurance_provider">شركة تأمين طبي</option>
+                </select>
+              </div>
               <div><label className="block text-sm font-bold mb-1">رقم الهاتف</label><input type="text" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">البريد الإلكتروني</label><input type="email" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">الرقم الضريبي</label><input type="text" value={formData.tax_number || ''} onChange={e => setFormData({...formData, tax_number: e.target.value})} className="w-full border rounded-lg p-2" /></div>

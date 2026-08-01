@@ -133,15 +133,30 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
 
 
+        let targetAccountId = customerAcc.id;
+        if (selectedCustomer?.customer_type === 'insurance_provider') {
+          const { data: insAcc } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', userOrgId)
+            .eq('code', '122101')
+            .limit(1);
+          if (insAcc && insAcc.length > 0) {
+            targetAccountId = insAcc[0].id;
+          }
+        }
+
         // 1) جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل والقيود اليدوية التي تحوي اسمه
-        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes] = await Promise.all([
+        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, himsBillRes, himsClaimRes] = await Promise.all([
             supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('cheques').select('related_journal_entry_id').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('orders').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${selectedCustomer?.name}%`)
+            supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${selectedCustomer?.name}%`),
+            supabase.from('hims_billing').select('related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('hims_insurance_claims').select('related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null)
         ]);
 
         const customerEntryIds = new Set<string>();
@@ -151,6 +166,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         cnRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
         chqRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
         ordRes.data?.forEach(o => { if (o.related_journal_entry_id) customerEntryIds.add(o.related_journal_entry_id); });
+        himsBillRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
+        himsClaimRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
         manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
 
         let ledgerLines: any[] = [];
@@ -160,7 +177,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             const { data: lines, error: ledgerError } = await supabase
                 .from('journal_lines')
                 .select('id, journal_entry_id, debit, credit, account_id, organization_id')
-                .eq('account_id', customerAcc.id)
+                .eq('account_id', targetAccountId)
                 .eq('organization_id', userOrgId)
                 .in('journal_entry_id', Array.from(customerEntryIds));
 
@@ -197,8 +214,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             let desc = jeAny.description || 'قيد يومية';
             let isPosted = jeAny.status === 'posted';
 
-            if (ref.startsWith('INV-')) type = 'invoice';
-            else if (ref.startsWith('RV-')) type = 'receipt';
+            if (ref.startsWith('INV-') || ref.startsWith('HIMS-')) type = 'invoice';
+            else if (ref.startsWith('RV-') || ref.startsWith('CLAIM-')) type = 'receipt';
             else if (ref.startsWith('SR-')) type = 'return';
             else if (ref.startsWith('CN-')) type = 'credit_note';
             else if (ref.startsWith('CHQ-')) type = 'receipt'; // For incoming cheques

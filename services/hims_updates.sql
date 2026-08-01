@@ -134,16 +134,6 @@ BEGIN
     SELECT * INTO v_bill FROM public.hims_billing WHERE id = p_billing_id;
     IF NOT FOUND THEN RAISE EXCEPTION '⚠️ الفاتورة غير موجودة.'; END IF;
 
-    -- 2. حساب القيمة المتبقية المطلوب دفعها حالياً (صافي الفاتورة - المدفوع سابقاً)
-    -- هذا يمنع دفع نفس المبلغ مرتين، ويدعم دفع فروقات الخدمات المضافة الجديدة فقط
-    v_to_pay := v_bill.total_amount - COALESCE(v_bill.insurance_covered_amount, 0) - COALESCE(v_bill.patient_paid_amount, 0);
-
-    -- 🛡️ حماية التكرار: إذا كان المتبقي 0 أو سالب، نمنع تنفيذ القيد
-    IF v_to_pay <= 0.01 THEN
-        RAISE EXCEPTION '⚠️ هذه الفاتورة مدفوعة ومرحلة بالكامل مسبقاً (قيد رقم: %). لا توجد فروقات سداد جديدة.',
-            COALESCE(v_bill.related_journal_entry_id::text, 'HIMS-' || substring(v_bill.id::text, 1, 8));
-    END IF;
-
     v_org_id := v_bill.organization_id;
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     SELECT COALESCE(vat_rate, 0.14) INTO v_vat_rate FROM public.company_settings WHERE organization_id = v_org_id;
@@ -160,46 +150,120 @@ BEGIN
     ));
     v_cust_acc := (SELECT customer_id FROM public.hims_patients WHERE id = v_bill.patient_id);
 
-    -- حساب تفريعة القيد الجديد (المبلغ الصافي والضريبة) المأخوذ من الدفعة الحالية v_to_pay
-    v_tax_to_pay := v_to_pay - (v_to_pay / (1 + v_vat_rate));
-    v_rev_to_pay := v_to_pay - v_tax_to_pay;
+    -- 2. حساب القيمة المتبقية المطلوب دفعها حالياً من قبل المريض
+    v_to_pay := v_bill.total_amount - COALESCE(v_bill.insurance_covered_amount, 0) - COALESCE(v_bill.patient_paid_amount, 0);
 
-    -- 3. إنشاء رأس القيد لدفعة التحصيل الحالية
-    INSERT INTO public.journal_entries (
-        transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type
-    )
-    VALUES (
-        CURRENT_DATE, 
-        'دفعة تحصيل فاتورة علاج مريض - زيارة رقم ' || v_bill.visit_id, 
-        'HIMS-' || substring(v_bill.id::text, 1, 8), 
-        'posted', 
-        v_org_id, 
-        true, 
-        p_billing_id, 
-        'hims_billing'
-    )
-    RETURNING id INTO v_je_id;
+    -- إذا كانت الفاتورة مرحلة لأول مرة (related_journal_entry_id IS NULL)
+    IF v_bill.related_journal_entry_id IS NULL THEN
+        -- 🛡️ التحقق من ذمم التأمين إذا وجد مبلغ مغطى
+        DECLARE
+            v_insurance_receivable_acc uuid;
+        BEGIN
+            IF COALESCE(v_bill.insurance_covered_amount, 0) > 0 THEN
+                SELECT default_insurance_account INTO v_insurance_receivable_acc FROM public.hims_settings WHERE organization_id = v_org_id;
+                IF v_insurance_receivable_acc IS NULL THEN
+                    SELECT id INTO v_insurance_receivable_acc FROM public.accounts WHERE code = '122101' AND organization_id = v_org_id LIMIT 1;
+                    IF v_insurance_receivable_acc IS NULL THEN
+                        RAISE EXCEPTION '⚠️ لم يتم تحديد حساب ذمم التأمين في إعدادات HIMS أو في دليل الحسابات.';
+                    END IF;
+                END IF;
+                v_insurance_receivable_acc := public.resolve_leaf_account(v_insurance_receivable_acc);
+            END IF;
 
-    -- 4. من ح/ النقدية بالصندوق (القيمة المسددة الآن)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
-    VALUES (v_je_id, public.resolve_leaf_account(p_cash_acc), v_to_pay, 0, v_org_id, 'تحصيل نقدي من مريض - HIMS');
+            -- إنشاء القيد المحاسبي الأساسي للفاتورة (الإيرادات والضرائب بالكامل)
+            INSERT INTO public.journal_entries (
+                transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type
+            )
+            VALUES (
+                CURRENT_DATE, 
+                'فاتورة علاج مريض - زيارة رقم ' || v_bill.visit_id, 
+                'HIMS-' || substring(v_bill.id::text, 1, 8), 
+                'posted', 
+                v_org_id, 
+                true, 
+                p_billing_id, 
+                'hims_billing'
+            )
+            RETURNING id INTO v_je_id;
 
-    -- 5. إلى ح/ إيرادات الخدمات الطبية (صافي القيمة الحالية)
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
-    VALUES (v_je_id, v_rev_acc, 0, v_rev_to_pay, v_org_id, 'إيرادات طبية صافية - HIMS');
+            -- أ. من ح/ النقدية (الجزء المدفوع كاش من المريض حالياً إن وجد)
+            IF v_to_pay > 0.01 THEN
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+                VALUES (v_je_id, public.resolve_leaf_account(p_cash_acc), v_to_pay, 0, v_org_id, 'تحصيل نقدي من مريض - HIMS');
+            END IF;
 
-    -- 6. إلى ح/ ضريبة القيمة المضافة (قيمة الضريبة الحالية)
-    IF v_tax_to_pay > 0 THEN
+            -- ب. من ح/ ذمم شركات التأمين (الجزء المغطى تأمينياً إن وجد)
+            IF COALESCE(v_bill.insurance_covered_amount, 0) > 0 THEN
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+                VALUES (v_je_id, v_insurance_receivable_acc, COALESCE(v_bill.insurance_covered_amount, 0), 0, v_org_id, 'مستحق من شركة التأمين - HIMS');
+            END IF;
+
+            -- ج. إلى ح/ إيرادات الخدمات الطبية (الصافي الإجمالي للفاتورة)
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+            VALUES (v_je_id, v_rev_acc, 0, (v_bill.total_amount - v_bill.tax_amount), v_org_id, 'إيرادات طبية صافية - HIMS');
+
+            -- د. إلى ح/ ضريبة القيمة المضافة (إجمالي الضريبة للفاتورة)
+            IF v_bill.tax_amount > 0 THEN
+                INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+                VALUES (v_je_id, v_vat_acc, 0, v_bill.tax_amount, v_org_id, 'ضريبة مخرجات - HIMS');
+            END IF;
+
+            -- تحديث رأس الفاتورة
+            UPDATE public.hims_billing 
+            SET related_journal_entry_id = v_je_id, 
+                payment_status = 'paid', 
+                patient_paid_amount = COALESCE(patient_paid_amount, 0) + GREATEST(0, v_to_pay)
+            WHERE id = p_billing_id;
+        END;
+
+    -- إذا كانت الفاتورة قد تم ترحيلها مسبقاً بالفعل ويوجد دفعات/خدمات إضافية جديدة
+    ELSE
+        -- 🛡️ حماية التكرار: إذا كان المتبقي 0 أو سالب، نمنع تنفيذ القيد
+        IF v_to_pay <= 0.01 THEN
+            RAISE EXCEPTION '⚠️ هذه الفاتورة مدفوعة ومرحلة بالكامل مسبقاً (قيد رقم: %). لا توجد فروقات سداد جديدة.',
+                COALESCE(v_bill.related_journal_entry_id::text, 'HIMS-' || substring(v_bill.id::text, 1, 8));
+        END IF;
+
+        -- حساب تفريعة القيد الجديد للدفعة الإضافية
+        v_tax_to_pay := v_to_pay - (v_to_pay / (1 + v_vat_rate));
+        v_rev_to_pay := v_to_pay - v_tax_to_pay;
+
+        -- إنشاء قيد اليومية لدفعة التحصيل الإضافية
+        INSERT INTO public.journal_entries (
+            transaction_date, description, reference, status, organization_id, is_posted, related_document_id, related_document_type
+        )
+        VALUES (
+            CURRENT_DATE, 
+            'دفعة تحصيل إضافية مريض - زيارة رقم ' || v_bill.visit_id, 
+            'HIMS-ADJ-' || substring(v_bill.id::text, 1, 8), 
+            'posted', 
+            v_org_id, 
+            true, 
+            p_billing_id, 
+            'hims_billing'
+        )
+        RETURNING id INTO v_je_id;
+
+        -- من ح/ النقدية بالصندوق (القيمة المسددة الآن)
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
-        VALUES (v_je_id, v_vat_acc, 0, v_tax_to_pay, v_org_id, 'ضريبة مخرجات - HIMS');
-    END IF;
+        VALUES (v_je_id, public.resolve_leaf_account(p_cash_acc), v_to_pay, 0, v_org_id, 'تحصيل نقدي إضافي من مريض - HIMS');
 
-    -- 7. تحديث الفاتورة: ترحيل معرف القيد الأحدث، تحديث المدفوع الإجمالي، وتعيين الحالة كـ 'paid'
-    UPDATE public.hims_billing 
-    SET related_journal_entry_id = v_je_id, 
-        payment_status = 'paid', 
-        patient_paid_amount = COALESCE(patient_paid_amount, 0) + v_to_pay
-    WHERE id = p_billing_id;
+        -- إلى ح/ إيرادات الخدمات الطبية (صافي القيمة الحالية)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES (v_je_id, v_rev_acc, 0, v_rev_to_pay, v_org_id, 'إيرادات طبية صافية إضافية - HIMS');
+
+        -- إلى ح/ ضريبة القيمة المضافة (قيمة الضريبة الحالية)
+        IF v_tax_to_pay > 0 THEN
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+            VALUES (v_je_id, v_vat_acc, 0, v_tax_to_pay, v_org_id, 'ضريبة مخرجات إضافية - HIMS');
+        END IF;
+
+        -- تحديث الفاتورة: زيادة المدفوع الإجمالي
+        UPDATE public.hims_billing 
+        SET payment_status = 'paid', 
+            patient_paid_amount = COALESCE(patient_paid_amount, 0) + v_to_pay
+        WHERE id = p_billing_id;
+    END IF;
 
 END; $$;
 
@@ -220,6 +284,9 @@ BEGIN
     -- 1. جلب معلومات المنظمة والزيارة
     SELECT organization_id, visit_id INTO v_org_id, v_visit_id 
     FROM public.hims_prescriptions WHERE id = p_prescription_id;
+    
+    -- 🔄 إعادة احتساب وتحديث الفاتورة فوراً لضمان إدخال بنود الأدوية وحساب الفروقات المالية المحدثة
+    PERFORM public.hims_prepare_invoice(v_visit_id);
     
     -- 🛡️ حماية مالية: التحقق من حالة دفع الفاتورة للمرضى النقديين أو وجود جهة تأمين
     SELECT payment_status, insurance_provider_id INTO v_bill_status, v_ins_id 

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
-import { Card, Tag, Row, Col, Progress, Badge, Tooltip, Empty, Modal, Form, Input, message, List, Button, Tabs, Typography } from 'antd';
+import { Card, Tag, Row, Col, Progress, Badge, Tooltip, Empty, Modal, Form, Input, message, Button, Tabs, Typography } from 'antd';
 import { HeartOutlined, MedicineBoxOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined, FormOutlined, AlertOutlined, DesktopOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
 
@@ -68,30 +68,33 @@ const MedicationMARModal: React.FC<{ visible: boolean; visitId: string; onCancel
 
   return (
     <Modal title={<b>سجل إعطاء الأدوية (MAR) 💊</b>} open={visible} onCancel={onCancel} footer={null} width={600}>
-      <List
-        dataSource={prescriptions}
-        renderItem={(item) => (
-          <List.Item className="flex justify-between items-center bg-slate-50 mb-2 p-4 rounded-xl">
-            <div>
-              <b className="text-indigo-600 block">{item.drug_name}</b>
-              <small className="text-slate-500">الجرعة: {item.dosage} | التكرار: {item.frequency}</small>
+      {prescriptions && prescriptions.length > 0 ? (
+        <div className="flex flex-col gap-2">
+          {prescriptions.map((item: any, idx: number) => (
+            <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl">
+              <div>
+                <b className="text-indigo-600 block">{item.drug_name}</b>
+                <small className="text-slate-500">الجرعة: {item.dosage} | التكرار: {item.frequency}</small>
+              </div>
+              <Button 
+                type="primary" 
+                className="bg-emerald-600 border-none rounded-lg"
+                icon={<CheckCircleOutlined />} 
+                onClick={() => giveMedication(item)}
+              >إعطاء الآن</Button>
             </div>
-            <Button 
-              type="primary" 
-              className="bg-emerald-600 border-none rounded-lg"
-              icon={<CheckCircleOutlined />} 
-              onClick={() => giveMedication(item)}
-            >إعطاء الآن</Button>
-          </List.Item>
-        )}
-        locale={{ emptyText: "لا توجد أدوية جارية حالياً لهذا المريض" }}
-      />
+          ))}
+        </div>
+      ) : (
+        <Empty description="لا توجد أدوية جارية حالياً لهذا المريض" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-6" />
+      )}
     </Modal>
   );
 };
 
 export const NurseStation: React.FC = () => {
   const { currentUser } = useAuth();
+  const [loading, setLoading] = useState(false);
   const [beds, setBeds] = useState<any[]>([]);
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<string | null>(null);
@@ -115,6 +118,26 @@ export const NurseStation: React.FC = () => {
       .select('*')
       .eq('organization_id', currentUser.organization_id);
     setPendingTasks(data || []);
+  };
+
+  const completeTask = async (taskId: string) => {
+    setLoading(true);
+    const { error } = await supabase
+      .from('hims_nurse_tasks')
+      .update({ 
+        status: 'completed', 
+        completed_at: new Date().toISOString(),
+        completed_by: currentUser?.id 
+      })
+      .eq('id', taskId);
+      
+    if (error) {
+      message.error('فشل إكمال المهمة: ' + error.message);
+    } else {
+      message.success('تم تنفيذ وإغلاق المهمة الطبية بنجاح ✅');
+      fetchTasks();
+    }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -194,24 +217,30 @@ export const NurseStation: React.FC = () => {
                 <AlertOutlined className="text-red-500" />
                 <Typography.Text className="text-red-700 font-bold">توجد {pendingTasks.length} مهام متأخرة تتطلب انتباهاً فورياً.</Typography.Text>
               </div>
-              <List
-                dataSource={pendingTasks}
-                renderItem={(task) => (
-                  <List.Item className="px-6 py-4 hover:bg-slate-50 transition-colors border-b">
-                    <div className="flex justify-between items-center w-full">
+              {pendingTasks && pendingTasks.length > 0 ? (
+                <div className="flex flex-col divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
+                  {pendingTasks.map((task: any, idx: number) => (
+                    <div key={idx} className="px-6 py-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
                       <div>
                         <Typography.Text strong className="block text-indigo-700">{task.patient_name} - {task.ward_name}</Typography.Text>
                         <Typography.Text type="secondary">{task.description}</Typography.Text>
                       </div>
                       <div className="text-left flex items-center gap-4">
                         <Tag color="error" className="font-mono">تأخير: {Math.round(task.delay_minutes)} دقيقة</Tag>
-                        <Button type="primary" size="small" className="bg-emerald-600 border-none">تنفيذ وإغلاق</Button>
+                        <Button 
+                          type="primary" 
+                          size="small" 
+                          className="bg-emerald-600 border-none"
+                          onClick={() => completeTask(task.task_id)}
+                          loading={loading}
+                        >تنفيذ وإغلاق</Button>
                       </div>
                     </div>
-                  </List.Item>
-                )}
-                locale={{ emptyText: "لا توجد مهام معلقة حالياً ✅" }}
-              />
+                  ))}
+                </div>
+              ) : (
+                <Empty description="لا توجد مهام معلقة حالياً ✅" image={Empty.PRESENTED_IMAGE_SIMPLE} className="py-6" />
+              )}
             </Card>
           )
         }

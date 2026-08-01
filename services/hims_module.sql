@@ -1066,6 +1066,9 @@ DECLARE
 BEGIN
     SELECT organization_id, visit_id INTO v_org_id, v_visit_id FROM public.hims_prescriptions WHERE id = p_prescription_id;
     
+    -- 🔄 إعادة احتساب وتحديث الفاتورة فوراً لضمان إدخال بنود الأدوية وحساب الفروقات المالية المحدثة
+    PERFORM public.hims_prepare_invoice(v_visit_id);
+    
     -- 🛡️ حماية مالية: التحقق من حالة دفع الفاتورة للمرضى النقديين أو وجود جهة تأمين
     SELECT payment_status, insurance_provider_id INTO v_bill_status, v_ins_id 
     FROM public.hims_billing WHERE visit_id = v_visit_id;

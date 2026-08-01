@@ -23,7 +23,11 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
     const fetchInsurance = async () => {
       const orgId = settings?.organization_id || settings?.id;
       if (!orgId) return;
-      const { data } = await supabase.from('customers').select('id, name');
+      const { data } = await supabase
+        .from('customers')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .eq('customer_type', 'insurance_provider');
       setInsuranceProviders(data || []);
     };
     fetchInsurance();
