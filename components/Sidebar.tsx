@@ -259,6 +259,8 @@ const Sidebar: React.FC = () => {
     { to: '/hims/doctor-kpis', label: 'مؤشرات أداء الأطباء', icon: TrendingUp, color: 'text-indigo-600', module: 'hims', permission: 'hims_core.view' },
     { to: '/hims/billing', label: 'صندوق المحاسبة الطبية', icon: DollarSign, color: 'text-emerald-400', module: 'hims', permission: 'hims_billing.view' },
     { to: '/hims/profitability', label: 'تحليل الربحية الطبية', icon: TrendingUp, color: 'text-emerald-600', module: 'hims', permission: 'hims_billing.view' },
+    { to: '/hims/insurance-claims', label: 'إدارة مطالبات التأمين', icon: ClipboardList, color: 'text-indigo-400', module: 'hims', permission: 'hims_billing.view' },
+    { to: '/hims/inpatient-board', label: 'شاشة رقابة حركة الأسرة', icon: Bed, color: 'text-emerald-500', module: 'hims', permission: 'hims_inpatient.view' },
 
     // الإدارة والنظام
     { type: 'section', label: 'الإدارة والنظام' },

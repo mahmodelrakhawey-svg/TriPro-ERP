@@ -73,7 +73,8 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
     try {
       const { data, error } = await supabase.rpc('hims_get_luxury_invoice_data', { p_visit_id: visitId });
       if (error) throw error;
-      await LuxuryReportEngine.generatePDF(data, 'invoice', lang);
+      const enrichedData = { ...data, visit_id: visitId };
+      await LuxuryReportEngine.generatePDF(enrichedData, 'invoice', lang);
     } catch (err: any) {
       message.error('فشل جلب البيانات الفاخرة: ' + err.message);
     }
@@ -135,13 +136,13 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
     setLoading(false);
   };
 
-  // حسابات محرك التعاقدات اللحظية
-  const totalAmount = bill?.total_amount || 0;
-  const insuranceCoverage = isInsuranceMode ? insuranceAmount : (bill?.insurance_covered_amount || 0);
-  const paidAmount = bill?.patient_paid_amount || 0;
-  const initialPatientShare = totalAmount - insuranceCoverage; // ⚡️ تجاوز الحقل المولد بقاعدة البيانات لتجنب الخطأ
-  const remainingShare = Math.max(0, initialPatientShare - paidAmount);
-  const finalAmountToPay = isDepositMode ? depositAmount : Math.max(0, remainingShare - manualDiscount);
+  // حسابات محرك التعاقدات اللحظية (مع التقريب لمنع مشاكل الفاصلة العائمة)
+  const totalAmount = Number((bill?.total_amount || 0).toFixed(2));
+  const insuranceCoverage = Number((isInsuranceMode ? insuranceAmount : (bill?.insurance_covered_amount || 0)).toFixed(2));
+  const paidAmount = Number((bill?.patient_paid_amount || 0).toFixed(2));
+  const initialPatientShare = Number(Math.max(0, totalAmount - insuranceCoverage).toFixed(2));
+  const remainingShare = Number(Math.max(0, initialPatientShare - paidAmount).toFixed(2));
+  const finalAmountToPay = isDepositMode ? depositAmount : Number(Math.max(0, remainingShare - manualDiscount).toFixed(2));
 
   return (
     <Card className="rounded-3xl shadow-xl overflow-hidden border-none bg-white">
@@ -208,7 +209,20 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
                   return <Tag color={color}>{label}</Tag>;
                 }
               },
-              { title: 'البند', dataIndex: 'description' },
+              { 
+                title: 'البند', 
+                dataIndex: 'description',
+                render: (text, record) => (
+                  <div>
+                    <span>{text}</span>
+                    {record.batch_number && (
+                      <span className="mr-2">
+                        <Tag color="cyan" style={{ fontSize: '10px', fontWeight: 'bold' }}>تشغيلة: {record.batch_number}</Tag>
+                      </span>
+                    )}
+                  </div>
+                )
+              },
               { title: 'الكمية', dataIndex: 'quantity', align: 'center' },
               { title: 'سعر الوحدة', dataIndex: 'unit_price', render: (v) => v?.toLocaleString() },
               { title: 'الإجمالي', dataIndex: 'total_price', render: (v) => <b>{v?.toLocaleString()}</b> },
@@ -315,20 +329,20 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
                   <Button icon={<PrinterOutlined />} onClick={() => printLuxuryInvoice('ar')} className="bg-slate-800 text-white border-none flex-1">فاتورة (عربي)</Button>
                   <Button icon={<PrinterOutlined />} onClick={() => printLuxuryInvoice('en')} className="bg-slate-600 text-white border-none flex-1">Print (EN)</Button>
                 </div>
-               {finalAmountToPay <= 0 && bill.payment_status === 'paid' ? (
-                 <Tag color="success" className="px-6 py-4 font-bold text-sm rounded-xl">تم السداد والترحيل بالكامل ✅</Tag>
-               ) : (
-                 <Button 
-                  type="primary" 
-                  size="large" 
-                  icon={<AuditOutlined />} 
-                  className="bg-emerald-600 border-none h-14 px-8 font-black"
-                  onClick={postToGL}
-                  loading={loading}
-                 >
-                   اعتماد وترحيل للقيد المزدوج
-                 </Button>
-               )}
+                {finalAmountToPay <= 0 && bill.payment_status === 'paid' && (!isInsuranceMode || (bill.insurance_covered_amount || 0) > 0) ? (
+                  <Tag color="success" className="px-6 py-4 font-bold text-sm rounded-xl">تم السداد والترحيل بالكامل ✅</Tag>
+                ) : (
+                  <Button 
+                   type="primary" 
+                   size="large" 
+                   icon={<AuditOutlined />} 
+                   className="bg-emerald-600 border-none h-14 px-8 font-black"
+                   onClick={postToGL}
+                   loading={loading}
+                  >
+                    اعتماد وترحيل للقيد المزدوج
+                  </Button>
+                )}
             </div>
           </div>
           

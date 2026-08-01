@@ -177,6 +177,9 @@ import { HIMSExecutiveDashboard } from './modules/hims/pages/HIMSExecutiveDashbo
 import { HIMSProfitabilityReports } from './modules/hims/pages/HIMSProfitabilityReports';
 import { HIMSServicesManager } from './modules/hims/pages/HIMSServicesManager';
 import { AppointmentManager } from './modules/hims/pages/AppointmentManager';
+import PatientPortal from './modules/hims/pages/PatientPortal';
+import { InsuranceClaimsManager } from './modules/hims/pages/InsuranceClaimsManager';
+import { InpatientDashboard } from './modules/hims/pages/InpatientDashboard';
 
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
@@ -434,6 +437,8 @@ const MainLayout = () => {
                       <Route path="services" element={<HIMSServicesManager />} />
                       <Route path="admin" element={<HIMSExecutiveDashboard />} />
                       <Route path="profitability" element={<HIMSProfitabilityReports />} />
+                      <Route path="insurance-claims" element={<InsuranceClaimsManager />} />
+                      <Route path="inpatient-board" element={<InpatientDashboard />} />
                     </Routes>
                   </ModuleGuard>
                 } />
@@ -644,6 +649,7 @@ const AppContent = () => {
         <Route path="/customer-display" element={<CustomerDisplay />} />
         <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
         <Route path="/menu" element={<GuestMenuLayout />} />
+        <Route path="/public/hims/visit/:visitId" element={<PatientPortal />} />
 
         {/* 2. المسارات المحمية (تتطلب حساب موظف) */}
         <Route path="/*" element={<ProtectedRoute><MainLayout /></ProtectedRoute>} />

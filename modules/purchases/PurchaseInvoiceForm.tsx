@@ -128,8 +128,10 @@ const PurchaseInvoiceForm = () => {
                    productSku: i.products?.sku,
                    quantity: i.quantity,
                    unitPrice: i.unit_price,
-                   uomId: i.uom_id,
-                   total: i.total
+                   uomId: i.uomId || i.uom_id,
+                   total: i.total,
+                   batchNumber: i.batch_number || '',
+                   expiryDate: i.expiry_date || ''
                  })));
               }
           }
@@ -190,7 +192,9 @@ const PurchaseInvoiceForm = () => {
               quantity: 1,
               unitPrice: initialPrice,
               uomId: defaultUomId,
-              total: initialPrice
+              total: initialPrice,
+              batchNumber: '',
+              expiryDate: ''
           }]);
       }
       setProductSearchTerm('');
@@ -349,7 +353,9 @@ const PurchaseInvoiceForm = () => {
         quantity: item.quantity,
         unit_price: item.unitPrice,
         uom_id: item.uomId,
-        total: item.total
+        total: item.total,
+        batch_number: item.batchNumber || null,
+        expiry_date: item.expiryDate || null
       }));
       const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
       if (itemsError) throw itemsError;
@@ -515,45 +521,78 @@ const PurchaseInvoiceForm = () => {
           </div>
 
           {items.map((item, index) => (
-            <div key={index} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-3">
-                <select required value={item.productId} onChange={e => handleItemChange(index, 'productId', e.target.value)} className="w-full border rounded p-2 bg-white">
-                  <option value="">اختر الصنف...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-              <div className="col-span-2">
-                  <select 
-                      value={item.uomId} 
-                      onChange={e => handleItemChange(index, 'uomId', e.target.value)}
-                      className="w-full border rounded p-2 text-xs bg-white focus:border-emerald-500"
-                  >
-                      {uoms.filter(u => {
-                          const prod = products.find(p => p.id === item.productId);
-                          const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
-                          return u.category_id === baseUom?.category_id;
-                      }).map(u => (
-                          <option key={u.id} value={u.id}>{u.name}</option>
-                      ))}
+            <div key={index} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0 space-y-2">
+              <div className="grid grid-cols-12 gap-2 items-center">
+                <div className="col-span-3">
+                  <select required value={item.productId} onChange={e => handleItemChange(index, 'productId', e.target.value)} className="w-full border rounded p-2 bg-white">
+                    <option value="">اختر الصنف...</option>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
+                </div>
+                <div className="col-span-2">
+                    <select 
+                        value={item.uomId} 
+                        onChange={e => handleItemChange(index, 'uomId', e.target.value)}
+                        className="w-full border rounded p-2 text-xs bg-white focus:border-emerald-500"
+                    >
+                        {uoms.filter(u => {
+                            const prod = products.find(p => p.id === item.productId);
+                            const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
+                            return u.category_id === baseUom?.category_id;
+                        }).map(u => (
+                            <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="col-span-2">
+                  <input type="number" step="any" min="0.01" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="الكمية" />
+                </div>
+                <div className="col-span-2">
+                  <input type="number" step="any" min="0" value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="السعر" />
+                </div>
+                <div className="col-span-2">
+                  <input type="text" readOnly value={(item.total || 0).toLocaleString()} className="w-full bg-slate-100 border rounded p-2 text-center font-bold" />
+                </div>
+                <div className="col-span-1">
+                  <button type="button" onClick={() => removeItem(index)} className="text-red-500 hover:text-red-700 p-2">
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
-              <div className="col-span-2">
-                <input type="number" step="any" min="0.01" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="الكمية" />
-              </div>
-              <div className="col-span-2">
-                <input type="number" step="any" min="0" value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="السعر" />
-              </div>
-              <div className="col-span-2">
-                <input type="text" readOnly value={(item.total || 0).toLocaleString()} className="w-full bg-slate-100 border rounded p-2 text-center font-bold" />
-              </div>
-              <div className="col-span-1">
-                <button type="button" onClick={() => removeItem(index)} className="text-red-500 hover:text-red-700 p-2">
-                  <Trash2 size={18} />
-                </button>
-              </div>
+
+              {/* حقول التشغيلة والصلاحية للأصناف المخزنية */}
+              {(() => {
+                const product = products.find(p => p.id === item.productId);
+                if (product && (product.product_type === 'STOCK' || product.item_type === 'STOCK')) {
+                  return (
+                    <div className="grid grid-cols-12 gap-4 pl-12 pr-4 bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200">
+                      <div className="col-span-6 flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">رقم التشغيلة (Batch):</span>
+                        <input 
+                          type="text" 
+                          placeholder="مثال: B2026-1" 
+                          value={item.batchNumber || ''} 
+                          onChange={e => handleItemChange(index, 'batchNumber', e.target.value)} 
+                          className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold text-slate-700 focus:border-emerald-500 focus:outline-none" 
+                        />
+                      </div>
+                      <div className="col-span-6 flex items-center gap-3">
+                        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">تاريخ الصلاحية:</span>
+                        <input 
+                          type="date" 
+                          value={item.expiryDate || ''} 
+                          onChange={e => handleItemChange(index, 'expiryDate', e.target.value)} 
+                          className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold text-slate-700 focus:border-emerald-500 focus:outline-none" 
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
             </div>
           ))}
-          <button type="button" onClick={() => setItems([...items, { productId: '', quantity: 1, unitPrice: 0, uomId: '', total: 0 }])} className="flex items-center gap-2 text-blue-600 font-bold text-sm mt-2">
+          <button type="button" onClick={() => setItems([...items, { productId: '', quantity: 1, unitPrice: 0, uomId: '', total: 0, batchNumber: '', expiryDate: '' }])} className="flex items-center gap-2 text-blue-600 font-bold text-sm mt-2">
             <Plus size={16} /> إضافة صنف
           </button>
         </div>

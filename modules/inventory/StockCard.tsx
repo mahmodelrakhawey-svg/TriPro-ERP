@@ -123,6 +123,14 @@ const StockCard = () => {
   const fetchTransactions = async () => {
     if (!selectedProductId) return;
     setLoading(true);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const userOrgId = session?.user?.user_metadata?.org_id;
+    if (!userOrgId) {
+      setLoading(false);
+      return;
+    }
+
     if (currentUser?.role === 'demo') {
         setTransactions([
             { id: 'd1', date: new Date().toISOString().split('T')[0], type: 'IN', quantity: 10, documentType: 'فاتورة مشتريات', documentNumber: 'PINV-D-01', warehouseName: 'المستودع الرئيسي', balance: 10 },
@@ -217,12 +225,25 @@ const StockCard = () => {
         if (queryRestConsumption) queryRestConsumption = queryRestConsumption.eq('orders.warehouse_id', selectedWarehouseId);
       }
 
+      // جلب حركات المستشفيات (Pharmacy/Surgery)
+      let queryHims = supabase
+        .from('hims_billing_items')
+        .select(`
+          id, quantity, uom_id, warehouse_id, created_at,
+          hims_billing!inner(id, visit_id, created_at, patient_id, organization_id, hims_patients(full_name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('hims_billing.organization_id', userOrgId);
+
+      if (selectedWarehouseId) queryHims = queryHims.eq('warehouse_id', selectedWarehouseId);
+
       // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual] = await Promise.all([
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual, hims] = await Promise.all([
         querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
         queryRestDirect,
         queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
-        queryMfgFinished, queryMfgRaw, queryMfgScrap, queryMfgActual
+        queryMfgFinished, queryMfgRaw, queryMfgScrap, queryMfgActual,
+        queryHims
       ]);
 
       const allTxns: Transaction[] = [];
@@ -510,6 +531,22 @@ const StockCard = () => {
                   notes: `استهلاك في وجبة (BOM)`
               });
           }
+      });
+
+      // معالجة حركات المستشفى (صادر)
+      hims.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `HIMS-${item.id}`,
+          date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
+          type: 'OUT',
+          quantity: Number(item.quantity),
+          uomId: item.uom_id,
+          documentType: 'صرف مستشفى/صيدلية',
+          documentNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
+          warehouseName: getWName(item.warehouse_id),
+          createdAt: item.hims_billing?.created_at || item.created_at,
+          notes: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`
+        });
       });
 
       // ترتيب زمني (من الأقدم للأحدث) لحساب الرصيد التراكمي

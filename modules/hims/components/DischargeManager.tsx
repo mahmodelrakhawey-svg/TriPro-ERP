@@ -38,8 +38,8 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
       // 🚀 استدعاء دالة SQL التي تجمع البيانات
       const { data, error } = await supabase.rpc('get_patient_discharge_summary', { p_visit_id: visitId });
       if (error) throw error;
-      // 🚀 تمرير البيانات للمحرك الفاخر لإنشاء الـ PDF باللغة المحددة
-      await LuxuryReportEngine.generatePDF(data, 'discharge', lang);
+      const enrichedData = { ...data, visit_id: visitId };
+      await LuxuryReportEngine.generatePDF(enrichedData, 'discharge', lang);
       message.success(lang === 'ar' ? 'تم توليد تقرير الخروج بنجاح ✅' : 'Discharge summary generated successfully ✅');
     } catch (e) {
       message.error(lang === 'ar' ? 'فشل جلب بيانات التقرير' : 'Failed to generate summary report');

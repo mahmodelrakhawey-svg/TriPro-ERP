@@ -163,9 +163,20 @@ const StockMovementCostReport = () => {
           queryRestConsumption = queryRestConsumption.eq('organization_id', userOrgId);
       }
 
+      // 10. حركات المستشفيات (Pharmacy/Surgery) - صادر (out)
+      let queryHims = supabase
+        .from('hims_billing_items')
+        .select(`
+          id, quantity, product_id, warehouse_id, created_at,
+          hims_billing!inner(id, created_at, visit_id, patient_id, organization_id, hims_patients(full_name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('hims_billing.organization_id', userOrgId);
+
       // تنفيذ الاستعلامات بالتوازي وجلب البيانات الفعلية بشكل منضبط
-      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption] = await Promise.all([
-        querySales, queryPurchases, queryAdjustments, querySalesReturns, queryPurchaseReturns, mfgInQuery, mfgOutQuery, mfgScrapQuery, queryOpening, queryTransfers, queryRestDirect, queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] })
+      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption, hims] = await Promise.all([
+        querySales, queryPurchases, queryAdjustments, querySalesReturns, queryPurchaseReturns, mfgInQuery, mfgOutQuery, mfgScrapQuery, queryOpening, queryTransfers, queryRestDirect, queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
+        queryHims
       ]);
 
       // تجميع الحركات
@@ -295,6 +306,19 @@ const StockMovementCostReport = () => {
                   documentNumber: po.orders.order_number
               });
           }
+      });
+
+      hims.data?.forEach((item: any) => {
+        const product = products.find(p => p.id === selectedProductId) as Product | undefined;
+        allMovements.push({
+          date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
+          type: 'out',
+          quantity: Number(item.quantity),
+          unitCost: Number(product?.weighted_average_cost || product?.cost || product?.purchase_price || 0),
+          documentType: 'صرف مستشفى/صيدلية',
+          documentNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
+          notes: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`
+        });
       });
 
       // معالجة التحويلات المخزنية (إظهارها كحركة توثيقية لضمان اكتمال سجل المراجعة)

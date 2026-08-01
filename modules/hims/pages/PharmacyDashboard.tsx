@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
-import { Table, Card, Tag, Button, Row, Col, Typography, Badge, message, Modal, List, Empty, Tooltip, Divider, Statistic, Input } from 'antd';
+import { Table, Card, Tag, Button, Row, Col, Typography, Badge, message, Modal, List, Empty, Tooltip, Divider, Statistic, Input, Tabs } from 'antd';
 import { MedicineBoxOutlined, SendOutlined, HistoryOutlined, CheckCircleOutlined, BarcodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
 import dayjs from 'dayjs';
@@ -12,6 +12,9 @@ export const PharmacyDashboard: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [checkedMeds, setCheckedMeds] = useState<any[]>([]);
   const [barcodeInput, setBarcodeInput] = useState('');
+  const [activeTab, setActiveTab] = useState('1');
+  const [allBatches, setAllBatches] = useState<any[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const fetchPendingPrescriptions = async () => {
     if (!currentUser) return;
@@ -40,20 +43,73 @@ export const PharmacyDashboard: React.FC = () => {
     const productIds = order.medications.map((m: any) => m.product_id).filter(Boolean); // تأكد من وجود product_id
     const { data: products } = await supabase.from('products').select('id, name, stock, sales_price, expiry_date, barcode').in('id', productIds);
     
-    const enriched = order.medications.map((med: any) => ({
-      ...med,
-      current_stock: products?.find(p => p.id === med.product_id)?.stock || 0,
-      price: products?.find(p => p.id === med.product_id)?.sales_price || 0,
-      expiry_date: products?.find(p => p.id === med.product_id)?.expiry_date || null,
-      is_scanned: false // حالة جديدة لتتبع ما إذا تم مسحه بالباركود
-    }));
+    // جلب التشغيلات وتواريخ الصلاحية من جدول product_batches للفرز حسب الأقرب انتهاءً (FEFO)
+    let orgId = (currentUser as any)?.organization_id;
+    if (!orgId) {
+      const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
+      orgId = profile?.organization_id;
+    }
+    
+    const { data: batches } = await supabase
+      .from('product_batches')
+      .select('product_id, batch_number, expiry_date, quantity')
+      .in('product_id', productIds)
+      .gt('quantity', 0)
+      .eq('organization_id', orgId)
+      .order('expiry_date', { ascending: true });
+
+    const enriched = order.medications.map((med: any) => {
+      const prod = products?.find(p => p.id === med.product_id);
+      const prodBatches = batches?.filter(b => b.product_id === med.product_id) || [];
+      return {
+        ...med,
+        current_stock: prod?.stock || 0,
+        price: prod?.sales_price || 0,
+        expiry_date: prod?.expiry_date || null,
+        is_scanned: false, // حالة لتتبع ما إذا تم مسحه بالباركود
+        batches: prodBatches
+      };
+    });
     
     setCheckedMeds(enriched);
     setSelectedOrder(order);
     setLoading(false);
   };
 
-  useEffect(() => { fetchPendingPrescriptions(); }, [currentUser]);
+  const fetchAllBatches = async () => {
+    if (!currentUser) return;
+    setReportLoading(true);
+    try {
+      let orgId = (currentUser as any)?.organization_id;
+      if (!orgId) {
+        const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
+        orgId = profile?.organization_id;
+      }
+      
+      const { data, error } = await supabase
+        .from('product_batches')
+        .select('*, product:product_id(name, sku, sales_price), warehouse:warehouse_id(name)')
+        .eq('organization_id', orgId)
+        .order('expiry_date', { ascending: true });
+        
+      if (error) throw error;
+      setAllBatches(data || []);
+    } catch (err: any) {
+      message.error('فشل جلب تقرير الصلاحيات: ' + err.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  useEffect(() => { 
+    fetchPendingPrescriptions(); 
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (activeTab === '2') {
+      fetchAllBatches();
+    }
+  }, [activeTab, currentUser]);
 
   const dispenseMedication = async (orderId: string) => {
     if (!orderId || orderId === "") return message.error("عذراً، معرف الروشتة غير صالح");
@@ -180,22 +236,69 @@ export const PharmacyDashboard: React.FC = () => {
       <Row gutter={[24, 24]}>
         <Col span={24}>
           <Card className="rounded-3xl shadow-sm border-none overflow-hidden">
-            {prescriptions.length === 0 && !loading ? (
-              <Empty 
-                image={Empty.PRESENTED_IMAGE_SIMPLE} 
-                description="لا توجد روشتات بانتظار الصرف حالياً"
-                className="py-10"
-              />
-            ) : (
-              <Table 
-                dataSource={prescriptions} 
-                columns={columns} 
-                rowKey="id" 
-                loading={loading}
-                pagination={{ pageSize: 8 }}
-                locale={{ emptyText: "جاري جلب البيانات من نظام الطبيب..." }}
-              />
-            )}
+            <Tabs 
+              activeKey={activeTab} 
+              onChange={setActiveTab} 
+              className="px-6 pt-4"
+              items={[
+                {
+                  key: '1',
+                  label: <span className="font-bold">الروشتات الطبية المعلقة</span>,
+                  children: (
+                    prescriptions.length === 0 && !loading ? (
+                      <Empty 
+                        image={Empty.PRESENTED_IMAGE_SIMPLE} 
+                        description="لا توجد روشتات بانتظار الصرف حالياً"
+                        className="py-10"
+                      />
+                    ) : (
+                      <Table 
+                        dataSource={prescriptions} 
+                        columns={columns} 
+                        rowKey="id" 
+                        loading={loading}
+                        pagination={{ pageSize: 8 }}
+                        locale={{ emptyText: "جاري جلب البيانات من نظام الطبيب..." }}
+                      />
+                    )
+                  )
+                },
+                {
+                  key: '2',
+                  label: <span className="font-bold">تقرير صلاحيات وتشغيلات الأدوية</span>,
+                  children: (
+                    <Table
+                      dataSource={allBatches}
+                      loading={reportLoading}
+                      rowKey="id"
+                      pagination={{ pageSize: 10 }}
+                      columns={[
+                        { title: 'كود الصنف (SKU)', dataIndex: ['product', 'sku'] },
+                        { title: 'اسم الدواء', dataIndex: ['product', 'name'], render: (n) => <b>{n}</b> },
+                        { title: 'رقم التشغيلة', dataIndex: 'batch_number', render: (b) => <Tag color="blue">{b}</Tag> },
+                        { 
+                          title: 'تاريخ الصلاحية', 
+                          dataIndex: 'expiry_date', 
+                          render: (d) => {
+                            const expiryDate = dayjs(d);
+                            const isExpired = expiryDate.isBefore(dayjs(), 'day');
+                            const isNearExpiry = expiryDate.isBefore(dayjs().add(3, 'month'), 'day');
+                            
+                            return (
+                              <Tag color={isExpired ? 'red' : isNearExpiry ? 'orange' : 'green'}>
+                                {expiryDate.format('YYYY-MM-DD')} {isExpired ? '(منتهية!)' : isNearExpiry ? '(قريب الانتهاء)' : ''}
+                              </Tag>
+                            );
+                          }
+                        },
+                        { title: 'الكمية المتوفرة', dataIndex: 'quantity', align: 'center', render: (q) => <b>{q}</b> },
+                        { title: 'المستودع', dataIndex: ['warehouse', 'name'] }
+                      ]}
+                    />
+                  )
+                }
+              ]}
+            />
           </Card>
         </Col>
       </Row>
@@ -255,16 +358,30 @@ export const PharmacyDashboard: React.FC = () => {
                 { title: 'الدواء', dataIndex: 'drug_name', render: (n) => <b>{n}</b> },
                 { title: 'المطلوب', dataIndex: 'qty', align: 'center' },
                 { title: 'المخزن', dataIndex: 'current_stock', render: (s, r) => <Tag color={s >= r.qty ? 'green' : 'red'}>{s}</Tag> }, // ✅ عرض المخزون الفعلي
-                { title: 'الصلاحية', dataIndex: 'expiry_date', render: (d, r) => { // ✅ عرض الصلاحية
-                  if (!d) return <Tag>غير محدد</Tag>;
-                  const expiryDate = dayjs(d);
-                  const isExpired = expiryDate.isBefore(dayjs(), 'day');
-                  const isNearExpiry = expiryDate.isBefore(dayjs().add(3, 'month'), 'day');
-                  
-                  return <Tag color={isExpired ? 'red' : isNearExpiry ? 'orange' : 'green'}>
-                    {expiryDate.format('YYYY-MM-DD')} {isExpired ? '(منتهي!)' : isNearExpiry ? '(قريب)' : ''}
-                  </Tag>;
-                }},
+                { 
+                  title: 'التشغيلات والصلاحية (FEFO)', 
+                  dataIndex: 'batches', 
+                  render: (batchesList: any[]) => {
+                    if (!batchesList || batchesList.length === 0) {
+                      return <Tag color="red">لا توجد تشغيلات متوفرة!</Tag>;
+                    }
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {batchesList.map((b, idx) => {
+                          const isExpired = dayjs(b.expiry_date).isBefore(dayjs(), 'day');
+                          const isNearExpiry = dayjs(b.expiry_date).isBefore(dayjs().add(3, 'month'), 'day');
+                          return (
+                            <div key={idx} style={{ fontSize: '11px' }}>
+                              <Tag color={isExpired ? 'red' : isNearExpiry ? 'orange' : 'blue'} style={{ margin: 0 }}>
+                                {b.batch_number} ({b.quantity} وحدة) - {dayjs(b.expiry_date).format('YYYY-MM-DD')}
+                              </Tag>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  }
+                },
                 { title: 'الحالة', render: (_, r) => ( // ✅ حالة المسح
                   r.is_scanned ? <Tag color="blue" icon={<CheckCircleOutlined />}>تم المسح</Tag> : <Tag>بانتظار المسح</Tag>
                 )},

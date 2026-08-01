@@ -366,13 +366,23 @@ export const LuxuryReportEngine = {
       `;
     }
 
-    // Common Footer with signature and mock verification QR code
+    // Common Footer with signature and dynamic QR verification code
+    const visitId = data.visit_id || data.id || data.visit?.id || '';
+    const qrUrl = `${window.location.origin}/#/public/hims/visit/${visitId}`;
+    const qrImgSrc = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qrUrl)}`;
+
     mainContent += `
       <div class="footer-section">
         <div class="signature-block">
           <div>${t.signature}</div>
           <div style="margin-top: 24px; color: #64748b; font-weight: normal; font-size: 11px;">${t.signatureNote}</div>
         </div>
+        ${visitId ? `
+          <div class="qr-code-block" style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+            <img src="${qrImgSrc}" alt="QR verification" style="width: 80px; height: 80px; object-fit: contain;" />
+            <div style="font-size: 9px; color: #64748b; font-weight: bold; margin-top: 2px;">مسح للتحقق والصرف 📱</div>
+          </div>
+        ` : ''}
         <div class="security-badge">
           <div>DOCUMENT SECURED</div>
           <div style="color: #2563eb; font-weight: 800; font-size: 10px; margin-top: 2px;">VERIFIED</div>

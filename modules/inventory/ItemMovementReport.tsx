@@ -250,6 +250,19 @@ const ItemMovementReport = () => {
           if (parentOrders) restaurantConsumption = parentOrders;
       }
 
+      // جلب حركات المستشفيات (Pharmacy/Surgery) - صادر (out)
+      let himsQuery = supabase
+        .from('hims_billing_items')
+        .select(`
+          id, quantity, warehouse_id,
+          hims_billing!inner(id, created_at, visit_id, patient_id, organization_id, hims_patients(full_name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('hims_billing.organization_id', userOrgId);
+
+      if (selectedWarehouseId) himsQuery = himsQuery.eq('warehouse_id', selectedWarehouseId);
+      const { data: himsItems } = await himsQuery;
+
       // تجميع الحركات
       let allMovements: any[] = [];
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
@@ -347,6 +360,18 @@ const ItemMovementReport = () => {
                   userName: getUserName(po.orders.user_id)
               });
           }
+      });
+
+      himsItems?.forEach((item: any) => {
+          allMovements.push({
+              date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
+              type: 'out',
+              quantity: Number(item.quantity),
+              documentType: 'صرف مستشفى/صيدلية',
+              documentNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
+              description: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`,
+              userName: 'النظام الطبي'
+          });
       });
 
       // معالجة التحويلات المخزنية

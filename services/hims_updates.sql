@@ -84,8 +84,22 @@ BEGIN
     END IF;
     
     -- ب. بنود الأدوية (يتوافق نوع البند مع 'pharmacy' في قيد التحقق)
-    INSERT INTO public.hims_billing_items (billing_id, item_type, description, quantity, unit_price, organization_id)
-    SELECT v_bill_id, 'pharmacy', p.name, (m->>'qty')::numeric, p.sales_price, v_org_id
+    INSERT INTO public.hims_billing_items (
+        billing_id, item_type, description, quantity, unit_price, organization_id, product_id, warehouse_id, uom_id
+    )
+    SELECT 
+        v_bill_id, 
+        'pharmacy', 
+        p.name, 
+        (m->>'qty')::numeric, 
+        p.sales_price, 
+        v_org_id,
+        CASE WHEN pr.status = 'dispensed' THEN p.id ELSE NULL END,
+        CASE WHEN pr.status = 'dispensed' THEN COALESCE(
+            (SELECT default_pharmacy_warehouse FROM public.hims_settings WHERE organization_id = v_org_id),
+            (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
+        ) ELSE NULL END,
+        CASE WHEN pr.status = 'dispensed' THEN p.base_uom_id ELSE NULL END
     FROM public.hims_prescriptions pr, jsonb_array_elements(pr.medications) AS m
     JOIN public.products p ON p.id = (m->>'product_id')::uuid
     WHERE pr.visit_id = p_visit_id;

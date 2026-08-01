@@ -146,17 +146,27 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           }
         }
 
+        // First, get the patient IDs associated with this customer ID
+        const { data: patientList } = await supabase
+          .from('hims_patients')
+          .select('id')
+          .eq('customer_id', selectedCustomerId);
+        const patientIds = patientList?.map(p => p.id) || [];
+
         // 1) جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل والقيود اليدوية التي تحوي اسمه
-        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, himsBillRes, himsClaimRes] = await Promise.all([
-            supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('cheques').select('related_journal_entry_id').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('orders').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${selectedCustomer?.name}%`),
-            supabase.from('hims_billing').select('related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('hims_insurance_claims').select('related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null)
+        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, patientBillsRes, insBillsRes, claimsRes] = await Promise.all([
+             supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+             supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+             supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+             supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+             supabase.from('cheques').select('related_journal_entry_id').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+             supabase.from('orders').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+             supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${selectedCustomer?.name}%`),
+             patientIds.length > 0
+               ? supabase.from('hims_billing').select('id, related_journal_entry_id').in('patient_id', patientIds).eq('organization_id', userOrgId)
+               : Promise.resolve({ data: [] }),
+             supabase.from('hims_billing').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
+             supabase.from('hims_insurance_claims').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId)
         ]);
 
         const customerEntryIds = new Set<string>();
@@ -166,9 +176,47 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         cnRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
         chqRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
         ordRes.data?.forEach(o => { if (o.related_journal_entry_id) customerEntryIds.add(o.related_journal_entry_id); });
-        himsBillRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
-        himsClaimRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
         manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
+
+        // إضافة القيود المربوطة مباشرة بالفواتير الطبية والمطالبات (التي لم يتم استبدالها)
+        patientBillsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
+        insBillsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
+        claimsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
+
+        // جلب كافة القيود التاريخية المربوطة بهذه الفواتير الطبية أو المطالبات مباشرة من جدول القيود لمنع فقدان القيود المستبدلة
+        const billingIds = [
+          ...(patientBillsRes.data?.map(b => b.id) || []),
+          ...(insBillsRes.data?.map(b => b.id) || [])
+        ];
+        const claimIds = claimsRes.data?.map(c => c.id) || [];
+
+        if (billingIds.length > 0 || claimIds.length > 0) {
+          const queries = [];
+          if (billingIds.length > 0) {
+            queries.push(
+              supabase
+                .from('journal_entries')
+                .select('id')
+                .in('related_document_id', billingIds)
+                .eq('related_document_type', 'hims_billing')
+                .eq('organization_id', userOrgId)
+            );
+          }
+          if (claimIds.length > 0) {
+            queries.push(
+              supabase
+                .from('journal_entries')
+                .select('id')
+                .in('related_document_id', claimIds)
+                .eq('related_document_type', 'hims_insurance_claims')
+                .eq('organization_id', userOrgId)
+            );
+          }
+          const jeResults = await Promise.all(queries);
+          jeResults.forEach(res => {
+            res.data?.forEach((je: any) => { if (je.id) customerEntryIds.add(je.id); });
+          });
+        }
 
         let ledgerLines: any[] = [];
         let journalEntries: any[] = [];

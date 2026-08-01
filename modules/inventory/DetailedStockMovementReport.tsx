@@ -517,6 +517,41 @@ const DetailedStockMovementReport = () => {
           });
       });
 
+      // 9. حركات المستشفيات (HIMS Pharmacy & Surgery Consumables) - صادر (OUT)
+      let himsQuery = supabase
+        .from('hims_billing_items')
+        .select(`
+          id, quantity, uom_id, product_id,
+          products(name, base_uom_id, unit),
+          warehouse_id, warehouses(name),
+          hims_billing!inner(id, created_at, visit_id, patient_id, organization_id, hims_patients(full_name))
+        `)
+        .eq('hims_billing.organization_id', userOrgId)
+        .not('product_id', 'is', null)
+        .gte('hims_billing.created_at', `${startDate}T00:00:00`)
+        .lte('hims_billing.created_at', `${endDate}T23:59:59`);
+
+      if (selectedProduct) himsQuery = himsQuery.eq('product_id', selectedProduct);
+      if (selectedWarehouse) himsQuery = himsQuery.eq('warehouse_id', selectedWarehouse);
+
+      const { data: hims } = await himsQuery;
+      hims?.forEach((item: any) => {
+        allMovements.push({
+          id: `HIMS-${item.id}-${item.product_id}`,
+          date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
+          type: 'OUT',
+          docType: 'صرف مستشفى/صيدلية',
+          docNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
+          productName: item.products?.name,
+          quantity: Number(item.quantity),
+          uomId: item.uom_id,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
+          warehouseName: item.warehouses?.name || 'مستودع غير محدد',
+          notes: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`
+        });
+      });
+
       // ترتيب الحركات حسب التاريخ
       allMovements.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       setMovements(allMovements);

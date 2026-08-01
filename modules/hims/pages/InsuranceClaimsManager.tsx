@@ -16,7 +16,7 @@ export const InsuranceClaimsManager: React.FC = () => {
   const [isSettleModalOpen, setIsSettleModalOpen] = useState(false);
   const [selectedClaim, setSelectedClaim] = useState<any>(null);
   const [settleBankAcc, setSettleBankAcc] = useState<string>('');
-  const [selectedInsuranceProvider, setSelectedInsuranceProvider] = useState<string | null>(null);
+  const [selectedInsuranceProvider, setSelectedInsuranceProvider] = useState<string>('all');
 
   const fetchPendingInsuranceBills = async () => {
     if (!currentUser?.organization_id) return;
@@ -43,7 +43,7 @@ export const InsuranceClaimsManager: React.FC = () => {
       .order('created_at', { ascending: true });
     
     // فلترة إضافية حسب شركة التأمين المختارة
-    const filteredData = selectedInsuranceProvider
+    const filteredData = selectedInsuranceProvider && selectedInsuranceProvider !== 'all'
       ? data?.filter(bill => bill.insurance_provider_id === selectedInsuranceProvider)
       : data;
 
@@ -63,8 +63,8 @@ export const InsuranceClaimsManager: React.FC = () => {
   useEffect(() => { fetchPendingInsuranceBills(); }, [selectedInsuranceProvider, currentUser?.organization_id]);
 
   const generateBatchClaim = async () => {
-    if (pendingBills.length === 0 || !selectedInsuranceProvider) {
-      return message.warning('يرجى اختيار شركة تأمين وتوفر فواتير معلقة لتوليد المطالبة.');
+    if (pendingBills.length === 0 || !selectedInsuranceProvider || selectedInsuranceProvider === 'all') {
+      return message.warning('يرجى اختيار شركة تأمين محددة وتوفر فواتير معلقة لتوليد المطالبة.');
     }
     
     setLoading(true);
@@ -122,7 +122,7 @@ export const InsuranceClaimsManager: React.FC = () => {
               onChange={setSelectedInsuranceProvider}
               value={selectedInsuranceProvider}
               options={[
-                { label: 'كل الشركات', value: null },
+                { label: 'كل الشركات', value: 'all' },
                 ...insuranceProviders.map(provider => ({
                   label: provider.name,
                   value: provider.id
