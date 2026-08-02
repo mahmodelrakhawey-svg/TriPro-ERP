@@ -34,6 +34,7 @@ const SAFE_PATHS = [
   'dist',
   'build',
   'coverage',
+  'scratch',
   'SECURITY_GUIDELINES.md',
   'utils/securityGuards.ts',
   'utils/securityValidation.ts',
