@@ -956,11 +956,11 @@ BEGIN
     v_vat_to_post := v_bill.tax_amount - v_already_posted_vat;
 
     -- تحديد المقبوض الفعلي ومستحق التحميل على ذمم العميل
-    v_cash_received := COALESCE(p_custom_amount, v_to_pay);
-    v_charge_patient := v_to_pay;
+    v_cash_received := COALESCE(p_custom_amount, CASE WHEN v_to_pay > 0 THEN v_to_pay ELSE 0 END);
+    v_charge_patient := v_revenue_to_post + v_vat_to_post - v_insurance_to_post;
 
     -- إذا كانت كل الفروقات صفر أو سالبة، نمنع تنفيذ القيد تلافياً للتكرار
-    IF ABS(v_cash_received) < 0.01 AND ABS(v_insurance_to_post) < 0.01 AND ABS(v_revenue_to_post) < 0.01 AND ABS(v_vat_to_post) < 0.01 THEN
+    IF ABS(v_cash_received) < 0.01 AND ABS(v_charge_patient) < 0.01 AND ABS(v_insurance_to_post) < 0.01 AND ABS(v_revenue_to_post) < 0.01 AND ABS(v_vat_to_post) < 0.01 THEN
         RAISE EXCEPTION '⚠️ هذه الفاتورة مدفوعة ومرحلة بالكامل مسبقاً بالتأمين والنقدية. لا توجد فروقات سداد جديدة.';
     END IF;
 
