@@ -347,7 +347,12 @@ export const LuxuryReportEngine = {
           <div class="luxury-title">${t.medicationsTitle}</div>
           <ol class="list-container">
             ${data.medications.map((med: any) => `
-              <li class="list-item"><strong>${med.drug_name}</strong> - ${med.dosage || ''} (${med.frequency || ''})</li>
+              <li class="list-item">
+                <strong>${med.drug_name}</strong> 
+                ${med.qty ? ` - ${lang === 'ar' ? 'الكمية: ' + med.qty : 'Qty: ' + med.qty}` : ''}
+                ${med.dosage ? ` | ${med.dosage}` : ''} 
+                ${med.frequency ? ` (${med.frequency})` : ''}
+              </li>
             `).join('')}
           </ol>
         ` : ''}

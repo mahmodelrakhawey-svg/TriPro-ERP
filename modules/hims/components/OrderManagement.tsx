@@ -14,6 +14,8 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
   const [selectedRads, setSelectedRads] = useState<string[]>([]);
   const [bloodRequest, setBloodRequest] = useState({ type: 'O+', units: 1 });
   const [surgeryRequest, setSurgeryRequest] = useState({ name: '', date: null as any });
+  const [nursingTasks, setNursingTasks] = useState<any[]>([]);
+  const [newNursingTask, setNewNursingTask] = useState({ type: 'dressing', description: '', priority: 'normal' });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -124,6 +126,53 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
     setLoading(false);
   };
 
+  const fetchNursingTasks = async () => {
+    if (!visitId) return;
+    const { data } = await supabase
+      .from('hims_nurse_tasks')
+      .select('*')
+      .eq('visit_id', visitId)
+      .order('created_at', { ascending: false });
+    setNursingTasks(data || []);
+  };
+
+  useEffect(() => {
+    fetchNursingTasks();
+  }, [visitId]);
+
+  const requestNursingService = async () => {
+    if (!newNursingTask.description) return message.warning('يرجى إدخال تفاصيل الخدمة التمريضية المطلوبة');
+    setLoading(true);
+    try {
+      const { data: visitData } = await supabase
+        .from('hims_visits')
+        .select('organization_id')
+        .eq('id', visitId)
+        .single();
+      
+      const { error } = await supabase
+        .from('hims_nurse_tasks')
+        .insert([{
+          visit_id: visitId,
+          task_type: newNursingTask.type,
+          description: newNursingTask.description,
+          priority: newNursingTask.priority,
+          due_at: new Date().toISOString(),
+          status: 'pending',
+          organization_id: visitData?.organization_id
+        }]);
+
+      if (error) throw error;
+      message.success('تم إرسال طلب الخدمة التمريضية لمكتب التمريض بنجاح ✅');
+      setNewNursingTask({ type: 'dressing', description: '', priority: 'normal' });
+      fetchNursingTasks();
+    } catch (err: any) {
+      message.error('خطأ في إرسال طلب الخدمة: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <Card className="rounded-2xl shadow-sm border-slate-200">
       <Tabs 
@@ -214,10 +263,94 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
             key: '3',
             label: <span><MedicineBoxOutlined /> خدمات تمريضية</span>,
             children: (
-              <div className="space-y-2">
-                 <Tag closable>غيار على جرح</Tag>
-                 <Tag closable>تركيب محاليل</Tag>
-                 <Button type="dashed" block size="small">إضافة خدمة إضافية</Button>
+              <div className="space-y-4">
+                <div className="bg-slate-50 p-4 rounded-xl border space-y-3">
+                  <h4 className="font-bold text-xs text-slate-500 m-0">طلب خدمة تمريضية جديدة:</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Select 
+                      className="w-full" 
+                      value={newNursingTask.type} 
+                      onChange={v => setNewNursingTask({...newNursingTask, type: v})}
+                    >
+                      <Option value="dressing">🩹 غيار على جرح</Option>
+                      <Option value="medication">💊 إعطاء دواء / محاليل</Option>
+                      <Option value="vitals">🌡️ قياس علامات حيوية</Option>
+                      <Option value="lab_collection">🧪 سحب عينة مختبر</Option>
+                      <Option value="custom">⚙️ أخرى / طلب مخصص</Option>
+                    </Select>
+                    
+                    <Select 
+                      className="w-full" 
+                      value={newNursingTask.priority} 
+                      onChange={v => setNewNursingTask({...newNursingTask, priority: v})}
+                    >
+                      <Option value="normal">🔵 عادي</Option>
+                      <Option value="urgent">🟠 عاجل</Option>
+                      <Option value="emergency">🔴 حرج جداً</Option>
+                    </Select>
+                  </div>
+                  
+                  <Input 
+                    placeholder="اكتب تفاصيل الإجراء المطلوبة..." 
+                    value={newNursingTask.description}
+                    onChange={e => setNewNursingTask({...newNursingTask, description: e.target.value})}
+                  />
+                  
+                  <Button 
+                    type="primary" 
+                    block 
+                    icon={<PlusOutlined />} 
+                    onClick={requestNursingService}
+                    loading={loading}
+                  >
+                    إرسال الطلب لمحطة التمريض
+                  </Button>
+                </div>
+
+                <div>
+                  <h4 className="font-bold text-xs text-slate-500 mb-2">الخدمات التمريضية المطلوبة سابقاً:</h4>
+                  <Table 
+                    dataSource={nursingTasks}
+                    rowKey="id"
+                    size="small"
+                    pagination={{ pageSize: 4 }}
+                    columns={[
+                      { 
+                        title: 'النوع', 
+                        dataIndex: 'task_type', 
+                        render: (t) => {
+                          const labels: any = {
+                            dressing: 'غيار جروح',
+                            medication: 'أدوية/محاليل',
+                            vitals: 'علامات حيوية',
+                            lab_collection: 'سحب عينة',
+                            custom: 'أخرى'
+                          };
+                          return labels[t] || t;
+                        } 
+                      },
+                      { title: 'البيان/الوصف', dataIndex: 'description' },
+                      { 
+                        title: 'الأولوية', 
+                        dataIndex: 'priority', 
+                        render: (p) => (
+                          <Tag color={p === 'emergency' ? 'red' : p === 'urgent' ? 'orange' : 'blue'}>
+                            {p === 'emergency' ? 'حرج' : p === 'urgent' ? 'عاجل' : 'عادي'}
+                          </Tag>
+                        ) 
+                      },
+                      { 
+                        title: 'الحالة', 
+                        dataIndex: 'status',
+                        render: (s) => (
+                          <Tag color={s === 'completed' ? 'green' : 'gold'}>
+                            {s === 'completed' ? 'تم التنفيذ' : 'معلق'}
+                          </Tag>
+                        )
+                      }
+                    ]}
+                  />
+                </div>
               </div>
             )
           }

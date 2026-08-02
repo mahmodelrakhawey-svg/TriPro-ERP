@@ -389,3 +389,141 @@ BEGIN
     UPDATE public.hims_prescriptions SET status = 'dispensed' WHERE id = p_prescription_id;
     PERFORM public.recalculate_stock_rpc(v_org_id);
 END; $$;
+
+-- =========================================================================
+-- 3. نظام طلبات الدم وتكاملها مع بنك الدم (Blood Requests Integration)
+-- =========================================================================
+
+-- أ. إنشاء جدول طلبات نقل الدم
+CREATE TABLE IF NOT EXISTS public.hims_blood_requests (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    visit_id uuid REFERENCES public.hims_visits(id) ON DELETE CASCADE,
+    blood_type text NOT NULL,
+    units numeric DEFAULT 1,
+    urgency text DEFAULT 'normal',
+    status text DEFAULT 'pending', -- pending, completed, cancelled
+    created_at timestamptz DEFAULT now()
+);
+
+-- منح الصلاحيات
+GRANT ALL ON public.hims_blood_requests TO authenticated;
+
+-- ب. تحديث دالة إرسال طلب نقل الدم من الطبيب لتسجيل الطلب في الجدول الجديد
+CREATE OR REPLACE FUNCTION public.hims_request_blood(
+    p_visit_id uuid,
+    p_blood_type text,
+    p_units numeric,
+    p_urgency text
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 1. تسجيل السجل الأمني
+    INSERT INTO public.security_logs (event_type, description, organization_id, metadata)
+    VALUES (
+        'blood_request',
+        format('طلب نقل دم (%s وحدات فصيلة %s) للزيارة %s', p_units, p_blood_type, p_visit_id),
+        public.get_my_org(),
+        jsonb_build_object('visit_id', p_visit_id, 'blood_type', p_blood_type, 'units', p_units, 'urgency', p_urgency)
+    );
+
+    -- 2. إدخال الطلب الفعلي في جدول طلبات الدم ليعمل بنك الدم بشكل سليم
+    INSERT INTO public.hims_blood_requests (visit_id, blood_type, units, urgency, organization_id)
+    VALUES (p_visit_id, p_blood_type, p_units, p_urgency, public.get_my_org());
+END; $$;
+
+-- ج. دالة تلبية وصرف طلب الدم من قبل فني بنك الدم
+CREATE OR REPLACE FUNCTION public.hims_fulfill_blood_request(
+    p_request_id uuid,
+    p_bag_id uuid
+)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_req RECORD;
+    v_bag RECORD;
+BEGIN
+    -- 1. جلب بيانات الطلب والتحقق منه
+    SELECT * INTO v_req FROM public.hims_blood_requests WHERE id = p_request_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION '⚠️ طلب نقل الدم غير موجود.';
+    END IF;
+    IF v_req.status != 'pending' THEN
+        RAISE EXCEPTION '⚠️ هذا الطلب تم صرفه أو إلغاؤه مسبقاً.';
+    END IF;
+
+    -- 2. جلب بيانات كيس الدم والتحقق من صلاحيته وتوافقه
+    SELECT d.*, donor.blood_type 
+    INTO v_bag 
+    FROM public.hims_blood_donations d
+    JOIN public.hims_blood_donors donor ON d.donor_id = donor.id
+    WHERE d.id = p_bag_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION '⚠️ كيس الدم المحدد غير موجود.';
+    END IF;
+    IF v_bag.status != 'available' THEN
+        RAISE EXCEPTION '⚠️ كيس الدم المحدد غير متاح للصرف حالياً.';
+    END IF;
+    IF v_bag.blood_type != v_req.blood_type THEN
+        RAISE EXCEPTION '⚠️ فصيلة الدم في الكيس (%s) لا تطابق الفصيلة المطلوبة (%s).', v_bag.blood_type, v_req.blood_type;
+    END IF;
+
+    -- 3. تحديث حالة كيس الدم إلى مستخدم (used)
+    UPDATE public.hims_blood_donations 
+    SET status = 'used' 
+    WHERE id = p_bag_id;
+
+    -- 4. تسجيل عملية نقل الدم الفعلية (transfusion) للمريض
+    INSERT INTO public.hims_blood_transfusions (
+        visit_id, 
+        bag_id, 
+        doctor_id, 
+        notes, 
+        organization_id
+    )
+    VALUES (
+        v_req.visit_id, 
+        p_bag_id, 
+        (SELECT doctor_id FROM public.hims_visits WHERE id = v_req.visit_id), 
+        'صرف وتلبية طلب الدم بالكامل بنجاح', 
+        v_req.organization_id
+    );
+
+    -- 5. تحديث حالة الطلب إلى مكتمل
+    UPDATE public.hims_blood_requests 
+    SET status = 'completed' 
+    WHERE id = p_request_id;
+
+    -- 6. استدعاء محرك الفوترة الطبية لإضافة تكلفة كيس الدم تلقائياً لفاتورة المريض
+    PERFORM public.hims_prepare_invoice(v_req.visit_id);
+
+END; $$;
+
+-- منح الصلاحيات للدالة الجديدة
+GRANT EXECUTE ON FUNCTION public.hims_fulfill_blood_request TO authenticated;
+
+-- =========================================================================
+-- 4. تحديث عرض المهام الطبية المتأخرة ليشمل نوع الزيارة ورقم السرير وموقعه وهويته
+-- =========================================================================
+DROP VIEW IF EXISTS public.v_hims_overdue_nurse_tasks CASCADE;
+
+CREATE VIEW public.v_hims_overdue_nurse_tasks AS
+SELECT 
+    t.id as task_id,
+    t.visit_id,
+    t.task_type,
+    p.full_name as patient_name,
+    v.visit_type,
+    b.bed_number,
+    w.name as ward_name,
+    t.description,
+    t.due_at,
+    EXTRACT(EPOCH FROM (now() - t.due_at))/60 as delay_minutes,
+    t.organization_id
+FROM public.hims_nurse_tasks t
+JOIN public.hims_visits v ON t.visit_id = v.id
+JOIN public.hims_patients p ON v.patient_id = p.id
+LEFT JOIN public.hims_beds b ON v.id = b.current_visit_id
+LEFT JOIN public.hims_wards w ON b.ward_id = w.id
+WHERE t.status = 'pending' AND t.due_at < now();
+
+GRANT SELECT ON public.v_hims_overdue_nurse_tasks TO authenticated;

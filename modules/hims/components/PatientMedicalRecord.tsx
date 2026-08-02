@@ -12,6 +12,9 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
   const [vitalsHistory, setVitalsHistory] = useState<any[]>([]);
   const [currentMedications, setCurrentMedications] = useState<any[]>([]);
   const [vitalsChartData, setVitalsChartData] = useState<any[]>([]);
+  const [clinicalNotes, setClinicalNotes] = useState<any[]>([]);
+  const [radiologyReports, setRadiologyReports] = useState<any[]>([]);
+  const [surgeries, setSurgeries] = useState<any[]>([]);
 
   const fetchData = async () => {
     if (!patientId || patientId === "") return; // 🛡️ حماية من خطأ UUID الفارغ
@@ -55,6 +58,40 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
         allMedications = prescriptions?.flatMap(p => p.medications) || [];
       }
 
+      // جلب الملاحظات الطبية
+      let notes: any[] = [];
+      if (visitIds.length > 0) {
+        const { data: notesData } = await supabase
+          .from('hims_clinical_notes')
+          .select('*, doctor:doctor_id(profiles(full_name))')
+          .in('visit_id', visitIds)
+          .order('created_at', { ascending: false });
+        notes = notesData || [];
+      }
+
+      // جلب تقارير الأشعة المكتملة
+      let rads: any[] = [];
+      if (visitIds.length > 0) {
+        const { data: radData } = await supabase
+          .from('hims_radiology_orders')
+          .select('*')
+          .in('visit_id', visitIds)
+          .eq('status', 'completed')
+          .order('created_at', { ascending: false });
+        rads = radData || [];
+      }
+
+      // جلب العمليات الجراحية
+      let surgs: any[] = [];
+      if (visitIds.length > 0) {
+        const { data: surgData } = await supabase
+          .from('hims_surgeries')
+          .select('*, doctor:lead_surgeon_id(profiles(full_name))')
+          .in('visit_id', visitIds)
+          .order('scheduled_start', { ascending: false });
+        surgs = surgData || [];
+      }
+
       // Prepare vital signs data for charting
       const chartData = (vitals || []).map((v: any) => {
         const vs = v.vital_signs || {};
@@ -79,6 +116,9 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
       setVitalsHistory(vitals || []);
       setCurrentMedications(allMedications);
       setVitalsChartData(chartData);
+      setClinicalNotes(notes);
+      setRadiologyReports(rads);
+      setSurgeries(surgs);
     } catch (error: any) {
       console.error("Error fetching patient medical record data:", error);
       // يمكنك إضافة رسالة تنبيه للمستخدم هنا إذا أردت
@@ -207,8 +247,13 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
                 className="bg-white rounded-2xl" 
                 dataSource={currentMedications} 
                 renderItem={item => (
-                  <List.Item>
-                    {item.drug_name} - {item.dosage} ({item.frequency})
+                  <List.Item className="flex justify-between items-center">
+                    <span className="font-bold text-slate-800">{item.drug_name}</span>
+                    <div className="flex gap-2">
+                      {item.qty && <Tag color="blue">الكمية: {item.qty}</Tag>}
+                      {item.dosage && <Tag color="green">الجرعة: {item.dosage}</Tag>}
+                      {item.frequency && <Tag color="orange">التكرار: {item.frequency}</Tag>}
+                    </div>
                   </List.Item>
                 )} 
                 locale={{ emptyText: "لا توجد أدوية جارية حالياً" }}
@@ -219,6 +264,82 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
             key: '5',
             label: <span><HeartOutlined /> رسم بياني للعلامات الحيوية</span>,
             children: renderVitalsChart()
+          },
+          {
+            key: '6',
+            label: <span><FileSearchOutlined /> الملاحظات السريرية (SOAP)</span>,
+            children: (
+              <div className="space-y-4">
+                {clinicalNotes.length > 0 ? (
+                  clinicalNotes.map(note => (
+                    <Card key={note.id} className="rounded-2xl shadow-sm border-slate-100" title={<div className="flex justify-between"><b>التاريخ: {dayjs(note.created_at).format('YYYY-MM-DD HH:mm')}</b><Tag color="blue">الطبيب: {note.doctor?.profiles?.full_name || 'غير محدد'}</Tag></div>}>
+                      <div className="space-y-2">
+                        {note.subjective && <div><span className="text-slate-400 block text-xs">الشكوى والملاحظات الذاتية (Subjective):</span><p className="bg-slate-50 p-2 rounded-lg text-sm m-0">"{note.subjective}"</p></div>}
+                        {note.objective && <div><span className="text-slate-400 block text-xs">الفحص السريري (Objective):</span><p className="bg-slate-50 p-2 rounded-lg text-sm m-0">"{note.objective}"</p></div>}
+                        {note.assessment && <div><span className="text-slate-400 block text-xs">التشخيص والتقييم (Assessment):</span><p className="bg-slate-50 p-2 rounded-lg text-sm m-0 font-bold">"{note.assessment}"</p></div>}
+                        {note.plan && <div><span className="text-slate-400 block text-xs">الخطة العلاجية والتعليمات (Plan):</span><p className="bg-slate-50 p-2 rounded-lg text-sm m-0 text-indigo-700">"{note.plan}"</p></div>}
+                      </div>
+                    </Card>
+                  ))
+                ) : <Empty description="لا توجد ملاحظات سريرية SOAP مسجلة" />}
+              </div>
+            )
+          },
+          {
+            key: '7',
+            label: <span><FileSearchOutlined /> تقارير الأشعة</span>,
+            children: (
+              <div className="space-y-4">
+                {radiologyReports.length > 0 ? (
+                  radiologyReports.map(report => (
+                    <Card key={report.id} title={<b>نوع الأشعة: {report.scan_type}</b>} extra={<Tag color="green">{dayjs(report.created_at).format('YYYY-MM-DD')}</Tag>} className="rounded-2xl shadow-sm border-slate-100">
+                      <div>
+                        <span className="text-slate-400 block text-xs mb-1">التقرير النهائي للأشعة:</span>
+                        <p className="bg-slate-50 p-4 rounded-xl text-sm whitespace-pre-wrap leading-relaxed m-0 text-slate-800 border">
+                          {report.report_text || 'لا يوجد تقرير مسجل.'}
+                        </p>
+                      </div>
+                    </Card>
+                  ))
+                ) : <Empty description="لا توجد تقارير أشعة مكتملة" />}
+              </div>
+            )
+          },
+          {
+            key: '8',
+            label: <span><MedicineBoxOutlined /> العمليات الجراحية</span>,
+            children: (
+              <div className="space-y-4">
+                {surgeries.length > 0 ? (
+                  surgeries.map(surg => (
+                    <Card key={surg.id} title={<b>عملية: {surg.surgery_name}</b>} extra={<Tag color={surg.status === 'completed' ? 'green' : 'blue'}>{surg.status === 'completed' ? 'مكتملة' : 'مجدولة'}</Tag>} className="rounded-2xl shadow-sm border-slate-100">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <span className="text-slate-400 block text-xs">الجراح المسؤول:</span>
+                          <b className="text-sm">{surg.doctor?.profiles?.full_name || 'غير محدد'}</b>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-xs">تاريخ الإجراء:</span>
+                          <b className="text-sm">{dayjs(surg.scheduled_start).format('YYYY-MM-DD HH:mm')}</b>
+                        </div>
+                        {surg.room_number && (
+                          <div>
+                            <span className="text-slate-400 block text-xs">غرفة العمليات:</span>
+                            <b className="text-sm">غرفة رقم {surg.room_number}</b>
+                          </div>
+                        )}
+                        {surg.notes && (
+                          <div className="col-span-2">
+                            <span className="text-slate-400 block text-xs">ملاحظات الجراحة:</span>
+                            <p className="bg-slate-50 p-2 rounded-lg text-sm m-0">{surg.notes}</p>
+                          </div>
+                        )}
+                      </div>
+                    </Card>
+                  ))
+                ) : <Empty description="لا يوجد تاريخ جراحي مسجل" />}
+              </div>
+            )
           }
         ]}
       />

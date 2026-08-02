@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Row, Col, Statistic, Table, Typography, Tag, Progress, Divider, Button } from 'antd';
+import { Card, Row, Col, Statistic, Table, Typography, Tag, Progress, Divider, Button, message } from 'antd';
 import { RiseOutlined, UserOutlined, BankOutlined, FilePdfOutlined, PieChartOutlined } from '@ant-design/icons';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { himsService } from '../../../services/himsService';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '@/context/AuthContext';
+import * as XLSX from 'xlsx';
 
 const { Title, Text } = Typography;
 
@@ -33,6 +34,41 @@ export const HIMSProfitabilityReports: React.FC = () => {
 
   const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
+  const exportReport = () => {
+    try {
+      // 1. تحضير بيانات الأطباء
+      const doctorData = doctorStats.map(r => ({
+        'اسم الطبيب': r.doctor_name,
+        'التخصص': r.specialization,
+        'إجمالي الزيارات': r.total_visits,
+        'إجمالي الإيرادات': r.total_revenue,
+        'التحصيل النقدي': r.patient_collections,
+        'ذمم التأمين': r.insurance_receivables,
+        'نسبة التحصيل': `${Math.round((r.patient_collections / (r.total_revenue || 1)) * 100)}%`
+      }));
+
+      // 2. تحضير بيانات الأقسام
+      const deptData = deptStats.map(r => ({
+        'اسم القسم': r.department_name,
+        'إجمالي الإيرادات': r.total_revenue,
+        'النسبة من إجمالي المستشفى': `${Math.round((r.total_revenue / (deptStats.reduce((a,b) => a + b.total_revenue, 0) || 1)) * 100)}%`
+      }));
+
+      const wb = XLSX.utils.book_new();
+      
+      const wsDocs = XLSX.utils.json_to_sheet(doctorData);
+      XLSX.utils.book_append_sheet(wb, wsDocs, "أداء وربحية الأطباء");
+
+      const wsDepts = XLSX.utils.json_to_sheet(deptData);
+      XLSX.utils.book_append_sheet(wb, wsDepts, "ربحية الأقسام الطبية");
+
+      XLSX.writeFile(wb, `HIMS_Profitability_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+      message.success('تم تصدير تقرير الربحية الطبية بنجاح ✅');
+    } catch (error: any) {
+      message.error('فشل تصدير التقرير: ' + error.message);
+    }
+  };
+
   return (
     <div className="p-6 bg-slate-50 min-h-screen rtl text-right">
       <div className="flex justify-between items-center mb-8">
@@ -42,7 +78,7 @@ export const HIMSProfitabilityReports: React.FC = () => {
           </Title>
           <Text type="secondary">تحليل الإيرادات حسب الطبيب والقسم لضمان الكفاءة المالية</Text>
         </div>
-        <Button icon={<FilePdfOutlined />} type="primary" className="bg-slate-800 border-none rounded-xl">تصدير التقرير المالي</Button>
+        <Button icon={<FilePdfOutlined />} type="primary" onClick={exportReport} className="bg-slate-800 border-none rounded-xl">تصدير التقرير المالي</Button>
       </div>
 
       <Row gutter={[24, 24]}>

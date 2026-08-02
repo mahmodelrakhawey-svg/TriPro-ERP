@@ -189,7 +189,23 @@ export const himsService = {
   },
 
   async registerDonor(donor: { full_name: string, national_id: string, blood_type: string, phone: string }) {
-    const { data, error } = await supabase.rpc('hims_register_donor', donor);
+    const { data, error } = await supabase.rpc('hims_register_donor', {
+      p_name: donor.full_name,
+      p_national_id: donor.national_id,
+      p_blood_type: donor.blood_type,
+      p_phone: donor.phone
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  // تسجيل عملية تبرع بالدم جديدة
+  async processDonation(donorId: string, bagCode: string, expiryDate: string) {
+    const { data, error } = await supabase.rpc('hims_process_donation', {
+      p_donor_id: donorId,
+      p_bag_code: bagCode,
+      p_expiry: expiryDate
+    });
     if (error) throw error;
     return data;
   },
@@ -249,6 +265,28 @@ export const himsService = {
       .eq('id', visitId)
       .select()
       .single();
+    if (error) throw error;
+    return data;
+  },
+
+  // جلب طلبات الدم المعلقة
+  async getPendingBloodRequests(orgId: string) {
+    const { data, error } = await supabase
+      .from('hims_blood_requests')
+      .select('*, visit:visit_id(hims_patients(full_name))')
+      .eq('organization_id', orgId)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data;
+  },
+
+  // تلبية وصرف طلب الدم
+  async fulfillBloodRequest(requestId: string, bagId: string) {
+    const { data, error } = await supabase.rpc('hims_fulfill_blood_request', {
+      p_request_id: requestId,
+      p_bag_id: bagId
+    });
     if (error) throw error;
     return data;
   }

@@ -4,6 +4,7 @@ import { Card, Table, Tag, Button, Row, Col, Typography, Badge, Space, message, 
 import { UserOutlined, PlayCircleOutlined, HistoryOutlined, MedicineBoxOutlined, ExclamationCircleOutlined, ExperimentOutlined, CameraOutlined, AlertOutlined, FileSearchOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { PatientMedicalRecord } from '../components/PatientMedicalRecord';
 import { PrescriptionForm } from '../components/PrescriptionForm';
+import { ClinicalNotesForm } from '../components/ClinicalNotesForm';
 import { OrderManagement } from '../components/OrderManagement';
 import { DischargeManager } from '../components/DischargeManager';
 import { useAuth } from '@/context/AuthContext';
@@ -181,6 +182,15 @@ export const DoctorDesktop: React.FC = () => {
                       <Text style={{ color: 'rgba(255,255,255,0.8)' }}>رقم الهوية: {activeVisit.hims_patients?.national_id}</Text>
                       <div className="text-xs font-bold bg-white/20 px-2 py-1 rounded mt-1">العيادة: {(currentUser as any)?.full_name || 'غير معروف'} ({userRole})</div>
                       
+                      {activeVisit.vital_signs && (
+                        <div className="flex flex-wrap gap-3 mt-2 bg-white/15 px-3 py-1.5 rounded-xl text-xs font-black w-fit">
+                          <span>🌡️ حرارة: {activeVisit.vital_signs.temp ? activeVisit.vital_signs.temp + '°C' : '-'}</span>
+                          <span>❤️ نبض: {activeVisit.vital_signs.pulse || '-'} bpm</span>
+                          <span>🩸 ضغط: {activeVisit.vital_signs.bp || '-'}</span>
+                          <span>🫁 أكسجين: {activeVisit.vital_signs.spo2 ? activeVisit.vital_signs.spo2 + '%' : '-'}</span>
+                        </div>
+                      )}
+                      
                       {/* 🚨 درع الأمان: التنبيه بالحساسية */}
                       {activeVisit.hims_patients?.allergies && activeVisit.hims_patients.allergies.length > 0 && (
                         <div className="mt-2">
@@ -215,6 +225,7 @@ export const DoctorDesktop: React.FC = () => {
                   <OrderManagement visitId={activeVisit.id} />
                 </div>
                 <div className="space-y-6">
+                  <ClinicalNotesForm visitId={activeVisit.id} />
                   <PrescriptionForm visitId={activeVisit.id} />
                 </div>
               </div>

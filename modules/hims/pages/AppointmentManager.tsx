@@ -117,19 +117,28 @@ export const AppointmentManager: React.FC = () => {
 
       if (updateErr) throw updateErr;
 
-      // 3. إذا كانت الحالة 'arrived' (تسجيل حضور)، نقوم تلقائياً بإنشاء زيارة عيادة نشطة وتوجيهها لطابور الطبيب
+      // 3. إذا كانت الحالة 'arrived' (تسجيل حضور)، نقوم تلقائياً بإنشاء زيارة نشطة وتوجيهها لطابور الطبيب / الطوارئ حسب الأولوية
       if (status === 'arrived') {
+        const isEmergency = appointment.priority === 'emergency' || appointment.priority === 'urgent';
+        const triageLevel = appointment.priority === 'emergency' 
+          ? 'level_2_emergent' 
+          : (appointment.priority === 'urgent' ? 'level_3_urgent' : null);
+
         const { error: visitErr } = await supabase.from('hims_visits').insert([{
           patient_id: appointment.patient_id,
           doctor_id: appointment.doctor_id,
-          visit_type: 'outpatient',
+          visit_type: isEmergency ? 'emergency' : 'outpatient',
+          triage_level: triageLevel,
           chief_complaint: appointment.notes || 'حضور بموعد مسبق',
           status: 'triaged',
           organization_id: appointment.organization_id
         }]);
 
         if (visitErr) throw visitErr;
-        message.success('تم تسجيل الحضور وتحويل المريض فوراً لسطح مكتب الطبيب المعالج 🏥✅');
+        message.success(isEmergency 
+          ? 'تم تسجيل الحضور وتوجيه المريض فوراً لقسم الطوارئ (ER Board) 🚨✅' 
+          : 'تم تسجيل الحضور وتحويل المريض فوراً لسطح مكتب الطبيب المعالج 🏥✅'
+        );
       } else if (status === 'cancelled') {
         message.warning('تم إلغاء الموعد المختار ❌');
       } else {

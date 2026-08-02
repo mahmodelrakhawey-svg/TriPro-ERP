@@ -48,7 +48,7 @@ export const LabSpecimenTracking: React.FC = () => {
     { 
       title: 'المريض والفحص', 
       render: (record: any) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text strong>{record.lab_order?.hims_visits?.hims_patients?.full_name}</Text>
           <Text type="secondary" className="text-xs">{record.lab_order?.hims_lab_tests?.test_name}</Text>
         </Space>

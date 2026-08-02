@@ -68,7 +68,7 @@ export const RadiologyDashboard: React.FC = () => {
     { 
       title: 'بيانات الحالة', 
       render: (r: any) => (
-        <Space direction="vertical" size={0}>
+        <Space orientation="vertical" size={0}>
           <Text strong>{r.hims_visits?.hims_patients?.full_name}</Text>
           <Text type="secondary" className="text-xs">زيارة: {r.hims_visits?.id.substring(0,8)}</Text>
         </Space>

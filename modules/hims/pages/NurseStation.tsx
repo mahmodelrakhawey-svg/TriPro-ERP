@@ -98,6 +98,7 @@ export const NurseStation: React.FC = () => {
   const [beds, setBeds] = useState<any[]>([]);
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [selectedVisit, setSelectedVisit] = useState<string | null>(null);
+  const [vitalsTask, setVitalsTask] = useState<{ visitId: string; taskId: string } | null>(null);
   const [marVisit, setMarVisit] = useState<string | null>(null);
 
   const fetchBeds = async () => {
@@ -222,7 +223,9 @@ export const NurseStation: React.FC = () => {
                   {pendingTasks.map((task: any, idx: number) => (
                     <div key={idx} className="px-6 py-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
                       <div>
-                        <Typography.Text strong className="block text-indigo-700">{task.patient_name} - {task.ward_name}</Typography.Text>
+                        <Typography.Text strong className="block text-indigo-700">
+                          {task.patient_name} - {task.ward_name ? `سرير ${task.bed_number} (${task.ward_name})` : (task.visit_type === 'emergency' ? '🚨 قسم الطوارئ' : '📅 العيادة الخارجية')}
+                        </Typography.Text>
                         <Typography.Text type="secondary">{task.description}</Typography.Text>
                       </div>
                       <div className="text-left flex items-center gap-4">
@@ -231,7 +234,13 @@ export const NurseStation: React.FC = () => {
                           type="primary" 
                           size="small" 
                           className="bg-emerald-600 border-none"
-                          onClick={() => completeTask(task.task_id)}
+                          onClick={() => {
+                            if (task.task_type === 'vitals') {
+                              setVitalsTask({ visitId: task.visit_id, taskId: task.task_id });
+                            } else {
+                              completeTask(task.task_id);
+                            }
+                          }}
                           loading={loading}
                         >تنفيذ وإغلاق</Button>
                       </div>
@@ -252,6 +261,18 @@ export const NurseStation: React.FC = () => {
           visitId={selectedVisit} 
           onCancel={() => setSelectedVisit(null)} 
           onSuccess={() => { setSelectedVisit(null); fetchBeds(); }} 
+        />
+      )}
+
+      {vitalsTask && (
+        <VitalsModal 
+          visible={!!vitalsTask} 
+          visitId={vitalsTask.visitId} 
+          onCancel={() => setVitalsTask(null)} 
+          onSuccess={() => { 
+            completeTask(vitalsTask.taskId);
+            setVitalsTask(null); 
+          }} 
         />
       )}
 
