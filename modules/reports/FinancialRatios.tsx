@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -237,51 +237,106 @@ const FinancialRatios = () => {
     ];
   }, [entries, accounts, currentYear, prevYear]);
 
-  const RatioCard = ({ title, value, suffix = '', ideal, description, color = 'blue' }: any) => (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all">
-        {/* إصلاح الألوان الديناميكية لضمان الثبات */}
-        <div className="absolute top-0 right-0 w-1 h-full" style={{ backgroundColor: 
-            color === 'blue' ? '#3b82f6' : 
-            color === 'indigo' ? '#6366f1' : 
-            color === 'emerald' ? '#10b981' : 
-            color === 'teal' ? '#14b8a6' : 
-            color === 'cyan' ? '#06b6d4' : 
-            color === 'sky' ? '#0ea5e9' : 
-            color === 'purple' ? '#a855f7' : 
-            color === 'pink' ? '#ec4899' : 
-            color === 'fuchsia' ? '#d946ef' : '#3b82f6' 
-        }}></div>
-        <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">{title}</h3>
-        <div className="flex items-end gap-2 mb-2">
-            <span className="text-3xl font-black text-slate-800">{(value || 0).toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
-            <span className="text-sm font-bold text-slate-400 mb-1">{suffix}</span>
+  const RatioCard = ({ title, value, suffix = '', ideal, description, color = 'blue' }: any) => {
+    // دالة لتحديد ما إذا كانت النسبة جيدة بناءً على المعايير المختلفة
+    const checkIsGood = () => {
+        if (value === null || value === undefined || isNaN(value)) return false;
+
+        // رأس المال العامل
+        if (title === 'رأس المال العامل') {
+            return value > 0;
+        }
+
+        // نقطة التعادل
+        if (title === 'نقطة التعادل (Break-even Point)') {
+            return ratios && ratios.sales > value;
+        }
+
+        // إذا كان المثال غير محدد
+        if (ideal === '-') {
+            return value > 0;
+        }
+
+        // تنظيف وحساب النسبة المثالية
+        const cleanIdeal = ideal.replace(/%/g, '').trim();
+
+        // 1. حالة النطاق (مثال: 1.5 - 2.0)
+        if (cleanIdeal.includes('-')) {
+            const parts = cleanIdeal.split('-');
+            if (parts.length === 2) {
+                const min = parseFloat(parts[0].trim());
+                // نعتبر النسبة جيدة إذا كانت أكبر من أو تساوي الحد الأدنى (مثل النسبة المتداولة)
+                return value >= min;
+            }
+        }
+
+        // 2. حالة المقارنة (مثال: > 20 أو > 10%)
+        if (cleanIdeal.startsWith('>')) {
+            const minVal = parseFloat(cleanIdeal.replace(/>/g, '').trim());
+            return value >= minVal;
+        }
+        
+        if (cleanIdeal.startsWith('<')) {
+            const maxVal = parseFloat(cleanIdeal.replace(/</g, '').trim());
+            return value <= maxVal;
+        }
+
+        // 3. القيمة الرقمية المباشرة (مثل 1.0)
+        const targetVal = parseFloat(cleanIdeal);
+        if (!isNaN(targetVal)) {
+            return value >= targetVal;
+        }
+
+        return value > 0;
+    };
+
+    const isGoodVal = checkIsGood();
+
+    const getStatusText = () => {
+        if (isGoodVal) return 'جيد';
+        if (title === 'رأس المال العامل') return 'ضعيف';
+        if (title === 'نقطة التعادل (Break-even Point)') return 'مرتفع';
+        return 'منخفض';
+    };
+
+    const getStatusClass = () => {
+        if (isGoodVal) return 'bg-emerald-100 text-emerald-700';
+        if (title === 'رأس المال العامل') return 'bg-red-100 text-red-700';
+        if (title === 'نقطة التعادل (Break-even Point)') return 'bg-red-100 text-red-700';
+        return 'bg-amber-100 text-amber-700';
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden group hover:shadow-md transition-all">
+            {/* إصلاح الألوان الديناميكية لضمان الثبات */}
+            <div className="absolute top-0 right-0 w-1 h-full" style={{ backgroundColor: 
+                color === 'blue' ? '#3b82f6' : 
+                color === 'indigo' ? '#6366f1' : 
+                color === 'emerald' ? '#10b981' : 
+                color === 'teal' ? '#14b8a6' : 
+                color === 'cyan' ? '#06b6d4' : 
+                color === 'sky' ? '#0ea5e9' : 
+                color === 'purple' ? '#a855f7' : 
+                color === 'pink' ? '#ec4899' : 
+                color === 'fuchsia' ? '#d946ef' : '#3b82f6' 
+            }}></div>
+            <h3 className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-2">{title}</h3>
+            <div className="flex items-end gap-2 mb-2">
+                <span className="text-3xl font-black text-slate-800">{(value || 0).toLocaleString(undefined, {maximumFractionDigits: 2})}</span>
+                <span className="text-sm font-bold text-slate-400 mb-1">{suffix}</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+                <span className="text-slate-400">المثالي: {ideal}</span>
+                {(value !== null && value !== undefined) && (
+                    <span className={`px-2 py-0.5 rounded-full ${getStatusClass()}`}>
+                        {getStatusText()}
+                    </span>
+                )}
+            </div>
+            <p className="text-xs text-slate-400 mt-3 leading-relaxed border-t border-slate-50 pt-2">{description}</p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-            <span className="text-slate-400">المثالي: {ideal}</span>
-            {/* مؤشر بسيط للحالة - تم تعديل المنطق ليكون أكثر دقة */}
-            {(value !== null && value !== undefined) && (
-                <span className={`px-2 py-0.5 rounded-full ${
-                    // Working Capital: Good if > 0
-                    (title === 'رأس المال العامل' && value > 0) ? 'bg-emerald-100 text-emerald-700' :
-                    (title === 'رأس المال العامل' && value <= 0) ? 'bg-red-100 text-red-700' :
-                    // Break-even Point: Good if sales > breakEvenPoint
-                    (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales > value) ? 'bg-emerald-100 text-emerald-700' :
-                    (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales <= value && value > 0) ? 'bg-red-100 text-red-700' :
-                    // Other ratios: Use generic comparison
-                    (value >= parseFloat(ideal) || (ideal === '-' && value > 0)) ? 'bg-emerald-100 text-emerald-700' :
-                    'bg-amber-100 text-amber-700'
-                }`}>
-                    {(title === 'رأس المال العامل' && value > 0) ? 'جيد' :
-                     (title === 'رأس المال العامل' && value <= 0) ? 'ضعيف' :
-                     (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales > value) ? 'جيد' :
-                     (title === 'نقطة التعادل (Break-even Point)' && ratios && ratios.sales <= value && value > 0) ? 'مرتفع' :
-                     (value >= parseFloat(ideal) || (ideal === '-' && value > 0)) ? 'جيد' : 'منخفض'}
-                </span>
-            )}
-        </div>
-        <p className="text-xs text-slate-400 mt-3 leading-relaxed border-t border-slate-50 pt-2">{description}</p>
-    </div>
-  );
+    );
+  };
 
   // --- استدعاء دالة RPC لجلب البيانات التاريخية ---
   const [historicalData, setHistoricalData] = useState<{ profitabilityData: any[], liquidityData: any[] }>({ profitabilityData: [], liquidityData: [] });
