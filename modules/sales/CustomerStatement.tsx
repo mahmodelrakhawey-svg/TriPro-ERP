@@ -153,6 +153,14 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           .eq('customer_id', selectedCustomerId);
         const patientIds = patientList?.map(p => p.id) || [];
 
+        // Fetch claim IDs associated with this insurance provider
+        const { data: claimList } = await supabase
+          .from('hims_insurance_claims')
+          .select('id')
+          .eq('insurance_provider_id', selectedCustomerId)
+          .eq('organization_id', userOrgId);
+        const providerClaimIds = claimList?.map(c => c.id) || [];
+
         // 1) جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل والقيود اليدوية التي تحوي اسمه
         const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, patientBillsRes, insBillsRes, claimsRes] = await Promise.all([
              supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
@@ -165,7 +173,9 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
              patientIds.length > 0
                ? supabase.from('hims_billing').select('id, related_journal_entry_id').in('patient_id', patientIds).eq('organization_id', userOrgId)
                : Promise.resolve({ data: [] }),
-             supabase.from('hims_billing').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
+             providerClaimIds.length > 0
+               ? supabase.from('hims_billing').select('id, related_journal_entry_id').or(`insurance_provider_id.eq.${selectedCustomerId},insurance_claim_id.in.(${providerClaimIds.join(',')})`).eq('organization_id', userOrgId)
+               : supabase.from('hims_billing').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
              supabase.from('hims_insurance_claims').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId)
         ]);
 

@@ -33,6 +33,19 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
     fetchInsurance();
   }, [settings]);
 
+  useEffect(() => {
+    if (bill) {
+      const hasInsurance = !!bill.insurance_provider_id || (bill.insurance_covered_amount || 0) > 0;
+      setIsInsuranceMode(hasInsurance);
+      setSelectedInsurance(bill.insurance_provider_id || null);
+      setInsuranceAmount(bill.insurance_covered_amount || 0);
+    } else {
+      setIsInsuranceMode(false);
+      setSelectedInsurance(null);
+      setInsuranceAmount(0);
+    }
+  }, [bill]);
+
   const calculateBill = async () => {
     // 🛡️ التحقق من صحة تنسيق المعرف قبل الإرسال لتجنب خطأ 400
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

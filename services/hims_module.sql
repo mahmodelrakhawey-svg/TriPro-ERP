@@ -956,10 +956,12 @@ BEGIN
     v_vat_to_post := v_bill.tax_amount - v_already_posted_vat;
 
     -- تحديد المقبوض الفعلي ومستحق التحميل على ذمم العميل
+    -- إذا كان p_custom_amount ممرراً نستخدمه، وإلا نستخدم المقبوض المتبقي (شريطة ألا يكون سالباً)
     v_cash_received := COALESCE(p_custom_amount, CASE WHEN v_to_pay > 0 THEN v_to_pay ELSE 0 END);
+    -- معادلة التوازن المحاسبي الذهبية: ذمم العميل = صافي التغير في الإيرادات والضريبة مطروحاً منه تغير التأمين
     v_charge_patient := v_revenue_to_post + v_vat_to_post - v_insurance_to_post;
 
-    -- إذا كانت كل الفروقات صفر أو سالبة، نمنع تنفيذ القيد تلافياً للتكرار
+    -- التحقق من وجود تغيرات فعلية تستحق الترحيل لتجنب القيود الفارغة
     IF ABS(v_cash_received) < 0.01 AND ABS(v_charge_patient) < 0.01 AND ABS(v_insurance_to_post) < 0.01 AND ABS(v_revenue_to_post) < 0.01 AND ABS(v_vat_to_post) < 0.01 THEN
         RAISE EXCEPTION '⚠️ هذه الفاتورة مدفوعة ومرحلة بالكامل مسبقاً بالتأمين والنقدية. لا توجد فروقات سداد جديدة.';
     END IF;
@@ -984,9 +986,12 @@ BEGIN
     IF v_charge_patient > 0.01 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
         VALUES (v_je_id, v_cust_gl_acc_id, v_charge_patient, 0, v_org_id, 'تحميل المريض - فاتورة علاج HIMS');
+    ELSIF v_charge_patient < -0.01 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES (v_je_id, v_cust_gl_acc_id, 0, ABS(v_charge_patient), v_org_id, 'تعديل/تخفيض حساب المريض - HIMS');
     END IF;
 
-    -- ب. سطر سداد المريض النقدي بالخزينة (إن دفع مبلغاً)
+    -- ب. سطر سداد المريض النقدي بالخزينة (إن دفع مبلغاً أو استرد)
     IF v_cash_received > 0.01 THEN
         -- دائن: حساب العملاء (إثبات سداد المريض)
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
@@ -995,24 +1000,41 @@ BEGIN
         -- مدين: حساب النقدية بالخزينة (تحصيل الصندوق)
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
         VALUES (v_je_id, public.resolve_leaf_account(p_cash_acc), v_cash_received, 0, v_org_id, 'تحصيل نقدي من مريض - HIMS');
+    ELSIF v_cash_received < -0.01 THEN
+        -- مدين: حساب العملاء (إرجاع سداد المريض)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES (v_je_id, v_cust_gl_acc_id, ABS(v_cash_received), 0, v_org_id, 'إرجاع سداد مريض - HIMS');
+
+        -- دائن: حساب النقدية بالخزينة (صرف الصندوق لمرتجع المريض)
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES (v_je_id, public.resolve_leaf_account(p_cash_acc), 0, ABS(v_cash_received), v_org_id, 'صرف نقدي مرتجع لمريض - HIMS');
     END IF;
 
     -- ج. سطر مديونية شركة التأمين للمبلغ المتبقي (إن وجد)
     IF v_insurance_to_post > 0.01 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
         VALUES (v_je_id, v_insurance_receivable_acc, v_insurance_to_post, 0, v_org_id, 'مستحق من شركة التأمين - HIMS');
+    ELSIF v_insurance_to_post < -0.01 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES (v_je_id, v_insurance_receivable_acc, 0, ABS(v_insurance_to_post), v_org_id, 'تخفيض مستحق شركة التأمين - HIMS');
     END IF;
 
     -- د. سطر إيرادات الخدمات الطبية للمبلغ المتبقي (إن وجد)
     IF v_revenue_to_post > 0.01 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
         VALUES (v_je_id, v_rev_acc, 0, v_revenue_to_post, v_org_id, 'إيرادات طبية صافية - HIMS');
+    ELSIF v_revenue_to_post < -0.01 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES (v_je_id, v_rev_acc, ABS(v_revenue_to_post), 0, v_org_id, 'تعديل/تخفيض إيرادات طبية - HIMS');
     END IF;
 
     -- هـ. سطر ضريبة القيمة المضافة للمبلغ المتبقي (إن وجد)
     IF v_vat_to_post > 0.01 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
         VALUES (v_je_id, v_vat_acc, 0, v_vat_to_post, v_org_id, 'ضريبة مخرجات - HIMS');
+    ELSIF v_vat_to_post < -0.01 THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
+        VALUES (v_je_id, v_vat_acc, ABS(v_vat_to_post), 0, v_org_id, 'تعديل/تخفيض ضريبة مخرجات - HIMS');
     END IF;
 
     -- 5. تحديث رأس الفاتورة في قاعدة البيانات
