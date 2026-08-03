@@ -5,7 +5,7 @@ import {
     Wallet, Search, X, ChevronDown, Check, AlertCircle, Percent,
     CircleDollarSign, Package, Box, Info,
     ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle
-    , Edit, RefreshCw, FileText
+    , Edit, RefreshCw, FileText, Landmark
 } from 'lucide-react'; // Removed unused useParams import
 import { InvoiceItem, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -17,6 +17,7 @@ import { handleError, AppError } from '../../utils/errorHandler';
 import CustomerStatement from './CustomerStatement';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
+import { etaService } from '../../services/etaService';
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
   const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
@@ -68,6 +69,14 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   // Print State
   const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
+  const [etaDetails, setEtaDetails] = useState({
+    status: 'draft',
+    uuid: '',
+    submissionId: '',
+    qrCode: '',
+    error: ''
+  });
+  const [submittingToEta, setSubmittingToEta] = useState(false);
 
   useEffect(() => {
     // 🛡️ استخدام RPC هو الحل الوحيد لتجنب خطأ 406 في جميع الشاشات المالية
@@ -315,6 +324,14 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                 discountType: 'fixed',
                 costCenterId: fullInv.cost_center_id || ''
               }));
+
+              setEtaDetails({
+                status: fullInv.eta_status || 'draft',
+                uuid: fullInv.eta_uuid || '',
+                submissionId: fullInv.eta_submission_id || '',
+                qrCode: fullInv.eta_qr_code || '',
+                error: fullInv.eta_error || ''
+              });
 
               // Fetch items
               const { data: itemsData } = await supabase.from('invoice_items').select('*, products(name, sku)').eq('invoice_id', fullInv.id);
@@ -786,6 +803,14 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             invoiceNumber: ''
         }));
         setEditingId(null);
+        setEtaDetails({
+            status: 'draft',
+            uuid: '',
+            submissionId: '',
+            qrCode: '',
+            error: ''
+        });
+        setSubmittingToEta(false);
         setTimeout(() => setSuccessMessage(null), 4000);
 
         // 🚀 صمام أمان: التوجه للسجل لمنع التكرار عند النقر المتعدد
@@ -963,6 +988,36 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       // 🛡️ تصحيح: عرض المخزون الخاص بالمستودع المختار حصراً لمنع تضليل المستخدم
       const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
       return Number(warehouseStock?.[formData.warehouseId] || 0);
+  };
+
+  const handleSubmitToETA = async () => {
+    if (!editingId) return;
+    setSubmittingToEta(true);
+    showToast('جاري توقيع المستند وإرساله لمصلحة الضرائب... 📝', 'info');
+    try {
+      const response = await etaService.submitInvoiceToETA(editingId);
+      if (response.success) {
+        showToast('تم إرسال الفاتورة للمصلحة بنجاح وصالحة ✅', 'success');
+        setEtaDetails({
+          status: 'valid',
+          uuid: response.uuid || '',
+          submissionId: response.submissionId || '',
+          qrCode: response.qrCodeUrl || '',
+          error: ''
+        });
+      } else {
+        showToast(`فشل الربط الضريبي: ${response.error}`, 'error');
+        setEtaDetails(prev => ({
+          ...prev,
+          status: 'failed',
+          error: response.error || ''
+        }));
+      }
+    } catch (error: any) {
+      showToast(`خطأ في الإرسال: ${error.message}`, 'error');
+    } finally {
+      setSubmittingToEta(false);
+    }
   };
 
   const handlePrint = () => {
@@ -1733,6 +1788,75 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                 >
                     <Printer size={22} /> طباعة الفاتورة
                 </button>
+
+                {/* Egyptian Tax Authority (ETA) Status Section */}
+                {editingId && formData.status !== 'draft' && companySettings?.eta_is_active && (
+                    <div className="mt-6 bg-slate-50 border border-slate-200 rounded-3xl p-6 space-y-4">
+                        <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
+                            <Landmark size={20} className="text-cyan-600" />
+                            <h4 className="font-black text-slate-850 text-sm">منظومة الضرائب المصرية (ETA)</h4>
+                        </div>
+                        
+                        {etaDetails.status === 'valid' ? (
+                            <div className="space-y-3">
+                                <div className="bg-green-50 border border-green-200 text-green-800 rounded-xl p-3 text-xs font-bold flex items-center gap-2">
+                                    <CheckCircle size={18} className="text-green-600" />
+                                    <span>تم الإرسال والقبول بنجاح</span>
+                                </div>
+                                <div className="space-y-1.5 text-xs text-slate-600 bg-white p-3 rounded-xl border">
+                                    <div className="flex justify-between">
+                                        <span>حالة المستند:</span>
+                                        <span className="font-bold text-green-700 bg-green-50 px-2 py-0.5 rounded-full">صالح (Valid)</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>الرقم الموحد (UUID):</span>
+                                        <span className="font-mono text-slate-500">{etaDetails.uuid.slice(0, 15)}...</span>
+                                    </div>
+                                    <div className="flex justify-between">
+                                        <span>رقم التقديم:</span>
+                                        <span className="font-mono text-slate-500">{etaDetails.submissionId.slice(0, 12)}...</span>
+                                    </div>
+                                </div>
+                                {etaDetails.qrCode && (
+                                    <a
+                                        href={etaDetails.qrCode}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="w-full bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-bold py-2.5 rounded-xl transition-all flex items-center justify-center gap-1.5"
+                                    >
+                                        <FileText size={14} /> عرض الفاتورة على موقع الضرائب
+                                    </a>
+                                )}
+                            </div>
+                        ) : (
+                            <div className="space-y-3">
+                                {etaDetails.status === 'failed' ? (
+                                    <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-3 text-xs space-y-1">
+                                        <div className="font-bold flex items-center gap-1.5">
+                                            <AlertCircle size={16} className="text-red-600" />
+                                            <span>فشل إرسال الفاتورة للمصلحة</span>
+                                        </div>
+                                        <p className="text-[11px] leading-relaxed text-red-700/80">{etaDetails.error}</p>
+                                    </div>
+                                ) : (
+                                    <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-xs font-bold flex items-center gap-2">
+                                        <AlertCircle size={18} className="text-amber-600" />
+                                        <span>الفاتورة لم تُرسل للضرائب بعد</span>
+                                    </div>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={handleSubmitToETA}
+                                    disabled={submittingToEta}
+                                    className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 disabled:opacity-50 text-white py-3.5 rounded-xl font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
+                                >
+                                    {submittingToEta ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />}
+                                    {etaDetails.status === 'failed' ? 'إعادة محاولة الإرسال' : 'إرسال الفاتورة الآن'}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
             
             {/* Quick Helper Info */}

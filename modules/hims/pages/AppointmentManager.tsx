@@ -3,6 +3,7 @@ import { Table, Tag, Button, Card, Typography, message, Space, Modal, Form, Sele
 import { CalendarOutlined, ClockCircleOutlined, UserAddOutlined, CheckCircleOutlined, CloseCircleOutlined, UserOutlined, MedicineBoxOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
+import { offlineService } from '../../../services/offlineService';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -124,7 +125,7 @@ export const AppointmentManager: React.FC = () => {
           ? 'level_2_emergent' 
           : (appointment.priority === 'urgent' ? 'level_3_urgent' : null);
 
-        const { error: visitErr } = await supabase.from('hims_visits').insert([{
+        const visitPayload = {
           patient_id: appointment.patient_id,
           doctor_id: appointment.doctor_id,
           visit_type: isEmergency ? 'emergency' : 'outpatient',
@@ -132,7 +133,15 @@ export const AppointmentManager: React.FC = () => {
           chief_complaint: appointment.notes || 'حضور بموعد مسبق',
           status: 'triaged',
           organization_id: appointment.organization_id
-        }]);
+        };
+
+        if (!navigator.onLine) {
+          await offlineService.queueVisit(visitPayload);
+          message.warning('تم تسجيل حضور المريض والزيارة محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶');
+          return;
+        }
+
+        const { error: visitErr } = await supabase.from('hims_visits').insert([visitPayload]);
 
         if (visitErr) throw visitErr;
         message.success(isEmergency 

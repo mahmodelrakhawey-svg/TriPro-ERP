@@ -10,7 +10,13 @@ export const OfflineSyncProvider = () => {
   const [isSyncing, setIsSyncing] = useState(false);
 
   const pendingCount = useLiveQuery(
-    () => db.queuedOrders.where('status').notEqual('synced').count(),
+    async () => {
+      const orders = await db.queuedOrders.where('status').notEqual('synced').count();
+      const patients = await db.queuedPatients.where('status').notEqual('synced').count();
+      const visits = await db.queuedVisits.where('status').notEqual('synced').count();
+      const notes = await db.queuedClinicalNotes.where('status').notEqual('synced').count();
+      return orders + patients + visits + notes;
+    },
     [], 
     0 
   );
@@ -23,7 +29,7 @@ export const OfflineSyncProvider = () => {
     };
     const handleOffline = () => {
       setIsOnline(false);
-      showToast('🔌 انقطع الاتصال. سيتم حفظ الطلبات محلياً.', 'warning');
+      showToast('🔌 انقطع الاتصال. سيتم حفظ البيانات والعمليات محلياً.', 'warning');
     };
 
     const triggerSync = async () => {
@@ -46,9 +52,12 @@ export const OfflineSyncProvider = () => {
   }, [showToast, isSyncing]);
 
   const clearQueue = async () => {
-    if (window.confirm('⚠️ هل أنت متأكد من حذف الطلبات المعلقة؟\nالطلبات القديمة قد تكون غير صالحة وتسبب مشاكل في المزامنة.\nسيتم حذفها نهائياً.')) {
+    if (window.confirm('⚠️ هل أنت متأكد من حذف العمليات الطبية والطلبات المعلقة؟\nسيتم حذفها نهائياً.')) {
       try {
         await db.queuedOrders.clear();
+        await db.queuedPatients.clear();
+        await db.queuedVisits.clear();
+        await db.queuedClinicalNotes.clear();
         showToast('تم تنظيف قائمة الانتظار بنجاح.', 'success');
       } catch (error) {
         console.error(error);
@@ -73,7 +82,7 @@ export const OfflineSyncProvider = () => {
           <>
             <AlertCircle className="text-amber-500" size={20} />
             <span className="text-amber-700">توجد {pendingCount} عمليات معلقة.</span>
-            <button onClick={clearQueue} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors" title="حذف الطلبات المعلقة">
+             <button onClick={clearQueue} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors" title="حذف العمليات المعلقة">
                 <Trash2 size={16} />
             </button>
           </>
@@ -83,9 +92,9 @@ export const OfflineSyncProvider = () => {
       ) : (
         <>
           <WifiOff className="text-red-500" size={20} />
-          <span className="text-red-700">أنت غير متصل. ({pendingCount} طلب محفوظ)</span>
+          <span className="text-red-700">أنت غير متصل. ({pendingCount} عملية محفوظة)</span>
           {pendingCount > 0 && (
-            <button onClick={clearQueue} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors" title="حذف الطلبات المعلقة">
+            <button onClick={clearQueue} className="p-1 bg-red-50 text-red-600 rounded hover:bg-red-100 transition-colors" title="حذف العمليات المعلقة">
                 <Trash2 size={16} />
             </button>
           )}

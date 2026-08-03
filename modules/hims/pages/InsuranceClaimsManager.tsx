@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Table, Button, Tag, Space, message, Statistic, Divider, Modal, Select, Empty, Tabs } from 'antd';
 import { himsService } from '@/services/himsService';
-import { SafetyCertificateOutlined, SendOutlined, DollarOutlined, CheckCircleOutlined, HistoryOutlined } from '@ant-design/icons';
+import { SafetyCertificateOutlined, SendOutlined, DollarOutlined, CheckCircleOutlined, HistoryOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useAccounting } from '@/context/AccountingContext';
 import { useAuth } from '@/context/AuthContext';
 
@@ -107,6 +107,101 @@ export const InsuranceClaimsManager: React.FC = () => {
     }
   };
 
+  const exportClaimToXML = async (claim: any) => {
+    setLoading(true);
+    message.loading({ content: 'جاري توليد ملف XML للمطالبة... ⏳', key: 'xml_export' });
+    try {
+      const { data: bills, error: billsError } = await supabase
+        .from('hims_billing')
+        .select(`
+          id,
+          total_amount,
+          tax_amount,
+          insurance_covered_amount,
+          patient_paid_amount,
+          created_at,
+          patient:patient_id(full_name, national_id, dob, gender),
+          items:hims_billing_items(description, quantity, unit_price, total_price, item_type)
+        `)
+        .eq('insurance_claim_id', claim.id);
+
+      if (billsError) throw billsError;
+
+      if (!bills || bills.length === 0) {
+        message.warning({ content: 'لا توجد فواتير مرتبطة بهذه المطالبة للتصدير.', key: 'xml_export' });
+        return;
+      }
+
+      // Build XML string
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+      xml += `<Claim.Request>\n`;
+      
+      // Header Section
+      xml += `  <Header>\n`;
+      xml += `    <SenderID>${currentUser?.organization_id || 'ORG-UNKNOWN'}</SenderID>\n`;
+      xml += `    <ReceiverID>${claim.insurance_provider_id || 'INS-UNKNOWN'}</ReceiverID>\n`;
+      xml += `    <TransactionDate>${new Date().toISOString().split('T')[0]}</TransactionDate>\n`;
+      xml += `    <RecordCount>${bills.length}</RecordCount>\n`;
+      xml += `    <BatchReference>${claim.batch_reference}</BatchReference>\n`;
+      xml += `  </Header>\n`;
+
+      // Claims Section
+      xml += `  <Claims>\n`;
+      for (const bill of bills) {
+        const patientObj = Array.isArray(bill.patient) ? bill.patient[0] : bill.patient;
+        xml += `    <Claim>\n`;
+        xml += `      <ID>${bill.id}</ID>\n`;
+        xml += `      <Patient>\n`;
+        xml += `        <Name>${patientObj?.full_name || 'N/A'}</Name>\n`;
+        xml += `        <NationalID>${patientObj?.national_id || 'N/A'}</NationalID>\n`;
+        xml += `        <DOB>${patientObj?.dob || 'N/A'}</DOB>\n`;
+        xml += `        <Gender>${patientObj?.gender || 'N/A'}</Gender>\n`;
+        xml += `      </Patient>\n`;
+        
+        xml += `      <Encounter>\n`;
+        xml += `        <Date>${new Date(bill.created_at).toISOString().split('T')[0]}</Date>\n`;
+        xml += `        <TotalAmount>${bill.total_amount}</TotalAmount>\n`;
+        xml += `        <TaxAmount>${bill.tax_amount}</TaxAmount>\n`;
+        xml += `        <InsuranceCoveredAmount>${bill.insurance_covered_amount}</InsuranceCoveredAmount>\n`;
+        xml += `      </Encounter>\n`;
+
+        xml += `      <Details>\n`;
+        if (bill.items && Array.isArray(bill.items)) {
+          for (const item of bill.items) {
+            xml += `        <Item>\n`;
+            xml += `          <Type>${item.item_type || 'other'}</Type>\n`;
+            xml += `          <Description>${item.description}</Description>\n`;
+            xml += `          <Quantity>${item.quantity}</Quantity>\n`;
+            xml += `          <UnitPrice>${item.unit_price}</UnitPrice>\n`;
+            xml += `          <TotalPrice>${item.total_price}</TotalPrice>\n`;
+            xml += `        </Item>\n`;
+          }
+        }
+        xml += `      </Details>\n`;
+        xml += `    </Claim>\n`;
+      }
+      xml += `  </Claims>\n`;
+      xml += `</Claim.Request>\n`;
+
+      // Download file in browser
+      const blob = new Blob([xml], { type: 'application/xml;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${claim.batch_reference}.xml`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      message.success({ content: 'تم تصدير ملف XML بنجاح ✅', key: 'xml_export' });
+    } catch (e: any) {
+      console.error(e);
+      message.error({ content: `فشل تصدير XML: ${e.message}`, key: 'xml_export' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="p-6 rtl text-right">
       <Card className="rounded-3xl shadow-lg border-none">
@@ -183,7 +278,10 @@ export const InsuranceClaimsManager: React.FC = () => {
                   { title: 'إجمالي المبلغ', dataIndex: 'total_claim_amount', render: (v) => <b className="text-emerald-600">{v?.toLocaleString()} {settings?.currency || 'EGP'}</b> },
                   { title: 'تاريخ الإرسال', dataIndex: 'submission_date', render: (d) => new Date(d).toLocaleDateString('ar-EG') },
                   { title: 'إجراء', render: (record: any) => (
-                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => { setSelectedClaim(record); setIsSettleModalOpen(true); }}>تسوية وتحصيل</Button>
+                    <Space size="middle">
+                      <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => { setSelectedClaim(record); setIsSettleModalOpen(true); }}>تسوية وتحصيل</Button>
+                      <Button type="default" icon={<DownloadOutlined />} onClick={() => exportClaimToXML(record)}>تصدير XML</Button>
+                    </Space>
                   )}
                 ]}
               />

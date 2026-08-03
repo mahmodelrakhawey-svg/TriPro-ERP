@@ -3,6 +3,7 @@ import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plu
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { scanNationalID } from '@/services/geminiService';
+import { offlineService } from '../../../services/offlineService';
 import { useToast } from '../../../context/ToastContext';
 import { usePagination } from '../../../components/usePagination';
 import { Modal, Form, Select, Input, Button } from 'antd';
@@ -68,6 +69,14 @@ const PatientManager = () => {
         ...formData,
         organization_id: organization?.id
       };
+
+      if (!navigator.onLine && !editingId) {
+        await offlineService.queuePatient(patientData);
+        showToast('تم تسجيل المريض محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶', 'warning');
+        setIsModalOpen(false);
+        setEditingId(null);
+        return;
+      }
 
       if (editingId) {
         const { error } = await supabase.from('hims_patients').update(patientData).eq('id', editingId);

@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { Invoice } from '../../types';
-import { Search, Loader2, Edit, Plus, ChevronLeft, ChevronRight, AlertCircle, FileText, CheckCircle, MessageCircle, Printer } from 'lucide-react';
+import { Search, Loader2, Edit, Plus, ChevronLeft, ChevronRight, AlertCircle, FileText, CheckCircle, MessageCircle, Printer, Landmark, RefreshCw } from 'lucide-react';
+import { etaService } from '../../services/etaService';
 import { useDebounce } from '../../context/useDebounce';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { useToast } from '../../context/ToastContext';
@@ -25,6 +26,7 @@ const InvoiceList = () => {
   
   // Print State
   const [invoiceToPrint, setInvoiceToPrint] = useState<PrintableInvoice | null>(null);
+  const [submittingId, setSubmittingId] = useState<string | null>(null);
   const { showToast } = useToast();
 
   useEffect(() => {
@@ -95,6 +97,25 @@ const InvoiceList = () => {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  const handleSendToETA = async (invoice: any) => {
+    setSubmittingId(invoice.id);
+    showToast('جاري التوقيع الرقمي وإرسال الفاتورة لمصلحة الضرائب... 📝', 'info');
+    try {
+      const response = await etaService.submitInvoiceToETA(invoice.id);
+      if (response.success) {
+        showToast('تم إرسال الفاتورة للمصلحة وقبولها بنجاح ✅', 'success');
+        refresh(); // تحديث القائمة
+      } else {
+        showToast(`فشل الربط الضريبي: ${response.error}`, 'error');
+        refresh();
+      }
+    } catch (error: any) {
+      showToast(`خطأ في الإرسال: ${error.message}`, 'error');
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
   const handlePrint = async (invoice: any) => {
     // جلب تفاصيل الفاتورة كاملة (مع الأصناف) للطباعة
     try {
@@ -136,6 +157,33 @@ const InvoiceList = () => {
       default:
         return <span className="px-2 py-1 text-xs font-bold text-slate-600 bg-slate-100 rounded-full">{status}</span>;
     }
+  };
+
+  const getEtaStatusChip = (invoice: any) => {
+    const status = invoice.eta_status || 'draft';
+    const qrCode = invoice.eta_qr_code;
+
+    const badge = (() => {
+      switch (status) {
+        case 'valid':
+          return <span className="px-2 py-1 text-xs font-bold text-cyan-750 bg-cyan-100 rounded-full cursor-pointer hover:bg-cyan-200 transition-colors">صالح (ETA)</span>;
+        case 'failed':
+          return <span className="px-2 py-1 text-xs font-bold text-rose-750 bg-rose-100 rounded-full cursor-help" title={invoice.eta_error || 'خطأ غير معروف'}>فشل الإرسال</span>;
+        case 'submitted':
+          return <span className="px-2 py-1 text-xs font-bold text-blue-750 bg-blue-100 rounded-full">تم التقديم</span>;
+        default:
+          return <span className="px-2 py-1 text-xs font-bold text-slate-500 bg-slate-100 rounded-full">غير مرسل</span>;
+      }
+    })();
+
+    if (qrCode && status === 'valid') {
+      return (
+        <a href={qrCode} target="_blank" rel="noopener noreferrer" title="معاينة الفاتورة على موقع الضرائب">
+          {badge}
+        </a>
+      );
+    }
+    return badge;
   };
 
   return (
@@ -211,6 +259,7 @@ const InvoiceList = () => {
                   <th className="px-6 py-4">العميل</th>
                   <th className="px-6 py-4">التاريخ</th>
                   <th className="px-6 py-4">الإجمالي</th>
+                  <th className="px-6 py-4 text-center">الربط الضريبي</th>
                   <th className="px-6 py-4 text-center">الحالة</th>
                   <th className="px-6 py-4 text-center">إجراء</th>
                 </tr>
@@ -222,6 +271,7 @@ const InvoiceList = () => {
                     <td className="px-6 py-4 font-medium text-slate-800">{invoice.customers?.name || 'عميل غير معروف'}</td>
                     <td className="px-6 py-4 text-slate-500">{new Date(invoice.invoice_date).toLocaleDateString('ar-EG')}</td>
                     <td className="px-6 py-4 font-bold text-slate-900">{invoice.total_amount.toLocaleString()} <span className="text-xs text-slate-400">{settings.currency}</span></td>
+                    <td className="px-6 py-4 text-center">{getEtaStatusChip(invoice)}</td>
                     <td className="px-6 py-4 text-center">{getStatusChip(invoice.status)}</td>
                     <td className="px-6 py-4 text-center flex justify-center gap-2">
                       {invoice.status === 'draft' && (
@@ -240,6 +290,16 @@ const InvoiceList = () => {
                             title="إرسال عبر واتساب"
                           >
                             <MessageCircle size={16} />
+                          </button>
+                      )}
+                      {invoice.status !== 'draft' && invoice.eta_status !== 'valid' && (
+                          <button 
+                            disabled={submittingId === invoice.id}
+                            onClick={() => handleSendToETA(invoice)}
+                            className="p-2 text-cyan-600 hover:bg-cyan-50 hover:text-cyan-700 rounded-full transition-colors disabled:opacity-50"
+                            title="إرسال لمصلحة الضرائب المصرية"
+                          >
+                            {submittingId === invoice.id ? <Loader2 size={16} className="animate-spin" /> : <Landmark size={16} />}
                           </button>
                       )}
                       <button 

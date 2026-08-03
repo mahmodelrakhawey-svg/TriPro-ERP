@@ -5,7 +5,7 @@ import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
@@ -63,7 +63,7 @@ interface CloudBackup {
 const Settings = () => {
   const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses } = useAccounting();
   const currentUserRole = currentUser?.role || '';
-  const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'terminals' | 'demo'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'terminals' | 'demo' | 'eta'>('general');
   const [terminalsList, setTerminalsList] = useState<any[]>([]);
   const [isTerminalsLoading, setIsTerminalsLoading] = useState(false);
   const [newTerminalData, setNewTerminalData] = useState({
@@ -86,6 +86,22 @@ const Settings = () => {
       console.error(e);
     } finally {
       setIsTerminalsLoading(false);
+    }
+  };
+
+  const [recalculatingWac, setRecalculatingWac] = useState(false);
+
+  const handleRecalculateWac = async () => {
+    setRecalculatingWac(true);
+    showToast('جاري إعادة احتساب تكاليف المخزون (WAC) بأثر رجعي... ⏳', 'info');
+    try {
+      const { error } = await supabase.rpc('recalculate_all_products_wac');
+      if (error) throw error;
+      showToast('تم إعادة احتساب تكاليف المخزون بنجاح وتصحيح هوامش الربح! ✅', 'success');
+    } catch (err: any) {
+      showToast(`فشل الاحتساب: ${err.message}`, 'error');
+    } finally {
+      setRecalculatingWac(false);
     }
   };
 
@@ -141,7 +157,12 @@ const Settings = () => {
       defaultWarehouseId: '',
       defaultTreasuryId: '',
       productionWarehouseId: '',
-      rawMaterialsWarehouseId: ''
+      rawMaterialsWarehouseId: '',
+      etaTaxpayerId: '',
+      etaClientId: '',
+      etaClientSecret: '',
+      etaEnvironment: 'sandbox' as 'sandbox' | 'production',
+      etaIsActive: false
   });
   const [originalSettings, setOriginalSettings] = useState<any>(null);
   const [cloudBackups, setCloudBackups] = useState<CloudBackup[]>([]);
@@ -194,7 +215,12 @@ const Settings = () => {
                 defaultWarehouseId: sData.default_warehouse_id || '',
                 defaultTreasuryId: sData.default_treasury_id || '',
                 productionWarehouseId: sData.production_warehouse_id || '',
-                rawMaterialsWarehouseId: sData.raw_material_warehouse_id || ''
+                rawMaterialsWarehouseId: sData.raw_material_warehouse_id || '',
+                etaTaxpayerId: sData.eta_taxpayer_id || '',
+                etaClientId: sData.eta_client_id || '',
+                etaClientSecret: sData.eta_client_secret || '',
+                etaEnvironment: sData.eta_environment || 'sandbox',
+                etaIsActive: sData.eta_is_active !== undefined ? sData.eta_is_active : false
             };
             setFormData(loaded);
             setOriginalSettings(loaded);
@@ -276,7 +302,12 @@ const Settings = () => {
             default_warehouse_id: formData.defaultWarehouseId || null,
             default_treasury_id: formData.defaultTreasuryId || null,
             production_warehouse_id: formData.productionWarehouseId || null,
-            raw_material_warehouse_id: formData.rawMaterialsWarehouseId || null
+            raw_material_warehouse_id: formData.rawMaterialsWarehouseId || null,
+            eta_taxpayer_id: formData.etaTaxpayerId || null,
+            eta_client_id: formData.etaClientId || null,
+            eta_client_secret: formData.etaClientSecret || null,
+            eta_environment: formData.etaEnvironment || 'sandbox',
+            eta_is_active: formData.etaIsActive
         };
 
         let error;
@@ -793,6 +824,12 @@ const Settings = () => {
                   <MonitorSmartphone size={18} /> أجهزة الكاشير
               </button>
               <button 
+                onClick={() => setActiveTab('eta')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'eta' ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <Landmark size={18} /> الضرائب الإلكترونية (ETA)
+              </button>
+              <button 
                 onClick={() => setActiveTab('demo')}
                 className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'demo' ? 'text-amber-600 border-b-2 border-amber-600 bg-amber-50' : 'text-slate-500 hover:bg-slate-50'}`}
               >
@@ -1139,6 +1176,13 @@ const Settings = () => {
                                 className="flex items-center gap-2 bg-white text-red-700 border border-red-200 px-4 py-3 rounded-lg hover:bg-red-100 font-bold shadow-sm transition-all"
                               >
                                   <Trash2 size={18} /> تنظيف قاعدة البيانات
+                              </button>
+                              <button 
+                                onClick={handleRecalculateWac}
+                                disabled={recalculatingWac}
+                                className="flex items-center gap-2 bg-white text-orange-700 border border-orange-200 px-4 py-3 rounded-lg hover:bg-orange-100 font-bold shadow-sm transition-all disabled:opacity-50"
+                              >
+                                  <Calculator size={18} /> {recalculatingWac ? 'جاري الحساب...' : 'إعادة احتساب تكاليف المخزون (WAC)'}
                               </button>
                           </div>
                       </div>
@@ -1507,6 +1551,102 @@ const Settings = () => {
                           )}
                       </div>
                   </div>
+              )}
+
+              {activeTab === 'eta' && (
+                  <form onSubmit={handleSave} className="space-y-6 max-w-2xl animate-in fade-in">
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 space-y-6">
+                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 border-b pb-3">
+                              <Landmark size={20} className="text-cyan-600" /> إعدادات منظومة الفاتورة الإلكترونية (ETA)
+                          </h3>
+                          
+                          <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-150">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-800">تفعيل الربط الإلكتروني</label>
+                                  <span className="text-xs text-slate-500">تمكين إرسال الفواتير تلقائياً لمصلحة الضرائب المصرية</span>
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => setFormData(prev => ({ ...prev, etaIsActive: !prev.etaIsActive }))}
+                                  className="text-cyan-600 transition-colors bg-transparent border-0 cursor-pointer"
+                              >
+                                  {formData.etaIsActive ? <ToggleRight size={44} className="text-cyan-600" /> : <ToggleLeft size={44} className="text-slate-400" />}
+                              </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">رقم التسجيل الضريبي للمنشأة (Taxpayer ID)</label>
+                                  <input
+                                      type="text"
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaTaxpayerId}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaTaxpayerId: e.target.value }))}
+                                      placeholder="مثال: 123456789"
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                      maxLength={9}
+                                  />
+                              </div>
+
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">بيئة التشغيل (Environment)</label>
+                                  <select
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaEnvironment}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaEnvironment: e.target.value as 'sandbox' | 'production' }))}
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100"
+                                  >
+                                      <option value="sandbox">البيئة التجريبية (Sandbox)</option>
+                                      <option value="production">البيئة الفعلية (Production)</option>
+                                  </select>
+                              </div>
+
+                              <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">معرف العميل للمنظومة (Client ID)</label>
+                                  <input
+                                      type="text"
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaClientId}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaClientId: e.target.value }))}
+                                      placeholder="أدخل الـ Client ID من حساب الممول بالمصلحة"
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                  />
+                              </div>
+
+                              <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">المفتاح السري للعميل (Client Secret)</label>
+                                  <input
+                                      type="password"
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaClientSecret}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaClientSecret: e.target.value }))}
+                                      placeholder="أدخل الـ Client Secret"
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                  />
+                              </div>
+                          </div>
+
+                          <div className="bg-cyan-50 border border-cyan-150 rounded-lg p-4 text-xs text-cyan-800 space-y-2">
+                              <p className="font-bold flex items-center gap-1 mb-1">
+                                  <Info size={14} /> متطلبات التوقيع الإلكتروني:
+                              </p>
+                              <ul className="list-disc list-inside space-y-1 pr-2">
+                                  <li>يجب تثبيت برنامج المساعد المحلي للتوقيع (Local Signer Helper) على الجهاز المتصل به فلاشة التوقيع (USB Token).</li>
+                                  <li>يعمل البرنامج المساعد افتراضياً على المنفذ المحلي 8500 لتبادل تشفير الملفات.</li>
+                                  <li>في البيئة التجريبية (Sandbox)، سيقوم النظام بمحاكاة التوقيع والرد الضريبي تلقائياً لتسهيل فحص وتجربة دورة العمل.</li>
+                              </ul>
+                          </div>
+
+                          <div className="flex justify-end pt-4 border-t">
+                              <button
+                                  type="submit"
+                                  className="bg-cyan-600 text-white font-bold px-6 py-2.5 rounded-lg hover:bg-cyan-700 transition-colors flex items-center gap-2"
+                              >
+                                  <Save size={18} /> حفظ إعدادات الضرائب
+                              </button>
+                          </div>
+                      </div>
+                  </form>
               )}
 
               {activeTab === 'demo' && (

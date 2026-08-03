@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Card, Form, Input, Button, message, Spin } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
+import { offlineService } from '../../../services/offlineService';
 
 const { TextArea } = Input;
 
@@ -67,6 +68,30 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
         if (error) throw error;
         message.success('تم تحديث الملاحظات الطبية (SOAP) بنجاح ✅');
       } else {
+        if (!navigator.onLine) {
+          let docId = null;
+          let orgId = null;
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            docId = session?.user?.id;
+            orgId = session?.user?.user_metadata?.org_id;
+          } catch (e) {}
+
+          const notePayload = {
+            visit_id: visitId,
+            doctor_id: docId,
+            organization_id: orgId,
+            subjective,
+            objective,
+            assessment,
+            plan
+          };
+
+          await offlineService.queueClinicalNote(notePayload);
+          message.warning('تم حفظ الملاحظات الطبية محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶');
+          return;
+        }
+
         // جلب بيانات الزيارة لربط المنظمة والطبيب
         const { data: visitData, error: visitErr } = await supabase
           .from('hims_visits')
