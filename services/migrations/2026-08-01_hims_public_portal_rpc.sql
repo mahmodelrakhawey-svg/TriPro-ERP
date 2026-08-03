@@ -28,7 +28,7 @@ BEGIN
     SELECT full_name, blood_type INTO v_patient FROM public.hims_patients WHERE id = v_visit.patient_id;
 
     -- 5. Fetch doctor details
-    SELECT pr.full_name as doctor_name, d.specialty INTO v_doctor
+    SELECT pr.full_name as doctor_name, d.specialization as specialty INTO v_doctor
     FROM public.hims_doctors d
     JOIN public.profiles pr ON d.profile_id = pr.id
     WHERE d.id = v_visit.doctor_id;
@@ -62,7 +62,7 @@ BEGIN
         'id', o.id,
         'test_name', t.test_name,
         'status', o.status,
-        'result', o.result,
+        'result', o.result_value,
         'created_at', o.created_at
     )) INTO v_labs
     FROM public.hims_lab_orders o
@@ -74,7 +74,7 @@ BEGIN
         'id', o.id,
         'scan_type', o.scan_type,
         'status', o.status,
-        'report', o.report,
+        'report', o.report_text,
         'created_at', o.created_at
     )) INTO v_radiology
     FROM public.hims_radiology_orders o
