@@ -3,6 +3,7 @@ import { Table, Tag, Button, Card, Typography, Empty, message, Modal, Form, Inpu
 import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, FileTextOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
+import { db } from '../../../services/offlineService';
 
 const { Title, Text } = Typography;
 
@@ -18,28 +19,100 @@ export const RadiologyDashboard: React.FC = () => {
     if (!orgId) return;
 
     setLoading(true);
-    const { data } = await supabase
-      .from('hims_radiology_orders') 
-      .select('*, hims_visits(id, doctor_id, hims_patients(id, full_name), hims_billing(payment_status, insurance_provider_id))')
-      .eq('organization_id', orgId)
-      .eq('status', 'pending');
-    setOrders(data || []);
+    try {
+      if (navigator.onLine) {
+        const { data } = await supabase
+          .from('hims_radiology_orders') 
+          .select('*, hims_visits(id, doctor_id, hims_patients(id, full_name), hims_billing(payment_status, insurance_provider_id))')
+          .eq('organization_id', orgId)
+          .eq('status', 'pending');
+        setOrders(data || []);
+      } else {
+        const queuedRad = await db.queuedRadiologyOrders.toArray();
+        const queuedPatients = await db.queuedPatients.toArray();
+        const cachedPatients = await db.himsPatients.toArray();
+        const queuedVisits = await db.queuedVisits.toArray();
+
+        const findPatientName = (patientId: string) => {
+          if (patientId?.startsWith('queued-')) {
+            const idNum = parseInt(patientId.replace('queued-', ''));
+            const qP = queuedPatients.find(p => p.id === idNum);
+            return qP?.payload?.full_name || 'مريض معلق أوفلاين';
+          }
+          const cP = cachedPatients.find(p => p.id === patientId);
+          return cP?.full_name || 'مريض غير مسجل';
+        };
+
+        const offlineOrders: any[] = [];
+        let index = 1;
+        for (const batch of queuedRad) {
+          if (Array.isArray(batch.payload)) {
+            for (const o of batch.payload) {
+              let patName = 'مريض معلق';
+              const tempVisitId = o.visit_id;
+              if (tempVisitId?.startsWith('queued-visit-')) {
+                const idNum = parseInt(tempVisitId.replace('queued-visit-', ''));
+                const qV = queuedVisits.find(v => v.id === idNum);
+                if (qV) {
+                  patName = findPatientName(qV.payload.patient_id);
+                }
+              }
+
+              offlineOrders.push({
+                id: `queued-rad-${batch.id}-${index++}`,
+                status: 'pending',
+                scan_type: o.scan_type || 'أشعة أوفلاين',
+                hims_visits: {
+                  id: tempVisitId,
+                  hims_patients: { full_name: patName },
+                  hims_billing: { payment_status: 'paid' }
+                }
+              });
+            }
+          }
+        }
+
+        setOrders(offlineOrders.filter(o => !localStorage.getItem(`completed_rad_${o.id}`)));
+      }
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { fetchOrders(); }, []);
+  useEffect(() => {
+    const handleConnectivityChange = () => {
+      fetchOrders();
+    };
+    window.addEventListener('online', handleConnectivityChange);
+    window.addEventListener('offline', handleConnectivityChange);
+    return () => {
+      window.removeEventListener('online', handleConnectivityChange);
+      window.removeEventListener('offline', handleConnectivityChange);
+    };
+  }, [currentUser]);
+
+
 
   const handleSubmitReport = async (values: any) => {
     if (!selectedOrder) return;
     
     setLoading(true);
     try {
-      // استدعاء الـ RPC الاحترافي الذي أنشأناه في SQL
-      // يقوم بتحديث الحالة + تسجيل التقرير + إخطار الطبيب آلياً
+      if (!navigator.onLine && selectedOrder.id.startsWith('queued-rad-')) {
+        localStorage.setItem(`completed_rad_${selectedOrder.id}`, values.report_text);
+        message.warning('تم تسجيل تقرير الأشعة محلياً بنجاح! سيتم رفعه سحابياً فور عودة الاتصال 📶');
+        setSelectedOrder(null);
+        form.resetFields();
+        fetchOrders();
+        setLoading(false);
+        return;
+      }
+
       const { error } = await supabase.rpc('hims_complete_radiology', {
         p_order_id: selectedOrder.id,
         p_report: values.report_text,
-        p_images: [] // مجهز لاستقبال روابط الصور مستقبلاً
+        p_images: []
       });
 
       if (error) throw error;

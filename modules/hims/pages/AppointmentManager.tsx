@@ -3,7 +3,7 @@ import { Table, Tag, Button, Card, Typography, message, Space, Modal, Form, Sele
 import { CalendarOutlined, ClockCircleOutlined, UserAddOutlined, CheckCircleOutlined, CloseCircleOutlined, UserOutlined, MedicineBoxOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
-import { offlineService } from '../../../services/offlineService';
+import { offlineService, db } from '../../../services/offlineService';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
@@ -24,15 +24,49 @@ export const AppointmentManager: React.FC = () => {
     if (!orgId) return;
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('hims_appointments')
-        .select('*, hims_patients(id, full_name, phone, national_id), hims_doctors(id, specialization, profile:profile_id(full_name))')
-        .eq('organization_id', orgId)
-        .eq('appointment_date', dayjs().format('YYYY-MM-DD'))
-        .order('queue_number', { ascending: true });
+      if (navigator.onLine) {
+        const { data, error } = await supabase
+          .from('hims_appointments')
+          .select('*, hims_patients(id, full_name, phone, national_id), hims_doctors(id, specialization, profile:profile_id(full_name))')
+          .eq('organization_id', orgId)
+          .eq('appointment_date', dayjs().format('YYYY-MM-DD'))
+          .order('queue_number', { ascending: true });
 
-      if (error) throw error;
-      setAppointments(data || []);
+        if (error) throw error;
+        setAppointments(data || []);
+      } else {
+        const queuedVisits = await db.queuedVisits.toArray();
+        const queuedPatients = await db.queuedPatients.toArray();
+        const cachedPatients = await db.himsPatients.toArray();
+
+        const findPatient = (patientId: string) => {
+          if (patientId?.startsWith('queued-')) {
+            const idNum = parseInt(patientId.replace('queued-', ''));
+            const qP = queuedPatients.find(p => p.id === idNum);
+            return { full_name: qP?.payload?.full_name || 'مريض معلق', phone: qP?.payload?.phone || '-' };
+          }
+          const cP = cachedPatients.find(p => p.id === patientId);
+          return { full_name: cP?.full_name || 'مريض غير مسجل', phone: cP?.phone || '-' };
+        };
+
+        const offlineAppointments = queuedVisits.map((v, index) => {
+          const pat = findPatient(v.payload.patient_id);
+          return {
+            id: `queued-visit-${v.id}`,
+            queue_number: index + 1,
+            appointment_time: v.payload.appointment_time || '00:00:00',
+            status: 'arrived',
+            priority: v.payload.triage_level?.includes('level_5') ? 'normal' : 'urgent',
+            hims_patients: pat,
+            hims_doctors: {
+              specialization: 'عيادة أوفلاين',
+              profile: { full_name: 'طبيب العيادة' }
+            }
+          };
+        });
+
+        setAppointments(offlineAppointments);
+      }
     } catch (err: any) {
       message.error('خطأ في تحميل المواعيد: ' + err.message);
     } finally {
@@ -43,16 +77,40 @@ export const AppointmentManager: React.FC = () => {
   const fetchPatientsAndDoctors = async () => {
     if (!orgId) return;
     try {
-      const [patRes, docRes] = await Promise.all([
-        supabase.from('hims_patients').select('id, full_name, national_id').eq('organization_id', orgId).order('full_name'),
-        supabase.from('hims_doctors').select('id, specialization, profile:profile_id(full_name)').eq('organization_id', orgId).eq('is_active', true)
-      ]);
+      if (navigator.onLine) {
+        const [patRes, docRes] = await Promise.all([
+          supabase.from('hims_patients').select('id, full_name, national_id').eq('organization_id', orgId).order('full_name'),
+          supabase.from('hims_doctors').select('id, specialization, profile:profile_id(full_name)').eq('organization_id', orgId).eq('is_active', true)
+        ]);
 
-      if (patRes.error) throw patRes.error;
-      if (docRes.error) throw docRes.error;
+        if (patRes.error) throw patRes.error;
+        if (docRes.error) throw docRes.error;
 
-      setPatients(patRes.data || []);
-      setDoctors(docRes.data || []);
+        setPatients(patRes.data || []);
+        setDoctors(docRes.data || []);
+        offlineService.syncPatientsLocally(orgId);
+      } else {
+        const cached = await db.himsPatients.toArray();
+        const queued = await db.queuedPatients.toArray();
+        
+        const offlinePatients = [
+          ...queued.map(q => ({
+            id: `queued-${q.id}`,
+            full_name: q.payload.full_name,
+            national_id: q.payload.national_id
+          })),
+          ...cached
+        ];
+        
+        setPatients(offlinePatients);
+        
+        if (doctors.length === 0) {
+          setDoctors([
+            { id: 'offline-doc-1', specialization: 'باطنة', profile: { full_name: 'طبيب باطنة أوفلاين' } },
+            { id: 'offline-doc-2', specialization: 'أطفال', profile: { full_name: 'طبيب أطفال أوفلاين' } }
+          ]);
+        }
+      }
     } catch (err: any) {
       console.error('Failed to fetch metadata:', err);
     }
@@ -63,6 +121,19 @@ export const AppointmentManager: React.FC = () => {
       fetchAppointments();
       fetchPatientsAndDoctors();
     }
+  }, [orgId]);
+
+  useEffect(() => {
+    const handleConnectivityChange = () => {
+      fetchAppointments();
+      fetchPatientsAndDoctors();
+    };
+    window.addEventListener('online', handleConnectivityChange);
+    window.addEventListener('offline', handleConnectivityChange);
+    return () => {
+      window.removeEventListener('online', handleConnectivityChange);
+      window.removeEventListener('offline', handleConnectivityChange);
+    };
   }, [orgId]);
 
   const handleBookAppointment = async (values: any) => {
@@ -79,6 +150,24 @@ export const AppointmentManager: React.FC = () => {
         notes: values.notes || '',
         status: 'scheduled'
       };
+
+      if (!navigator.onLine) {
+        const visitPayload = {
+          patient_id: values.patient_id,
+          doctor_id: values.doctor_id,
+          visit_type: 'outpatient',
+          triage_level: 'level_5_non_urgent',
+          chief_complaint: values.notes || 'حجز موعد أوفلاين',
+          status: 'triaged',
+          organization_id: orgId
+        };
+        await offlineService.queueVisit(visitPayload);
+        message.warning('تم تسجيل حضور المريض والزيارة محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶');
+        setIsBookingModalVisible(false);
+        form.resetFields();
+        fetchAppointments();
+        return;
+      }
 
       const { error } = await supabase.from('hims_appointments').insert([payload]);
       if (error) throw error;

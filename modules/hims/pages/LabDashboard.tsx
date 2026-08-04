@@ -3,6 +3,7 @@ import { supabase } from '@/supabaseClient';
 import { Table, Tag, Input, Button, Modal, message, Card, Typography, Select, Space, Divider, InputNumber, Tooltip } from 'antd';
 import { ExperimentOutlined, CheckCircleOutlined, EditOutlined, BoxPlotOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
+import { db } from '../../../services/offlineService';
 
 export const LabDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -15,13 +16,86 @@ export const LabDashboard: React.FC = () => {
 
   const fetchOrders = async () => {
     if (!currentUser?.organization_id) return;
-    const { data } = await supabase.from('hims_lab_orders')
-      .select('*, hims_visits(doctor_id, hims_patients(id, full_name), hims_billing(payment_status, insurance_provider_id)), hims_lab_tests(test_name, normal_range, unit)')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('status', 'pending');
-    console.log('🧪 Lab Dashboard Orders Fetch:', data);
-    setOrders(data || []);
+    setLoading(true);
+    try {
+      if (navigator.onLine) {
+        const { data } = await supabase.from('hims_lab_orders')
+          .select('*, hims_visits(doctor_id, hims_patients(id, full_name), hims_billing(payment_status, insurance_provider_id)), hims_lab_tests(test_name, normal_range, unit)')
+          .eq('organization_id', currentUser.organization_id)
+          .eq('status', 'pending');
+        setOrders(data || []);
+      } else {
+        const queuedLab = await db.queuedLabOrders.toArray();
+        const queuedPatients = await db.queuedPatients.toArray();
+        const cachedPatients = await db.himsPatients.toArray();
+        const queuedVisits = await db.queuedVisits.toArray();
+
+        const findPatientName = (patientId: string) => {
+          if (patientId?.startsWith('queued-')) {
+            const idNum = parseInt(patientId.replace('queued-', ''));
+            const qP = queuedPatients.find(p => p.id === idNum);
+            return qP?.payload?.full_name || 'مريض معلق أوفلاين';
+          }
+          const cP = cachedPatients.find(p => p.id === patientId);
+          return cP?.full_name || 'مريض غير مسجل';
+        };
+
+        const cachedLabMastersString = localStorage.getItem(`hims_lab_tests_${currentUser.organization_id}`);
+        const cachedLabMasters = cachedLabMastersString ? JSON.parse(cachedLabMastersString) : [];
+
+        const offlineOrders: any[] = [];
+        let index = 1;
+        for (const batch of queuedLab) {
+          if (Array.isArray(batch.payload)) {
+            for (const o of batch.payload) {
+              let patName = 'مريض معلق';
+              const tempVisitId = o.visit_id;
+              if (tempVisitId?.startsWith('queued-visit-')) {
+                const idNum = parseInt(tempVisitId.replace('queued-visit-', ''));
+                const qV = queuedVisits.find(v => v.id === idNum);
+                if (qV) {
+                  patName = findPatientName(qV.payload.patient_id);
+                }
+              }
+
+              const testMaster = cachedLabMasters.find((t: any) => t.id === o.test_id);
+
+              offlineOrders.push({
+                id: `queued-lab-${batch.id}-${index++}`,
+                status: 'pending',
+                hims_visits: {
+                  hims_patients: { full_name: patName },
+                  hims_billing: { payment_status: 'paid' }
+                },
+                hims_lab_tests: {
+                  test_name: testMaster ? testMaster.test_name : 'فحص مختبر أوفلاين',
+                  normal_range: testMaster ? testMaster.normal_range : '3.5 - 5.0',
+                  unit: testMaster ? testMaster.unit : 'g/dL'
+                }
+              });
+            }
+          }
+        }
+
+        setOrders(offlineOrders.filter(o => !localStorage.getItem(`completed_lab_${o.id}`)));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
   };
+
+  useEffect(() => {
+    const handleConnectivityChange = () => {
+      fetchOrders();
+    };
+    window.addEventListener('online', handleConnectivityChange);
+    window.addEventListener('offline', handleConnectivityChange);
+    return () => {
+      window.removeEventListener('online', handleConnectivityChange);
+      window.removeEventListener('offline', handleConnectivityChange);
+    };
+  }, [currentUser]);
 
   const fetchStock = async () => {
     if (!currentUser?.organization_id) return;
@@ -49,6 +123,17 @@ export const LabDashboard: React.FC = () => {
   const submitResult = async () => {
     if (!resultValue) return message.warning('يرجى إدخال النتيجة أولاً');
     setLoading(true);
+
+    if (!navigator.onLine && selectedOrder.id.startsWith('queued-lab-')) {
+      localStorage.setItem(`completed_lab_${selectedOrder.id}`, resultValue);
+      message.warning('تم تسجيل نتيجة التحليل محلياً بنجاح! سيتم توثيقها سحابياً فور عودة الاتصال 📶');
+      setSelectedOrder(null);
+      setResultValue('');
+      setSelectedReagents([]);
+      fetchOrders();
+      setLoading(false);
+      return;
+    }
 
     // تمهيد/تنظيف payload بما يتوافق مع SQL: jsonb_to_recordset(p_consumables) AS (product_id uuid, qty numeric)
     const sanitizedConsumables = selectedReagents

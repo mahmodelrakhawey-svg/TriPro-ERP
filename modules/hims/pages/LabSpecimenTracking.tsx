@@ -2,30 +2,124 @@ import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, message, Badge, Tooltip, Row, Col } from 'antd';
 import { ExperimentOutlined, ScanOutlined, CheckCircleOutlined, SyncOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
+import { db } from '../../../services/offlineService';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 
 export const LabSpecimenTracking: React.FC = () => {
+  const { currentUser } = useAuth();
   const [specimens, setSpecimens] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const fetchSpecimens = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('hims_lab_specimens')
-      .select('*, lab_order:lab_order_id(hims_lab_tests(test_name), hims_visits(hims_patients(full_name)))')
-      .order('created_at', { ascending: false });
-    
-    if (error) message.error('خطأ في جلب بيانات العينات');
-    else setSpecimens(data || []);
+    try {
+      if (navigator.onLine) {
+        const { data, error } = await supabase
+          .from('hims_lab_specimens')
+          .select('*, lab_order:lab_order_id(hims_lab_tests(test_name), hims_visits(hims_patients(full_name)))')
+          .order('created_at', { ascending: false });
+        
+        if (error) {
+          console.error('Fetch specimens error:', error);
+          message.error('خطأ في جلب بيانات العينات: ' + error.message);
+        } else {
+          setSpecimens(data || []);
+        }
+      } else {
+        const queuedLab = await db.queuedLabOrders.toArray();
+        const queuedPatients = await db.queuedPatients.toArray();
+        const cachedPatients = await db.himsPatients.toArray();
+        const queuedVisits = await db.queuedVisits.toArray();
+
+        const findPatientName = (patientId: string) => {
+          if (patientId?.startsWith('queued-')) {
+            const idNum = parseInt(patientId.replace('queued-', ''));
+            const qP = queuedPatients.find(p => p.id === idNum);
+            return qP?.payload?.full_name || 'مريض معلق أوفلاين';
+          }
+          const cP = cachedPatients.find(p => p.id === patientId);
+          return cP?.full_name || 'مريض غير مسجل';
+        };
+
+        const cachedLabMastersString = localStorage.getItem(`hims_lab_tests_${currentUser?.organization_id}`);
+        const cachedLabMasters = cachedLabMastersString ? JSON.parse(cachedLabMastersString) : [];
+
+        const offlineSpecimens: any[] = [];
+        let index = 1;
+        for (const batch of queuedLab) {
+          if (Array.isArray(batch.payload)) {
+            for (const o of batch.payload) {
+              let patName = 'مريض معلق';
+              const tempVisitId = o.visit_id;
+              if (tempVisitId?.startsWith('queued-visit-')) {
+                const idNum = parseInt(tempVisitId.replace('queued-visit-', ''));
+                const qV = queuedVisits.find(v => v.id === idNum);
+                if (qV) {
+                  patName = findPatientName(qV.payload.patient_id);
+                }
+              }
+
+              const testMaster = cachedLabMasters.find((t: any) => t.id === o.test_id);
+
+              const specimenId = `queued-spec-${batch.id}-${index++}`;
+              const offlineStatus = localStorage.getItem(`specimen_status_${specimenId}`) || 'pending_collection';
+
+              offlineSpecimens.push({
+                id: specimenId,
+                barcode_id: `LAB-Q-${batch.id}-${index}`,
+                status: offlineStatus,
+                collected_at: offlineStatus !== 'pending_collection' ? new Date().toISOString() : null,
+                lab_order: {
+                  hims_lab_tests: {
+                    test_name: testMaster ? testMaster.test_name : 'فحص مختبر أوفلاين'
+                  },
+                  hims_visits: {
+                    hims_patients: { full_name: patName }
+                  }
+                }
+              });
+            }
+          }
+        }
+
+        setSpecimens(offlineSpecimens);
+      }
+    } catch (e) {
+      console.error(e);
+    }
     setLoading(false);
   };
 
-  useEffect(() => { fetchSpecimens(); }, []);
+  useEffect(() => {
+    fetchSpecimens();
+  }, [currentUser]);
+
+  useEffect(() => {
+    const handleConnectivityChange = () => {
+      fetchSpecimens();
+    };
+    window.addEventListener('online', handleConnectivityChange);
+    window.addEventListener('offline', handleConnectivityChange);
+    return () => {
+      window.removeEventListener('online', handleConnectivityChange);
+      window.removeEventListener('offline', handleConnectivityChange);
+    };
+  }, [currentUser]);
 
   const updateStatus = async (id: string, newStatus: string) => {
     setLoading(true);
+
+    if (!navigator.onLine && id.startsWith('queued-spec-')) {
+      localStorage.setItem(`specimen_status_${id}`, newStatus);
+      message.warning('تم تحديث حالة العينة محلياً بنجاح! سيتم التزامن سحابياً فور عودة الاتصال 📶');
+      fetchSpecimens();
+      setLoading(false);
+      return;
+    }
+
     const { error } = await supabase.rpc('hims_update_specimen_status', {
       p_specimen_id: id,
       p_status: newStatus

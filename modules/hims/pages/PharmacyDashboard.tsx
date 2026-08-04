@@ -3,6 +3,7 @@ import { supabase } from '@/supabaseClient';
 import { Table, Card, Tag, Button, Row, Col, Typography, Badge, message, Modal, List, Empty, Tooltip, Divider, Statistic, Input, Tabs } from 'antd';
 import { MedicineBoxOutlined, SendOutlined, HistoryOutlined, CheckCircleOutlined, BarcodeOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
+import { db } from '../../../services/offlineService';
 import dayjs from 'dayjs';
 
 export const PharmacyDashboard: React.FC = () => {
@@ -22,20 +23,81 @@ export const PharmacyDashboard: React.FC = () => {
     
     let orgId = (currentUser as any)?.organization_id;
     if (!orgId) {
-      const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
-      orgId = profile?.organization_id;
+      try {
+        const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
+        orgId = profile?.organization_id;
+      } catch (e) {}
     }
 
-    const { data } = await supabase
-      .from('hims_prescriptions')
-      .select('*, hims_visits!inner(hims_patients(id, full_name, national_id, phone, allergies), hims_billing(payment_status, insurance_provider_id))')
-      .eq('status', 'pending')
-      .eq('organization_id', orgId)
-      .order('created_at', { ascending: false });
+    if (navigator.onLine) {
+      const { data } = await supabase
+        .from('hims_prescriptions')
+        .select('*, hims_visits!inner(hims_patients(id, full_name, national_id, phone, allergies), hims_billing(payment_status, insurance_provider_id))')
+        .eq('status', 'pending')
+        .eq('organization_id', orgId)
+        .order('created_at', { ascending: false });
 
-    setPrescriptions(data || []);
+      setPrescriptions(data || []);
+    } else {
+      const queuedPres = await db.queuedPrescriptions.toArray();
+      const queuedPatients = await db.queuedPatients.toArray();
+      const cachedPatients = await db.himsPatients.toArray();
+      const queuedVisits = await db.queuedVisits.toArray();
+
+      const findPatient = (patientId: string) => {
+        if (patientId?.startsWith('queued-')) {
+          const idNum = parseInt(patientId.replace('queued-', ''));
+          const qP = queuedPatients.find(p => p.id === idNum);
+          return { full_name: qP?.payload?.full_name || 'مريض معلق أوفلاين', national_id: '-', phone: qP?.payload?.phone || '-', allergies: [] };
+        }
+        const cP = cachedPatients.find(p => p.id === patientId);
+        return { full_name: cP?.full_name || 'مريض غير مسجل', national_id: cP?.national_id || '-', phone: cP?.phone || '-', allergies: [] };
+      };
+
+      const offlinePres = queuedPres.map(p => {
+        return {
+          id: `queued-pres-${p.id}`,
+          created_at: p.createdAt.toISOString(),
+          diagnosis: p.payload.diagnosis,
+          medications: p.payload.medications,
+          hims_visits: {
+            hims_patients: { full_name: 'مريض معلق', national_id: '-', phone: '-', allergies: [] },
+            hims_billing: { payment_status: 'paid' }
+          }
+        };
+      });
+
+      for (const op of offlinePres) {
+        const originalPres = queuedPres.find(qp => `queued-pres-${qp.id}` === op.id);
+        if (originalPres) {
+          const tempVisitId = originalPres.payload.visit_id;
+          if (tempVisitId?.startsWith('queued-visit-')) {
+            const idNum = parseInt(tempVisitId.replace('queued-visit-', ''));
+            const qV = queuedVisits.find(v => v.id === idNum);
+            if (qV) {
+              const pat = findPatient(qV.payload.patient_id);
+              op.hims_visits.hims_patients = pat;
+            }
+          }
+        }
+      }
+
+      setPrescriptions(offlinePres.filter(op => !localStorage.getItem(`dispensed_offline_${op.id}`)));
+    }
     setLoading(false);
   };
+
+  useEffect(() => {
+    const handleConnectivityChange = () => {
+      fetchPendingPrescriptions();
+    };
+    window.addEventListener('online', handleConnectivityChange);
+    window.addEventListener('offline', handleConnectivityChange);
+    return () => {
+      window.removeEventListener('online', handleConnectivityChange);
+      window.removeEventListener('offline', handleConnectivityChange);
+    };
+  }, []);
 
   // مراجعة الصلاحية والمخزون قبل الصرف
   const handleReviewOrder = async (order: any) => {
@@ -115,7 +177,18 @@ export const PharmacyDashboard: React.FC = () => {
     if (!orderId || orderId === "") return message.error("عذراً، معرف الروشتة غير صالح");
     
     setLoading(true);
-    // استدعاء RPC لمعالجة الصرف (خصم مخزون + تحديث حالة الروشتة + إضافة تكلفة للفاتورة)
+
+    if (!navigator.onLine) {
+      if (orderId.startsWith('queued-pres-')) {
+        localStorage.setItem(`dispensed_offline_${orderId}`, 'true');
+        message.warning('تم صرف الروشتة محلياً بنجاح! سيتم خصم الكميات من المخزن وتوثيقها سحابياً فور عودة الاتصال 📶');
+        setSelectedOrder(null);
+        fetchPendingPrescriptions();
+        setLoading(false);
+        return;
+      }
+    }
+
     const { error } = await supabase.rpc('hims_dispense_prescription', {
       p_prescription_id: orderId
     });

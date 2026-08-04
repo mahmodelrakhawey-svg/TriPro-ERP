@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { BookOpen, ChevronDown, ChevronUp, HelpCircle, FileText, Users, ShoppingCart, Truck, Package, Wallet, Settings, Database } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronUp, HelpCircle, FileText, Users, ShoppingCart, Truck, Package, Wallet, Settings, Database, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const UserGuide = () => {
@@ -37,6 +37,7 @@ const UserGuide = () => {
           <ul className="list-disc list-inside space-y-1 mr-4">
             <li><strong>عروض الأسعار:</strong> إنشاء عروض أسعار للعملاء وتحويلها لفواتير بضغطة زر.</li>
             <li><strong>فواتير المبيعات:</strong> إصدار فواتير ضريبية، دعم تعدد العملات، والخصومات.</li>
+            <li><strong>الربط مع الضرائب (ETA):</strong> ربط مباشر وتلقائي مع منظومة الفاتورة الإلكترونية لمصلحة الضرائب المصرية لتسجيل الفواتير لحظياً وتتبع حالتها.</li>
             <li><strong>العملاء:</strong> إدارة ملفات العملاء، حدود الائتمان، وكشوف الحسابات.</li>
             <li><strong>المرتجعات:</strong> تسجيل مرتجعات المبيعات وتأثيرها على المخزون والحسابات.</li>
           </ul>
@@ -67,9 +68,26 @@ const UserGuide = () => {
           <p>التحكم الكامل في مخزونك:</p>
           <ul className="list-disc list-inside space-y-1 mr-4">
             <li><strong>المنتجات:</strong> تعريف الأصناف (مخزونية/خدمية)، الباركود، والأسعار.</li>
+            <li><strong>إعادة احتساب تكاليف المخزون (WAC):</strong> إعادة تقييم واحتساب متوسط التكلفة المرجح لجميع الأصناف بأثر رجعي لحل مشكلات الأرصدة السالبة والأخطاء الحسابية.</li>
             <li><strong>المستودعات:</strong> إدارة مستودعات متعددة والتحويل بينها.</li>
             <li><strong>الجرد:</strong> إجراء عمليات الجرد والتسويات المخزنية.</li>
             <li><strong>التصنيع:</strong> إدارة أوامر التصنيع وقوائم المواد (BOM).</li>
+          </ul>
+        </div>
+      )
+    },
+    {
+      id: 'hims',
+      title: '🏥 إدارة المستشفيات (HIMS)',
+      icon: <Heart className="text-rose-600" size={20} />,
+      content: (
+        <div className="space-y-2 text-slate-600">
+          <p>ربط الدورة الطبية السريرية بالدورة المالية والمخزنية بالكامل:</p>
+          <ul className="list-disc list-inside space-y-1 mr-4">
+            <li><strong>الملف الطبي الإلكتروني (EMR):</strong> السجل الطبي الشامل للمريض والملاحظات السريرية والتشخيصات والجرعات الدوائية.</li>
+            <li><strong>شاشات الطبيب والتمريض:</strong> إدارة الوصفات الإلكترونية، طلب التحاليل/الأشعة، وتتبع العلامات الحيوية وتوزيع الأسرة.</li>
+            <li><strong>مطالبات التأمين الطبي:</strong> تجميع وتدقيق الفواتير وتوليد مطالبات مجمعة مع ميزة <strong>تصدير المطالبات بصيغة XML</strong> المعتمدة لتسريع التحصيل.</li>
+            <li><strong>العمل بدون اتصال بالإنترنت (Offline Mode):</strong> استمرار تسجيل المرضى وقبول الزيارات وتدوين الملاحظات الطبية أوفلاين مع <strong>المزامنة التلقائية</strong> فور عودة الاتصال.</li>
           </ul>
         </div>
       )

@@ -4,6 +4,7 @@ import { Button, Input, Table, Space, Card, Typography, message, Select, Spin, I
 import { PlusOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
+import { offlineService, db } from '../../../services/offlineService';
 
 export interface Medication {
   product_id?: string;
@@ -53,6 +54,16 @@ const COMMON_ICD10_CODES = [
   { code: 'R42', descAr: 'دوار ودوخة', descEn: 'Dizziness and giddiness' }
 ];
 
+// استخراج اسم التصنيف من الكائن المضمّن (قد يُرجَع من PostgREST ككائن واحد أو كمصفوفة)
+const getCategoryName = (category: unknown): string | undefined => {
+  if (!category) return undefined;
+  if (Array.isArray(category)) {
+    const first = category[0] as { name?: string } | undefined;
+    return first?.name;
+  }
+  return (category as { name?: string }).name;
+};
+
 export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => {
   const { currentUser } = useAuth();
   const { register, control, handleSubmit, setValue, watch } = useForm<Prescription>({
@@ -62,58 +73,82 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
   const [icdOptions, setIcdOptions] = useState<{ label: string; value: string }[]>([]);
   const [loadingICD, setLoadingICD] = useState(false);
 
-  const [productOptions, setProductOptions] = useState<{ label: string; value: string; price: number }[]>([]);
+  const [productOptions, setProductOptions] = useState<{ label: string; value: string; price: number; name: string }[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
 
   // محرك البحث في الأصناف المخزنية (الأدوية)
   const handleProductSearch = async (query: string = "") => {
     setLoadingProducts(true);
 
-    // 🛡️ ذكاء برمجي: جلب كود المؤسسة من الزيارة إذا لم يتوفر في حساب الطبيب
     let orgId = currentUser?.organization_id;
     if (!orgId && visitId) {
-      const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
-      orgId = vData?.organization_id;
+      try {
+        const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+        orgId = vData?.organization_id;
+      } catch (e) {}
     }
-
-    console.log("PrescriptionForm: Final orgId used for product search:", orgId); // Added for debugging
 
     if (!orgId) {
       setLoadingProducts(false);
-      console.warn("PrescriptionForm: Org ID is null or undefined, cannot fetch products."); // Added for debugging
       return;
     }
     
-    let queryBuilder = supabase
-      .from('products')
-      .select('id, name, sales_price, stock')
-      .eq('organization_id', orgId)
-      // 🛡️ مرونة برمجية: التحقق من نوع الصنف في الحقلين (Product/Item) لضمان ظهور الأدوية في المستشفيات القديمة
-      // كما تم إزالة فلتر الكمية (>0) ليتمكن الطبيب من رؤية الدواء المتاح في الدليل حتى لو نفذ رصيده
-      .or('product_type.eq.STOCK,item_type.eq.STOCK')
-      .is('deleted_at', null); 
+    if (navigator.onLine) {
+      let queryBuilder = supabase
+        .from('products')
+        .select('id, name, sales_price, stock, category:category_id(name)')
+        .eq('organization_id', orgId)
+        .or('product_type.eq.STOCK,item_type.eq.STOCK')
+        .is('deleted_at', null); 
 
-    // لم نعد بحاجة لهذا الشرط لأننا نريد البحث حتى بحرف واحد أو بدون حروف للتحميل الأولي
-    // if (!query || query.length < 2) return;
-    if (query) {
-      queryBuilder = queryBuilder.ilike('name', `%${query}%`);
+      if (query) {
+        queryBuilder = queryBuilder.ilike('name', `%${query}%`);
+      }
+
+      const { data, error } = await queryBuilder.limit(40);
+
+      if (error) {
+        console.error("PrescriptionForm: Error fetching products:", error);
+        setProductOptions([]);
+      }
+
+      // تصفية المنتجات لتجنب ظهور الألبسة أو الأطعمة أو مواد البناء في الروشتة الطبية
+      const excludedCategories = ['ملابس', 'أزياء', 'طعام', 'وجبات', 'دجاج', 'لحوم', 'مطعم', 'سلطات', 'بناء', 'أسمنت', 'حديد', 'مقاولات'];
+      const filteredData = (data || []).filter((p: any) => {
+        const catName = getCategoryName(p.category);
+        if (catName) {
+          return !excludedCategories.some(ex => catName.includes(ex));
+        }
+        return true;
+      });
+
+      setProductOptions(filteredData.map((p: any) => {
+        const catName = getCategoryName(p.category);
+        return {
+          label: catName ? `${p.name} [${catName}] - (المتوفر: ${p.stock})` : `${p.name} (المتوفر: ${p.stock})`,
+          value: p.id,
+          name: p.name,
+          price: p.sales_price || 0
+        };
+      }));
+    } else {
+      // Offline Search from IndexedDB db.products
+      try {
+        const cachedProducts = await db.products
+          .filter(p => !query || p.name.toLowerCase().includes(query.toLowerCase()))
+          .limit(20)
+          .toArray();
+
+        setProductOptions(cachedProducts.map(p => ({
+          label: `${p.name} (المتوفر: ${p.stock})`,
+          value: p.id,
+          name: p.name,
+          price: p.sales_price || 0
+        })));
+      } catch (err) {
+        console.error("Offline product search error:", err);
+      }
     }
-
-    const { data, error } = await queryBuilder.limit(20);
-
-    if (error) {
-      console.error("PrescriptionForm: Error fetching products:", error); // Keep this
-      // لا تزعج الطبيب برسائل خطأ متكررة إذا كان يبحث
-      setProductOptions([]); // التأكد من مسح الخيارات على الخطأ
-    }
-
-    setProductOptions(data?.map(p => ({
-      label: `${p.name} (المتوفر: ${p.stock})`,
-      value: p.id,
-      name: p.name,
-      price: p.sales_price || 0
-    })) || []);
-    console.log("PrescriptionForm: Products fetched:", data); // Added for debugging
     setLoadingProducts(false);
   };
 
@@ -174,11 +209,12 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
   const onSave: SubmitHandler<Prescription> = async (data) => {
     let orgId = currentUser?.organization_id;
     if (!orgId) {
-      const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
-      orgId = vData?.organization_id;
+      try {
+        const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+        orgId = vData?.organization_id;
+      } catch (e) {}
     }
 
-    // تنظيف الأدوية: فلترة أي صنف لم يتم تحديد الدواء فيه (تجنب أخطاء UUID)
     const cleanedMeds = (data.medications || [])
       .filter((m: any) => m.product_id && m.product_id.trim() !== '')
       .map((m: any) => ({
@@ -199,6 +235,12 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
         medications: cleanedMeds,
         organization_id: orgId
     };
+
+    if (!navigator.onLine) {
+      await offlineService.queuePrescription(payload);
+      message.warning("تم اعتماد الروشتة وحفظها محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶");
+      return;
+    }
 
     const { error } = await supabase.from('hims_prescriptions').insert(payload);
     if (error) {

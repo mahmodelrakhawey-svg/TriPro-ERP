@@ -3,6 +3,7 @@ import { supabase } from '@/supabaseClient';
 import { Card, Tabs, Select, Button, Table, Tag, message, Typography, InputNumber, Input, DatePicker } from 'antd';
 import { ExperimentOutlined, CameraOutlined, MedicineBoxOutlined, PlusOutlined, HeartOutlined, ToolOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
+import { offlineService } from '../../../services/offlineService';
 
 const { Option } = Select;
 
@@ -29,8 +30,10 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
       }
       
       if (!orgId && visitId) {
-        const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
-        orgId = vData?.organization_id;
+        try {
+          const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+          orgId = vData?.organization_id;
+        } catch (e) {}
       }
 
       if (!orgId) {
@@ -38,12 +41,47 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
         return;
       }
 
-      const [labRes, radRes] = await Promise.all([
-        supabase.from('hims_lab_tests').select('*').eq('organization_id', orgId).order('test_name'),
-        supabase.from('hims_radiology_types').select('*').eq('organization_id', orgId).order('name')
-      ]);
-      setLabTests(labRes.data || []);
-      setRadTypes(radRes.data || []);
+      if (navigator.onLine) {
+        try {
+          const [labRes, radRes] = await Promise.all([
+            supabase.from('hims_lab_tests').select('*').eq('organization_id', orgId).order('test_name'),
+            supabase.from('hims_radiology_types').select('*').eq('organization_id', orgId).order('name')
+          ]);
+          setLabTests(labRes.data || []);
+          setRadTypes(radRes.data || []);
+
+          localStorage.setItem(`hims_lab_tests_${orgId}`, JSON.stringify(labRes.data || []));
+          localStorage.setItem(`hims_radiology_types_${orgId}`, JSON.stringify(radRes.data || []));
+        } catch (err) {
+          console.error("Failed online fetchMasters:", err);
+        }
+      } else {
+        const cachedLab = localStorage.getItem(`hims_lab_tests_${orgId}`);
+        const cachedRad = localStorage.getItem(`hims_radiology_types_${orgId}`);
+        
+        let labs = cachedLab ? JSON.parse(cachedLab) : [];
+        let rads = cachedRad ? JSON.parse(cachedRad) : [];
+
+        if (labs.length === 0) {
+          labs = [
+            { id: 'offline-lab-1', test_name: 'صورة دم كاملة (CBC)' },
+            { id: 'offline-lab-2', test_name: 'وظائف كلى (Creatinine/Urea)' },
+            { id: 'offline-lab-3', test_name: 'وظائف كبد (ALT/AST)' },
+            { id: 'offline-lab-4', test_name: 'تحليل سكر تراكمي (HbA1c)' }
+          ];
+        }
+        if (rads.length === 0) {
+          rads = [
+            { id: 'offline-rad-1', name: 'أشعة سينية على الصدر (Chest X-Ray)', price: 150 },
+            { id: 'offline-rad-2', name: 'سونار على البطن والحوض (Abdominal US)', price: 250 },
+            { id: 'offline-rad-3', name: 'رنين مغناطيسي على المخ (Brain MRI)', price: 1200 },
+            { id: 'offline-rad-4', name: 'أشعة مقطعية (CT Scan)', price: 600 }
+          ];
+        }
+
+        setLabTests(labs);
+        setRadTypes(rads);
+      }
       setLoading(false);
     };
     fetchMasters();
@@ -52,9 +90,13 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
   const placeOrders = async (type: 'lab' | 'radiology') => {
     setLoading(true);
     try {
-      // جلب كود المؤسسة من الزيارة الحالية لضمان ظهور الطلب في القوائم
-      const { data: visitData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
-      const orgId = visitData?.organization_id;
+      let orgId = (currentUser as any)?.organization_id;
+      if (!orgId) {
+        try {
+          const { data: visitData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
+          orgId = visitData?.organization_id;
+        } catch (e) {}
+      }
 
       if (type === 'lab') {
         const orders = selectedTests.map(testId => ({
@@ -63,20 +105,35 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           status: 'pending',
           organization_id: orgId
         }));
+
+        if (!navigator.onLine) {
+          await offlineService.queueLabOrders(orders);
+          message.warning('تم حفظ طلب التحاليل محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶');
+          setSelectedTests([]);
+          return;
+        }
+
         const { error } = await supabase.from('hims_lab_orders').insert(orders);
         if (error) throw error;
       } else if (type === 'radiology') {
-        // 🐛 إصلاح: إرسال اسم الفحص (scan_type) بدلاً من المعرف (rad_type_id)
         const orders = selectedRads.map(radId => {
           const radType = radTypes.find(rt => rt.id === radId);
           return {
             visit_id: visitId,
-            scan_type: radType ? radType.name : 'غير محدد', // استخدام اسم الفحص
-            price: radType ? (radType.price || 0) : 0, // تمرير السعر لقاعدة البيانات
+            scan_type: radType ? radType.name : 'غير محدد',
+            price: radType ? (radType.price || 0) : 0,
             status: 'pending',
             organization_id: orgId
           };
         });
+
+        if (!navigator.onLine) {
+          await offlineService.queueRadiologyOrders(orders);
+          message.warning('تم حفظ طلب الأشعة محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶');
+          setSelectedRads([]);
+          return;
+        }
+
         const { error } = await supabase.from('hims_radiology_orders').insert(orders);
         if (error) throw error;
       }
@@ -215,9 +272,8 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
                   placeholder="اختر الفحوصات التصويرية المطلوبة..."
                   value={selectedRads}
                   onChange={setSelectedRads}
-                >
-                  {radTypes.map(t => <Option key={t.id} value={t.id}>{t.name}</Option>)}
-                </Select>
+                  options={radTypes.map(t => ({ label: t.name, value: t.id }))}
+                />
                 <Button 
                   type="primary" 
                   block 

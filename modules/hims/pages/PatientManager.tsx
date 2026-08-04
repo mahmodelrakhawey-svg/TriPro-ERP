@@ -3,7 +3,7 @@ import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plu
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { scanNationalID } from '@/services/geminiService';
-import { offlineService } from '../../../services/offlineService';
+import { offlineService, db } from '../../../services/offlineService';
 import { useToast } from '../../../context/ToastContext';
 import { usePagination } from '../../../components/usePagination';
 import { Modal, Form, Select, Input, Button } from 'antd';
@@ -62,6 +62,61 @@ const PatientManager = () => {
     orderBy: 'full_name'
   }, queryModifier);
 
+  const [displayedPatients, setDisplayedPatients] = useState<Patient[]>([]);
+
+  const loadPatients = React.useCallback(async () => {
+    if (navigator.onLine) {
+      if (patients) {
+        setDisplayedPatients(patients);
+        const orgId = organization?.id || currentUser?.organization_id;
+        if (orgId) {
+          offlineService.syncPatientsLocally(orgId);
+        }
+      }
+    } else {
+      try {
+        const cached = await db.himsPatients.toArray();
+        const queued = await db.queuedPatients.toArray();
+        
+        let offlineList = [
+          ...queued.map(q => ({
+            id: `queued-${q.id}`,
+            ...q.payload
+          })),
+          ...cached
+        ];
+
+        if (searchTerm) {
+          const lowerSearch = searchTerm.toLowerCase();
+          offlineList = offlineList.filter(p => 
+            p.full_name?.toLowerCase().includes(lowerSearch) || 
+            p.national_id?.includes(lowerSearch)
+          );
+        }
+
+        setDisplayedPatients(offlineList);
+      } catch (err) {
+        console.error('Failed to load offline patients:', err);
+      }
+    }
+  }, [patients, searchTerm, organization?.id, currentUser?.organization_id]);
+
+  useEffect(() => {
+    loadPatients();
+  }, [loadPatients, patients]);
+
+  useEffect(() => {
+    const handleConnectivityChange = () => {
+      loadPatients();
+    };
+    window.addEventListener('online', handleConnectivityChange);
+    window.addEventListener('offline', handleConnectivityChange);
+    return () => {
+      window.removeEventListener('online', handleConnectivityChange);
+      window.removeEventListener('offline', handleConnectivityChange);
+    };
+  }, [loadPatients]);
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -75,6 +130,7 @@ const PatientManager = () => {
         showToast('تم تسجيل المريض محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶', 'warning');
         setIsModalOpen(false);
         setEditingId(null);
+        loadPatients();
         return;
       }
 
@@ -118,15 +174,24 @@ const PatientManager = () => {
 
   const handleStartVisit = async (values: any) => {
     try {
-      const { error } = await supabase.from('hims_visits').insert([{
+      const visitPayload = {
         patient_id: selectedPatient?.id,
         doctor_id: values.doctor_id,
         visit_type: values.visit_type,
         chief_complaint: values.chief_complaint,
         triage_level: values.triage_level || 'level_5_non_urgent',
         status: 'triaged',
-        organization_id: organization?.id // 🛡️ ربط الزيارة بالمنظمة لضمان ظهورها
-      }]);
+        organization_id: organization?.id || currentUser?.organization_id
+      };
+
+      if (!navigator.onLine) {
+        await offlineService.queueVisit(visitPayload);
+        showToast('تم فتح الزيارة محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶', 'warning');
+        setIsVisitModalOpen(false);
+        return;
+      }
+
+      const { error } = await supabase.from('hims_visits').insert([visitPayload]);
       if (error) throw error;
       showToast('تم فتح الزيارة وإرسال المريض للعيادة بنجاح ✅', 'success');
       setIsVisitModalOpen(false);
@@ -215,7 +280,7 @@ const PatientManager = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {patients.map((patient) => (
+        {displayedPatients.map((patient) => (
           <div key={patient.id} className="bg-white p-5 rounded-2xl border border-slate-200 hover:border-blue-300 transition-all group shadow-sm">
             <div className="flex justify-between items-start mb-4">
               <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600 font-black text-xl">

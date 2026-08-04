@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { himsService } from '@/services/himsService';
 import { Card, Table, Tag, Button, Row, Col, Typography, Badge, Space, message, Alert, Tooltip, Modal, List, Empty } from 'antd';
+import { db } from '../../../services/offlineService';
 import { UserOutlined, PlayCircleOutlined, HistoryOutlined, MedicineBoxOutlined, ExclamationCircleOutlined, ExperimentOutlined, CameraOutlined, AlertOutlined, FileSearchOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { PatientMedicalRecord } from '../components/PatientMedicalRecord';
 import { PrescriptionForm } from '../components/PrescriptionForm';
@@ -25,13 +26,46 @@ export const DoctorDesktop: React.FC = () => {
     if (!currentUser) return;
     setLoading(true);
     try {
-      const [queueData, monitorData] = await Promise.all([
-        himsService.getDoctorQueue(currentUser.id, currentUser.organization_id), // الطابور الفعلي للعيادة
-        himsService.getEmergencyMonitor(currentUser.organization_id) // حالات الطوارئ للرادار
-      ]);
-      setQueue(queueData || []);
-      // فلترة التنبيهات الخطيرة فقط من رادار الطوارئ
-      setEmergencyAlerts(monitorData?.filter((a: any) => a.alert_status.includes('🔴')) || []);
+      if (navigator.onLine) {
+        const [queueData, monitorData] = await Promise.all([
+          himsService.getDoctorQueue(currentUser.id, currentUser.organization_id), // الطابور الفعلي للعيادة
+          himsService.getEmergencyMonitor(currentUser.organization_id) // حالات الطوارئ للرادار
+        ]);
+        setQueue(queueData || []);
+        setEmergencyAlerts(monitorData?.filter((a: any) => a.alert_status.includes('🔴')) || []);
+      } else {
+        const queuedVisits = await db.queuedVisits.toArray();
+        const queuedPatients = await db.queuedPatients.toArray();
+        const cachedPatients = await db.himsPatients.toArray();
+
+        const findPatientName = (patientId: string) => {
+          if (patientId?.startsWith('queued-')) {
+            const idNum = parseInt(patientId.replace('queued-', ''));
+            const qP = queuedPatients.find(p => p.id === idNum);
+            return qP?.payload?.full_name || 'مريض معلق أوفلاين';
+          }
+          const cP = cachedPatients.find(p => p.id === patientId);
+          return cP?.full_name || 'مريض غير مسجل';
+        };
+
+        const offlineQueue = queuedVisits.map(v => ({
+          id: `queued-visit-${v.id}`,
+          patient_id: v.payload.patient_id,
+          doctor_id: v.payload.doctor_id,
+          chief_complaint: v.payload.chief_complaint,
+          visit_type: v.payload.visit_type,
+          triage_level: v.payload.triage_level,
+          status: 'triaged',
+          created_at: v.createdAt.toISOString(),
+          hims_patients: {
+            full_name: findPatientName(v.payload.patient_id),
+            national_id: '-'
+          }
+        }));
+
+        setQueue(offlineQueue);
+        setEmergencyAlerts([]);
+      }
     } catch (error) {
       message.error('خطأ في جلب بيانات العيادة');
     }
@@ -40,7 +74,24 @@ export const DoctorDesktop: React.FC = () => {
 
   useEffect(() => { fetchQueue(); }, [currentUser, userRole]);
 
+  useEffect(() => {
+    const handleConnectivityChange = () => {
+      fetchQueue();
+    };
+    window.addEventListener('online', handleConnectivityChange);
+    window.addEventListener('offline', handleConnectivityChange);
+    return () => {
+      window.removeEventListener('online', handleConnectivityChange);
+      window.removeEventListener('offline', handleConnectivityChange);
+    };
+  }, [currentUser]);
+
   const checkFinancialClearance = async (vId: string) => {
+    if (!navigator.onLine) {
+      setFinancialStatus({ cleared: true, balance: 0 });
+      return;
+    }
+
     let orgId = currentUser?.organization_id;
     if (!orgId) {
       const { data: vData } = await supabase.from('hims_visits').select('organization_id').eq('id', vId).single();
@@ -65,6 +116,13 @@ export const DoctorDesktop: React.FC = () => {
 
   const startConsultation = async (record: any) => {
     try {
+      if (!navigator.onLine) {
+        setActiveVisit(record);
+        setFinancialStatus({ cleared: true, balance: 0 });
+        message.warning(`بدأ الكشف الطبي محلياً بنجاح للمريض: ${record.hims_patients?.full_name} 📶`);
+        return;
+      }
+
       await himsService.startConsultation(record.id);
         
       setActiveVisit(record);
