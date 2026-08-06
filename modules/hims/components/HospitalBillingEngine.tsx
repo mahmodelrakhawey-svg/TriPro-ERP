@@ -289,7 +289,7 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
                   value={manualDiscount} 
                   onChange={(v) => setManualDiscount(v || 0)} 
                   className="w-40 font-bold"
-                  disabled={isDepositMode || isInsuranceMode}
+                  disabled={isDepositMode || isInsuranceMode || !canApplyDiscount}
                 />
               </div>
             </div>
