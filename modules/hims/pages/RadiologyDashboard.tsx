@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Empty, message, Modal, Form, Input, Divider, Space, Tooltip } from 'antd';
-import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, FileTextOutlined } from '@ant-design/icons';
+import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, FileTextOutlined, ZoomInOutlined, ZoomOutOutlined, RotateRightOutlined, RedoOutlined, AimOutlined, BgColorsOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
@@ -13,6 +13,22 @@ export const RadiologyDashboard: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [form] = Form.useForm();
+
+  // DICOM Viewer Simulator States
+  const [zoom, setZoom] = useState(1.0);
+  const [rotate, setRotate] = useState(0);
+  const [contrast, setContrast] = useState(100);
+  const [rulerActive, setRulerActive] = useState(false);
+  const [rulerPoints, setRulerPoints] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [isDrawingRuler, setIsDrawingRuler] = useState(false);
+
+  const resetDicomViewer = () => {
+    setZoom(1.0);
+    setRotate(0);
+    setContrast(100);
+    setRulerPoints(null);
+    setRulerActive(false);
+  };
 
   const fetchOrders = async () => {
     const orgId = currentUser?.organization_id;
@@ -127,6 +143,7 @@ export const RadiologyDashboard: React.FC = () => {
         localStorage.setItem(`completed_rad_${selectedOrder.id}`, values.report_text);
         message.warning('تم تسجيل تقرير الأشعة محلياً بنجاح! سيتم رفعه سحابياً فور عودة الاتصال 📶');
         setSelectedOrder(null);
+        resetDicomViewer();
         form.resetFields();
         fetchOrders();
         setLoading(false);
@@ -143,6 +160,7 @@ export const RadiologyDashboard: React.FC = () => {
 
       message.success('تم اعتماد تقرير الأشعة وإخطار الطبيب المعالج فوراً ✅');
       setSelectedOrder(null);
+      resetDicomViewer();
       form.resetFields();
       fetchOrders();
     } catch (err: any) {
@@ -153,6 +171,7 @@ export const RadiologyDashboard: React.FC = () => {
   };
 
   const openReportModal = (order: any) => {
+    resetDicomViewer();
     setSelectedOrder(order);
     form.setFieldsValue({
       patient_name: order.hims_visits?.hims_patients?.full_name,
@@ -243,15 +262,134 @@ export const RadiologyDashboard: React.FC = () => {
              <Form.Item name="scan_type" label="الفحص" className="mb-0"><Input readOnly variant="borderless" className="font-bold text-indigo-700" /></Form.Item>
           </div>
           
-          <Form.Item 
-            name="report_text" 
-            label="التقرير الطبي النهائي" 
-            rules={[{ required: true, message: 'يرجى كتابة التقرير' }]}
-          >
-            <Input.TextArea rows={12} placeholder="اكتب الوصف التفصيلي للحالة، الاستنتاج الطبي، والتوصيات..." className="rounded-xl" />
-          </Form.Item>
-          
-          <p className="text-[10px] text-slate-400 italic">* بمجرد الاعتماد، سيظهر التقرير لحظياً في شاشة الطبيب المعالج.</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+             {/* Left Column: DICOM Diagnostic Simulator Workstation */}
+             <div className="flex flex-col bg-slate-950 p-4 rounded-3xl border border-slate-800 text-white relative">
+                {/* Workstation Header */}
+                <div className="flex justify-between items-center mb-3 border-b border-slate-800 pb-2">
+                   <span className="text-xs font-bold text-slate-400">PACS WORKSTATION [DICOM 3.0]</span>
+                   <span className="text-[10px] bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded-full font-mono font-bold">MONO_16BIT</span>
+                </div>
+
+                {/* DICOM Control Panel */}
+                <div className="flex flex-wrap gap-2 justify-center mb-3 bg-slate-900 p-2 rounded-xl">
+                   <Tooltip title="تكبير الصورة"><Button size="small" type="text" className="text-white hover:bg-slate-800" icon={<ZoomInOutlined />} onClick={() => setZoom(prev => Math.min(2.5, prev + 0.2))} /></Tooltip>
+                   <Tooltip title="تصغير الصورة"><Button size="small" type="text" className="text-white hover:bg-slate-800" icon={<ZoomOutOutlined />} onClick={() => setZoom(prev => Math.max(0.6, prev - 0.2))} /></Tooltip>
+                   <Tooltip title="تدوير يمين"><Button size="small" type="text" className="text-white hover:bg-slate-800" icon={<RotateRightOutlined />} onClick={() => setRotate(prev => (prev + 90) % 360)} /></Tooltip>
+                   <Tooltip title="زيادة التباين"><Button size="small" type="text" className="text-white hover:bg-slate-800" icon={<BgColorsOutlined />} onClick={() => setContrast(prev => Math.min(300, prev + 25))} /></Tooltip>
+                   <Tooltip title="تفعيل مسطرة القياس"><Button size="small" type="text" className={`text-white hover:bg-slate-800 ${rulerActive ? 'bg-red-950 border border-red-500' : ''}`} icon={<AimOutlined />} onClick={() => { setRulerActive(!rulerActive); setRulerPoints(null); }} /></Tooltip>
+                   <Tooltip title="إعادة تهيئة"><Button size="small" type="text" className="text-white hover:bg-slate-800" icon={<RedoOutlined />} onClick={resetDicomViewer} /></Tooltip>
+                </div>
+
+                {/* Active Scan Area */}
+                <div 
+                   className={`h-72 bg-black rounded-2xl overflow-hidden relative border border-slate-800 flex items-center justify-center ${rulerActive ? 'cursor-crosshair' : 'cursor-default'}`}
+                   onMouseDown={(e) => {
+                      if (!rulerActive) return;
+                      setIsDrawingRuler(true);
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const y = e.clientY - rect.top;
+                      setRulerPoints({ x1: x, y1: y, x2: x, y2: y });
+                   }}
+                   onMouseMove={(e) => {
+                      if (!rulerActive || !isDrawingRuler || !rulerPoints) return;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const x = e.clientX - rect.left;
+                      const y = e.clientY - rect.top;
+                      setRulerPoints({ ...rulerPoints, x2: x, y2: y });
+                   }}
+                   onMouseUp={() => setIsDrawingRuler(false)}
+                >
+                   {/* Styled scan content */}
+                   <div 
+                      className="w-full h-full flex items-center justify-center transition-transform duration-100 ease-out"
+                      style={{ 
+                         transform: `scale(${zoom}) rotate(${rotate}deg)`,
+                         filter: `contrast(${contrast}%) grayscale(100%)`
+                      }}
+                   >
+                      {/* Check scan type to render Ribs or Brain */}
+                      {selectedOrder?.scan_type?.toLowerCase().includes('brain') || selectedOrder?.scan_type?.includes('مخ') || selectedOrder?.scan_type?.includes('رأس') ? (
+                         // Brain MRI SVG Simulation
+                         <svg viewBox="0 0 200 200" className="w-56 h-56 select-none pointer-events-none">
+                            <circle cx="100" cy="100" r="80" fill="none" stroke="#666" strokeWidth="3" />
+                            <circle cx="100" cy="100" r="76" fill="#080808" />
+                            <path d="M100 25 C 60 25, 40 50, 40 100 C 40 150, 60 175, 100 175 C 100 100, 100 50, 100 25 Z" fill="#222" stroke="#444" strokeWidth="1" />
+                            <path d="M100 25 C 140 25, 160 50, 160 100 C 160 150, 140 175, 100 175 C 100 100, 100 50, 100 25 Z" fill="#222" stroke="#444" strokeWidth="1" />
+                            <path d="M60 60 Q 80 70 100 65 M60 100 Q 80 110 100 105 M60 140 Q 80 130 100 135" fill="none" stroke="#555" strokeWidth="1.5" />
+                            <path d="M140 60 Q 120 70 100 65 M140 100 Q 120 110 100 105 M140 140 Q 120 130 100 135" fill="none" stroke="#555" strokeWidth="1.5" />
+                            <path d="M90 85 C 80 80, 80 120, 95 110 C 95 100, 90 90, 90 85 Z" fill="#000" stroke="#333" strokeWidth="1"/>
+                            <path d="M110 85 C 120 80, 120 120, 105 110 C 105 100, 110 90, 110 85 Z" fill="#000" stroke="#333" strokeWidth="1"/>
+                         </svg>
+                      ) : (
+                         // Chest X-Ray SVG Simulation
+                         <svg viewBox="0 0 200 200" className="w-56 h-56 select-none pointer-events-none">
+                            <rect x="97" y="10" width="6" height="180" fill="#333" opacity="0.6"/>
+                            <rect x="95" y="20" width="10" height="160" fill="#444" opacity="0.4"/>
+                            <path d="M40 30 C 50 15, 85 15, 85 80 C 85 130, 45 150, 35 120 C 30 100, 30 50, 40 30 Z" fill="#0c0c0c" stroke="#333" strokeWidth="0.5" />
+                            <path d="M160 30 C 150 15, 115 15, 115 80 C 115 130, 155 150, 165 120 C 170 100, 170 50, 160 30 Z" fill="#0c0c0c" stroke="#333" strokeWidth="0.5" />
+                            <path d="M97 50 Q 70 45 40 55" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M103 50 Q 130 45 160 55" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M97 70 Q 65 65 35 80" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M103 70 Q 135 65 165 80" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M97 90 Q 60 85 32 105" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M103 90 Q 140 85 168 105" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M97 110 Q 60 105 32 125" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M103 110 Q 140 105 168 125" fill="none" stroke="#888" strokeWidth="1.5" opacity="0.6"/>
+                            <path d="M85 80 C 85 110, 110 120, 115 110 C 120 100, 95 70, 85 80 Z" fill="#222" opacity="0.7"/>
+                         </svg>
+                      )}
+                   </div>
+
+                   {/* Ruler Line Render Overlay */}
+                   {rulerPoints && (
+                      <svg className="absolute inset-0 pointer-events-none w-full h-full">
+                         <line 
+                            x1={rulerPoints.x1} 
+                            y1={rulerPoints.y1} 
+                            x2={rulerPoints.x2} 
+                            y2={rulerPoints.y2} 
+                            stroke="#ff4d4f" 
+                            strokeWidth={2} 
+                         />
+                         <circle cx={rulerPoints.x1} cy={rulerPoints.y1} r={4} fill="#ff4d4f" />
+                         <circle cx={rulerPoints.x2} cy={rulerPoints.y2} r={4} fill="#ff4d4f" />
+                         <text 
+                            x={(rulerPoints.x1 + rulerPoints.x2) / 2} 
+                            y={(rulerPoints.y1 + rulerPoints.y2) / 2 - 8} 
+                            fill="#ff4d4f" 
+                            fontSize="12" 
+                            fontWeight="bold"
+                            textAnchor="middle"
+                            style={{ filter: 'drop-shadow(0px 1px 2px rgba(0,0,0,0.8))' }}
+                         >
+                            {(Math.hypot(rulerPoints.x2 - rulerPoints.x1, rulerPoints.y2 - rulerPoints.y1) * 0.4).toFixed(1)} mm
+                         </text>
+                      </svg>
+                   )}
+                </div>
+
+                {/* DICOM Info overlay */}
+                <div className="mt-2 text-[10px] text-slate-500 flex justify-between">
+                   <span>Scale: {zoom.toFixed(1)}x | Contrast: {contrast}%</span>
+                   <span>{rulerActive ? '⚠️ مسطرة القياس مفعلة (انقر واسحب لقياس البعد)' : 'جاهز للمعاينة التشخيصية'}</span>
+                </div>
+             </div>
+
+             {/* Right Column: Text Report Form */}
+             <div>
+                <Form.Item 
+                  name="report_text" 
+                  label="التقرير الطبي النهائي" 
+                  rules={[{ required: true, message: 'يرجى كتابة التقرير' }]}
+                  className="mb-2"
+                >
+                  <Input.TextArea rows={12} placeholder="اكتب الوصف التفصيلي للحالة، الاستنتاج الطبي، والتوصيات..." className="rounded-xl font-mono text-sm" />
+                </Form.Item>
+                <p className="text-[10px] text-slate-400 italic mt-1">* بمجرد الاعتماد، سيظهر التقرير لحظياً في شاشة الطبيب المعالج.</p>
+             </div>
+          </div>
         </Form>
       </Modal>
     </div>
