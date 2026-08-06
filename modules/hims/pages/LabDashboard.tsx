@@ -114,6 +114,23 @@ export const LabDashboard: React.FC = () => {
     }
   }, [currentUser]);
 
+  // 📡 تحديث القائمة لحظياً عند إضافة طلب مختبر جديد من الطبيب
+  useEffect(() => {
+    const orgId = currentUser?.organization_id;
+    if (!orgId) return;
+
+    const channel = supabase
+      .channel('hims-lab-orders-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_lab_orders' }, () => {
+        fetchOrders();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser]);
+
   const addReagent = (id: string) => {
     const reagent = reagents.find(r => r.id === id);
     if (!reagent || selectedReagents.find(r => r.product_id === id)) return;

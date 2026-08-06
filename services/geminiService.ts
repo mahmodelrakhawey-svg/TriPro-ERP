@@ -86,7 +86,7 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
           }
         }
       },
-      ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+      ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']
     );
 
     return JSON.parse(response.text || '{}');
@@ -140,7 +140,7 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
           }
         }
       },
-      ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+      ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']
     );
 
     return JSON.parse(response.text || '{}');

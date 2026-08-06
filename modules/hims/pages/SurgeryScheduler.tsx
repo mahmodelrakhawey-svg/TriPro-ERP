@@ -1,55 +1,81 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Calendar, Badge, Modal, Button, Form, Select, DatePicker, Input, Space, Typography, Tag, Tooltip, Alert, Divider } from 'antd';
-import { CalendarOutlined, PlusOutlined, UserOutlined, ClockCircleOutlined, InfoCircleOutlined, MedicineBoxOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Card, Calendar, Badge, Modal, Button, Form, Select, DatePicker, Input, Space, Typography, Tag, Tooltip, Alert, Divider, message } from 'antd';
+import { CalendarOutlined, PlusOutlined, UserOutlined, ClockCircleOutlined, InfoCircleOutlined, MedicineBoxOutlined, ReloadOutlined } from '@ant-design/icons';
 import { RefreshCw } from 'lucide-react';
 import dayjs from 'dayjs';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { SurgeryExecutionForm } from '../components/SurgeryExecutionForm';
+import { getOrgId } from '../himsHelpers';
+import { HimsSurgery, HimsDoctor, HimsVisit } from '../hims.types';
 
 const { Text } = Typography;
 
 export const SurgeryScheduler: React.FC = () => {
   const { currentUser } = useAuth();
-  const [surgeries, setSurgeries] = useState<any[]>([]);
+  const [surgeries, setSurgeries] = useState<HimsSurgery[]>([]);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [executionModal, setExecutionModal] = useState<{ visible: boolean, surgeryId: string }>({ visible: false, surgeryId: '' });
-  const [doctors, setDoctors] = useState<any[]>([]);
-  const [pendingVisits, setPendingVisits] = useState<any[]>([]);
+  const [doctors, setDoctors] = useState<any[]>([]);  // partial data from query: id, specialization, profile
+  const [pendingVisits, setPendingVisits] = useState<any[]>([]);  // partial data from query: id, hims_patients(full_name), visit_type
   const [form] = Form.useForm();
 
-  const fetchSurgeries = async () => {
+  const orgId = getOrgId(currentUser);
+
+  const fetchSurgeries = useCallback(async () => {
+    if (!orgId) {
+      message.warning('لا يمكن تحديد المنظمة، يرجى إعادة تسجيل الدخول.');
+      return;
+    }
     setLoading(true);
-    const { data } = await supabase
-      .from('hims_surgeries')
-      .select('*, doctor:lead_surgeon_id(profiles(full_name))')
-      .order('scheduled_start', { ascending: true });
-    setSurgeries(data || []);
-    setLoading(false);
-  };
+    try {
+      const { data, error } = await supabase
+        .from('hims_surgeries')
+        .select('*, doctor:lead_surgeon_id(profiles(full_name)), hims_visits(id, hims_patients(id, full_name))')
+        .eq('organization_id', orgId)
+        .order('scheduled_start', { ascending: true });
+      if (error) throw error;
+      setSurgeries(data || []);
+    } catch (err: any) {
+      message.error('خطأ في جلب بيانات العمليات: ' + (err?.message || ''));
+    } finally {
+      setLoading(false);
+    }
+  }, [orgId]);
 
-  const fetchMetaData = async () => {
-    // جلب الأطباء (الجراحين)
-    const { data: docs } = await supabase
-      .from('hims_doctors')
-      // 🛡️ توحيد: استخدام profile_id لربط اسم الجراح
-      .select('id, specialization, profile:profile_id(full_name)')
-      .eq('is_active', true);
-    setDoctors(docs || []);
+  const fetchMetaData = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const [docsRes, visitsRes] = await Promise.all([
+        supabase
+          .from('hims_doctors')
+          .select('id, specialization, profile:profile_id(full_name)')
+          .eq('organization_id', orgId)
+          .eq('is_active', true),
+        supabase
+          .from('hims_visits')
+          .select('id, hims_patients(full_name), visit_type')
+          .eq('organization_id', orgId)
+          .neq('status', 'discharged'),
+      ]);
 
-    // جلب الزيارات النشطة التي قد تحتاج جراحة
-    const { data: visits } = await supabase
-      .from('hims_visits')
-      .select('id, hims_patients(full_name), visit_type')
-      .neq('status', 'discharged');
-    setPendingVisits(visits || []);
-  };
+      if (docsRes.error) throw docsRes.error;
+      if (visitsRes.error) throw visitsRes.error;
 
-  useEffect(() => { 
-    fetchSurgeries();
-    fetchMetaData();
-  }, []);
+      setDoctors(docsRes.data || []);
+      setPendingVisits(visitsRes.data || []);
+    } catch (err: any) {
+      message.error('خطأ في جلب بيانات الأطباء والزيارات: ' + (err?.message || ''));
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    if (orgId) {
+      fetchSurgeries();
+      fetchMetaData();
+    }
+  }, [orgId, fetchSurgeries, fetchMetaData]);
 
   const handleSchedule = async (values: any) => {
     setLoading(true);

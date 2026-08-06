@@ -48,7 +48,6 @@ const DoctorManager: React.FC = () => {
         } catch (error: any) {
             showToast(error.message, 'error');
         } finally {
-            showToast('تم تحديث الطاقم الطبي بنجاح', 'success');
             setLoading(false);
         }
     };

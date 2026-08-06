@@ -80,6 +80,30 @@ export const RadiologyDashboard: React.FC = () => {
     setLoading(false);
   };
 
+  // 🔄 جلب البيانات تلقائياً عند تحميل الصفحة وتغيير المستخدم
+  useEffect(() => {
+    if (currentUser) {
+      fetchOrders();
+    }
+  }, [currentUser]);
+
+  // 📡 تحديث القائمة لحظياً عند إضافة طلب أشعة جديد من الطبيب
+  useEffect(() => {
+    const orgId = currentUser?.organization_id;
+    if (!orgId) return;
+
+    const channel = supabase
+      .channel('hims-radiology-orders-sync')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_radiology_orders' }, () => {
+        fetchOrders();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [currentUser]);
+
   useEffect(() => {
     const handleConnectivityChange = () => {
       fetchOrders();

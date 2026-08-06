@@ -10,16 +10,28 @@ const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () =>
 
   const handleSave = async (values: any) => {
     setLoading(true);
-    const { error } = await supabase
-      .from('hims_visits')
-      .update({ vital_signs: values })
-      .eq('id', visitId);
+    try {
+      const { error } = await supabase
+        .from('hims_visits')
+        .update({ vital_signs: values })
+        .eq('id', visitId);
 
-    if (!error) {
-      message.success('تم تسجيل العلامات الحيوية بنجاح');
+      // 🛡️ كان الخطأ يُبتلع صامتاً — خطير طبياً!
+      if (error) {
+        console.error('[NurseStation] Vitals save error:', error);
+        message.error('⚠️ فشل حفظ العلامات الحيوية! يرجى المحاولة مرة أخرى أو التواصل مع الدعم الفني.');
+        return; // وقف العملية بدلاً من المتابعة بصمت
+      }
+
+      message.success('تم تسجيل العلامات الحيوية بنجاح ✅');
+      form.resetFields();
       onSuccess();
+    } catch (err: any) {
+      console.error('[NurseStation] Unexpected vitals error:', err);
+      message.error('حدث خطأ غير متوقع: ' + (err?.message || ''));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

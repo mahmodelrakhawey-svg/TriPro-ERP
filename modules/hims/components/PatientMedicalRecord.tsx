@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Tabs, Timeline, List, Badge, Card, Statistic, Row, Col, Spin, Empty, Tag } from 'antd';
 import { HistoryOutlined, MedicineBoxOutlined, FileSearchOutlined, HeartOutlined, CalendarOutlined } from '@ant-design/icons';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -16,90 +16,70 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
   const [radiologyReports, setRadiologyReports] = useState<any[]>([]);
   const [surgeries, setSurgeries] = useState<any[]>([]);
 
-  const fetchData = async () => {
-    if (!patientId || patientId === "") return; // 🛡️ حماية من خطأ UUID الفارغ
+  const fetchData = useCallback(async () => {
+    if (!patientId || patientId === '') return;
     setLoading(true);
     try {
-      // جلب سجل الزيارات
-      const { data: visits, error: visitsError } = await supabase
-        .from('hims_visits')
-        .select('*')
-        .eq('patient_id', patientId)
-        .order('created_at', { ascending: false });
-      if (visitsError) throw visitsError;
-
-      // جلب نتائج المختبرات
-      const { data: labs, error: labsError } = await supabase
-        .from('hims_lab_orders')
-        .select('*, hims_visits!inner(patient_id), hims_lab_tests(*)')
-        .eq('hims_visits.patient_id', patientId)
-        .eq('status', 'completed')
-        .order('created_at', { ascending: false });
-      if (labsError) throw labsError;
-
-      // جلب سجل العلامات الحيوية من الزيارات السابقة
-      const { data: vitals, error: vitalsError } = await supabase
-        .from('hims_visits')
-        .select('created_at, vital_signs')
-        .eq('patient_id', patientId)
-        .not('vital_signs', 'is', null)
-        .order('created_at', { ascending: false });
-      if (vitalsError) throw vitalsError;
-
-      // جلب الأدوية الحالية (الروشتات) من جميع زيارات المريض
-      const visitIds = (visits || []).map(v => v.id);
-      let allMedications: any[] = [];
-      if (visitIds.length > 0) {
-        const { data: prescriptions, error: prescriptionsError } = await supabase
-          .from('hims_prescriptions')
-          .select('medications')
-          .in('visit_id', visitIds);
-        if (prescriptionsError) throw prescriptionsError;
-        allMedications = prescriptions?.flatMap(p => p.medications) || [];
-      }
-
-      // جلب الملاحظات الطبية
-      let notes: any[] = [];
-      if (visitIds.length > 0) {
-        const { data: notesData } = await supabase
-          .from('hims_clinical_notes')
-          .select('*, doctor:doctor_id(profiles(full_name))')
-          .in('visit_id', visitIds)
-          .order('created_at', { ascending: false });
-        notes = notesData || [];
-      }
-
-      // جلب تقارير الأشعة المكتملة
-      let rads: any[] = [];
-      if (visitIds.length > 0) {
-        const { data: radData } = await supabase
-          .from('hims_radiology_orders')
+      // 🚀 تشغيل الاستعلامات بالتوازي بدلاً من 7 استعلامات متسلسلة
+      const [visitsRes, labsRes, vitalsRes] = await Promise.all([
+        supabase
+          .from('hims_visits')
           .select('*')
-          .in('visit_id', visitIds)
+          .eq('patient_id', patientId)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('hims_lab_orders')
+          .select('*, hims_visits!inner(patient_id), hims_lab_tests(*)')
+          .eq('hims_visits.patient_id', patientId)
           .eq('status', 'completed')
-          .order('created_at', { ascending: false });
-        rads = radData || [];
-      }
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('hims_visits')
+          .select('created_at, vital_signs')
+          .eq('patient_id', patientId)
+          .not('vital_signs', 'is', null)
+          .order('created_at', { ascending: false }),
+      ]);
 
-      // جلب العمليات الجراحية
-      let surgs: any[] = [];
-      if (visitIds.length > 0) {
-        const { data: surgData } = await supabase
-          .from('hims_surgeries')
-          .select('*, doctor:lead_surgeon_id(profiles(full_name))')
-          .in('visit_id', visitIds)
-          .order('scheduled_start', { ascending: false });
-        surgs = surgData || [];
-      }
+      if (visitsRes.error) throw visitsRes.error;
+      if (labsRes.error) throw labsRes.error;
+      if (vitalsRes.error) throw vitalsRes.error;
 
-      // Prepare vital signs data for charting
-      const chartData = (vitals || []).map((v: any) => {
+      const visitIds = (visitsRes.data || []).map(v => v.id);
+
+      // استعلامات تعتمد على visitIds — تعمل بالتوازي أيضاً
+      const dependentQueries = visitIds.length > 0
+        ? await Promise.all([
+            supabase
+              .from('hims_prescriptions')
+              .select('medications')
+              .in('visit_id', visitIds),
+            supabase
+              .from('hims_clinical_notes')
+              .select('*, doctor:doctor_id(profiles(full_name))')
+              .in('visit_id', visitIds)
+              .order('created_at', { ascending: false }),
+            supabase
+              .from('hims_radiology_orders')
+              .select('*')
+              .in('visit_id', visitIds)
+              .eq('status', 'completed')
+              .order('created_at', { ascending: false }),
+            supabase
+              .from('hims_surgeries')
+              .select('*, doctor:lead_surgeon_id(profiles(full_name))')
+              .in('visit_id', visitIds)
+              .order('scheduled_start', { ascending: false }),
+          ])
+        : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }];
+
+      const [prescRes, notesRes, radsRes, surgsRes] = dependentQueries;
+
+      // تجهيز بيانات المخطط الزمني
+      const chartData = (vitalsRes.data || []).map((v: any) => {
         const vs = v.vital_signs || {};
         const bpParts = vs.bp?.split('/') || [];
-        const safeParse = (val: any) => {
-          const p = parseFloat(val);
-          return isNaN(p) ? 0 : p;
-        };
+        const safeParse = (val: any) => { const p = parseFloat(val); return isNaN(p) ? 0 : p; };
         return {
           date: dayjs(v.created_at).format('YYYY-MM-DD HH:mm'),
           temp: safeParse(vs.temp),
@@ -108,25 +88,24 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
           systolic_bp: safeParse(bpParts[0]),
           diastolic_bp: safeParse(bpParts[1]),
         };
-      }).filter((d: any) => d.temp > 0 || d.pulse > 0 || d.spo2 > 0 || d.systolic_bp > 0)
-        .reverse(); // Charting usually goes from oldest to newest
+      }).filter((d: any) => d.temp > 0 || d.pulse > 0 || d.spo2 > 0 || d.systolic_bp > 0).reverse();
 
-      setHistory(visits || []);
-      setLabResults(labs || []);
-      setVitalsHistory(vitals || []);
-      setCurrentMedications(allMedications);
+      setHistory(visitsRes.data || []);
+      setLabResults(labsRes.data || []);
+      setVitalsHistory(vitalsRes.data || []);
+      setCurrentMedications((prescRes.data || []).flatMap((p: any) => p.medications));
       setVitalsChartData(chartData);
-      setClinicalNotes(notes);
-      setRadiologyReports(rads);
-      setSurgeries(surgs);
+      setClinicalNotes(notesRes.data || []);
+      setRadiologyReports(radsRes.data || []);
+      setSurgeries(surgsRes.data || []);
     } catch (error: any) {
-      console.error("Error fetching patient medical record data:", error);
-      // يمكنك إضافة رسالة تنبيه للمستخدم هنا إذا أردت
-      // message.error("فشل في جلب بيانات الملف الطبي: " + error.message);
+      console.error('[PatientMedicalRecord] Error fetching data:', error);
+      // إظهار رسالة للمستخدم بدلاً من ابتلاعها بصمت
+      import('antd').then(({ message }) => message.error('فشل تحميل الملف الطبي: ' + (error?.message || 'خطأ غير متوقع')));
     } finally {
       setLoading(false);
     }
-  };
+  }, [patientId]);
 
   useEffect(() => {
     if (patientId) fetchData();

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
-import { Button, Card, Descriptions, Divider, Statistic, message, Tag, Space, Table, InputNumber, Tooltip, Checkbox, Select } from 'antd';
-import { DollarOutlined, AuditOutlined, PrinterOutlined, ClockCircleOutlined, SolutionOutlined, SafetyCertificateOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { Button, Card, Descriptions, Divider, Statistic, message, Tag, Space, Table, InputNumber, Tooltip, Checkbox, Select, Alert } from 'antd';
+import { DollarOutlined, AuditOutlined, PrinterOutlined, ClockCircleOutlined, SolutionOutlined, SafetyCertificateOutlined, InfoCircleOutlined, LockOutlined } from '@ant-design/icons';
 import { useAccounting } from '@/context/AccountingContext';
+import { useAuth } from '@/context/AuthContext';
 import dayjs from 'dayjs';
 import { LuxuryReportEngine } from '../../../components/LuxuryReportEngine';
 
@@ -11,6 +12,12 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
   const [bill, setBill] = useState<any>(null);
   const [billItems, setBillItems] = useState<any[]>([]);
   const { settings } = useAccounting();
+  const { currentUser } = useAuth();
+  // 🛡️ RBAC: فقط admin و medical_director يستطيعان تطبيق خصم يدوي
+  const canApplyDiscount =
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'super_admin' ||
+    (currentUser as any)?.role === 'medical_director';
   const [manualDiscount, setManualDiscount] = useState(0);
   const [isDepositMode, setIsDepositMode] = useState(false);
   const [depositAmount, setDepositAmount] = useState<number>(0);

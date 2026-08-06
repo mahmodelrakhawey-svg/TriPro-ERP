@@ -59,6 +59,11 @@ export const DoctorKPIs: React.FC = () => {
     }
   ];
 
+  const topDoctor = [...stats].sort((a, b) => (b.total_revenue || 0) - (a.total_revenue || 0))[0];
+  const topDoctorName = topDoctor && (topDoctor.total_revenue > 0 || topDoctor.total_visits > 0)
+    ? `${topDoctor.doctor_name} (${topDoctor.specialization || ''})`
+    : 'لا يوجد زيارات بعد';
+
   return (
     <div className="p-6 rtl text-right bg-slate-50 min-h-screen">
       <Typography.Title level={2} className="mb-6">
@@ -68,7 +73,7 @@ export const DoctorKPIs: React.FC = () => {
       <Row gutter={[16, 16]} className="mb-8">
         <Col span={8}>
           <Card className="rounded-2xl border-none shadow-sm">
-            <Statistic title="أعلى طبيب إنتاجية" value={stats[0]?.doctor_name || '...'} prefix={<RiseOutlined className="text-green-500" />} />
+            <Statistic title="أعلى طبيب إنتاجية" value={topDoctorName} prefix={<RiseOutlined className="text-green-500" />} />
           </Card>
         </Col>
         <Col span={8}>

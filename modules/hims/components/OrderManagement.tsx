@@ -95,7 +95,9 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
         try {
           const { data: visitData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
           orgId = visitData?.organization_id;
-        } catch (e) {}
+        } catch (e: any) {
+          console.error('[OrderManagement] Failed to get org from visit:', e?.message);
+        }
       }
 
       if (type === 'lab') {
@@ -148,39 +150,50 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
 
   const requestBlood = async () => {
     setLoading(true);
-    const { error } = await supabase.rpc('hims_request_blood', {
-      p_visit_id: visitId,
-      p_blood_type: bloodRequest.type,
-      p_units: bloodRequest.units,
-      p_urgency: 'normal'
-    });
-    if (!error) message.success('تم إرسال طلب الدم لبنك الدم المركزي 🩸');
-    setLoading(false);
+    try {
+      const { error } = await supabase.rpc('hims_request_blood', {
+        p_visit_id: visitId,
+        p_blood_type: bloodRequest.type,
+        p_units: bloodRequest.units,
+        p_urgency: 'normal'
+      });
+      if (error) throw error;
+      message.success('تم إرسال طلب الدم لبنك الدم المركزي 🩸');
+    } catch (err: any) {
+      console.error('[OrderManagement] Blood request error:', err);
+      message.error('خطأ في طلب الدم: ' + (err?.message || ''));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const requestSurgery = async () => {
     if (!surgeryRequest.name || !surgeryRequest.date) return message.warning('يرجى إكمال بيانات الجراحة');
     setLoading(true);
+    try {
+      const { data: visitData } = await supabase
+        .from('hims_visits')
+        .select('organization_id, doctor_id')
+        .eq('id', visitId)
+        .single();
 
-    const { data: visitData } = await supabase
-      .from('hims_visits')
-      .select('organization_id, doctor_id')
-      .eq('id', visitId)
-      .single();
-
-    const { error } = await supabase.from('hims_surgeries').insert([{
-      visit_id: visitId,
-      surgery_name: surgeryRequest.name,
-      scheduled_start: surgeryRequest.date.toISOString(),
-      status: 'scheduled',
-      organization_id: visitData?.organization_id,
-      lead_surgeon_id: visitData?.doctor_id
-    }]);
-    if (!error) {
-        message.success('تمت جدولة العملية الجراحية وإخطار غرفة العمليات 🏥');
-        setSurgeryRequest({ name: '', date: null });
+      const { error } = await supabase.from('hims_surgeries').insert([{
+        visit_id: visitId,
+        surgery_name: surgeryRequest.name,
+        scheduled_start: surgeryRequest.date.toISOString(),
+        status: 'scheduled',
+        organization_id: visitData?.organization_id,
+        lead_surgeon_id: visitData?.doctor_id
+      }]);
+      if (error) throw error;
+      message.success('تمت جدولة العملية الجراحية وإخطار غرفة العمليات 🏥');
+      setSurgeryRequest({ name: '', date: null });
+    } catch (err: any) {
+      console.error('[OrderManagement] Surgery request error:', err);
+      message.error('خطأ في جدولة العملية: ' + (err?.message || ''));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const fetchNursingTasks = async () => {

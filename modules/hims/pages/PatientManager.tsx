@@ -8,6 +8,7 @@ import { useToast } from '../../../context/ToastContext';
 import { usePagination } from '../../../components/usePagination';
 import { Modal, Form, Select, Input, Button } from 'antd';
 import { PatientMedicalRecord } from '../components/PatientMedicalRecord';
+import { validateEgyptianNationalId, parseNationalId } from '../himsHelpers';
 
 type Patient = {
   id: string;
@@ -338,9 +339,12 @@ const PatientManager = () => {
               </div>
             </div>
             <div className="mt-5 pt-4 border-t border-slate-100 grid grid-cols-2 gap-2">
-               <button className="bg-slate-800 text-white py-2 rounded-xl text-xs font-bold hover:bg-slate-900 transition-colors flex items-center justify-center gap-1">
-                 <FileText size={14} /> <span onClick={() => handleViewMedicalRecord(patient)}>ملف المريض</span>
-               </button>
+                <button 
+                  onClick={() => handleViewMedicalRecord(patient)}
+                  className="bg-slate-800 text-white py-2 rounded-xl text-xs font-bold hover:bg-slate-900 transition-colors flex items-center justify-center gap-1"
+                >
+                  <FileText size={14} /> ملف المريض
+                </button>
                <button 
                 onClick={() => { setSelectedPatient(patient); setIsVisitModalOpen(true); }}
                 className="bg-blue-50 text-blue-700 py-2 rounded-xl text-xs font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-1"

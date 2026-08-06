@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, message, Badge, Tooltip, Row, Col } from 'antd';
 import { ExperimentOutlined, ScanOutlined, CheckCircleOutlined, SyncOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
 import dayjs from 'dayjs';
+import { getOrgId } from '../himsHelpers';
 
 const { Title, Text } = Typography;
 
@@ -13,17 +14,23 @@ export const LabSpecimenTracking: React.FC = () => {
   const [specimens, setSpecimens] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const fetchSpecimens = async () => {
+  const fetchSpecimens = useCallback(async () => {
     setLoading(true);
     try {
       if (navigator.onLine) {
+        const orgId = getOrgId(currentUser);
+        if (!orgId) {
+          message.warning('لا يمكن تحديد المنظمة. يرجى إعادة تسجيل الدخول.');
+          return;
+        }
+        // 🛡️ تم إضافة organization_id filter — كان يُظهِر عينات كل المستشفيات!
         const { data, error } = await supabase
           .from('hims_lab_specimens')
           .select('*, lab_order:lab_order_id(hims_lab_tests(test_name), hims_visits(hims_patients(full_name)))')
+          .eq('organization_id', orgId)
           .order('created_at', { ascending: false });
-        
+
         if (error) {
-          console.error('Fetch specimens error:', error);
           message.error('خطأ في جلب بيانات العينات: ' + error.message);
         } else {
           setSpecimens(data || []);
@@ -89,13 +96,14 @@ export const LabSpecimenTracking: React.FC = () => {
       }
     } catch (e) {
       console.error(e);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [currentUser]);
 
   useEffect(() => {
     fetchSpecimens();
-  }, [currentUser]);
+  }, [fetchSpecimens]);
 
   useEffect(() => {
     const handleConnectivityChange = () => {

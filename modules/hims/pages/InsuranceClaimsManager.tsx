@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Table, Button, Tag, Space, message, Statistic, Divider, Modal, Select, Empty, Tabs } from 'antd';
 import { himsService } from '@/services/himsService';
 import { SafetyCertificateOutlined, SendOutlined, DollarOutlined, CheckCircleOutlined, HistoryOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useAccounting } from '@/context/AccountingContext';
 import { useAuth } from '@/context/AuthContext';
+import { sanitizeXml } from '../himsHelpers';
+import { HimsBillingRecord, HimsInsuranceClaim } from '../hims.types';
 
 export const InsuranceClaimsManager: React.FC = () => {
   const { currentUser } = useAuth();
@@ -18,49 +20,57 @@ export const InsuranceClaimsManager: React.FC = () => {
   const [settleBankAcc, setSettleBankAcc] = useState<string>('');
   const [selectedInsuranceProvider, setSelectedInsuranceProvider] = useState<string>('all');
 
-  const fetchPendingInsuranceBills = async () => {
+  const fetchPendingInsuranceBills = useCallback(async () => {
     if (!currentUser?.organization_id) return;
     setLoading(true);
 
-    // جلب شركات التأمين المتاحة (من العملاء الذين تم استخدامهم كشركات تأمين)
-    const { data: providersData, error: providersError } = await supabase
-      .from('customers')
-      .select('id, name')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('customer_type', 'insurance_provider'); // افتراض أن لدينا نوع عميل لشركات التأمين
-    
-    if (providersError) message.error('فشل جلب شركات التأمين');
-    else setInsuranceProviders(providersData || []);
+    try {
+      // جلب شركات التأمين المتاحة
+      const { data: providersData, error: providersError } = await supabase
+        .from('customers')
+        .select('id, name')
+        .eq('organization_id', currentUser.organization_id)
+        .eq('customer_type', 'insurance_provider');
 
-    // جلب الفواتير المعلقة
-    if (!currentUser?.organization_id) return;
-    setLoading(true);
-    const { data } = await supabase
-      .from('hims_billing')
-      .select('*, hims_patients(full_name), insurance:insurance_provider_id(name)')
-      .gt('insurance_covered_amount', 0)
-      .is('insurance_claim_id', null) // فقط الفواتير التي لم تُربط بمطالبة بعد
-      .order('created_at', { ascending: true });
-    
-    // فلترة إضافية حسب شركة التأمين المختارة
-    const filteredData = selectedInsuranceProvider && selectedInsuranceProvider !== 'all'
-      ? data?.filter(bill => bill.insurance_provider_id === selectedInsuranceProvider)
-      : data;
+      if (providersError) message.error('فشل جلب شركات التأمين');
+      else setInsuranceProviders(providersData || []);
 
-    setPendingBills(filteredData || []);
+      // 🛡️ إضافة organization_id filter — كان يُسرّب فواتير كل المستشفيات!
+      const billQuery = supabase
+        .from('hims_billing')
+        .select('*, hims_patients(full_name), insurance:insurance_provider_id(name)')
+        .eq('organization_id', currentUser.organization_id)
+        .gt('insurance_covered_amount', 0)
+        .is('insurance_claim_id', null)
+        .order('created_at', { ascending: true });
 
-    // جلب المطالبات التي تم إرسالها ولم تُسدد بعد
-    const { data: claims } = await supabase
-      .from('hims_insurance_claims')
-      .select('*, insurance:insurance_provider_id(name)')
-      .eq('organization_id', currentUser.organization_id)
-      .eq('status', 'submitted');
-    
-    setSubmittedClaims(claims || []);
-    setLoading(false);
-  };
+      const { data, error: billError } = await billQuery;
+      if (billError) throw billError;
 
-  useEffect(() => { fetchPendingInsuranceBills(); }, [selectedInsuranceProvider, currentUser?.organization_id]);
+      // فلترة حسب شركة التأمين المختارة (في الـ client لتحسين UX)
+      const filteredData = selectedInsuranceProvider && selectedInsuranceProvider !== 'all'
+        ? data?.filter(bill => bill.insurance_provider_id === selectedInsuranceProvider)
+        : data;
+
+      setPendingBills(filteredData || []);
+
+      // جلب المطالبات المرسلة
+      const { data: claims, error: claimsError } = await supabase
+        .from('hims_insurance_claims')
+        .select('*, insurance:insurance_provider_id(name)')
+        .eq('organization_id', currentUser.organization_id)
+        .eq('status', 'submitted');
+
+      if (claimsError) throw claimsError;
+      setSubmittedClaims(claims || []);
+    } catch (err: any) {
+      message.error('حدث خطأ أثناء جلب البيانات: ' + (err?.message || ''));
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser?.organization_id, selectedInsuranceProvider]);
+
+  useEffect(() => { fetchPendingInsuranceBills(); }, [fetchPendingInsuranceBills]);
 
   const generateBatchClaim = async () => {
     if (pendingBills.length === 0 || !selectedInsuranceProvider || selectedInsuranceProvider === 'all') {
@@ -132,48 +142,46 @@ export const InsuranceClaimsManager: React.FC = () => {
         return;
       }
 
-      // Build XML string
+      // 🛡️ تحييد XSS: كل بيانات المريض والخدمات تمر عبر sanitizeXml قبل الإدراج في XML
       let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
       xml += `<Claim.Request>\n`;
-      
-      // Header Section
+
       xml += `  <Header>\n`;
-      xml += `    <SenderID>${currentUser?.organization_id || 'ORG-UNKNOWN'}</SenderID>\n`;
-      xml += `    <ReceiverID>${claim.insurance_provider_id || 'INS-UNKNOWN'}</ReceiverID>\n`;
+      xml += `    <SenderID>${sanitizeXml(currentUser?.organization_id || 'ORG-UNKNOWN')}</SenderID>\n`;
+      xml += `    <ReceiverID>${sanitizeXml(claim.insurance_provider_id || 'INS-UNKNOWN')}</ReceiverID>\n`;
       xml += `    <TransactionDate>${new Date().toISOString().split('T')[0]}</TransactionDate>\n`;
       xml += `    <RecordCount>${bills.length}</RecordCount>\n`;
-      xml += `    <BatchReference>${claim.batch_reference}</BatchReference>\n`;
+      xml += `    <BatchReference>${sanitizeXml(claim.batch_reference || '')}</BatchReference>\n`;
       xml += `  </Header>\n`;
 
-      // Claims Section
       xml += `  <Claims>\n`;
       for (const bill of bills) {
         const patientObj = Array.isArray(bill.patient) ? bill.patient[0] : bill.patient;
         xml += `    <Claim>\n`;
-        xml += `      <ID>${bill.id}</ID>\n`;
+        xml += `      <ID>${sanitizeXml(bill.id)}</ID>\n`;
         xml += `      <Patient>\n`;
-        xml += `        <Name>${patientObj?.full_name || 'N/A'}</Name>\n`;
-        xml += `        <NationalID>${patientObj?.national_id || 'N/A'}</NationalID>\n`;
-        xml += `        <DOB>${patientObj?.dob || 'N/A'}</DOB>\n`;
-        xml += `        <Gender>${patientObj?.gender || 'N/A'}</Gender>\n`;
+        xml += `        <Name>${sanitizeXml(patientObj?.full_name || 'N/A')}</Name>\n`;
+        xml += `        <NationalID>${sanitizeXml(patientObj?.national_id || 'N/A')}</NationalID>\n`;
+        xml += `        <DOB>${sanitizeXml(patientObj?.dob || 'N/A')}</DOB>\n`;
+        xml += `        <Gender>${sanitizeXml(patientObj?.gender || 'N/A')}</Gender>\n`;
         xml += `      </Patient>\n`;
-        
+
         xml += `      <Encounter>\n`;
         xml += `        <Date>${new Date(bill.created_at).toISOString().split('T')[0]}</Date>\n`;
-        xml += `        <TotalAmount>${bill.total_amount}</TotalAmount>\n`;
-        xml += `        <TaxAmount>${bill.tax_amount}</TaxAmount>\n`;
-        xml += `        <InsuranceCoveredAmount>${bill.insurance_covered_amount}</InsuranceCoveredAmount>\n`;
+        xml += `        <TotalAmount>${Number(bill.total_amount || 0).toFixed(2)}</TotalAmount>\n`;
+        xml += `        <TaxAmount>${Number(bill.tax_amount || 0).toFixed(2)}</TaxAmount>\n`;
+        xml += `        <InsuranceCoveredAmount>${Number(bill.insurance_covered_amount || 0).toFixed(2)}</InsuranceCoveredAmount>\n`;
         xml += `      </Encounter>\n`;
 
         xml += `      <Details>\n`;
         if (bill.items && Array.isArray(bill.items)) {
           for (const item of bill.items) {
             xml += `        <Item>\n`;
-            xml += `          <Type>${item.item_type || 'other'}</Type>\n`;
-            xml += `          <Description>${item.description}</Description>\n`;
-            xml += `          <Quantity>${item.quantity}</Quantity>\n`;
-            xml += `          <UnitPrice>${item.unit_price}</UnitPrice>\n`;
-            xml += `          <TotalPrice>${item.total_price}</TotalPrice>\n`;
+            xml += `          <Type>${sanitizeXml(item.item_type || 'other')}</Type>\n`;
+            xml += `          <Description>${sanitizeXml(item.description || '')}</Description>\n`;
+            xml += `          <Quantity>${Number(item.quantity || 0)}</Quantity>\n`;
+            xml += `          <UnitPrice>${Number(item.unit_price || 0).toFixed(2)}</UnitPrice>\n`;
+            xml += `          <TotalPrice>${Number(item.total_price || 0).toFixed(2)}</TotalPrice>\n`;
             xml += `        </Item>\n`;
           }
         }
@@ -183,19 +191,21 @@ export const InsuranceClaimsManager: React.FC = () => {
       xml += `  </Claims>\n`;
       xml += `</Claim.Request>\n`;
 
-      // Download file in browser
+      // تنزيل الملف مع تنظيف الـ Object URL لمنع Memory Leak
       const blob = new Blob([xml], { type: 'application/xml;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `${claim.batch_reference}.xml`);
+      link.setAttribute('download', `${sanitizeXml(claim.batch_reference || 'claim')}.xml`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+      // 🛡️ تنظيف Memory Leak: حذف الـ Object URL بعد التنزيل
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
 
       message.success({ content: 'تم تصدير ملف XML بنجاح ✅', key: 'xml_export' });
     } catch (e: any) {
-      console.error(e);
+      console.error('[InsuranceClaims] XML export error:', e);
       message.error({ content: `فشل تصدير XML: ${e.message}`, key: 'xml_export' });
     } finally {
       setLoading(false);

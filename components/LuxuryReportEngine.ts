@@ -2,6 +2,20 @@ import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 /**
+ * 🛡️ XSS Protection: تحييد الحروف الخاصة في HTML
+ * يجب استخدامها على كل البيانات الديناميكية قبل الحقن في innerHTML
+ */
+const escapeHtml = (str: string | null | undefined): string => {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+};
+
+/**
  * Luxury HTML-to-PDF Report Generator
  * Uses html2canvas to capture browser-rendered HTML/CSS,
  * supporting Arabic text shaping, custom fonts (Cairo), and RTL/LTR layout dynamically.
@@ -241,10 +255,10 @@ export const LuxuryReportEngine = {
     `;
     printContainer.appendChild(style);
 
-    // 2. Safe variable mapping with robust fallbacks
-    const patientName = data.patient?.full_name || data.patient_info?.name || (lang === 'ar' ? 'غير معروف' : 'Unknown');
-    const patientFile = data.patient?.national_id || data.patient?.id || data.patient_info?.file_no || 'N/A';
-    const patientBlood = data.patient?.blood_type || data.patient_info?.blood || 'N/A';
+    // 2. Safe variable mapping with robust fallbacks + 🛡️ XSS escaping
+    const patientName = escapeHtml(data.patient?.full_name || data.patient_info?.name || (lang === 'ar' ? 'غير معروف' : 'Unknown'));
+    const patientFile = escapeHtml(data.patient?.national_id || data.patient?.id || data.patient_info?.file_no || 'N/A');
+    const patientBlood = escapeHtml(data.patient?.blood_type || data.patient_info?.blood || 'N/A');
     
     const visitDate = data.visit?.created_at || data.visit_details?.date || new Date().toISOString();
     const dateStr = new Date(visitDate).toLocaleDateString(lang === 'ar' ? 'ar-EG' : 'en-US', {
@@ -253,7 +267,9 @@ export const LuxuryReportEngine = {
       day: 'numeric'
     });
     
-    const doctorName = data.visit?.doctor_name || data.visit_details?.doctor || (lang === 'ar' ? 'غير محدد' : 'Unassigned');
+    const doctorName = escapeHtml(data.visit?.doctor_name || data.visit_details?.doctor || (lang === 'ar' ? 'غير محدد' : 'Unassigned'));
+    const hospitalName = escapeHtml(data.hospital_info?.name || (lang === 'ar' ? 'مستشفى الرخاوي التخصصي' : 'Al-Rakhawey Hospital'));
+    const hospitalVat = escapeHtml(data.hospital_info?.vat || 'N/A');
 
     // 3. Assemble HTML template based on report type
     let mainContent = '';
@@ -263,8 +279,8 @@ export const LuxuryReportEngine = {
       mainContent = `
         <div class="luxury-header">
           <div class="report-type">${t.invoiceTitle}</div>
-          <div class="hospital-title">${data.hospital_info?.name || (lang === 'ar' ? 'مستشفى الرخاوي التخصصي' : 'Al-Rakhawey Hospital')}</div>
-          <div class="hospital-meta">${t.vatLabel} ${data.hospital_info?.vat || 'N/A'}</div>
+          <div class="hospital-title">${hospitalName}</div>
+          <div class="hospital-meta">${t.vatLabel} ${hospitalVat}</div>
         </div>
 
         <div class="patient-grid">
@@ -292,10 +308,10 @@ export const LuxuryReportEngine = {
           <tbody>
             ${(data.billing_items || []).map((item: any) => `
               <tr>
-                <td>${item.description}</td>
-                <td style="text-align: center;">${item.quantity}</td>
-                <td style="text-align: ${lang === 'ar' ? 'left' : 'right'};">${item.unit_price?.toLocaleString('en-US', { minimumFractionDigits: 2 })} EGP</td>
-                <td style="text-align: ${lang === 'ar' ? 'left' : 'right'};">${item.total_price?.toLocaleString('en-US', { minimumFractionDigits: 2 })} EGP</td>
+                <td>${escapeHtml(item.description)}</td>
+                <td style="text-align: center;">${Number(item.quantity || 0)}</td>
+                <td style="text-align: ${lang === 'ar' ? 'left' : 'right'}">${Number(item.unit_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} EGP</td>
+                <td style="text-align: ${lang === 'ar' ? 'left' : 'right'}">${Number(item.total_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} EGP</td>
               </tr>
             `).join('')}
           </tbody>
@@ -316,7 +332,7 @@ export const LuxuryReportEngine = {
       mainContent = `
         <div class="luxury-header">
           <div class="report-type">${t.dischargeTitle}</div>
-          <div class="hospital-title">${data.hospital_info?.name || (lang === 'ar' ? 'مستشفى الرخاوي التخصصي' : 'Al-Rakhawey Hospital')}</div>
+          <div class="hospital-title">${hospitalName}</div>
         </div>
 
         <div class="patient-grid">
@@ -335,12 +351,12 @@ export const LuxuryReportEngine = {
         
         <div style="margin-bottom: 20px;">
           <div style="font-weight: 700; margin-bottom: 6px; color: #475569;">${t.finalDiagnosis}</div>
-          <div class="notes-block">${data.diagnosis || t.noDiagnosis}</div>
+          <div class="notes-block">${escapeHtml(data.diagnosis || t.noDiagnosis)}</div>
         </div>
 
         <div style="margin-bottom: 20px;">
           <div style="font-weight: 700; margin-bottom: 6px; color: #475569;">${t.clinicalNotes}</div>
-          <div class="notes-block">${notes}</div>
+          <div class="notes-block">${escapeHtml(notes)}</div>
         </div>
 
         ${data.medications && data.medications.length > 0 ? `
@@ -348,10 +364,10 @@ export const LuxuryReportEngine = {
           <ol class="list-container">
             ${data.medications.map((med: any) => `
               <li class="list-item">
-                <strong>${med.drug_name}</strong> 
-                ${med.qty ? ` - ${lang === 'ar' ? 'الكمية: ' + med.qty : 'Qty: ' + med.qty}` : ''}
-                ${med.dosage ? ` | ${med.dosage}` : ''} 
-                ${med.frequency ? ` (${med.frequency})` : ''}
+                <strong>${escapeHtml(med.drug_name)}</strong> 
+                ${med.qty ? ` - ${lang === 'ar' ? 'الكمية: ' + Number(med.qty) : 'Qty: ' + Number(med.qty)}` : ''}
+                ${med.dosage ? ` | ${escapeHtml(med.dosage)}` : ''} 
+                ${med.frequency ? ` (${escapeHtml(med.frequency)})` : ''}
               </li>
             `).join('')}
           </ol>
@@ -361,13 +377,13 @@ export const LuxuryReportEngine = {
           <div class="luxury-title">${t.labsTitle}</div>
           <ul class="list-container" style="list-style-type: square;">
             ${data.lab_results.map((lab: any) => `
-              <li class="list-item"><strong>${lab.test}</strong>: ${lab.result}</li>
+              <li class="list-item"><strong>${escapeHtml(lab.test)}</strong>: ${escapeHtml(lab.result)}</li>
             `).join('')}
           </ul>
         ` : ''}
 
         <div class="luxury-title">${t.recommendationsTitle}</div>
-        <div class="notes-block" style="border-right-color: ${lang === 'ar' ? '#10b981' : 'none'}; border-left-color: ${lang === 'en' ? '#10b981' : 'none'};">${recommendations}</div>
+        <div class="notes-block" style="border-right-color: ${lang === 'ar' ? '#10b981' : 'none'}; border-left-color: ${lang === 'en' ? '#10b981' : 'none'}">${escapeHtml(recommendations)}</div>
       `;
     }
 
@@ -435,8 +451,10 @@ export const LuxuryReportEngine = {
       console.error('LuxuryReportEngine: Error generating PDF', error);
       throw error;
     } finally {
-      // 6. Clean up the DOM
-      document.body.removeChild(printContainer);
+      // 6. Clean up the DOM — مع التأكد من وجود العنصر لمنع الأخطاء
+      if (document.body.contains(printContainer)) {
+        document.body.removeChild(printContainer);
+      }
     }
   }
 };

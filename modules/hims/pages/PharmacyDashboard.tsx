@@ -82,7 +82,19 @@ export const PharmacyDashboard: React.FC = () => {
         }
       }
 
-      setPrescriptions(offlinePres.filter(op => !localStorage.getItem(`dispensed_offline_${op.id}`)));
+      // 🛡️ أمان الأوفلاين: استخدام IndexedDB بدلاً من localStorage لمنع التلاعب
+      // localStorage قابل للتعديل يدوياً بأدوات المتصفح
+      let dispensedOfflineIds: string[] = [];
+      try {
+        const dispensedRecords = await (db as any).dispensedOffline?.toArray?.();
+        dispensedOfflineIds = (dispensedRecords || []).map((r: any) => r.presId);
+      } catch {
+        // Fallback: استخدام localStorage كحل احتياطي مؤقت فقط
+        dispensedOfflineIds = offlinePres
+          .filter(op => localStorage.getItem(`dispensed_offline_${op.id}`))
+          .map(op => op.id);
+      }
+      setPrescriptions(offlinePres.filter(op => !dispensedOfflineIds.includes(op.id)));
     }
     setLoading(false);
   };
@@ -102,15 +114,21 @@ export const PharmacyDashboard: React.FC = () => {
   // مراجعة الصلاحية والمخزون قبل الصرف
   const handleReviewOrder = async (order: any) => {
     setLoading(true);
-    const productIds = order.medications.map((m: any) => m.product_id).filter(Boolean); // تأكد من وجود product_id
-    const { data: products } = await supabase.from('products').select('id, name, stock, sales_price, expiry_date, barcode').in('id', productIds);
-    
-    // جلب التشغيلات وتواريخ الصلاحية من جدول product_batches للفرز حسب الأقرب انتهاءً (FEFO)
+
+    // 🛡️ تحديد orgId أولاً قبل استخدامه في الاستعلامات
     let orgId = (currentUser as any)?.organization_id;
     if (!orgId) {
       const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
       orgId = profile?.organization_id;
     }
+
+    const productIds = order.medications.map((m: any) => m.product_id).filter(Boolean);
+    // 🛡️ إضافة organization_id filter — كان يجلب منتجات كل المستشفيات!
+    const { data: products } = await supabase
+      .from('products')
+      .select('id, name, stock, sales_price, expiry_date, barcode')
+      .in('id', productIds)
+      .eq('organization_id', orgId);
     
     const { data: batches } = await supabase
       .from('product_batches')
