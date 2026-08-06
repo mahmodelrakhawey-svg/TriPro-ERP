@@ -21,6 +21,27 @@ export const RadiologyDashboard: React.FC = () => {
   const [rulerActive, setRulerActive] = useState(false);
   const [rulerPoints, setRulerPoints] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
   const [isDrawingRuler, setIsDrawingRuler] = useState(false);
+  
+  // Real DICOM integration states
+  const [localDicomScans, setLocalDicomScans] = useState<string[]>([]);
+  const [activeScanIndex, setActiveScanIndex] = useState(0);
+
+  const checkLocalPACS = async () => {
+    try {
+      const res = await fetch('http://localhost:8042/instances');
+      if (res.ok) {
+        const instances = await res.json();
+        if (Array.isArray(instances) && instances.length > 0) {
+          setLocalDicomScans(instances);
+          setActiveScanIndex(0);
+          return;
+        }
+      }
+    } catch (e) {
+      // Quietly ignore if not running locally
+    }
+    setLocalDicomScans([]);
+  };
 
   const resetDicomViewer = () => {
     setZoom(1.0);
@@ -28,6 +49,8 @@ export const RadiologyDashboard: React.FC = () => {
     setContrast(100);
     setRulerPoints(null);
     setRulerActive(false);
+    setLocalDicomScans([]);
+    setActiveScanIndex(0);
   };
 
   const fetchOrders = async () => {
@@ -177,6 +200,7 @@ export const RadiologyDashboard: React.FC = () => {
       patient_name: order.hims_visits?.hims_patients?.full_name,
       scan_type: order.scan_type
     });
+    checkLocalPACS();
   };
 
 
@@ -309,8 +333,14 @@ export const RadiologyDashboard: React.FC = () => {
                          filter: `contrast(${contrast}%) grayscale(100%)`
                       }}
                    >
-                      {/* Check scan type to render Ribs or Brain */}
-                      {selectedOrder?.scan_type?.toLowerCase().includes('brain') || selectedOrder?.scan_type?.includes('مخ') || selectedOrder?.scan_type?.includes('رأس') ? (
+                      {/* Check if real local scans exist from Orthanc */}
+                      {localDicomScans.length > 0 ? (
+                         <img 
+                            src={`http://localhost:8042/instances/${localDicomScans[activeScanIndex]}/preview`} 
+                            alt="PACS DICOM Scan Preview" 
+                            className="max-h-full max-w-full object-contain select-none pointer-events-none"
+                         />
+                      ) : selectedOrder?.scan_type?.toLowerCase().includes('brain') || selectedOrder?.scan_type?.includes('مخ') || selectedOrder?.scan_type?.includes('رأس') ? (
                          // Brain MRI SVG Simulation
                          <svg viewBox="0 0 200 200" className="w-56 h-56 select-none pointer-events-none">
                             <circle cx="100" cy="100" r="80" fill="none" stroke="#666" strokeWidth="3" />
@@ -341,7 +371,7 @@ export const RadiologyDashboard: React.FC = () => {
                          </svg>
                       )}
                    </div>
-
+ 
                    {/* Ruler Line Render Overlay */}
                    {rulerPoints && (
                       <svg className="absolute inset-0 pointer-events-none w-full h-full">
@@ -369,11 +399,34 @@ export const RadiologyDashboard: React.FC = () => {
                       </svg>
                    )}
                 </div>
-
+ 
                 {/* DICOM Info overlay */}
-                <div className="mt-2 text-[10px] text-slate-500 flex justify-between">
+                <div className="mt-2 text-[10px] text-slate-500 flex justify-between items-center">
                    <span>Scale: {zoom.toFixed(1)}x | Contrast: {contrast}%</span>
-                   <span>{rulerActive ? '⚠️ مسطرة القياس مفعلة (انقر واسحب لقياس البعد)' : 'جاهز للمعاينة التشخيصية'}</span>
+                   {localDicomScans.length > 1 && (
+                      <div className="flex gap-2">
+                         <Button 
+                            size="small" 
+                            type="primary" 
+                            disabled={activeScanIndex === 0} 
+                            onClick={() => { setActiveScanIndex(prev => prev - 1); setRulerPoints(null); }}
+                            className="bg-indigo-950 text-indigo-300 text-[10px] py-0 px-2 h-5 min-w-0"
+                         >
+                            السابق
+                         </Button>
+                         <span className="text-white font-mono">{activeScanIndex + 1} / {localDicomScans.length}</span>
+                         <Button 
+                            size="small" 
+                            type="primary" 
+                            disabled={activeScanIndex === localDicomScans.length - 1} 
+                            onClick={() => { setActiveScanIndex(prev => prev + 1); setRulerPoints(null); }}
+                            className="bg-indigo-950 text-indigo-300 text-[10px] py-0 px-2 h-5 min-w-0"
+                         >
+                            التالي
+                         </Button>
+                      </div>
+                   )}
+                   <span>{rulerActive ? '⚠️ مسطرة القياس مفعلة (انقر واسحب)' : 'جاهز للمعاينة التشخيصية'}</span>
                 </div>
              </div>
 
