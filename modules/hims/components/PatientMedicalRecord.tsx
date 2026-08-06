@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Tabs, Timeline, List, Badge, Card, Statistic, Row, Col, Spin, Empty, Tag } from 'antd';
-import { HistoryOutlined, MedicineBoxOutlined, FileSearchOutlined, HeartOutlined, CalendarOutlined } from '@ant-design/icons';
+import { Tabs, Timeline, List, Badge, Card, Statistic, Row, Col, Spin, Empty, Tag, Button, Popconfirm } from 'antd';
+import { HistoryOutlined, MedicineBoxOutlined, FileSearchOutlined, HeartOutlined, CalendarOutlined, UndoOutlined } from '@ant-design/icons';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { supabase } from '@/supabaseClient';
+import { useAuth } from '@/context/AuthContext';
 import dayjs from 'dayjs';
 
 export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientId }) => {
+  const { currentUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [labResults, setLabResults] = useState<any[]>([]);
@@ -15,6 +17,30 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
   const [clinicalNotes, setClinicalNotes] = useState<any[]>([]);
   const [radiologyReports, setRadiologyReports] = useState<any[]>([]);
   const [surgeries, setSurgeries] = useState<any[]>([]);
+
+  const canReactivate =
+    currentUser?.role === 'admin' ||
+    currentUser?.role === 'super_admin' ||
+    (currentUser as any)?.role === 'medical_director';
+
+  const handleUndoDischarge = async (visitId: string) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('hims_visits')
+        .update({ status: 'in_consultation', check_out_time: null })
+        .eq('id', visitId);
+
+      if (error) throw error;
+      import('antd').then(({ message }) => message.success('تم التراجع عن خروج المريض بنجاح وإعادة تنشيط الزيارة ✅'));
+      fetchData();
+    } catch (e: any) {
+      console.error('[PatientMedicalRecord] Error undoing discharge:', e);
+      import('antd').then(({ message }) => message.error('فشل التراجع عن الخروج: ' + e.message));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     if (!patientId || patientId === '') return;
@@ -163,11 +189,29 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
                       mode="end" // تحديث من right إلى end
                       items={history.map(visit => ({
                         color: visit.status === 'discharged' ? 'green' : 'blue',
-                        title: dayjs(visit.created_at).format('YYYY-MM-DD'),
+                        title: dayjs(visit.created_at).format('YYYY-MM-DD HH:mm'),
                         content: (
-                          <>
-                            <b>{visit.visit_type === 'emergency' ? '🚨 طوارئ' : '📅 عيادة'}</b>: {visit.chief_complaint || 'كشف دوري'}
-                          </>
+                          <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-100 shadow-sm">
+                            <div>
+                              <b className="text-slate-800">{visit.visit_type === 'emergency' ? '🚨 طوارئ' : visit.visit_type === 'inpatient' ? '🛌 تنويم داخلي' : visit.visit_type === 'surgery' ? '🏥 عمليات' : '📅 عيادة'}</b>: <span className="text-slate-600">{visit.chief_complaint || 'كشف دوري'}</span>
+                              {visit.status === 'discharged' && <Tag color="green" className="mr-2 font-bold">تم الخروج</Tag>}
+                              {visit.status === 'in_consultation' && <Tag color="orange" className="mr-2 font-bold animate-pulse">قيد الكشف</Tag>}
+                            </div>
+                            {visit.status === 'discharged' && canReactivate && (
+                              <Popconfirm
+                                title="إلغاء إجراءات خروج المريض"
+                                description="هل أنت متأكد من إلغاء خروج المريض وإعادة تنشيط هذه الزيارة في العيادة؟"
+                                onConfirm={() => handleUndoDischarge(visit.id)}
+                                okText="نعم، تراجع"
+                                cancelText="إلغاء"
+                                icon={<UndoOutlined className="text-red-500" />}
+                              >
+                                <Button size="small" type="dashed" danger icon={<UndoOutlined />}>
+                                  تراجع عن الخروج
+                                </Button>
+                              </Popconfirm>
+                            )}
+                          </div>
                         )
                       }))}
                     />

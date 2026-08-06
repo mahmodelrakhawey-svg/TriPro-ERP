@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Button, Modal, Result, message, Space, Alert } from 'antd';
-import { LogoutOutlined, PrinterOutlined, LockOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import React, { useState, useEffect } from 'react';
+import { Button, Modal, Result, message, Space, Alert, Spin } from 'antd';
+import { LogoutOutlined, PrinterOutlined, LockOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { LuxuryReportEngine } from '../../../components/LuxuryReportEngine';
 import { useAuth } from '@/context/AuthContext';
@@ -10,12 +10,54 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(false);
   const [debtBlocked, setDebtBlocked] = useState(false);
+  const [clinicalWarnings, setClinicalWarnings] = useState<string[]>([]);
+  const [checkingWarnings, setCheckingWarnings] = useState(false);
 
   // 🛡️ RBAC: التحقق من الصلاحية بناءً على الدور وليس كلمة مرور plain-text
   const canOverrideDebt =
     currentUser?.role === 'admin' ||
     currentUser?.role === 'super_admin' ||
     (currentUser as any)?.role === 'medical_director';
+
+  const checkClinicalWarnings = async () => {
+    if (!visitId) return;
+    setCheckingWarnings(true);
+    setClinicalWarnings([]);
+    try {
+      const [surgeriesRes, labsRes, radsRes, prescRes] = await Promise.all([
+        supabase.from('hims_surgeries').select('id, surgery_name').eq('visit_id', visitId).neq('status', 'completed').neq('status', 'cancelled'),
+        supabase.from('hims_lab_orders').select('id, hims_lab_tests(test_name)').eq('visit_id', visitId).eq('status', 'pending'),
+        supabase.from('hims_radiology_orders').select('id, scan_type').eq('visit_id', visitId).eq('status', 'pending'),
+        supabase.from('hims_prescriptions').select('id').eq('visit_id', visitId).eq('status', 'pending')
+      ]);
+
+      const warningsList: string[] = [];
+      if (surgeriesRes.data && surgeriesRes.data.length > 0) {
+        warningsList.push(`⚠️ المريض مسجل له عمليات جراحية لم تكتمل بعد: ${surgeriesRes.data.map(s => s.surgery_name).join(', ')}`);
+      }
+      if (labsRes.data && labsRes.data.length > 0) {
+        const names = labsRes.data.map((l: any) => l.hims_lab_tests?.test_name).filter(Boolean);
+        warningsList.push(`⚠️ تحاليل مخبرية معلقة لم تسجل نتيجتها بعد: ${names.length > 0 ? names.join(', ') : 'تحاليل قيد الانتظار'}`);
+      }
+      if (radsRes.data && radsRes.data.length > 0) {
+        warningsList.push(`⚠️ فحوصات أشعة مطلوبة لم يعتمد تقريرها بعد: ${radsRes.data.map(r => r.scan_type).join(', ')}`);
+      }
+      if (prescRes.data && prescRes.data.length > 0) {
+        warningsList.push(`⚠️ روشتة أدوية نشطة معلقة لم تصرف بالكامل من الصيدلية.`);
+      }
+      setClinicalWarnings(warningsList);
+    } catch (e) {
+      console.error('[DischargeManager] Error checking clinical warnings:', e);
+    } finally {
+      setCheckingWarnings(false);
+    }
+  };
+
+  useEffect(() => {
+    if (visible) {
+      checkClinicalWarnings();
+    }
+  }, [visible]);
 
   const handleDischarge = async () => {
     setLoading(true);
@@ -86,6 +128,21 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
           subTitle={
             <div className="space-y-3 text-right">
               <p>سيتم إخلاء السرير، إصدار الفاتورة النهائية، وإرسال رابط بوابة المريض الرقمية آلياً.</p>
+
+              {/* 🚨 تحذيرات طبية سريرية نشطة */}
+              {checkingWarnings ? (
+                <div className="text-center p-3 bg-slate-50 rounded-xl"><Spin size="small" /> جاري التحقق من الفحوصات والعمليات النشطة للمريض...</div>
+              ) : (
+                clinicalWarnings.map((warn, index) => (
+                  <Alert
+                    key={index}
+                    type="warning"
+                    showIcon
+                    message="إجراءات طبية معلقة"
+                    description={warn}
+                  />
+                ))
+              )}
 
               {/* 🛡️ تحذير المديونية مع التحقق من الدور */}
               {debtBlocked && (
