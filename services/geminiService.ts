@@ -171,14 +171,20 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       const errMsg = data?.error?.message || `HTTP ${res.status} error`;
       console.warn(`[callGeminiRestDirect] Model ${model} failed (${res.status}):`, errMsg);
 
-      if (!firstErr) firstErr = errMsg;
+      if (res.status === 429 || errMsg.includes('Quota exceeded') || errMsg.includes('exceeded your current quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+        console.warn(`[callGeminiRestDirect] Model ${model} rate limited, trying next model...`);
+        firstErr = 'تم الوصول للحد المسموح مؤقتاً لطلبات الذكاء الاصطناعي المجانية (Rate Limit). يرجى الانتظار 15 ثانية ثم إعادة المحاولة.';
+        continue;
+      }
+
+      firstErr = errMsg;
       throw new Error(`خطأ في قراءة بيانات البطاقة من Gemini (${model}): ${errMsg}`);
     } catch (e: any) {
-      if (e?.message?.includes('خطأ في قراءة بيانات البطاقة')) throw e;
+      if (e?.message?.includes('خطأ في قراءة بيانات البطاقة') || e?.message?.includes('تم الوصول للحد الأقصى')) throw e;
       if (!firstErr) firstErr = e?.message || String(e);
     }
   }
-  throw new Error(firstErr || "فشل الاتصال المباشر بـ Gemini API. يرجى التحقق من المفتاح.");
+  throw new Error(firstErr || "تم الوصول للحد المسموح مؤقتاً لطلبات الذكاء الاصطناعي. يرجى الانتظار 15 ثانية ثم المحاولة.");
 };
 
 /**
