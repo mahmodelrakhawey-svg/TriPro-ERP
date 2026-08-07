@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Account } from "../types";
 
 // الموديلات الرسمية المدعومة بـ Gemini API
-const VALID_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+const VALID_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite'];
 
 // Helper function to call generateContent with fallback models on client side if needed
 const generateWithFallback = async (
@@ -182,7 +182,9 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
               mimeType: mimeType
             }
           },
-          "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card."
+          {
+            text: "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card."
+          }
         ],
         config: {
           systemInstruction: systemInstruction,

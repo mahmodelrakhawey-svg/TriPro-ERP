@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI, Type } from '@google/genai';
 
 // قائمة الموديلات الرسمية المتاحة في Gemini API مع آلية التراجع عند وجود خطأ
-const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
+const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite'];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // إرجاع خطأ إذا لم يكن الطلب من نوع POST
@@ -49,7 +49,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 mimeType: mimeType
               }
             },
-            "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card."
+            {
+              text: "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card."
+            }
           ],
           config: {
             systemInstruction: systemInstruction,
