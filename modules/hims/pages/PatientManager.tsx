@@ -9,6 +9,7 @@ import { usePagination } from '../../../components/usePagination';
 import { Modal, Form, Select, Input, Button } from 'antd';
 import { PatientMedicalRecord } from '../components/PatientMedicalRecord';
 import { validateEgyptianNationalId, parseNationalId } from '../himsHelpers';
+import { secureStorage } from '../../../utils/securityMiddleware';
 
 type Patient = {
   id: string;
@@ -34,14 +35,14 @@ const PatientManager = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState(() => (typeof window !== 'undefined' ? (localStorage.getItem('user_gemini_api_key') || '') : ''));
+  const [apiKeyInput, setApiKeyInput] = useState(() => (typeof window !== 'undefined' ? ((secureStorage.getItem('user_gemini_api_key') as string) || '') : ''));
 
   const handleSaveApiKey = () => {
     if (apiKeyInput.trim()) {
-      localStorage.setItem('user_gemini_api_key', apiKeyInput.trim());
+      secureStorage.setItem('user_gemini_api_key', apiKeyInput.trim());
       showToast('تم حفظ مفتاح AI المباشر في المتصفح بنجاح ✅', 'success');
     } else {
-      localStorage.removeItem('user_gemini_api_key');
+      secureStorage.removeItem('user_gemini_api_key');
       showToast('تم إزالة مفتاح AI المباشر واستخدام الوضع التلقائي', 'info');
     }
     setIsKeyModalOpen(false);
@@ -399,7 +400,7 @@ const PatientManager = () => {
                     onClick={() => setIsKeyModalOpen(true)}
                     className="text-xs text-indigo-700 hover:text-indigo-900 bg-white px-2.5 py-1 rounded-xl border border-indigo-200 font-bold flex items-center gap-1 shadow-sm transition-all hover:bg-indigo-50"
                   >
-                    <Key size={13} /> {localStorage.getItem('user_gemini_api_key') ? 'مفتاح AI المباشر: 🟢' : 'إدخال مفتاح AI المباشر 🔑'}
+                    <Key size={13} /> {secureStorage.getItem('user_gemini_api_key') ? 'مفتاح AI المباشر: 🟢' : 'إدخال مفتاح AI المباشر 🔑'}
                   </button>
                 </div>
                 <label className="flex flex-col items-center justify-center cursor-pointer py-1">
@@ -551,6 +552,8 @@ const PatientManager = () => {
         width="80%"
       >
         {selectedPatient && <PatientMedicalRecord patientId={selectedPatient.id} />}
+      </Modal>
+
       {/* مودال إدخال مفتاح AI المباشر للمتصفح */}
       {isKeyModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
@@ -593,7 +596,7 @@ const PatientManager = () => {
           </div>
         </div>
       )}
-      </div>
+    </div>
   );
 };
 

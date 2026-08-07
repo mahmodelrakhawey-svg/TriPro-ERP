@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Account } from "../types";
+import { secureStorage } from '../utils/securityMiddleware';
 
 // الموديلات الرسمية المدعومة بـ Gemini API
 const VALID_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite'];
@@ -177,9 +178,9 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
  * مسح البطاقة الشخصية واستخراج بيانات المريض آمنياً عبر Backend / Serverless Function أو مباشرة من العميل
  */
 export const scanNationalID = async (base64Data: string, mimeType: string) => {
-  // 0. المحاولة المباشرة من المتصفح إذا قام المستخدم بإدخال مفتاح مخصص في التطبيق (localStorage)
-  const clientStoredKey = typeof window !== 'undefined' ? (localStorage.getItem('user_gemini_api_key') || localStorage.getItem('GEMINI_API_KEY')) : null;
-  if (clientStoredKey && clientStoredKey.trim()) {
+  // 0. المحاولة المباشرة من المتصفح إذا قام المستخدم بإدخال مفتاح مخصص في التطبيق (secureStorage)
+  const clientStoredKey = typeof window !== 'undefined' ? (secureStorage.getItem<string>('user_gemini_api_key') || secureStorage.getItem<string>('GEMINI_API_KEY')) : null;
+  if (clientStoredKey && typeof clientStoredKey === 'string' && clientStoredKey.trim()) {
     console.log("استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
     return await callGeminiRestDirect(base64Data, mimeType, clientStoredKey);
   }
