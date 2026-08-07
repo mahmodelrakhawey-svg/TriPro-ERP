@@ -40,11 +40,9 @@ const PatientManager = () => {
   const handleSaveApiKey = () => {
     const val = apiKeyInput.trim();
     if (val) {
-      localStorage.setItem('user_gemini_api_key', val);
       secureStorage.setItem('user_gemini_api_key', val);
       showToast('تم حفظ مفتاح AI المباشر بنجاح! 🟢', 'success');
     } else {
-      localStorage.removeItem('user_gemini_api_key');
       secureStorage.removeItem('user_gemini_api_key');
       showToast('تم إزالة مفتاح AI المباشر واستخدام الوضع التلقائي', 'info');
     }

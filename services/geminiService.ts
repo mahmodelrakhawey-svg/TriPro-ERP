@@ -186,6 +186,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 /**
  * مسح البطاقة الشخصية واستخراج بيانات المريض آمنياً عبر Backend / Serverless Function أو مباشرة من العميل
  */
+export const scanNationalID = async (base64Data: string, mimeType: string) => {
   // 0. المحاولة المباشرة من المتصفح إذا قام المستخدم بإدخال مفتاح مخصص في التطبيق (localStorage / secureStorage)
   const clientStoredKey = typeof window !== 'undefined' 
     ? (localStorage.getItem('user_gemini_api_key') || localStorage.getItem('GEMINI_API_KEY') || secureStorage.getItem<string>('user_gemini_api_key')) 
