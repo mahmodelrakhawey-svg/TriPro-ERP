@@ -31,7 +31,8 @@ const generateWithFallback = async (
  * تحليل المعاملة المحاسبية عبر السيرفر (أو الاتصال المباشر محلياً)
  */
 export const analyzeTransactionText = async (text: string, accounts: Account[]) => {
-  // 1. المحاولة الأولى: الاستدقاء السيرفري عبر /api/analyze-transaction
+  let lastServerErrorMessage = '';
+  // 1. المحاولة الأولى: الاستدعاء السيرفري عبر /api/analyze-transaction
   try {
     const res = await fetch('/api/analyze-transaction', {
       method: 'POST',
@@ -42,16 +43,22 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
     if (res.ok) {
       const data = await res.json();
       return data;
+    } else {
+      const errJson = await res.json().catch(() => ({}));
+      if (errJson.error) {
+        lastServerErrorMessage = errJson.error;
+      }
     }
-  } catch (serverErr) {
+  } catch (serverErr: any) {
     console.warn("Server API Route /api/analyze-transaction unreachable, trying local client fallback...", serverErr);
+    if (serverErr?.message) lastServerErrorMessage = serverErr.message;
   }
 
   // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية ومفتاح GEMINI_API_KEY / VITE_GEMINI_API_KEY
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 
                  (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
   if (!apiKey) {
-    throw new Error("مفتاح API مفقود. يرجى التأكد من ضبط GEMINI_API_KEY في إعدادات Vercel Dashboard.");
+    throw new Error(lastServerErrorMessage || "مفتاح API مفقود. يرجى التأكد من ضبط GEMINI_API_KEY في إعدادات Vercel Dashboard.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -122,6 +129,7 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
  * مسح البطاقة الشخصية واستخراج بيانات المريض آمنياً عبر Backend / Serverless Function
  */
 export const scanNationalID = async (base64Data: string, mimeType: string) => {
+  let lastServerErrorMessage = '';
   // 1. المحاولة الأولى: استدعاء السيرفر الآمن /api/scan-id
   try {
     const res = await fetch('/api/scan-id', {
@@ -135,13 +143,14 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
       return data;
     } else {
       const errJson = await res.json().catch(() => ({}));
-      if (res.status !== 404 && errJson.error) {
-        throw new Error(errJson.error);
+      if (errJson.error) {
+        lastServerErrorMessage = errJson.error;
       }
     }
   } catch (serverErr: any) {
     if (serverErr.message && !serverErr.message.includes('404')) {
       console.warn("Server API Route returned error, attempting fallback if available:", serverErr.message);
+      lastServerErrorMessage = serverErr.message;
     }
   }
 
@@ -149,7 +158,7 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 
                  (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
   if (!apiKey) {
-    throw new Error("فشل في قراءة البيانات: مفتاح API مفقود. يرجى إضافة GEMINI_API_KEY في Vercel Dashboard (Environment Variables).");
+    throw new Error(lastServerErrorMessage || "فشل في قراءة البيانات: مفتاح API مفقود. يرجى إضافة GEMINI_API_KEY في Vercel Dashboard (Environment Variables).");
   }
 
   const ai = new GoogleGenAI({ apiKey });
