@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { GoogleGenAI, Type } from '@google/genai';
 
 const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 
@@ -20,95 +19,91 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing text or accounts in request body.' });
   }
 
-  try {
-    const ai = new GoogleGenAI({ apiKey });
+  const accountsContext = accounts.map((a: any) => `${a.code}: ${a.name} (${a.type})`).join('\n');
 
-    const accountsContext = accounts.map((a: any) => `${a.code}: ${a.name} (${a.type})`).join('\n');
+  const systemInstruction = `
+    أنت خبير محاسبي ومساعد ذكي. دورك هو تحويل الوصف النصي للمعاملات المالية إلى قيد محاسبي مقترح بتنسيق JSON.
+    
+    لديك دليل الحسابات التالي:
+    ${accountsContext}
 
-    const systemInstruction = `
-      أنت خبير محاسبي ومساعد ذكي. دورك هو تحويل الوصف النصي للمعاملات المالية إلى قيد محاسبي مقترح بتنسيق JSON.
+    القواعد:
+    1. اقرأ نص المستخدم بعناية.
+    2. حدد الحسابات المدينة والدائنة المناسبة من القائمة أعلاه.
+    3. إذا لم تجد حساباً مطابقاً تماماً، اختر الأقرب.
+    4. يجب أن يكون القيد متوازناً (إجمالي المدين = إجمالي الدائن).
+    5. قم بإرجاع JSON فقط.
+
+    Schema:
+    {
+      "description": "وصف مهني للقيد",
+      "lines": [
+        { "accountCode": "string", "debit": number, "credit": number }
+      ]
+    }
+  `;
+
+  let lastErrorMsg = '';
+
+  for (const model of FALLBACK_MODELS) {
+    try {
+      console.log(`[API /api/analyze-transaction] Requesting REST API for model: ${model}`);
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
       
-      لديك دليل الحسابات التالي:
-      ${accountsContext}
-
-      القواعد:
-      1. اقرأ نص المستخدم بعناية.
-      2. حدد الحسابات المدينة والدائنة المناسبة من القائمة أعلاه.
-      3. إذا لم تجد حساباً مطابقاً تماماً، اختر الأقرب.
-      4. يجب أن يكون القيد متوازناً (إجمالي المدين = إجمالي الدائن).
-      5. قم بإرجاع JSON فقط.
-
-      Schema:
-      {
-        "description": "وصف مهني للقيد",
-        "lines": [
-          { "accountCode": "string", "debit": number, "credit": number }
-        ]
-      }
-    `;
-
-    let lastError: any = null;
-    let resultText = '';
-
-    for (const model of FALLBACK_MODELS) {
-      try {
-        console.log(`[API /api/analyze-transaction] Trying model: ${model}`);
-        const response = await ai.models.generateContent({
-          model: model,
-          contents: text,
-          config: {
-            systemInstruction: systemInstruction,
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: Type.OBJECT,
-              properties: {
-                description: { type: Type.STRING },
-                lines: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      accountCode: { type: Type.STRING },
-                      debit: { type: Type.NUMBER },
-                      credit: { type: Type.NUMBER }
-                    },
-                    required: ['accountCode', 'debit', 'credit']
-                  }
-                }
-              },
-              required: ['description', 'lines']
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [{ text: systemInstruction }]
+          },
+          contents: [
+            {
+              parts: [{ text }]
             }
+          ],
+          generationConfig: {
+            response_mime_type: "application/json"
           }
-        });
+        })
+      });
 
-        resultText = response.text || '{}';
-        break;
-      } catch (err) {
-        console.warn(`[API /api/analyze-transaction] Model ${model} failed:`, err);
-        lastError = err;
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        console.warn(`[API /api/analyze-transaction] Model ${model} HTTP ${response.status}:`, responseData);
+        lastErrorMsg = responseData?.error?.message || `HTTP ${response.status} error`;
+        continue;
       }
-    }
 
-    if (!resultText) {
-      throw lastError || new Error('All fallback models failed');
-    }
+      const resText = responseData?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!resText) {
+        lastErrorMsg = 'No text returned from Gemini API';
+        continue;
+      }
 
-    const parsedData = JSON.parse(resultText);
-    return res.status(200).json(parsedData);
+      const parsedData = JSON.parse(resText);
+      return res.status(200).json(parsedData);
 
-  } catch (error: any) {
-    console.error('[API /api/analyze-transaction] Server Error:', error);
-    const errMsg = error?.message || String(error);
-    if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Quota exceeded')) {
-      return res.status(429).json({
-        error: 'تم الوصول للحد الأقصى المسموح مؤقتاً لطلبات Gemini المجانية (Rate Limit). يرجى الانتظار 30 ثانية ثم إعادة المحاولة.'
-      });
+    } catch (err: any) {
+      console.warn(`[API /api/analyze-transaction] Model ${model} exception:`, err);
+      lastErrorMsg = err?.message || String(err);
     }
-    if (errMsg.includes('404') || errMsg.includes('not found')) {
-      return res.status(400).json({
-        error: 'مفتاح Gemini API غير صالح أو غير مفعّل. يرجى حذف GEMINI_API_KEY من Vercel وإنشاء مفتاح جديد من Google AI Studio (aistudio.google.com/app/apikey) ثم إعادة إضافته.'
-      });
-    }
-    return res.status(500).json({ error: errMsg || 'Internal Server Error' });
   }
+
+  console.error('[API /api/analyze-transaction] All models failed. Last error:', lastErrorMsg);
+
+  if (lastErrorMsg.includes('API_KEY_INVALID') || lastErrorMsg.includes('API key not valid') || lastErrorMsg.includes('404') || lastErrorMsg.includes('not found')) {
+    return res.status(400).json({
+      error: 'مفتاح Gemini API غير صالح أو لم يفعل الخدمة. يرجى إنشاء مفتاح جديد من Google AI Studio (aistudio.google.com/app/apikey) وإضافته في Vercel.'
+    });
+  }
+
+  if (lastErrorMsg.includes('429') || lastErrorMsg.includes('RESOURCE_EXHAUSTED') || lastErrorMsg.includes('Quota exceeded')) {
+    return res.status(429).json({
+      error: 'تم الوصول للحد الأقصى المسموح مؤقتاً لطلبات Gemini المجانية (Rate Limit). يرجى الانتظار 30 ثانية ثم إعادة المحاولة.'
+    });
+  }
+
+  return res.status(500).json({ error: lastErrorMsg || 'Internal Server Error' });
 }
