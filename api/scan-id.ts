@@ -40,15 +40,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          system_instruction: {
+          systemInstruction: {
             parts: [{ text: systemInstruction }]
           },
           contents: [
             {
               parts: [
                 {
-                  inline_data: {
-                    mime_type: mimeType,
+                  inlineData: {
+                    mimeType: mimeType,
                     data: cleanBase64
                   }
                 },
@@ -59,7 +59,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             }
           ],
           generationConfig: {
-            response_mime_type: "application/json"
+            responseMimeType: "application/json"
           }
         })
       });
