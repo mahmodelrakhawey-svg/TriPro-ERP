@@ -131,6 +131,7 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
  */
 const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey: string) => {
   const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').trim();
+  const cleanKey = apiKey.replace(/["'\s]/g, '').trim();
   const systemInstruction = `
     You are an expert document parser. Extract information from the provided Egyptian National ID card image (front side).
     Translate Arabic numerals (e.g. ٢٩٢...) to Western standard digits (e.g. 292...).
@@ -142,7 +143,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
   let lastErr = '';
   for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
