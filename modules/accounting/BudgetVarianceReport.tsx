@@ -1,4 +1,4 @@
-﻿﻿import React, { useMemo, useState, useEffect } from 'react';
+﻿import React, { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType } from '../../types';
 import { 
@@ -77,7 +77,12 @@ const BudgetVarianceReport = () => {
       if (reportData.length === 0) return;
       setIsAiLoading(true);
       try {
-          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+          const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
+          if (!apiKey) {
+            setAiReport('مفتاح Gemini API غير معرف.');
+            return;
+          }
+          const ai = new GoogleGenAI({ apiKey });
           // Fix: Use targetName instead of non-existent accountName (Line 50)
           const summaryText = reportData.map(r => 
               `- ${r.type === 'account' ? 'الحساب' : 'المستهدف'}: ${r.targetName || r.target_name} | المخطط: ${r.plannedAmount || r.planned_amount} | الفعلي: ${r.actual} | الانحراف: ${r.variance}`
@@ -85,11 +90,21 @@ const BudgetVarianceReport = () => {
 
           const prompt = `أنت خبير مراقبة تكاليف وأداء. حلل تقرير انحرافات الموازنة والمستهدفات التالي لشهر ${month}/${year} وقدم 3 نصائح عملية لتحسين الأداء المالي باللغة العربية:\n${summaryText}`;
 
-          const response = await ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: prompt
-          });
-          setAiReport(response.text || '');
+          let responseText = '';
+          for (const modelName of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
+            try {
+              const res = await ai.models.generateContent({
+                model: modelName,
+                contents: prompt
+              });
+              responseText = res.text || '';
+              if (responseText) break;
+            } catch (err) {
+              console.warn(`[BudgetVarianceReport] Model ${modelName} failed:`, err);
+            }
+          }
+
+          setAiReport(responseText || 'لم يتم استرجاع تحليل من Gemini AI.');
       } catch (e) {
           setAiReport('فشل الاتصال بـ Gemini AI. يرجى مراجعة الإعدادات.');
       } finally {

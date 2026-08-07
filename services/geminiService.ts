@@ -1,7 +1,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Account } from "../types";
 
-// Helper function to call generateContent with fallback models
+// الموديلات الرسمية المدعومة بـ Gemini API
+const VALID_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+
+// Helper function to call generateContent with fallback models on client side if needed
 const generateWithFallback = async (
   ai: any,
   params: { contents: any; config: any },
@@ -19,20 +22,38 @@ const generateWithFallback = async (
     } catch (error: any) {
       console.warn(`Model ${model} failed:`, error);
       lastError = error;
-      // Continue to the next model in the fallback list
     }
   }
   throw lastError || new Error("All fallback models failed");
 };
 
+/**
+ * تحليل المعاملة المحاسبية عبر السيرفر (أو الاتصال المباشر محلياً)
+ */
 export const analyzeTransactionText = async (text: string, accounts: Account[]) => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (process.env.GEMINI_API_KEY as string);
+  // 1. المحاولة الأولى: الاستدقاء السيرفري عبر /api/analyze-transaction
+  try {
+    const res = await fetch('/api/analyze-transaction', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, accounts })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    }
+  } catch (serverErr) {
+    console.warn("Server API Route /api/analyze-transaction unreachable, trying local client fallback...", serverErr);
+  }
+
+  // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية ومفتاح VITE_GEMINI_API_KEY
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
   if (!apiKey) {
-    throw new Error("API Key is missing");
+    throw new Error("مفتاح API مفقود. يرجى التأكد من ضبط GEMINI_API_KEY في إعدادات Vercel.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
-  
   const accountsContext = accounts.map(a => `${a.code}: ${a.name} (${a.type})`).join('\n');
 
   const systemInstruction = `
@@ -86,7 +107,7 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
           }
         }
       },
-      ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']
+      VALID_MODELS
     );
 
     return JSON.parse(response.text || '{}');
@@ -96,10 +117,37 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
   }
 };
 
+/**
+ * مسح البطاقة الشخصية واستخراج بيانات المريض آمنياً عبر Backend / Serverless Function
+ */
 export const scanNationalID = async (base64Data: string, mimeType: string) => {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (process.env.GEMINI_API_KEY as string);
+  // 1. المحاولة الأولى: استدعاء السيرفر الآمن /api/scan-id
+  try {
+    const res = await fetch('/api/scan-id', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64Data, mimeType })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    } else {
+      const errJson = await res.json().catch(() => ({}));
+      if (res.status !== 404 && errJson.error) {
+        throw new Error(errJson.error);
+      }
+    }
+  } catch (serverErr: any) {
+    if (serverErr.message && !serverErr.message.includes('404')) {
+      console.warn("Server API Route returned error, attempting fallback if available:", serverErr.message);
+    }
+  }
+
+  // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية وح وجود VITE_GEMINI_API_KEY
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
   if (!apiKey) {
-    throw new Error("API Key is missing");
+    throw new Error("مفتاح API مفقود. يرجى إضافة GEMINI_API_KEY في Vercel Dashboard وتعديل الإعدادات.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -140,7 +188,7 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
           }
         }
       },
-      ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.0-flash']
+      VALID_MODELS
     );
 
     return JSON.parse(response.text || '{}');
