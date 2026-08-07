@@ -162,7 +162,9 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 
       const data = await res.json();
       if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-        return JSON.parse(data.candidates[0].content.parts[0].text);
+        const rawText = data.candidates[0].content.parts[0].text;
+        const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        return JSON.parse(cleanJson);
       }
 
       const errMsg = data?.error?.message || `HTTP ${res.status} error`;

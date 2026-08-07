@@ -81,7 +81,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         continue;
       }
 
-      const parsedData = JSON.parse(text);
+      const cleanJson = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+      const parsedData = JSON.parse(cleanJson);
       return res.status(200).json(parsedData);
 
     } catch (err: any) {
