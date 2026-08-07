@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash-latest'];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -73,6 +73,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (!response.ok) {
         console.warn(`[API /api/analyze-transaction] Model ${model} HTTP ${response.status}:`, responseData);
         lastErrorMsg = responseData?.error?.message || `HTTP ${response.status} error`;
+        if (response.status === 400 || response.status === 401 || response.status === 403) {
+          break; // stop on API key errors
+        }
         continue;
       }
 

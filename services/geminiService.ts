@@ -140,7 +140,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
   `;
 
   let lastErr = '';
-  for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+  for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash-latest']) {
     try {
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
       const res = await fetch(endpoint, {
@@ -164,10 +164,17 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         return JSON.parse(data.candidates[0].content.parts[0].text);
       }
-      if (data?.error?.message) {
-        lastErr = data.error.message;
+
+      const errMsg = data?.error?.message || `HTTP ${res.status} error`;
+      console.warn(`[callGeminiRestDirect] Model ${model} failed (${res.status}):`, errMsg);
+
+      if (errMsg.includes('API key not valid') || errMsg.includes('API_KEY_INVALID') || res.status === 400 || res.status === 401 || res.status === 403) {
+        throw new Error(`مفتاح Gemini API غير صالح (${errMsg}). يرجى التأكد من نسخ المفتاح كاملاً من Google AI Studio.`);
       }
+
+      lastErr = errMsg;
     } catch (e: any) {
+      if (e?.message?.includes('مفتاح Gemini API')) throw e;
       lastErr = e?.message || String(e);
     }
   }
