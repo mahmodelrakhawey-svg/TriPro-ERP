@@ -40,12 +40,9 @@ const PatientManager = () => {
   const handleSaveApiKey = () => {
     const val = apiKeyInput.replace(/["'\s]/g, '').trim();
     if (val) {
-      if (val.startsWith('AQ.') || !val.startsWith('AIza')) {
-        showToast('⚠️ تنبيه: مفتاح Gemini يبدأ بـ AIzaSy... (المفتاح المدخل ليس مفتاح جوجل). يمكنك جلبه من aistudio.google.com/app/apikey', 'warning');
-      }
       secureStorage.setItem('user_gemini_api_key', val);
       setApiKeyInput(val);
-      showToast('تم حفظ المفتاح في المتصفح! 🟢', 'success');
+      showToast('تم حفظ مفتاح AI المباشر في المتصفح بنجاح! 🟢', 'success');
     } else {
       secureStorage.removeItem('user_gemini_api_key');
       showToast('تم إزالة مفتاح AI المباشر واستخدام الوضع التلقائي', 'info');
