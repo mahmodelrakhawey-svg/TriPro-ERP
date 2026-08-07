@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Account } from "../types";
 
 // الموديلات الرسمية المدعومة بـ Gemini API
-const VALID_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+const VALID_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
 // Helper function to call generateContent with fallback models on client side if needed
 const generateWithFallback = async (
@@ -47,10 +47,11 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
     console.warn("Server API Route /api/analyze-transaction unreachable, trying local client fallback...", serverErr);
   }
 
-  // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية ومفتاح VITE_GEMINI_API_KEY
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
+  // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية ومفتاح GEMINI_API_KEY / VITE_GEMINI_API_KEY
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 
+                 (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
   if (!apiKey) {
-    throw new Error("مفتاح API مفقود. يرجى التأكد من ضبط GEMINI_API_KEY في إعدادات Vercel.");
+    throw new Error("مفتاح API مفقود. يرجى التأكد من ضبط GEMINI_API_KEY في إعدادات Vercel Dashboard.");
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -144,10 +145,11 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
     }
   }
 
-  // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية وح وجود VITE_GEMINI_API_KEY
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : undefined);
+  // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية ومفتاح GEMINI_API_KEY / VITE_GEMINI_API_KEY
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 
+                 (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
   if (!apiKey) {
-    throw new Error("مفتاح API مفقود. يرجى إضافة GEMINI_API_KEY في Vercel Dashboard وتعديل الإعدادات.");
+    throw new Error("فشل في قراءة البيانات: مفتاح API مفقود. يرجى إضافة GEMINI_API_KEY في Vercel Dashboard (Environment Variables).");
   }
 
   const ai = new GoogleGenAI({ apiKey });

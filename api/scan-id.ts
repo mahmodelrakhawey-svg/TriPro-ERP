@@ -2,7 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI, Type } from '@google/genai';
 
 // قائمة الموديلات الرسمية المتاحة في Gemini API مع آلية التراجع عند وجود خطأ
-const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // إرجاع خطأ إذا لم يكن الطلب من نوع POST
@@ -10,8 +10,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // قراءة المفتاح من متغيرات السيرفر السريّة
-  const apiKey = process.env.GEMINI_API_KEY;
+  // قراءة المفتاح من متغيرات السيرفر السريّة (دعم أسماء المتغيرات المختلفة في Vercel)
+  const apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY;
   if (!apiKey) {
     return res.status(500).json({ 
       error: 'GEMINI_API_KEY is missing on server environment variables.' 
