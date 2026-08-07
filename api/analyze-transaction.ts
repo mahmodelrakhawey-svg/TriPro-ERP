@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { GoogleGenAI, Type } from '@google/genai';
 
-const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-2.0-flash-lite'];
+const FALLBACK_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash'];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -98,6 +98,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   } catch (error: any) {
     console.error('[API /api/analyze-transaction] Server Error:', error);
-    return res.status(500).json({ error: error.message || 'Internal Server Error' });
+    const errMsg = error?.message || String(error);
+    if (errMsg.includes('429') || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('Quota exceeded')) {
+      return res.status(429).json({
+        error: 'تم الوصول للحد الأقصى المسموح مؤقتاً لطلبات Gemini المجانية (Rate Limit). يرجى الانتظار 30 ثانية ثم إعادة المحاولة.'
+      });
+    }
+    return res.status(500).json({ error: errMsg || 'Internal Server Error' });
   }
 }
