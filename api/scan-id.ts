@@ -95,6 +95,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         error: 'تم الوصول للحد الأقصى المسموح مؤقتاً لطلبات Gemini المجانية (Rate Limit). يرجى الانتظار 30 ثانية ثم إعادة المحاولة.'
       });
     }
+    if (errMsg.includes('404') || errMsg.includes('not found')) {
+      return res.status(400).json({
+        error: 'مفتاح Gemini API غير صالح أو غير مفعّل. يرجى حذف GEMINI_API_KEY من Vercel وإنشاء مفتاح جديد من Google AI Studio (aistudio.google.com/app/apikey) ثم إعادة إضافته.'
+      });
+    }
     return res.status(500).json({ error: errMsg || 'Internal Server Error' });
   }
 }
