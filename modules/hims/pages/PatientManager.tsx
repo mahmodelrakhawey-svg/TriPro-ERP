@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2, X } from 'lucide-react';
+import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2, X, Key } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { scanNationalID } from '@/services/geminiService';
@@ -33,6 +33,19 @@ const PatientManager = () => {
   const [loadingDoctors, setLoadingDoctors] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState(() => (typeof window !== 'undefined' ? (localStorage.getItem('user_gemini_api_key') || '') : ''));
+
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      localStorage.setItem('user_gemini_api_key', apiKeyInput.trim());
+      showToast('تم حفظ مفتاح AI المباشر في المتصفح بنجاح ✅', 'success');
+    } else {
+      localStorage.removeItem('user_gemini_api_key');
+      showToast('تم إزالة مفتاح AI المباشر واستخدام الوضع التلقائي', 'info');
+    }
+    setIsKeyModalOpen(false);
+  };
   
   const [formData, setFormData] = useState<{
     full_name: string;
@@ -375,15 +388,27 @@ const PatientManager = () => {
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24} /></button>
             </div>
             <form onSubmit={handleSave} className="p-8 space-y-5">
-              {/* 📸 زر المسح الضوئي الذكي (ID OCR Scanner) */}
-              <div className="bg-indigo-50 p-5 rounded-[2rem] border-2 border-dashed border-indigo-200 mb-2 hover:bg-indigo-100 transition-all group">
-                <label className="flex flex-col items-center justify-center cursor-pointer">
-                  <div className="flex items-center gap-3 text-indigo-700 font-black">
-                    {isScanning ? <Loader2 className="animate-spin" size={24} /> : <Camera size={24} className="group-hover:scale-110 transition-transform" />}
-                    <span>{isScanning ? 'جاري تحليل بيانات البطاقة...' : 'مسح البطاقة الشخصية آلياً (OCR)'}</span>
+              {/* 📸 زر المسح الضوئي الذكي (ID OCR Scanner) + زر المفتاح المباشر */}
+              <div className="bg-indigo-50 p-4 rounded-[2rem] border-2 border-dashed border-indigo-200 mb-2 hover:bg-indigo-100/80 transition-all">
+                <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-indigo-100">
+                  <span className="text-xs font-black text-indigo-900 flex items-center gap-1">
+                    <Camera size={16} /> مسح وتعبئة البيانات تلقائياً
+                  </span>
+                  <button 
+                    type="button"
+                    onClick={() => setIsKeyModalOpen(true)}
+                    className="text-xs text-indigo-700 hover:text-indigo-900 bg-white px-2.5 py-1 rounded-xl border border-indigo-200 font-bold flex items-center gap-1 shadow-sm transition-all hover:bg-indigo-50"
+                  >
+                    <Key size={13} /> {localStorage.getItem('user_gemini_api_key') ? 'مفتاح AI المباشر: 🟢' : 'إدخال مفتاح AI المباشر 🔑'}
+                  </button>
+                </div>
+                <label className="flex flex-col items-center justify-center cursor-pointer py-1">
+                  <div className="flex items-center gap-2 text-indigo-700 font-black">
+                    {isScanning ? <Loader2 className="animate-spin" size={20} /> : <Camera size={20} />}
+                    <span>{isScanning ? 'جاري تحليل بيانات البطاقة...' : 'رفع صورة البطاقة الشخصية (OCR)'}</span>
                   </div>
                   <input type="file" accept="image/*" className="hidden" onChange={handleIDScan} disabled={isScanning} />
-                  <p className="text-[10px] text-indigo-400 mt-2 font-bold">ارفع صورة واضحة للبطاقة (وجه أمامي) لملء البيانات تلقائياً</p>
+                  <p className="text-[10px] text-indigo-400 mt-1 font-bold">ارفع صورة واضحة للبطاقة (وجه أمامي) لملء البيانات آلياً</p>
                 </label>
               </div>
 
@@ -401,13 +426,27 @@ const PatientManager = () => {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">الرقم القومي</label>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">الرقم القومي (14 رقم)</label>
                     <input 
                       required
                       type="text"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none"
+                      maxLength={14}
+                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none font-mono"
+                      placeholder="2920101......"
                       value={formData.national_id}
-                      onChange={e => setFormData({...formData, national_id: e.target.value})}
+                      onChange={e => {
+                        const val = e.target.value;
+                        let updatedDob = formData.dob;
+                        let updatedGender = formData.gender;
+                        if (val.trim().length === 14) {
+                          const parsed = parseNationalId(val.trim());
+                          if (parsed.isValid) {
+                            if (parsed.dob) updatedDob = parsed.dob;
+                            if (parsed.gender) updatedGender = parsed.gender;
+                          }
+                        }
+                        setFormData({...formData, national_id: val, dob: updatedDob, gender: updatedGender});
+                      }}
                     />
                   </div>
                   <div>
@@ -512,8 +551,49 @@ const PatientManager = () => {
         width="80%"
       >
         {selectedPatient && <PatientMedicalRecord patientId={selectedPatient.id} />}
-      </Modal>
-    </div>
+      {/* مودال إدخال مفتاح AI المباشر للمتصفح */}
+      {isKeyModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 space-y-4 border border-slate-100 animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                <Key className="text-indigo-600" size={20} /> إعداد مفتاح الذكاء الاصطناعي المباشر
+              </h3>
+              <button onClick={() => setIsKeyModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={20} /></button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              قم بإدخال مفتاح <b>Gemini API Key</b> الخاص بك ليعمل مسح البطاقات مباشرة من متصفحك دون أي مراجعة لسيرفرات Vercel أو البيئات الخارجية.
+            </p>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">مفتاح API Key (من Google AI Studio):</label>
+              <input 
+                type="password"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono"
+                placeholder="AIzaSy..."
+                value={apiKeyInput}
+                onChange={e => setApiKeyInput(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <button 
+                type="button" 
+                onClick={() => setIsKeyModalOpen(false)}
+                className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                إلغاء
+              </button>
+              <button 
+                type="button" 
+                onClick={handleSaveApiKey}
+                className="px-5 py-2 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all"
+              >
+                حفظ المفتاح بالمستعرض 💾
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      </div>
   );
 };
 

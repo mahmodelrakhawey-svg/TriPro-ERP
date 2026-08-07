@@ -126,11 +126,66 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
 };
 
 /**
- * مسح البطاقة الشخصية واستخراج بيانات المريض آمنياً عبر Backend / Serverless Function
+ * استدعاء مباشر لـ Gemini REST API من المتصفح في حال وجود مفتاح محلي
+ */
+const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey: string) => {
+  const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').trim();
+  const systemInstruction = `
+    You are an expert document parser. Extract information from the provided Egyptian National ID card image (front side).
+    Translate Arabic numerals (e.g. ٢٩٢...) to Western standard digits (e.g. 292...).
+    Ensure the national ID contains exactly 14 digits.
+    Determine the gender: in Egyptian IDs, the 13th digit (second from the right) is odd for male ("male") and even for female ("female").
+    Return JSON only with keys: full_name, national_id, dob, gender.
+  `;
+
+  let lastErr = '';
+  for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemInstruction }] },
+          contents: [
+            {
+              parts: [
+                { inlineData: { mimeType, data: cleanBase64 } },
+                { text: "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card image." }
+              ]
+            }
+          ],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return JSON.parse(data.candidates[0].content.parts[0].text);
+      }
+      if (data?.error?.message) {
+        lastErr = data.error.message;
+      }
+    } catch (e: any) {
+      lastErr = e?.message || String(e);
+    }
+  }
+  throw new Error(lastErr || "فشل الاتصال المباشر بـ Gemini API. يرجى التحقق من المفتاح.");
+};
+
+/**
+ * مسح البطاقة الشخصية واستخراج بيانات المريض آمنياً عبر Backend / Serverless Function أو مباشرة من العميل
  */
 export const scanNationalID = async (base64Data: string, mimeType: string) => {
+  // 0. المحاولة المباشرة من المتصفح إذا قام المستخدم بإدخال مفتاح مخصص في التطبيق (localStorage)
+  const clientStoredKey = typeof window !== 'undefined' ? (localStorage.getItem('user_gemini_api_key') || localStorage.getItem('GEMINI_API_KEY')) : null;
+  if (clientStoredKey && clientStoredKey.trim()) {
+    console.log("استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
+    return await callGeminiRestDirect(base64Data, mimeType, clientStoredKey);
+  }
+
+  // 1. المحاولة الأولى: استدعاء السيرفر /api/scan-id
   let lastServerErrorMessage = '';
-  // 1. المحاولة الأولى: استدعاء السيرفر الآمن /api/scan-id
   try {
     const res = await fetch('/api/scan-id', {
       method: 'POST',
@@ -154,59 +209,12 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
     }
   }
 
-  // 2. التراجع المحلي (Client Fallback) في حالة البيئة المحلية ومفتاح GEMINI_API_KEY / VITE_GEMINI_API_KEY
+  // 2. التراجع المحلي المباشر في حالة وجود مفتاح بيئة VITE_GEMINI_API_KEY
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 
                  (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
-  if (!apiKey) {
-    throw new Error(lastServerErrorMessage || "فشل في قراءة البيانات: مفتاح API مفقود. يرجى إضافة GEMINI_API_KEY في Vercel Dashboard (Environment Variables).");
+  if (apiKey && apiKey.trim()) {
+    return await callGeminiRestDirect(base64Data, mimeType, apiKey);
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-
-  const systemInstruction = `
-    You are an expert document parser. Extract information from the provided Egyptian National ID card image (front side).
-    Translate Arabic numerals (e.g. ٢٩٢...) to Western standard digits (e.g. 292...).
-    Ensure the national ID contains exactly 14 digits.
-    Determine the gender: in Egyptian IDs, the 13th digit (second from the right) is odd for male ("male") and even for female ("female").
-    Return JSON only.
-  `;
-
-  try {
-    const response = await generateWithFallback(
-      ai,
-      {
-        contents: [
-          {
-            inlineData: {
-              data: base64Data,
-              mimeType: mimeType
-            }
-          },
-          {
-            text: "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card."
-          }
-        ],
-        config: {
-          systemInstruction: systemInstruction,
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              full_name: { type: Type.STRING },
-              national_id: { type: Type.STRING },
-              dob: { type: Type.STRING },
-              gender: { type: Type.STRING, enum: ["male", "female"] }
-            },
-            required: ['full_name', 'national_id', 'dob', 'gender']
-          }
-        }
-      },
-      VALID_MODELS
-    );
-
-    return JSON.parse(response.text || '{}');
-  } catch (error) {
-    console.error("Gemini OCR Error:", error);
-    throw error;
-  }
+  throw new Error(lastServerErrorMessage || "مفتاح API غير متوفر. يمكنك إضافة المفتاح المباشر في التطبيق بدون Vercel.");
 };
