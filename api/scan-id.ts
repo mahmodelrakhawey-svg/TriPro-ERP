@@ -23,6 +23,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing base64Data or mimeType in request body.' });
   }
 
+  // تنظيف النص في حال تم تمرير data:image/...;base64,
+  const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').trim();
+
   try {
     const ai = new GoogleGenAI({ apiKey });
 
@@ -45,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           contents: [
             {
               inlineData: {
-                data: base64Data,
+                data: cleanBase64,
                 mimeType: mimeType
               }
             },
