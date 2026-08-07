@@ -140,8 +140,8 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
     Return JSON only with keys: full_name, national_id, dob, gender.
   `;
 
-  let lastErr = '';
-  for (const model of ['gemini-2.0-flash', 'gemini-1.5-flash']) {
+  let firstErr = '';
+  for (const model of ['gemini-2.0-flash', 'gemini-2.0-flash-lite']) {
     try {
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
       const res = await fetch(endpoint, {
@@ -152,7 +152,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
           contents: [
             {
               parts: [
-                { inlineData: { mimeType, data: cleanBase64 } },
+                { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
                 { text: "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card image." }
               ]
             }
@@ -171,17 +171,14 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       const errMsg = data?.error?.message || `HTTP ${res.status} error`;
       console.warn(`[callGeminiRestDirect] Model ${model} failed (${res.status}):`, errMsg);
 
-      if (errMsg.includes('API key not valid') || errMsg.includes('API_KEY_INVALID') || res.status === 400 || res.status === 401 || res.status === 403) {
-        throw new Error(`مفتاح Gemini API غير صالح (${errMsg}). يرجى التأكد من نسخ المفتاح كاملاً من Google AI Studio.`);
-      }
-
-      lastErr = errMsg;
+      if (!firstErr) firstErr = errMsg;
+      throw new Error(`خطأ في قراءة بيانات البطاقة من Gemini (${model}): ${errMsg}`);
     } catch (e: any) {
-      if (e?.message?.includes('مفتاح Gemini API')) throw e;
-      lastErr = e?.message || String(e);
+      if (e?.message?.includes('خطأ في قراءة بيانات البطاقة')) throw e;
+      if (!firstErr) firstErr = e?.message || String(e);
     }
   }
-  throw new Error(lastErr || "فشل الاتصال المباشر بـ Gemini API. يرجى التحقق من المفتاح.");
+  throw new Error(firstErr || "فشل الاتصال المباشر بـ Gemini API. يرجى التحقق من المفتاح.");
 };
 
 /**
