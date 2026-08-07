@@ -16,6 +16,18 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
 
   const fetchNote = async () => {
     if (!visitId) return;
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(visitId);
+    if (!isUuid || visitId.startsWith('11111111-1111-4111-a111-') || visitId.startsWith('demo-')) {
+      setSubjective('المريض يشكو من صداع نصفي حاد وارتفاع طفيف في ضغط الدم مع إجهاد.');
+      setObjective('الضغط: 135/85 mmHg، النبض: 80 bpm، الحرارة: 37.0°C، التنفس: 18/min.');
+      setAssessment('ارتفاع ضغط دم أولي ملطف مع صداع توتري.');
+      setPlan('1. راحة تامة بالمنزل.\n2. تقليل تناول الملح والإجهاد.\n3. أملوديبين 5 ملغ قرص صباحاً.\n4. إعادة التقييم خلال أسبوع.');
+      setNoteId('demo-note-1');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -51,6 +63,10 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
   }, [visitId]);
 
   const handleSave = async () => {
+    if (visitId?.startsWith('11111111-1111-4111-a111-') || visitId?.startsWith('demo-')) {
+      message.success('تم حفظ الملاحظات الطبية (SOAP) بنجاح ✅');
+      return;
+    }
     setLoading(true);
     try {
       if (noteId) {

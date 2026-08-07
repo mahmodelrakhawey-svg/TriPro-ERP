@@ -5,6 +5,7 @@ import { Users } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { himsService } from '@/services/himsService';
 import { useAuth } from '@/context/AuthContext';
+import dayjs from 'dayjs';
 
 const { Option } = Select;
 
@@ -56,6 +57,11 @@ export const BloodBankDashboard: React.FC = () => {
 
   const handleOpenDonationModal = (donor: any) => {
     setSelectedDonor(donor);
+    const autoCode = `BAG-${(donor?.blood_type || 'DON').replace('+', 'P').replace('-', 'N')}-${Math.floor(100000 + Math.random() * 900000)}`;
+    donationForm.setFieldsValue({
+      bag_code: autoCode,
+      expiry_date: dayjs().add(35, 'day')
+    });
     setIsDonationModalVisible(true);
   };
 
@@ -72,7 +78,11 @@ export const BloodBankDashboard: React.FC = () => {
       donationForm.resetFields();
       fetchStock();
     } catch (e: any) {
-      message.error('فشل تسجيل التبرع: ' + e.message);
+      if (e.message?.includes('duplicate key') || e.message?.includes('hims_blood_donations_bag_code_key')) {
+        message.error('كود كيس الدم هذا مكرر ومسجل مسبقاً! اضغط زر التوليد التلقائي لإنشاء كود جديد 🎲');
+      } else {
+        message.error('فشل تسجيل التبرع: ' + e.message);
+      }
     }
   };
 
@@ -222,7 +232,20 @@ export const BloodBankDashboard: React.FC = () => {
             <Tag color="red" className="font-bold text-sm px-4 py-1">{selectedDonor?.blood_type}</Tag>
           </Form.Item>
           <Form.Item name="bag_code" label="كود كيس الدم" rules={[{ required: true, message: 'يرجى إدخال كود الكيس' }]}>
-            <Input placeholder="مثال: BAG-A-100234" />
+            <Input 
+              placeholder="مثال: BAG-A-100234" 
+              addonAfter={
+                <span 
+                  className="cursor-pointer text-xs font-bold text-blue-600 hover:text-blue-800"
+                  onClick={() => {
+                    const newCode = `BAG-${(selectedDonor?.blood_type || 'DON').replace('+', 'P').replace('-', 'N')}-${Math.floor(100000 + Math.random() * 900000)}`;
+                    donationForm.setFieldsValue({ bag_code: newCode });
+                  }}
+                >
+                  توليد كود 🎲
+                </span>
+              }
+            />
           </Form.Item>
           <Form.Item name="expiry_date" label="تاريخ انتهاء الصلاحية" rules={[{ required: true, message: 'يرجى اختيار تاريخ انتهاء الصلاحية' }]}>
             <DatePicker className="w-full" placeholder="اختر التاريخ" format="YYYY-MM-DD" />

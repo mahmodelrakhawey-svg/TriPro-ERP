@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
 import dayjs from 'dayjs';
 import { getOrgId } from '../himsHelpers';
+import { secureStorage } from '../../../utils/securityMiddleware';
 
 const { Title, Text } = Typography;
 
@@ -51,8 +52,7 @@ export const LabSpecimenTracking: React.FC = () => {
           return cP?.full_name || 'مريض غير مسجل';
         };
 
-        const cachedLabMastersString = localStorage.getItem(`hims_lab_tests_${currentUser?.organization_id}`);
-        const cachedLabMasters = cachedLabMastersString ? JSON.parse(cachedLabMastersString) : [];
+        const cachedLabMasters: any[] = (secureStorage.getItem(`hims_lab_tests_${currentUser?.organization_id}`) as any[]) ?? [];
 
         const offlineSpecimens: any[] = [];
         let index = 1;
@@ -72,7 +72,7 @@ export const LabSpecimenTracking: React.FC = () => {
               const testMaster = cachedLabMasters.find((t: any) => t.id === o.test_id);
 
               const specimenId = `queued-spec-${batch.id}-${index++}`;
-              const offlineStatus = localStorage.getItem(`specimen_status_${specimenId}`) || 'pending_collection';
+              const offlineStatus = secureStorage.getItem(`specimen_status_${specimenId}`) || 'pending_collection';
 
               offlineSpecimens.push({
                 id: specimenId,
@@ -121,7 +121,7 @@ export const LabSpecimenTracking: React.FC = () => {
     setLoading(true);
 
     if (!navigator.onLine && id.startsWith('queued-spec-')) {
-      localStorage.setItem(`specimen_status_${id}`, newStatus);
+      secureStorage.setItem(`specimen_status_${id}`, newStatus);
       message.warning('تم تحديث حالة العينة محلياً بنجاح! سيتم التزامن سحابياً فور عودة الاتصال 📶');
       fetchSpecimens();
       setLoading(false);

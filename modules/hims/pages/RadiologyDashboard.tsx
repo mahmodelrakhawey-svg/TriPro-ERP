@@ -28,8 +28,14 @@ export const RadiologyDashboard: React.FC = () => {
 
   const checkLocalPACS = async () => {
     try {
-      const res = await fetch('http://localhost:8042/instances');
-      if (res.ok) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 600);
+      const res = await fetch('http://localhost:8042/instances', { 
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      }).catch(() => null);
+      clearTimeout(timeoutId);
+      if (res && res.ok) {
         const instances = await res.json();
         if (Array.isArray(instances) && instances.length > 0) {
           setLocalDicomScans(instances);
@@ -111,7 +117,12 @@ export const RadiologyDashboard: React.FC = () => {
           }
         }
 
-        setOrders(offlineOrders.filter(o => !localStorage.getItem(`completed_rad_${o.id}`)));
+        // فلترة الطلبات المكتملة أوفلاين من IndexedDB بدل localStorage
+        const completedOffline = await db.queuedRadiologyOrders
+          .where('type').equals('completed_rad')
+          .toArray();
+        const completedIds = new Set(completedOffline.map((r: any) => r.tempId));
+        setOrders(offlineOrders.filter(o => !completedIds.has(o.id)));
       }
     } catch (e) {
       console.error(e);
@@ -132,10 +143,17 @@ export const RadiologyDashboard: React.FC = () => {
     if (!orgId) return;
 
     const channel = supabase
-      .channel('hims-radiology-orders-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_radiology_orders' }, () => {
-        fetchOrders();
-      })
+      .channel(`hims-radiology-orders-sync-${orgId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'hims_radiology_orders',
+          filter: `organization_id=eq.${orgId}`
+        },
+        () => { fetchOrders(); }
+      )
       .subscribe();
 
     return () => {
@@ -163,7 +181,18 @@ export const RadiologyDashboard: React.FC = () => {
     setLoading(true);
     try {
       if (!navigator.onLine && selectedOrder.id.startsWith('queued-rad-')) {
-        localStorage.setItem(`completed_rad_${selectedOrder.id}`, values.report_text);
+        // حفظ التقرير أوفلاين في IndexedDB بدل localStorage
+        await db.queuedRadiologyOrders.add({
+          payload: {
+            type: 'completed_rad',
+            tempId: selectedOrder.id,
+            report_text: values.report_text,
+            order_id: selectedOrder.id,
+          },
+          createdAt: new Date(),
+          status: 'pending',
+          attempts: 0,
+        });
         message.warning('تم تسجيل تقرير الأشعة محلياً بنجاح! سيتم رفعه سحابياً فور عودة الاتصال 📶');
         setSelectedOrder(null);
         resetDicomViewer();

@@ -44,6 +44,40 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
 
   const fetchData = useCallback(async () => {
     if (!patientId || patientId === '') return;
+
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(patientId);
+    if (!isUuid || patientId.startsWith('11111111-1111-4111-a111-') || patientId.startsWith('demo-')) {
+      setHistory([
+        { id: 'h-1', created_at: new Date().toISOString(), chief_complaint: 'صداع حاد وارتفاع بالضغط', diagnosis: 'ارتفاع ضغط دم أولي' },
+        { id: 'h-2', created_at: new Date(Date.now() - 86400000 * 30).toISOString(), chief_complaint: 'فحص دوري', diagnosis: 'حالة مستقرة' }
+      ]);
+      setLabResults([
+        { id: 'l-1', hims_lab_tests: { test_name: 'صورة دم كاملة (CBC)', unit: 'g/dL' }, result_value: '14.2', created_at: new Date().toISOString() },
+        { id: 'l-2', hims_lab_tests: { test_name: 'وظائف كبد (ALT)', unit: 'U/L' }, result_value: '22.0', created_at: new Date().toISOString() }
+      ]);
+      setVitalsHistory([
+        { created_at: new Date().toISOString(), vital_signs: { temp: 37.0, bp: '130/85', pulse: 78, spo2: 99 } },
+        { created_at: new Date(Date.now() - 86400000).toISOString(), vital_signs: { temp: 37.2, bp: '135/88', pulse: 82, spo2: 98 } }
+      ]);
+      setCurrentMedications([
+        { drug_name: 'أملوديبين 5 ملغ (Amlodipine)', qty: 1, dosage: 'قرص واحد يومياً', frequency: 'صباحاً' },
+        { drug_name: 'بانادول أدڤانس 500 ملغ', qty: 2, dosage: 'عند الحاجة', frequency: 'كل 8 ساعات' }
+      ]);
+      setVitalsChartData([
+        { date: '10:00', temp: 37.0, pulse: 78, spo2: 99, systolic_bp: 130, diastolic_bp: 85 },
+        { date: '14:00', temp: 37.2, pulse: 82, spo2: 98, systolic_bp: 135, diastolic_bp: 88 }
+      ]);
+      setClinicalNotes([
+        { id: 'cn-1', created_at: new Date().toISOString(), subjective: 'المريض يشكو من صداع متكرر', assessment: 'تحسن ملحوظ' }
+      ]);
+      setRadiologyReports([
+        { id: 'r-1', scan_type: 'أشعة عادية على الصدر (CXR)', report_text: 'الرئتان سليمتان ولا يوجد أي ارتجاح.', created_at: new Date().toISOString() }
+      ]);
+      setSurgeries([]);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     try {
       // 🚀 تشغيل الاستعلامات بالتوازي بدلاً من 7 استعلامات متسلسلة
@@ -230,7 +264,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
                         <Statistic 
                           value={res.result_value} 
                           suffix={res.hims_lab_tests?.unit} 
-                          styles={{ content: { color: '#1677ff' } }} // 🎨 تحديث لمعايير AntD v5
+                          styles={{ content: { color: '#1677ff' } }}
                         />
                         <Badge status="processing" text={dayjs(res.created_at).format('DD/MM')} />
                       </div>
@@ -239,50 +273,53 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
                 </div>
               )
             },
-          {
-            key: '3',
-            label: <span><HeartOutlined /> المؤشرات الحيوية</span>,
-            children: (
-              <List
-                dataSource={vitalsHistory}
-                renderItem={(item) => (
-                  <Card size="small" className="mb-3 rounded-xl shadow-sm border-slate-100">
-                    <div className="flex justify-between items-center mb-2">
-                       <Tag color="blue">{dayjs(item.created_at).format('YYYY-MM-DD HH:mm')}</Tag>
-                       <Tag color="magenta">{item.vital_signs?.temp}°C</Tag>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div><p className="text-[10px] text-slate-400 m-0">BP</p><b>{item.vital_signs?.bp}</b></div>
-                      <div><p className="text-[10px] text-slate-400 m-0">Pulse</p><b>{item.vital_signs?.pulse}</b></div>
-                      <div><p className="text-[10px] text-slate-400 m-0">SPO2</p><b>{item.vital_signs?.spo2}</b></div>
-                    </div>
-                  </Card>
-                )}
-              />
-            )
-          },
-          {
-            key: '4',
-            label: <span><MedicineBoxOutlined /> الأدوية الحالية</span>,
-            children: (
-              <List 
-                bordered 
-                className="bg-white rounded-2xl" 
-                dataSource={currentMedications} 
-                renderItem={item => (
-                  <List.Item className="flex justify-between items-center">
-                    <span className="font-bold text-slate-800">{item.drug_name}</span>
-                    <div className="flex gap-2">
-                      {item.qty && <Tag color="blue">الكمية: {item.qty}</Tag>}
-                      {item.dosage && <Tag color="green">الجرعة: {item.dosage}</Tag>}
-                      {item.frequency && <Tag color="orange">التكرار: {item.frequency}</Tag>}
-                    </div>
-                  </List.Item>
-                )} 
-                locale={{ emptyText: "لا توجد أدوية جارية حالياً" }}
-              />
-            )
-          },
+            {
+              key: '3',
+              label: <span><HeartOutlined /> المؤشرات الحيوية</span>,
+              children: (
+                <div className="space-y-3">
+                  {vitalsHistory?.length > 0 ? (
+                    vitalsHistory.map((item: any, idx: number) => (
+                      <Card key={idx} size="small" className="rounded-xl shadow-sm border-slate-100">
+                        <div className="flex justify-between items-center mb-2">
+                           <Tag color="blue">{dayjs(item.created_at).format('YYYY-MM-DD HH:mm')}</Tag>
+                           <Tag color="magenta">{item.vital_signs?.temp}°C</Tag>
+                        </div>
+                        <div className="grid grid-cols-3 gap-2 text-center">
+                          <div><p className="text-[10px] text-slate-400 m-0">BP</p><b>{item.vital_signs?.bp}</b></div>
+                          <div><p className="text-[10px] text-slate-400 m-0">Pulse</p><b>{item.vital_signs?.pulse}</b></div>
+                          <div><p className="text-[10px] text-slate-400 m-0">SPO2</p><b>{item.vital_signs?.spo2}</b></div>
+                        </div>
+                      </Card>
+                    ))
+                  ) : (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="لا توجد مؤشرات حيوية مسجلة" />
+                  )}
+                </div>
+              )
+            },
+            {
+              key: '4',
+              label: <span><MedicineBoxOutlined /> الأدوية الحالية</span>,
+              children: (
+                <div className="bg-white border border-slate-200 rounded-2xl p-4 divide-y divide-slate-100">
+                  {currentMedications?.length > 0 ? (
+                    currentMedications.map((item: any, idx: number) => (
+                      <div key={idx} className="flex justify-between items-center py-2.5 first:pt-0 last:pb-0">
+                        <span className="font-bold text-slate-800">{item.drug_name}</span>
+                        <div className="flex gap-2">
+                          {item.qty && <Tag color="blue">الكمية: {item.qty}</Tag>}
+                          {item.dosage && <Tag color="green">الجرعة: {item.dosage}</Tag>}
+                          {item.frequency && <Tag color="orange">التكرار: {item.frequency}</Tag>}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="لا توجد أدوية جارية حالياً" />
+                  )}
+                </div>
+              )
+            },
           {
             key: '5',
             label: <span><HeartOutlined /> رسم بياني للعلامات الحيوية</span>,

@@ -5,6 +5,7 @@ import { MedicineBoxOutlined, SendOutlined, HistoryOutlined, CheckCircleOutlined
 import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
 import dayjs from 'dayjs';
+import { secureStorage } from '../../../utils/securityMiddleware';
 
 export const PharmacyDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -91,7 +92,7 @@ export const PharmacyDashboard: React.FC = () => {
       } catch {
         // Fallback: استخدام localStorage كحل احتياطي مؤقت فقط
         dispensedOfflineIds = offlinePres
-          .filter(op => localStorage.getItem(`dispensed_offline_${op.id}`))
+          .filter(op => secureStorage.getItem(`dispensed_offline_${op.id}`))
           .map(op => op.id);
       }
       setPrescriptions(offlinePres.filter(op => !dispensedOfflineIds.includes(op.id)));
@@ -198,7 +199,7 @@ export const PharmacyDashboard: React.FC = () => {
 
     if (!navigator.onLine) {
       if (orderId.startsWith('queued-pres-')) {
-        localStorage.setItem(`dispensed_offline_${orderId}`, 'true');
+        secureStorage.setItem(`dispensed_offline_${orderId}`, 'true');
         message.warning('تم صرف الروشتة محلياً بنجاح! سيتم خصم الكميات من المخزن وتوثيقها سحابياً فور عودة الاتصال 📶');
         setSelectedOrder(null);
         fetchPendingPrescriptions();
@@ -207,18 +208,23 @@ export const PharmacyDashboard: React.FC = () => {
       }
     }
 
-    const { error } = await supabase.rpc('hims_dispense_prescription', {
-      p_prescription_id: orderId
-    });
+    try {
+      const { error } = await supabase.rpc('hims_dispense_prescription', {
+        p_prescription_id: orderId
+      });
 
-    if (error) {
-      message.error('فشل عملية الصرف: ' + error.message);
-    } else {
-      message.success('تم صرف العلاج وتحديث المخزون وقيود التكلفة بنجاح ✅');
-      setSelectedOrder(null);
-      fetchPendingPrescriptions();
+      if (error) {
+        message.error('فشل عملية الصرف: ' + (error.message || 'تأكد من تسديد الفاتورة أولاً'));
+      } else {
+        message.success('تم صرف العلاج وتحديث المخزون وقيود التكلفة بنجاح ✅');
+        setSelectedOrder(null);
+        fetchPendingPrescriptions();
+      }
+    } catch (err: any) {
+      message.error('خطأ أثناء تنفيذ الصرف: ' + (err?.message || 'تعذر الصرف الحقيقي'));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // 🚀 دالة معالجة مسح الباركود
@@ -284,7 +290,9 @@ export const PharmacyDashboard: React.FC = () => {
         if (billing?.insurance_provider_id) {
           return <Tag color="green">موافقة تأمينية 🛡️</Tag>;
         }
-        const isPaid = billing?.payment_status === 'paid';
+        const isPaid = billing?.payment_status === 'paid' || 
+                       billing?.insurance_provider_id || 
+                       (billing && (billing.patient_paid_amount || billing.paid_amount || 0) >= (billing.total_amount || 0));
         return isPaid ? (
           <Tag color="success">مدفوع بالخزينة ✅</Tag>
         ) : (
@@ -297,7 +305,9 @@ export const PharmacyDashboard: React.FC = () => {
       render: (record: any) => {
         const visitBilling = record.hims_visits?.hims_billing;
         const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
-        const isPaid = billing?.payment_status === 'paid' || billing?.insurance_provider_id;
+        const isPaid = billing?.payment_status === 'paid' || 
+                       billing?.insurance_provider_id || 
+                       (billing && (billing.patient_paid_amount || billing.paid_amount || 0) >= (billing.total_amount || 0));
         return (
           <Tooltip title={!isPaid ? "يجب سداد قيمة الروشتة بالخزينة أولاً" : "فتح تفاصيل الروشتة لتجهيز العلاج"}>
             <Button 

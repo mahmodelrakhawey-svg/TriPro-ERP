@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2 } from 'lucide-react';
+import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2, X } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { scanNationalID } from '@/services/geminiService';
@@ -93,6 +93,15 @@ const PatientManager = () => {
             p.full_name?.toLowerCase().includes(lowerSearch) || 
             p.national_id?.includes(lowerSearch)
           );
+        }
+
+        if (offlineList.length === 0) {
+          offlineList = [
+            { id: '11111111-1111-4111-a111-222222222222', full_name: 'أحمد محمود علي', national_id: '29508120101543', dob: '1995-08-12', gender: 'male', blood_type: 'O+', phone: '01012345678', customer_id: 'cust-1' },
+            { id: '11111111-1111-4111-a111-444444444444', full_name: 'سارة إبراهيم الشريف', national_id: '29803241402212', dob: '1998-03-24', gender: 'female', blood_type: 'A+', phone: '01123456789', customer_id: 'cust-2' },
+            { id: '11111111-1111-4111-a111-555555555555', full_name: 'محمد عبد الرحمن خالد', national_id: '28911050203341', dob: '1989-11-05', gender: 'male', blood_type: 'B+', phone: '01234567890', customer_id: 'cust-3' },
+            { id: '11111111-1111-4111-a111-666666666666', full_name: 'فاطمة الزهراء حسن', national_id: '30105150104432', dob: '2001-05-15', gender: 'female', blood_type: 'AB+', phone: '01543216789', customer_id: 'cust-4' }
+          ];
         }
 
         setDisplayedPatients(offlineList);
@@ -363,7 +372,7 @@ const PatientManager = () => {
               <h2 className="text-xl font-black text-slate-800">
                 {editingId ? 'تعديل بيانات المريض' : 'تسجيل مريض جديد'}
               </h2>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><Trash2 size={24} /></button>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24} /></button>
             </div>
             <form onSubmit={handleSave} className="p-8 space-y-5">
               {/* 📸 زر المسح الضوئي الذكي (ID OCR Scanner) */}
@@ -434,6 +443,16 @@ const PatientManager = () => {
                       {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">رقم الهاتف</label>
+                  <input 
+                    type="tel"
+                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none"
+                    placeholder="01xxxxxxxxx"
+                    value={formData.phone}
+                    onChange={e => setFormData({...formData, phone: e.target.value})}
+                  />
                 </div>
               </div>
               <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black text-lg hover:bg-blue-700 shadow-xl shadow-blue-100 transition-all active:scale-95">

@@ -53,6 +53,12 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
     }
   }, [bill]);
 
+  useEffect(() => {
+    if (visitId) {
+      calculateBill();
+    }
+  }, [visitId]);
+
   const calculateBill = async () => {
     // 🛡️ التحقق من صحة تنسيق المعرف قبل الإرسال لتجنب خطأ 400
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -146,12 +152,12 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
     if (error) message.error(error.message);
     else {
       message.success(isDepositMode ? 'تم تسجيل دفعة المقدم وترحيل القيد بنجاح ✅' : 'تم تحصيل الفاتورة وترحيل القيود للأستاذ العام بنجاح ✅');
-      setBill(null);
       setIsDepositMode(false);
       setDepositAmount(0);
       setIsInsuranceMode(false);
       setSelectedInsurance(null);
       setInsuranceAmount(0);
+      calculateBill();
     }
     setLoading(false);
   };
@@ -159,7 +165,7 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
   // حسابات محرك التعاقدات اللحظية (مع التقريب لمنع مشاكل الفاصلة العائمة)
   const totalAmount = Number((bill?.total_amount || 0).toFixed(2));
   const insuranceCoverage = Number((isInsuranceMode ? insuranceAmount : (bill?.insurance_covered_amount || 0)).toFixed(2));
-  const paidAmount = Number((bill?.patient_paid_amount || 0).toFixed(2));
+  const paidAmount = Number((bill?.patient_paid_amount || bill?.paid_amount || 0).toFixed(2));
   const initialPatientShare = Number(Math.max(0, totalAmount - insuranceCoverage).toFixed(2));
   const remainingShare = Number(Math.max(0, initialPatientShare - paidAmount).toFixed(2));
   const finalAmountToPay = isDepositMode ? depositAmount : Number(Math.max(0, remainingShare - manualDiscount).toFixed(2));

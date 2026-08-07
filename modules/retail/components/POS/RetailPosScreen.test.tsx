@@ -6,6 +6,7 @@ import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import { db, offlineService } from '../../../../services/offlineService';
+import { secureStorage } from '../../../../utils/securityMiddleware';
 
 // 1. Mocking Contexts
 vi.mock('../../../../context/AccountingContext', () => ({
@@ -138,18 +139,18 @@ describe('🛒 RetailPosScreen Integration Tests', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    localStorage.clear();
+    secureStorage.removeItem('tripro_shift_user-123');
 
-    // Pre-populate localStorage with an active shift to bypass cashier shift opening modal
-    localStorage.setItem(
+    // Pre-populate secureStorage with an active shift to bypass cashier shift opening modal
+    secureStorage.setItem(
       'tripro_shift_user-123',
-      JSON.stringify({
+      {
         id: 'shift-123',
         user_id: 'user-123',
         organization_id: 'org-123',
         opening_balance: 1000,
         pos_terminals: { id: 'term-123', name: 'الكاشير الرئيسي 1' },
-      })
+      }
     );
 
     (useToast as any).mockReturnValue({

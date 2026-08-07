@@ -4,6 +4,7 @@ import { Card, Tabs, Select, Button, Table, Tag, message, Typography, InputNumbe
 import { ExperimentOutlined, CameraOutlined, MedicineBoxOutlined, PlusOutlined, HeartOutlined, ToolOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
 import { offlineService } from '../../../services/offlineService';
+import { secureStorage } from '../../../utils/securityMiddleware';
 
 const { Option } = Select;
 
@@ -50,17 +51,17 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           setLabTests(labRes.data || []);
           setRadTypes(radRes.data || []);
 
-          localStorage.setItem(`hims_lab_tests_${orgId}`, JSON.stringify(labRes.data || []));
-          localStorage.setItem(`hims_radiology_types_${orgId}`, JSON.stringify(radRes.data || []));
+          secureStorage.setItem(`hims_lab_tests_${orgId}`, labRes.data || []);
+          secureStorage.setItem(`hims_radiology_types_${orgId}`, radRes.data || []);
         } catch (err) {
           console.error("Failed online fetchMasters:", err);
         }
       } else {
-        const cachedLab = localStorage.getItem(`hims_lab_tests_${orgId}`);
-        const cachedRad = localStorage.getItem(`hims_radiology_types_${orgId}`);
+        const cachedLab = secureStorage.getItem(`hims_lab_tests_${orgId}`);
+        const cachedRad = secureStorage.getItem(`hims_radiology_types_${orgId}`);
         
-        let labs = cachedLab ? JSON.parse(cachedLab) : [];
-        let rads = cachedRad ? JSON.parse(cachedRad) : [];
+        let labs: any[] = (cachedLab as any[]) ?? [];
+        let rads: any[] = (cachedRad as any[]) ?? [];
 
         if (labs.length === 0) {
           labs = [

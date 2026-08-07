@@ -4,6 +4,7 @@ import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { db, offlineService } from '../../../../services/offlineService';
 import type { CachedProduct } from '../../../../services/offlineService';
+import { secureStorage } from '../../../../utils/securityMiddleware';
 import { 
   Barcode, 
   Trash2, 
@@ -282,11 +283,10 @@ export default function RetailPosScreen() {
       // 2. Sync products locally
       await offlineService.syncProductsLocally(currentUser.organization_id);
 
-      // 3. Check if this user has an active shift on this device (check localStorage or database)
       let activeShiftDb = null;
-      const cachedShift = localStorage.getItem(`tripro_shift_${currentUser.id}`);
+      const cachedShift = secureStorage.getItem<any>(`tripro_shift_${currentUser.id}`);
       if (cachedShift) {
-        const parsed = JSON.parse(cachedShift);
+        const parsed = typeof cachedShift === 'string' ? JSON.parse(cachedShift) : cachedShift;
         // Verify with database if it's still open
         const { data: dbShift, error: shiftErr } = await supabase
           .from('shifts')
@@ -298,7 +298,7 @@ export default function RetailPosScreen() {
         if (!shiftErr && dbShift) {
           activeShiftDb = dbShift;
         } else {
-          localStorage.removeItem(`tripro_shift_${currentUser.id}`);
+          secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
         }
       }
 
@@ -321,7 +321,7 @@ export default function RetailPosScreen() {
       if (activeShiftDb) {
         setActiveShift(activeShiftDb);
         setSelectedTerminal(activeShiftDb.pos_terminals || null);
-        localStorage.setItem(`tripro_shift_${currentUser.id}`, JSON.stringify(activeShiftDb));
+        secureStorage.setItem(`tripro_shift_${currentUser.id}`, activeShiftDb);
       }
     } catch (err) {
       console.error('Error in setup:', err);
@@ -370,7 +370,7 @@ export default function RetailPosScreen() {
           .single();
 
         setActiveShift(fullShift);
-        localStorage.setItem(`tripro_shift_${currentUser.id}`, JSON.stringify(fullShift));
+        secureStorage.setItem(`tripro_shift_${currentUser.id}`, fullShift);
         showToast('تم فتح الوردية بنجاح ✅', 'success');
       }
     } catch (err: any) {

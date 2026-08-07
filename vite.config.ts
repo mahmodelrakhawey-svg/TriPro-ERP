@@ -8,6 +8,13 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        proxy: {
+          '/orthanc-api': {
+            target: 'http://localhost:8042',
+            changeOrigin: true,
+            rewrite: (path) => path.replace(/^\/orthanc-api/, ''),
+          },
+        },
       },
       plugins: [react()],
       define: {

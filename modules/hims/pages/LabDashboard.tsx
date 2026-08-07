@@ -4,6 +4,7 @@ import { Table, Tag, Input, Button, Modal, message, Card, Typography, Select, Sp
 import { ExperimentOutlined, CheckCircleOutlined, EditOutlined, BoxPlotOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
+import { secureStorage } from '../../../utils/securityMiddleware';
 
 export const LabDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -40,8 +41,7 @@ export const LabDashboard: React.FC = () => {
           return cP?.full_name || 'مريض غير مسجل';
         };
 
-        const cachedLabMastersString = localStorage.getItem(`hims_lab_tests_${currentUser.organization_id}`);
-        const cachedLabMasters = cachedLabMastersString ? JSON.parse(cachedLabMastersString) : [];
+        const cachedLabMasters: any[] = (secureStorage.getItem(`hims_lab_tests_${currentUser.organization_id}`) as any[]) || [];
 
         const offlineOrders: any[] = [];
         let index = 1;
@@ -77,7 +77,7 @@ export const LabDashboard: React.FC = () => {
           }
         }
 
-        setOrders(offlineOrders.filter(o => !localStorage.getItem(`completed_lab_${o.id}`)));
+        setOrders(offlineOrders.filter(o => !secureStorage.getItem(`completed_lab_${o.id}`)));
       }
     } catch (e) {
       console.error(e);
@@ -185,7 +185,7 @@ export const LabDashboard: React.FC = () => {
     setLoading(true);
 
     if (!navigator.onLine && selectedOrder.id.startsWith('queued-lab-')) {
-      localStorage.setItem(`completed_lab_${selectedOrder.id}`, resultValue);
+      secureStorage.setItem(`completed_lab_${selectedOrder.id}`, resultValue);
       message.warning('تم تسجيل نتيجة التحليل محلياً بنجاح! سيتم توثيقها سحابياً فور عودة الاتصال 📶');
       setSelectedOrder(null);
       setResultValue('');

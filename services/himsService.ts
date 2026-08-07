@@ -244,17 +244,49 @@ export const himsService = {
 
   // 15. جلب قائمة المرضى بانتظار الطبيب (Queue Manager)
   async getDoctorQueue(userId: string, orgId?: string) {
+    let doctorIdFilter = userId;
+    if (userId) {
+      const { data: docRecord } = await supabase
+        .from('hims_doctors')
+        .select('id')
+        .or(`profile_id.eq.${userId},id.eq.${userId}`)
+        .maybeSingle();
+      if (docRecord?.id) {
+        doctorIdFilter = docRecord.id;
+      }
+    }
+
     let query = supabase
       .from('hims_visits')
       .select('*, hims_patients(id, full_name, national_id), hims_lab_orders(status), hims_radiology_orders(status)')
       .in('status', ['triaged', 'in_consultation']);
+
     if (orgId) {
       query = query.eq('organization_id', orgId);
     }
+
+    if (doctorIdFilter) {
+      query = query.or(`doctor_id.eq.${doctorIdFilter},doctor_id.eq.${userId}`);
+    }
+
     const { data, error } = await query.order('created_at', { ascending: true });
 
     if (error) throw error;
-    return data;
+
+    if ((!data || data.length === 0) && orgId) {
+      const { data: orgVisits } = await supabase
+        .from('hims_visits')
+        .select('*, hims_patients(id, full_name, national_id), hims_lab_orders(status), hims_radiology_orders(status)')
+        .eq('organization_id', orgId)
+        .in('status', ['triaged', 'in_consultation'])
+        .order('created_at', { ascending: true });
+
+      if (orgVisits && orgVisits.length > 0) {
+        return orgVisits;
+      }
+    }
+
+    return data || [];
   },
 
   // 16. بدء الكشف الطبي وتحديث حالة الزيارة

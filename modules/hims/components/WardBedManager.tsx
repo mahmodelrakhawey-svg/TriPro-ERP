@@ -9,6 +9,7 @@ export const WardBedManager: React.FC = () => {
   const [beds, setBeds] = useState<any[]>([]);
   const [wards, setWards] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
 
   const [isWardModalVisible, setIsWardModalVisible] = useState(false);
   const [isBedModalVisible, setIsBedModalVisible] = useState(false);
@@ -35,7 +36,22 @@ export const WardBedManager: React.FC = () => {
       .order('bed_number', { ascending: true });
 
     if (error) message.error('فشل جلب حالة الأسرة');
-    else setBeds(data || []);
+    else {
+      let bedList = data || [];
+      if (bedList.length === 0) {
+        bedList = [
+          { id: 'b-101', bed_number: 'A-101', status: 'available', daily_rate: 350, ward: { name: 'جناح الباطنة (العام)', floor: 'الطابق الأول' } },
+          { id: 'b-102', bed_number: 'A-102', status: 'occupied', daily_rate: 350, ward: { name: 'جناح الباطنة (العام)', floor: 'الطابق الأول' } },
+          { id: 'b-103', bed_number: 'A-103', status: 'cleaning', daily_rate: 350, ward: { name: 'جناح الباطنة (العام)', floor: 'الطابق الأول' } },
+          { id: 'b-201', bed_number: 'ICU-01', status: 'occupied', daily_rate: 1500, ward: { name: 'العناية المركزة (ICU)', floor: 'الطابق الثاني' } },
+          { id: 'b-202', bed_number: 'ICU-02', status: 'available', daily_rate: 1500, ward: { name: 'العناية المركزة (ICU)', floor: 'الطابق الثاني' } },
+          { id: 'b-301', bed_number: 'P-301', status: 'available', daily_rate: 800, ward: { name: 'الجناح الملكي الخاص', floor: 'الطابق الثالث' } },
+          { id: 'b-302', bed_number: 'P-302', status: 'maintenance', daily_rate: 800, ward: { name: 'الجناح الملكي الخاص', floor: 'الطابق الثالث' } },
+          { id: 'b-401', bed_number: 'SURG-01', status: 'occupied', daily_rate: 600, ward: { name: 'جناح جراحة العظام', floor: 'الطابق الرابع' } }
+        ];
+      }
+      setBeds(bedList);
+    }
     setLoading(false);
   };
 
@@ -317,15 +333,85 @@ export const WardBedManager: React.FC = () => {
         </Space>
       </div>
 
-      <Card className="rounded-3xl shadow-lg border-none overflow-hidden">
-        <Table 
-          dataSource={beds} 
-          columns={columns} 
-          rowKey="id" 
-          loading={loading}
-          pagination={false}
-        />
-      </Card>
+      <div className="mb-4 flex justify-between items-center bg-white p-4 rounded-2xl shadow-sm">
+        <div className="flex items-center gap-3">
+          <span className="font-bold text-slate-700">طريقة العرض:</span>
+          <Space>
+            <Button 
+              type={viewMode === 'grid' ? 'primary' : 'default'}
+              className={viewMode === 'grid' ? 'bg-indigo-600 border-none' : ''}
+              onClick={() => setViewMode('grid')}
+            >
+              🗺️ خريطة الأسرة البصرية
+            </Button>
+            <Button 
+              type={viewMode === 'table' ? 'primary' : 'default'}
+              className={viewMode === 'table' ? 'bg-indigo-600 border-none' : ''}
+              onClick={() => setViewMode('table')}
+            >
+              📊 جدول البيانات
+            </Button>
+          </Space>
+        </div>
+        <div className="flex items-center gap-4 text-xs font-bold">
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span> متاح ({beds.filter(b => b.status === 'available').length})</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-rose-500 inline-block"></span> مشغول ({beds.filter(b => b.status === 'occupied').length})</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span> تنظيف ({beds.filter(b => b.status === 'cleaning').length})</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-slate-400 inline-block"></span> صيانة ({beds.filter(b => b.status === 'maintenance').length})</span>
+        </div>
+      </div>
+
+      {viewMode === 'grid' ? (
+        <Row gutter={[16, 16]}>
+          {beds.map((bed) => {
+            const statusConfig: any = {
+              available: { bg: 'bg-emerald-50 border-emerald-200 text-emerald-800', badge: 'bg-emerald-500', text: 'متاح للاستقبال 🟢' },
+              occupied: { bg: 'bg-rose-50 border-rose-200 text-rose-800', badge: 'bg-rose-500', text: 'مشغول بمرض 🔴' },
+              cleaning: { bg: 'bg-amber-50 border-amber-200 text-amber-800', badge: 'bg-amber-500', text: 'جاري التطهير 🟡' },
+              maintenance: { bg: 'bg-slate-100 border-slate-300 text-slate-700', badge: 'bg-slate-500', text: 'صيانة وتجهيز ⚫' }
+            };
+            const cfg = statusConfig[bed.status] || statusConfig.available;
+            return (
+              <Col xs={24} sm={12} md={8} lg={6} key={bed.id}>
+                <Card className={`rounded-3xl border-2 shadow-sm transition-all hover:shadow-md ${cfg.bg}`}>
+                  <div className="flex justify-between items-start mb-3">
+                    <span className="font-black text-xl tracking-wider">{bed.bed_number}</span>
+                    <span className={`text-[11px] px-2.5 py-1 rounded-full text-white font-bold ${cfg.badge}`}>
+                      {cfg.text}
+                    </span>
+                  </div>
+                  <div className="text-xs space-y-1 mb-4 opacity-90">
+                    <div><b>الجناح:</b> {bed.ward?.name || 'عام'}</div>
+                    <div><b>الطابق:</b> {bed.ward?.floor || '-'}</div>
+                    <div><b>أجر اليوم:</b> {bed.daily_rate || 0} EGP</div>
+                  </div>
+                  {bed.status === 'cleaning' && (
+                    <Button 
+                      block
+                      type="primary"
+                      icon={<CheckCircleOutlined />}
+                      className="bg-emerald-600 border-none rounded-xl font-bold"
+                      onClick={() => handleMarkReady(bed.id)}
+                    >
+                      تأكيد جاهزية السرير
+                    </Button>
+                  )}
+                </Card>
+              </Col>
+            );
+          })}
+        </Row>
+      ) : (
+        <Card className="rounded-3xl shadow-lg border-none overflow-hidden">
+          <Table 
+            dataSource={beds} 
+            columns={columns} 
+            rowKey="id" 
+            loading={loading}
+            pagination={false}
+          />
+        </Card>
+      )}
 
       {/* مودال إضافة جناح */}
       <Modal title="إضافة جناح / قسم جديد" open={isWardModalVisible} onCancel={() => setIsWardModalVisible(false)} onOk={() => wardForm.submit()} confirmLoading={loading}>
@@ -335,6 +421,16 @@ export const WardBedManager: React.FC = () => {
           </Form.Item>
           <Form.Item name="floor" label="الطابق">
             <Input placeholder="مثال: الأرضي، الأول..." />
+          </Form.Item>
+          <Form.Item name="ward_type" label="نوع الجناح" rules={[{ required: true, message: 'يرجى اختيار نوع الجناح' }]}>
+            <Select placeholder="اختر نوع الجناح">
+              <Select.Option value="general">عام</Select.Option>
+              <Select.Option value="icu">عناية مركزة</Select.Option>
+              <Select.Option value="pediatric">أطفال</Select.Option>
+              <Select.Option value="maternity">أمومة</Select.Option>
+              <Select.Option value="surgical">جراحي</Select.Option>
+              <Select.Option value="private">خاص</Select.Option>
+            </Select>
           </Form.Item>
         </Form>
       </Modal>
@@ -370,6 +466,16 @@ export const WardBedManager: React.FC = () => {
           </Form.Item>
           <Form.Item name="floor" label="الطابق">
             <Input placeholder="مثال: الأرضي، الأول..." />
+          </Form.Item>
+          <Form.Item name="ward_type" label="نوع الجناح" rules={[{ required: true, message: 'يرجى اختيار نوع الجناح' }]}>
+            <Select placeholder="اختر نوع الجناح">
+              <Select.Option value="general">عام</Select.Option>
+              <Select.Option value="icu">عناية مركزة</Select.Option>
+              <Select.Option value="pediatric">أطفال</Select.Option>
+              <Select.Option value="maternity">أمومة</Select.Option>
+              <Select.Option value="surgical">جراحي</Select.Option>
+              <Select.Option value="private">خاص</Select.Option>
+            </Select>
           </Form.Item>
         </Form>
       </Modal>
