@@ -140,8 +140,11 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
     Return JSON only with keys: full_name, national_id, dob, gender.
   `;
 
-  let firstErr = '';
-  for (const model of ['gemini-2.0-flash', 'gemini-2.0-flash-lite']) {
+  let lastQuotaErr = false;
+  let lastErr = '';
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-8b'];
+
+  for (const model of modelsToTry) {
     try {
       const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
       const res = await fetch(endpoint, {
@@ -172,19 +175,27 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       console.warn(`[callGeminiRestDirect] Model ${model} failed (${res.status}):`, errMsg);
 
       if (res.status === 429 || errMsg.includes('Quota exceeded') || errMsg.includes('exceeded your current quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
-        console.warn(`[callGeminiRestDirect] Model ${model} rate limited, trying next model...`);
-        firstErr = 'تم الوصول للحد المسموح مؤقتاً لطلبات الذكاء الاصطناعي المجانية (Rate Limit). يرجى الانتظار 15 ثانية ثم إعادة المحاولة.';
+        lastQuotaErr = true;
+        lastErr = errMsg;
         continue;
       }
 
-      firstErr = errMsg;
-      throw new Error(`خطأ في قراءة بيانات البطاقة من Gemini (${model}): ${errMsg}`);
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        throw new Error(`مفتاح Gemini API غير صالح أو غير مفعّل (${errMsg}). يرجى إنشاء مفتاح جديد من Google AI Studio.`);
+      }
+
+      lastErr = errMsg;
     } catch (e: any) {
-      if (e?.message?.includes('خطأ في قراءة بيانات البطاقة') || e?.message?.includes('تم الوصول للحد الأقصى')) throw e;
-      if (!firstErr) firstErr = e?.message || String(e);
+      if (e?.message?.includes('مفتاح Gemini API')) throw e;
+      lastErr = e?.message || String(e);
     }
   }
-  throw new Error(firstErr || "تم الوصول للحد المسموح مؤقتاً لطلبات الذكاء الاصطناعي. يرجى الانتظار 15 ثانية ثم المحاولة.");
+
+  if (lastQuotaErr) {
+    throw new Error('هذا المفتاح تم إنشاؤه بدون تفعيل الخطة المجانية (limit: 0). يرجى إنشاء مفتاح جديد مجاني من Google AI Studio (aistudio.google.com/app/apikey).');
+  }
+
+  throw new Error(lastErr || "فشل الاتصال المباشر بـ Gemini API. يرجى التحقق من المفتاح.");
 };
 
 /**
