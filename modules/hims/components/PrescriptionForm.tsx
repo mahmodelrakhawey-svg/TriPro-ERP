@@ -358,7 +358,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
             type="success"
             showIcon
             icon={<CheckCircleOutlined />}
-            message="تم توثيق الروشتة وتشفيرها رقمياً بنجاح ✅"
+            title="تم توثيق الروشتة وتشفيرها رقمياً بنجاح ✅"
             description={
               <div className="text-xs text-right">
                 <div>رمز التوقيع: <code className="bg-slate-100 px-1 py-0.5 rounded font-mono">SHA256-{lastSignature.hash}</code></div>

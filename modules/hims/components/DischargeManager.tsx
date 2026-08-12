@@ -138,7 +138,7 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
                     key={index}
                     type="warning"
                     showIcon
-                    message="إجراءات طبية معلقة"
+                    title="إجراءات طبية معلقة"
                     description={warn}
                   />
                 ))
@@ -149,7 +149,7 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
                 <Alert
                   type="error"
                   showIcon
-                  message="مديونية غير مسددة"
+                  title="مديونية غير مسددة"
                   description={
                     canOverrideDebt
                       ? <span>أنت تملك صلاحية <strong>المدير</strong> لتجاوز هذا التحذير والإتمام. اضغط "تجاوز المديونية وتأكيد الخروج" للمتابعة.</span>

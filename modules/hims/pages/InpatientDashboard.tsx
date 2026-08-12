@@ -109,7 +109,7 @@ export const InpatientDashboard: React.FC = () => {
       {error && (
         <Alert
           type="error"
-          message={error}
+          title={error}
           showIcon
           closable
           onClose={() => setError(null)}

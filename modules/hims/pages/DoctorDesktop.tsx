@@ -140,7 +140,7 @@ export const DoctorDesktop: React.FC = () => {
       
     if (data) {
       const remainingBalance = Math.max(0, (data.total_amount || 0) - (data.insurance_covered_amount || 0) - (data.patient_paid_amount || 0));
-      setFinancialStatus({ cleared: data.payment_status === 'paid', balance: remainingBalance });
+      setFinancialStatus({ cleared: data.payment_status === 'paid' || remainingBalance <= 0.01, balance: remainingBalance });
     }
   };
 
