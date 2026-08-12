@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Table, Tag, Card, Typography, Row, Col, Statistic, Tabs, Button, Modal, Form, Input, Select, message, DatePicker } from 'antd';
+import { Table, Tag, Card, Typography, Row, Col, Statistic, Tabs, Button, Modal, Form, Input, Select, message, DatePicker, Space } from 'antd';
 import { HeartTwoTone, MedicineBoxOutlined, UserAddOutlined, PlusCircleOutlined, ExperimentOutlined } from '@ant-design/icons';
 import { Users } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
@@ -239,21 +239,20 @@ export const BloodBankDashboard: React.FC = () => {
           <Form.Item label="فصيلة الدم">
             <Tag color="red" className="font-bold text-sm px-4 py-1">{selectedDonor?.blood_type}</Tag>
           </Form.Item>
-          <Form.Item name="bag_code" label="كود كيس الدم" rules={[{ required: true, message: 'يرجى إدخال كود الكيس' }]}>
-            <Input 
-              placeholder="مثال: BAG-A-100234" 
-              addonAfter={
-                <span 
-                  className="cursor-pointer text-xs font-bold text-blue-600 hover:text-blue-800"
-                  onClick={() => {
-                    const newCode = `BAG-${(selectedDonor?.blood_type || 'DON').replace('+', 'P').replace('-', 'N')}-${Math.floor(100000 + Math.random() * 900000)}`;
-                    donationForm.setFieldsValue({ bag_code: newCode });
-                  }}
-                >
-                  توليد كود 🎲
-                </span>
-              }
-            />
+          <Form.Item label="كود كيس الدم" required>
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item name="bag_code" noStyle rules={[{ required: true, message: 'يرجى إدخال كود الكيس' }]}>
+                <Input placeholder="مثال: BAG-A-100234" />
+              </Form.Item>
+              <Button 
+                onClick={() => {
+                  const newCode = `BAG-${(selectedDonor?.blood_type || 'DON').replace('+', 'P').replace('-', 'N')}-${Math.floor(100000 + Math.random() * 900000)}`;
+                  donationForm.setFieldsValue({ bag_code: newCode });
+                }}
+              >
+                توليد كود 🎲
+              </Button>
+            </Space.Compact>
           </Form.Item>
           <Form.Item name="expiry_date" label="تاريخ انتهاء الصلاحية" rules={[{ required: true, message: 'يرجى اختيار تاريخ انتهاء الصلاحية' }]}>
             <DatePicker className="w-full" placeholder="اختر التاريخ" format="YYYY-MM-DD" />
