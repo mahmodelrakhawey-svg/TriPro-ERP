@@ -170,7 +170,7 @@ const MedicalBilling: React.FC = () => {
           <Card className="rounded-2xl border-none shadow-sm text-center">
             <Statistic 
               title="عدد المرضى المعلقين مالياً" 
-              value={activeBills.length} 
+              value={activeBills.filter(r => (r.payment_status !== 'paid' && Math.max(0, (r.total_amount || 0) - (r.patient_paid_amount || 0) - (r.insurance_covered_amount || 0)) > 0.01)).length} 
               prefix={<UserOutlined className="text-blue-500" />} 
             />
           </Card>

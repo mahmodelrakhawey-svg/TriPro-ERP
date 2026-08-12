@@ -59,9 +59,6 @@ export const DoctorDesktop: React.FC = () => {
           ];
         }
         setQueue(finalQueue);
-        if (finalQueue.length > 0 && !activeVisit) {
-          setActiveVisit(finalQueue[0]);
-        }
         setEmergencyAlerts(monitorData?.filter((a: any) => a.alert_status.includes('🔴')) || []);
       } else {
         const queuedVisits = await db.queuedVisits.toArray();
@@ -143,6 +140,12 @@ export const DoctorDesktop: React.FC = () => {
       setFinancialStatus({ cleared: data.payment_status === 'paid' || remainingBalance <= 0.01, balance: remainingBalance });
     }
   };
+
+  useEffect(() => {
+    if (activeVisit?.id) {
+      checkFinancialClearance(activeVisit.id);
+    }
+  }, [activeVisit?.id]);
 
   const startConsultation = async (record: any) => {
     try {
