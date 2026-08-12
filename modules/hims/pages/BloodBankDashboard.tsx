@@ -53,7 +53,13 @@ export const BloodBankDashboard: React.FC = () => {
       setIsDonorModalOpen(false);
       form.resetFields();
       fetchStock();
-    } catch (e: any) { message.error('فشل التسجيل: ' + (e.message || '')); }
+    } catch (e: any) { 
+      if (e.message?.includes('duplicate key') || e.code === '23505' || e.message?.includes('409') || e.message?.includes('Conflict')) {
+        message.warning('هذا المتبرع مسجل مسبقاً (رقم قومي أو هاتف مكرر)! يرجى البحث عنه في السجل بدلاً من إعادة تسجيله.');
+      } else {
+        message.error('فشل التسجيل: ' + (e.message || '')); 
+      }
+    }
   };
 
   const handleOpenDonationModal = (donor: any) => {
