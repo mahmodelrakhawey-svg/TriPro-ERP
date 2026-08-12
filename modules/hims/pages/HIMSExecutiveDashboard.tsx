@@ -39,17 +39,44 @@ export const HIMSExecutiveDashboard: React.FC = () => {
     setLoading(true);
 
     try {
-      const { data } = await supabase.rpc('get_hims_executive_stats', { p_org_id: currentUser.organization_id });
-      if (data && (data.dailyRevenue > 0 || data.totalPatients > 0)) {
-        setStats({
-          ...data,
-          revenueByDept: data.revenueByDept?.length ? data.revenueByDept : stats.revenueByDept,
+      let rpcData = null;
+      try {
+        const { data } = await supabase.rpc('get_hims_executive_stats', { p_org_id: currentUser.organization_id });
+        rpcData = data;
+      } catch (err) {
+        console.warn('RPC failed:', err);
+      }
+
+      // حساب ذمم التأمين بدقة من المطالبات المرفوعة والفواتير المعلقة
+      const { data: claims } = await supabase
+        .from('hims_insurance_claims')
+        .select('total_claim_amount')
+        .eq('organization_id', currentUser.organization_id)
+        .eq('status', 'submitted');
+      const submittedTotal = claims?.reduce((sum, c) => sum + (c.total_claim_amount || 0), 0) || 0;
+
+      const { data: pendingBills } = await supabase
+        .from('hims_billing')
+        .select('insurance_covered_amount')
+        .eq('organization_id', currentUser.organization_id)
+        .is('insurance_claim_id', null)
+        .gt('insurance_covered_amount', 0);
+      const unbilledTotal = pendingBills?.reduce((sum, b) => sum + (b.insurance_covered_amount || 0), 0) || 0;
+
+      const realInsuranceReceivables = submittedTotal + unbilledTotal;
+
+      if (rpcData && (rpcData.dailyRevenue > 0 || rpcData.totalPatients > 0)) {
+        setStats(prev => ({
+          ...prev,
+          ...rpcData,
+          insuranceReceivables: realInsuranceReceivables,
+          revenueByDept: rpcData.revenueByDept?.length ? rpcData.revenueByDept : prev.revenueByDept,
           cashflowForecast: {
-            forecast_data: data.cashflowForecast?.forecast_data?.length ? data.cashflowForecast.forecast_data : stats.cashflowForecast.forecast_data
+            forecast_data: rpcData.cashflowForecast?.forecast_data?.length ? rpcData.cashflowForecast.forecast_data : prev.cashflowForecast.forecast_data
           }
-        });
+        }));
         
-        const breakdown = data.revenueBreakdown || { pharmacy: 35, services: 45, accommodation: 20 };
+        const breakdown = rpcData.revenueBreakdown || { pharmacy: 35, services: 45, accommodation: 20 };
         const totalBreakdown = (breakdown.pharmacy || 0) + (breakdown.services || 0) + (breakdown.accommodation || 0);
         if (totalBreakdown > 0) {
           setCostDistribution([
@@ -58,6 +85,8 @@ export const HIMSExecutiveDashboard: React.FC = () => {
             { name: 'الإقامة', value: Math.round((breakdown.accommodation / totalBreakdown) * 100) }
           ]);
         }
+      } else {
+        setStats(prev => ({ ...prev, insuranceReceivables: realInsuranceReceivables }));
       }
     } catch (err: any) {
       console.warn('Using fallback executive stats:', err);
