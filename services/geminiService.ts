@@ -243,7 +243,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 export const scanNationalID = async (base64Data: string, mimeType: string) => {
   // 0. المحاولة المباشرة من المتصفح إذا قام المستخدم بإدخال مفتاح مخصص في التطبيق (localStorage / secureStorage)
   const clientStoredKey = typeof window !== 'undefined' 
-    ? (localStorage.getItem('user_gemini_api_key') || localStorage.getItem('GEMINI_API_KEY') || secureStorage.getItem<string>('user_gemini_api_key')) 
+    ? (secureStorage.getItem<string>('user_gemini_api_key')) 
     : null;
   if (clientStoredKey && typeof clientStoredKey === 'string' && clientStoredKey.trim()) {
     console.log("استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");

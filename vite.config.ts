@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => {
             manualChunks: {
               'vendor-react': ['react', 'react-dom', 'react-router-dom'],
               'vendor-ui': ['lucide-react', 'recharts', 'react-hot-toast'],
+              'vendor-antd': ['antd', '@ant-design/icons', '@ant-design/cssinjs'],
               'vendor-utils': ['xlsx', 'jspdf', 'html2canvas'],
               'vendor-supabase': ['@supabase/supabase-js'],
             },

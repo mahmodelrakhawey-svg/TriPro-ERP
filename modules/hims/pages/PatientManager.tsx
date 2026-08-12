@@ -35,19 +35,15 @@ const PatientManager = () => {
   const [isScanning, setIsScanning] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState(() => (typeof window !== 'undefined' ? (localStorage.getItem('user_gemini_api_key') || (secureStorage.getItem('user_gemini_api_key') as string) || '') : ''));
+  const [apiKeyInput, setApiKeyInput] = useState(() => (typeof window !== 'undefined' ? ((secureStorage.getItem('user_gemini_api_key') as string) || '') : ''));
 
   const handleSaveApiKey = () => {
     const val = apiKeyInput.replace(/["'\s]/g, '').trim();
     if (val) {
-      localStorage.setItem('user_gemini_api_key', val);
-      localStorage.setItem('GEMINI_API_KEY', val);
       secureStorage.setItem('user_gemini_api_key', val);
       setApiKeyInput(val);
       showToast('تم حفظ مفتاح AI المباشر في المتصفح بنجاح! 🟢', 'success');
     } else {
-      localStorage.removeItem('user_gemini_api_key');
-      localStorage.removeItem('GEMINI_API_KEY');
       secureStorage.removeItem('user_gemini_api_key');
       showToast('تم إزالة مفتاح AI المباشر واستخدام الوضع التلقائي', 'info');
     }
@@ -406,7 +402,7 @@ const PatientManager = () => {
                     onClick={() => setIsKeyModalOpen(true)}
                     className="text-xs text-indigo-700 hover:text-indigo-900 bg-white px-2.5 py-1 rounded-xl border border-indigo-200 font-bold flex items-center gap-1 shadow-sm transition-all hover:bg-indigo-50"
                   >
-                    <Key size={13} /> {(typeof window !== 'undefined' && (localStorage.getItem('user_gemini_api_key') || secureStorage.getItem('user_gemini_api_key'))) ? 'مفتاح AI المباشر: 🟢' : 'إدخال مفتاح AI المباشر 🔑'}
+                    <Key size={13} /> {(typeof window !== 'undefined' && (secureStorage.getItem('user_gemini_api_key'))) ? 'مفتاح AI المباشر: 🟢' : 'إدخال مفتاح AI المباشر 🔑'}
                   </button>
                 </div>
                 <label className="flex flex-col items-center justify-center cursor-pointer py-1">
