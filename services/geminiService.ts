@@ -179,8 +179,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
   // المحاولة الثانية: عبر عناوين REST API المباشرة المعتمدة
   const endpointsToTry = [
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${cleanKey}`
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cleanKey}`
   ];
 
   let lastErrorMsg = '';
