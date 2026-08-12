@@ -181,7 +181,7 @@ export const himsService = {
       .select('*')
       .order('full_name', { ascending: true });
     if (orgId) {
-      query = query.eq('organization_id', orgId);
+      query = query.or(`organization_id.eq.${orgId},organization_id.is.null`);
     }
     const { data, error } = await query;
     if (error) throw error;
