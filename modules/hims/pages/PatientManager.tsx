@@ -40,10 +40,14 @@ const PatientManager = () => {
   const handleSaveApiKey = () => {
     const val = apiKeyInput.replace(/["'\s]/g, '').trim();
     if (val) {
+      localStorage.setItem('user_gemini_api_key', val);
+      localStorage.setItem('GEMINI_API_KEY', val);
       secureStorage.setItem('user_gemini_api_key', val);
       setApiKeyInput(val);
       showToast('تم حفظ مفتاح AI المباشر في المتصفح بنجاح! 🟢', 'success');
     } else {
+      localStorage.removeItem('user_gemini_api_key');
+      localStorage.removeItem('GEMINI_API_KEY');
       secureStorage.removeItem('user_gemini_api_key');
       showToast('تم إزالة مفتاح AI المباشر واستخدام الوضع التلقائي', 'info');
     }
@@ -574,7 +578,7 @@ const PatientManager = () => {
               <input 
                 type="password"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono"
-                placeholder="AIzaSy..."
+                placeholder="AQ... أو AIzaSy..."
                 value={apiKeyInput}
                 onChange={e => setApiKeyInput(e.target.value)}
               />

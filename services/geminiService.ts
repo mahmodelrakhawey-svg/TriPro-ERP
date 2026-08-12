@@ -132,6 +132,11 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
 const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey: string) => {
   const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').trim();
   const cleanKey = apiKey.replace(/["'\s]/g, '').trim();
+
+  if (!cleanKey) {
+    throw new Error("مفتاح Gemini API مفقود. يرجى إدخال المفتاح أولاً.");
+  }
+
   const systemInstruction = `
     You are an expert document parser. Extract information from the provided Egyptian National ID card image (front side).
     Translate Arabic numerals (e.g. ٢٩٢...) to Western standard digits (e.g. 292...).
@@ -140,23 +145,59 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
     Return JSON only with keys: full_name, national_id, dob, gender.
   `;
 
-  let lastQuotaErr = false;
-  let lastErr = '';
-  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-8b'];
+  // المحاولة الأولى: عبر المكتبة الرسمية لشركة جوجل SDK
+  try {
+    console.log("[callGeminiRestDirect] Attempting official GoogleGenAI SDK...");
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-1.5-flash-latest',
+      contents: [
+        { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
+        { text: "Extract: full_name, national_id (14 digits), dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card image." }
+      ],
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: "application/json"
+      }
+    });
 
-  for (const model of modelsToTry) {
+    if (response.text) {
+      const cleanJson = response.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+      return JSON.parse(cleanJson);
+    }
+  } catch (sdkErr: any) {
+    console.warn("[callGeminiRestDirect] SDK call failed, trying direct REST endpoints...", sdkErr);
+    const sdkMsg = sdkErr?.message || String(sdkErr);
+    if (sdkMsg.includes('API key') || sdkErr?.status === 400 || sdkErr?.status === 401 || sdkErr?.status === 403) {
+      throw new Error("مفتاح Gemini API غير صالح. يرجى التأكد من نسخه بشكل صحيح من Google AI Studio.");
+    }
+    if (sdkMsg.includes('Quota') || sdkMsg.includes('RESOURCE_EXHAUSTED') || sdkErr?.status === 429) {
+      throw new Error("المفتاح يعمل وسليم ولكن تم تجاوز حد السرعة المجاني المؤقت من جوجل (15 طلب/دقيقة). يرجى الانتظار 20 ثانية ثم إعادة المحاولة.");
+    }
+  }
+
+  // المحاولة الثانية: عبر عناوين REST API المباشرة المعتمدة
+  const endpointsToTry = [
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${cleanKey}`
+  ];
+
+  let lastErrorMsg = '';
+
+  for (const endpoint of endpointsToTry) {
     try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+      console.log(`[callGeminiRestDirect] Posting to: ${endpoint.split('?')[0]}`);
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemInstruction }] },
           contents: [
             {
               parts: [
                 { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
-                { text: "Extract: full_name, national_id, dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card image." }
+                { text: systemInstruction + "\nExtract: full_name, national_id (14 digits), dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card image." }
               ]
             }
           ],
@@ -172,30 +213,28 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       }
 
       const errMsg = data?.error?.message || `HTTP ${res.status} error`;
-      console.warn(`[callGeminiRestDirect] Model ${model} failed (${res.status}):`, errMsg);
-
-      if (res.status === 429 || errMsg.includes('Quota exceeded') || errMsg.includes('exceeded your current quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
-        lastQuotaErr = true;
-        lastErr = errMsg;
-        continue;
-      }
+      console.warn(`[callGeminiRestDirect] Endpoint failed (${res.status}):`, errMsg);
 
       if (res.status === 400 || res.status === 401 || res.status === 403) {
-        throw new Error(`مفتاح Gemini API غير صالح أو غير مفعّل (${errMsg}). يرجى إنشاء مفتاح جديد من Google AI Studio.`);
+        if (errMsg.includes('API key not valid') || errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key')) {
+          throw new Error(`مفتاح Gemini API غير صالح (${res.status}). يرجى إنشاء مفتاح جديد مجاني من Google AI Studio.`);
+        }
       }
 
-      lastErr = errMsg;
-    } catch (e: any) {
-      if (e?.message?.includes('مفتاح Gemini API')) throw e;
-      lastErr = e?.message || String(e);
+      if (res.status === 429 || errMsg.includes('Quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+        throw new Error('المفتاح يعمل وسليم ولكن تم تجاوز حد السرعة المجاني المؤقت من جوجل (15 طلب/دقيقة). يرجى الانتظار 20 ثانية ثم إعادة المحاولة.');
+      }
+
+      lastErrorMsg = errMsg;
+    } catch (err: any) {
+      if (err?.message?.includes('مفتاح Gemini API') || err?.message?.includes('تجاوز حد السرعة')) {
+        throw err;
+      }
+      lastErrorMsg = err?.message || String(err);
     }
   }
 
-  if (lastQuotaErr) {
-    throw new Error('هذا المفتاح تم إنشاؤه بدون تفعيل الخطة المجانية (limit: 0). يرجى إنشاء مفتاح جديد مجاني من Google AI Studio (aistudio.google.com/app/apikey).');
-  }
-
-  throw new Error(lastErr || "فشل الاتصال المباشر بـ Gemini API. يرجى التحقق من المفتاح.");
+  throw new Error(lastErrorMsg || "فشل الاتصال بـ Gemini API. يرجى التحقق من المفتاح ومحاولة المسح مرة أخرى.");
 };
 
 /**

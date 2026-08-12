@@ -168,7 +168,7 @@ export const CostClosingDashboard: React.FC = () => {
 
   // تنفيذ إغلاق الفترة وترحيل الأرصدة
   const handleClosePeriod = async () => {
-    if (!window.confirm('هل أنت متأكد من إغلاق الفترة؟ سيتم ترحيل أرصدة WIP كأرصدة أول مدة للشهر القادم.')) return;
+    if (!window.confirm('هل أنت متأكد من إغلاق الفترة؟ سيتم ترحيل أرصدة WIP وإنشاء قيد تصفية الأعباء المعلقة إلى المنتج التام تلقائياً.')) return;
     
     setLoading(true);
     try {
@@ -178,7 +178,11 @@ export const CostClosingDashboard: React.FC = () => {
       });
 
       if (error) throw error;
-      showToast(`تم إغلاق الفترة ${periodName} وترحيل ${data.orders_migrated} أمراً بنجاح`, 'success');
+      const settledMsg = data?.unallocated_wip_settled > 0 
+        ? ` وتم إنشاء قيد تصفية رصيد WIP المعلق بـ (${Number(data.unallocated_wip_settled).toLocaleString()} ج.م) إلى حساب المنتج التام 🎯`
+        : '';
+      showToast(`تم إغلاق الفترة ${periodName} وترحيل ${data?.orders_migrated || 0} أمراً بنجاح${settledMsg}`, 'success');
+      fetchPeriodStats();
     } catch (err: any) {
       showToast(err.message, 'error');
     } finally {

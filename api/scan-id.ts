@@ -1,6 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash-8b'];
+const ENDPOINTS_TO_TRY = (key: string) => [
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`,
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${key}`,
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`
+];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -31,10 +36,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let lastErrorMsg = '';
 
-  for (const model of FALLBACK_MODELS) {
+  for (const endpoint of ENDPOINTS_TO_TRY(apiKey)) {
     try {
-      console.log(`[API /api/scan-id] Requesting REST API for model: ${model}`);
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      console.log(`[API /api/scan-id] Requesting REST API: ${endpoint.split('?')[0]}`);
       
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -67,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const responseData = await response.json();
 
       if (!response.ok) {
-        console.warn(`[API /api/scan-id] Model ${model} HTTP ${response.status}:`, responseData);
+        console.warn(`[API /api/scan-id] Endpoint ${endpoint.split('?')[0]} HTTP ${response.status}:`, responseData);
         lastErrorMsg = responseData?.error?.message || `HTTP ${response.status} error`;
         if (response.status === 400 || response.status === 401 || response.status === 403) {
           break; // stop on API key errors
@@ -86,7 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(parsedData);
 
     } catch (err: any) {
-      console.warn(`[API /api/scan-id] Model ${model} exception:`, err);
+      console.warn(`[API /api/scan-id] Endpoint ${endpoint.split('?')[0]} exception:`, err);
       lastErrorMsg = err?.message || String(err);
     }
   }
