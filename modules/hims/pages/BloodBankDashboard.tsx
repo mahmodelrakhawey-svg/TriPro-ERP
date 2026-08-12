@@ -48,11 +48,12 @@ export const BloodBankDashboard: React.FC = () => {
 
   const handleAddDonor = async (values: any) => {
     try {
-      await himsService.registerDonor(values);
+      await himsService.registerDonor({ ...values, organization_id: currentUser?.organization_id });
       message.success('تم تسجيل المتبرع بنجاح ✅');
       setIsDonorModalOpen(false);
+      form.resetFields();
       fetchStock();
-    } catch (e) { message.error('فشل التسجيل'); }
+    } catch (e: any) { message.error('فشل التسجيل: ' + (e.message || '')); }
   };
 
   const handleOpenDonationModal = (donor: any) => {
@@ -71,7 +72,8 @@ export const BloodBankDashboard: React.FC = () => {
       await himsService.processDonation(
         selectedDonor.id,
         values.bag_code,
-        values.expiry_date.format('YYYY-MM-DD')
+        values.expiry_date.format('YYYY-MM-DD'),
+        currentUser?.organization_id
       );
       message.success('تم تسجيل كيس التبرع بالدم وتحديث رصيد البنك بنجاح ✅');
       setIsDonationModalVisible(false);

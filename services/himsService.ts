@@ -188,24 +188,22 @@ export const himsService = {
     return data;
   },
 
-  async registerDonor(donor: { full_name: string, national_id: string, blood_type: string, phone: string }) {
-    const { data, error } = await supabase.rpc('hims_register_donor', {
-      p_name: donor.full_name,
-      p_national_id: donor.national_id,
-      p_blood_type: donor.blood_type,
-      p_phone: donor.phone
-    });
+  async registerDonor(donor: any) {
+    const { data, error } = await supabase.from('hims_blood_donors').insert([donor]).select().single();
     if (error) throw error;
     return data;
   },
 
   // تسجيل عملية تبرع بالدم جديدة
-  async processDonation(donorId: string, bagCode: string, expiryDate: string) {
-    const { data, error } = await supabase.rpc('hims_process_donation', {
-      p_donor_id: donorId,
-      p_bag_code: bagCode,
-      p_expiry: expiryDate
-    });
+  async processDonation(donorId: string, bagCode: string, expiryDate: string, orgId: string) {
+    const { data, error } = await supabase.from('hims_blood_donations').insert([{
+      donor_id: donorId,
+      bag_code: bagCode,
+      expiry_date: expiryDate,
+      organization_id: orgId,
+      status: 'available',
+      volume_ml: 450
+    }]).select().single();
     if (error) throw error;
     return data;
   },
