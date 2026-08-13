@@ -12,25 +12,24 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_active_cashier_id UUID;
+    v_active_shift_id UUID;
 BEGIN
     -- التحقق: هل الطلب جديد وليس له مستخدم (أو المستخدم هو النظام/Guest)؟
     IF NEW.user_id IS NULL THEN
         
-        -- البحث عن الكاشير الذي لديه وردية مفتوحة الآن
+        -- البحث عن الكاشير والوردية المفتوحة الآن
         -- المنطق: نختار الوردية المفتوحة (end_time IS NULL)
         -- في حال وجود أكثر من كاشير، نختار آخر من فتح وردية (الأحدث)
-        SELECT user_id INTO v_active_cashier_id
+        SELECT id, user_id INTO v_active_shift_id, v_active_cashier_id
         FROM public.shifts
         WHERE end_time IS NULL
         ORDER BY start_time DESC
         LIMIT 1;
 
-        -- إذا وجدنا كاشير مناوب، ننسب الطلب له
+        -- إذا وجدنا كاشير مناوب، ننسب الطلب له ولورديته
         IF v_active_cashier_id IS NOT NULL THEN
             NEW.user_id := v_active_cashier_id;
-            
-            -- (اختياري) إضافة ملاحظة داخلية للنظام
-            -- NEW.notes := COALESCE(NEW.notes, '') || ' [Auto-assigned to active shift]';
+            NEW.shift_id := v_active_shift_id;
         END IF;
         
     END IF;
