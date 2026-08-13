@@ -2,8 +2,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { Account } from "../types";
 import { secureStorage } from '../utils/securityMiddleware';
 
-// الموديلات الرسمية المدعومة بـ Gemini API
-const VALID_MODELS = ['gemini-1.5-flash', 'gemini-1.5-flash-latest'];
+// الموديلات المتاحة فعلياً (تم التحقق بالاختبار المباشر)
+const VALID_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite'];
 
 // Helper function to call generateContent with fallback models on client side if needed
 const generateWithFallback = async (
@@ -147,13 +147,18 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 
   // المحاولة الأولى: عبر المكتبة الرسمية لشركة جوجل SDK
   try {
-    console.log("[callGeminiRestDirect] Attempting official GoogleGenAI SDK...");
+    console.log("[callGeminiRestDirect] Attempting official GoogleGenAI SDK with key prefix:", cleanKey.substring(0, 8) + '...');
     const ai = new GoogleGenAI({ apiKey: cleanKey });
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash-latest',
+      model: 'gemini-3.5-flash',
       contents: [
-        { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
-        { text: "Extract: full_name, national_id (14 digits), dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card image." }
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
+            { text: "Extract: full_name, national_id (14 digits), dob (YYYY-MM-DD), and gender ('male' or 'female') from this Egyptian National ID card image. Return JSON only." }
+          ]
+        }
       ],
       config: {
         systemInstruction: systemInstruction,
@@ -163,23 +168,27 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 
     if (response.text) {
       const cleanJson = response.text.replace(/```json/gi, '').replace(/```/g, '').trim();
-      return JSON.parse(cleanJson);
+      const parsed = JSON.parse(cleanJson);
+      if (parsed && typeof parsed === 'object' && (parsed.full_name || parsed.national_id)) {
+        return parsed;
+      }
     }
   } catch (sdkErr: any) {
-    console.warn("[callGeminiRestDirect] SDK call failed, trying direct REST endpoints...", sdkErr);
     const sdkMsg = sdkErr?.message || String(sdkErr);
-    if (sdkMsg.includes('API key') || sdkErr?.status === 400 || sdkErr?.status === 401 || sdkErr?.status === 403) {
-      throw new Error("مفتاح Gemini API غير صالح. يرجى التأكد من نسخه بشكل صحيح من Google AI Studio.");
+    console.warn("[callGeminiRestDirect] SDK call failed:", sdkMsg, "| status:", sdkErr?.status);
+    // فقط أرمي خطأ "مفتاح غير صالح" إذا تأكدنا من Google أنها مشكلة مفتاح
+    if (sdkMsg.toLowerCase().includes('api_key_invalid') || sdkMsg.toLowerCase().includes('api key not valid')) {
+      throw new Error(`مفتاح Gemini API غير صالح. سبب Google: ${sdkMsg}`);
     }
     if (sdkMsg.includes('Quota') || sdkMsg.includes('RESOURCE_EXHAUSTED') || sdkErr?.status === 429) {
-      throw new Error("المفتاح يعمل وسليم ولكن تم تجاوز حد السرعة المجاني المؤقت من جوجل (15 طلب/دقيقة). يرجى الانتظار 20 ثانية ثم إعادة المحاولة.");
     }
   }
 
-  // المحاولة الثانية: عبر عناوين REST API المباشرة المعتمدة
+  // المحاولة الثانية: عبر REST API (v1 فقط بالنماذج المتاحة فعلياً)
   const endpointsToTry = [
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanKey}`
+    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent?key=${cleanKey}`
   ];
 
   let lastErrorMsg = '';
@@ -204,35 +213,53 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       });
 
       const data = await res.json();
+      console.log(`[callGeminiRestDirect] Response ${res.status} from ${endpoint.split('?')[0]}:`, data?.error || '✅ success');
       if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         const rawText = data.candidates[0].content.parts[0].text;
         const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
         return JSON.parse(cleanJson);
       }
 
-      const errMsg = data?.error?.message || `HTTP ${res.status} error`;
+      const errMsg = data?.error?.message || `HTTP ${res.status}`;
       console.warn(`[callGeminiRestDirect] Endpoint failed (${res.status}):`, errMsg);
 
-      if (res.status === 400 || res.status === 401 || res.status === 403) {
-        if (errMsg.includes('API key not valid') || errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key')) {
-          throw new Error(`مفتاح Gemini API غير صالح (${res.status}). يرجى إنشاء مفتاح جديد مجاني من Google AI Studio.`);
-        }
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid')))) {
+        throw new Error(`مفتاح Gemini غير صالح (${res.status}): ${errMsg}`);
       }
 
       if (res.status === 429 || errMsg.includes('Quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
-        throw new Error('المفتاح يعمل وسليم ولكن تم تجاوز حد السرعة المجاني المؤقت من جوجل (15 طلب/دقيقة). يرجى الانتظار 20 ثانية ثم إعادة المحاولة.');
+        throw new Error('تم تجاوز حد الطلبات المجانية (15 طلب/دقيقة). يرجى الانتظار 20 ثانية ثم إعادة المحاولة.');
       }
 
       lastErrorMsg = errMsg;
     } catch (err: any) {
-      if (err?.message?.includes('مفتاح Gemini API') || err?.message?.includes('تجاوز حد السرعة')) {
+      // إعادة رمي الأخطاء المهمة (مفتاح، حصة) فورًا بدون تجاهل
+      if (err?.message && (
+        err.message.includes('مفتاح Gemini') ||
+        err.message.includes('تجاوز حد') ||
+        err.message.includes('RESOURCE_EXHAUSTED')
+      )) {
         throw err;
       }
       lastErrorMsg = err?.message || String(err);
+      console.warn(`[callGeminiRestDirect] Exception for endpoint:`, lastErrorMsg);
     }
   }
 
-  throw new Error(lastErrorMsg || "فشل الاتصال بـ Gemini API. يرجى التحقق من المفتاح ومحاولة المسح مرة أخرى.");
+  throw new Error(lastErrorMsg || 'فشل الاتصال بـ Gemini API — جميع النماذج المتاحة جُرِّبت بدون نجاح.');
+};
+
+/**
+ * تحقق من أن النص يبدو كمفتاح API صالح (حروف إنجليزية وأرقام فقط مع بعض الرموز)
+ */
+const isValidApiKey = (key: string | null | undefined): boolean => {
+  if (!key || typeof key !== 'string') return false;
+  const clean = key.trim();
+  // يجب أن يتجاوز 10 أحرف ويحتوي على حروف إنجليزية/أرقام فقط (لا عربي)
+  if (clean.length < 10) return false;
+  if (/[\u0600-\u06FF\u0750-\u077F]/.test(clean)) return false; // رفض الحروف العربية
+  if (/[\u274C\u2705\u26A0\u2714\u274E\u2139]/.test(clean)) return false; // رفض الإيموجي
+  return /^[A-Za-z0-9._\-]+$/.test(clean); // أحرف إنجليزية وأرقام فقط
 };
 
 /**
@@ -243,9 +270,13 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
   const clientStoredKey = typeof window !== 'undefined' 
     ? (secureStorage.getItem<string>('user_gemini_api_key')) 
     : null;
-  if (clientStoredKey && typeof clientStoredKey === 'string' && clientStoredKey.trim()) {
+  if (clientStoredKey && isValidApiKey(clientStoredKey)) {
     console.log("استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
     return await callGeminiRestDirect(base64Data, mimeType, clientStoredKey);
+  } else if (clientStoredKey && !isValidApiKey(clientStoredKey)) {
+    // مسح المفتاح الفاسد من التخزين تلقائياً
+    console.warn('[scanNationalID] تم اكتشاف مفتاح API فاسد في localStorage وتم حذفه تلقائياً:', clientStoredKey.substring(0, 30));
+    secureStorage.removeItem('user_gemini_api_key');
   }
 
   // 1. المحاولة الأولى: استدعاء السيرفر /api/scan-id
@@ -277,8 +308,14 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 
                  (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
   if (apiKey && apiKey.trim()) {
-    return await callGeminiRestDirect(base64Data, mimeType, apiKey);
+    const cleanApiKey = apiKey.trim().replace(/["'\s]/g, '');
+    return await callGeminiRestDirect(base64Data, mimeType, cleanApiKey);
   }
 
-  throw new Error(lastServerErrorMessage || "مفتاح API غير متوفر. يمكنك إضافة المفتاح المباشر في التطبيق بدون Vercel.");
+  throw new Error(
+    lastServerErrorMessage ||
+    'مفتاح Gemini API غير متوفر. يرجى:\n' +
+    '1. الضغط على زر 🔑 "إدخال مفتاح AI المباشر" في نموذج إضافة المريض.\n' +
+    '2. أو إضافة VITE_GEMINI_API_KEY في ملف .env (احصل على مفتاح مجاني من aistudio.google.com/app/apikey).'
+  );
 };

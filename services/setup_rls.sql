@@ -107,7 +107,9 @@ DECLARE
         'hims_blood_donors', 'hims_blood_donations', 'hims_blood_transfusions', 'hims_radiology_types',
         'hims_medication_log', 'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities',
         'hims_icd10_codes', 'hims_drug_interactions', 'hims_staff_roster', 'hims_lab_specimens',
-        'hims_nurse_tasks'
+        'hims_nurse_tasks',
+        'hims_blood_requests',
+        'product_batches',
         'saas_business_activities',
         'saas_modules'
     ];

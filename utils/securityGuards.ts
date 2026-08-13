@@ -45,38 +45,41 @@ export function isValidPhone(phone: string): boolean {
 /**
  * Sanitize object recursively to remove HTML/JS
  */
-export function sanitizeObject<T>(obj: any): T {
-  if (!obj) return obj;
+export function sanitizeObject<T>(obj: unknown): T {
+  if (!obj) return obj as unknown as T;
   
   if (typeof obj === 'string') {
-    return sanitizeHtml(obj) as T;
+    return sanitizeHtml(obj) as unknown as T;
   }
   
   if (Array.isArray(obj)) {
-    return obj.map(item => sanitizeObject(item)) as T;
+    return obj.map(item => sanitizeObject(item)) as unknown as T;
   }
   
   if (typeof obj === 'object' && obj !== null) {
-    const sanitized: any = {};
-    for (const key in obj) {
-      if (Object.prototype.hasOwnProperty.call(obj, key)) {
-        const value = obj[key];
+    const sanitized: Record<string, unknown> = {};
+    const objRecord = obj as Record<string, unknown>;
+    for (const key in objRecord) {
+      if (Object.prototype.hasOwnProperty.call(objRecord, key)) {
+        const value = objRecord[key];
         sanitized[key] = typeof value === 'string' 
           ? sanitizeHtml(value)
           : sanitizeObject(value);
       }
     }
-    return sanitized;
+    return sanitized as unknown as T;
   }
   
-  return obj;
+  return obj as unknown as T;
 }
 
 /**
  * Check if value is numeric
  */
-export function isNumeric(value: any): boolean {
-  return !isNaN(parseFloat(value)) && isFinite(value);
+export function isNumeric(value: unknown): boolean {
+  if (typeof value === 'number') return !isNaN(value) && isFinite(value);
+  if (typeof value === 'string') return !isNaN(parseFloat(value)) && isFinite(parseFloat(value));
+  return false;
 }
 
 /**

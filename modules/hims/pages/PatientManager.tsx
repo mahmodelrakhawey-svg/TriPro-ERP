@@ -39,7 +39,17 @@ const PatientManager = () => {
 
   const handleSaveApiKey = () => {
     const val = apiKeyInput.replace(/["'\s]/g, '').trim();
-    if (val) {
+    // تحقق من أن المفتاح صالح — لا عربي، لا إيموجي، لا أقصر من 20 حرف
+    const isValid = val.length >= 20 
+      && /^[A-Za-z0-9._\-]+$/.test(val)
+      && !/[\u0600-\u06FF]/.test(val);
+
+    if (val && !isValid) {
+      showToast('❌ المفتاح المُدخل غير صالح. يجب أن يكون مفتاح API يبدأ بـ AIzaSy... أو AQ. ومكوّن من أحرف إنجليزية وأرقام فقط.', 'error');
+      return;
+    }
+
+    if (val && isValid) {
       secureStorage.setItem('user_gemini_api_key', val);
       setApiKeyInput(val);
       showToast('تم حفظ مفتاح AI المباشر في المتصفح بنجاح! 🟢', 'success');
@@ -262,9 +272,36 @@ const PatientManager = () => {
 
       showToast('تم مسح البطاقة واستخراج البيانات آلياً بنجاح ✅', 'success');
     } catch (err: any) {
-      showToast('فشل في قراءة بيانات البطاقة: ' + err.message, 'error');
+      const msg: string = err?.message || String(err);
+
+      // التحقق من وجود مفتاح محفوظ فعلياً في المتصفح
+      const storedKey = secureStorage.getItem<string>('user_gemini_api_key');
+      const hasStoredValidKey = !!(
+        storedKey &&
+        typeof storedKey === 'string' &&
+        storedKey.length >= 10 &&
+        /^[A-Za-z0-9._\-]+$/.test(storedKey.trim())
+      );
+
+      if (!hasStoredValidKey && !import.meta.env.VITE_GEMINI_API_KEY) {
+        // لا يوجد مفتاح محفوظ بالمرة — افتح مودال الإدخال
+        showToast('🔑 يجب إدخال مفتاح Gemini API أولاً لتفعيل مسح البطاقة.', 'error');
+        setIsKeyModalOpen(true);
+      } else if (msg.includes('غير صالح') || msg.includes('INVALID') || msg.includes('401') || msg.includes('403')) {
+        // المفتاح موجود لكن جوجل رفضه
+        showToast('❌ مفتاح API مرفوض من Google — تأكد من صحة المفتاح ثم أعد المحاولة.', 'error');
+        setIsKeyModalOpen(true);
+      } else if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('تجاوز حد')) {
+        // تجاوز الحد المسموح
+        showToast('⏳ تم الوصول للحد المجاني المؤقت (15 طلب/دقيقة) — انتظر 30 ثانية وأعد المحاولة.', 'warning');
+      } else {
+        // خطأ آخر (شبكة، تنسيق صورة، إلخ)
+        showToast('⚠️ فشل قراءة البطاقة: ' + msg, 'error');
+      }
     } finally {
       setIsScanning(false);
+      // إعادة ضبط حقل الملف لنسمح برفع نفس الصورة مجددًا
+      (document.querySelector('input[type="file"]') as HTMLInputElement | null)?.removeAttribute('value');
     }
   };
 
@@ -572,28 +609,45 @@ const PatientManager = () => {
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">مفتاح API Key (من Google AI Studio):</label>
               <input 
-                type="password"
+                type="text"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-sm font-mono"
-                placeholder="AQ... أو AIzaSy..."
+                placeholder="AQ.Ab8RN6... أو AIzaSy..."
                 value={apiKeyInput}
                 onChange={e => setApiKeyInput(e.target.value)}
+                autoFocus
               />
+              <p className="text-[10px] text-slate-400 mt-1">
+                ⚠️ المفتاح يجب أن يبدأ بـ <b>AQ.</b> أو <b>AIzaSy</b> ويتكون من حروف إنجليزية وأرقام فقط
+              </p>
             </div>
-            <div className="flex gap-2 justify-end pt-2">
+            <div className="flex gap-2 justify-between pt-2 flex-wrap">
               <button 
                 type="button" 
-                onClick={() => setIsKeyModalOpen(false)}
-                className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
+                onClick={() => {
+                  secureStorage.removeItem('user_gemini_api_key');
+                  setApiKeyInput('');
+                  showToast('تم مسح المفتاح المحفوظ من المتصفح 🗑️', 'info');
+                }}
+                className="px-3 py-2 text-xs font-bold text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-red-100"
               >
-                إلغاء
+                مسح المفتاح المحفوظ 🗑️
               </button>
-              <button 
-                type="button" 
-                onClick={handleSaveApiKey}
-                className="px-5 py-2 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all"
-              >
-                حفظ المفتاح بالمستعرض 💾
-              </button>
+              <div className="flex gap-2">
+                <button 
+                  type="button" 
+                  onClick={() => setIsKeyModalOpen(false)}
+                  className="px-4 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button 
+                  type="button" 
+                  onClick={handleSaveApiKey}
+                  className="px-5 py-2 text-xs font-bold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all"
+                >
+                  حفظ المفتاح بالمستعرض 💾
+                </button>
+              </div>
             </div>
           </div>
         </div>

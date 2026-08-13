@@ -1,10 +1,9 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const ENDPOINTS_TO_TRY = (key: string) => [
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${key}`,
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${key}`,
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`
+  `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${key}`,
+  `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${key}`,
+  `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent?key=${key}`
 ];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {

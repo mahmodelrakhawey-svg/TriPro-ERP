@@ -128,7 +128,7 @@ export class CSRFProtection {
 export function logSecurityEvent(
   eventType: string,
   userId: string | null,
-  details: Record<string, any>
+  details: Record<string, unknown>
 ): void {
   if (process.env.NODE_ENV === 'development') {
     console.log(`[SECURITY] ${eventType}`, {
@@ -144,7 +144,7 @@ export function logSecurityEvent(
           acc[key] = value;
         }
         return acc;
-      }, {} as Record<string, any>)
+      }, {} as Record<string, unknown>)
     });
   }
 
@@ -155,8 +155,8 @@ export function logSecurityEvent(
 /**
  * Input validation middleware for forms
  */
-export function createFormValidator(rules: Record<string, (value: any) => boolean | string>) {
-  return (formData: Record<string, any>): { valid: boolean; errors: Record<string, string> } => {
+export function createFormValidator(rules: Record<string, (value: unknown) => boolean | string>) {
+  return (formData: Record<string, unknown>): { valid: boolean; errors: Record<string, string> } => {
     const errors: Record<string, string> = {};
     let valid = true;
 
@@ -196,7 +196,7 @@ export class DoubleSubmissionProtection {
  * Secure local storage wrapper
  */
 export const secureStorage = {
-  setItem(key: string, value: any): void {
+  setItem(key: string, value: unknown): void {
     try {
       // Don't store sensitive system passwords in localStorage
       const sensitiveKeys = ['password', 'secret', 'credential'];
@@ -207,7 +207,10 @@ export const secureStorage = {
         return;
       }
       
-      const sanitized = typeof value === 'string' ? sanitizeHtml(value) : value;
+      // لا تُشغّل sanitizeHtml على مفاتيح API — فالأحرف الخاصة فيها حقيقية وليست XSS
+      const sanitized = (key === 'user_gemini_api_key' && typeof value === 'string')
+        ? value
+        : (typeof value === 'string' ? sanitizeHtml(value) : value);
       // SECURITY-WRAPPER: Direct storage interface usage is intentional here - this is the secure wrapper layer
       const storage = typeof window !== 'undefined' ? window.localStorage : null;
       if (storage) storage.setItem(key, JSON.stringify(sanitized));

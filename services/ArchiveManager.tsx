@@ -2,10 +2,16 @@ import React, { useState } from 'react';
 import { Download, Database, Loader2, ShieldCheck, FileJson } from 'lucide-react';
 import { SupabaseClient } from '@supabase/supabase-js';
 
+interface ArchiveManagerUser {
+  id: string;
+  role: string | null;
+  organization_id?: string | null;
+}
+
 interface ArchiveManagerProps {
   supabase: SupabaseClient;
   showToast: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
-  currentUser: any;
+  currentUser: ArchiveManagerUser | null;
 }
 
 const ArchiveManager: React.FC<ArchiveManagerProps> = ({ 
@@ -16,7 +22,7 @@ const ArchiveManager: React.FC<ArchiveManagerProps> = ({
   const [isExporting, setIsExporting] = useState(false);
 
   // التحقق من الصلاحيات (فقط للمديرين)
-  const isAdmin = (currentUser as any)?.role === 'admin' || (currentUser as any)?.role === 'super_admin';
+  const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
   const handleExportFullArchive = async () => {
     if (!isAdmin) {
@@ -53,9 +59,10 @@ const ArchiveManager: React.FC<ArchiveManagerProps> = ({
       URL.revokeObjectURL(url);
 
       showToast('تم تحميل الأرشيف الكامل بنجاح ✅ احتفظ بهذا الملف في مكان آمن.', 'success');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Export Error:', err);
-      showToast('فشل تصدير الأرشيف: ' + (err.message || 'خطأ غير معروف'), 'error');
+      const errObj = err as { message?: string };
+      showToast('فشل تصدير الأرشيف: ' + (errObj.message || 'خطأ غير معروف'), 'error');
     } finally {
       setIsExporting(false);
     }

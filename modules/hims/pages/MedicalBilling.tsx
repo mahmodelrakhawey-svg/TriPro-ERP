@@ -125,15 +125,13 @@ const MedicalBilling: React.FC = () => {
     {
       title: 'الإجراء',
       render: (record: any) => (
-        <Button 
-          type="primary" 
-          icon={<CreditCardOutlined />} 
-          size="small"
+        <button 
           onClick={() => setVisitId(record.visit_id)}
-          className="bg-indigo-600 border-none font-bold"
+          className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center gap-1 transition-colors duration-150 border-none shadow-sm cursor-pointer"
         >
-          محاسبة وتحصيل
-        </Button>
+          <CreditCardOutlined />
+          <span>محاسبة وتحصيل</span>
+        </button>
       )
     }
   ];

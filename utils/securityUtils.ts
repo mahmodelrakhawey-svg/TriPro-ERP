@@ -189,7 +189,7 @@ export interface AuditLog {
   userId: string;
   action: string;
   resource: string;
-  changes: Record<string, { from: any; to: any }>;
+  changes: Record<string, { from: unknown; to: unknown }>;
   ipAddress?: string;
   userAgent?: string;
   status: 'success' | 'failure';
@@ -203,7 +203,7 @@ export function createAuditLog(
   userId: string,
   action: string,
   resource: string,
-  changes: Record<string, { from: any; to: any }>,
+  changes: Record<string, { from: unknown; to: unknown }>,
   status: 'success' | 'failure' = 'success',
   errorMessage?: string
 ): AuditLog {
@@ -249,14 +249,14 @@ export function checkPermission(
 /**
  * Mask sensitive information in logs
  */
-export function maskSensitiveData(data: any): any {
+export function maskSensitiveData<T>(data: T): T {
   const sensitiveFields = ['password', 'token', 'secret', 'apiKey', 'creditCard', 'ssn'];
 
   if (typeof data !== 'object' || data === null) {
     return data;
   }
 
-  const masked = { ...data };
+  const masked = { ...(data as Record<string, unknown>) };
 
   for (const field of sensitiveFields) {
     if (field in masked) {
@@ -269,5 +269,5 @@ export function maskSensitiveData(data: any): any {
     }
   }
 
-  return masked;
+  return masked as unknown as T;
 }

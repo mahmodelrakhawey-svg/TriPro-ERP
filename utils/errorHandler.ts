@@ -11,7 +11,7 @@ export class AppError extends Error {
     message: string,
     public code?: string,
     public severity: 'low' | 'medium' | 'high' | 'critical' = 'medium',
-    public context?: Record<string, any>
+    public context?: Record<string, unknown>
   ) {
     super(message);
     this.name = 'AppError';
@@ -19,10 +19,10 @@ export class AppError extends Error {
 }
 
 export const handleError = (
-  error: any,
+  error: unknown,
   options?: {
     showNotification?: (message: string, type: 'success' | 'error' | 'info' | 'warning') => void;
-    context?: Record<string, any>;
+    context?: Record<string, unknown>;
     onError?: (error: AppError) => void;
     logToConsole?: boolean;
   }
@@ -34,8 +34,9 @@ export const handleError = (
 
   if (error instanceof AppError) {
     appError = error;
-  } else if (error?.message) {
-    appError = new AppError(error.message, error.code);
+  } else if (error && typeof error === 'object' && 'message' in error) {
+    const errObj = error as { message: string; code?: string };
+    appError = new AppError(errObj.message, errObj.code);
   } else if (typeof error === 'string') {
     appError = new AppError(error);
   } else {
@@ -76,12 +77,19 @@ export const handleError = (
  * معالج أخطاء Supabase
  */
 export const handleSupabaseError = (
-  error: any,
+  error: unknown,
   operation: string
 ): string => {
   if (!error) return 'حدث خطأ غير معروف';
 
-  const errorMessage = error?.message || error?.error_description || error?.error || '';
+  let errorMessage = '';
+  if (typeof error === 'object') {
+    const errObj = error as Record<string, unknown>;
+    errorMessage = String(errObj.message || errObj.error_description || errObj.error || '');
+  } else if (typeof error === 'string') {
+    errorMessage = error;
+  }
+
   const upperCaseError = errorMessage.toUpperCase();
 
   // أخطاء شائعة من Supabase
@@ -104,7 +112,7 @@ export const handleSupabaseError = (
 /**
  * التحقق من صحة المبلغ المالي
  */
-export const validateAmount = (amount: any, fieldName: string = 'المبلغ'): void => {
+export const validateAmount = (amount: unknown, fieldName: string = 'المبلغ'): void => {
   const num = Number(amount);
 
   if (isNaN(num)) {
@@ -123,8 +131,11 @@ export const validateAmount = (amount: any, fieldName: string = 'المبلغ'):
 /**
  * التحقق من صحة التاريخ
  */
-export const validateDate = (date: any, fieldName: string = 'التاريخ'): void => {
-  const d = new Date(date);
+export const validateDate = (date: unknown, fieldName: string = 'التاريخ'): void => {
+  if (!date || (typeof date !== 'string' && typeof date !== 'number' && !(date instanceof Date))) {
+    throw new AppError(`${fieldName} غير صحيح`, 'INVALID_DATE');
+  }
+  const d = new Date(date as string | number | Date);
 
   if (isNaN(d.getTime())) {
     throw new AppError(`${fieldName} غير صحيح`, 'INVALID_DATE');
@@ -138,7 +149,7 @@ export const validateDate = (date: any, fieldName: string = 'التاريخ'): v
 /**
  * التحقق من عدم كون القيمة فارغة
  */
-export const validateRequired = (value: any, fieldName: string = 'الحقل'): void => {
+export const validateRequired = (value: unknown, fieldName: string = 'الحقل'): void => {
   if (!value || (typeof value === 'string' && value.trim() === '')) {
     throw new AppError(`${fieldName} مطلوب`, 'REQUIRED_FIELD');
   }

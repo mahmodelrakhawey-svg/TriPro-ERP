@@ -6,6 +6,7 @@
 import { checkRateLimit, sanitizeInput, verifyCSRFToken, createAuditLog, maskSensitiveData } from './securityUtils';
 import { handleError } from './errorHandler';
 import { supabase } from '../supabaseClient';
+import { z } from 'zod';
 
 // ============== REQUEST INTERCEPTOR ==============
 
@@ -13,11 +14,11 @@ export interface APIRequest {
   url: string;
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   headers?: Record<string, string>;
-  body?: any;
+  body?: unknown;
   retries?: number;
 }
 
-export interface APIResponse<T = any> {
+export interface APIResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
@@ -27,7 +28,7 @@ export interface APIResponse<T = any> {
 
 // Generate unique request ID for tracking
 function generateRequestId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
 
 // ============== SECURE API FETCH ==============
@@ -35,10 +36,10 @@ function generateRequestId(): string {
 /**
  * Make secure API request with automatic error handling and security checks
  */
-export async function secureApiFetch<T = any>(
+export async function secureApiFetch<T = unknown>(
   request: APIRequest,
   options: {
-    validateSchema?: any;
+    validateSchema?: z.ZodSchema<T>;
     requireAuth?: boolean;
     rateLimit?: { maxAttempts: number; windowMs: number };
     logAudit?: boolean;
@@ -46,7 +47,6 @@ export async function secureApiFetch<T = any>(
   } = {}
 ): Promise<APIResponse<T>> {
   const requestId = generateRequestId();
-  const startTime = Date.now();
 
   try {
     // ========== SECURITY CHECKS ==========
@@ -96,7 +96,7 @@ export async function secureApiFetch<T = any>(
     }
 
     // 4. Input Sanitization
-    if (request.body && typeof request.body === 'object') {
+    if (request.body) {
       request.body = sanitizeRequestBody(request.body);
     }
 
@@ -107,7 +107,7 @@ export async function secureApiFetch<T = any>(
       headers: {
         'Content-Type': 'application/json',
         'X-Request-ID': requestId,
-        ...request.headers,
+        ...(request.headers || {}),
       },
       body: request.body ? JSON.stringify(request.body) : undefined,
     });
@@ -157,7 +157,7 @@ export async function secureApiFetch<T = any>(
 
     return {
       success: true,
-      data,
+      data: data as T,
       timestamp: new Date(),
       requestId,
     };
@@ -187,24 +187,27 @@ export async function secureApiFetch<T = any>(
 /**
  * Recursively sanitize request body
  */
-function sanitizeRequestBody(body: any): any {
-  if (typeof body !== 'object' || body === null) {
-    return body;
+function sanitizeRequestBody(body: unknown): unknown {
+  if (!body) return body;
+
+  if (typeof body === 'string') {
+    return sanitizeInput(body);
   }
 
-  const sanitized = Array.isArray(body) ? [] : {};
+  if (Array.isArray(body)) {
+    return body.map(item => sanitizeRequestBody(item));
+  }
 
-  for (const [key, value] of Object.entries(body)) {
-    if (typeof value === 'string') {
-      sanitized[key] = sanitizeInput(value);
-    } else if (typeof value === 'object' && value !== null) {
+  if (typeof body === 'object') {
+    const sanitized: Record<string, unknown> = {};
+    const objBody = body as Record<string, unknown>;
+    for (const [key, value] of Object.entries(objBody)) {
       sanitized[key] = sanitizeRequestBody(value);
-    } else {
-      sanitized[key] = value;
     }
+    return sanitized;
   }
 
-  return sanitized;
+  return body;
 }
 
 // ============== AUDIT LOGGING ==============
@@ -252,9 +255,15 @@ export async function logAuditEvent(log: AuditLogEntry): Promise<void> {
 /**
  * Make multiple API requests with rate limiting
  */
-export async function batchApiFetch<T = any>(
+export async function batchApiFetch<T = unknown>(
   requests: APIRequest[],
-  options?: Parameters<typeof secureApiFetch>[1]
+  options?: {
+    validateSchema?: z.ZodSchema<T>;
+    requireAuth?: boolean;
+    rateLimit?: { maxAttempts: number; windowMs: number };
+    logAudit?: boolean;
+    retryOnFailure?: boolean;
+  }
 ): Promise<APIResponse<T>[]> {
   const results: APIResponse<T>[] = [];
 
@@ -274,13 +283,19 @@ export async function batchApiFetch<T = any>(
 /**
  * Make multiple API requests in parallel with concurrency control
  */
-export async function parallelApiFetch<T = any>(
+export async function parallelApiFetch<T = unknown>(
   requests: APIRequest[],
   concurrency: number = 3,
-  options?: Parameters<typeof secureApiFetch>[1]
+  options?: {
+    validateSchema?: z.ZodSchema<T>;
+    requireAuth?: boolean;
+    rateLimit?: { maxAttempts: number; windowMs: number };
+    logAudit?: boolean;
+    retryOnFailure?: boolean;
+  }
 ): Promise<APIResponse<T>[]> {
   const results: APIResponse<T>[] = [];
-  const executing: Promise<any>[] = [];
+  const executing: Promise<APIResponse<T>>[] = [];
 
   for (const request of requests) {
     const promise = secureApiFetch<T>(request, options)
@@ -312,7 +327,7 @@ export interface StandardErrorResponse {
   error: {
     code: string;
     message: string;
-    details?: Record<string, any>;
+    details?: Record<string, unknown>;
   };
   timestamp: Date;
   requestId: string;
@@ -325,7 +340,7 @@ export function createErrorResponse(
   code: string,
   message: string,
   requestId: string = generateRequestId(),
-  details?: Record<string, any>
+  details?: Record<string, unknown>
 ): StandardErrorResponse {
   return {
     success: false,
@@ -345,8 +360,8 @@ export function createErrorResponse(
  * Validate API response against schema
  */
 export async function validateApiResponse<T>(
-  response: any,
-  schema: any
+  response: unknown,
+  schema: z.ZodSchema<T>
 ): Promise<{ valid: boolean; data?: T; error?: string }> {
   try {
     const validated = await schema.parseAsync(response);
