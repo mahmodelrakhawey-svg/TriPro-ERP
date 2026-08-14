@@ -44,11 +44,11 @@ const ACCOUNT_LABELS: Record<string, string> = {
   CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
   CASH_SURPLUS_ACC: 'زيادة الصندوق (إيرادات متنوعة)',
   LABOR_COST_ALLOCATED: 'تكاليف العمالة الصناعية المحملة',
-  WASTAGE_EXPENSE: 'مصروف الهالك والفاقد الصناعي',
   RETENTION_CUSTOMER: 'محتجز ضمان لدى الغير (عملاء) (1249)',
   RETENTION_SUBCONTRACTOR: 'محتجز ضمان لمقاولي الباطن (2229)',
   ADVANCE_PAYMENT_SUBCONTRACTOR: 'دفعات مقدمة للمقاولين (1245)',
   EQUIPMENT_INTERNAL_REVENUE: 'إيراد تشغيل معدات داخلي (425)',
+  CONSTRUCTION_REVENUE: 'إيراد عقود ومشاريع / مستخلصات (41103)',
 };
 
 interface CloudBackup {

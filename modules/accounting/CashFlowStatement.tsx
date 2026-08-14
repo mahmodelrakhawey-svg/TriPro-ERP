@@ -76,23 +76,84 @@ const CashFlowStatement = () => {
       lines?.forEach(line => {
         const current = movements[line.account_id] || 0;
         // الحركة = مدين - دائن
-        movements[line.account_id] = current + (line.debit - line.credit);
+        movements[line.account_id] = current + (Number(line.debit) || 0) - (Number(line.credit) || 0);
       });
 
-      // 4. حساب صافي الدخل (Net Income)
+      // دوال مساعدة لتصنيف الحسابات بدقة متناهية
+      const isCashAccount = (acc: any) => {
+        const code = String(acc.code || '').trim();
+        const name = String(acc.name || '').toLowerCase();
+        const type = String(acc.type || '').toLowerCase();
+        if (code.startsWith('2') || code.startsWith('3') || code.startsWith('4') || code.startsWith('5')) return false;
+        return (
+          type.includes('cash') || type.includes('bank') ||
+          name.includes('صندوق') || name.includes('خزينة') || name.includes('خزينه') || 
+          name.includes('نقد') || name.includes('بنك') || name.includes('مصرف') ||
+          name.includes('محفظة') || name.includes('محفظه') || name.includes('فودافون كاش') ||
+          name.includes('اورنج كاش') || name.includes('أورنج كاش') || name.includes('اتصالات كاش') ||
+          name.includes('انستا باي') || name.includes('insta') ||
+          code.startsWith('123') || code.startsWith('101') || code.startsWith('1101')
+        );
+      };
+
+      const isPnlAccount = (acc: any) => {
+        const code = String(acc.code || '').trim();
+        const type = String(acc.type || '').toLowerCase().trim();
+        // الحسابات التي تبدأ بـ 1 أو 2 أو 3 هي ميزانية عمومية وليست أرباح وخسائر
+        if (code.startsWith('1') || code.startsWith('2') || code.startsWith('3')) {
+          return false;
+        }
+        return code.startsWith('4') || code.startsWith('5') || 
+               type.includes('revenue') || type.includes('income') || 
+               type.includes('expense') || type.includes('cost') ||
+               type.includes('إيراد') || type.includes('مصروف') || type.includes('تكلفة');
+      };
+
+      const isFixedAssetAccount = (acc: any) => {
+        const code = String(acc.code || '').trim();
+        const name = String(acc.name || '').toLowerCase();
+        const type = String(acc.type || '').toLowerCase();
+
+        if (isCashAccount(acc)) return false;
+
+        // الأصول المتداولة صراحة (تشغيلية)
+        const isExplicitCurrent = (
+          code.startsWith('10') || // مخزون ومشروعات تحت التنفيذ
+          code.startsWith('121') || code.startsWith('122') || code.startsWith('124') || // عملاء، عهد، سلف، ضرائب مدينة، تأمينات
+          name.includes('مخزون') || name.includes('خامات') || name.includes('منتج تام') || 
+          name.includes('مشروع') || name.includes('بضاعة') || name.includes('بضاعه') ||
+          name.includes('عملاء') || name.includes('عميل') || name.includes('ذمم') || name.includes('مدين') ||
+          name.includes('عهد') || name.includes('عهدة') || name.includes('عهده') || name.includes('سلف') || name.includes('سلفة') ||
+          name.includes('ضريبة') || name.includes('ضريبه') || name.includes('محتجز ضمان') || 
+          name.includes('تأمين لدى') || name.includes('تأمينات لدى') ||
+          name.includes('أوراق قبض') || name.includes('شيكات تحت التحصيل') || 
+          name.includes('مصروف مقدم') || name.includes('مدفوع مقدما') ||
+          name.includes('إيراد مستحق') || name.includes('دفعة مقدمة') || name.includes('دفعات مقدمة')
+        );
+
+        if (isExplicitCurrent) return false;
+
+        const fixedAssetKeywords = [
+          'أصول ثابتة', 'أصل ثابت', 'مباني', 'مبنى', 'أراضي', 'أرض', 'عقارات', 'عقار',
+          'سيارات', 'سيارة', 'مركبات', 'شاحنات', 'وسائل النقل', 'آلات', 'معدات', 'أجهزة',
+          'أثاث', 'تجهيزات', 'حاسب', 'كمبيوتر', 'برمجيات', 'مصاريف تأسيس', 'شهرة',
+          'أصول غير ملموسة', 'استثمارات طويلة', 'fixed assets', 'equipment', 'machinery',
+          'vehicles', 'furniture', 'buildings', 'land'
+        ];
+
+        const hasFixedKeyword = fixedAssetKeywords.some(k => name.includes(k));
+        const isFixedType = type.includes('fixed') || type.includes('non-current') || type.includes('non_current') || type.includes('ثابتة') || type.includes('غير متداولة');
+
+        return isFixedType || hasFixedKeyword || code.startsWith('11');
+      };
+
+      // 4. حساب صافي الدخل (Net Income) مطابقة تامة لقائمة الدخل
       let netIncome = 0;
       accounts.forEach(acc => {
+        if (!isPnlAccount(acc)) return;
         const movement = movements[acc.id] || 0;
-        const type = acc.type ? acc.type.toLowerCase().trim() : '';
-        const code = acc.code ? acc.code.toString().trim() : '';
-        const firstDigit = code.charAt(0);
-
-        // الإيرادات (4) والمصروفات (5)
-        if (firstDigit === '4' || type.includes('income')) {
-            netIncome -= movement; // الإيراد دائن (سالب) -> نطرحه ليصبح موجب
-        } else if (firstDigit === '5' || type.includes('expense')) {
-            netIncome -= movement; // المصروف مدين (موجب) -> نطرحه ليصبح سالب
-        }
+        // الإيرادات دائنة (حركة سالبة) -> تصبح موجبة. المصروفات مدينة (حركة موجبة) -> تصبح سالبة.
+        netIncome -= movement;
       });
 
       // 5. تصنيف التدفقات (Operating, Investing, Financing)
@@ -102,75 +163,65 @@ const CashFlowStatement = () => {
 
       accounts.forEach(acc => {
         const movement = movements[acc.id] || 0;
-        if (Math.abs(movement) < 0.01) return;
+        if (Math.abs(movement) < 0.0001) return;
 
         const type = acc.type ? acc.type.toLowerCase().trim() : '';
         const code = acc.code ? acc.code.toString().trim() : '';
         const name = acc.name.toLowerCase();
         const firstDigit = code.charAt(0);
 
-        // استبعاد حسابات النقدية والبنوك من الأنشطة (لأنها النتيجة النهائية)
-        const isCash = type.includes('cash') || type.includes('bank') || 
-                       name.includes('صندوق') || name.includes('خزينة') || name.includes('نقد') || name.includes('بنك') ||
-                       code.startsWith('123') || code.startsWith('1101') || code.startsWith('101');
+        // استبعاد حسابات النقدية والبنوك وقائمة الدخل من عناصر رأس المال العامل
+        if (isCashAccount(acc) || isPnlAccount(acc)) return;
 
-        if (isCash) return;
-
-        // تحسين منطق تحديد الأصول الثابتة
-        const fixedAssetKeywords = ['سيارات', 'cars', 'vehicles', 'مباني', 'buildings', 'أراضي', 'land', 'أثاث', 'furniture', 'معدات', 'equipment', 'أجهزة', 'devices', 'أصول ثابتة', 'fixed assets', 'machinery', 'آلات', 'تجهيزات', 'وسائل النقل', 'transport', 'انتقال'];
-        const currentAssetKeywords = ['ضريبة', 'vat', 'tax', 'سلف', 'advances', 'عهدة', 'custody', 'مخزون', 'inventory', 'stock', 'عملاء', 'customers', 'receivable', 'أرصدة مدينة', 'أوراق القبض', 'شيكات تحت التحصيل', 'مقدم', 'prepaid', 'مستحق', 'accrued', 'تأمين'];
-
-        const hasFixedKeyword = fixedAssetKeywords.some(k => name.includes(k));
-        const hasCurrentKeyword = currentAssetKeywords.some(k => name.includes(k));
-
-        let isFixedAsset = type.includes('fixed') || type.includes('non-current') || type.includes('أصول ثابتة');
-        
-        // Fix: Ensure we don't classify expenses (5) or revenues (4) as assets based on keywords
-        if (!isFixedAsset && firstDigit === '1') {
-             if (code.startsWith('12') && !hasCurrentKeyword) isFixedAsset = true;
-             else if (hasFixedKeyword) isFixedAsset = true;
+        // تسويات البنود غير النقدية (الإهلاك)
+        const isDepreciation = type.includes('depreciation') || type.includes('إهلاك') || acc.name.includes('إهلاك');
+        if (isDepreciation) {
+          if (firstDigit === '5') {
+            operating.push({ label: `إهلاك ${acc.name}`, amount: movement });
+          } else if (firstDigit === '1') {
+            const hasDeprExpense = accounts.some(a => {
+              const aCode = String(a.code || '');
+              const aName = String(a.name || '');
+              const aType = String(a.type || '').toLowerCase();
+              const aMov = movements[a.id] || 0;
+              return aCode.startsWith('5') && 
+                     (aType.includes('depreciation') || aType.includes('إهلاك') || aName.includes('إهلاك')) &&
+                     Math.abs(aMov) >= 0.01;
+            });
+            if (!hasDeprExpense) {
+              operating.push({ label: `مجمع إهلاك ${acc.name}`, amount: -movement });
+            }
+          }
+          return;
         }
-        if (hasCurrentKeyword) isFixedAsset = false;
 
-        // تسويات البنود غير النقدية (تضاف لصافي الربح)
-        if (type.includes('depreciation') || type.includes('إهلاك') || acc.name.includes('إهلاك')) {
-             // مصروف الإهلاك (مدين) يقلل الربح ولكنه غير نقدي، لذا نضيفه (نعكس إشارته ليصبح موجب)
-             // مجمع الإهلاك (دائن) يزيد، وهو ما يعكس مصروف الإهلاك
-             if (firstDigit === '5') { // مصروف
-                 operating.push({ label: `إهلاك ${acc.name}`, amount: movement }); // المصروف موجب هنا لأنه مدين، ونريد إضافته
-             } else if (firstDigit === '1') { // مجمع إهلاك
-                 // لمنع الازدواجية: هل هناك حساب مصروف يبدأ بـ 5 ويحتوي على "إهلاك" وله حركة؟
-                 const hasDepreciationExpense = accounts.some(a => {
-                     const aCode = String(a.code || '');
-                     const aName = String(a.name || '');
-                     const aType = String(a.type || '').toLowerCase();
-                     const aMovement = movements[a.id] || 0;
-                     return aCode.startsWith('5') && 
-                            (aType.includes('depreciation') || aType.includes('إهلاك') || aName.includes('إهلاك')) &&
-                            Math.abs(aMovement) >= 0.01;
-                 });
-                 if (!hasDepreciationExpense) {
-                     operating.push({ label: `تغير في ${acc.name}`, amount: -movement });
-                 }
-             }
-        }
         // الأصول الثابتة (Fixed Assets) - أنشطة استثمارية
-        else if (isFixedAsset) {
-            investing.push({ label: `شراء/بيع ${acc.name}`, amount: -movement });
+        if (isFixedAssetAccount(acc)) {
+          investing.push({ label: `شراء/بيع ${acc.name}`, amount: -movement });
         }
-        // الأصول المتداولة (Current Assets) - عادة تبدأ بـ 11 أو 12
-        // زيادة الأصول المتداولة (مدين) = نقص في النقدية (سالب)
-        else if (firstDigit === '1' && !isFixedAsset) {
-            operating.push({ label: `(زيادة)/نقص في ${acc.name}`, amount: -movement });
+        // الأصول المتداولة (Current Assets) - أنشطة تشغيلية (زيادة الأصل = خروج نقدية)
+        else if (firstDigit === '1' || type.includes('asset')) {
+          operating.push({ label: `(زيادة)/نقص في ${acc.name}`, amount: -movement });
         }
-        // الخصوم المتداولة (Current Liabilities) - عادة تبدأ بـ 21
-        // زيادة الخصوم المتداولة (دائن) = زيادة في النقدية (موجب)
-        else if (firstDigit === '2' && !type.includes('long')) {
-            operating.push({ label: `زيادة/(نقص) في ${acc.name}`, amount: -movement }); // الحركة الدائنة سالبة، نعكسها لتصبح موجبة
+        // الخصوم المتداولة (Current Liabilities) - أنشطة تشغيلية
+        else if (firstDigit === '2' && !code.startsWith('23') && !type.includes('long') && !name.includes('طويلة الأجل')) {
+          operating.push({ label: `زيادة/(نقص) في ${acc.name}`, amount: -movement });
         }
-        // حقوق الملكية والخصوم طويلة الأجل - أنشطة تمويلية
-        else if ((firstDigit === '3' && !type.includes('retained')) || type.includes('equity') || type.includes('long')) {
+        // الخصوم طويلة الأجل وحقوق الملكية - أنشطة تمويلية
+        else if (
+          firstDigit === '3' || 
+          code.startsWith('23') || 
+          type.includes('equity') || 
+          type.includes('long') || 
+          name.includes('طويلة الأجل') ||
+          name.includes('رأس المال') ||
+          name.includes('جاري الشركاء') ||
+          name.includes('توزيعات')
+        ) {
+          // استبعاد الأرباح المرحلة لتجنب التكرار مع صافي الدخل
+          if (!type.includes('retained') && !name.includes('مرحلة') && !name.includes('مرحل') && !code.startsWith('33')) {
             financing.push({ label: `التغير في ${acc.name}`, amount: -movement });
+          }
         }
       });
 
@@ -178,26 +229,22 @@ const CashFlowStatement = () => {
       setInvestingRows(investing);
       setInvestingRowsFinancing(financing);
 
-      // 6. حساب رصيد النقدية أول المدة
-      const cashAccountIds = accounts.filter(acc => {
-          const code = String(acc.code || '');
-          const name = String(acc.name || '');
-          const type = String(acc.type || '').toLowerCase();
-          if (type.includes('liability') || type.includes('equity') || type.includes('revenue') || type.includes('expense')) return false;
-          return code.startsWith('123') || code.startsWith('1101') || code.startsWith('101') || name.includes('صندوق') || name.includes('بنك') || name.includes('نقد');
-      }).map(a => a.id);
+      // 6. حساب رصيد النقدية أول المدة من الحسابات النقدية الفعلية
+      const cashAccountIds = accounts.filter(isCashAccount).map(a => a.id);
 
       let openingCash = 0;
       if (cashAccountIds.length > 0) {
-          const { data: openingData } = await supabase
-              .from('journal_lines')
-              .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
-              .in('account_id', cashAccountIds)
-              .eq('journal_entries.status', 'posted')
-              .eq('journal_entries.organization_id', userOrgId)
-              .lt('journal_entries.transaction_date', startDate);
-          
-          if (openingData) openingCash = openingData.reduce((sum, line) => sum + (line.debit - line.credit), 0);
+        const { data: openingData } = await supabase
+          .from('journal_lines')
+          .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
+          .in('account_id', cashAccountIds)
+          .eq('journal_entries.status', 'posted')
+          .eq('journal_entries.organization_id', userOrgId)
+          .lt('journal_entries.transaction_date', startDate);
+        
+        if (openingData) {
+          openingCash = openingData.reduce((sum, line) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
+        }
       }
 
       const totalOperating = operating.reduce((sum, r) => sum + r.amount, 0);

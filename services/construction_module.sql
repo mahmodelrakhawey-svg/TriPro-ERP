@@ -254,7 +254,14 @@ BEGIN
     
     -- تحديد الحسابات (مع Fallback للأكواد القياسية)
     v_cust_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'CUSTOMERS')::UUID, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1)));
-    v_revenue_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'SALES_REVENUE')::UUID, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1)));
+    
+    -- حساب إيراد عقود ومشاريع (مستخلصات) كود 41103
+    v_revenue_acc := public.resolve_leaf_account(COALESCE(
+        (v_mappings->>'CONSTRUCTION_REVENUE')::UUID, 
+        (SELECT id FROM public.accounts WHERE (code = '41103' OR name LIKE '%عقود%' OR name LIKE '%مستخلص%') AND organization_id = v_org_id LIMIT 1),
+        (v_mappings->>'SALES_REVENUE')::UUID, 
+        (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1)
+    ));
 
     -- 1. حساب محجوز ضمان عملاء (Asset) - كود 1249
     v_retention_cust_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'RETENTION_CUSTOMER')::UUID, (SELECT id FROM public.accounts WHERE code = '1249' AND organization_id = v_org_id LIMIT 1)));
@@ -347,41 +354,141 @@ CREATE TABLE IF NOT EXISTS public.project_custody_expenses (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- دالة اعتماد مصروف العهدة وتحميله على المشروع
-CREATE OR REPLACE FUNCTION public.fn_approve_custody_expense(p_expense_id UUID)
-RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $function$
+-- دالة إنشاء وصرف العهدة المالية
+CREATE OR REPLACE FUNCTION public.fn_create_and_disburse_custody(
+    p_project_id UUID,
+    p_custody_name TEXT,
+    p_employee_id UUID,
+    p_amount NUMERIC,
+    p_source_account_id UUID DEFAULT NULL,
+    p_notes TEXT DEFAULT NULL
+)
+RETURNS UUID LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_expense RECORD;
+    v_org_id UUID;
+    v_custody_id UUID;
+    v_je_id UUID;
+    v_custody_acc UUID;
+    v_emp_name TEXT;
+    v_proj_name TEXT;
+BEGIN
+    SELECT organization_id, name INTO v_org_id, v_proj_name FROM public.projects WHERE id = p_project_id;
+    IF v_org_id IS NULL THEN
+        v_org_id := public.get_my_org();
+    END IF;
+
+    SELECT full_name INTO v_emp_name FROM public.employees WHERE id = p_employee_id;
+
+    INSERT INTO public.project_custodies (
+        project_id, organization_id, custody_name, employee_id, total_advanced, current_balance, status
+    ) VALUES (
+        p_project_id, v_org_id, p_custody_name, p_employee_id, COALESCE(p_amount, 0), COALESCE(p_amount, 0), 'active'
+    ) RETURNING id INTO v_custody_id;
+
+    IF COALESCE(p_amount, 0) > 0 THEN
+        IF p_source_account_id IS NULL THEN
+            RAISE EXCEPTION '⚠️ يرجى تحديد حساب الخزينة أو البنك الذي تم صرف العهدة منه.';
+        END IF;
+
+        v_custody_acc := public.resolve_leaf_account(COALESCE(
+            (SELECT (account_mappings->>'EMPLOYEE_CUSTODIES')::UUID FROM public.company_settings WHERE organization_id = v_org_id),
+            (SELECT id FROM public.accounts WHERE code = '1224' AND organization_id = v_org_id LIMIT 1)
+        ));
+
+        IF v_custody_acc IS NULL THEN
+            SELECT id INTO v_custody_acc FROM public.accounts 
+            WHERE organization_id = v_org_id AND (name LIKE '%عهد%' OR code = '1224') LIMIT 1;
+        END IF;
+
+        IF v_custody_acc IS NULL THEN
+            RAISE EXCEPTION '⚠️ حساب عهد الموظفين (1224) غير معرف في دليل الحسابات.';
+        END IF;
+
+        INSERT INTO public.journal_entries (
+            transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
+        ) VALUES (
+            CURRENT_DATE, 
+            'صرف عهدة نقدية: ' || p_custody_name || ' للموظف ' || COALESCE(v_emp_name, '') || ' - مشروع ' || COALESCE(v_proj_name, ''),
+            'CUST-ADV-' || SUBSTRING(v_custody_id::text, 1, 8),
+            'posted', v_org_id, v_custody_id, 'custody_advance', true
+        ) RETURNING id INTO v_je_id;
+
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, v_custody_acc, p_amount, 0, 'صرف عهدة للموظف ' || COALESCE(v_emp_name, ''), v_org_id);
+
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_je_id, p_source_account_id, 0, p_amount, 'خروج نقدية لصرف عهدة ' || p_custody_name, v_org_id);
+    END IF;
+
+    RETURN v_custody_id;
+END;
+$$;
+
+-- دالة تغذية العهدة المالية
+CREATE OR REPLACE FUNCTION public.fn_top_up_custody(
+    p_custody_id UUID, 
+    p_amount NUMERIC,
+    p_source_account_id UUID DEFAULT NULL
+)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
     v_custody RECORD;
     v_project RECORD;
+    v_emp_name TEXT;
+    v_org_id UUID;
     v_je_id UUID;
-    v_employee_acc UUID;
-    v_total_budget NUMERIC(15,2);
-    v_current_spent NUMERIC(15,2);
+    v_custody_acc UUID;
 BEGIN
-    -- 🛡️ وضع الاستعادة: السماح بتجاوز الفحص أثناء الاختبارات
-    IF current_setting('app.restore_mode', true) = 'on' THEN
-        -- تجاوز القيود
+    SELECT * INTO v_custody FROM public.project_custodies WHERE id = p_custody_id;
+    IF v_custody IS NULL THEN
+        RAISE EXCEPTION 'العهدة غير موجودة.';
     END IF;
 
-    SELECT * INTO v_expense FROM public.project_custody_expenses WHERE id = p_expense_id;
-    SELECT * INTO v_custody FROM public.project_custodies WHERE id = v_expense.custody_id;
+    v_org_id := v_custody.organization_id;
     SELECT * INTO v_project FROM public.projects WHERE id = v_custody.project_id;
+    SELECT full_name INTO v_emp_name FROM public.employees WHERE id = v_custody.employee_id;
 
-    -- 🛡️ [Budget Guard] فحص الميزانية قبل الموافقة على مصروف العهدة
-    SELECT COALESCE(SUM(total_price), 0) INTO v_total_budget FROM public.project_boq WHERE project_id = v_custody.project_id;
-    
-    IF v_total_budget = 0 THEN v_total_budget := v_project.contract_value; END IF;
-
-    SELECT COALESCE(SUM(debit), 0) INTO v_current_spent 
-    FROM public.journal_lines WHERE account_id = v_project.cost_center_account_id;
-
-    IF (v_current_spent + v_expense.amount) > (v_total_budget * 1.10) THEN -- سماح بـ 10% للعهد
-        RAISE EXCEPTION '⚠️ تجاوز حرج للميزانية! إجمالي المصاريف (%) سيتجاوز سقف المشروع (%).', 
-            (v_current_spent + v_expense.amount), v_total_budget;
+    IF COALESCE(p_amount, 0) <= 0 THEN
+        RAISE EXCEPTION 'المبلغ يجب أن يكون أكبر من صفر.';
     END IF;
+
+    IF p_source_account_id IS NOT NULL THEN
+        v_custody_acc := public.resolve_leaf_account(COALESCE(
+            (SELECT (account_mappings->>'EMPLOYEE_CUSTODIES')::UUID FROM public.company_settings WHERE organization_id = v_org_id),
+            (SELECT id FROM public.accounts WHERE code = '1224' AND organization_id = v_org_id LIMIT 1)
+        ));
+
+        IF v_custody_acc IS NULL THEN
+            SELECT id INTO v_custody_acc FROM public.accounts 
+            WHERE organization_id = v_org_id AND (name LIKE '%عهد%' OR code = '1224') LIMIT 1;
+        END IF;
+
+        IF v_custody_acc IS NOT NULL THEN
+            INSERT INTO public.journal_entries (
+                transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
+            ) VALUES (
+                CURRENT_DATE, 
+                'تغذية عهدة: ' || v_custody.custody_name || ' للموظف ' || COALESCE(v_emp_name, '') || ' - مشروع ' || COALESCE(v_project.name, ''),
+                'CUST-TOP-' || SUBSTRING(gen_random_uuid()::text, 1, 8),
+                'posted', v_org_id, p_custody_id, 'custody_topup', true
+            ) RETURNING id INTO v_je_id;
+
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES (v_je_id, v_custody_acc, p_amount, 0, 'تغذية عهدة الموظف ' || COALESCE(v_emp_name, ''), v_org_id);
+
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+            VALUES (v_je_id, p_source_account_id, 0, p_amount, 'خروج نقدية لتغذية عهدة ' || v_custody.custody_name, v_org_id);
+        END IF;
+    END IF;
+
+    UPDATE public.project_custodies 
+    SET total_advanced = total_advanced + p_amount,
+        current_balance = current_balance + p_amount
+    WHERE id = p_custody_id;
+END;
+$$;
+
 -- 🛠️ دالة تحويل عُهدة موظف إلى خصم من الراتب (Custody to Payroll Link)
--- الغرض: في حال لم يقم الموظف بتسوية العهدة، يمكن للمدير تحويلها كخصم في مسير الرواتب القادم
 CREATE OR REPLACE FUNCTION public.fn_construction_link_custody_to_payroll(p_custody_id uuid)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -395,11 +502,9 @@ BEGIN
         RAISE EXCEPTION '⚠️ لا يوجد رصيد متبقي في العهدة للتحويل.';
     END IF;
 
-    -- إدراج الرصيد المتبقي كاستقطاع في جدول متغيرات الرواتب
     INSERT INTO public.payroll_variables (employee_id, month, year, type, amount, organization_id, is_processed)
     VALUES (v_custody.employee_id, v_month, v_year, 'deduction', v_custody.current_balance, v_custody.organization_id, false);
 
-    -- إغلاق العهدة في مديول المقاولات
     UPDATE public.project_custodies SET status = 'closed', current_balance = 0 WHERE id = p_custody_id;
 
     INSERT INTO public.security_logs (event_type, description, organization_id, metadata)
@@ -431,18 +536,81 @@ BEGIN
     END LOOP;
     RETURN v_count;
 END; $$;
-    -- تحديد حساب عهدة الموظف (نفترض وجود ربط في جدول الموظفين أو كود مالي)
-    -- تم التعديل للكود 1224 ليتوافق مع الدليل المصري
-    v_employee_acc := (SELECT id FROM public.accounts WHERE code = '1224' AND organization_id = v_expense.organization_id LIMIT 1);
+
+-- دالة اعتماد مصروف العهدة وتحميله على المشروع
+CREATE OR REPLACE FUNCTION public.fn_approve_custody_expense(p_expense_id UUID)
+RETURNS VOID LANGUAGE plpgsql SECURITY DEFINER AS $function$
+DECLARE
+    v_expense RECORD;
+    v_custody RECORD;
+    v_project RECORD;
+    v_je_id UUID;
+    v_employee_acc UUID;
+    v_project_acc UUID;
+    v_parent_id UUID;
+    v_account_code TEXT;
+    v_total_budget NUMERIC(15,2);
+    v_current_spent NUMERIC(15,2);
+BEGIN
+    SELECT * INTO v_expense FROM public.project_custody_expenses WHERE id = p_expense_id;
+    IF v_expense IS NULL THEN
+        RAISE EXCEPTION 'المصروف غير موجود.';
+    END IF;
+
+    SELECT * INTO v_custody FROM public.project_custodies WHERE id = v_expense.custody_id;
+    SELECT * INTO v_project FROM public.projects WHERE id = v_custody.project_id;
+
+    -- حل وتثبيت حساب المشروع الآمن
+    IF v_project.cost_center_account_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.accounts WHERE id = v_project.cost_center_account_id) THEN
+        v_project_acc := v_project.cost_center_account_id;
+    ELSE
+        SELECT id INTO v_project_acc FROM public.accounts 
+        WHERE organization_id = v_expense.organization_id 
+          AND (name = 'مشروع: ' || v_project.name OR name = v_project.name)
+        LIMIT 1;
+
+        IF v_project_acc IS NULL THEN
+            SELECT id INTO v_parent_id FROM public.accounts 
+            WHERE organization_id = v_expense.organization_id AND (code = '10303' OR code = '103')
+            ORDER BY code DESC LIMIT 1;
+
+            IF v_parent_id IS NOT NULL THEN
+                v_account_code := (SELECT code FROM public.accounts WHERE id = v_parent_id) || '-' || (SELECT COALESCE(COUNT(*), 0) + 1 FROM public.accounts WHERE parent_id = v_parent_id);
+                INSERT INTO public.accounts (organization_id, name, code, parent_id, type, is_active, is_group)
+                VALUES (v_expense.organization_id, 'مشروع: ' || v_project.name, v_account_code, v_parent_id, 'asset', TRUE, FALSE)
+                RETURNING id INTO v_project_acc;
+            ELSE
+                v_project_acc := public.resolve_leaf_account(COALESCE(
+                    (SELECT (account_mappings->>'INVENTORY_WIP')::UUID FROM public.company_settings WHERE organization_id = v_expense.organization_id),
+                    (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_expense.organization_id LIMIT 1)
+                ));
+            END IF;
+        END IF;
+
+        IF v_project_acc IS NOT NULL THEN
+            UPDATE public.projects SET cost_center_account_id = v_project_acc WHERE id = v_project.id;
+        END IF;
+    END IF;
+
+    -- حساب عهد الموظفين (1224)
+    v_employee_acc := public.resolve_leaf_account(COALESCE(
+        (SELECT (account_mappings->>'EMPLOYEE_CUSTODIES')::UUID FROM public.company_settings WHERE organization_id = v_expense.organization_id),
+        (SELECT id FROM public.accounts WHERE code = '1224' AND organization_id = v_expense.organization_id LIMIT 1)
+    ));
+
+    IF v_employee_acc IS NULL THEN
+        SELECT id INTO v_employee_acc FROM public.accounts 
+        WHERE organization_id = v_expense.organization_id AND (name LIKE '%عهد%' OR code = '1224') LIMIT 1;
+    END IF;
 
     -- 1. إنشاء القيد المحاسبي
     INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
-    VALUES (v_expense.expense_date, 'مصروف عهدة: ' || v_expense.description || ' - مشروع ' || v_project.name, 'CUST-' || v_expense.id, 'posted', v_expense.organization_id, p_expense_id, 'custody_expense', true)
+    VALUES (v_expense.expense_date, 'مصروف عهدة: ' || v_expense.description || ' - مشروع ' || v_project.name, 'CUST-' || SUBSTRING(v_expense.id::text, 1, 8), 'posted', v_expense.organization_id, p_expense_id, 'custody_expense', true)
     RETURNING id INTO v_je_id;
 
-    -- 2. من ح/ تكاليف المشروع (مركز التكلفة)
+    -- 2. من ح/ تكاليف المشروع
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_je_id, v_project.cost_center_account_id, v_expense.amount, 0, v_expense.description, v_expense.organization_id);
+    VALUES (v_je_id, v_project_acc, v_expense.amount, 0, v_expense.description, v_expense.organization_id);
 
     -- 3. إلى ح/ عهد الموظفين (تخفيض العهدة)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
@@ -556,15 +724,62 @@ DECLARE
     v_project RECORD;
     v_je_id UUID;
     v_inv_acc UUID;
+    v_project_acc UUID;
+    v_parent_id UUID;
+    v_account_code TEXT;
     v_total_cost NUMERIC := 0;
 BEGIN
     SELECT * INTO v_issue FROM public.project_material_issues WHERE id = p_issue_id;
+    IF v_issue IS NULL THEN
+        RAISE EXCEPTION 'إذن الصرف غير موجود.';
+    END IF;
+
     SELECT * INTO v_project FROM public.projects WHERE id = v_issue.project_id;
+    IF v_project IS NULL THEN
+        RAISE EXCEPTION 'المشروع غير موجود.';
+    END IF;
 
     v_inv_acc := public.resolve_leaf_account(COALESCE(
         (SELECT (account_mappings->>'INVENTORY_RAW_MATERIALS')::UUID FROM public.company_settings WHERE organization_id = v_issue.organization_id),
-        (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_issue.organization_id LIMIT 1)
+        (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_issue.organization_id LIMIT 1),
+        (SELECT id FROM public.accounts WHERE code = '103' AND organization_id = v_issue.organization_id LIMIT 1)
     ));
+
+    -- حل وتثبيت حساب المشروع (مشروعات تحت التنفيذ WIP)
+    IF v_project.cost_center_account_id IS NOT NULL AND EXISTS (SELECT 1 FROM public.accounts WHERE id = v_project.cost_center_account_id) THEN
+        v_project_acc := v_project.cost_center_account_id;
+    ELSE
+        SELECT id INTO v_project_acc FROM public.accounts 
+        WHERE organization_id = v_issue.organization_id 
+          AND (name = 'مشروع: ' || v_project.name OR name = v_project.name)
+        LIMIT 1;
+
+        IF v_project_acc IS NULL THEN
+            SELECT id INTO v_parent_id FROM public.accounts 
+            WHERE organization_id = v_issue.organization_id AND (code = '10303' OR code = '103')
+            ORDER BY code DESC LIMIT 1;
+
+            IF v_parent_id IS NOT NULL THEN
+                v_account_code := (SELECT code FROM public.accounts WHERE id = v_parent_id) || '-' || (SELECT COALESCE(COUNT(*), 0) + 1 FROM public.accounts WHERE parent_id = v_parent_id);
+                INSERT INTO public.accounts (organization_id, name, code, parent_id, type, is_active, is_group)
+                VALUES (v_issue.organization_id, 'مشروع: ' || v_project.name, v_account_code, v_parent_id, 'asset', TRUE, FALSE)
+                RETURNING id INTO v_project_acc;
+            ELSE
+                v_project_acc := public.resolve_leaf_account(COALESCE(
+                    (SELECT (account_mappings->>'INVENTORY_WIP')::UUID FROM public.company_settings WHERE organization_id = v_issue.organization_id),
+                    (SELECT id FROM public.accounts WHERE code = '10303' AND organization_id = v_issue.organization_id LIMIT 1)
+                ));
+            END IF;
+        END IF;
+
+        IF v_project_acc IS NOT NULL THEN
+            UPDATE public.projects SET cost_center_account_id = v_project_acc WHERE id = v_project.id;
+        END IF;
+    END IF;
+
+    IF v_project_acc IS NULL THEN
+        RAISE EXCEPTION '⚠️ تعذر تحديد الحساب المالي للمشروع، يرجى التأكد من وجود حساب مشروعات تحت التنفيذ (10303).';
+    END IF;
 
     FOR v_item IN SELECT * FROM public.project_material_issue_items WHERE issue_id = p_issue_id LOOP
         v_total_cost := v_total_cost + (v_item.quantity * v_item.unit_cost);
@@ -576,7 +791,7 @@ BEGIN
 
     -- من ح/ تكاليف المشروع
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_je_id, v_project.cost_center_account_id, v_total_cost, 0, 'تحميل تكلفة مواد منصرفة', v_issue.organization_id);
+    VALUES (v_je_id, v_project_acc, v_total_cost, 0, 'تحميل تكلفة مواد منصرفة', v_issue.organization_id);
 
     -- إلى ح/ المخزون (سيتم الخصم الفعلي عبر محرك المخزون الشامل)
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
@@ -597,20 +812,17 @@ DECLARE
     v_new_account_id UUID;
     v_account_code TEXT;
 BEGIN
-    -- 1. البحث عن حساب "مشروعات تحت التنفيذ" أو حساب أب للمشاريع
     SELECT id INTO v_parent_id FROM public.accounts 
     WHERE organization_id = NEW.organization_id AND (code = '10303' OR name LIKE '%مشاريع%' OR name LIKE '%Work in Progress%')
     LIMIT 1;
 
-    -- 2. إذا لم يوجد، نستخدم أي حساب تكاليف أو ننشئ حساباً افتراضياً
     IF v_parent_id IS NOT NULL THEN
         v_account_code := (SELECT code FROM public.accounts WHERE id = v_parent_id) || '-' || (SELECT COALESCE(COUNT(*), 0) + 1 FROM public.accounts WHERE parent_id = v_parent_id);
         
         INSERT INTO public.accounts (organization_id, name, code, parent_id, type, is_active, is_group)
-        VALUES (NEW.organization_id, 'مشروع: ' || NEW.name, v_account_code, v_parent_id, 'expense', TRUE, FALSE)
+        VALUES (NEW.organization_id, 'مشروع: ' || NEW.name, v_account_code, v_parent_id, 'asset', TRUE, FALSE)
         RETURNING id INTO v_new_account_id;
 
-        -- تحديث المشروع بربطه بالحساب المالي الجديد
         UPDATE public.projects SET cost_center_account_id = v_new_account_id WHERE id = NEW.id;
     END IF;
 
