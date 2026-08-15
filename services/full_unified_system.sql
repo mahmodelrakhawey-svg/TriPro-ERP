@@ -2687,13 +2687,13 @@ BEGIN
     SELECT reliability_score INTO v_reliability_score FROM public.v_global_system_health WHERE organization_id = v_target_org_id;
 
     -- 1. Current Month Sales (Net Revenue from GL to match Income Statement)
-    -- 🛡️ [إصلاح] استخدام ميزان المراجعة للحصول على صافي الإيرادات (بعد المرتجعات) بدلاً من إجمالي الفواتير
     SELECT COALESCE(SUM(jl.credit - jl.debit), 0) INTO v_month_sales
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
     WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
-    AND (a.type ILIKE '%revenue%' OR a.code LIKE '4%')
+    AND (a.type ILIKE '%revenue%' OR a.type ILIKE '%إيراد%' OR a.code LIKE '4%')
+    AND NOT (a.code LIKE '1%' OR a.code LIKE '2%' OR a.code LIKE '3%' OR a.code LIKE '5%')
     AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
 
     -- 2. Previous Month Sales (Net Revenue)
@@ -2702,7 +2702,8 @@ BEGIN
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
     WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
-    AND (a.type ILIKE '%revenue%' OR a.code LIKE '4%')
+    AND (a.type ILIKE '%revenue%' OR a.type ILIKE '%إيراد%' OR a.code LIKE '4%')
+    AND NOT (a.code LIKE '1%' OR a.code LIKE '2%' OR a.code LIKE '3%' OR a.code LIKE '5%')
     AND je.transaction_date BETWEEN v_prev_month_start AND v_prev_month_end;
 
     -- 3. Current Month Purchases
@@ -2718,23 +2719,23 @@ BEGIN
     AND invoice_date BETWEEN v_prev_month_start AND v_prev_month_end;
 
     -- 5. Current Month COGS (Net Cost from GL)
-    -- 🛡️ [تحسين] استخدام نفس منطق قائمة الدخل لضمان تطابق الأرقام
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_month_cogs
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
     WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
     AND (a.id = v_cogs_acc_id OR a.code LIKE '511%' OR a.code LIKE '501%' OR a.name ILIKE '%تكلفة%' OR a.name ILIKE '%cost%')
+    AND NOT (a.code LIKE '4%' OR a.code LIKE '1%' OR a.code LIKE '2%' OR a.code LIKE '3%')
     AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
 
     -- 6. Current Month Operating Expenses (from journal entries)
-    -- 🛡️ [إصلاح حاسم] استبعاد حسابات تكلفة المبيعات من المصروفات الإدارية لمنع تكرار الخصم وظهور أرباح سالبة خاطئة
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0) INTO v_month_expenses
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     JOIN public.accounts a ON jl.account_id = a.id
     WHERE je.organization_id = v_target_org_id AND je.status = 'posted'
-    AND (a.type ILIKE '%expense%' OR a.code LIKE '5%')
+    AND (a.type ILIKE '%expense%' OR a.type ILIKE '%مصروف%' OR a.code LIKE '5%')
+    AND NOT (a.code LIKE '4%' OR a.code LIKE '1%' OR a.code LIKE '2%' OR a.code LIKE '3%')
     AND NOT (a.id = v_cogs_acc_id OR a.code LIKE '511%' OR a.code LIKE '501%' OR a.name ILIKE '%تكلفة%' OR a.name ILIKE '%cost%')
     AND je.transaction_date BETWEEN v_current_month_start AND v_current_month_end;
 

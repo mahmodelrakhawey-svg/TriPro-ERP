@@ -811,16 +811,30 @@ DECLARE
     v_parent_id UUID;
     v_new_account_id UUID;
     v_account_code TEXT;
+    v_next_num INT;
 BEGIN
     SELECT id INTO v_parent_id FROM public.accounts 
-    WHERE organization_id = NEW.organization_id AND (code = '10303' OR name LIKE '%مشاريع%' OR name LIKE '%Work in Progress%')
+    WHERE organization_id = NEW.organization_id 
+      AND (code = '511' OR (type = 'expense' AND (name LIKE '%تكلفة%' OR name LIKE '%مشاريع%')))
+      AND code NOT LIKE '4%' AND code NOT LIKE '1%'
+    ORDER BY CASE WHEN code = '511' THEN 1 ELSE 2 END
     LIMIT 1;
 
+    IF v_parent_id IS NULL THEN
+        SELECT id INTO v_parent_id FROM public.accounts 
+        WHERE organization_id = NEW.organization_id AND code = '5'
+        LIMIT 1;
+    END IF;
+
     IF v_parent_id IS NOT NULL THEN
-        v_account_code := (SELECT code FROM public.accounts WHERE id = v_parent_id) || '-' || (SELECT COALESCE(COUNT(*), 0) + 1 FROM public.accounts WHERE parent_id = v_parent_id);
+        SELECT COALESCE(COUNT(*), 0) + 1 INTO v_next_num 
+        FROM public.accounts 
+        WHERE parent_id = v_parent_id;
+
+        v_account_code := (SELECT code FROM public.accounts WHERE id = v_parent_id) || '-' || v_next_num;
         
         INSERT INTO public.accounts (organization_id, name, code, parent_id, type, is_active, is_group)
-        VALUES (NEW.organization_id, 'مشروع: ' || NEW.name, v_account_code, v_parent_id, 'asset', TRUE, FALSE)
+        VALUES (NEW.organization_id, 'مشروع: ' || NEW.name, v_account_code, v_parent_id, 'expense', TRUE, FALSE)
         RETURNING id INTO v_new_account_id;
 
         UPDATE public.projects SET cost_center_account_id = v_new_account_id WHERE id = NEW.id;
