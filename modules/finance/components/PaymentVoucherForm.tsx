@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -13,10 +13,10 @@ const PaymentVoucherForm = () => {
   const location = useLocation();
   const DEMO_EMAIL = 'demo@tripro.com';
   const DEMO_USER_ID = 'demo-user-id';
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher, isDemo } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher, isDemo, organization } = useAccounting();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
-  // const [suppliers, setSuppliers] = useState<any[]>([]); // Removed: Use suppliers from context
+  
   const [formData, setFormData] = useState({
     supplierId: '',
     treasuryId: '',
@@ -40,6 +40,22 @@ const PaymentVoucherForm = () => {
   const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
   const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
 
+  // استخراج معلمات الرابط إن وجدت
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const preSupplierId = params.get('supplierId');
+    const preAmount = params.get('amount');
+    const preNotes = params.get('notes');
+    if (preSupplierId) {
+      setFormData(prev => ({
+        ...prev,
+        supplierId: preSupplierId,
+        amount: preAmount ? parseFloat(preAmount) || prev.amount : prev.amount,
+        notes: preNotes ? decodeURIComponent(preNotes) : prev.notes
+      }));
+    }
+  }, [location.search]);
+
   // تصفية الموردين بناءً على نص البحث
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter(s => 
@@ -55,11 +71,8 @@ const PaymentVoucherForm = () => {
       const supplier: any = suppliers.find(s => s.id === formData.supplierId);
       if (!supplier) return;
 
-      // Get user's organization ID
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = organization?.id;
       if (!userOrgId) {
-          console.error("Organization ID not found for balance calculation.");
           setDynamicBalance(null);
           return;
       }
@@ -71,17 +84,16 @@ const PaymentVoucherForm = () => {
           return;
       }
 
-      // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالمورد + القيود اليدوية التي تذكر اسمه
-      // نظراً لأن بعض المستندات (مثل فواتير المشتريات) قد لا تسجل حقل related_journal_entry_id في جدولها المباشر،
-      // فإننا نجلب معرفات المستندات أولاً ثم نبحث عنها في جدول القيود اليومية عبر related_document_id.
+      // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالمورد + مستخلصات مقاولي الباطن + القيود اليدوية
       const [
-          pinvRes, payRes, pretRes, dnRes, chqRes
+          pinvRes, payRes, pretRes, dnRes, chqRes, subRes
       ] = await Promise.all([
           supabase.from('purchase_invoices').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
           supabase.from('payment_vouchers').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
           supabase.from('purchase_returns').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
           supabase.from('debit_notes').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
-          supabase.from('cheques').select('id').eq('party_id', supplier.id).eq('type', 'outgoing').eq('organization_id', userOrgId)
+          supabase.from('cheques').select('id').eq('party_id', supplier.id).eq('type', 'outgoing').eq('organization_id', userOrgId),
+          supabase.from('subcontractors').select('id, name').or(`name.eq."${supplier.name}",supplier_id.eq."${supplier.id}"`).eq('organization_id', userOrgId)
       ]);
 
       const docIds = new Set<string>();
@@ -103,12 +115,30 @@ const PaymentVoucherForm = () => {
           relatedEntries?.forEach(je => allEntryIds.add(je.id));
       }
 
-      // 2. جلب القيود اليدوية التي تذكر اسم المورد في البيان
+      // 2. إذا كان المورد مقاول باطن، نجلب قيود مستخلصاته
+      if (subRes.data && subRes.data.length > 0) {
+        const subIds = subRes.data.map(s => s.id);
+        const { data: contracts } = await supabase.from('subcontractor_contracts')
+          .select('id')
+          .in('subcontractor_id', subIds)
+          .eq('organization_id', userOrgId);
+        
+        const contractIds = contracts?.map(c => c.id) || [];
+        if (contractIds.length > 0) {
+          const { data: billings } = await supabase.from('subcontractor_billings')
+            .select('related_journal_entry_id')
+            .in('contract_id', contractIds)
+            .eq('organization_id', userOrgId)
+            .not('related_journal_entry_id', 'is', null);
+          billings?.forEach(b => b.related_journal_entry_id && allEntryIds.add(b.related_journal_entry_id));
+        }
+      }
+
+      // 3. جلب القيود اليدوية أو الخاصة بالمقاول التي تذكر اسم المورد في البيان
       const { data: manualEntries } = await supabase.from('journal_entries')
           .select('id')
           .eq('organization_id', userOrgId)
           .eq('status', 'posted')
-          .is('related_document_id', null)
           .ilike('description', `%${supplier.name}%`);
       manualEntries?.forEach(je => allEntryIds.add(je.id));
 
@@ -126,7 +156,7 @@ const PaymentVoucherForm = () => {
       setDynamicBalance(Number(supplier.opening_balance || 0) + movement);
     };
     getRealBalance();
-  }, [formData.supplierId, suppliers, getSystemAccount]);
+  }, [formData.supplierId, suppliers, getSystemAccount, organization?.id]);
   
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);

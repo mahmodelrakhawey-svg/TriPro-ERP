@@ -12,7 +12,7 @@ interface SubcontractorFormProps {
 }
 
 const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSuccess, subcontractor }) => {
-  const { organization } = useAccounting();
+  const { organization, refreshData } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -43,24 +43,62 @@ const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSucces
     }
 
     try {
+      let supplierId = subcontractor?.supplier_id;
+
+      // 1. مزامنة مقاول الباطن في جدول الموردين (suppliers) لتمكين إصدار سندات الصرف له فوراً
+      if (supplierId) {
+        await supabase.from('suppliers').update({
+          name: formData.name,
+          phone: formData.phone || null,
+          address: formData.specialty ? `تخصص: ${formData.specialty}` : null
+        }).eq('id', supplierId);
+      } else {
+        const { data: existingSupp } = await supabase.from('suppliers')
+          .select('id')
+          .eq('organization_id', organization?.id)
+          .eq('name', formData.name)
+          .maybeSingle();
+
+        if (existingSupp?.id) {
+          supplierId = existingSupp.id;
+        } else {
+          const { data: newSupp } = await supabase.from('suppliers').insert([{
+            name: formData.name,
+            phone: formData.phone || null,
+            address: formData.specialty ? `تخصص: ${formData.specialty}` : null,
+            contact_person: 'مقاول باطن',
+            organization_id: organization?.id,
+            opening_balance: 0,
+            balance: 0
+          }]).select('id').single();
+          if (newSupp) supplierId = newSupp.id;
+        }
+      }
+
+      // 2. حفظ مقاول الباطن
       if (subcontractor?.id) {
         const { error } = await supabase
           .from('subcontractors')
-          .update(formData)
+          .update({
+            ...formData,
+            supplier_id: supplierId
+          })
           .eq('id', subcontractor.id);
 
         if (error) throw error;
-        showToast('تم تحديث بيانات المقاول بنجاح ✅', 'success');
+        showToast('تم تحديث بيانات المقاول والمورد بنجاح ✅', 'success');
       } else {
         const { error } = await supabase.from('subcontractors').insert([{
           ...formData,
+          supplier_id: supplierId,
           organization_id: organization?.id
         }]);
 
         if (error) throw error;
-        showToast('تم إضافة مقاول الباطن بنجاح ✅', 'success');
+        showToast('تم إضافة مقاول الباطن وتسجيله كمورد بنجاح ✅', 'success');
       }
 
+      if (refreshData) refreshData();
       onSuccess();
       onClose();
     } catch (error: any) {

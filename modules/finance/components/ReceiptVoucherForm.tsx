@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -13,9 +13,9 @@ const ReceiptVoucherForm = () => {
   const location = useLocation();
   const DEMO_EMAIL = 'demo@tripro.com';
   const DEMO_USER_ID = 'demo-user-id';
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher, isDemo } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher, isDemo, organization } = useAccounting();
   const { currentUser } = useAuth();
-  // const [customers, setCustomers] = useState<any[]>([]); // Removed
+  
   const [formData, setFormData] = useState({
     customerId: '',
     treasuryId: '',
@@ -35,9 +35,25 @@ const ReceiptVoucherForm = () => {
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const { showToast } = useToast();
-    // إضافة حالة للرصيد اللحظي المباشر للعميل
+  // إضافة حالة للرصيد اللحظي المباشر للعميل
   const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+
+  // استخراج معلمات الرابط إن وجدت
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const preCustomerId = params.get('customerId');
+    const preAmount = params.get('amount');
+    const preNotes = params.get('notes');
+    if (preCustomerId) {
+      setFormData(prev => ({
+        ...prev,
+        customerId: preCustomerId,
+        amount: preAmount ? parseFloat(preAmount) || prev.amount : prev.amount,
+        notes: preNotes ? decodeURIComponent(preNotes) : prev.notes
+      }));
+    }
+  }, [location.search]);
 
   // تصفية العملاء بناءً على نص البحث
   const filteredCustomers = useMemo(() => {
@@ -46,7 +62,7 @@ const ReceiptVoucherForm = () => {
     );
   }, [customers, customerSearchTerm]);
 
-  // جلب الرصيد الحقيقي (فواتير - تحصيلات) فور اختيار العميل
+  // جلب الرصيد الحقيقي (فواتير + مستخلصات - تحصيلات) فور اختيار العميل
   useEffect(() => {
     const getRealBalance = async () => {
       if (!formData.customerId) { setDynamicBalance(null); return; }
@@ -54,11 +70,8 @@ const ReceiptVoucherForm = () => {
       const customer: any = customers.find(c => c.id === formData.customerId);
       if (!customer) return;
 
-      // Get user's organization ID
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = organization?.id;
       if (!userOrgId) {
-          console.error("Organization ID not found for balance calculation.");
           setDynamicBalance(null);
           return;
       }
@@ -70,10 +83,11 @@ const ReceiptVoucherForm = () => {
           return;
       }
 
-      // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + القيود اليدوية التي تذكر اسمه
+      // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل ومستخلصات المقاولات
       const [
           invRes, recRes, retRes, cnRes, chqRes, ordRes,
-          manualEntriesRes // Fetch manual entries that mention the customer
+          clientProjectsRes,
+          manualEntriesRes
       ] = await Promise.all([
           supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
           supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
@@ -81,6 +95,7 @@ const ReceiptVoucherForm = () => {
           supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
           supabase.from('cheques').select('related_journal_entry_id').eq('party_id', customer.id).eq('type', 'incoming').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
           supabase.from('orders').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+          supabase.from('projects').select('id, name').eq('customer_id', customer.id).eq('organization_id', userOrgId),
           supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${customer.name}%`)
       ]);
 
@@ -91,7 +106,18 @@ const ReceiptVoucherForm = () => {
       cnRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
       chqRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
       ordRes.data?.forEach(o => o.related_journal_entry_id && allEntryIds.add(o.related_journal_entry_id));
-      manualEntriesRes.data?.forEach(je => allEntryIds.add(je.id)); // Add IDs from manual entries
+      manualEntriesRes.data?.forEach(je => allEntryIds.add(je.id));
+
+      // جلب مستخلصات مشاريع هذا العميل
+      const projectIds = clientProjectsRes.data?.map(p => p.id) || [];
+      if (projectIds.length > 0) {
+        const { data: billings } = await supabase.from('project_progress_billings')
+          .select('related_journal_entry_id')
+          .in('project_id', projectIds)
+          .eq('organization_id', userOrgId)
+          .not('related_journal_entry_id', 'is', null);
+        billings?.forEach(b => b.related_journal_entry_id && allEntryIds.add(b.related_journal_entry_id));
+      }
 
       let movement = 0;
       if (allEntryIds.size > 0) {
@@ -116,7 +142,7 @@ const ReceiptVoucherForm = () => {
       setDynamicBalance(Number(customer.opening_balance || 0) + movement + unpostedRestaurantSales);
     };
     getRealBalance();
-  }, [formData.customerId, customers, getSystemAccount]); // Added getSystemAccount to dependencies
+  }, [formData.customerId, customers, getSystemAccount, organization?.id]); // Added getSystemAccount to dependencies
   // Print State
   const [voucherToPrint, setVoucherToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
-import { Plus, Users, Phone, Briefcase, ArrowRight, Trash2, Edit, History } from 'lucide-react';
+import { Plus, Users, Phone, Briefcase, ArrowRight, Trash2, Edit, History, Coins, CreditCard } from 'lucide-react';
 import SubcontractorForm from './SubcontractorForm';
 
 interface Subcontractor {
@@ -10,6 +11,7 @@ interface Subcontractor {
   name: string;
   phone?: string;
   specialty?: string;
+  supplier_id?: string;
 }
 
 interface Props {
@@ -19,6 +21,7 @@ interface Props {
 }
 
 const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts, onViewStatement }) => {
+  const navigate = useNavigate();
   const { organization } = useAccounting();
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [loading, setLoading] = useState(true);
@@ -131,19 +134,29 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts, onView
                 )}
               </div>
 
-              <div className="mt-6 pt-4 border-t border-gray-50 flex justify-end">
+              <div className="mt-6 pt-4 border-t border-gray-50 flex flex-wrap gap-2 justify-end">
+                <button
+                  onClick={() => {
+                    const suppId = sub.supplier_id || '';
+                    navigate(`/payment-voucher?supplierId=${suppId}&notes=${encodeURIComponent(`سداد لمقاول الباطن: ${sub.name}`)}`);
+                  }}
+                  className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-2 rounded-lg text-xs font-bold transition-colors flex items-center gap-1 border border-emerald-200"
+                  title="إصدار سند صرف وسداد للمقاول"
+                >
+                  <Coins size={14} /> سداد (سند صرف)
+                </button>
                 <button
                   onClick={() => onViewContracts(sub.id)}
-                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  className="bg-purple-50 hover:bg-purple-100 text-purple-700 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
                 >
-                  عرض العقود
+                  عقود ومستخلصات
                 </button>
                 <button
                   onClick={() => onViewStatement(sub.id)}
-                  className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  className="bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-2 rounded-lg text-xs font-medium transition-colors flex items-center gap-1"
                   title="عرض كشف الحساب التفصيلي"
                 >
-                  <History size={16} className="inline-block ml-1" /> كشف حساب
+                  <History size={14} /> كشف حساب
                 </button>
               </div>
             </div>
