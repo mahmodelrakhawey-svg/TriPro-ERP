@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
-import { ArrowRight, Plus, FileText, DollarSign, Percent, Briefcase, X, Save, Loader2, Trash2 } from 'lucide-react';
+import { ArrowRight, Plus, FileText, DollarSign, Percent, Briefcase, X, Save, Loader2, Trash2, Coins, ArrowUpRight, Wallet } from 'lucide-react';
 
 interface Contract {
   id: string;
@@ -22,7 +22,7 @@ interface Props {
 }
 
 const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBack, onViewBillings }) => {
-  const { organization } = useAccounting();
+  const { organization, accounts } = useAccounting();
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [projects, setProjects] = useState<{id: string, name: string}[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,7 +35,34 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
     total_value: 0,
     retention_percentage: 5
   });
+
+  // حالة صرف دفعة مقدمة
+  const [isDisbursingAdvance, setIsDisbursingAdvance] = useState(false);
+  const [advanceTargetContract, setAdvanceTargetContract] = useState<Contract | null>(null);
+  const [advanceData, setAdvanceData] = useState({
+    amount: 0,
+    source_account_id: '',
+    date: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
+
   const { showToast } = useToast();
+
+  // تصفية حسابات النقدية والبنوك
+  const cashAndBankAccounts = (accounts || []).filter(acc => {
+    if (acc.isGroup || acc.is_group) return false;
+    const code = String(acc.code || '');
+    const name = String(acc.name || '').toLowerCase();
+    const type = String(acc.type || '').toLowerCase();
+    if (code.startsWith('2') || code.startsWith('3') || code.startsWith('4') || code.startsWith('5')) return false;
+    return (
+      type.includes('cash') || type.includes('bank') ||
+      code.startsWith('123') || code.startsWith('101') || code.startsWith('1101') ||
+      name.includes('صندوق') || name.includes('خزينة') || name.includes('خزينه') ||
+      name.includes('نقد') || name.includes('بنك') || name.includes('مصرف') ||
+      name.includes('محفظة') || name.includes('كاش')
+    );
+  });
 
   useEffect(() => {
     if (organization?.id) {
@@ -43,6 +70,39 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
       fetchProjects();
     }
   }, [subcontractorId, organization?.id]);
+
+  const handleDisburseAdvance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!advanceTargetContract) return;
+    if (advanceData.amount <= 0) {
+      return showToast('يجب أن يكون مبلغ الدفعة المقدمة أكبر من صفر', 'warning');
+    }
+    if (!advanceData.source_account_id) {
+      return showToast('يرجى تحديد حساب الخزينة أو البنك المصروف منه', 'warning');
+    }
+
+    setLoading(true);
+    try {
+      const { error } = await supabase.rpc('fn_disburse_subcontractor_advance', {
+        p_contract_id: advanceTargetContract.id,
+        p_amount: advanceData.amount,
+        p_source_account_id: advanceData.source_account_id,
+        p_date: advanceData.date,
+        p_notes: advanceData.notes || null
+      });
+
+      if (error) throw error;
+      showToast('تم صرف الدفعة المقدمة للمقاول وتوليد القيد المحاسبي بنجاح ✅', 'success');
+      setIsDisbursingAdvance(false);
+      setAdvanceTargetContract(null);
+      setAdvanceData({ amount: 0, source_account_id: '', date: new Date().toISOString().split('T')[0], notes: '' });
+      fetchContracts();
+    } catch (error: any) {
+      showToast('خطأ في صرف الدفعة المقدمة: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // حساب إجمالي قيمة العقد تلقائياً عند تغيير البنود
   useEffect(() => {
@@ -338,21 +398,39 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
               </div>
 
               {/* 🏗️ عرض رصيد الدفعة المقدمة المتبقي */}
-              {contract.advance_payment_balance !== undefined && contract.advance_payment_balance > 0 && (
+              {contract.advance_payment_balance !== undefined && contract.advance_payment_balance > 0 ? (
                 <div className="mb-4 p-3 bg-blue-50 rounded-xl border border-blue-100 flex justify-between items-center">
                   <span className="text-xs font-bold text-blue-600">الدفعة المقدمة المتبقية:</span>
                   <span className="font-black text-blue-700 font-mono">
-                    {contract.advance_payment_balance.toLocaleString()}
+                    {contract.advance_payment_balance.toLocaleString()} ج.م
                   </span>
                 </div>
-              )}
+              ) : null}
 
-              <button
-                onClick={() => onViewBillings(contract.id)}
-                className="w-full bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center justify-center gap-2"
-              >
-                إدارة المستخلصات
-              </button>
+              <div className="grid grid-cols-2 gap-2 mt-4">
+                <button
+                  onClick={() => {
+                    setAdvanceTargetContract(contract);
+                    setAdvanceData({
+                      amount: 0,
+                      source_account_id: '',
+                      date: new Date().toISOString().split('T')[0],
+                      notes: `دفعة مقدمة لعقد: ${contract.contract_name}`
+                    });
+                    setIsDisbursingAdvance(true);
+                  }}
+                  className="bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border border-emerald-200 shadow-sm"
+                >
+                  <Coins size={15} /> صرف دفعة مقدمة
+                </button>
+
+                <button
+                  onClick={() => onViewBillings(contract.id)}
+                  className="bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border border-purple-200 shadow-sm"
+                >
+                  <FileText size={15} /> المستخلصات
+                </button>
+              </div>
             </div>
           ))}
 
@@ -362,6 +440,91 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
               <p className="text-gray-500">لا توجد عقود مسجلة لهذا المقاول</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* مودال صرف دفعة مقدمة لمقاول الباطن */}
+      {isDisbursingAdvance && advanceTargetContract && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 rtl text-right">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center">
+              <h3 className="font-black text-emerald-800 flex items-center gap-2">
+                <Coins size={22} className="text-emerald-600" /> صرف دفعة مقدمة لمقاول الباطن
+              </h3>
+              <button onClick={() => setIsDisbursingAdvance(false)} className="text-emerald-400 hover:text-emerald-600">
+                <X size={24} />
+              </button>
+            </div>
+
+            <form onSubmit={handleDisburseAdvance} className="p-8 space-y-5">
+              <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 text-xs text-emerald-800">
+                <p className="font-bold">عقد: {advanceTargetContract.contract_name}</p>
+                <p className="text-emerald-600 mt-0.5">مشروع: {advanceTargetContract.project_name}</p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase mb-2">مبلغ الدفعة المقدمة (ج.م) *</label>
+                <div className="relative">
+                  <input 
+                    type="number" required min="0.01" step="0.01"
+                    value={advanceData.amount || ''}
+                    onChange={e => setAdvanceData({ ...advanceData, amount: parseFloat(e.target.value) || 0 })}
+                    placeholder="0.00"
+                    className="w-full border-2 border-gray-100 rounded-2xl p-3 pl-12 text-2xl font-black text-emerald-700 focus:border-emerald-500 outline-none"
+                  />
+                  <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase mb-2">حساب الصرف (الخزينة أو البنك) *</label>
+                <select 
+                  required
+                  value={advanceData.source_account_id}
+                  onChange={e => setAdvanceData({ ...advanceData, source_account_id: e.target.value })}
+                  className="w-full border-2 border-gray-100 rounded-2xl p-3 focus:border-emerald-500 outline-none font-bold bg-white"
+                >
+                  <option value="">-- اختر الخزينة أو البنك المصروف منه --</option>
+                  {cashAndBankAccounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.code} - {acc.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">سيتم توليد قيد: من ح/ دفعات مقدمة للمقاولين (1245) إلى ح/ الخزينة أو البنك</p>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase mb-2">تاريخ الصرف</label>
+                  <input 
+                    type="date" required
+                    value={advanceData.date}
+                    onChange={e => setAdvanceData({ ...advanceData, date: e.target.value })}
+                    className="w-full border-2 border-gray-100 rounded-2xl p-3 focus:border-emerald-500 outline-none font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-black text-gray-400 uppercase mb-2">ملاحظات / البيان</label>
+                  <input 
+                    type="text"
+                    value={advanceData.notes}
+                    onChange={e => setAdvanceData({ ...advanceData, notes: e.target.value })}
+                    className="w-full border-2 border-gray-100 rounded-2xl p-3 focus:border-emerald-500 outline-none font-medium text-sm"
+                    placeholder="ملاحظات حول الدفعة المقدمة..."
+                  />
+                </div>
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={loading} 
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 transition-all flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> تأكيد وصرف الدفعة المقدمة</>}
+              </button>
+            </form>
+          </div>
         </div>
       )}
     </div>
