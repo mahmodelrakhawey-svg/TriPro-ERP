@@ -23,12 +23,28 @@ interface Props {
 }
 
 const RetentionReleaseManager: React.FC<Props> = ({ projectId, projectName, onBack }) => {
-  const { organization } = useAccounting();
+  const { organization, accounts } = useAccounting();
   const [releases, setReleases] = useState<RetentionRelease[]>([]);
   const [subcontractors, setSubcontractors] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const { showToast } = useToast();
+
+  // تصفية حسابات النقدية والبنوك
+  const cashAndBankAccounts = (accounts || []).filter(acc => {
+    if (acc.isGroup || acc.is_group) return false;
+    const code = String(acc.code || '');
+    const name = String(acc.name || '').toLowerCase();
+    const type = String(acc.type || '').toLowerCase();
+    if (code.startsWith('2') || code.startsWith('3') || code.startsWith('4') || code.startsWith('5')) return false;
+    return (
+      type.includes('cash') || type.includes('bank') ||
+      code.startsWith('123') || code.startsWith('101') || code.startsWith('1101') ||
+      name.includes('صندوق') || name.includes('خزينة') || name.includes('خزينه') ||
+      name.includes('نقد') || name.includes('بنك') || name.includes('مصرف') ||
+      name.includes('محفظة') || name.includes('كاش')
+    );
+  });
 
   const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm<RetentionReleaseFormData>({
     resolver: zodResolver(retentionReleaseSchema),
@@ -36,6 +52,7 @@ const RetentionReleaseManager: React.FC<Props> = ({ projectId, projectName, onBa
       amount: 0,
       release_type: 'customer',
       subcontractor_id: null,
+      source_account_id: null,
       notes: '',
     }
   });
@@ -90,6 +107,7 @@ const RetentionReleaseManager: React.FC<Props> = ({ projectId, projectName, onBa
         p_type: formData.release_type,
         p_notes: formData.notes,
         p_subcontractor_id: formData.subcontractor_id,
+        p_source_account_id: formData.source_account_id || null,
       });
 
       if (error) throw error;
@@ -169,12 +187,31 @@ const RetentionReleaseManager: React.FC<Props> = ({ projectId, projectName, onBa
               )}
 
               <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">
+                  {watchedReleaseType === 'customer' ? 'حساب الاستلام (الخزينة أو البنك)' : 'حساب الصرف (الخزينة أو البنك)'}
+                </label>
+                <select
+                  {...register('source_account_id')}
+                  className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-green-500 outline-none bg-white font-medium"
+                >
+                  <option value="">-- اختر الخزينة أو البنك (افتراضي: الصندوق الرئيسي) --</option>
+                  {cashAndBankAccounts.map(acc => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.code} - {acc.name}
+                    </option>
+                  ))}
+                </select>
+                {errors.source_account_id && <p className="text-red-500 text-xs mt-1">{errors.source_account_id.message}</p>}
+              </div>
+
+              <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">المبلغ</label>
                 <input
                   type="number"
                   {...register('amount', { valueAsNumber: true })}
-                  className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-green-500 outline-none"
-                  min="0"
+                  className="w-full p-2.5 border rounded-xl focus:ring-2 focus:ring-green-500 outline-none font-bold text-lg text-green-700"
+                  min="0.01"
+                  step="0.01"
                 />
                 {errors.amount && <p className="text-red-500 text-xs mt-1">{errors.amount.message}</p>}
               </div>

@@ -514,6 +514,7 @@ export const retentionReleaseSchema = z.object({
   amount: amountSchema.positive('المبلغ يجب أن يكون موجباً'),
   release_type: z.enum(['customer', 'subcontractor'], { message: 'نوع الاسترداد مطلوب' }),
   subcontractor_id: idSchema.optional().nullable(),
+  source_account_id: idSchema.optional().nullable(),
   notes: textSchema.optional(),
 }).refine(data => {
   if (data.release_type === 'subcontractor' && !data.subcontractor_id) {
