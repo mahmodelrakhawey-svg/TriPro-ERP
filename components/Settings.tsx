@@ -471,9 +471,13 @@ const Settings = () => {
 
     setLoading(true);
     try {
+      const payload = typeof backup.backup_data === 'string' 
+        ? JSON.parse(backup.backup_data) 
+        : backup.backup_data;
+
       const { data, error } = await supabase.rpc('restore_organization_backup', { 
         p_org_id: backup.organization_id,
-        p_backup_data: backup.backup_data
+        p_backup_data: payload
       });
       if (error) throw error;
       showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
