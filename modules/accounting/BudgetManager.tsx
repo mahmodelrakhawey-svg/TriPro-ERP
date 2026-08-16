@@ -1,4 +1,4 @@
-﻿﻿﻿
+﻿﻿
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -6,13 +6,19 @@ import { AccountType, BudgetItem } from '../../types';
 import { Save, Target, Plus, Trash2, User, Users, Package, Calculator } from 'lucide-react';
 
 const BudgetManager = () => {
-  const { accounts, budgets, saveBudget, salespeople, customers, products } = useAccounting();
+  const { accounts, budgets, saveBudget, salespeople, customers, products, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
-  const [year, setYear] = useState(new Date().getFullYear());
+  const [year, setYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [items, setItems] = useState<BudgetItem[]>([]);
 
   const budgetableAccounts = accounts.filter(a => !a.isGroup && (a.type === AccountType.EXPENSE || a.type === AccountType.REVENUE));
+
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setYear(selectedFiscalYear);
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
       const existing = budgets.find(b => b.year === year && b.month === month);

@@ -128,13 +128,20 @@ const ManufacturingVariances = React.memo(({ data }: { data: any[] }) => (
 ));
 
 export default function AccountingDashboard() {
-  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin, deleteOrganization, organizations } = useAccounting();
+  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin, deleteOrganization, organizations, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [selectedOrgIdToDelete, setSelectedOrgIdToDelete] = useState('');
   const [mfgVariances, setMfgVariances] = useState([]);
+
+  // مزامنة السنة المختارة مع السنة المالية للنظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setSelectedYear(selectedFiscalYear);
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
     const load = async () => {

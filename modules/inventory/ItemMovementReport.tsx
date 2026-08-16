@@ -19,18 +19,26 @@ type Movement = {
 };
 
 const ItemMovementReport = () => {
-  const { currentUser, products, warehouses, users } = useAccounting();
+  const { currentUser, products, warehouses, users, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(false);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [currentStock, setCurrentStock] = useState(0);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const fetchMovement = async () => {
     if (!selectedProductId) {
@@ -263,6 +271,20 @@ const ItemMovementReport = () => {
       if (selectedWarehouseId) himsQuery = himsQuery.eq('warehouse_id', selectedWarehouseId);
       const { data: himsItems } = await himsQuery;
 
+      // 10. جلب حركات صرف المواد لمشاريع المقاولات (Construction Material Issues) - صادر
+      let constructionQuery = supabase
+        .from('project_material_issue_items')
+        .select(`
+          id, quantity, unit_cost,
+          project_material_issues!inner(id, issue_date, issue_number, status, warehouse_id, projects(name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('project_material_issues.status', 'approved')
+        .eq('organization_id', userOrgId);
+
+      if (selectedWarehouseId) constructionQuery = constructionQuery.eq('project_material_issues.warehouse_id', selectedWarehouseId);
+      const { data: constructionIssues } = await constructionQuery;
+
       // تجميع الحركات
       let allMovements: any[] = [];
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
@@ -371,6 +393,18 @@ const ItemMovementReport = () => {
               documentNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
               description: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`,
               userName: 'النظام الطبي'
+          });
+      });
+
+      constructionIssues?.forEach((item: any) => {
+          allMovements.push({
+              date: item.project_material_issues?.issue_date,
+              type: 'out',
+              quantity: Number(item.quantity),
+              documentType: 'إذن صرف موقع/مشروع',
+              documentNumber: item.project_material_issues?.issue_number || '-',
+              description: `صرف لمشروع: ${item.project_material_issues?.projects?.name || ''}`,
+              userName: 'إدارة المشروعات'
           });
       });
 

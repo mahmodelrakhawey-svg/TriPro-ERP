@@ -25,7 +25,7 @@ interface Quotation {
 }
 
 const QuotationList = () => {
-  const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser, settings, approveInvoice } = useAccounting();
+  const { warehouses, accounts, products, addEntry, getSystemAccount, currentUser, settings, approveInvoice, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [selectedQuoteId, setSelectedQuoteId] = useState<string | null>(null);
   const [convertModalOpen, setConvertModalOpen] = useState(false);
@@ -37,8 +37,16 @@ const QuotationList = () => {
 
   // Filter State
   const [statusFilter, setStatusFilter] = useState('all');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   // 🛡️ جلب وحدات القياس لضمان دقة حساب التكلفة عند التحويل
   useEffect(() => {

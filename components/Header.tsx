@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { secureStorage } from '../utils/securityMiddleware';
-import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle } from 'lucide-react';
+import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
@@ -25,7 +25,7 @@ const routeTitles: Record<string, string> = {
 
 const Header = () => {
     const location = useLocation();
-    const { lastUpdated, refreshData, clearCache, settings, isLoading } = useAccounting();
+    const { lastUpdated, refreshData, clearCache, settings, isLoading, selectedFiscalYear, setSelectedFiscalYear } = useAccounting();
     const navigate = useNavigate();
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [isReturning, setIsReturning] = useState(false);
@@ -213,6 +213,34 @@ const Header = () => {
                         </a>
                     </>
                 )}
+
+                {/* 📅 محدد ومؤشر السنة المالية النشطة */}
+                <div 
+                  className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl transition-all shadow-sm"
+                  title={`السنة المالية المحددة في النظام: ${selectedFiscalYear}`}
+                >
+                    <Calendar size={15} className="text-blue-600 shrink-0" />
+                    <span className="text-xs font-bold text-slate-500 hidden sm:inline">السنة:</span>
+                    <select 
+                      value={selectedFiscalYear}
+                      onChange={(e) => {
+                        const newYear = Number(e.target.value);
+                        setSelectedFiscalYear(newYear);
+                        refreshData();
+                      }}
+                      className="bg-transparent font-black text-xs text-slate-800 focus:outline-none cursor-pointer pr-1"
+                    >
+                      {[2029, 2028, 2027, 2026, 2025, 2024, 2023].map(y => (
+                        <option key={y} value={y}>
+                          {y} {settings?.lastClosedYear && y <= settings.lastClosedYear ? '(مغلقة 🔒)' : '(نشطة 🟢)'}
+                        </option>
+                      ))}
+                    </select>
+                    <span 
+                      className={`w-2 h-2 rounded-full ${settings?.lastClosedYear && selectedFiscalYear <= settings.lastClosedYear ? 'bg-amber-500' : 'bg-emerald-500 ring-2 ring-emerald-200 animate-pulse'}`}
+                      title={settings?.lastClosedYear && selectedFiscalYear <= settings.lastClosedYear ? 'سنة مغلقة محاسبياً' : 'سنة مالية نشطة ومفتوحة للتسجيل'}
+                    ></span>
+                </div>
 
                 <div className="flex items-center gap-3 text-sm text-slate-500">
                     <div className="flex items-center gap-2 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => refreshData()} title="تحديث البيانات">

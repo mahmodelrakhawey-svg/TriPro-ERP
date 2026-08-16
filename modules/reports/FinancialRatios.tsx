@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2, RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -7,12 +7,20 @@ import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 
 const FinancialRatios = () => {
-  const { accounts, entries, currentUser } = useAccounting();
+  const { accounts, entries, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
-  const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
-  const [endDate, setEndDate] = useState(`${new Date().getFullYear()}-12-31`);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
   const [loadingData, setLoadingData] = useState(false); // For fetching ledger lines
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   // Fetch ledger data for the specified period
   const fetchLedgerData = async () => {

@@ -6,13 +6,21 @@ import { BarChart3, Filter, Download, Users, Package, UserCheck, Loader2, Shoppi
 import * as XLSX from 'xlsx';
 
 const PurchaseReports = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const [invoices, setInvoices] = useState<any[]>([]);
   const [invoiceItems, setInvoiceItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [activeTab, setActiveTab] = useState<'general' | 'suppliers' | 'products'>('general');
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
     if (currentUser?.role === 'demo') {

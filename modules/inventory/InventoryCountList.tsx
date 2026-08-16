@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -101,7 +101,7 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
 };
 
 const InventoryCountList = () => {
-  const { recalculateStock, addEntry, accounts, products, getSystemAccount, currentUser } = useAccounting();
+  const { recalculateStock, addEntry, accounts, products, getSystemAccount, currentUser, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   const [counts, setCounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,17 +118,25 @@ const InventoryCountList = () => {
         return;
     }
 
-    const { data } = await supabase
+    let query = supabase
       .from('inventory_counts')
       .select('*, warehouses(name)')
       .order('created_at', { ascending: false });
+
+    if (selectedFiscalYear) {
+      query = query
+        .gte('count_date', `${selectedFiscalYear}-01-01`)
+        .lte('count_date', `${selectedFiscalYear}-12-31`);
+    }
+
+    const { data } = await query;
     if (data) setCounts(data);
     setLoading(false);
   };
 
   useEffect(() => {
     fetchCounts();
-  }, []);
+  }, [selectedFiscalYear]);
 
   const handleViewDetails = async (count: any) => {
     setSelectedCount(count);

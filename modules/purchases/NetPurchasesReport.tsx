@@ -6,12 +6,20 @@ import { BarChart2, Filter, Loader2, Printer, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
 const NetPurchasesReport = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [reportData, setReportData] = useState<any[]>([]);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const fetchReport = async () => {
     setLoading(true);

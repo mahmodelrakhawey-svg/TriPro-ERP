@@ -59,7 +59,9 @@ const SlowMovingReport = () => {
         { data: restSalesItems },
         { data: mfgActualUsageItems },
         { data: mfgIssuedRequestItems },
-        { data: mfgScrapLogItems }
+        { data: mfgScrapLogItems },
+        { data: constructionIssueItems },
+        { data: himsBillingItems }
       ] = await Promise.all([
         // أ. مبيعات الفواتير
         supabase
@@ -102,37 +104,63 @@ const SlowMovingReport = () => {
         .select('product_id, quantity, created_at')
         .eq('organization_id', userOrgId)
         .gte('created_at', `${startDate}T00:00:00`)
-        .lte('created_at', `${endDate}T23:59:59`)
+        .lte('created_at', `${endDate}T23:59:59`),
+
+        // و. صرف مواد مشاريع المقاولات
+        supabase
+        .from('project_material_issue_items')
+        .select('product_id, quantity, project_material_issues!inner(issue_date, status)')
+        .eq('organization_id', userOrgId)
+        .eq('project_material_issues.status', 'approved')
+        .gte('project_material_issues.issue_date', startDate)
+        .lte('project_material_issues.issue_date', endDate),
+
+        // ز. صرف المستشفيات والصيدلية
+        supabase
+        .from('hims_billing_items')
+        .select('product_id, quantity, hims_billing!inner(created_at)')
+        .eq('hims_billing.organization_id', userOrgId)
+        .not('product_id', 'is', null)
+        .gte('hims_billing.created_at', `${startDate}T00:00:00`)
+        .lte('hims_billing.created_at', `${endDate}T23:59:59`)
       ]);
 
-      if (salesError) throw salesError; // Check for any error from sales query
+      if (salesError) throw salesError;
 
       // 3. تجميع كل حركات الصادر (Outflow) لكل صنف
       const outflowMap: Record<string, number> = {};
       const processedOrderMaterials = new Set<string>(); // لتجنب الازدواجية: order_id + material_id
 
       salesItems?.forEach((item: any) => {
-          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + item.quantity;
+          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
       
       restSalesItems?.forEach((item: any) => {
-          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + item.quantity;
+          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
 
       mfgActualUsageItems?.forEach((item: any) => {
-          outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + item.actual_quantity;
+          outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + Number(item.actual_quantity);
           processedOrderMaterials.add(`${item.mfg_order_progress.production_order_id}-${item.raw_material_id}`);
       });
 
       mfgIssuedRequestItems?.forEach((item: any) => {
           const key = `${item.mfg_material_requests.production_order_id}-${item.raw_material_id}`;
           if (!processedOrderMaterials.has(key)) {
-              outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + item.quantity_issued;
+              outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + Number(item.quantity_issued);
           }
       });
 
       mfgScrapLogItems?.forEach((item: any) => {
-          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + item.quantity;
+          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
+      });
+
+      constructionIssueItems?.forEach((item: any) => {
+          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
+      });
+
+      himsBillingItems?.forEach((item: any) => {
+          outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
 
       // 4. تصفية الأصناف الراكدة

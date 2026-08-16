@@ -33,9 +33,9 @@ const SupplierBalanceReconciliation = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
-      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب الموردين
-      // نبحث عن الحساب الرئيسي وأبنائه
-      const supplierAccounts = accounts.filter(a => a.code.startsWith(supplierAccountCode));
+      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب الموردين ومقاولي الباطن
+      // نبحث عن الحساب الرئيسي وأبنائه (201 أو 221 وما يتفرع منها)
+      const supplierAccounts = accounts.filter(a => a.code.startsWith(supplierAccountCode) || a.code.startsWith('201') || a.code.startsWith('221'));
       const accountIds = supplierAccounts.map(a => a.id);
 
       if (accountIds.length === 0) {
@@ -46,31 +46,39 @@ const SupplierBalanceReconciliation = () => {
 
       const { data: glLines } = await supabase
         .from('journal_lines')
-        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, status)')
+        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status)')
         .in('account_id', accountIds)
         .eq('journal_entries.status', 'posted');
 
       let totalGlCredit = 0;
       let totalGlDebit = 0;
       
-      // تخزين القيود للمراجعة
+      // تخزين القيود للمراجعة وتجميع المبالغ لنفس القيد
       const glEntriesMap = new Map();
 
       glLines?.forEach((line: any) => {
-          totalGlCredit += line.credit;
-          totalGlDebit += line.debit;
+          const debitVal = Number(line.debit || 0);
+          const creditVal = Number(line.credit || 0);
+          totalGlCredit += creditVal;
+          totalGlDebit += debitVal;
           
-          // تخزين القيد مع المرجع للمقارنة
           const ref = line.journal_entries?.reference || '';
-          // نستخدم مفتاحاً فريداً للقيد لتجنب التكرار في حال وجود أكثر من سطر لنفس القيد
           const entryKey = line.journal_entries?.id; 
           
           if (!glEntriesMap.has(entryKey)) {
               glEntriesMap.set(entryKey, {
-                  ...line,
+                  id: line.id,
+                  journal_entries: line.journal_entries,
+                  debit: debitVal,
+                  credit: creditVal,
+                  description: line.description || line.journal_entries?.description || '',
                   date: line.journal_entries?.transaction_date,
                   ref: ref
               });
+          } else {
+              const existing = glEntriesMap.get(entryKey);
+              existing.debit += debitVal;
+              existing.credit += creditVal;
           }
       });
 
@@ -78,65 +86,128 @@ const SupplierBalanceReconciliation = () => {
       const calculatedGlBalance = totalGlCredit - totalGlDebit;
       setGlBalance(calculatedGlBalance);
 
-      // 2. جلب رصيد الأستاذ المساعد (Sub-ledger) من المستندات
-      
-      const { data: invoices } = await supabase.from('purchase_invoices').select('total_amount, invoice_number').neq('status', 'draft');
-      const { data: returns } = await supabase.from('purchase_returns').select('total_amount, return_number').neq('status', 'draft');
-      const { data: payments } = await supabase.from('payment_vouchers').select('amount, voucher_number');
-      const { data: debitNotes } = await supabase.from('debit_notes').select('total_amount, debit_note_number');
-      const { data: cheques } = await supabase.from('cheques').select('amount, cheque_number').eq('type', 'outgoing').neq('status', 'rejected');
+      // 2. جلب رصيد الأستاذ المساعد (Sub-ledger) من كشوف حسابات الموردين ومقاولي الباطن
+      const { data: suppliersList } = await supabase.from('suppliers').select('id, name, opening_balance').is('deleted_at', null);
+      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_number').neq('status', 'draft');
+      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount, return_number').neq('status', 'draft');
+      // سندات الصرف الخاصة بالموردين فقط (استبعاد سندات صرف المصروفات العامة مثل الكهرباء والإيجار التي يكون فيها supplier_id فارغاً)
+      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount, voucher_number, payment_method').not('supplier_id', 'is', null);
+      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount, debit_note_number, status').eq('status', 'posted');
+      const { data: cheques } = await supabase.from('cheques').select('party_id, amount, cheque_number, status').eq('type', 'outgoing');
+      const { data: subBillings } = await supabase.from('subcontractor_billings').select('id, billing_number, net_amount, gross_amount, status').neq('status', 'draft');
 
-      let totalInvoiced = 0;
-      let totalPaid = 0;
-      const subLedgerRefs = new Set();
+      const subLedgerRefs = new Set<string>();
 
-      invoices?.forEach(inv => {
-          totalInvoiced += Number(inv.total_amount);
-          subLedgerRefs.add(inv.invoice_number);
+      // تسجيل جميع مراجع المستندات للمطابقة
+      invoices?.forEach(inv => { if (inv.invoice_number) subLedgerRefs.add(inv.invoice_number.trim()); });
+      returns?.forEach(ret => { if (ret.return_number) subLedgerRefs.add(ret.return_number.trim()); });
+      payments?.forEach(pay => { if (pay.voucher_number) subLedgerRefs.add(pay.voucher_number.trim()); });
+      debitNotes?.forEach(dn => { if (dn.debit_note_number) subLedgerRefs.add(dn.debit_note_number.trim()); });
+      subBillings?.forEach(sb => {
+          if (sb.billing_number) {
+              subLedgerRefs.add(sb.billing_number.trim());
+              subLedgerRefs.add(`SUB-BILL-${sb.billing_number.replace(/^SUB-(BILL-)?/i, '')}`);
+          }
+          if (sb.id) subLedgerRefs.add(sb.id);
       });
-
-      returns?.forEach(ret => {
-          totalPaid += Number(ret.total_amount);
-          subLedgerRefs.add(ret.return_number);
-      });
-
-      payments?.forEach(pay => {
-          totalPaid += Number(pay.amount);
-          subLedgerRefs.add(pay.voucher_number);
-      });
-
-      debitNotes?.forEach(dn => {
-          totalPaid += Number(dn.total_amount);
-          subLedgerRefs.add(dn.debit_note_number);
-      });
-
       cheques?.forEach(chq => {
-          totalPaid += Number(chq.amount);
-          subLedgerRefs.add(`CHQ-${chq.cheque_number}`);
+          const rawNum = String(chq.cheque_number || '').trim();
+          if (rawNum) {
+              subLedgerRefs.add(`CHQ-${rawNum}`);
+              subLedgerRefs.add(rawNum);
+              subLedgerRefs.add(`REJ-OUT-${rawNum}`);
+              subLedgerRefs.add(`REJ-IN-${rawNum}`);
+              subLedgerRefs.add(`REJ-${rawNum}`);
+          }
       });
 
-      const calculatedSubLedgerBalance = totalInvoiced - totalPaid;
+      // إعداد قائمة بأرقام الشيكات لمنع تكرار احتسابها
+      const chequeNumbersSet = new Set<string>();
+      cheques?.forEach(c => {
+          const raw = String(c.cheque_number || '').trim().toUpperCase();
+          if (raw) {
+              chequeNumbersSet.add(raw);
+              chequeNumbersSet.add(raw.replace(/^CHQ-/i, ''));
+          }
+      });
+
+      // تجميع أرصدة كشوف حسابات الموردين
+      let totalSupplierStatementsBalance = 0;
+      suppliersList?.forEach(supplier => {
+          const opening = Number(supplier.opening_balance || 0);
+          
+          const supInvoices = invoices?.filter(i => i.supplier_id === supplier.id) || [];
+          const supInvTotal = supInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
+          
+          const supReturns = returns?.filter(r => r.supplier_id === supplier.id) || [];
+          const supRetTotal = supReturns.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
+          
+          const supDebitNotes = debitNotes?.filter(d => d.supplier_id === supplier.id) || [];
+          const supDnTotal = supDebitNotes.reduce((sum, d) => sum + Number(d.total_amount || 0), 0);
+          
+          const supCheques = cheques?.filter(c => c.party_id === supplier.id && c.status !== 'rejected') || [];
+          const supChqTotal = supCheques.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+          
+          const supPayments = payments?.filter(p => p.supplier_id === supplier.id) || [];
+          const supPayTotal = supPayments.reduce((sum, p) => {
+              const vNum = (p.voucher_number || '').trim().toUpperCase();
+              const cleanNum = vNum.replace(/^(CHQ-|PV-)/i, '');
+              const isChequeVoucher = vNum.startsWith('CHQ-') || p.payment_method === 'cheque' || chequeNumbersSet.has(cleanNum) || chequeNumbersSet.has(vNum);
+              return isChequeVoucher ? sum : sum + Number(p.amount || 0);
+          }, 0);
+
+          const supplierBalance = opening + supInvTotal - supRetTotal - supDnTotal - supChqTotal - supPayTotal;
+          totalSupplierStatementsBalance += supplierBalance;
+      });
+
+      // إضافة إجمالي مستخلصات مقاولي الباطن المعتمدة
+      const subBillingsTotal = subBillings?.reduce((sum, sb) => sum + Number(sb.net_amount || 0), 0) || 0;
+
+      const calculatedSubLedgerBalance = totalSupplierStatementsBalance + subBillingsTotal;
       setSubLedgerBalance(calculatedSubLedgerBalance);
 
-      // 3. تحليل الفروقات
+      // 3. تحليل الفروقات الذكي
+      const isRefMatched = (ref: string, desc: string): boolean => {
+          if (!ref && !desc) return false;
+          const cleanRef = (ref || '').trim().toUpperCase();
+          const cleanDesc = (desc || '').trim();
+
+          // تجاهل قيود الإقفال والافتتاحية
+          if (cleanRef.startsWith('CLOSE-') || cleanRef.startsWith('CLOSING-') || cleanRef.startsWith('OPENING-') || cleanRef.startsWith('OB-')) {
+              return true;
+          }
+
+          // فحص التطابق المباشر
+          if (cleanRef && subLedgerRefs.has(cleanRef)) return true;
+
+          // فحص تطابق بادئات ومقاطع الشيكات المرفوضة
+          if (cleanRef.startsWith('REJ-OUT-') || cleanRef.startsWith('REJ-IN-') || cleanRef.startsWith('REJ-')) {
+              const num = cleanRef.replace(/^REJ-(OUT-|IN-)?/i, '');
+              if (subLedgerRefs.has(num) || subLedgerRefs.has(`CHQ-${num}`)) return true;
+          }
+
+          // فحص تطابق مستخلصات المقاولين
+          if (cleanRef.startsWith('SUB-BILL-') || cleanRef.startsWith('SUB-')) {
+              const num = cleanRef.replace(/^SUB-(BILL-)?/i, '');
+              if (subLedgerRefs.has(num) || subLedgerRefs.has(`SUB-BILL-${num}`)) return true;
+          }
+
+          // فحص التطابق الجزئي في قائمة المراجع
+          for (const subRef of subLedgerRefs) {
+              const s = String(subRef).trim().toUpperCase();
+              if (s && (cleanRef === s || cleanRef.startsWith(s) || s.startsWith(cleanRef) || cleanRef.includes(s))) {
+                  return true;
+              }
+          }
+
+          return false;
+      };
+
       const discrepancies: any[] = [];
       
       glEntriesMap.forEach((entry) => {
-          const ref = entry.ref;
-          // تجاهل قيود الإقفال والافتتاحية
-          if (ref.startsWith('CLOSE-') || ref.startsWith('OPENING-')) return;
-
-          // التحقق مما إذا كان المرجع موجوداً في المستندات الفرعية
-          // تحسين: البحث الذكي (Smart Match)
-          // إذا كان المرجع في الأستاذ يحتوي على المرجع في السجلات الفرعية (مثلاً CHQ-236-432 يحتوي CHQ-236)
-          let isMatched = subLedgerRefs.has(ref);
-          
-          if (!isMatched) {
-              // محاولة البحث الجزئي للشيكات والسندات
-              isMatched = Array.from(subLedgerRefs).some((subRef: any) => ref.startsWith(String(subRef)));
-          }
-
-          if (!isMatched) {
+          const matched = isRefMatched(entry.ref, entry.description);
+          if (!matched) {
               discrepancies.push(entry);
           }
       });
@@ -230,16 +301,16 @@ const SupplierBalanceReconciliation = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* GL Balance */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-              <p className="text-sm font-bold text-slate-500 mb-2">رصيد دفتر الأستاذ (حساب 201)</p>
+              <p className="text-sm font-bold text-slate-500 mb-2">رصيد دفتر الأستاذ (حساب {supplierAccountCode})</p>
               <h3 className="text-3xl font-black text-slate-800 dir-ltr">{glBalance.toLocaleString()}</h3>
-              <p className="text-xs text-slate-400 mt-2">مجموع القيود المرحلة</p>
+              <p className="text-xs text-slate-400 mt-2">مجموع القيود المرحلة للموردين والمقاولين</p>
           </div>
 
           {/* Sub-ledger Balance */}
           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
               <p className="text-sm font-bold text-slate-500 mb-2">رصيد كشوف الحسابات (المستندات)</p>
               <h3 className="text-3xl font-black text-blue-600 dir-ltr">{subLedgerBalance.toLocaleString()}</h3>
-              <p className="text-xs text-slate-400 mt-2">فواتير - سندات - مرتجعات</p>
+              <p className="text-xs text-slate-400 mt-2">فواتير - مستخلصات مقاولين - سندات - شيكات</p>
           </div>
 
           {/* Difference */}

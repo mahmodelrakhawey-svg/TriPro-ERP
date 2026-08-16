@@ -36,7 +36,7 @@ const CustomerAgingReport = () => {
       // 1. جلب العملاء
       const { data: customers } = await supabase.from('customers').select('id, name').match(filter).is('deleted_at', null);
       
-      // 2. جلب الفواتير غير المدفوعة بالكامل
+      // 2. جلب الفواتير التجارية غير المدفوعة بالكامل
       const { data: invoices } = await supabase
         .from('invoices')
         .select('id, customer_id, invoice_number, invoice_date, total_amount, paid_amount')
@@ -44,23 +44,38 @@ const CustomerAgingReport = () => {
         .neq('status', 'paid')
         .neq('status', 'draft');
 
-      if (!customers || !invoices) return;
+      // 3. جلب مستخلصات مشاريع المقاولات المعتمدة
+      const { data: projects } = await supabase.from('projects').select('id, customer_id').match(filter);
+      const { data: projectBillings } = await supabase.from('project_progress_billings').select('id, project_id, billing_number, billing_date, net_amount').match(filter).neq('status', 'draft');
+
+      // 4. جلب فواتير المستشفيات (HIMS)
+      const { data: patients } = await supabase.from('hims_patients').select('id, customer_id').match(filter);
+      const { data: himsBills } = await supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, bill_date, total_amount, paid_amount').match(filter);
+
+      if (!customers) return;
+
+      const projectCustMap = new Map<string, string>();
+      projects?.forEach(p => { if (p.id && p.customer_id) projectCustMap.set(p.id, p.customer_id); });
+
+      const patientCustMap = new Map<string, string>();
+      patients?.forEach(p => { if (p.id && p.customer_id) patientCustMap.set(p.id, p.customer_id); });
 
       const today = new Date();
       const agingData = customers.map(customer => {
-        const customerInvoices = invoices.filter(inv => inv.customer_id === customer.id);
+        const customerInvoices = invoices?.filter(inv => inv.customer_id === customer.id) || [];
         let balance = 0;
         let range0_30 = 0;
         let range31_60 = 0;
         let range61_90 = 0;
         let range90_plus = 0;
 
+        // معالجة الفواتير التجارية
         customerInvoices.forEach(inv => {
-          const remaining = inv.total_amount - (inv.paid_amount || 0);
+          const remaining = Number(inv.total_amount || 0) - Number(inv.paid_amount || 0);
           if (remaining <= 0) return;
 
           balance += remaining;
-          const invoiceDate = new Date(inv.invoice_date);
+          const invoiceDate = new Date(inv.invoice_date || today);
           const diffTime = Math.abs(today.getTime() - invoiceDate.getTime());
           const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
 
@@ -68,6 +83,38 @@ const CustomerAgingReport = () => {
           else if (diffDays <= 60) range31_60 += remaining;
           else if (diffDays <= 90) range61_90 += remaining;
           else range90_plus += remaining;
+        });
+
+        // معالجة مستخلصات مشاريع المقاولات
+        projectBillings?.forEach(pb => {
+          const custId = projectCustMap.get(pb.project_id);
+          if (custId === customer.id) {
+            const amount = Number(pb.net_amount || 0);
+            if (amount <= 0) return;
+            balance += amount;
+            const bDate = new Date(pb.billing_date || today);
+            const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 30) range0_30 += amount;
+            else if (diffDays <= 60) range31_60 += amount;
+            else if (diffDays <= 90) range61_90 += amount;
+            else range90_plus += amount;
+          }
+        });
+
+        // معالجة فواتير المستشفيات
+        himsBills?.forEach(hb => {
+          const custId = hb.insurance_provider_id || patientCustMap.get(hb.patient_id);
+          if (custId === customer.id) {
+            const remaining = Number(hb.total_amount || 0) - Number(hb.paid_amount || 0);
+            if (remaining <= 0) return;
+            balance += remaining;
+            const bDate = new Date(hb.bill_date || today);
+            const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 30) range0_30 += remaining;
+            else if (diffDays <= 60) range31_60 += remaining;
+            else if (diffDays <= 90) range61_90 += remaining;
+            else range90_plus += remaining;
+          }
         });
 
         return {

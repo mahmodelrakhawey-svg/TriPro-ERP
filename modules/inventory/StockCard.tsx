@@ -237,13 +237,26 @@ const StockCard = () => {
 
       if (selectedWarehouseId) queryHims = queryHims.eq('warehouse_id', selectedWarehouseId);
 
+      // جلب حركات صرف مواد المواقع والمشاريع (Construction Material Issues)
+      let queryConstruction = supabase
+        .from('project_material_issue_items')
+        .select(`
+          id, quantity, uom_id,
+          project_material_issues!inner(id, issue_date, issue_number, warehouse_id, created_at, status, projects(name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('project_material_issues.status', 'approved')
+        .eq('organization_id', userOrgId);
+
+      if (selectedWarehouseId) queryConstruction = queryConstruction.eq('project_material_issues.warehouse_id', selectedWarehouseId);
+
       // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual, hims] = await Promise.all([
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual, hims, construction] = await Promise.all([
         querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
         queryRestDirect,
         queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
         queryMfgFinished, queryMfgRaw, queryMfgScrap, queryMfgActual,
-        queryHims
+        queryHims, queryConstruction
       ]);
 
       const allTxns: Transaction[] = [];
@@ -546,6 +559,23 @@ const StockCard = () => {
           warehouseName: getWName(item.warehouse_id),
           createdAt: item.hims_billing?.created_at || item.created_at,
           notes: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`
+        });
+      });
+
+      // معالجة صرف مواد مشاريع المقاولات (صادر)
+      construction.data?.forEach((item: any) => {
+        const issue = item.project_material_issues;
+        allTxns.push({
+          id: `MAT-${issue?.id || item.id}`,
+          date: issue?.issue_date || (issue?.created_at ? issue.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          type: 'OUT',
+          quantity: Number(item.quantity),
+          uomId: item.uom_id,
+          documentType: 'إذن صرف موقع/مشروع',
+          documentNumber: issue?.issue_number || '-',
+          warehouseName: getWName(issue?.warehouse_id),
+          createdAt: issue?.created_at,
+          notes: `صرف لمشروع: ${issue?.projects?.name || ''}`
         });
       });
 

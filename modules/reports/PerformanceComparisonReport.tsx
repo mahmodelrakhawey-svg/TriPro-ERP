@@ -1,18 +1,27 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ArrowUpRight, ArrowDownRight, Minus, Calendar, TrendingUp, Printer } from 'lucide-react';
 import ReportHeader from '../../components/ReportHeader';
 
 const PerformanceComparisonReport = () => {
-  const { accounts, entries } = useAccounting();
-  const currentYear = new Date().getFullYear();
+  const { accounts, entries, selectedFiscalYear } = useAccounting();
+  const currentYear = selectedFiscalYear || new Date().getFullYear();
   
   const [period1Start, setPeriod1Start] = useState(`${currentYear}-01-01`);
   const [period1End, setPeriod1End] = useState(`${currentYear}-06-30`);
   
   const [period2Start, setPeriod2Start] = useState(`${currentYear}-07-01`);
   const [period2End, setPeriod2End] = useState(`${currentYear}-12-31`);
+
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setPeriod1Start(`${selectedFiscalYear}-01-01`);
+      setPeriod1End(`${selectedFiscalYear}-06-30`);
+      setPeriod2Start(`${selectedFiscalYear}-07-01`);
+      setPeriod2End(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const calculatePeriodData = (start: string, end: string) => {
     let revenue = 0;

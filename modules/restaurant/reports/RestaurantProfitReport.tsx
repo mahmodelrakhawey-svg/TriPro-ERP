@@ -21,15 +21,23 @@ type MealProfit = {
 };
 
 const RestaurantProfitReport = () => {
-  const { currentUser, updateProduct } = useAccounting();
+  const { currentUser, updateProduct, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<MealProfit[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'margin' | 'profit'>('margin');
   const [showLossOnly, setShowLossOnly] = useState(false);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
     fetchData();

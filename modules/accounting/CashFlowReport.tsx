@@ -16,12 +16,20 @@ type Transaction = {
 };
 
 export default function CashFlowReport() {
-  const { accounts, entries, currentUser } = useAccounting();
+  const { accounts, entries, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const [loading, setLoading] = useState(false); // Kept for button state, but context is the source
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedAccount, setSelectedAccount] = useState<string>('all');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  React.useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const cashAccounts = useMemo(() => {
     return (accounts || []).filter(acc => 

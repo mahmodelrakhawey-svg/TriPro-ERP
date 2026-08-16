@@ -10,16 +10,24 @@ import html2canvas from 'html2canvas';
 import ReportHeader from '../../components/ReportHeader';
 
 const TrialBalanceAdvanced = () => {
-  const { accounts, settings, refreshData, currentUser, entries } = useAccounting();
+  const { accounts, settings, refreshData, currentUser, entries, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const navigate = useNavigate();
   const toast = useToastNotification();
-  const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [searchTerm, setSearchTerm] = useState('');
   const [hideZeroAccounts, setHideZeroAccounts] = useState(true);
   const [showOpeningOnly, setShowOpeningOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   // دالة لجلب جميع الحركات من قاعدة البيانات لضمان الدقة
   const fetchLedgerData = async () => {

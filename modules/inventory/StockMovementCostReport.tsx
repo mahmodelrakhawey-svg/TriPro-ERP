@@ -29,16 +29,24 @@ type Movement = {
 };
 
 const StockMovementCostReport = () => {
-  const { currentUser, products, warehouses } = useAccounting();
+  const { currentUser, products, warehouses, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductDropdown, setShowProductDropdown] = useState(false);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(false);
   const [openingBalance, setOpeningBalance] = useState(0);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const fetchMovement = async () => {
     if (!selectedProductId) {
@@ -173,10 +181,21 @@ const StockMovementCostReport = () => {
         .eq('product_id', selectedProductId)
         .eq('hims_billing.organization_id', userOrgId);
 
+      // 11. حركات صرف مواد المواقع والمقاولات (Construction Material Issues) - صادر (out)
+      let queryConstruction = supabase
+        .from('project_material_issue_items')
+        .select(`
+          id, quantity, unit_cost,
+          project_material_issues!inner(id, issue_date, issue_number, status, warehouse_id, projects(name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('project_material_issues.status', 'approved')
+        .eq('organization_id', userOrgId);
+
       // تنفيذ الاستعلامات بالتوازي وجلب البيانات الفعلية بشكل منضبط
-      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption, hims] = await Promise.all([
+      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption, hims, construction] = await Promise.all([
         querySales, queryPurchases, queryAdjustments, querySalesReturns, queryPurchaseReturns, mfgInQuery, mfgOutQuery, mfgScrapQuery, queryOpening, queryTransfers, queryRestDirect, queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
-        queryHims
+        queryHims, queryConstruction
       ]);
 
       // تجميع الحركات
@@ -318,6 +337,19 @@ const StockMovementCostReport = () => {
           documentType: 'صرف مستشفى/صيدلية',
           documentNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
           notes: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`
+        });
+      });
+
+      construction.data?.forEach((item: any) => {
+        const product = products.find(p => p.id === selectedProductId) as Product | undefined;
+        allMovements.push({
+          date: item.project_material_issues?.issue_date,
+          type: 'out',
+          quantity: Number(item.quantity),
+          unitCost: Number(item.unit_cost || product?.weighted_average_cost || product?.cost || product?.purchase_price || 0),
+          documentType: 'إذن صرف موقع/مشروع',
+          documentNumber: item.project_material_issues?.issue_number || '-',
+          notes: `صرف لمشروع: ${item.project_material_issues?.projects?.name || ''}`
         });
       });
 

@@ -23,15 +23,23 @@ type StockMovement = {
 };
 
 const DetailedStockMovementReport = () => {
-  const { products, warehouses, settings, currentUser } = useAccounting();
-  const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const { products, warehouses, settings, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedProduct, setSelectedProduct] = useState('');
   const [selectedWarehouse, setSelectedWarehouse] = useState('');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(false);
   const [uoms, setUoms] = useState<any[]>([]);
   const [displayUnit, setDisplayUnit] = useState<'base' | 'original'>('base');
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
     const fetchUoms = async () => {
@@ -532,23 +540,38 @@ const DetailedStockMovementReport = () => {
         .lte('hims_billing.created_at', `${endDate}T23:59:59`);
 
       if (selectedProduct) himsQuery = himsQuery.eq('product_id', selectedProduct);
-      if (selectedWarehouse) himsQuery = himsQuery.eq('warehouse_id', selectedWarehouse);
+      // 10. حركات صرف مواد المقاولات والمشاريع (Construction Material Issues) - صادر (OUT)
+      let constructionQuery = supabase
+        .from('project_material_issue_items')
+        .select(`
+          id, quantity, uom_id, product_id,
+          products(name, base_uom_id, unit),
+          project_material_issues!inner(id, issue_date, issue_number, warehouse_id, created_at, status, warehouses(name), projects(name))
+        `)
+        .eq('organization_id', userOrgId)
+        .eq('project_material_issues.status', 'approved')
+        .gte('project_material_issues.issue_date', startDate)
+        .lte('project_material_issues.issue_date', endDate);
 
-      const { data: hims } = await himsQuery;
-      hims?.forEach((item: any) => {
+      if (selectedProduct) constructionQuery = constructionQuery.eq('product_id', selectedProduct);
+      if (selectedWarehouse) constructionQuery = constructionQuery.eq('project_material_issues.warehouse_id', selectedWarehouse);
+
+      const { data: constructionIssues } = await constructionQuery;
+      constructionIssues?.forEach((item: any) => {
+        const issue = item.project_material_issues;
         allMovements.push({
-          id: `HIMS-${item.id}-${item.product_id}`,
-          date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
+          id: `MAT-${issue?.id || item.id}-${item.product_id}`,
+          date: issue?.issue_date || (issue?.created_at ? issue.created_at.split('T')[0] : ''),
           type: 'OUT',
-          docType: 'صرف مستشفى/صيدلية',
-          docNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
+          docType: 'إذن صرف موقع/مشروع',
+          docNumber: issue?.issue_number || '-',
           productName: item.products?.name,
           quantity: Number(item.quantity),
           uomId: item.uom_id,
           baseUomId: item.products?.base_uom_id,
           baseUnitName: item.products?.unit,
-          warehouseName: item.warehouses?.name || 'مستودع غير محدد',
-          notes: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`
+          warehouseName: issue?.warehouses?.name || 'مستودع غير محدد',
+          notes: `صرف لمشروع: ${issue?.projects?.name || ''}`
         });
       });
 

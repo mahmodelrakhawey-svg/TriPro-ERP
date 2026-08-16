@@ -6,18 +6,26 @@ import { BarChart2, TrendingUp, CheckCircle, Loader2, Filter, Download, Printer 
 import * as XLSX from 'xlsx';
 
 const ProductionCostAnalysis = () => {
-  const { organization } = useAccounting();
+  const { organization, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<any[]>([]);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
     if (organization?.id) {
       fetchData();
     }
-  }, [organization?.id]);
+  }, [organization?.id, startDate, endDate]);
 
   const fetchData = async () => {
     const orgId = organization?.id;

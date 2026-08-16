@@ -22,7 +22,7 @@ type PurchaseInvoice = {
 
 const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
-  const { approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, accounts, purchaseInvoices } = useAccounting();
+  const { approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, accounts, purchaseInvoices, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -53,8 +53,11 @@ const PurchaseInvoiceList = () => {
     if (filterStatus !== 'all') {
       query = query.eq('status', filterStatus);
     }
+    if (selectedFiscalYear) {
+      query = query.gte('invoice_date', `${selectedFiscalYear}-01-01`).lte('invoice_date', `${selectedFiscalYear}-12-31`);
+    }
     return query;
-  }, [debouncedSearch, filterStatus]);
+  }, [debouncedSearch, filterStatus, selectedFiscalYear]);
 
   const { 
     data: serverInvoices, 

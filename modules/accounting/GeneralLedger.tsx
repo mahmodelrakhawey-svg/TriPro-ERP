@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿﻿﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
@@ -30,19 +30,27 @@ type LedgerEntry = {
 
 const GeneralLedger = () => {
   const location = useLocation();
-  const { accounts, currentUser, customers } = useAccounting(); // إضافة العملاء من السياق
+  const { accounts, currentUser, customers, selectedFiscalYear, fiscalYearRange } = useAccounting(); // إضافة العملاء من السياق
   const { showToast } = useToast();
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [accountSearch, setAccountSearch] = useState('');
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const PAGE_SIZE = 50;
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
   
   // لتخزين معايير البحث الحالية لضمان استمرار التحميل بنفس الشروط
   const [searchParamsState, setSearchParamsState] = useState<{ids: string[], start: string, end: string, customerEntryIds: string[] | null} | null>(null);

@@ -6,7 +6,7 @@ import { ArrowRightLeft, Search, Eye, Loader2, Printer, Download, CheckCircle, C
 import * as XLSX from 'xlsx';
 
 const StockTransferList = () => {
-  const { warehouses, currentUser, transfers: contextTransfers, approveStockTransfer, cancelStockTransfer, can } = useAccounting();
+  const { warehouses, currentUser, transfers: contextTransfers, approveStockTransfer, cancelStockTransfer, can, selectedFiscalYear } = useAccounting();
   const [transfers, setTransfers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -15,7 +15,7 @@ const StockTransferList = () => {
 
   useEffect(() => {
     fetchTransfers();
-  }, []);
+  }, [selectedFiscalYear]);
 
   const fetchTransfers = async () => {
     if (currentUser?.role === 'demo') {
@@ -26,7 +26,7 @@ const StockTransferList = () => {
     }
 
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('stock_transfers')
         .select(`
           *,
@@ -36,6 +36,14 @@ const StockTransferList = () => {
           )
         `)
         .order('transfer_date', { ascending: false });
+
+      if (selectedFiscalYear) {
+        query = query
+          .gte('transfer_date', `${selectedFiscalYear}-01-01`)
+          .lte('transfer_date', `${selectedFiscalYear}-12-31`);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setTransfers(data || []);

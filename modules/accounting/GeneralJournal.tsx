@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -6,6 +6,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { JournalEntry } from '../../types';
 import { useToastNotification } from '../../utils/toastUtils';
 import { usePagination } from '../../components/usePagination';
+import * as XLSX from 'xlsx';
 
 // دالة مساعدة لتحديد مصدر القيد بناءً على المرجع
 const getEntrySource = (reference: string) => {
@@ -32,12 +33,13 @@ const getEntrySource = (reference: string) => {
 };
 
 const GeneralJournal = () => {
-  const { refreshData, can, clearCache, exportJournalToCSV, users, currentUser, accounts } = useAccounting();
+  const { refreshData, can, clearCache, exportJournalToCSV, users, currentUser, accounts, selectedFiscalYear, fiscalYearRange, settings } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
   const toast = useToastNotification();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   
   // Advanced filters state
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -45,14 +47,22 @@ const GeneralJournal = () => {
   const [filterAmount, setFilterAmount] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [filterSource, setFilterSource] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
   
   const [matchingEntryIds, setMatchingEntryIds] = useState<string[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  // مزامنة نطاق التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const supabaseUrl = 'https://pjvphxfschfllpawfewn.supabase.co';
 
@@ -363,6 +373,134 @@ const GeneralJournal = () => {
     }
   };
 
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+    try {
+      if (currentUser?.role === 'demo') {
+        const flatData = journalEntries.flatMap((entry: any) => 
+          (entry.lines || []).map((line: any) => ({
+            'التاريخ': entry.date || '-',
+            'رقم القيد': entry.reference || '-',
+            'البيان الرئيسي': entry.description || '-',
+            'الحالة': entry.status === 'posted' ? 'مرحل' : 'مسودة',
+            'كود الحساب': line.accountCode || '-',
+            'اسم الحساب': line.accountName || '-',
+            'مدين': Number(line.debit) || 0,
+            'دائن': Number(line.credit) || 0,
+            'بيان الحركة': line.description || entry.description || '-'
+          }))
+        );
+
+        if (flatData.length === 0) {
+          toast.error('لا توجد بيانات لتصديرها.');
+          return;
+        }
+
+        const ws = XLSX.utils.json_to_sheet(flatData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "دفتر اليومية");
+        XLSX.writeFile(wb, `General_Journal_${new Date().toISOString().split('T')[0]}.xlsx`);
+        toast.success('تم تصدير دفتر اليومية بنجاح ✅');
+        return;
+      }
+
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      let query = supabase
+        .from('journal_entries')
+        .select(`
+          id,
+          transaction_date,
+          reference,
+          description,
+          status,
+          user_id,
+          created_at,
+          journal_lines (
+            id,
+            account_id,
+            debit,
+            credit,
+            description,
+            cost_center_id
+          )
+        `)
+        .order('transaction_date', { ascending: false });
+
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+
+      // تطبيق الفلاتر الحالية نفسها
+      query = queryModifier(query);
+
+      const { data: entries, error } = await query;
+      if (error) throw error;
+
+      if (!entries || entries.length === 0) {
+        toast.error('لا توجد بيانات مطابقة للفلاتر الحالية لتصديرها.');
+        return;
+      }
+
+      const userMap = new Map((users || []).map((u: any) => [u.id, u.name]));
+      const accountMap = new Map((accounts || []).map((a: any) => [a.id, a]));
+
+      const flatData: any[] = [];
+      entries.forEach((entry: any) => {
+        const sourceInfo = getEntrySource(entry.reference);
+        const userName = userMap.get(entry.user_id) || 'النظام';
+        const statusLabel = entry.status === 'posted' ? 'مرحل' : 'مسودة';
+        const dateStr = entry.transaction_date || (entry.created_at ? entry.created_at.split('T')[0] : '-');
+
+        const lines = entry.journal_lines || [];
+        if (lines.length === 0) {
+          flatData.push({
+            'التاريخ': dateStr,
+            'رقم القيد': entry.reference || '-',
+            'مصدر القيد': sourceInfo.label,
+            'البيان الرئيسي': entry.description || '-',
+            'الحالة': statusLabel,
+            'المستخدم': userName,
+            'كود الحساب': '-',
+            'اسم الحساب': '-',
+            'مدين': 0,
+            'دائن': 0,
+            'بيان الحركة': '-'
+          });
+        } else {
+          lines.forEach((line: any) => {
+            const acc = accountMap.get(line.account_id);
+            flatData.push({
+              'التاريخ': dateStr,
+              'رقم القيد': entry.reference || '-',
+              'مصدر القيد': sourceInfo.label,
+              'البيان الرئيسي': entry.description || '-',
+              'الحالة': statusLabel,
+              'المستخدم': userName,
+              'كود الحساب': acc?.code || line.account_code || '-',
+              'اسم الحساب': acc?.name || 'غير معروف',
+              'مدين': Number(line.debit) || 0,
+              'دائن': Number(line.credit) || 0,
+              'بيان الحركة': line.description || entry.description || '-'
+            });
+          });
+        }
+      });
+
+      const ws = XLSX.utils.json_to_sheet(flatData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "دفتر اليومية");
+
+      const fileDate = startDate && endDate ? `${startDate}_to_${endDate}` : new Date().toISOString().split('T')[0];
+      XLSX.writeFile(wb, `General_Journal_${fileDate}.xlsx`);
+      toast.success(`تم تصدير ${entries.length} قيد محاسبي إلى ملف Excel بنجاح ✅`);
+    } catch (err: any) {
+      console.error('Error exporting journal entries:', err);
+      toast.error('حدث خطأ أثناء تصدير البيانات: ' + err.message);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handlePrint = (entry: JournalEntry) => {
     const printWindow = window.open('', '_blank');
     if (printWindow) {
@@ -501,10 +639,13 @@ const GeneralJournal = () => {
                 <Printer size={16} /> طباعة
             </button>
             <button 
-                onClick={exportJournalToCSV} 
-                className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm"
+                onClick={handleExportExcel} 
+                disabled={isExporting}
+                className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-60 font-bold text-sm shadow-sm transition-all"
+                title="تصدير جميع القيود المحاسبية المطابقة للفلاتر إلى ملف Excel"
             >
-                <Download size={16} /> تصدير Excel
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16} />}
+                {isExporting ? 'جاري التصدير...' : 'تصدير Excel'}
             </button>
             <button 
                 onClick={handleRefresh} 
@@ -612,6 +753,43 @@ const GeneralJournal = () => {
             </div>
         </div>
       )}
+
+      {/* 📅 شريط السنة المالية المحددة */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-blue-50/70 border border-blue-200/80 px-4 py-2.5 rounded-2xl mb-4 text-xs font-bold text-slate-700 shadow-sm animate-in fade-in">
+        <div className="flex items-center gap-2">
+          <Calendar size={16} className="text-blue-600 shrink-0" />
+          <span>عرض قيود السنة المالية:</span>
+          <span className="bg-white px-2.5 py-0.5 rounded-lg border border-blue-200 text-blue-800 font-mono font-black text-sm shadow-xs">
+            {selectedFiscalYear}
+          </span>
+          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${settings?.lastClosedYear && selectedFiscalYear <= settings.lastClosedYear ? 'bg-amber-100 text-amber-800 border border-amber-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'}`}>
+            {settings?.lastClosedYear && selectedFiscalYear <= settings.lastClosedYear ? 'سنة مغلقة 🔒' : 'سنة نشطة 🟢'}
+          </span>
+          {startDate && endDate && (
+            <span className="text-slate-500 font-medium hidden md:inline">
+              (الفترة: {startDate} إلى {endDate})
+            </span>
+          )}
+        </div>
+        
+        <div className="flex items-center gap-2">
+          {(startDate !== '' || endDate !== '') ? (
+            <button 
+              onClick={() => { setStartDate(''); setEndDate(''); }}
+              className="text-blue-700 hover:text-blue-900 bg-white/80 hover:bg-white px-3 py-1 rounded-lg border border-blue-200 transition-colors text-xs"
+            >
+              عرض كل السنوات (إلغاء حصر السنة)
+            </button>
+          ) : (
+            <button 
+              onClick={() => { setStartDate(`${selectedFiscalYear}-01-01`); setEndDate(`${selectedFiscalYear}-12-31`); }}
+              className="bg-blue-600 text-white px-3 py-1 rounded-lg text-xs hover:bg-blue-700 font-bold transition-colors"
+            >
+              إعادة حصر سنة {selectedFiscalYear} فقط
+            </button>
+          )}
+        </div>
+      </div>
 
       <div className="space-y-4">
         {loading || isSearching ? (

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Download, Printer, Percent, List, Layers, MessageCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -7,12 +7,20 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Ba
 import { useToast } from '../../context/ToastContext';
 
 const OfferBeneficiariesReport = () => {
-  const { invoices, customers, products, settings } = useAccounting();
+  const { invoices, customers, products, settings, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [viewMode, setViewMode] = useState<'detailed' | 'grouped'>('grouped');
   const [selectedCustomerId, setSelectedCustomerId] = useState('all');
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const reportData = useMemo(() => {
     const data: any[] = [];

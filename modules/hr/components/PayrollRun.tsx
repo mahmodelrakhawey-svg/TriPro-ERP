@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -19,27 +19,42 @@ type PayrollItem = {
 };
 
 const PayrollRun = () => {
-  const { runPayroll: runPayrollFromContext, currentUser, currentSelectedOrgId, accounts, createMissingSystemAccounts } = useAccounting(); // Renamed to avoid conflict
+  const { runPayroll: runPayrollFromContext, currentUser, currentSelectedOrgId, accounts, createMissingSystemAccounts, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   const [payrollData, setPayrollData] = useState<PayrollItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [treasuryId, setTreasuryId] = useState('');
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([]);
 
+  // مزامنة السنة المختارة مع السنة المالية للنظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setSelectedYear(selectedFiscalYear);
+    }
+  }, [selectedFiscalYear]);
+
   useEffect(() => {
     const fetchTreasuries = async () => {
-      const { data } = await supabase
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id || currentSelectedOrgId || (currentUser as any)?.organization_id;
+      
+      let query = supabase
         .from('accounts')
-        .select('id, name')
+        .select('id, name, code')
         .ilike('type', '%asset%')
         .or('code.like.123%,code.like.101%,name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
+      
+      if (userOrgId) {
+        query = query.eq('organization_id', userOrgId);
+      }
+      const { data } = await query;
       if (data) setTreasuryAccounts(data);
     };
     fetchTreasuries();
-  }, []);
+  }, [currentSelectedOrgId, currentUser]);
 
   const preparePayroll = async () => {
     setLoading(true);

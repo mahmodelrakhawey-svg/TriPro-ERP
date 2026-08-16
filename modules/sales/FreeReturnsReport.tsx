@@ -9,15 +9,23 @@ import html2canvas from 'html2canvas';
 import { useToast } from '../../context/ToastContext';
 
 const FreeReturnsReport = () => {
-  const { warehouses } = useAccounting();
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const { warehouses, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [showAll, setShowAll] = useState(false);
   const [returns, setReturns] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const { showToast } = useToast();
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const fetchReport = async () => {
     setLoading(true);

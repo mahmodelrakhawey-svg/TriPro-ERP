@@ -5,13 +5,20 @@ import { useToast } from '../../../context/ToastContext';
 import { FileText, Printer, Search, Loader2, Receipt } from 'lucide-react';
 
 const PayrollReport = () => {
-  const { settings, currentUser } = useAccounting();
+  const { settings, currentUser, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [payrollData, setPayrollData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [payrollSummary, setPayrollSummary] = useState<any>(null);
+
+  // مزامنة السنة المختارة مع السنة المالية للنظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setSelectedYear(selectedFiscalYear);
+    }
+  }, [selectedFiscalYear]);
 
   const fetchPayrollData = async () => {
     setLoading(true);

@@ -17,15 +17,23 @@ type Transaction = {
 };
 
 const EmployeeStatement = () => {
-  const { employees, settings } = useAccounting();
+  const { employees, settings, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState('');
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [closingBalance, setClosingBalance] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
   
   const selectedEmployee = employees.find(e => e.id.toString() === selectedEmployeeId.toString());
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { BarChart, Loader2, Filter, Trash2, Printer } from 'lucide-react';
@@ -15,11 +15,19 @@ type WastageReasonAnalysis = {
 
 const WastageAnalysisReport = () => {
   const { showToast } = useToast();
-  const { settings } = useAccounting();
+  const { settings, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState<WastageReasonAnalysis[]>([]);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   // دالة لجلب بيانات التقرير
   const generateReport = async () => {

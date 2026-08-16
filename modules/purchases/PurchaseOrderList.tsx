@@ -11,7 +11,7 @@ import { supabase } from '../../supabaseClient';
 
 const PurchaseOrderList = () => {
   const navigate = useNavigate();
-  const { can, convertPoToInvoice, warehouses, settings, currentUser } = useAccounting();
+  const { can, convertPoToInvoice, warehouses, settings, currentUser, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   
   // Pagination & Search State
@@ -74,6 +74,12 @@ const PurchaseOrderList = () => {
         query = query.ilike('po_number', `%${debouncedSearch}%`);
       }
 
+      if (selectedFiscalYear) {
+        query = query
+          .gte('order_date', `${selectedFiscalYear}-01-01`)
+          .lte('order_date', `${selectedFiscalYear}-12-31`);
+      }
+
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
 
@@ -93,7 +99,7 @@ const PurchaseOrderList = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, [page, debouncedSearch]);
+  }, [page, debouncedSearch, selectedFiscalYear]);
 
   const totalPages = Math.ceil(totalCount / pageSize);
 

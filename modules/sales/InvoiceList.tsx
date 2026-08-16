@@ -16,14 +16,22 @@ type PrintableInvoice = Invoice & {
 };
 
 const InvoiceList = () => {
-  const { settings, approveInvoice, currentUser } = useAccounting();
+  const { settings, approveInvoice, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const navigate = useNavigate();
 
   // Filter State
   const [searchTerm, setSearchTerm] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
   
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
+
   // Print State
   const [invoiceToPrint, setInvoiceToPrint] = useState<PrintableInvoice | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);

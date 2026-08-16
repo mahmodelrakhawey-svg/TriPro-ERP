@@ -6,14 +6,22 @@ import { BarChart2, Search, Download, Loader2, ArrowUpRight, ArrowDownRight } fr
 import * as XLSX from 'xlsx';
 
 const ItemSalesAnalysis = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [items, setItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'profit' | 'revenue' | 'quantity'>('profit');
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   const fetchData = async () => {
     if (startDate > endDate) {

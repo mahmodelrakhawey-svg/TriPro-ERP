@@ -33,7 +33,7 @@ interface PaymentVoucher {
 
 const PaymentVoucherList = () => {
   const navigate = useNavigate();
-  const { currentUser, vouchers: contextVouchers } = useAccounting();
+  const { currentUser, vouchers: contextVouchers, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -85,8 +85,11 @@ const PaymentVoucherList = () => {
     if (debouncedSearch) {
        query = query.or(`voucher_number.ilike.%${debouncedSearch}%,notes.ilike.%${debouncedSearch}%`);
     }
+    if (selectedFiscalYear) {
+      query = query.gte('payment_date', `${selectedFiscalYear}-01-01`).lte('payment_date', `${selectedFiscalYear}-12-31`);
+    }
     return query;
-  }, [debouncedSearch]);
+  }, [debouncedSearch, selectedFiscalYear]);
 
   const selectQuery = showWithAttachmentsOnly 
     ? '*, suppliers(name), payment_voucher_attachments!inner(*)' 

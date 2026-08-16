@@ -17,12 +17,27 @@ type BalanceRow = {
 };
 
 const BalanceSheet = () => {
-  const { accounts, currentUser, currentSelectedOrgId } = useAccounting();
+  const { accounts, currentUser, currentSelectedOrgId, selectedFiscalYear } = useAccounting();
   const toast = useToastNotification();
   const [loading, setLoading] = useState(false);
-  const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
+  const [asOfDate, setAsOfDate] = useState(
+    selectedFiscalYear === new Date().getFullYear() 
+      ? new Date().toISOString().split('T')[0] 
+      : `${selectedFiscalYear}-12-31`
+  );
   const [searchTerm, setSearchTerm] = useState('');
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
+
+  // مزامنة تاريخ الميزانية مع السنة المالية المحددة في النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      if (selectedFiscalYear === new Date().getFullYear()) {
+        setAsOfDate(new Date().toISOString().split('T')[0]);
+      } else {
+        setAsOfDate(`${selectedFiscalYear}-12-31`);
+      }
+    }
+  }, [selectedFiscalYear]);
 
   // دالة لجلب الأرصدة التراكمية من قاعدة البيانات مباشرة
   const fetchData = async () => {
@@ -166,12 +181,16 @@ const BalanceSheet = () => {
   const filteredLiabilityRows = filterRows(liabilityRows);
   const filteredEquityRows = filterRows(equityRows);
 
-  const totalAssets = filteredAssetRows.reduce((sum, r) => sum + r.amount, 0);
-  const totalLiabilities = filteredLiabilityRows.reduce((sum, r) => sum + r.amount, 0);
-  const totalEquity = filteredEquityRows.reduce((sum, r) => sum + r.amount, 0) + (priorRetainedEarnings || 0) + netIncome;
+  const totalAssets = assetRows.reduce((sum, r) => sum + r.amount, 0);
+  const totalLiabilities = liabilityRows.reduce((sum, r) => sum + r.amount, 0);
+  const totalEquity = equityRows.reduce((sum, r) => sum + r.amount, 0) + (priorRetainedEarnings || 0) + netIncome;
   const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+
+  const displayTotalAssets = filteredAssetRows.reduce((sum, r) => sum + r.amount, 0);
+  const displayTotalLiabilities = filteredLiabilityRows.reduce((sum, r) => sum + r.amount, 0);
+  const displayTotalEquity = filteredEquityRows.reduce((sum, r) => sum + r.amount, 0) + (searchTerm ? 0 : (priorRetainedEarnings || 0) + netIncome);
   
-  // التحقق من التوازن
+  // التحقق من التوازن الإجمالي الحقيقي
   const isBalanced = Math.abs(totalAssets - totalLiabilitiesAndEquity) < 0.1;
 
   const handleExportExcel = () => {

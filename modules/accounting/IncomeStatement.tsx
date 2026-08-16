@@ -6,13 +6,21 @@ import { FileText, Printer, Download, TrendingUp, TrendingDown, Loader2, Refresh
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 const IncomeStatement = () => {
-  const { accounts, settings, currentUser } = useAccounting();
+  const { accounts, settings, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
-  const [startDate, setStartDate] = useState(`${new Date().getFullYear()}-01-01`);
-  const [endDate, setEndDate] = useState(`${new Date().getFullYear()}-12-31`);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
   const [showLogo, setShowLogo] = useState(true);
   const [loading, setLoading] = useState(false);
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   // دالة لجلب البيانات من قاعدة البيانات مباشرة لضمان الدقة والشمولية
   const fetchData = async () => {

@@ -9,18 +9,22 @@ interface Props {
 /** 🏗️ تصميم تقرير احترافي للمقاولات (A4 Print Optimized) **/
 const ProjectExecutiveReport: React.FC<Props> = ({ project, settings }) => {
   const date = new Date().toLocaleDateString('ar-EG');
+  const safeSettings = settings || {};
+  const earnedVal = project?.metrics?.earned_value || 0;
+  const bacVal = project?.metrics?.bac || 0;
+  const completionRate = bacVal > 0 ? ((earnedVal / bacVal) * 100).toFixed(1) : '0.0';
 
   return (
-    <div className="bg-white p-10 font-sans text-right print:p-0" dir="rtl" id="project-report-content">
+    <div className="bg-white p-10 font-sans text-right print:p-0" dir="rtl" id="project-report-content" style={{ width: '800px', margin: '0 auto', boxSizing: 'border-box' }}>
       {/* Header - الهيدر الرسمي */}
       <div className="flex justify-between items-start border-b-4 border-slate-800 pb-6 mb-8">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 mb-2">{settings.companyName}</h1>
-          <p className="text-sm text-slate-500 flex items-center gap-2"><MapPin size={14}/> {settings.address}</p>
-          <p className="text-sm text-slate-500 font-bold mt-1">الرقم الضريبي: {settings.taxNumber}</p>
+          <h1 className="text-3xl font-black text-slate-900 mb-2">{safeSettings.companyName || 'شركة المقاولات'}</h1>
+          <p className="text-sm text-slate-500 flex items-center gap-2"><MapPin size={14}/> {safeSettings.address || 'المقر الرئيسي'}</p>
+          <p className="text-sm text-slate-500 font-bold mt-1">الرقم الضريبي: {safeSettings.taxNumber || 'غير متوفر'}</p>
         </div>
         <div className="text-left">
-          {settings.logoUrl && <img src={settings.logoUrl} alt="Logo" className="h-24 w-auto object-contain mb-2" />}
+          {safeSettings.logoUrl && <img src={safeSettings.logoUrl} alt="Logo" crossOrigin="anonymous" className="h-24 w-auto object-contain mb-2" />}
           <div className="text-[10px] font-black bg-slate-100 px-3 py-1 rounded-full uppercase tracking-tighter">تقرير الموقف التنفيذي والمالي</div>
         </div>
       </div>
@@ -28,25 +32,25 @@ const ProjectExecutiveReport: React.FC<Props> = ({ project, settings }) => {
       {/* Project Basic Info - معلومات المشروع */}
       <div className="grid grid-cols-2 gap-8 mb-10 bg-slate-50 p-6 rounded-3xl border border-slate-100">
         <div className="space-y-3">
-          <h2 className="text-2xl font-black text-blue-900">{project.project_name}</h2>
-          <p className="text-sm text-slate-600 font-medium">العميل: <span className="text-slate-900 font-bold">{project.customer_name || 'غير محدد'}</span></p>
+          <h2 className="text-2xl font-black text-blue-900">{project?.project_name || 'مشروع غير مسمى'}</h2>
+          <p className="text-sm text-slate-600 font-medium">العميل: <span className="text-slate-900 font-bold">{project?.customer_name || 'غير محدد'}</span></p>
           <div className="flex items-center gap-4 text-xs font-bold text-slate-500">
-            <span className="flex items-center gap-1"><Calendar size={14}/> البدء: {project.start_date || '...'}</span>
-            <span className="flex items-center gap-1"><Calendar size={14}/> الانتهاء: {project.end_date || '...'}</span>
+            <span className="flex items-center gap-1"><Calendar size={14}/> البدء: {project?.start_date || '...'}</span>
+            <span className="flex items-center gap-1"><Calendar size={14}/> الانتهاء: {project?.end_date || '...'}</span>
           </div>
         </div>
         <div className="text-left flex flex-col justify-center">
           <div className="text-sm text-slate-400 font-black uppercase mb-1">قيمة التعاقد الإجمالية</div>
-          <div className="text-3xl font-black text-slate-800">{(project.metrics?.bac || 0).toLocaleString()} <span className="text-sm font-normal">{settings.currency}</span></div>
+          <div className="text-3xl font-black text-slate-800">{(project?.metrics?.bac || 0).toLocaleString()} <span className="text-sm font-normal">{safeSettings.currency || 'ر.س'}</span></div>
         </div>
       </div>
 
       {/* EVM Dashboard - مؤشرات القيمة المكتسبة */}
       <div className="grid grid-cols-4 gap-4 mb-10">
-        <ScoreCard label="مؤشر الأداء الزمني (SPI)" value={project.spi} status={project.spi >= 1 ? 'good' : 'bad'} />
-        <ScoreCard label="مؤشر أداء التكاليف (CPI)" value={project.cpi} status={project.cpi >= 1 ? 'good' : 'bad'} />
-        <ScoreCard label="نسبة الإنجاز المالي" value={`${((project.metrics?.earned_value / project.metrics?.bac) * 100).toFixed(1)}%`} status="neutral" />
-        <ScoreCard label="مؤشر صحة المشروع" value={`${project.health}%`} status={project.health > 80 ? 'good' : project.health > 60 ? 'warning' : 'bad'} />
+        <ScoreCard label="مؤشر الأداء الزمني (SPI)" value={project?.spi ?? '-'} status={(project?.spi || 0) >= 1 ? 'good' : 'bad'} />
+        <ScoreCard label="مؤشر أداء التكاليف (CPI)" value={project?.cpi ?? '-'} status={(project?.cpi || 0) >= 1 ? 'good' : 'bad'} />
+        <ScoreCard label="نسبة الإنجاز المالي" value={`${completionRate}%`} status="neutral" />
+        <ScoreCard label="مؤشر صحة المشروع" value={`${project?.health ?? 0}%`} status={(project?.health || 0) > 80 ? 'good' : (project?.health || 0) > 60 ? 'warning' : 'bad'} />
       </div>
 
       {/* Financial Summary Table - جدول الملخص المالي */}
@@ -73,7 +77,7 @@ const ProjectExecutiveReport: React.FC<Props> = ({ project, settings }) => {
             <tr className="bg-slate-50/50">
               <td className="p-4 font-bold text-slate-700">توقعات عند الإغلاق (EAC)</td>
               <td colSpan={3} className="p-4 text-center font-black text-lg">
-                {(project.forecast?.forecast_final_cost_eac || 0).toLocaleString()} {settings.currency}
+                {(project?.forecast?.forecast_final_cost_eac || 0).toLocaleString()} {safeSettings.currency || 'ر.س'}
               </td>
             </tr>
           </tbody>
@@ -84,15 +88,15 @@ const ProjectExecutiveReport: React.FC<Props> = ({ project, settings }) => {
       <div className="grid grid-cols-2 gap-8 mb-10">
         <div className="p-6 rounded-3xl bg-blue-50 border border-blue-100">
           <h4 className="text-sm font-black text-blue-900 mb-2 flex items-center gap-2"><DollarSign size={16}/> الاحتياج النقدي المتوقع (90 يوماً)</h4>
-          <p className="text-2xl font-black text-blue-700">{(project.cashFlow?.projection_3_months || 0).toLocaleString()} <span className="text-xs font-normal">{settings.currency}</span></p>
+          <p className="text-2xl font-black text-blue-700">{(project?.cashFlow?.projection_3_months || 0).toLocaleString()} <span className="text-xs font-normal">{safeSettings.currency || 'ر.س'}</span></p>
           <p className="text-[10px] text-blue-500 font-bold mt-2 italic">* يعتمد هذا التنبؤ على معدل الصرف والإنجاز الحالي في الموقع.</p>
         </div>
         <div className="p-6 rounded-3xl bg-slate-900 text-white">
           <h4 className="text-sm font-black mb-2 opacity-60">الانحراف المتوقع (VAC)</h4>
-          <div className={`text-2xl font-black ${project.forecast?.expected_variance_vac < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-            {(project.forecast?.expected_variance_vac || 0).toLocaleString()} {settings.currency}
+          <div className={`text-2xl font-black ${(project?.forecast?.expected_variance_vac || 0) < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+            {(project?.forecast?.expected_variance_vac || 0).toLocaleString()} {safeSettings.currency || 'ر.س'}
           </div>
-          <p className="text-xs font-medium mt-1">{project.forecast?.forecast_status}</p>
+          <p className="text-xs font-medium mt-1">{project?.forecast?.forecast_status || 'مستقر'}</p>
         </div>
       </div>
 

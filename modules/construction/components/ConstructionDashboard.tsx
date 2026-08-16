@@ -57,6 +57,7 @@ const ConstructionDashboard = () => {
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [materialVariances, setMaterialVariances] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [exportingProject, setExportingProject] = useState<ProjectPerformance | null>(null);
   const { settings, currentUser } = useAccounting();
   const { showToast } = useToast();
 
@@ -127,22 +128,57 @@ const ConstructionDashboard = () => {
 
   const exportProjectPDF = async (project: ProjectPerformance) => {
     setIsExporting(true);
+    setExportingProject(project);
     try {
-      // ملاحظة: سنقوم برندر التقرير في الخلفية مؤقتاً للتصدير
+      // إتاحة وقت كافٍ لتصيير مكون التقرير بالكامل في DOM
+      await new Promise((resolve) => setTimeout(resolve, 350));
+
       const reportElement = document.getElementById('report-container');
-      if (!reportElement) throw new Error("فشل العثور على محرك التقرير");
-      
-      const canvas = await html2canvas(reportElement, { scale: 2 });
+      if (!reportElement) throw new Error("فشل العثور على محرك التقرير في الصفحة");
+
+      const canvas = await html2canvas(reportElement, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        throw new Error("تعذر قياس أبعاد التقرير لتوليد الصورة");
+      }
+
       const imgData = canvas.toDataURL('image/png');
+      if (!imgData || imgData === 'data:,' || !imgData.startsWith('data:image/png')) {
+        throw new Error("فشل تحويل محتوى التقرير إلى صيغة صورة صالحة");
+      }
+
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const width = pdf.internal.pageSize.getWidth();
-      const height = (canvas.height * width) / canvas.width;
-      pdf.addImage(imgData, 'PNG', 0, 0, width, height);
-      pdf.save(`Executive_Report_${project.project_name}_${new Date().toISOString().split('T')[0]}.pdf`);
-      showToast('تم توليد التقرير الفاخر بنجاح ✅', 'success');
+      const imgWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
+      const safeProjectName = (project.project_name || 'Project').replace(/[/\\?%*:|"<>]/g, '_');
+      pdf.save(`Executive_Report_${safeProjectName}_${new Date().toISOString().split('T')[0]}.pdf`);
+      showToast('تم توليد التقرير التنفيذي بنجاح ✅', 'success');
     } catch (err: any) {
+      console.error('PDF generation error:', err);
       showToast('خطأ في تصدير PDF: ' + err.message, 'error');
-    } finally { setIsExporting(false); }
+    } finally {
+      setIsExporting(false);
+      setExportingProject(null);
+    }
   };
 
   if (loading) return <div className="flex justify-center items-center h-96"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
@@ -179,10 +215,14 @@ const ConstructionDashboard = () => {
                     <button 
                       onClick={() => exportProjectPDF(proj)}
                       disabled={isExporting}
-                      className="p-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition-all shadow-lg shadow-slate-200 flex items-center gap-2 text-[10px] font-bold"
-                      title="تصدير تقرير فاخر للعميل"
+                      className="p-2 bg-slate-900 text-white rounded-xl hover:bg-slate-800 disabled:opacity-60 transition-all shadow-lg shadow-slate-200 flex items-center gap-2 text-[10px] font-bold"
+                      title="تصدير تقرير تنفيذي للمشروع"
                     >
-                      {isExporting ? <Loader2 size={14} className="animate-spin" /> : <FileDown size={14} />}
+                      {isExporting && exportingProject?.project_id === proj.project_id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <FileDown size={14} />
+                      )}
                       تصدير التقرير
                     </button>
                     {/* Replacing badges with Gauges for a professional look */}
@@ -335,11 +375,24 @@ const ConstructionDashboard = () => {
         ))}
       </div>
 
-      {/* 🔮 المحرك السري: حاوية التقارير المخفية المستخدمة في التصدير */}
-      <div className="hidden">
-        <div id="report-container">
-          {projects.map(p => expandedProject === p.project_id && <ProjectExecutiveReport key={p.project_id} project={p} settings={settings} />)}
-        </div>
+      {/* 🔮 حاوية التقرير للتصدير: يتم وضعها خارج الشاشة دون استخدام display:none حتى يتمكن html2canvas من رسمها بدقة */}
+      <div 
+        style={{ 
+          position: 'fixed', 
+          left: '-9999px', 
+          top: 0, 
+          width: '800px', 
+          zIndex: -9999, 
+          opacity: 1, 
+          pointerEvents: 'none' 
+        }}
+        aria-hidden="true"
+      >
+        {exportingProject && (
+          <div id="report-container" className="bg-white">
+            <ProjectExecutiveReport project={exportingProject} settings={settings} />
+          </div>
+        )}
       </div>
 
       {projects.length === 0 && (

@@ -101,18 +101,45 @@ const SupplierManager = () => {
         const filter = { organization_id: userOrgId };
 
         const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_date').match(filter).neq('status', 'draft');
-        const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter);
+        const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter).not('supplier_id', 'is', null);
         const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
-        const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter);
-        const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').eq('status', 'collected');
+        const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
+        const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected');
+
+        // جلب مقاولي الباطن ومستخلصاتهم
+        const { data: subs } = await supabase.from('subcontractors').select('id, name').match(filter);
+        const { data: contracts } = await supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter);
+        const { data: subBillings } = await supabase.from('subcontractor_billings').select('contract_id, net_amount').match(filter).neq('status', 'draft');
+
+        const subContractMap = new Map<string, string>();
+        contracts?.forEach(c => subContractMap.set(c.id, c.subcontractor_id));
+
+        const subBillingsTotalBySubId = new Map<string, number>();
+        subBillings?.forEach(sb => {
+            const subId = subContractMap.get(sb.contract_id);
+            if (subId) {
+                subBillingsTotalBySubId.set(subId, (subBillingsTotalBySubId.get(subId) || 0) + Number(sb.net_amount || 0));
+            }
+        });
 
         const newStats: Record<string, any> = {};
-        suppliers.forEach(s => { newStats[s.id] = { balance: Number(s.opening_balance || 0), totalPurchases: 0, lastInvoice: null }; });
+        suppliers.forEach(s => { 
+            const sName = (s.name || '').trim().toLowerCase();
+            let contractorBillings = 0;
+            subs?.forEach(sub => {
+                const subName = (sub.name || '').trim().toLowerCase();
+                if (subName && (sName === subName || sName.includes(subName) || subName.includes(sName))) {
+                    contractorBillings += (subBillingsTotalBySubId.get(sub.id) || 0);
+                }
+            });
+
+            newStats[s.id] = { balance: Number(s.opening_balance || 0) + contractorBillings, totalPurchases: 0, lastInvoice: null }; 
+        });
 
         invoices?.forEach(inv => {
             if (!newStats[inv.supplier_id]) return;
-            newStats[inv.supplier_id].balance += (Number(inv.total_amount) - Number(inv.paid_amount || 0));
-            newStats[inv.supplier_id].totalPurchases += Number(inv.total_amount);
+            newStats[inv.supplier_id].balance += Number(inv.total_amount || 0);
+            newStats[inv.supplier_id].totalPurchases += Number(inv.total_amount || 0);
             if (!newStats[inv.supplier_id].lastInvoice || inv.invoice_date > newStats[inv.supplier_id].lastInvoice) {
                 newStats[inv.supplier_id].lastInvoice = inv.invoice_date;
             }

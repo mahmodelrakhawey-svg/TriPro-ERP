@@ -9,7 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
 export const ChequesPage = () => {
-  const { addCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount } = useAccounting();
+  const { addCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount, selectedFiscalYear } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<'outgoing' | 'incoming'>('outgoing');
@@ -81,7 +81,7 @@ export const ChequesPage = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [selectedFiscalYear]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -107,12 +107,24 @@ export const ChequesPage = () => {
     }
 
     // 1. Fetch Cheques
-    const { data: chequesData } = await supabase.from('cheques').select('*, cheque_attachments(*)').eq('organization_id', userOrgId).order('created_at', { ascending: false });
+    let chequesQuery = supabase.from('cheques').select('*, cheque_attachments(*)').eq('organization_id', userOrgId).order('created_at', { ascending: false });
+    if (selectedFiscalYear) {
+      chequesQuery = chequesQuery.gte('due_date', `${selectedFiscalYear}-01-01`).lte('due_date', `${selectedFiscalYear}-12-31`);
+    }
+    const { data: chequesData } = await chequesQuery;
     if (chequesData) setCheques(chequesData);
 
     // 2. Fetch Parties
     const { data: supps } = await supabase.from('suppliers').select('id, name, phone').eq('organization_id', userOrgId);
-    if (supps) setSuppliers(supps);
+    const { data: subcons } = await supabase.from('subcontractors').select('id, name, phone').eq('organization_id', userOrgId);
+    
+    const combinedSuppliers = [...(supps || [])];
+    subcons?.forEach(sub => {
+      if (!combinedSuppliers.some(s => s.id === sub.id || s.name === sub.name)) {
+        combinedSuppliers.push({ id: sub.id, name: `${sub.name} (مقاول باطن)`, phone: sub.phone });
+      }
+    });
+    setSuppliers(combinedSuppliers);
     
     const { data: custs } = await supabase.from('customers').select('id, name, phone').eq('organization_id', userOrgId);
     if (custs) setCustomers(custs);

@@ -18,15 +18,23 @@ type Transaction = {
 };
 
 const SupplierStatement = () => {
-  const { suppliers, settings, currentUser } = useAccounting();
+  const { suppliers, settings, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [closingBalance, setClosingBalance] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
   
   const selectedSupplier = suppliers.find(s => s.id.toString() === selectedSupplierId.toString());
 
@@ -84,7 +92,35 @@ const SupplierStatement = () => {
             .eq('type', 'outgoing')
             .neq('status', 'rejected');
 
-        // 6. جلب القيود اليدوية (التي تؤثر على حسابات الموردين وتحمل اسم المورد في البيان)
+        // 6. جلب مستخلصات مقاولي الباطن المعتمدة (إذا كان المورد مقاول باطن)
+        let subBillingsData: any[] = [];
+        if (selectedSupplier?.name) {
+            const { data: matchedSubs } = await supabase.from('subcontractors')
+                .select('id')
+                .ilike('name', `%${selectedSupplier.name}%`)
+                .eq('organization_id', userOrgId);
+
+            if (matchedSubs && matchedSubs.length > 0) {
+                const subIds = matchedSubs.map(s => s.id);
+                const { data: contracts } = await supabase.from('subcontractor_contracts')
+                    .select('id')
+                    .in('subcontractor_id', subIds)
+                    .eq('organization_id', userOrgId);
+
+                if (contracts && contracts.length > 0) {
+                    const contractIds = contracts.map(c => c.id);
+                    const { data: billings } = await supabase.from('subcontractor_billings')
+                        .select('id, billing_number, billing_date, net_amount')
+                        .in('contract_id', contractIds)
+                        .eq('organization_id', userOrgId)
+                        .neq('status', 'draft');
+
+                    if (billings) subBillingsData = billings;
+                }
+            }
+        }
+
+        // 7. جلب القيود اليدوية (التي تؤثر على حسابات الموردين وتحمل اسم المورد في البيان)
         const { data: manualEntries } = await supabase.from('journal_lines')
             .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code)')
             .eq('journal_entries.status', 'posted')
@@ -99,6 +135,18 @@ const SupplierStatement = () => {
             allTrans.push({
                 date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مشتريات', 
                 credit: inv.total_amount, debit: inv.paid_amount || 0, paid_amount: inv.paid_amount 
+            });
+        });
+
+        // إضافة مستخلصات مقاولي الباطن كدائن
+        subBillingsData.forEach(sb => {
+            allTrans.push({
+                date: sb.billing_date,
+                type: 'invoice',
+                ref: sb.billing_number,
+                desc: `مستخلص أعمال مقاول (${sb.billing_number})`,
+                credit: Number(sb.net_amount || 0),
+                debit: 0
             });
         });
 
@@ -125,13 +173,12 @@ const SupplierStatement = () => {
             credit: 0, 
             debit: chq.amount 
         }));
-        
 
         manualEntries?.forEach((line: any) => {
             // 🛡️ منع تكرار المستندات إذا كانت مسجلة بالفعل (مثل الشيكات أو الفواتير)
             const isDuplicate = allTrans.some(t => {
                 const clean = (r: any) => r?.toString().trim().toUpperCase()
-                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-)/i, '') || '';
+                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-)/i, '') || '';
                 const r1 = clean(t.ref);
                 const r2 = clean(line.journal_entries.reference);
                 return r1 === r2 && r1 !== '' && r1 !== 'NULL';

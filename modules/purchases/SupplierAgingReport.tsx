@@ -44,16 +44,32 @@ const SupplierAgingReport = () => {
         .order('invoice_date', { ascending: false });
 
       // 3. جلب كافة المدفوعات والخصومات لحساب الرصيد الفعلي
-      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter);
-      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
-      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter);
+      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter).not('supplier_id', 'is', null);
+      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
+      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
       const { data: cheques } = await supabase.from('cheques')
             .select('party_id, amount')
             .match(filter)
             .eq('type', 'outgoing')
             .neq('status', 'rejected');
       
+      // 4. جلب مقاولي الباطن ومستخلصاتهم
+      const { data: subs } = await supabase.from('subcontractors').select('id, name').match(filter);
+      const { data: contracts } = await supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter);
+      const { data: subBillings } = await supabase.from('subcontractor_billings').select('contract_id, net_amount').match(filter).neq('status', 'draft');
+
       if (!suppliers || !invoices) return;
+
+      const subContractMap = new Map<string, string>();
+      contracts?.forEach(c => subContractMap.set(c.id, c.subcontractor_id));
+
+      const subBillingsTotalBySubId = new Map<string, number>();
+      subBillings?.forEach(sb => {
+          const subId = subContractMap.get(sb.contract_id);
+          if (subId) {
+              subBillingsTotalBySubId.set(subId, (subBillingsTotalBySubId.get(subId) || 0) + Number(sb.net_amount || 0));
+          }
+      });
 
       const today = new Date();
       
@@ -61,6 +77,16 @@ const SupplierAgingReport = () => {
         // حساب إجمالي الفواتير
         const supplierInvoices = invoices.filter(inv => inv.supplier_id === supplier.id);
         const totalInvoiced = supplierInvoices.reduce((sum, inv) => sum + Number(inv.total_amount), 0);
+
+        // جلب مستخلصات مقاولي الباطن
+        const sName = (supplier.name || '').trim().toLowerCase();
+        let contractorBillings = 0;
+        subs?.forEach(sub => {
+            const subName = (sub.name || '').trim().toLowerCase();
+            if (subName && (sName === subName || sName.includes(subName) || subName.includes(sName))) {
+                contractorBillings += (subBillingsTotalBySubId.get(sub.id) || 0);
+            }
+        });
 
         // حساب إجمالي السدادات (سندات + مرتجعات + إشعارات + شيكات)
         const suppPayments = payments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount), 0) || 0;
@@ -71,7 +97,7 @@ const SupplierAgingReport = () => {
         const totalCredits = suppPayments + suppReturns + suppDebitNotes + suppCheques;
         
         // الرصيد المستحق الحالي
-        let netBalance = totalInvoiced - totalCredits;
+        let netBalance = (totalInvoiced + contractorBillings) - totalCredits;
 
         let range0_30 = 0;
         let range31_60 = 0;

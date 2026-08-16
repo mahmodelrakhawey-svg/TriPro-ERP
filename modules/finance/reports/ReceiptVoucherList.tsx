@@ -32,7 +32,7 @@ interface ReceiptVoucher {
 
 const ReceiptVoucherList = () => {
   const navigate = useNavigate();
-  const { currentUser, vouchers: contextVouchers } = useAccounting();
+  const { currentUser, vouchers: contextVouchers, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -84,8 +84,11 @@ const ReceiptVoucherList = () => {
     if (debouncedSearch) {
        query = query.or(`voucher_number.ilike.%${debouncedSearch}%,notes.ilike.%${debouncedSearch}%`);
     }
+    if (selectedFiscalYear) {
+      query = query.gte('receipt_date', `${selectedFiscalYear}-01-01`).lte('receipt_date', `${selectedFiscalYear}-12-31`);
+    }
     return query;
-  }, [debouncedSearch]);
+  }, [debouncedSearch, selectedFiscalYear]);
 
   const selectQuery = showWithAttachmentsOnly 
     ? '*, customers(name), receipt_voucher_attachments!inner(*)' 

@@ -14,13 +14,21 @@ type TopProduct = {
 };
 
 const TopSellingReport = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<TopProduct[]>([]);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [sortBy, setSortBy] = useState<'quantity' | 'revenue'>('revenue');
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
     fetchData();
@@ -63,6 +71,15 @@ const TopSellingReport = () => {
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);
 
+      // 1.8 جلب مبيعات وصرف المستشفيات والصيدلية
+      const { data: himsItems } = await supabase
+        .from('hims_billing_items')
+        .select('quantity, total_price, product_id, products:product_id(name, sku), hims_billing!inner(created_at)')
+        .eq('hims_billing.organization_id', userOrgId)
+        .not('product_id', 'is', null)
+        .gte('hims_billing.created_at', `${startDate}T00:00:00`)
+        .lte('hims_billing.created_at', `${endDate}T23:59:59`);
+
       // 2. تجميع البيانات
       const productMap: Record<string, TopProduct> = {};
 
@@ -98,6 +115,23 @@ const TopSellingReport = () => {
         }
         productMap[item.product_id].totalQuantity += Number(item.quantity);
         productMap[item.product_id].totalRevenue += Number(item.total_price);
+      });
+
+      // دمج مبيعات المستشفيات
+      himsItems?.forEach((item: any) => {
+        if (!item.product_id || !item.products) return;
+
+        if (!productMap[item.product_id]) {
+          productMap[item.product_id] = {
+            id: item.product_id,
+            name: item.products.name,
+            sku: item.products.sku || '-',
+            totalQuantity: 0,
+            totalRevenue: 0
+          };
+        }
+        productMap[item.product_id].totalQuantity += Number(item.quantity);
+        productMap[item.product_id].totalRevenue += Number(item.total_price || 0);
       });
 
       // 3. تحويل إلى مصفوفة وترتيبها

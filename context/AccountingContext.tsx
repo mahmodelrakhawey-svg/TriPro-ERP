@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
 import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization } from '../types';
 import { useToast } from '../context/ToastContext';
+import { secureStorage } from '../utils/securityMiddleware';
 
 export interface UserProfile {
   id: string;
@@ -171,6 +172,7 @@ interface AccountingContextType {
   purgeDeletedRecords: () => Promise<void>;
   refreshSaasSchema: () => Promise<void>;
   closeFinancialYear: (year: number, date: string) => Promise<boolean>;
+  reopenFinancialYear: (year: number) => Promise<boolean>;
   exportData: () => Promise<void>;
   // --- دوال الديمو ---
   addDemoEntry: (entry: any) => void;
@@ -180,7 +182,9 @@ interface AccountingContextType {
   postDemoSalesInvoice: (invoice: any) => void;
   addDemoPurchaseInvoice: (invoice: any) => void;
   deleteOrganization: (orgId: string) => Promise<{ success: boolean; message?: string }>;
-
+  selectedFiscalYear: number;
+  setSelectedFiscalYear: (year: number) => void;
+  fiscalYearRange: { startDate: string; endDate: string };
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
@@ -201,6 +205,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [settings, setSettings] = useState<any>({});
+  const [selectedFiscalYear, setSelectedFiscalYearState] = useState<number>(() => {
+    const saved = secureStorage.getItem<string | number>('tripro_selected_fiscal_year');
+    if (saved) {
+      const parsed = typeof saved === 'number' ? saved : parseInt(saved, 10);
+      if (!isNaN(parsed) && parsed >= 2000 && parsed <= 2099) return parsed;
+    }
+    return new Date().getFullYear();
+  });
+
+  const setSelectedFiscalYear = (year: number) => {
+    setSelectedFiscalYearState(year);
+    secureStorage.setItem('tripro_selected_fiscal_year', year);
+  };
+
+  const fiscalYearRange = useMemo(() => ({
+    startDate: `${selectedFiscalYear}-01-01`,
+    endDate: `${selectedFiscalYear}-12-31`
+  }), [selectedFiscalYear]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [entries, setEntries] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
@@ -332,7 +354,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           production_warehouse_id: raw.production_warehouse_id || raw.productionWarehouseId || '',
           rawMaterialsWarehouseId: raw.rawMaterialsWarehouseId || raw.raw_material_warehouse_id || '',
           raw_material_warehouse_id: raw.raw_material_warehouse_id || raw.rawMaterialsWarehouseId || '',
-          accountMappings: raw.accountMappings || raw.account_mappings || {}
+          accountMappings: raw.accountMappings || raw.account_mappings || {},
+          lastClosedYear: raw.lastClosedYear !== undefined && raw.lastClosedYear !== null ? Number(raw.lastClosedYear) : (raw.last_closed_year !== undefined && raw.last_closed_year !== null ? Number(raw.last_closed_year) : null),
+          last_closed_year: raw.last_closed_year !== undefined && raw.last_closed_year !== null ? Number(raw.last_closed_year) : (raw.lastClosedYear !== undefined && raw.lastClosedYear !== null ? Number(raw.lastClosedYear) : null),
+          lastClosedDate: raw.lastClosedDate || raw.last_closed_date || null,
+          last_closed_date: raw.last_closed_date || raw.lastClosedDate || null
         };
       };
 
@@ -822,9 +848,72 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       throw error;
     }
   };
+
   const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const permanentDeleteItem = async (table: string, id: string) => { const { error } = await supabase.from(table).delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
-  const exportJournalToCSV = () => { /* Logic */ };
+  const exportJournalToCSV = async () => {
+    try {
+      const orgId = currentSelectedOrgId || currentUser?.organization_id;
+      let query = supabase
+        .from('journal_entries')
+        .select(`
+          id,
+          transaction_date,
+          reference,
+          description,
+          status,
+          journal_lines (
+            debit,
+            credit,
+            description,
+            account_id
+          )
+        `)
+        .order('transaction_date', { ascending: false });
+
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      if (!data || data.length === 0) {
+        showToast('لا توجد قيود لتصديرها.', 'info');
+        return;
+      }
+
+      const XLSX = await import('xlsx');
+      const accountMap = new Map((accounts || []).map((a: any) => [a.id, a]));
+
+      const flatData: any[] = [];
+      data.forEach((entry: any) => {
+        (entry.journal_lines || []).forEach((line: any) => {
+          const acc = accountMap.get(line.account_id);
+          flatData.push({
+            'التاريخ': entry.transaction_date,
+            'رقم القيد': entry.reference,
+            'البيان الرئيسي': entry.description,
+            'الحالة': entry.status === 'posted' ? 'مرحل' : 'مسودة',
+            'كود الحساب': acc?.code || line.account_code || '-',
+            'اسم الحساب': acc?.name || '-',
+            'مدين': Number(line.debit) || 0,
+            'دائن': Number(line.credit) || 0,
+            'بيان الحركة': line.description || '-'
+          });
+        });
+      });
+
+      const ws = XLSX.utils.json_to_sheet(flatData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Journal Entries");
+      XLSX.writeFile(wb, `General_Journal_${new Date().toISOString().split('T')[0]}.xlsx`);
+      showToast('تم تصدير القيود المحاسبية بنجاح ✅', 'success');
+    } catch (err: any) {
+      console.error('Export CSV error:', err);
+      showToast('فشل تصدير القيود: ' + err.message, 'error');
+    }
+  };
 
   // HR
   const addEmployee = async (data: any) => { 
@@ -994,10 +1083,106 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); showToast('جاري تحديث هيكل النظام...', 'info'); setTimeout(() => window.location.reload(), 1500); };
   const closeFinancialYear = async (year: number, date: string) => {
-    const { data, error } = await supabase.rpc('close_financial_year', { p_year: year, p_closing_date: date });
-        if (error) { showToast('فشل إقفال السنة: ' + error.message, 'error'); return false; }
-    showToast(`تم إقفال السنة المالية ${year} بنجاح ✅`, 'success');
-    return !!data;
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    if (!targetOrgId) {
+      showToast('تعذر تحديد معرف المؤسسة.', 'error');
+      return false;
+    }
+
+    try {
+      // 1. فحص وتصحيح حساب الأرباح المبقاة (32) ليكون حساباً فرعياً قابلاً للترحيل
+      const { data: retAccounts } = await supabase
+        .from('accounts')
+        .select('id, code, is_group')
+        .eq('organization_id', targetOrgId)
+        .eq('code', '32');
+
+      if (retAccounts && retAccounts.length > 0) {
+        if (retAccounts[0].is_group) {
+          await supabase
+            .from('accounts')
+            .update({ is_group: false })
+            .eq('id', retAccounts[0].id);
+        }
+      } else {
+        const { data: parent3 } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('organization_id', targetOrgId)
+          .eq('code', '3')
+          .maybeSingle();
+
+        await supabase.from('accounts').insert({
+          organization_id: targetOrgId,
+          code: '32',
+          name: 'الأرباح المبقاة / المرحلة',
+          type: 'EQUITY',
+          is_group: false,
+          is_active: true,
+          parent_id: parent3?.id || null
+        });
+      }
+
+      // 2. تصحيح أي حسابات إيرادات أو مصروفات (4/5) معلّمة بالخطأ كـ is_group ولها قيود مرحلة
+      const { data: groupIncomeAccounts } = await supabase
+        .from('accounts')
+        .select('id, code, is_group')
+        .eq('organization_id', targetOrgId)
+        .eq('is_group', true)
+        .or('code.like.4%,code.like.5%');
+
+      if (groupIncomeAccounts && groupIncomeAccounts.length > 0) {
+        for (const gAcc of groupIncomeAccounts) {
+          const { data: hasLines } = await supabase
+            .from('journal_lines')
+            .select('id')
+            .eq('account_id', gAcc.id)
+            .limit(1);
+
+          if (hasLines && hasLines.length > 0) {
+            await supabase
+              .from('accounts')
+              .update({ is_group: false })
+              .eq('id', gAcc.id);
+          }
+        }
+      }
+
+      // 3. استدعاء محرك الإقفال السنوي
+      const { data, error } = await supabase.rpc('close_financial_year', { 
+        p_year: year, 
+        p_closing_date: date,
+        p_org_id: targetOrgId
+      });
+
+      if (error) { 
+        showToast('فشل إقفال السنة: ' + error.message, 'error'); 
+        return false; 
+      }
+
+      showToast(typeof data === 'string' ? data : `تم إقفال السنة المالية ${year} بنجاح ✅`, 'success');
+      await refreshData();
+      return true;
+    } catch (err: any) {
+      console.error('Error during closeFinancialYear:', err);
+      showToast('فشل إقفال السنة: ' + err.message, 'error');
+      return false;
+    }
+  };
+
+  const reopenFinancialYear = async (year: number) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data, error } = await supabase.rpc('reopen_financial_year', { 
+      p_year: year,
+      p_org_id: targetOrgId || null
+    });
+    if (error) { 
+      showToast('فشل إعادة فتح السنة: ' + error.message, 'error'); 
+      return false; 
+    }
+    showToast(typeof data === 'string' ? data : `تم فتح السنة المالية ${year} بنجاح 🔓`, 'success');
+    await refreshData();
+    return true;
   };
   const exportData = async () => { /* Logic to export JSON */ };
 
@@ -1056,7 +1241,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     completeRestaurantOrder, processSplitPayment, addRestaurantTable, updateRestaurantTable,
     deleteRestaurantTable, updateKitchenOrderStatus, startShift, closeCurrentShift,
     getCurrentShiftSummary, createMissingSystemAccounts, recalculateAllBalances,
-    purgeDeletedRecords, refreshSaasSchema, closeFinancialYear, exportData,
+    purgeDeletedRecords, refreshSaasSchema, closeFinancialYear, reopenFinancialYear, exportData,
+    selectedFiscalYear, setSelectedFiscalYear, fiscalYearRange,
     // Demo
     addDemoEntry, addDemoPaymentVoucher, addDemoReceiptVoucher, addDemoInvoice,
     deleteOrganization,

@@ -6,7 +6,7 @@ import { FileMinus, Loader2, Edit } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 const CreditNoteList = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   const [notes, setNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,10 +25,18 @@ const CreditNoteList = () => {
       }
 
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from('credit_notes')
           .select('*, customer:customers(name)')
           .order('note_date', { ascending: false });
+
+        if (selectedFiscalYear) {
+          query = query
+            .gte('note_date', `${selectedFiscalYear}-01-01`)
+            .lte('note_date', `${selectedFiscalYear}-12-31`);
+        }
+
+        const { data, error } = await query;
 
         if (error) throw error;
         setNotes(data || []);
@@ -39,7 +47,7 @@ const CreditNoteList = () => {
       }
     };
     fetchNotes();
-  }, []);
+  }, [selectedFiscalYear]);
 
   const handleEdit = (note: any) => {
     if (note.status === 'posted') {

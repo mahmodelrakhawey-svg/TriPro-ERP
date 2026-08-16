@@ -1,4 +1,4 @@
-﻿import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType } from '../../types';
 import { 
@@ -9,13 +9,19 @@ import { GoogleGenAI } from "@google/genai";
 
 const BudgetVarianceReport = () => {
   // Fix: Added invoices to destructuring to calculate actuals for non-account budget items
-  const { budgets, getAccountBalanceInPeriod, accounts, invoices, settings } = useAccounting();
-  const [year, setYear] = useState(new Date().getFullYear());
+  const { budgets, getAccountBalanceInPeriod, accounts, invoices, settings, selectedFiscalYear } = useAccounting();
+  const [year, setYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [aiReport, setAiReport] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [calculatedItems, setCalculatedItems] = useState<any[]>([]);
   const [isCalculating, setIsCalculating] = useState(false);
+
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setYear(selectedFiscalYear);
+    }
+  }, [selectedFiscalYear]);
 
   const activeBudget = useMemo(() => {
       return budgets.find(b => b.year === year && b.month === month);

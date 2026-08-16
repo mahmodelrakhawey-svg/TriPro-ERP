@@ -83,9 +83,10 @@ const CustomerManager = () => {
             return;
         }
 
-        // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + القيود اليدوية التي تذكر اسمه
+        // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + مستخلصات المشاريع + القيود اليدوية التي تذكر اسمه
         const [
             invRes, recRes, retRes, cnRes, chqRes, ordRes,
+            projectsRes, projectBillingsRes,
             manualEntriesRes // Fetch manual entries that mention the customer
         ] = await Promise.all([
             supabase.from('invoices').select('related_journal_entry_id, customer_id, total_amount, invoice_date').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
@@ -94,6 +95,8 @@ const CustomerManager = () => {
             supabase.from('credit_notes').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('cheques').select('related_journal_entry_id, party_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('orders').select('related_journal_entry_id, customer_id, grand_total').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+            supabase.from('projects').select('id, customer_id').eq('organization_id', userOrgId),
+            supabase.from('project_progress_billings').select('id, project_id, related_journal_entry_id, net_amount, billing_date').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('journal_entries').select('id, description').eq('organization_id', userOrgId).eq('status', 'posted')
         ]);
 
@@ -106,6 +109,19 @@ const CustomerManager = () => {
         cnRes.data?.forEach(c => { if (c.related_journal_entry_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.customer_id; } });
         chqRes.data?.forEach(c => { if (c.related_journal_entry_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.party_id; } });
         ordRes.data?.forEach(o => { if (o.related_journal_entry_id) { allEntryIds.add(o.related_journal_entry_id); entryToCustomer[o.related_journal_entry_id] = o.customer_id; } });
+
+        const projectToCustomer: Record<string, string> = {};
+        projectsRes.data?.forEach(p => { if (p.id && p.customer_id) projectToCustomer[p.id] = p.customer_id; });
+
+        projectBillingsRes.data?.forEach(pb => {
+            if (pb.related_journal_entry_id && pb.project_id) {
+                const cId = projectToCustomer[pb.project_id];
+                if (cId) {
+                    allEntryIds.add(pb.related_journal_entry_id);
+                    entryToCustomer[pb.related_journal_entry_id] = cId;
+                }
+            }
+        });
 
         // For manual entries, check if description contains customer name
         manualEntriesRes.data?.forEach(je => {

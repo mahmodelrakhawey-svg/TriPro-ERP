@@ -6,12 +6,20 @@ import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 
 const TaxReturnReport = () => {
-    const { accounts, getAccountBalanceInPeriod, settings, addEntry, addAccount } = useAccounting();
+    const { accounts, getAccountBalanceInPeriod, settings, addEntry, addAccount, selectedFiscalYear, fiscalYearRange } = useAccounting();
     const { showToast } = useToast();
-    const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+    const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+    const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
     const [closing, setClosing] = useState(false);
     const [loading, setLoading] = useState(false);
+
+    // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+    useEffect(() => {
+        if (selectedFiscalYear) {
+            setStartDate(`${selectedFiscalYear}-01-01`);
+            setEndDate(`${selectedFiscalYear}-12-31`);
+        }
+    }, [selectedFiscalYear]);
     const [calculatedData, setCalculatedData] = useState<{
         outputVatAmount: number;
         inputVatAmount: number;
@@ -22,9 +30,15 @@ const TaxReturnReport = () => {
 
     useEffect(() => {
         const calculate = async () => {
-            // البحث عن حسابات الضريبة
-            const outputVatAcc = accounts.find(a => a.code === '2231' || a.code === '2103');
-            const inputVatAcc = accounts.find(a => a.code === '1241' || a.code === '1205');
+            // البحث عن حسابات الضريبة (بالأكواد القياسية والأسماء)
+            const outputVatAcc = accounts.find(a => 
+                a.code === '2241' || a.code === '2231' || a.code === '2103' || 
+                (a.name && (a.name.includes('مخرجات') || a.name.includes('مبيعات') || a.name.includes('Output VAT')))
+            );
+            const inputVatAcc = accounts.find(a => 
+                a.code === '1241' || a.code === '1205' || 
+                (a.name && (a.name.includes('مدخلات') || a.name.includes('مشتريات') || a.name.includes('Input VAT')))
+            );
 
             if (!outputVatAcc || !inputVatAcc) {
                 setCalculatedData(null);

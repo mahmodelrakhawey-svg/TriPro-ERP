@@ -23,11 +23,11 @@ interface CustomerStatementProps {
 }
 
 const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId }) => {
-  const { customers, settings, currentUser, approveInvoice, accounts } = useAccounting();
+  const { customers, settings, currentUser, approveInvoice, accounts, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const [searchParams] = useSearchParams();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [closingBalance, setClosingBalance] = useState(0);
@@ -35,6 +35,14 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   const [showUnpostedOnly, setShowUnpostedOnly] = useState(false);
   const [unpostedCount, setUnpostedCount] = useState(0);
   const { showToast } = useToast();
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
   
   const selectedCustomer = customers.find(c => c.id.toString() === selectedCustomerId.toString());
 
@@ -153,6 +161,14 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           .eq('customer_id', selectedCustomerId);
         const patientIds = patientList?.map(p => p.id) || [];
 
+        // Fetch project IDs associated with this customer ID (for construction projects)
+        const { data: projectList } = await supabase
+          .from('projects')
+          .select('id')
+          .eq('customer_id', selectedCustomerId)
+          .eq('organization_id', userOrgId);
+        const projectIds = projectList?.map(p => p.id) || [];
+
         // Fetch claim IDs associated with this insurance provider
         const { data: claimList } = await supabase
           .from('hims_insurance_claims')
@@ -162,7 +178,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         const providerClaimIds = claimList?.map(c => c.id) || [];
 
         // 1) جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل والقيود اليدوية التي تحوي اسمه
-        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, patientBillsRes, insBillsRes, claimsRes] = await Promise.all([
+        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, patientBillsRes, insBillsRes, claimsRes, projectBillsRes] = await Promise.all([
              supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
@@ -176,7 +192,10 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
              providerClaimIds.length > 0
                ? supabase.from('hims_billing').select('id, related_journal_entry_id').or(`insurance_provider_id.eq.${selectedCustomerId},insurance_claim_id.in.(${providerClaimIds.join(',')})`).eq('organization_id', userOrgId)
                : supabase.from('hims_billing').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
-             supabase.from('hims_insurance_claims').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId)
+             supabase.from('hims_insurance_claims').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
+             projectIds.length > 0
+               ? supabase.from('project_progress_billings').select('id, related_journal_entry_id').in('project_id', projectIds).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null)
+               : Promise.resolve({ data: [] })
         ]);
 
         const customerEntryIds = new Set<string>();
@@ -187,6 +206,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         chqRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
         ordRes.data?.forEach(o => { if (o.related_journal_entry_id) customerEntryIds.add(o.related_journal_entry_id); });
         manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
+        projectBillsRes.data?.forEach(pb => { if (pb.related_journal_entry_id) customerEntryIds.add(pb.related_journal_entry_id); });
 
         // إضافة القيود المربوطة مباشرة بالفواتير الطبية والمطالبات (التي لم يتم استبدالها)
         patientBillsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });

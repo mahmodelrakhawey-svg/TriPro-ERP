@@ -14,11 +14,26 @@ interface ProjectLaborSummary {
 }
 
 const LaborCostReport = () => {
-  const { organization } = useAccounting();
+  const { organization, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<ProjectLaborSummary[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [selectedMonth, setSelectedMonth] = useState(
+    selectedFiscalYear && selectedFiscalYear !== new Date().getFullYear()
+      ? `${selectedFiscalYear}-01`
+      : new Date().toISOString().slice(0, 7)
+  ); // YYYY-MM
+
+  // مزامنة الشهر مع السنة المالية المختارة
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      if (selectedFiscalYear !== new Date().getFullYear()) {
+        setSelectedMonth(`${selectedFiscalYear}-01`);
+      } else {
+        setSelectedMonth(new Date().toISOString().slice(0, 7));
+      }
+    }
+  }, [selectedFiscalYear]);
 
   useEffect(() => {
     if (organization?.id) fetchReport();

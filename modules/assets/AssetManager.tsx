@@ -6,7 +6,7 @@ import { supabase } from '../../supabaseClient';
 import { z } from 'zod';
 
 const AssetManager = () => {
-  const { assets, addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, accounts } = useAccounting();
+  const { assets, addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, accounts, organization, currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
@@ -50,12 +50,15 @@ const AssetManager = () => {
     if (!window.confirm(`هل أنت متأكد من تشغيل الإهلاك لشهر ${depreciationDate.slice(0, 7)}؟\nسيتم إنشاء قيود إهلاك لجميع الأصول النشطة.`)) return;
 
     try {
-        const { data: org } = await supabase.from('organizations').select('id').limit(1).single();
-        if (!org) throw new Error("لم يتم العثور على المنظمة");
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id;
+        const orgId = userOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
+        
+        if (!orgId) throw new Error("لم يتم العثور على المنظمة");
 
         const { data, error } = await supabase.rpc('run_period_depreciation', {
             p_date: depreciationDate,
-            p_org_id: org.id
+            p_org_id: orgId
         });
 
         if (error) throw error;

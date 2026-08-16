@@ -10,7 +10,7 @@ import {
 import * as XLSX from 'xlsx';
 
 const SalesReports = () => {
-  const { invoices, salespeople, customers, settings, warehouses, recalculateStock, currentUser } = useAccounting();
+  const { invoices, salespeople, customers, settings, warehouses, recalculateStock, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   
   // Tab State
   const [activeView, setActiveView] = useState<'products' | 'branches' | 'commissions'>('products');
@@ -20,10 +20,18 @@ const SalesReports = () => {
   const [customerId, setCustomerId] = useState('all');
   const [customerType, setCustomerType] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [commissionRate, setCommissionRate] = useState(2); 
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
 
   // State for restaurant orders
   const [restaurantOrders, setRestaurantOrders] = useState<any[]>([]);

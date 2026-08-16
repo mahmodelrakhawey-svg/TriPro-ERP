@@ -39,18 +39,50 @@ const SupplierBalancesReport = () => {
       const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone, opening_balance').match(filter).is('deleted_at', null);
       
       // 2. جلب الحركات المالية
-      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount').match(filter).eq('status', 'posted');
-      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter);
-      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
-      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter);
+      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount').match(filter).neq('status', 'draft');
+      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter).not('supplier_id', 'is', null);
+      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
+      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
       const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected');
       
+      // 3. جلب مقاولي الباطن ومستخلصاتهم المعتمدة
+      const { data: subs } = await supabase.from('subcontractors').select('id, name').match(filter);
+      const { data: contracts } = await supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter);
+      const { data: subBillings } = await supabase.from('subcontractor_billings').select('contract_id, net_amount').match(filter).neq('status', 'draft');
+
       if (!suppliers) return;
+
+      // تجهيز خريطة مستخلصات مقاولي الباطن بالاسم والمعرف
+      const subContractMap = new Map<string, string>(); // contract_id -> sub_id
+      contracts?.forEach(c => subContractMap.set(c.id, c.subcontractor_id));
+
+      const subBillingsTotalBySubId = new Map<string, number>();
+      subBillings?.forEach(sb => {
+          const subId = subContractMap.get(sb.contract_id);
+          if (subId) {
+              subBillingsTotalBySubId.set(subId, (subBillingsTotalBySubId.get(subId) || 0) + Number(sb.net_amount || 0));
+          }
+      });
+
+      const subIdByName = new Map<string, string>();
+      subs?.forEach(s => {
+          if (s.name) subIdByName.set(s.name.trim().toLowerCase(), s.id);
+      });
 
       const balances = suppliers.map(supplier => {
         const opening = Number(supplier.opening_balance || 0);
-        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, i) => sum + (Number(i.total_amount) - Number(i.paid_amount || 0)), 0) || 0;
+        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, i) => sum + Number(i.total_amount || 0), 0) || 0;
         
+        // جلب مستخلصات مقاولي الباطن إن كان المورد مقاول باطن
+        const sName = (supplier.name || '').trim().toLowerCase();
+        let contractorBillings = 0;
+        subs?.forEach(sub => {
+            const subName = (sub.name || '').trim().toLowerCase();
+            if (subName && (sName === subName || sName.includes(subName) || subName.includes(sName))) {
+                contractorBillings += (subBillingsTotalBySubId.get(sub.id) || 0);
+            }
+        });
+
         const totalPaid = (payments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount), 0) || 0) +
                           (returns?.filter(r => r.supplier_id === supplier.id).reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
                           (debitNotes?.filter(d => d.supplier_id === supplier.id).reduce((sum, d) => sum + Number(d.total_amount), 0) || 0) +
@@ -60,7 +92,7 @@ const SupplierBalancesReport = () => {
           id: supplier.id,
           name: supplier.name,
           phone: supplier.phone,
-          balance: opening + totalInvoiced - totalPaid
+          balance: opening + totalInvoiced + contractorBillings - totalPaid
         };
       }).sort((a, b) => b.balance - a.balance);
 
