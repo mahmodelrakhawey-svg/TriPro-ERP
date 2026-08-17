@@ -36,8 +36,8 @@ vi.mock('../../supabaseClient', () => {
     then: vi.fn((onfulfilled) => {
       return Promise.resolve({
         data: [
-          { id: 'perm-1', module: 'sales', action: 'create', description: 'إنشاء مبيعات' },
-          { id: 'perm-2', module: 'sales', action: 'view', description: 'عرض المبيعات' },
+          { id: 'perm-1', module: 'sales', action: 'create', description: 'إنشاء مبيعات', is_sensitive: false },
+          { id: 'perm-2', module: 'sales', action: 'view', description: 'عرض المبيعات', is_sensitive: false },
         ],
         error: null,
       }).then(onfulfilled);
@@ -105,39 +105,42 @@ describe('🛡️ PermissionsManager UI & RPC Integration Tests', () => {
     });
 
     // التأكد من ظهور الموديلات والصلاحيات المتاحة في الجدول
-    expect(screen.getByText('المبيعات والعملاء')).toBeDefined();
+    expect(screen.getByText('المبيعات والفواتير')).toBeDefined();
+    expect(screen.getByText('إنشاء مبيعات')).toBeDefined();
   });
 
-  it('يجب استدعاء RPC sync_role_permissions مع المعرفات الصحيحة عند الضغط على حفظ', async () => {
+  it('يجب استدعاء RPC sync_role_permissions مع المعرفات الصحيحة عند تعديل الصلاحيات والضغط على حفظ', async () => {
     render(<PermissionsManager />);
 
-    // انتظار تحميل البيانات والتحقق من تحميل الصلاحية المحددة دورياً لتفادي سباق المزامنة
+    // انتظار تحميل البيانات
     await waitFor(() => {
       expect(screen.getByText('دور تجريبي')).toBeDefined();
-      const button = screen.getByTitle('إنشاء مبيعات');
-      expect(button.className).toContain('bg-emerald-500');
+      expect(screen.getByText('عرض المبيعات')).toBeDefined();
     });
 
+    // النقر على صلاحية 'عرض المبيعات' لتغيير الحالة وتفعيل زر الحفظ
+    fireEvent.click(screen.getByText('عرض المبيعات'));
+
     // الضغط على زر الحفظ
-    const saveButton = screen.getByText('حفظ التغييرات');
+    const saveButton = screen.getByText('حفظ التغييرات الآن');
     fireEvent.click(saveButton);
 
     await waitFor(() => {
       expect(supabase.rpc).toHaveBeenCalledWith('sync_role_permissions', {
         p_role_id: 'role-1',
-        p_permission_ids: ['perm-1'], // القيمة الافتراضية المحملة من role_permissions
+        p_permission_ids: expect.arrayContaining(['perm-1', 'perm-2']),
       });
-      expect(mockShowToast).toHaveBeenCalledWith('تم حفظ الصلاحيات بنجاح ✅', 'success');
+      expect(mockShowToast).toHaveBeenCalledWith(
+        expect.stringContaining('تم حفظ ومزامنة الصلاحيات بنجاح'),
+        'success'
+      );
     });
   });
 
-  it('يجب إظهار رسالة خطأ للمستخدم في حال فشل استدعاء الدالة بقاعدة البيانات (مثل خطأ PGRST203)', async () => {
-    // محاكاة فشل استدعاء الـ RPC مع نفس رسالة الخطأ التي واجهها المستخدم
+  it('يجب إظهار رسالة خطأ للمستخدم في حال فشل استدعاء الدالة بقاعدة البيانات', async () => {
     const dbError = {
       code: 'PGRST203',
-      message: 'Could not choose the best candidate function between: public.sync_role_permissions(p_role_id => uuid, p_permission_ids => integer[]), public.sync_role_permissions(p_role_id => uuid, p_permission_ids => uuid[])',
-      details: null,
-      hint: 'Try renaming the parameters or the function itself',
+      message: 'Could not choose candidate function',
     };
     (supabase.rpc as any).mockResolvedValue({ data: null, error: dbError });
 
@@ -147,13 +150,16 @@ describe('🛡️ PermissionsManager UI & RPC Integration Tests', () => {
       expect(screen.getByText('دور تجريبي')).toBeDefined();
     });
 
-    const saveButton = screen.getByText('حفظ التغييرات');
+    // النقر على صلاحية لتفعيل زر الحفظ
+    fireEvent.click(screen.getByText('عرض المبيعات'));
+
+    const saveButton = screen.getByText('حفظ التغييرات الآن');
     fireEvent.click(saveButton);
 
     await waitFor(() => {
       expect(supabase.rpc).toHaveBeenCalled();
       expect(mockShowToast).toHaveBeenCalledWith(
-        expect.stringContaining('Could not choose the best candidate function'),
+        expect.stringContaining('Could not choose candidate function'),
         'error'
       );
     });

@@ -189,12 +189,36 @@ const Settings = () => {
   useEffect(() => {
     // جلب إعدادات الشركة
     const fetchSettings = async () => {
-        // 🛡️ استخدام RPC لضمان جلب إعدادات الشركة الصحيحة وتجنب مشاكل التوكن القديم
-        const { data, error } = await supabase
-            .rpc('get_current_company_settings')
-            .maybeSingle();
+        const orgId = (currentUser as any)?.organization_id;
+        let sData: any = null;
+
+        try {
+            // 🛡️ استخدام RPC لضمان جلب إعدادات الشركة الصحيحة وتجنب مشاكل التوكن القديم
+            const { data, error } = await supabase
+                .rpc('get_current_company_settings', { p_org_id: orgId || null })
+                .maybeSingle();
+            
+            if (!error && data) {
+                sData = data;
+            }
+        } catch (err) {
+            // صامت للمرور للمحاولة المباشرة
+        }
+
+        // في حالة عدم توفر RPC أو إرجاع خطأ يتم الجلب المباشر من الجدول
+        if (!sData && orgId) {
+            try {
+                const { data: directData } = await supabase
+                    .from('company_settings')
+                    .select('*')
+                    .eq('organization_id', orgId)
+                    .maybeSingle();
+                if (directData) sData = directData;
+            } catch (err) {
+                // صامت
+            }
+        }
         
-        const sData = data as any;
         if (sData) {
             setSettingsId(sData.id);
             const loaded = {
@@ -408,18 +432,59 @@ const Settings = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const orgId = (currentUser as any)?.organization_id;
+    if (!orgId) {
+      showToast('فشل تحديد المنظمة. يرجى إعادة تسجيل الدخول.', 'error');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const content = evt.target?.result;
+        const content = evt.target?.result as string;
         const isJson = file.name.toLowerCase().endsWith('.json');
 
         if (isJson) {
-          if (window.confirm('تحذير: هذا ملف نسخ احتياطي كامل. استعادته ستؤدي لمسح البيانات الحالية. هل أنت متأكد؟')) {
-            showToast("تم تعطيل الاستعادة الكاملة مؤقتاً للأمان.", 'warning');
+          let parsedData: any;
+          try {
+            parsedData = JSON.parse(content);
+          } catch (jsonErr) {
+            showToast('خطأ: الملف المرفوع ليس بصيغة JSON صالحة.', 'error');
+            return;
+          }
+
+          if (!parsedData || typeof parsedData !== 'object') {
+            showToast('خطأ: محتوى ملف النسخة الاحتياطية غير صالح.', 'error');
+            return;
+          }
+
+          if (!window.confirm('⚠️ تحذير شديد: استعادة هذه النسخة ستؤدي لاستبدال وتحديث بيانات المنشأة الحالية ببيانات النسخة المرفوعة. هل تريد الاستمرار؟')) {
+            return;
+          }
+
+          const confirmText = window.prompt('لتأكيد عملية الاستعادة، يرجى كتابة كلمة "استعادة" في المربع أدناه:');
+          if (!confirmText || (confirmText.trim() !== 'استعادة' && confirmText.trim() !== 'استعاده')) {
+            showToast('تم إلغاء عملية الاستعادة أو لم يتم إدخال كلمة التأكيد بشكل صحيح.', 'info');
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const { data, error } = await supabase.rpc('restore_organization_backup', {
+              p_org_id: orgId,
+              p_backup_data: parsedData
+            });
+
+            if (error) throw error;
+            showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
+            setTimeout(() => window.location.reload(), 1500);
+          } catch (restoreErr: any) {
+            showToast('فشل عملية الاستعادة: ' + restoreErr.message, 'error');
+          } finally {
+            setLoading(false);
           }
         } else { // Excel file
-          // Logic for Excel import is now in DataMigration.tsx
           showToast('لاستيراد البيانات من Excel، يرجى استخدام "مركز ترحيل البيانات" من القائمة الجانبية.', 'info');
         }
       } catch (err: any) {
