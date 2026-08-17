@@ -59,7 +59,7 @@ const CreditNoteForm = () => {
 
     if (currentUser?.role === 'demo') {
         showToast('تم حفظ الإشعار الدائن وترحيل القيد بنجاح ✅ (محاكاة)', 'success');
-        setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], amount: 0, notes: '', noteNumber: '', originalInvoiceNumber: '' });
+        setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], amount: 0, isTaxable: settings?.enableTax ?? true, notes: '', noteNumber: '', originalInvoiceNumber: '' });
         setSaving(false);
         return;
     }
@@ -89,7 +89,7 @@ const CreditNoteForm = () => {
       if (rpcError) throw rpcError;
 
       showToast('تم حفظ الإشعار الدائن وترحيل القيد بنجاح ✅', 'success');
-      setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], amount: 0, notes: '', noteNumber: '', originalInvoiceNumber: '' });
+      setFormData({ customerId: '', date: new Date().toISOString().split('T')[0], amount: 0, isTaxable: settings?.enableTax ?? true, notes: '', noteNumber: '', originalInvoiceNumber: '' });
 
     } catch (error: any) {
       console.error(error);
