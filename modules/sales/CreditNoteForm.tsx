@@ -33,7 +33,8 @@ const CreditNoteForm = () => {
   }, [location.state]);
 
   // @ts-ignore
-  const taxAmount = formData.amount * (settings.enableTax ? (settings.vatRate || 0.15) : 0);
+  const taxRate = settings?.enableTax ? ((settings.vatRate !== undefined && settings.vatRate !== null ? Number(settings.vatRate) : (settings.vat_rate ? settings.vat_rate * 100 : 15)) / 100) : 0;
+  const taxAmount = formData.amount * taxRate;
   const totalAmount = formData.amount + taxAmount;
 
   const handleSave = async (e: React.FormEvent) => {
@@ -210,7 +211,7 @@ const CreditNoteForm = () => {
                       </tr>
                       {taxAmount > 0 && (
                           <tr>
-                              <td className="p-4 font-bold">ضريبة القيمة المضافة ({(settings.vatRate || 0.15) * 100}%)</td>
+                              <td className="p-4 font-bold">ضريبة القيمة المضافة ({(taxRate * 100).toFixed(0)}%)</td>
                               <td className="p-4 text-left font-mono">{taxAmount.toLocaleString()}</td>
                           </tr>
                       )}
