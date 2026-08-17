@@ -81,13 +81,15 @@ const Sidebar: React.FC = () => {
   const [openSection, setOpenSection] = useState<string | null>(null);
 
   const userRole = currentUser?.role;
-  const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner' || userRole === 'admin' || userRole === 'demo';
+  const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner';
   const allowedModules = (organization as any)?.allowed_modules || [];
 
   // دالة للتحقق مما إذا كان الموديول مسموحاً به لهذه الشركة
   const isModuleAllowed = (module: string) => {
     const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
     return isSuperAdmin || 
+      userRole === 'admin' ||
+      userRole === 'demo' ||
       allowedModules.length === 0 || 
       allowedModules.includes(module) || 
       allowedModules.includes(normalizedModule) ||
