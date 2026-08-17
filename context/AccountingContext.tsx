@@ -461,7 +461,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const mappingId = settings.account_mappings?.[key];
     if (mappingId) return accounts.find(a => a.id === mappingId);
     const defaultCode = SYSTEM_ACCOUNTS[key as keyof typeof SYSTEM_ACCOUNTS];
-    return accounts.find(a => a.code === defaultCode);
+    if (defaultCode) {
+      const matchByExactCode = accounts.find(a => a.code === defaultCode);
+      if (matchByExactCode) return matchByExactCode;
+      const matchByPrefix = accounts.find(a => a.code?.startsWith(defaultCode));
+      if (matchByPrefix) return matchByPrefix;
+    }
+    // Fallback by name and alternate standard codes
+    if (key === 'NOTES_RECEIVABLE') {
+      return accounts.find(a => a.name?.includes('أوراق القبض') || a.name?.includes('أوراق قبض') || a.name?.includes('شيكات واردة') || a.name?.includes('تحت التحصيل') || a.code === '1222' || a.code?.startsWith('10103') || a.code?.startsWith('1231'));
+    }
+    if (key === 'NOTES_PAYABLE') {
+      return accounts.find(a => a.name?.includes('أوراق الدفع') || a.name?.includes('أوراق دفع') || a.name?.includes('شيكات صادرة') || a.code === '222' || a.code?.startsWith('20102') || a.code?.startsWith('2202'));
+    }
+    if (key === 'BANK_ACCOUNTS' || key === 'BANK_MAIN') {
+      return accounts.find(a => a.name?.includes('بنك') || a.name?.toLowerCase().includes('bank') || a.code?.startsWith('1232') || a.code?.startsWith('10102'));
+    }
+    return undefined;
   };
   const updateVoucher = async (id: string, updates: any) => { const { error } = await supabase.from('vouchers').update(updates).eq('id', id); refreshData(); return !error; };
   const getAccountBalanceInPeriod = async (id: string, start: string, end: string) => { 
@@ -725,12 +741,44 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData(); 
   };
   const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => {
-    const updatePayload: { status: string; current_account_id?: string | null } = { status };
-    if (bankId !== undefined) { // تضمين bankId فقط إذا تم تمريره صراحةً، مما يسمح بمسحه إذا كان null
+    // 1. محاولة استدعاء الدالة المباشرة RPC لصرف أو تحصيل الشيك
+    if (status === 'cashed' || status === 'collected') {
+      try {
+        const { data: rpcRes, error: rpcError } = await supabase.rpc('cash_or_collect_cheque', {
+          p_cheque_id: id,
+          p_status: status,
+          p_bank_account_id: bankId || null,
+          p_action_date: date || new Date().toISOString().split('T')[0],
+          p_user_id: currentUser?.id || null
+        });
+        if (!rpcError && (rpcRes?.success || rpcRes === true)) {
+          await refreshData();
+          return;
+        }
+      } catch (rpcErr) {
+        console.warn('RPC cash_or_collect_cheque fallback to REST:', rpcErr);
+      }
+    }
+
+    // 2. التحديث عبر REST مع التراجع الذكي في حال عدم وجود عمود الحساب
+    const updatePayload: { status: string; current_account_id?: string | null; transfer_date?: string } = { 
+      status, 
+      transfer_date: date || new Date().toISOString().split('T')[0] 
+    };
+    if (bankId !== undefined) {
       updatePayload.current_account_id = bankId;
     }
-    await supabase.from('cheques').update(updatePayload).eq('id', id); 
-    refreshData(); 
+    
+    let { error } = await supabase.from('cheques').update(updatePayload).eq('id', id); 
+    if (error) {
+      if (error.message?.includes('current_account_id') || error.code === 'PGRST204' || error.code === '42703') {
+        const { error: fallbackError } = await supabase.from('cheques').update({ status }).eq('id', id);
+        if (fallbackError) throw fallbackError;
+      } else {
+        throw error;
+      }
+    }
+    await refreshData(); 
   };     
   const addTransfer = async (transfer: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;

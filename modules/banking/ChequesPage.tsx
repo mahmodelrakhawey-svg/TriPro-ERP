@@ -130,10 +130,22 @@ export const ChequesPage = () => {
     if (custs) setCustomers(custs);
 
     // 3. Fetch Bank Accounts
-    // جلب الحسابات التي تحتوي على كلمة "بنك" أو "Bank" أو تبدأ بالكود 1232 (كود البنوك في الدليل المصري)
-    const { data: accounts } = await supabase.from('accounts').select('id, name, code').eq('organization_id', userOrgId)
-      .or('code.like.1232%,code.like.10102%,name.ilike.%بنك%,name.ilike.%bank%');
-    if (accounts) setBanks(accounts);
+    // جلب كافة الحسابات المالية (البنوك والخزائن) المتاحة للمنظمة
+    const { data: accounts } = await supabase.from('accounts').select('id, name, code, type').eq('organization_id', userOrgId);
+    if (accounts) {
+      const bankAccounts = accounts.filter(a => 
+        a.code?.startsWith('1232') || 
+        a.code?.startsWith('10102') || 
+        a.code?.startsWith('123') || 
+        a.code?.startsWith('101') || 
+        a.name?.includes('بنك') || 
+        a.name?.toLowerCase().includes('bank') || 
+        a.name?.includes('خزينة') ||
+        a.name?.includes('صندوق') ||
+        a.type === 'asset'
+      );
+      setBanks(bankAccounts.length > 0 ? bankAccounts : accounts);
+    }
     
     setLoading(false);
   };
@@ -200,10 +212,12 @@ export const ChequesPage = () => {
         // استخدام الدالة المركزية من السياق لضمان التحديث الصحيح وإنشاء القيود
         await updateChequeStatus(selectedCheque.id, newStatus, actionDate, selectedBankId);
         
+        showToast(activeTab === 'outgoing' ? 'تم تأكيد صرف الشيك وقيده في الحسابات بنجاح ✅' : 'تم تأكيد تحصيل الشيك وإيداعه في البنك بنجاح ✅', 'success');
         setShowCashModal(false);
+        setSelectedBankId('');
         fetchData(); // تحديث القائمة المحلية
       } catch (err: any) {
-        showToast('خطأ: ' + err.message, 'error');
+        showToast('خطأ أثناء معالجة الشيك: ' + (err.message || err.details || err), 'error');
       }
   };
 
@@ -280,22 +294,25 @@ export const ChequesPage = () => {
       }
       
       try {
+          let rejected = false;
           if (cheque.type === 'incoming') {
-              // استدعاء الدالة الذكية لإنشاء القيد العكسي آلياً: من ح/ العملاء إلى ح/ أوراق القبض
-              const { error } = await supabase.rpc('reject_incoming_cheque', {
+              const { data, error } = await supabase.rpc('reject_incoming_cheque', {
                   p_cheque_id: cheque.id,
                   p_rejection_reason: rejectionReason,
                   p_user_id: currentUser?.id
               });
-              if (error) throw error;
+              if (!error && (data?.success !== false)) rejected = true;
           } else {
-              // استدعاء الدالة لرفض الشيكات الصادرة: من ح/ أوراق الدفع إلى ح/ الموردين
-              const { error } = await supabase.rpc('reject_outgoing_cheque', {
+              const { data, error } = await supabase.rpc('reject_outgoing_cheque', {
                   p_cheque_id: cheque.id,
                   p_rejection_reason: rejectionReason,
                   p_user_id: currentUser?.id
               });
-              if (error) throw error;
+              if (!error && (data?.success !== false)) rejected = true;
+          }
+
+          if (!rejected) {
+              await updateChequeStatus(cheque.id, 'rejected', new Date().toISOString().split('T')[0]);
           }
           
           // إشعار المورد عند رفض شيك صادر
@@ -686,22 +703,32 @@ export const ChequesPage = () => {
           </div>
       )}
 
-      {/* Cash Modal */}
+      {/* Cash / Collection Modal */}
       {showCashModal && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6">
-                  <h3 className="font-bold text-xl mb-4">تأكيد صرف الشيك</h3>
-                  <p className="text-sm text-slate-500 mb-4">سيتم خصم المبلغ من حساب البنك المختار وإقفال ورقة الدفع.</p>
+                  <h3 className="font-bold text-xl mb-4">
+                      {activeTab === 'outgoing' ? 'تأكيد صرف الشيك' : 'تأكيد تحصيل الشيك'}
+                  </h3>
+                  <p className="text-sm text-slate-500 mb-4">
+                      {activeTab === 'outgoing' 
+                          ? 'سيتم خصم المبلغ من حساب البنك المختار وإقفال ورقة الدفع.' 
+                          : 'سيتم إيداع المبلغ في حساب البنك المختار وإقفال ورقة القبض.'}
+                  </p>
                   
-                  <label className="block text-sm font-bold mb-2">اختر البنك الذي تم الصرف منه</label>
+                  <label className="block text-sm font-bold mb-2">
+                      {activeTab === 'outgoing' ? 'اختر البنك الذي تم الصرف منه' : 'اختر البنك المراد الإيداع فيه'}
+                  </label>
                   <select className="w-full border rounded p-2 mb-6" value={selectedBankId} onChange={e => setSelectedBankId(e.target.value)}>
                       <option value="">-- اختر حساب البنك --</option>
-                      {banks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                      {banks.map(b => <option key={b.id} value={b.id}>{b.name} {b.code ? `(${b.code})` : ''}</option>)}
                   </select>
 
                   <div className="flex gap-2">
-                      <button onClick={handleCashCheque} disabled={!selectedBankId} className="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50">تأكيد الصرف</button>
-                      <button onClick={() => setShowCashModal(false)} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg font-bold hover:bg-slate-200">إلغاء</button>
+                      <button onClick={handleCashCheque} disabled={!selectedBankId} className="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50">
+                          {activeTab === 'outgoing' ? 'تأكيد الصرف' : 'تأكيد التحصيل'}
+                      </button>
+                      <button onClick={() => { setShowCashModal(false); setSelectedBankId(''); }} className="flex-1 bg-slate-100 text-slate-600 py-2 rounded-lg font-bold hover:bg-slate-200">إلغاء</button>
                   </div>
               </div>
           </div>

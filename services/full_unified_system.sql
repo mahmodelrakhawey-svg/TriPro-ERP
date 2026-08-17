@@ -1427,102 +1427,205 @@ END;
 $$;
 
 -- 🛠️ دالة ترحيل قيد يومية للشيكات (Cheque Journal Entry Engine)
-CREATE OR REPLACE FUNCTION public.post_cheque_journal_entry(p_cheque_id uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+-- 2. دالة مساعدة لضمان وجود الحسابات المحاسبية للشيكات ومنع أخطاء null في قيود اليومية
+CREATE OR REPLACE FUNCTION public.fn_get_or_create_cheque_account(
+    p_org_id uuid,
+    p_account_role text, -- 'NOTES_RECEIVABLE', 'NOTES_PAYABLE', 'BANK', 'CUSTOMERS', 'SUPPLIERS'
+    p_fallback_bank_id uuid DEFAULT NULL
+)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
-    v_cheque record; v_org_id uuid; v_journal_id uuid; v_bank_acc_id uuid;
-    v_customer_acc_id uuid; v_supplier_acc_id uuid; v_notes_pay_acc_id uuid; 
-    v_notes_rec_acc_id uuid; v_mappings jsonb; v_description text; v_ref text;
-    v_current_stage_type text;
+    v_acc_id uuid;
+    v_mappings jsonb;
 BEGIN
-    SELECT * INTO v_cheque FROM public.cheques WHERE id = p_cheque_id;  
-    IF NOT FOUND THEN RAISE EXCEPTION 'الشيك غير موجود.'; END IF;
-    
-    -- 🚀 تحديد نوع القيد بناءً على المرحلة لضمان عدم حذف المراحل السابقة
-    v_current_stage_type := CASE 
-        WHEN v_cheque.status IN ('issued', 'received') THEN (CASE WHEN v_cheque.type IN ('outgoing', 'out') THEN 'cheque_issuance' ELSE 'cheque_receipt' END)
-        WHEN v_cheque.status IN ('collected', 'cashed') THEN (CASE WHEN v_cheque.type IN ('incoming', 'in') THEN 'cheque_collection' ELSE 'cheque_payment' END)
-        WHEN v_cheque.status = 'bounced' THEN 'cheque_bounced'
-        ELSE 'cheque_other'
-    END;
+    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = p_org_id;
 
-    -- نحذف فقط قيد المرحلة الحالية إذا كان موجوداً لإعادة توليده بدقة
-    DELETE FROM public.journal_entries 
-    WHERE organization_id = v_cheque.organization_id 
-    AND related_document_id = p_cheque_id 
-    AND related_document_type = v_current_stage_type;
-
-    v_org_id := v_cheque.organization_id;
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-
-    -- تحديد الحسابات (دعم لكافة أنواع الربط المتاحة)
-    v_bank_acc_id := COALESCE(
-        v_cheque.current_account_id, 
-        (v_mappings->>'BANK_ACCOUNTS')::uuid, 
-        (v_mappings->>'BANK_MAIN')::uuid,
-        (SELECT id FROM public.accounts WHERE code LIKE '1232%' AND organization_id = v_org_id LIMIT 1)
-    );
-    v_customer_acc_id := COALESCE((v_mappings->>'CUSTOMERS')::uuid, (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1));
-    v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('201', '221') AND organization_id = v_org_id LIMIT 1));
-    v_notes_pay_acc_id := COALESCE((v_mappings->>'NOTES_PAYABLE')::uuid, (SELECT id FROM public.accounts WHERE code = '222' AND organization_id = v_org_id LIMIT 1));
-    v_notes_rec_acc_id := COALESCE((v_mappings->>'NOTES_RECEIVABLE')::uuid, (SELECT id FROM public.accounts WHERE code = '1222' AND organization_id = v_org_id LIMIT 1));
-
-    v_ref := 'CHQ-' || COALESCE(v_cheque.cheque_number, substring(p_cheque_id::text, 1, 8));
-
-    -- 1. 🟢 مرحلة الإصدار/الاستلام (أوراق القبض والدفع)
-    IF v_cheque.status IN ('issued', 'received') THEN
-        IF v_cheque.type IN ('outgoing', 'out') THEN
-            v_description := 'إصدار شيك صادر رقم ' || v_cheque.cheque_number || ' للمورد ' || v_cheque.party_name;
-            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
-            VALUES (v_cheque.created_at::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_issuance', true, auth.uid()) RETURNING id INTO v_journal_id;
-            -- من ح/ المورد إلى ح/ أوراق الدفع
-            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-            VALUES (v_journal_id, v_supplier_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_notes_pay_acc_id, 0, v_cheque.amount, v_description, v_org_id);
-        ELSE
-            v_description := 'استلام شيك وارد رقم ' || v_cheque.cheque_number || ' من العميل ' || v_cheque.party_name;
-            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
-            VALUES (v_cheque.created_at::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_receipt', true, auth.uid()) RETURNING id INTO v_journal_id;
-            -- من ح/ أوراق القبض إلى ح/ العميل
-            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-            VALUES (v_journal_id, v_notes_rec_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_customer_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+    IF p_account_role = 'NOTES_RECEIVABLE' THEN
+        v_acc_id := COALESCE(
+            (v_mappings->>'NOTES_RECEIVABLE')::uuid,
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (code LIKE '10103%' OR code LIKE '1231%' OR code LIKE '122%') LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (name ILIKE '%أوراق القبض%' OR name ILIKE '%أوراق قبض%' OR name ILIKE '%شيكات واردة%' OR name ILIKE '%شيكات تحت التحصيل%') LIMIT 1)
+        );
+        IF v_acc_id IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id, is_active)
+            VALUES ('1222', 'أوراق القبض (شيكات واردة)', 'asset', p_org_id, true)
+            RETURNING id INTO v_acc_id;
         END IF;
 
-    -- 2. 🔵 مرحلة التحصيل/الصرف (إقفال الأوراق الوسيطة في البنك)
-    ELSIF v_cheque.type IN ('incoming', 'in') AND v_cheque.status = 'collected' THEN
-        IF v_bank_acc_id IS NULL THEN RAISE EXCEPTION 'حساب البنك غير معرف لهذه المنظمة.'; END IF;
-        v_description := 'تحصيل شيك وارد رقم ' || v_cheque.cheque_number;
-        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
-        VALUES (now()::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_collection', true, auth.uid()) RETURNING id INTO v_journal_id;
-        -- من ح/ البنك إلى ح/ أوراق القبض
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_journal_id, v_bank_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_notes_rec_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+    ELSIF p_account_role = 'NOTES_PAYABLE' THEN
+        v_acc_id := COALESCE(
+            (v_mappings->>'NOTES_PAYABLE')::uuid,
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (code LIKE '20102%' OR code LIKE '2202%' OR code LIKE '2102%' OR code LIKE '221%') LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (name ILIKE '%أوراق الدفع%' OR name ILIKE '%أوراق دفع%' OR name ILIKE '%شيكات صادرة%') LIMIT 1)
+        );
+        IF v_acc_id IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id, is_active)
+            VALUES ('222', 'أوراق الدفع (شيكات صادرة)', 'liability', p_org_id, true)
+            RETURNING id INTO v_acc_id;
+        END IF;
 
-    ELSIF v_cheque.type IN ('outgoing', 'out') AND v_cheque.status = 'cashed' THEN
-        IF v_bank_acc_id IS NULL THEN RAISE EXCEPTION 'حساب البنك غير معرف لهذه المنظمة.'; END IF;
-        v_description := 'صرف شيك صادر رقم ' || v_cheque.cheque_number;
-        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
-        VALUES (now()::date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_payment', true, auth.uid()) RETURNING id INTO v_journal_id;
-        -- من ح/ أوراق الدفع إلى ح/ البنك
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
-        VALUES (v_journal_id, v_notes_pay_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_bank_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+    ELSIF p_account_role = 'BANK' THEN
+        v_acc_id := COALESCE(
+            p_fallback_bank_id,
+            (v_mappings->>'BANK_ACCOUNTS')::uuid,
+            (v_mappings->>'BANK_MAIN')::uuid,
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (code LIKE '1232%' OR code LIKE '10102%') LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (name ILIKE '%بنك%' OR name ILIKE '%bank%') LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND type = 'asset' AND (code LIKE '123%' OR code LIKE '101%') LIMIT 1)
+        );
+        IF v_acc_id IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id, is_active)
+            VALUES ('123201', 'حساب البنك الرئيسي', 'asset', p_org_id, true)
+            RETURNING id INTO v_acc_id;
+        END IF;
 
-    -- 3. 🔴 مرحلة الارتداد (عكس القيود المفتوحة)
-    ELSIF v_cheque.status = 'bounced' THEN
-        v_description := 'ارتداد شيك رقم ' || v_cheque.cheque_number;
-        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
-        VALUES (now()::date, v_description, 'REV-' || v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_bounced', true, auth.uid()) RETURNING id INTO v_journal_id;
-        IF v_cheque.type IN ('incoming', 'in') THEN
-            -- إعادة المديونية للعميل وإلغاء ورقة القبض
-            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_customer_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_notes_rec_acc_id, 0, v_cheque.amount, v_description, v_org_id);
-        ELSE
-            -- إعادة الدائنية للمورد وإلغاء ورقة الدفع
-            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) VALUES (v_journal_id, v_notes_pay_acc_id, v_cheque.amount, 0, v_description, v_org_id), (v_journal_id, v_supplier_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+    ELSIF p_account_role = 'CUSTOMERS' THEN
+        v_acc_id := COALESCE(
+            (v_mappings->>'CUSTOMERS')::uuid,
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1221' LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (code LIKE '10104%' OR code LIKE '121%' OR name ILIKE '%عملاء%' OR name ILIKE '%العملاء%') LIMIT 1)
+        );
+        IF v_acc_id IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id, is_active)
+            VALUES ('1221', 'العملاء (المدينون)', 'asset', p_org_id, true)
+            RETURNING id INTO v_acc_id;
+        END IF;
+
+    ELSIF p_account_role = 'SUPPLIERS' THEN
+        v_acc_id := COALESCE(
+            (v_mappings->>'SUPPLIERS')::uuid,
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code IN ('201', '221') LIMIT 1),
+            (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND (code LIKE '20101%' OR code LIKE '201%' OR code LIKE '211%' OR name ILIKE '%موردين%' OR name ILIKE '%الموردين%') LIMIT 1)
+        );
+        IF v_acc_id IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id, is_active)
+            VALUES ('201', 'الموردون (الدائنون)', 'liability', p_org_id, true)
+            RETURNING id INTO v_acc_id;
         END IF;
     END IF;
 
-    IF v_journal_id IS NOT NULL THEN UPDATE public.cheques SET related_journal_entry_id = v_journal_id WHERE id = p_cheque_id; END IF;
-    PERFORM public.recalculate_all_system_balances(v_org_id);
-END; $$;
+    RETURN v_acc_id;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.post_cheque_journal_entry(p_cheque_id uuid)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_cheque record; 
+    v_org_id uuid; 
+    v_journal_id uuid; 
+    v_bank_acc_id uuid;
+    v_customer_acc_id uuid; 
+    v_supplier_acc_id uuid; 
+    v_notes_pay_acc_id uuid; 
+    v_notes_rec_acc_id uuid; 
+    v_description text; 
+    v_ref text;
+    v_current_stage_type text;
+    v_action_date date;
+BEGIN
+    SELECT * INTO v_cheque FROM public.cheques WHERE id = p_cheque_id;  
+    IF NOT FOUND THEN RETURN; END IF;
+    
+    v_org_id := v_cheque.organization_id;
+    v_action_date := COALESCE(v_cheque.transfer_date, (v_cheque.created_at::date), CURRENT_DATE);
+
+    v_current_stage_type := CASE 
+        WHEN v_cheque.status IN ('issued', 'received') THEN (CASE WHEN v_cheque.type IN ('outgoing', 'out') THEN 'cheque_issuance' ELSE 'cheque_receipt' END)
+        WHEN v_cheque.status IN ('collected', 'cashed') THEN (CASE WHEN v_cheque.type IN ('incoming', 'in') THEN 'cheque_collection' ELSE 'cheque_payment' END)
+        WHEN v_cheque.status IN ('bounced', 'rejected') THEN 'cheque_bounced'
+        ELSE 'cheque_other'
+    END;
+
+    DELETE FROM public.journal_entries 
+    WHERE organization_id = v_org_id 
+    AND related_document_id = p_cheque_id 
+    AND related_document_type = v_current_stage_type;
+
+    v_bank_acc_id := public.fn_get_or_create_cheque_account(v_org_id, 'BANK', v_cheque.current_account_id);
+    v_customer_acc_id := public.fn_get_or_create_cheque_account(v_org_id, 'CUSTOMERS');
+    v_supplier_acc_id := public.fn_get_or_create_cheque_account(v_org_id, 'SUPPLIERS');
+    v_notes_pay_acc_id := public.fn_get_or_create_cheque_account(v_org_id, 'NOTES_PAYABLE');
+    v_notes_rec_acc_id := public.fn_get_or_create_cheque_account(v_org_id, 'NOTES_RECEIVABLE');
+
+    v_ref := 'CHQ-' || COALESCE(v_cheque.cheque_number, substring(p_cheque_id::text, 1, 8));
+
+    -- 1. مرحلة الإصدار/الاستلام
+    IF v_cheque.status IN ('issued', 'received') THEN
+        IF v_cheque.type IN ('outgoing', 'out') THEN
+            v_description := 'إصدار شيك صادر رقم ' || COALESCE(v_cheque.cheque_number, '') || ' للمورد ' || COALESCE(v_cheque.party_name, '');
+            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+            VALUES (v_action_date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_issuance', true, auth.uid()) RETURNING id INTO v_journal_id;
+            
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES 
+                (v_journal_id, v_supplier_acc_id, v_cheque.amount, 0, v_description, v_org_id), 
+                (v_journal_id, v_notes_pay_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        ELSE
+            v_description := 'استلام شيك وارد رقم ' || COALESCE(v_cheque.cheque_number, '') || ' من العميل ' || COALESCE(v_cheque.party_name, '');
+            INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+            VALUES (v_action_date, v_description, v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_receipt', true, auth.uid()) RETURNING id INTO v_journal_id;
+            
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES 
+                (v_journal_id, v_notes_rec_acc_id, v_cheque.amount, 0, v_description, v_org_id), 
+                (v_journal_id, v_customer_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        END IF;
+
+    -- 2. مرحلة التحصيل (شيك وارد)
+    ELSIF v_cheque.type IN ('incoming', 'in') AND v_cheque.status = 'collected' THEN
+        v_description := 'تحصيل شيك وارد رقم ' || COALESCE(v_cheque.cheque_number, '') || ' - إيداع بنكي (' || COALESCE(v_cheque.party_name, '') || ')';
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (CURRENT_DATE, v_description, v_ref || '-COL', 'posted', v_org_id, p_cheque_id, 'cheque_collection', true, auth.uid()) RETURNING id INTO v_journal_id;
+        
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES 
+            (v_journal_id, v_bank_acc_id, v_cheque.amount, 0, v_description, v_org_id), 
+            (v_journal_id, v_notes_rec_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+
+    -- 3. مرحلة الصرف (شيك صادر)
+    ELSIF v_cheque.type IN ('outgoing', 'out') AND v_cheque.status = 'cashed' THEN
+        v_description := 'صرف شيك صادر رقم ' || COALESCE(v_cheque.cheque_number, '') || ' - خصم بنكي (' || COALESCE(v_cheque.party_name, '') || ')';
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (CURRENT_DATE, v_description, v_ref || '-CSH', 'posted', v_org_id, p_cheque_id, 'cheque_payment', true, auth.uid()) RETURNING id INTO v_journal_id;
+        
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+        VALUES 
+            (v_journal_id, v_notes_pay_acc_id, v_cheque.amount, 0, v_description, v_org_id), 
+            (v_journal_id, v_bank_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+
+    -- 4. مرحلة الارتداد والرفض
+    ELSIF v_cheque.status IN ('bounced', 'rejected') THEN
+        v_description := 'ارتداد/رفض شيك رقم ' || COALESCE(v_cheque.cheque_number, '') || COALESCE(' - ' || v_cheque.rejection_reason, '');
+        INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+        VALUES (CURRENT_DATE, v_description, 'REJ-' || v_ref, 'posted', v_org_id, p_cheque_id, 'cheque_bounced', true, auth.uid()) RETURNING id INTO v_journal_id;
+        
+        IF v_cheque.type IN ('incoming', 'in') THEN
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES 
+                (v_journal_id, v_customer_acc_id, v_cheque.amount, 0, v_description, v_org_id), 
+                (v_journal_id, v_notes_rec_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        ELSE
+            INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id) 
+            VALUES 
+                (v_journal_id, v_notes_pay_acc_id, v_cheque.amount, 0, v_description, v_org_id), 
+                (v_journal_id, v_supplier_acc_id, 0, v_cheque.amount, v_description, v_org_id);
+        END IF;
+    END IF;
+
+    IF v_journal_id IS NOT NULL THEN 
+        UPDATE public.cheques SET related_journal_entry_id = v_journal_id WHERE id = p_cheque_id; 
+    END IF;
+
+    BEGIN
+        PERFORM public.recalculate_all_system_balances(v_org_id);
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+END; 
+$$;
 -- 🛠️ مشغل تلقائي لتعيين المستودع الافتراضي
 CREATE OR REPLACE FUNCTION public.fn_ensure_warehouse() RETURNS TRIGGER AS $$
 BEGIN
