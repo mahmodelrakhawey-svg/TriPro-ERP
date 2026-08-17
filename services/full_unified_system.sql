@@ -3278,25 +3278,62 @@ BEGIN
         ('11', 'الأصول غير المتداولة', 'asset', true, '1'),
         ('12', 'الأصول المتداولة', 'asset', true, '1'),
         ('111', 'الأصول الثابتة', 'asset', true, '11'),
+        ('1119', 'مجمع إهلاك الأصول الثابتة', 'asset', false, '111'),
         ('103', 'المخزون', 'asset', true, '12'),
         ('122', 'العملاء والمدينون', 'asset', true, '12'),
         ('123', 'النقدية وما في حكمها', 'asset', true, '12'),
+        ('124', 'أرصدة مدينة أخرى', 'asset', true, '12'),
+        ('21', 'الخصوم غير المتداولة', 'liability', true, '2'),
         ('22', 'الخصوم المتداولة', 'liability', true, '2'),
+        ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '22'),
+        ('225', 'مصروفات مستحقة', 'liability', true, '22'),
+        ('31', 'رأس المال والاحتياطيات', 'equity', true, '3'),
+        ('311', 'رأس المال المدفوع', 'equity', false, '31'),
+        ('32', 'الأرباح المبقاة / المرحلة', 'equity', false, '3'),
         ('10301', 'مخزون المواد الخام', 'asset', false, '103'),
         ('10302', 'مخزون المنتج التام', 'asset', false, '103'),
         ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
         ('1221', 'العملاء', 'asset', false, '122'),
         ('122101', 'ذمم شركات التأمين الطبي', 'asset', false, '122'),
+        ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'asset', false, '122'),
+        ('1223', 'سلف الموظفين', 'asset', false, '122'),
         ('1231', 'النقدية بالصندوق', 'asset', false, '123'),
+        ('123201', 'البنك الأهلي المصري', 'asset', false, '123'),
+        ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'asset', false, '124'),
+        ('1242', 'ضريبة الخصم والتحصيل (لنا)', 'asset', false, '124'),
+        ('1249', 'محتجز ضمان لدى الغير (عملاء)', 'asset', false, '124'),
+        ('1245', 'دفعات مقدمة للمقاولين والموردين', 'asset', false, '124'),
+        ('1243', 'مصروفات مدفوعة مقدماً', 'asset', true, '124'),
+        ('124305', 'عقود صيانة مقدمة', 'asset', false, '1243'),
         ('201', 'الموردين', 'liability', false, '22'),
+        ('222', 'أوراق الدفع (شيكات صادرة)', 'liability', false, '22'),
+        ('2229', 'محتجز ضمان لمقاولي الباطن', 'liability', false, '22'),
+        ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'),
+        ('2232', 'ضريبة الخصم والتحصيل (علينا)', 'liability', false, '223'),
+        ('2233', 'ضريبة كسب العمل', 'liability', false, '223'),
+        ('224', 'هيئة التأمينات الاجتماعية', 'liability', false, '22'),
+        ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', false, '22'),
         ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
         ('41', 'إيرادات النشاط (المبيعات)', 'revenue', true, '4'),
         ('411', 'إيراد المبيعات', 'revenue', false, '41'),
         ('41101', 'إيرادات تشغيل وخدمات متنوعة', 'revenue', false, '41'),
+        ('41103', 'إيراد عقود ومشاريع (مستخلصات)', 'revenue', false, '41'),
+        ('412', 'مردودات ومسموحات مبيعات', 'revenue', false, '41'),
+        ('413', 'خصم مسموح به', 'revenue', false, '41'),
         ('42', 'إيرادات أخرى', 'revenue', true, '4'),
+        ('421', 'إيرادات متنوعة', 'revenue', false, '42'),
+        ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'),
         ('425', 'إيراد تشغيل معدات داخلي', 'revenue', false, '42'),
-        ('511', 'تكلفة البضاعة المباعة', 'expense', false, '5'),
+        ('51', 'تكلفة المبيعات (COGS)', 'expense', true, '5'),
+        ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'),
+        ('5121', 'تكلفة الهالك والفاقد', 'expense', false, '51'),
+        ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
+        ('514', 'تكاليف صناعية غير مباشرة', 'expense', true, '51'),
+        ('52', 'مصروفات البيع والتسويق', 'expense', true, '5'),
         ('53', 'المصروفات الإدارية والعمومية', 'expense', true, '5'),
+        ('531', 'الرواتب والأجور', 'expense', false, '53'),
+        ('5312', 'مكافآت وحوافز', 'expense', false, '53'),
+        ('533', 'مصروف إهلاك الأصول الثابتة', 'expense', false, '53'),
         ('541', 'تسوية عجز الصندوق', 'expense', false, '53');
 
     -- Insert missing accounts from the temporary table
@@ -3314,7 +3351,27 @@ BEGIN
         END IF;
     END LOOP;
 
-    RETURN format('✅ تم إنشاء %s حساب أساسي مفقود بنجاح.', v_created_count);
+    -- تحديث وتأكيد ربط الحسابات السيادية في إعدادات الشركة
+    UPDATE public.company_settings
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_strip_nulls(jsonb_build_object(
+        'CONSTRUCTION_REVENUE', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '41103' LIMIT 1),
+        'RETENTION_CUSTOMER', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1249' LIMIT 1),
+        'RETENTION_SUBCONTRACTOR', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '2229' LIMIT 1),
+        'ADVANCE_PAYMENT_SUBCONTRACTOR', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1245' LIMIT 1),
+        'SECURITY_DEPOSIT_ACCOUNT', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '226' LIMIT 1),
+        'SALES_REVENUE', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '411' LIMIT 1),
+        'CUSTOMERS', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1221' LIMIT 1),
+        'SUPPLIERS', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '201' LIMIT 1),
+        'VAT', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '2231' LIMIT 1),
+        'VAT_INPUT', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1241' LIMIT 1),
+        'WHT_RECEIVABLE', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1242' LIMIT 1),
+        'WHT_PAYABLE', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '2232' LIMIT 1),
+        'CASH', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1),
+        'COGS', (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '511' LIMIT 1)
+    ))
+    WHERE organization_id = v_org_id;
+
+    RETURN format('✅ تم إنشاء %s حساب أساسي مفقود وتحديث روابط الحسابات بنجاح.', v_created_count);
 EXCEPTION WHEN OTHERS THEN
     RAISE EXCEPTION 'فشل إنشاء الحسابات المفقودة: %', SQLERRM;
 END; $$;

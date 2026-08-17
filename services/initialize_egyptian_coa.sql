@@ -25,6 +25,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_prepaid_exp_id uuid; v_accrued_exp_id uuid;
     v_social_ins_id uuid; v_bank_main_id uuid; v_rev_other_id uuid; v_exp_gen_id uuid; v_security_deposit_id uuid;
     v_sal_allow_id uuid;
+    v_rev_construction_id uuid;
 BEGIN
     v_vat_rate := CASE 
         WHEN p_activity_type = 'construction' THEN 0.05 
@@ -329,6 +330,7 @@ BEGIN
     v_exp_gen_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '53' LIMIT 1);
     v_security_deposit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '226' LIMIT 1);
     v_sal_allow_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '412' LIMIT 1);
+    v_rev_construction_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '41103' LIMIT 1);
 
     -- ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
     INSERT INTO public.roles (organization_id, name, description)
@@ -372,7 +374,8 @@ BEGIN
             'REVENUE_OTHER', v_rev_other_id,
             'EXPENSE_GENERAL', v_exp_gen_id,
             'SALES_ALLOWANCES', v_sal_allow_id,
-            'SECURITY_DEPOSIT_ACCOUNT', v_security_deposit_id,        
+            'SECURITY_DEPOSIT_ACCOUNT', v_security_deposit_id,
+            'CONSTRUCTION_REVENUE', v_rev_construction_id,        
             'BANK_ACCOUNTS', v_bank_main_id -- ربط حساب البنك الرئيسي
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;

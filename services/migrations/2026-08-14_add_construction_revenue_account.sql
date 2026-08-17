@@ -71,10 +71,29 @@ BEGIN
     
     v_revenue_acc := public.resolve_leaf_account(COALESCE(
         (v_mappings->>'CONSTRUCTION_REVENUE')::UUID, 
-        (SELECT id FROM public.accounts WHERE (code = '41103' OR name LIKE '%عقود%' OR name LIKE '%مستخلص%') AND organization_id = v_org_id LIMIT 1),
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND type = 'revenue' AND (code = '41103' OR name LIKE '%إيراد%عقود%' OR name LIKE '%إيراد%مشاريع%' OR name LIKE '%مستخلص%') ORDER BY CASE WHEN code = '41103' THEN 1 ELSE 2 END LIMIT 1),
         (v_mappings->>'SALES_REVENUE')::UUID, 
-        (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1)
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '411' LIMIT 1)
     ));
+
+    IF v_revenue_acc IS NULL THEN
+        INSERT INTO public.accounts (organization_id, name, code, parent_id, type, is_active, is_group)
+        VALUES (
+            v_org_id, 
+            'إيراد عقود ومشاريع (مستخلصات)', 
+            '41103', 
+            (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '41' LIMIT 1), 
+            'revenue', 
+            true, 
+            false
+        )
+        ON CONFLICT (organization_id, code) DO UPDATE SET is_active = true, type = 'revenue'
+        RETURNING id INTO v_revenue_acc;
+
+        UPDATE public.company_settings
+        SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object('CONSTRUCTION_REVENUE', v_revenue_acc::text)
+        WHERE organization_id = v_org_id;
+    END IF;
 
     v_retention_cust_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'RETENTION_CUSTOMER')::UUID, (SELECT id FROM public.accounts WHERE code = '1249' AND organization_id = v_org_id LIMIT 1)));
     v_advance_cust_acc := public.resolve_leaf_account(COALESCE((v_mappings->>'SECURITY_DEPOSIT_ACCOUNT')::UUID, (v_mappings->>'CUSTOMER_ADVANCES')::UUID, (SELECT id FROM public.accounts WHERE code = '226' AND organization_id = v_org_id LIMIT 1)));

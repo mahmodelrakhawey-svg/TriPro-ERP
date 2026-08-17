@@ -74,14 +74,13 @@ export default async function handler(req: any, res: any) {
       // نستمر في العملية ولكن نسجل الخطأ للمتابعة
     }
 
-    // 4. إضافة إعدادات الشركة الافتراضية
-    await supabaseAdmin.from('company_settings').insert({
+    // 4. تحديث إعدادات الشركة الافتراضية مع الحفاظ على ربط الحسابات
+    await supabaseAdmin.from('company_settings').update({
       company_name: companyName,
-      organization_id: org.id,
       currency: currency || 'EGP',
       vat_rate: (vatRate !== undefined ? vatRate : 14) / 100,
       logo_url: logoUrl || null
-    })
+    }).eq('organization_id', org.id);
 
     return res.status(200).json({ message: 'تم إنشاء العميل والشركة بنجاح', orgId: org.id })
 
