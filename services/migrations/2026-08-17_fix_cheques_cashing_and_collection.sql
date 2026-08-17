@@ -330,7 +330,147 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
+-- 6. إصلاح مشغلات التدقيق الأمني (حيث تم استبدال entry_number بـ reference لمنع خطأ record "old" has no field "entry_number")
+CREATE OR REPLACE FUNCTION public.fn_audit_deletions()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_org_id uuid;
+    v_item_name text;
+    v_module text := 'general';
+    v_severity text := 'warning';
+BEGIN
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN OLD;
+    END IF;
+
+    CASE TG_TABLE_NAME
+        WHEN 'invoices' THEN
+            v_item_name := 'فاتورة مبيعات رقم: ' || COALESCE(OLD.invoice_number, OLD.id::text);
+            v_org_id := OLD.organization_id;
+            v_module := 'sales';
+            v_severity := 'critical';
+        WHEN 'purchase_invoices' THEN
+            v_item_name := 'فاتورة مشتريات رقم: ' || COALESCE(OLD.invoice_number, OLD.id::text);
+            v_org_id := OLD.organization_id;
+            v_module := 'purchases';
+            v_severity := 'critical';
+        WHEN 'journal_entries' THEN
+            v_item_name := 'قيد محاسبي رقم: ' || COALESCE(OLD.reference, OLD.id::text);
+            v_org_id := OLD.organization_id;
+            v_module := 'accounting';
+            v_severity := 'critical';
+        WHEN 'accounts' THEN
+            v_item_name := 'حساب مالي: ' || OLD.name || ' (' || COALESCE(OLD.code, '') || ')';
+            v_org_id := OLD.organization_id;
+            v_module := 'accounting';
+            v_severity := 'critical';
+        WHEN 'products' THEN
+            v_item_name := 'صنف: ' || OLD.name || ' (SKU: ' || COALESCE(OLD.sku, '') || ')';
+            v_org_id := OLD.organization_id;
+            v_module := 'inventory';
+            v_severity := 'warning';
+        WHEN 'customers' THEN
+            v_item_name := 'عميل: ' || OLD.name;
+            v_org_id := OLD.organization_id;
+            v_module := 'sales';
+            v_severity := 'warning';
+        WHEN 'suppliers' THEN
+            v_item_name := 'مورد: ' || OLD.name;
+            v_org_id := OLD.organization_id;
+            v_module := 'purchases';
+            v_severity := 'warning';
+        WHEN 'receipt_vouchers' THEN
+            v_item_name := 'سند قبض رقم: ' || COALESCE(OLD.voucher_number, OLD.id::text);
+            v_org_id := OLD.organization_id;
+            v_module := 'treasury';
+            v_severity := 'critical';
+        WHEN 'payment_vouchers' THEN
+            v_item_name := 'سند صرف رقم: ' || COALESCE(OLD.voucher_number, OLD.id::text);
+            v_org_id := OLD.organization_id;
+            v_module := 'treasury';
+            v_severity := 'critical';
+        WHEN 'cheques' THEN
+            v_item_name := 'شيك رقم: ' || COALESCE(OLD.cheque_number, OLD.id::text);
+            v_org_id := OLD.organization_id;
+            v_module := 'treasury';
+            v_severity := 'critical';
+        ELSE
+            v_item_name := 'سجل ' || TG_TABLE_NAME || ' (ID: ' || OLD.id::text || ')';
+            v_org_id := COALESCE(OLD.organization_id, public.get_my_org());
+    END CASE;
+
+    BEGIN
+        INSERT INTO public.security_logs (
+            event_type,
+            description,
+            severity,
+            module,
+            performed_by,
+            organization_id,
+            metadata
+        ) VALUES (
+            TG_TABLE_NAME || '_deleted',
+            format('تم حذف %s من النظام نهائياً', v_item_name),
+            v_severity,
+            v_module,
+            auth.uid(),
+            v_org_id,
+            jsonb_build_object(
+                'table_name', TG_TABLE_NAME,
+                'deleted_id', OLD.id,
+                'deleted_record', to_jsonb(OLD)
+            )
+        );
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+    
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE OR REPLACE FUNCTION public.fn_audit_journal_status()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF current_setting('app.restore_mode', true) = 'on' THEN
+        RETURN NEW;
+    END IF;
+
+    IF OLD.status = 'posted' AND NEW.status != 'posted' THEN
+        BEGIN
+            INSERT INTO public.security_logs (
+                event_type,
+                description,
+                severity,
+                module,
+                performed_by,
+                organization_id,
+                metadata
+            ) VALUES (
+                'journal_unposted',
+                format('⚠️ تم فك ترحيل القيد اليومي رقم (%s) وإعادته لحالة المسودة', COALESCE(NEW.reference, NEW.id::text)),
+                'critical',
+                'accounting',
+                auth.uid(),
+                NEW.organization_id,
+                jsonb_build_object(
+                    'entry_id', NEW.id,
+                    'reference', NEW.reference,
+                    'old_status', OLD.status,
+                    'new_status', NEW.status
+                )
+            );
+        EXCEPTION WHEN OTHERS THEN
+            NULL;
+        END;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
 GRANT EXECUTE ON FUNCTION public.cash_or_collect_cheque(uuid, text, uuid, date, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.reject_incoming_cheque(uuid, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.reject_outgoing_cheque(uuid, text, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.post_cheque_journal_entry(uuid) TO authenticated;
+

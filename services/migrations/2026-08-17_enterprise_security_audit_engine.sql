@@ -103,7 +103,7 @@ BEGIN
             v_module := 'purchases';
             v_severity := 'critical';
         WHEN 'journal_entries' THEN
-            v_item_name := 'قيد محاسبي رقم: ' || COALESCE(OLD.entry_number::text, OLD.id::text);
+            v_item_name := 'قيد محاسبي رقم: ' || COALESCE(OLD.reference, OLD.id::text);
             v_org_id := OLD.organization_id;
             v_module := 'accounting';
             v_severity := 'critical';
@@ -224,14 +224,14 @@ BEGIN
             metadata
         ) VALUES (
             'journal_unposted',
-            format('⚠️ تم فك ترحيل القيد اليومي رقم (%s) وإعادته لحالة المسودة', COALESCE(NEW.entry_number::text, NEW.id::text)),
+            format('⚠️ تم فك ترحيل القيد اليومي رقم (%s) وإعادته لحالة المسودة', COALESCE(NEW.reference, NEW.id::text)),
             'critical',
             'accounting',
             auth.uid(),
             NEW.organization_id,
             jsonb_build_object(
                 'entry_id', NEW.id,
-                'entry_number', NEW.entry_number,
+                'reference', NEW.reference,
                 'old_status', OLD.status,
                 'new_status', NEW.status
             )
