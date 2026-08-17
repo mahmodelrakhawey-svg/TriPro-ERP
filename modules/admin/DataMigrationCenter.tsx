@@ -7,12 +7,12 @@ import {
   Upload, Download, CheckCircle, AlertCircle, MonitorSmartphone,
   FileSpreadsheet, Users, Package, Truck, 
   ArrowRight, ArrowLeft, Database, Loader2,
-  ShieldCheck, BookOpen
+  ShieldCheck, BookOpen, Layers
 } from 'lucide-react';
 import { z } from 'zod';
 
 const DataMigrationCenter = () => {
-  const { accounts, getSystemAccount, refreshData, warehouses } = useAccounting();
+  const { accounts, getSystemAccount, refreshData, warehouses, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [activeStep, setActiveStep] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
@@ -62,7 +62,7 @@ const DataMigrationCenter = () => {
         icon: MonitorSmartphone, 
         description: 'استيراد سجل الأصول الثابتة وتكلفتها التاريخية ومجمع إهلاكها.',
         templateHeaders: [
-            { 'اسم الأصل': '', 'تاريخ الشراء (YYYY-MM-DD)': '', 'تكلفة الشراء': '', 'مجمع الإهلاك حتى تاريخه': '', 'كود حساب الأصل': '', 'كود حساب مجمع الإهلاك': '', 'الرقم التسلسلي': '', 'القسم': '' }
+            { 'اسم الأصل': 'سيارة نقل تويوتا', 'تاريخ الشراء (YYYY-MM-DD)': '2024-01-01', 'تكلفة الشراء': '80000', 'مجمع الإهلاك حتى تاريخه': '15000', 'كود حساب الأصل': '1221', 'كود حساب مجمع الإهلاك': '1229', 'الرقم التسلسلي': 'VIN-88210', 'القسم': 'النقليات' }
         ]
     },
   ];
@@ -82,9 +82,9 @@ const DataMigrationCenter = () => {
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, "Template");
             XLSX.writeFile(wb, `${step.id}_template.xlsx`);
-        }, index * 500);
+        }, index * 400);
     });
-    showToast('جاري تحميل جميع النماذج...', 'success');
+    showToast('جاري تحميل جميع نماذج الاستيراد...', 'success');
   };
 
   const processFile = async (file: File) => {
@@ -100,20 +100,49 @@ const DataMigrationCenter = () => {
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws);
 
+        if (!data || data.length === 0) {
+            throw new Error('الملف فارغ أو لا يحتوي على أي صفوف قابلة للاستيراد');
+        }
+
+        // Demo Mode Simulation
+        if (currentUser?.role === 'demo') {
+            await new Promise(r => setTimeout(r, 1200));
+            setImportResult({ success: data.length, failed: 0, errors: [] });
+            showToast(`[تجريبي] تم استيراد ${data.length} سجل بنجاح!`, 'success');
+            setIsImporting(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+            return;
+        }
+
         let successCount = 0;
         const failedRecords: any[] = [];
         const currentStepId = steps[activeStep].id;
 
+        // Resolve Organization ID safely
+        const { data: { user } } = await supabase.auth.getUser();
+        let orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id || user?.user_metadata?.org_id;
+        
+        if (!orgId) {
+            const { data: orgData } = await supabase.from('organizations').select('id').limit(1).maybeSingle();
+            orgId = orgData?.id;
+        }
+
+        if (!orgId) {
+            throw new Error('تعذر تحديد هوية المنظمة. يرجى إعادة تسجيل الدخول.');
+        }
+
         // Common Accounts
         const equityAcc = accounts.find(a => a.code === '3999' || a.name.includes('أرصدة افتتاحية'))?.id;
-        const { data: orgData } = await supabase.from('organizations').select('id').limit(1).single();
-        const orgId = orgData?.id;
         const defaultWarehouseId = warehouses.length > 0 ? warehouses[0].id : null;
 
         // Special setup for Accounts: Pre-fetch existing accounts map
         let accountMap = new Map<string, string>();
         if (currentStepId === 'accounts') {
-             const { data: existing } = await supabase.from('accounts').select('id, code');
+             const { data: existing } = await supabase
+               .from('accounts')
+               .select('id, code')
+               .eq('organization_id', orgId);
+             
              existing?.forEach(a => accountMap.set(a.code, a.id));
              
              // Sort data to ensure parents are processed before children (shorter codes first)
@@ -127,7 +156,12 @@ const DataMigrationCenter = () => {
         // Special setup for Products: Pre-fetch existing SKUs
         let existingSkus = new Set<string>();
         if (currentStepId === 'products') {
-             const { data: existing } = await supabase.from('products').select('sku').not('sku', 'is', null);
+             const { data: existing } = await supabase
+               .from('products')
+               .select('sku')
+               .eq('organization_id', orgId)
+               .not('sku', 'is', null);
+               
              existing?.forEach(p => {
                  if (p.sku) existingSkus.add(String(p.sku).trim());
              });
@@ -136,15 +170,15 @@ const DataMigrationCenter = () => {
         for (const row of data as any[]) {
             try {
                 if (currentStepId === 'accounts') {
-                    await importAccount(row, accountMap);
+                    await importAccount(row, orgId, accountMap);
                 } else if (currentStepId === 'products') {
                     await importProduct(row, orgId, defaultWarehouseId, equityAcc, existingSkus);
                 } else if (currentStepId === 'customers') {
-                    await importCustomer(row, equityAcc);
+                    await importCustomer(row, orgId, equityAcc);
                 } else if (currentStepId === 'suppliers') {
-                    await importSupplier(row, equityAcc);
+                    await importSupplier(row, orgId, equityAcc);
                 } else if (currentStepId === 'assets') {
-                    await importFixedAssets(row, equityAcc);
+                    await importFixedAssets(row, orgId, equityAcc);
                 }
                 successCount++;
             } catch (error: any) {
@@ -155,14 +189,34 @@ const DataMigrationCenter = () => {
         setImportResult({ success: successCount, failed: failedRecords.length, errors: failedRecords });
         await refreshData();
         
+        // تسجيل العملية في سجلات الأمان
+        try {
+            await supabase.from('security_logs').insert({
+                event_type: `data_migration_${currentStepId}`,
+                description: `ترحيل واستيراد بيانات: ${steps[activeStep].title} (${successCount} ناجح، ${failedRecords.length} فاشل)`,
+                severity: failedRecords.length > 0 ? 'warning' : 'info',
+                module: 'admin',
+                organization_id: orgId,
+                performed_by: user?.id,
+                metadata: {
+                    step: currentStepId,
+                    total_rows: data.length,
+                    success_count: successCount,
+                    failed_count: failedRecords.length
+                }
+            });
+        } catch (logErr) {
+            console.warn('Could not log migration to security_logs:', logErr);
+        }
+
         if (failedRecords.length === 0) {
             showToast(`تم استيراد ${successCount} سجل بنجاح!`, 'success');
         } else {
-            showToast(`تم استيراد ${successCount} سجل، وفشل ${failedRecords.length}. راجع التقرير.`, 'warning');
+            showToast(`تم استيراد ${successCount} سجل، وفشل ${failedRecords.length}. راجع تفاصيل الأخطاء بالأسفل.`, 'warning');
         }
 
       } catch (error: any) {
-        showToast('خطأ في قراءة الملف: ' + error.message, 'error');
+        showToast('خطأ في معالجة الملف: ' + error.message, 'error');
       } finally {
         setIsImporting(false);
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -173,7 +227,7 @@ const DataMigrationCenter = () => {
 
   // --- Import Logic Functions ---
 
-  const importAccount = async (row: any, accountMap: Map<string, string>) => {
+  const importAccount = async (row: any, orgId: string, accountMap: Map<string, string>) => {
       const accountSchema = z.object({
           code: z.string().min(1, 'كود الحساب مطلوب'),
           name: z.string().min(1, 'اسم الحساب مطلوب'),
@@ -191,19 +245,22 @@ const DataMigrationCenter = () => {
       if (!validation.success) throw new Error(validation.error.issues[0].message);
       const { code, name, type, parentCode } = validation.data;
 
-      // Safety Check: Skip if account exists to protect system links
       if (accountMap.has(code)) {
-          return; 
+          return; // Skip existing account
       }
 
       let parentId = null;
       if (parentCode) {
           parentId = accountMap.get(parentCode);
           if (!parentId) {
-              // Fallback check in DB
-              const { data: p } = await supabase.from('accounts').select('id').eq('code', parentCode).single();
+              const { data: p } = await supabase
+                .from('accounts')
+                .select('id')
+                .eq('code', parentCode)
+                .eq('organization_id', orgId)
+                .maybeSingle();
               if (p) parentId = p.id;
-              else throw new Error(`الحساب الرئيسي ${parentCode} غير موجود. تأكد من وجوده في الملف أو النظام.`);
+              else throw new Error(`الحساب الرئيسي [${parentCode}] غير موجود. تأكد من إدراجه أولاً.`);
           }
       }
 
@@ -212,7 +269,8 @@ const DataMigrationCenter = () => {
           name,
           type,
           parent_id: parentId,
-          is_group: false
+          is_group: false,
+          organization_id: orgId
       }).select().single();
 
       if (error) throw error;
@@ -220,13 +278,12 @@ const DataMigrationCenter = () => {
       if (newAccount) {
           accountMap.set(code, newAccount.id);
           if (parentId) {
-              // Ensure parent is marked as group
               await supabase.from('accounts').update({ is_group: true }).eq('id', parentId);
           }
       }
   };
 
-  const importProduct = async (row: any, orgId: any, warehouseId: any, equityAcc: any, existingSkus?: Set<string>) => {
+  const importProduct = async (row: any, orgId: string, warehouseId: any, equityAcc: any, existingSkus?: Set<string>) => {
       const productSchema = z.object({
           name: z.string().min(1, 'اسم المنتج مطلوب'),
           sku: z.string().nullable().optional(),
@@ -250,7 +307,6 @@ const DataMigrationCenter = () => {
           throw new Error(`كود الصنف (SKU) مكرر: ${skuStr}`);
       }
 
-      // Default Accounts
       const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || accounts.find(a => a.code === '1213')?.id;
       const cogsAcc = getSystemAccount('COGS')?.id || accounts.find(a => a.code === '511')?.id;
       const salesAcc = getSystemAccount('SALES_REVENUE')?.id || accounts.find(a => a.code === '411')?.id;
@@ -260,6 +316,8 @@ const DataMigrationCenter = () => {
           sku: skuStr,
           sales_price,
           purchase_price,
+          cost: purchase_price,
+          weighted_average_cost: purchase_price,
           stock,
           organization_id: orgId,
           item_type: 'STOCK',
@@ -280,12 +338,14 @@ const DataMigrationCenter = () => {
               product_id: newProduct.id,
               warehouse_id: warehouseId,
               quantity: stock,
-              cost: purchase_price
+              cost: purchase_price,
+              organization_id: orgId
           });
 
           const totalValue = stock * purchase_price;
           if (totalValue > 0 && inventoryAcc && equityAcc) {
               await createJournalEntry(
+                  orgId,
                   `رصيد افتتاحي (استيراد) - ${name}`,
                   [{ accountId: inventoryAcc, debit: totalValue, credit: 0 }, { accountId: equityAcc, debit: 0, credit: totalValue }]
               );
@@ -293,7 +353,7 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const importCustomer = async (row: any, equityAcc: any) => {
+  const importCustomer = async (row: any, orgId: string, equityAcc: any) => {
       const customerSchema = z.object({
           name: z.string().min(1, 'اسم العميل مطلوب'),
           phone: z.string().optional(),
@@ -323,7 +383,8 @@ const DataMigrationCenter = () => {
           email,
           tax_number,
           address,
-          credit_limit
+          credit_limit,
+          organization_id: orgId
       }).select().single();
 
       if (error) throw error;
@@ -334,23 +395,24 @@ const DataMigrationCenter = () => {
           const ref = `OB-${newCustomer.id.slice(0, 6)}`;
           const date = new Date().toISOString().split('T')[0];
 
-          // Create Invoice/Credit Note
           if (isDebit) {
               await supabase.from('invoices').insert({
                   invoice_number: ref, customer_id: newCustomer.id, invoice_date: date,
-                  total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي (استيراد)'
+                  total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي (استيراد)',
+                  organization_id: orgId
               });
           } else {
               await supabase.from('credit_notes').insert({
                   credit_note_number: ref, customer_id: newCustomer.id, note_date: date,
-                  total_amount: amount, amount_before_tax: amount, status: 'posted', notes: 'رصيد افتتاحي (دائن)'
+                  total_amount: amount, amount_before_tax: amount, status: 'posted', notes: 'رصيد افتتاحي (دائن)',
+                  organization_id: orgId
               });
           }
 
-          // Journal Entry
           const customerAcc = getSystemAccount('CUSTOMERS')?.id;
           if (customerAcc && equityAcc) {
               await createJournalEntry(
+                  orgId,
                   `رصيد افتتاحي للعميل ${name}`,
                   [
                       { accountId: customerAcc, debit: isDebit ? amount : 0, credit: isDebit ? 0 : amount },
@@ -361,7 +423,7 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const importSupplier = async (row: any, equityAcc: any) => {
+  const importSupplier = async (row: any, orgId: string, equityAcc: any) => {
       const supplierSchema = z.object({
           name: z.string().min(1, 'اسم المورد مطلوب'),
           phone: z.string().optional(),
@@ -388,31 +450,30 @@ const DataMigrationCenter = () => {
           phone,
           email,
           tax_number,
-          address
+          address,
+          organization_id: orgId
       }).select().single();
 
       if (error) throw error;
 
       if (newSupplier && openingBalance !== 0) {
           const amount = Math.abs(openingBalance);
-          const isCredit = openingBalance > 0; // موجب للمورد يعني دائن (له فلوس)
+          const isCredit = openingBalance > 0;
           const ref = `OB-${newSupplier.id.slice(0, 6)}`;
           const date = new Date().toISOString().split('T')[0];
 
-          // Create Purchase Invoice / Debit Note
           if (isCredit) {
               await supabase.from('purchase_invoices').insert({
                   invoice_number: ref, supplier_id: newSupplier.id, invoice_date: date,
-                  total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي (استيراد)'
+                  total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي (استيراد)',
+                  organization_id: orgId
               });
-          } else {
-              // Debit note logic if needed
           }
 
-          // Journal Entry
           const supplierAcc = getSystemAccount('SUPPLIERS')?.id;
           if (supplierAcc && equityAcc) {
               await createJournalEntry(
+                  orgId,
                   `رصيد افتتاحي للمورد ${name}`,
                   [
                       { accountId: equityAcc, debit: isCredit ? amount : 0, credit: isCredit ? 0 : amount },
@@ -423,7 +484,7 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const importFixedAssets = async (row: any, equityAcc: any) => {
+  const importFixedAssets = async (row: any, orgId: string, equityAcc: any) => {
       const assetSchema = z.object({
           name: z.string().min(1, 'اسم الأصل مطلوب'),
           purchaseDate: z.string().optional(),
@@ -462,15 +523,16 @@ const DataMigrationCenter = () => {
           accumulated_depreciation: accumDep,
           asset_account_id: assetAcc.id,
           depreciation_account_id: depAcc.id,
-          custom_fields: { serial_number: serialNumber, department: department }
+          custom_fields: { serial_number: serialNumber, department: department },
+          organization_id: orgId
       });
 
       if (error) throw error;
 
-      // إنشاء قيد افتتاحي للأصل
       const netValue = purchaseCost - accumDep;
       if (netValue !== 0 && equityAcc) {
           await createJournalEntry(
+              orgId,
               `رصيد افتتاحي للأصل ${name}`,
               [
                   { accountId: assetAcc.id, debit: purchaseCost, credit: 0 },
@@ -481,7 +543,11 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const createJournalEntry = async (description: string, lines: { accountId: string, debit: number, credit: number }[]) => {
+  const createJournalEntry = async (
+      orgId: string, 
+      description: string, 
+      lines: { accountId: string, debit: number, credit: number }[]
+  ) => {
       const { data: { user } } = await supabase.auth.getUser();
       const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
       
@@ -491,7 +557,8 @@ const DataMigrationCenter = () => {
           reference: ref,
           description: description.substring(0, 255),
           status: 'posted',
-          user_id: user?.id
+          user_id: user?.id,
+          organization_id: orgId
       }).select().single();
 
       if (entry) {
@@ -500,7 +567,8 @@ const DataMigrationCenter = () => {
               account_id: line.accountId,
               debit: line.debit,
               credit: line.credit,
-              description: description
+              description: description,
+              organization_id: orgId
           }));
           await supabase.from('journal_lines').insert(journalLines);
       }
@@ -511,9 +579,9 @@ const DataMigrationCenter = () => {
       <div className="bg-white p-8 rounded-[32px] shadow-sm border border-slate-100 flex flex-col md:flex-row justify-between items-center gap-6">
         <div>
             <h2 className="text-3xl font-black text-slate-900 flex items-center gap-3">
-                <Database className="text-indigo-600 w-10 h-10" /> مركز ترحيل البيانات
+                <Database className="text-indigo-600 w-10 h-10" /> مركز ترحيل واستيراد البيانات
             </h2>
-            <p className="text-slate-500 font-medium mt-2">نقل بياناتك القديمة إلى النظام الجديد بسهولة وأمان</p>
+            <p className="text-slate-500 font-medium mt-2">نقل بياناتك المحاسبية والمخزنية من Excel إلى المنظومة بأعلى دقة وتوافق مالي</p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3">
             <button 
@@ -525,7 +593,7 @@ const DataMigrationCenter = () => {
             </button>
             <div className="flex items-center gap-2 bg-indigo-50 text-indigo-700 px-4 py-2 rounded-xl font-bold text-sm">
                 <ShieldCheck size={18} />
-                <span>بياناتك آمنة ومشفرة</span>
+                <span>الربط المالي آلي ومتوازن</span>
             </div>
         </div>
       </div>
@@ -604,7 +672,7 @@ const DataMigrationCenter = () => {
                               <h4 className="font-bold text-slate-800 mb-2">2. رفع الملف</h4>
                               <p className="text-sm text-slate-500 mb-4">اختر الملف المعبأ لرفعه إلى النظام ومعالجته تلقائياً.</p>
                               <span className="text-emerald-600 font-black text-sm flex items-center gap-2">
-                                  {isImporting ? 'جاري المعالجة...' : 'اضغط هنا لرفع الملف'}
+                                  {isImporting ? 'جاري المعالجة والتحقق...' : 'اضغط هنا لرفع الملف'}
                               </span>
                           </div>
                       </div>
@@ -613,28 +681,28 @@ const DataMigrationCenter = () => {
                       {importResult && (
                           <div className="animate-in fade-in slide-in-from-bottom-4">
                               <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-                                  <Database size={18} className="text-slate-400" /> نتيجة الاستيراد
+                                  <Database size={18} className="text-slate-400" /> نتيجة عملية الترحيل والاستيراد
                               </h4>
                               <div className="bg-slate-50 rounded-2xl border border-slate-200 overflow-hidden">
                                   <div className="flex border-b border-slate-200">
                                       <div className="flex-1 p-4 text-center border-l border-slate-200">
-                                          <span className="block text-xs font-bold text-slate-400 uppercase">ناجح</span>
+                                          <span className="block text-xs font-bold text-slate-400 uppercase">تم بنجاح</span>
                                           <span className="text-2xl font-black text-emerald-600">{importResult.success}</span>
                                       </div>
                                       <div className="flex-1 p-4 text-center">
-                                          <span className="block text-xs font-bold text-slate-400 uppercase">فشل</span>
+                                          <span className="block text-xs font-bold text-slate-400 uppercase">تعذر استيراده</span>
                                           <span className="text-2xl font-black text-red-600">{importResult.failed}</span>
                                       </div>
                                   </div>
                                   {importResult.errors.length > 0 && (
-                                      <div className="p-4 bg-red-50/50 max-h-40 overflow-y-auto">
+                                      <div className="p-4 bg-red-50/50 max-h-48 overflow-y-auto">
                                           <p className="text-xs font-bold text-red-800 mb-2 flex items-center gap-2">
-                                              <AlertCircle size={14} /> تفاصيل الأخطاء:
+                                              <AlertCircle size={14} /> تفاصيل الصفوف غير المستوردة:
                                           </p>
-                                          <ul className="space-y-1">
+                                          <ul className="space-y-1.5">
                                               {importResult.errors.map((err, i) => (
-                                                  <li key={i} className="text-xs text-red-600 font-mono">
-                                                      • صف {JSON.stringify(err.row['اسم المنتج'] || err.row['اسم العميل'] || 'غير معروف')}: {err.error}
+                                                  <li key={i} className="text-xs text-red-700 font-medium bg-red-100/60 p-2 rounded-lg">
+                                                      • <span className="font-bold">{err.row['اسم المنتج'] || err.row['اسم العميل'] || err.row['اسم الحساب'] || err.row['اسم المورد'] || err.row['اسم الأصل'] || `صف ${i+1}`}</span>: {err.error}
                                                   </li>
                                               ))}
                                           </ul>
@@ -664,7 +732,7 @@ const DataMigrationCenter = () => {
                           </button>
                       ) : (
                           <button 
-                            onClick={() => showToast('تم الانتهاء من جميع خطوات الترحيل!', 'success')}
+                            onClick={() => showToast('تم الانتهاء من جميع خطوات الترحيل بنجاح!', 'success')}
                             className="px-8 py-3 rounded-xl font-bold bg-emerald-600 text-white hover:bg-emerald-700 shadow-lg shadow-emerald-200 flex items-center gap-2 transition-all"
                           >
                               إنهاء الترحيل <CheckCircle size={18} />
