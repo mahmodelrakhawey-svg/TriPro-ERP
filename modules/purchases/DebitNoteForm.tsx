@@ -14,6 +14,7 @@ const DebitNoteForm = () => {
     supplierId: '',
     date: new Date().toISOString().split('T')[0],
     amount: 0,
+    isTaxable: settings?.enableTax ?? true,
     notes: '',
     noteNumber: '',
     originalInvoiceNumber: ''
@@ -26,13 +27,17 @@ const DebitNoteForm = () => {
               ...prev,
               supplierId: location.state.supplierId || '',
               amount: location.state.amount || 0,
+              isTaxable: location.state.isTaxable !== undefined ? location.state.isTaxable : (settings?.enableTax ?? true),
               notes: location.state.notes || '',
               originalInvoiceNumber: location.state.originalInvoiceNumber || ''
           }));
       }
-  }, [location.state]);
+  }, [location.state, settings]);
 
-  const taxRate = settings?.enableTax ? ((settings.vatRate !== undefined && settings.vatRate !== null ? Number(settings.vatRate) : (settings.vat_rate ? settings.vat_rate * 100 : 15)) / 100) : 0;
+  // @ts-ignore
+  const systemVatRate = ((settings.vatRate !== undefined && settings.vatRate !== null ? Number(settings.vatRate) : (settings.vat_rate ? settings.vat_rate * 100 : 15)) / 100);
+  const isTaxEnabled = Boolean(settings?.enableTax && formData.isTaxable);
+  const taxRate = isTaxEnabled ? systemVatRate : 0;
   const taxAmount = formData.amount * taxRate;
   const totalAmount = formData.amount + taxAmount;
 
@@ -145,14 +150,44 @@ const DebitNoteForm = () => {
                 <input type="text" name="originalInvoiceNumber" value={formData.originalInvoiceNumber} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="رقم الفاتورة المرتبطة" />
             </div>
             <div className="md:col-span-2">
+                <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="checkbox"
+                            id="isTaxable"
+                            name="isTaxable"
+                            checked={formData.isTaxable}
+                            onChange={(e) => setFormData({ ...formData, isTaxable: e.target.checked })}
+                            className="w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
+                        />
+                        <label htmlFor="isTaxable" className="cursor-pointer select-none">
+                            <span className="block font-bold text-slate-800 text-sm">تطبيق ضريبة القيمة المضافة ({(systemVatRate * 100).toFixed(0)}%)</span>
+                            <span className="block text-xs text-slate-500">قم بإلغاء التحديد إذا كان الإشعار لخصم مكتسب تجاري أو تسوية بدون ضريبة</span>
+                        </label>
+                    </div>
+                    <span className={`text-xs font-bold px-3 py-1 rounded-full ${formData.isTaxable ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
+                        {formData.isTaxable ? `خاضع للضريبة (${(systemVatRate * 100).toFixed(0)}%)` : 'معفى / بدون ضريبة'}
+                    </span>
+                </div>
+            </div>
+            <div className="md:col-span-2">
                 <label className="block text-sm font-bold text-slate-700 mb-1">البيان / السبب</label>
                 <textarea rows={2} name="notes" value={formData.notes} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="سبب إصدار الإشعار..."></textarea>
             </div>
         </div>
 
-        <div className="bg-slate-50 p-4 rounded-lg border border-slate-100 flex justify-between items-center text-sm font-bold">
-            <div className="text-slate-500">الضريبة: <span className="text-slate-800">{taxAmount.toLocaleString()}</span></div>
-            <div className="text-slate-500">الإجمالي شامل الضريبة: <span className="text-emerald-600 text-lg">{totalAmount.toLocaleString()}</span></div>
+        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-wrap gap-4 justify-between items-center text-sm font-bold">
+            <div className="text-slate-600">
+                المبلغ الأساسي: <span className="text-slate-900 font-mono text-base">{formData.amount.toLocaleString()}</span>
+            </div>
+            <div className="text-slate-600">
+                الضريبة: <span className={`font-mono text-base ${taxAmount > 0 ? "text-slate-900" : "text-slate-400"}`}>
+                    {taxAmount > 0 ? `${taxAmount.toLocaleString()} (${(taxRate * 100).toFixed(0)}%)` : '0 (غير خاضع)'}
+                </span>
+            </div>
+            <div className="text-slate-600">
+                الإجمالي النهائي: <span className="text-emerald-600 text-xl font-mono">{totalAmount.toLocaleString()}</span>
+            </div>
         </div>
 
         <div className="flex justify-end">
