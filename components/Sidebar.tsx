@@ -81,12 +81,17 @@ const Sidebar: React.FC = () => {
   const [openSection, setOpenSection] = useState<string | null>(null);
 
   const userRole = currentUser?.role;
-  const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner';
+  const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner' || userRole === 'admin' || userRole === 'demo';
   const allowedModules = (organization as any)?.allowed_modules || [];
 
   // دالة للتحقق مما إذا كان الموديول مسموحاً به لهذه الشركة
   const isModuleAllowed = (module: string) => {
-    return isSuperAdmin || allowedModules.includes(module) || allowedModules.length === 0;
+    const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
+    return isSuperAdmin || 
+      allowedModules.length === 0 || 
+      allowedModules.includes(module) || 
+      allowedModules.includes(normalizedModule) ||
+      (can && (can(module, 'view') || can(normalizedModule, 'view') || can(module, '*') || can(normalizedModule, '*')));
   };
 
   // تعريف عناصر القائمة
@@ -279,7 +284,7 @@ const Sidebar: React.FC = () => {
   const filteredItems = React.useMemo(() => navItems.filter(item => {
     if (item.type === 'section') return true;
     if (item.superAdminOnly && !isSuperAdmin) return false;
-    if (item.adminOnly && !isSuperAdmin && userRole !== 'admin' && userRole !== 'manager') return false;
+    if (item.adminOnly && !isSuperAdmin && (userRole as string) !== 'admin' && (userRole as string) !== 'manager') return false;
     
     // Check module allowance (SaaS level)
     if (item.module && !isModuleAllowed(item.module)) return false;

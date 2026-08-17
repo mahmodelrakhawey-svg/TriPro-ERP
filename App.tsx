@@ -315,25 +315,29 @@ const SuspendedScreen = ({ message }: { message?: string }) => (
 );
 
 const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
-    const { organization, currentUser, isLoading } = useAccounting();
+    const { organization, currentUser, isLoading, can } = useAccounting();
     
     // إذا كان هناك مستخدم مسجل بالفعل، لا نغلق الشاشة أثناء تحديث البيانات في الخلفية
     if (isLoading && !currentUser) return null;
 
     const role = currentUser?.role || '';
-    const isSuperAdmin = role === 'super_admin';
-    const isDemo = role === 'demo';
+    const isPrivileged = role === 'super_admin' || role === 'admin' || role === 'owner' || role === 'demo';
     const allowedModules = (organization as any)?.allowed_modules || [];
     
     const expiryDate = (organization as any)?.subscription_expiry;
     const isExpired = expiryDate && expiryDate < new Date().toISOString().split('T')[0];
 
-    if (organization && ((organization as any).is_active === false || isExpired) && !isSuperAdmin) {
+    if (organization && ((organization as any).is_active === false || isExpired) && !isPrivileged) {
         const message = (organization as any).suspension_reason || (isExpired ? "لقد انتهت فترة اشتراككم. يرجى التجديد للمتابعة." : undefined);
         return <SuspendedScreen message={message} />;
     }
 
-    const isAllowed = isSuperAdmin || isDemo || (organization && (allowedModules.includes(module) || allowedModules.length === 0));
+    const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
+    const isAllowed = isPrivileged || 
+      allowedModules.length === 0 || 
+      allowedModules.includes(module) || 
+      allowedModules.includes(normalizedModule) ||
+      (can && (can(module, 'view') || can(normalizedModule, 'view') || can(module, '*') || can(normalizedModule, '*')));
 
     if (!isAllowed) {
         return <Navigate to="/" replace />;
@@ -587,11 +591,18 @@ const MainLayout = () => {
                 <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
-                <Route path="/about" element={<About />} /> 
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
                 <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
                 <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> 
                 <Route path="/kitchen-end-day" element={<ModuleGuard module="restaurant"><KitchenEndDayCount /></ModuleGuard>} /> 
+
+                {/* 🔗 مسارات التوجيه السريع والتوافق */}
+                <Route path="/sales" element={<Navigate to="/invoices-list" replace />} />
+                <Route path="/purchases" element={<Navigate to="/purchase-invoices-list" replace />} />
+                <Route path="/vouchers" element={<Navigate to="/receipt-vouchers-list" replace />} />
+                <Route path="/manufacturing" element={<Navigate to="/mfg/dashboard" replace />} />
+                <Route path="/hims" element={<Navigate to="/hims/patients" replace />} />
+                
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
                     </div>
