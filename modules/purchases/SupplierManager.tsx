@@ -138,7 +138,7 @@ const SupplierManager = () => {
 
         invoices?.forEach(inv => {
             if (!newStats[inv.supplier_id]) return;
-            newStats[inv.supplier_id].balance += Number(inv.total_amount || 0);
+            newStats[inv.supplier_id].balance += (Number(inv.total_amount || 0) - Number(inv.paid_amount || 0));
             newStats[inv.supplier_id].totalPurchases += Number(inv.total_amount || 0);
             if (!newStats[inv.supplier_id].lastInvoice || inv.invoice_date > newStats[inv.supplier_id].lastInvoice) {
                 newStats[inv.supplier_id].lastInvoice = inv.invoice_date;

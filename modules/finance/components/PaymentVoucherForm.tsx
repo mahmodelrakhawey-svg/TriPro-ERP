@@ -1,4 +1,4 @@
-﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -136,7 +136,7 @@ const PaymentVoucherForm = () => {
 
       // 3. جلب القيود اليدوية أو الخاصة بالمقاول التي تذكر اسم المورد في البيان
       const { data: manualEntries } = await supabase.from('journal_entries')
-          .select('id')
+          .select('id, related_document_type, reference, description')
           .eq('organization_id', userOrgId)
           .eq('status', 'posted')
           .ilike('description', `%${supplier.name}%`);
@@ -153,7 +153,14 @@ const PaymentVoucherForm = () => {
           movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.credit) - Number(l.debit)), 0) || 0;
       }
 
-      setDynamicBalance(Number(supplier.opening_balance || 0) + movement);
+      const hasOpeningEntry = manualEntries?.some((je: any) => 
+        je.related_document_type === 'opening_balance' || 
+        (je.reference && (je.reference.startsWith('OP-SUPP-') || je.reference.startsWith('OP-') || je.reference.startsWith('OB-') || je.reference.startsWith('OPENING-'))) || 
+        (je.description && je.description.includes('رصيد افتتاحي'))
+      );
+      const initialBal = hasOpeningEntry ? 0 : Number(supplier.opening_balance || 0);
+
+      setDynamicBalance(initialBal + movement);
     };
     getRealBalance();
   }, [formData.supplierId, suppliers, getSystemAccount, organization?.id]);

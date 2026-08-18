@@ -137,7 +137,7 @@ const SupplierBalanceReconciliation = () => {
           const opening = Number(supplier.opening_balance || 0);
           
           const supInvoices = invoices?.filter(i => i.supplier_id === supplier.id) || [];
-          const supInvTotal = supInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
+          const supInvTotal = supInvoices.reduce((sum, i) => sum + (Number(i.total_amount || 0) - Number(i.paid_amount || 0)), 0);
           
           const supReturns = returns?.filter(r => r.supplier_id === supplier.id) || [];
           const supRetTotal = supReturns.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
@@ -173,7 +173,14 @@ const SupplierBalanceReconciliation = () => {
           const cleanDesc = (desc || '').trim();
 
           // تجاهل قيود الإقفال والافتتاحية
-          if (cleanRef.startsWith('CLOSE-') || cleanRef.startsWith('CLOSING-') || cleanRef.startsWith('OPENING-') || cleanRef.startsWith('OB-')) {
+          if (
+              cleanRef.startsWith('CLOSE-') || 
+              cleanRef.startsWith('CLOSING-') || 
+              cleanRef.startsWith('OPENING-') || 
+              cleanRef.startsWith('OB-') || 
+              cleanRef.startsWith('OP-') || 
+              cleanDesc.includes('رصيد افتتاحي')
+          ) {
               return true;
           }
 

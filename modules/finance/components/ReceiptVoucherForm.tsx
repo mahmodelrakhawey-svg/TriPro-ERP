@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -96,7 +96,7 @@ const ReceiptVoucherForm = () => {
           supabase.from('cheques').select('related_journal_entry_id').eq('party_id', customer.id).eq('type', 'incoming').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
           supabase.from('orders').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
           supabase.from('projects').select('id, name').eq('customer_id', customer.id).eq('organization_id', userOrgId),
-          supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${customer.name}%`)
+          supabase.from('journal_entries').select('id, related_document_type, reference, description').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${customer.name}%`)
       ]);
 
       const allEntryIds = new Set<string>();
@@ -141,8 +141,7 @@ const ReceiptVoucherForm = () => {
 
       const hasOpeningEntry = manualEntriesRes.data?.some((je: any) => 
         je.related_document_type === 'opening_balance' || 
-        (je.reference && je.reference.startsWith('OP-CUST-')) || 
-        (je.reference && je.reference.startsWith('OB-')) || 
+        (je.reference && (je.reference.startsWith('OP-CUST-') || je.reference.startsWith('OP-') || je.reference.startsWith('OB-') || je.reference.startsWith('OPENING-'))) || 
         (je.description && je.description.includes('رصيد افتتاحي'))
       );
       const initialBal = hasOpeningEntry ? 0 : Number(customer.opening_balance || 0);

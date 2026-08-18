@@ -71,7 +71,7 @@ const SupplierBalancesReport = () => {
 
       const balances = suppliers.map(supplier => {
         const opening = Number(supplier.opening_balance || 0);
-        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, i) => sum + Number(i.total_amount || 0), 0) || 0;
+        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, i) => sum + (Number(i.total_amount || 0) - Number(i.paid_amount || 0)), 0) || 0;
         
         // جلب مستخلصات مقاولي الباطن إن كان المورد مقاول باطن
         const sName = (supplier.name || '').trim().toLowerCase();
