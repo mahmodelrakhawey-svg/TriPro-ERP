@@ -134,9 +134,26 @@ const CustomerManager = () => {
         });
 
 
+        const customersWithOpeningEntry = new Set<string>();
+        manualEntriesRes.data?.forEach((je: any) => {
+            const desc = (je.description || '').toLowerCase();
+            const ref = (je.reference || '');
+            const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('OP-CUST-') || ref.startsWith('OB-') || desc.includes('رصيد افتتاحي');
+            if (isOpening) {
+                const matchingCustomer = customers.find(c => desc.includes(c.name.toLowerCase()) || ref.includes(c.id));
+                if (matchingCustomer) {
+                    customersWithOpeningEntry.add(matchingCustomer.id);
+                }
+            }
+        });
+
         const newStats: Record<string, any> = {};
         customers.forEach(c => { 
-          newStats[c.id] = { balance: Number(c.opening_balance || 0), totalSales: 0, lastInvoice: null }; 
+          newStats[c.id] = { 
+            balance: customersWithOpeningEntry.has(c.id) ? 0 : Number(c.opening_balance || 0), 
+            totalSales: 0, 
+            lastInvoice: null 
+          }; 
         });
 
         if (allEntryIds.size > 0) {

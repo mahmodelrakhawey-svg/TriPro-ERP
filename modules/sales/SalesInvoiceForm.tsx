@@ -254,7 +254,15 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
           const unpostedRestaurantSales = openOrders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
 
-          setCustomerBalance(Number(customer.opening_balance || 0) + movement + unpostedRestaurantSales);
+          const hasOpeningEntry = manualEntriesRes.data?.some((je: any) => 
+            je.related_document_type === 'opening_balance' || 
+            (je.reference && je.reference.startsWith('OP-CUST-')) || 
+            (je.reference && je.reference.startsWith('OB-')) || 
+            (je.description && je.description.includes('رصيد افتتاحي'))
+          );
+          const initialBal = hasOpeningEntry ? 0 : Number(customer.opening_balance || 0);
+
+          setCustomerBalance(initialBal + movement + unpostedRestaurantSales);
 
             // 🔍 التحقق من الفواتير المتأخرة
             const { data: overdueData } = await supabase

@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -798,7 +798,11 @@ const ProductManager = () => {
 
           const categoryId = categoryName ? catMap.get(String(categoryName).trim().toLowerCase()) : null;
           
-          const productType = (String(rawType || '').includes('خدم') || String(rawType || '').toLowerCase().includes('serv')) ? 'SERVICE' : 'STOCK';
+          const isService = (String(rawType || '').includes('خدم') || String(rawType || '').toLowerCase().includes('serv'));
+          const isRaw = (String(rawType || '').includes('خام') || String(rawType || '').toLowerCase().includes('raw'));
+          const productType = isService ? 'SERVICE' : (isRaw ? 'RAW_MATERIAL' : 'STOCK');
+          const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id;
+          const itemInvAcc = productType === 'RAW_MATERIAL' ? (rawMaterialAcc || defaultInventory) : defaultInventory;
 
           if (name) {
             try { // Use handleError for consistency
@@ -817,7 +821,8 @@ const ProductManager = () => {
                 organization_id: orgId,
                 item_type: productType,
                 product_type: productType,
-                inventory_account_id: defaultInventory,
+                mfg_type: productType === 'RAW_MATERIAL' ? 'raw' : null,
+                inventory_account_id: itemInvAcc,
                 cogs_account_id: defaultCogs,
                 sales_account_id: defaultSales,
                 is_active: true
@@ -836,7 +841,7 @@ const ProductManager = () => {
                   });
 
                   const totalValue = Number(stock) * (Number(purchase_price) || 0);
-                  if (totalValue > 0 && defaultInventory && equityAcc) { // Use handleError for consistency
+                  if (totalValue > 0 && itemInvAcc && equityAcc) { // Use handleError for consistency
                       // جلب معرف المستخدم مباشرة لضمان عدم كونه فارغاً
                       const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
 
@@ -850,9 +855,10 @@ const ProductManager = () => {
                       }).select().single();
 
                       if (entry) { // Use handleError for consistency
+                          const lineDesc = productType === 'RAW_MATERIAL' ? `مخزون مواد خام افتتاحي - ${newProduct.name}` : `مخزون افتتاحي - ${newProduct.name}`;
                           await supabase.from('journal_lines').insert([
-                              // من حـ/ المخزون
-                              { journal_entry_id: entry.id, account_id: defaultInventory, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}`, organization_id: orgId },
+                              // من حـ/ المخزون (أو مخزون المواد الخام)
+                              { journal_entry_id: entry.id, account_id: itemInvAcc, debit: totalValue, credit: 0, description: lineDesc, organization_id: orgId },
                               // إلى حـ/ الأرصدة الافتتاحية
                               { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
                           ]);
@@ -1025,6 +1031,11 @@ const ProductManager = () => {
         showToast('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون, التكلفة, المبيعات) للأصناف المخزنية.', 'error');
         return;
       }
+    } else if (formData.product_type === 'RAW_MATERIAL') {
+      if (!formData.inventory_account_id) {
+        showToast('خطأ محاسبي: يجب تحديد حساب المخزون للمواد الخام.', 'error');
+        return;
+      }
     }
 
     // ملاحظة: التحقق من سعر البيع >= سعر الشراء يتم الآن عبر Zod Schema
@@ -1056,8 +1067,8 @@ const ProductManager = () => {
             sale_uom_id: formData.sale_uom_id || null,
             purchase_price: formData.purchase_price,
             product_type: formData.product_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL',
-            inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
-            cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.cogs_account_id : null,
+            inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL') ? formData.inventory_account_id : null,
+            cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL') ? formData.cogs_account_id : null,
             sales_account_id: formData.sales_account_id,
             image_url: formData.image_url,
             organization_id: orgId,
@@ -1085,6 +1096,7 @@ const ProductManager = () => {
             return;
         }
         
+        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL';
         const productPayload = {
           name: formData.name,
           sku: formData.sku || null,
@@ -1097,11 +1109,11 @@ const ProductManager = () => {
           sales_price: formData.sales_price,
           purchase_price: formData.purchase_price,
           cost: formData.purchase_price, // Set initial cost to purchase price
-          stock: formData.product_type === 'STOCK' ? formData.opening_stock : 999999,
+          stock: isPhysicalStock ? formData.opening_stock : (formData.product_type === 'SERVICE' ? 999999 : 0),
           item_type: formData.product_type,
           product_type: formData.product_type,
-          inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.inventory_account_id : null,
-          cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED') ? formData.cogs_account_id : null,
+          inventory_account_id: isPhysicalStock || formData.product_type === 'MANUFACTURED' ? formData.inventory_account_id : null,
+          cogs_account_id: isPhysicalStock || formData.product_type === 'MANUFACTURED' ? formData.cogs_account_id : null,
           sales_account_id: formData.sales_account_id || null,
           is_active: true,
           min_stock_level: formData.min_stock_level,
@@ -1124,8 +1136,8 @@ const ProductManager = () => {
 
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
 
-        // إنشاء الرصيد الافتتاحي والقيد
-        if (newProduct && formData.product_type === 'STOCK' && formData.opening_stock > 0) {
+        // إنشاء الرصيد الافتتاحي والقيد للمنتجات المخزنية والمواد الخام
+        if (newProduct && isPhysicalStock && formData.opening_stock > 0) {
             const targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
             if (targetWarehouseId) {
                 await supabase.from('opening_inventories').insert({
@@ -1140,7 +1152,9 @@ const ProductManager = () => {
                 const totalValue = formData.opening_stock * (formData.purchase_price || 0);
                 const openingEquityAcc = getSystemAccount('OPENING_BALANCES') || getSystemAccount('RETAINED_EARNINGS') || contextAccounts.find(a => a.code === '3999');
                 const equityAccId = openingEquityAcc?.id;
-                const inventoryAcc = formData.inventory_account_id;
+                const defaultRawAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id;
+                const defaultFinishedAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id;
+                const inventoryAcc = formData.inventory_account_id || (formData.product_type === 'RAW_MATERIAL' ? (defaultRawAcc || defaultFinishedAcc) : defaultFinishedAcc);
 
                 if (totalValue > 0 && inventoryAcc && equityAccId) {
                      const { data: { user } } = await supabase.auth.getUser();
@@ -1155,8 +1169,11 @@ const ProductManager = () => {
                       }).select().single();
 
                       if (entry) {
+                          const lineDesc = formData.product_type === 'RAW_MATERIAL' 
+                              ? `مخزون مواد خام افتتاحي - ${newProduct.name}` 
+                              : `مخزون افتتاحي - ${newProduct.name}`;
                           await supabase.from('journal_lines').insert([
-                              { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: `مخزون افتتاحي - ${newProduct.name}`, organization_id: orgId },
+                              { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: lineDesc, organization_id: orgId },
                               { journal_entry_id: entry.id, account_id: equityAccId, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
                           ]);
                       }
@@ -1942,7 +1959,20 @@ const ProductManager = () => {
                       <label className="block text-sm font-bold mb-1 text-slate-700">نوع الصنف</label>
                       <select 
                         value={formData.product_type} 
-                        onChange={e => setFormData({...formData, product_type: e.target.value as 'STOCK' | 'SERVICE' | 'MANUFACTURED'})}
+                        onChange={e => {
+                          const newType = e.target.value as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL';
+                          let updatedInvAcc = formData.inventory_account_id;
+                          if (newType === 'RAW_MATERIAL') {
+                            updatedInvAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || formData.inventory_account_id;
+                          } else if (newType === 'STOCK' || newType === 'MANUFACTURED') {
+                            updatedInvAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || formData.inventory_account_id;
+                          }
+                          setFormData({
+                            ...formData,
+                            product_type: newType,
+                            inventory_account_id: updatedInvAcc
+                          });
+                        }}
                         className="w-full border rounded-lg p-2 bg-white"
                       >
                         <option value="STOCK">مخزوني (بضاعة)</option>

@@ -355,8 +355,14 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         // 4. فرز الحركات زمنياً
         allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-        // 5. حساب الرصيد الافتتاحي والرصيد الجاري
-        let openBal = Number(selectedCustomer?.opening_balance || 0);
+        // 5. حساب الرصيد الافتتاحي والرصيد الجاري بدون تكرار
+        // إذا كان القيد الافتتاحي موجوداً بالفعل ضمن الحركات المجلوبة، نبدأ من 0 حتى لا يُحتسب مرتين
+        const hasOpeningEntryInTrans = allTrans.some(t => 
+            t.reference?.startsWith('OP-CUST-') || 
+            t.reference?.startsWith('OB-') || 
+            t.description?.includes('رصيد افتتاحي')
+        );
+        let openBal = hasOpeningEntryInTrans ? 0 : Number(selectedCustomer?.opening_balance || 0);
         const periodTrans: Transaction[] = [];
 
         allTrans.forEach(t => {
@@ -547,7 +553,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                                   <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
                                   <td className="p-4 font-mono font-bold text-blue-600 flex items-center gap-2">
                                       {/* إخفاء البادئات عند العرض فقط ليكون المظهر أنيقاً وموحداً */}
-                                      {t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-)/, '')}
+                                      {t.reference.startsWith('OP-CUST-') ? 'رصيد افتتاحي' : t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-|OP-CUST-|OP-)/, '')}
                                       {!t.isPosted && t.type !== 'pos_order' && (
                                           <span title="هذا المستند ليس له قيد يومية!"><AlertTriangle size={14} className="text-red-500" /></span>
                                       )}

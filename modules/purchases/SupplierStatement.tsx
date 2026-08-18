@@ -120,13 +120,24 @@ const SupplierStatement = () => {
             }
         }
 
-        // 7. جلب القيود اليدوية (التي تؤثر على حسابات الموردين وتحمل اسم المورد في البيان)
-        const { data: manualEntries } = await supabase.from('journal_lines')
-            .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code)')
-            .eq('journal_entries.status', 'posted')
-            .is('journal_entries.related_document_id', null)
-            .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
-            .ilike('journal_entries.description', `%${selectedSupplier?.name}%`);
+        // 7. جلب القيود اليدوية والافتتاحية (التي تؤثر على حسابات الموردين)
+        const [manualEntriesRes, openingEntriesRes] = await Promise.all([
+            supabase.from('journal_lines')
+                .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code)')
+                .eq('journal_entries.status', 'posted')
+                .is('journal_entries.related_document_id', null)
+                .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
+                .ilike('journal_entries.description', `%${selectedSupplier?.name}%`),
+            supabase.from('journal_lines')
+                .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code)')
+                .eq('journal_entries.status', 'posted')
+                .eq('journal_entries.related_document_id', selectedSupplierId)
+                .eq('journal_entries.related_document_type', 'opening_balance')
+                .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
+        ]);
+
+        const manualEntries = manualEntriesRes.data;
+        const openingEntries = openingEntriesRes.data;
 
         // تجميع كل الحركات
         let allTrans: any[] = [];
@@ -174,11 +185,31 @@ const SupplierStatement = () => {
             debit: chq.amount 
         }));
 
+        // إضافة القيود الافتتاحية المسجلة للمورد في دفتر اليومية
+        openingEntries?.forEach((line: any) => {
+            const isDuplicate = allTrans.some(t => {
+                const clean = (r: any) => r?.toString().trim().toUpperCase()
+                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
+                return clean(t.ref) === clean(line.journal_entries.reference);
+            });
+
+            if (!isDuplicate) {
+                allTrans.push({
+                    date: line.journal_entries.transaction_date,
+                    type: 'manual',
+                    ref: line.journal_entries.reference || 'OP-SUPP',
+                    desc: line.journal_entries.description || `رصيد افتتاحي للمورد: ${selectedSupplier?.name}`,
+                    credit: Number(line.credit),
+                    debit: Number(line.debit)
+                });
+            }
+        });
+
         manualEntries?.forEach((line: any) => {
             // 🛡️ منع تكرار المستندات إذا كانت مسجلة بالفعل (مثل الشيكات أو الفواتير)
             const isDuplicate = allTrans.some(t => {
                 const clean = (r: any) => r?.toString().trim().toUpperCase()
-                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-)/i, '') || '';
+                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
                 const r1 = clean(t.ref);
                 const r2 = clean(line.journal_entries.reference);
                 return r1 === r2 && r1 !== '' && r1 !== 'NULL';
@@ -193,6 +224,24 @@ const SupplierStatement = () => {
                 });
             }
         });
+
+        // إذا لم يكن هناك قيد افتتاحي مسجل ولكن يوجد رصيد افتتاحي في بطاقة المورد
+        const hasOpeningInTrans = allTrans.some(t => 
+            t.ref?.startsWith('OP-SUPP-') || 
+            t.ref?.startsWith('OB-') || 
+            t.desc?.includes('رصيد افتتاحي')
+        );
+
+        if (!hasOpeningInTrans && Number(selectedSupplier?.opening_balance || 0) > 0) {
+            allTrans.push({
+                date: (selectedSupplier as any)?.created_at ? (selectedSupplier as any).created_at.split('T')[0] : startDate,
+                type: 'manual',
+                ref: 'OP-SUPP',
+                desc: `رصيد افتتاحي للمورد: ${selectedSupplier?.name}`,
+                credit: Number(selectedSupplier?.opening_balance || 0),
+                debit: 0
+            });
+        }
 
         // ترتيب زمني
         allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
@@ -362,7 +411,9 @@ const SupplierStatement = () => {
                           {transactions.map((t: any, idx) => (
                               <tr key={idx} className="hover:bg-slate-50 transition-colors">
                                   <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
-                                  <td className="p-4 font-mono font-bold text-emerald-600">{t.reference}</td>
+                                  <td className="p-4 font-mono font-bold text-emerald-600">
+                                      {t.reference?.startsWith('OP-SUPP') ? 'رصيد افتتاحي' : t.reference?.replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '')}
+                                  </td>
                                   <td className="p-4 text-slate-700">{t.description}</td>
                                   <td className="p-4 text-center font-bold text-red-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
                                   <td className="p-4 text-center font-bold text-emerald-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>

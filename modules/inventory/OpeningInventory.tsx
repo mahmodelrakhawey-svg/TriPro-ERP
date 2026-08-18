@@ -15,6 +15,7 @@ type NewProduct = {
   cost: number;
   price: number; // Sales price
   unit: string; // Unit of measurement
+  product_type?: 'STOCK' | 'RAW_MATERIAL';
 };
 
 export default function OpeningInventory() {
@@ -22,7 +23,7 @@ export default function OpeningInventory() {
   const { showToast } = useToast();
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
   const [items, setItems] = useState<NewProduct[]>([
-    { id: '1', name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة' }
+    { id: '1', name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة', product_type: 'STOCK' }
   ]);
   const [loading, setLoading] = useState(false);
 
@@ -33,7 +34,7 @@ export default function OpeningInventory() {
   }, [warehouses]);
 
   const handleAddItem = () => {
-    setItems([...items, { id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة' }]);
+    setItems([...items, { id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة', product_type: 'STOCK' }]);
   };
 
   const handleRemoveItem = (id: string) => {
@@ -76,29 +77,33 @@ export default function OpeningInventory() {
     }
 
     try {
-      const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS');
+      const inventoryFinishedAcc = getSystemAccount('INVENTORY_FINISHED_GOODS');
+      const inventoryRawAcc = getSystemAccount('INVENTORY_RAW_MATERIALS') || inventoryFinishedAcc;
       const openingAcc = getSystemAccount('OPENING_BALANCES') || getSystemAccount('RETAINED_EARNINGS');
       const cogsAcc = getSystemAccount('COGS');
       const salesAcc = getSystemAccount('SALES_REVENUE');
 
-      if (!inventoryAcc || !openingAcc || !cogsAcc || !salesAcc) {
+      if (!inventoryFinishedAcc || !openingAcc || !cogsAcc || !salesAcc) {
         throw new Error(`أحد الحسابات الأساسية غير موجود. تأكد من ربط الحسابات في الإعدادات: INVENTORY_FINISHED_GOODS, OPENING_BALANCES, COGS, SALES_REVENUE`);
       }
 
       const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
       for (const item of items) {
+        const isRaw = item.product_type === 'RAW_MATERIAL';
+        const targetInvAcc = isRaw && inventoryRawAcc ? inventoryRawAcc.id : inventoryFinishedAcc.id;
+
         // 1. استدعاء دالة RPC لإضافة المنتج وإنشاء القيد المحاسبي تلقائياً
         const { data: newProductId, error: rpcError } = await supabase.rpc('add_product_with_opening_balance', {
           p_name: item.name,
           p_sku: item.sku || null,
-          p_sales_price: item.price,
+          p_sales_price: item.price || 0,
           p_purchase_price: item.cost,
           p_stock: item.quantity,  
           p_unit: item.unit,
           p_org_id: orgId,
-          p_item_type: 'STOCK',
-          p_inventory_account_id: inventoryAcc.id,
+          p_item_type: isRaw ? 'RAW_MATERIAL' : 'STOCK',
+          p_inventory_account_id: targetInvAcc,
           p_cogs_account_id: cogsAcc.id,
           p_sales_account_id: salesAcc.id
         });
@@ -129,7 +134,7 @@ export default function OpeningInventory() {
 
       await refreshData();
       showToast('تم حفظ الأصناف والقيد الافتتاحي وتحديث أرصدة النظام بنجاح! ✅', 'success');
-      setItems([{ id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة' }]); // تصفير النموذج
+      setItems([{ id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة', product_type: 'STOCK' }]); // تصفير النموذج
 
     } catch (error: any) {
       console.error('Error saving opening stock:', error);
@@ -213,11 +218,12 @@ export default function OpeningInventory() {
             <tr>
               <th className="p-4 w-12">#</th>
               <th className="p-4">اسم الصنف <span className="text-red-500">*</span></th>
-              <th className="p-4 w-40">الكود (SKU)</th>
-              <th className="p-4 w-32">الكمية <span className="text-red-500">*</span></th>
-              <th className="p-4 w-32">التكلفة <span className="text-red-500">*</span></th>
-              <th className="p-4 w-32">الوحدة</th>
-              <th className="p-4 w-32">سعر البيع</th>
+              <th className="p-4 w-32">النوع</th>
+              <th className="p-4 w-36">الكود (SKU)</th>
+              <th className="p-4 w-28">الكمية <span className="text-red-500">*</span></th>
+              <th className="p-4 w-28">التكلفة <span className="text-red-500">*</span></th>
+              <th className="p-4 w-28">الوحدة</th>
+              <th className="p-4 w-28">سعر البيع</th>
               <th className="p-4 w-32">الإجمالي</th>
               <th className="p-4 w-16"></th>
             </tr>
@@ -227,9 +233,19 @@ export default function OpeningInventory() {
               <tr key={item.id} className="hover:bg-slate-50">
                 <td className="p-4 text-slate-400 font-mono">{index + 1}</td>
                 <td className="p-2"><input type="text" className="w-full border rounded px-2 py-1" placeholder="اسم المنتج" value={item.name} onChange={e => handleChange(item.id, 'name', e.target.value)} /></td>
+                <td className="p-2">
+                  <select 
+                    className="w-full border rounded px-2 py-1 text-xs font-bold bg-white text-slate-700" 
+                    value={item.product_type || 'STOCK'} 
+                    onChange={e => handleChange(item.id, 'product_type', e.target.value as 'STOCK' | 'RAW_MATERIAL')}
+                  >
+                    <option value="STOCK">بضاعة مخزنية</option>
+                    <option value="RAW_MATERIAL">مادة خام</option>
+                  </select>
+                </td>
                 <td className="p-2"><input type="text" className="w-full border rounded px-2 py-1" placeholder="اختياري" value={item.sku} onChange={e => handleChange(item.id, 'sku', e.target.value)} /></td>
                 <td className="p-2"><input type="number" min="1" className="w-full border rounded px-2 py-1 text-center font-bold text-blue-600" value={item.quantity} onChange={e => handleChange(item.id, 'quantity', Math.max(0, parseFloat(e.target.value) || 0))} /></td>
-                <td className="p-2"><input type="number" min="0" step="0.01" className="w-full border rounded px-2 py-1 text-center" value={item.cost} onChange={e => handleChange(item.id, 'cost', Math.max(0, parseFloat(e.target.value) || 0))} /></td>
+                <td className="p-2"><input type="number" min="0" step="0.01" className="w-full border rounded px-2 py-1 text-center font-bold text-emerald-600" value={item.cost} onChange={e => handleChange(item.id, 'cost', Math.max(0, parseFloat(e.target.value) || 0))} /></td>
                 <td className="p-2">
                   <select 
                     className="w-full border rounded px-2 py-1" 

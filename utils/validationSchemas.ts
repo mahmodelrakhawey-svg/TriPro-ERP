@@ -68,7 +68,7 @@ const baseProductSchema = z.object({
 });
 
 export const createProductSchema = baseProductSchema.refine(
-  (data) => data.sales_price >= data.purchase_price || data.product_type === 'SERVICE',
+  (data) => data.sales_price >= data.purchase_price || data.product_type === 'SERVICE' || data.product_type === 'RAW_MATERIAL',
   {
     message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر الشراء',
     path: ['sales_price'],

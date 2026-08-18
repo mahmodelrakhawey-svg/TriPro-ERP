@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -139,7 +139,15 @@ const ReceiptVoucherForm = () => {
 
       const unpostedRestaurantSales = openOrders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
 
-      setDynamicBalance(Number(customer.opening_balance || 0) + movement + unpostedRestaurantSales);
+      const hasOpeningEntry = manualEntriesRes.data?.some((je: any) => 
+        je.related_document_type === 'opening_balance' || 
+        (je.reference && je.reference.startsWith('OP-CUST-')) || 
+        (je.reference && je.reference.startsWith('OB-')) || 
+        (je.description && je.description.includes('رصيد افتتاحي'))
+      );
+      const initialBal = hasOpeningEntry ? 0 : Number(customer.opening_balance || 0);
+
+      setDynamicBalance(initialBal + movement + unpostedRestaurantSales);
     };
     getRealBalance();
   }, [formData.customerId, customers, getSystemAccount, organization?.id]); // Added getSystemAccount to dependencies
