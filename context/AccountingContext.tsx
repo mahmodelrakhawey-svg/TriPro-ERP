@@ -137,6 +137,8 @@ interface AccountingContextType {
   runDepreciation: (id?: string, amount?: number, date?: string) => Promise<void>;
   revaluateAsset: (id: string, val: number, date: string, accId: string) => Promise<void>;
   addCheque: (cheque: any) => Promise<void>;
+  updateCheque: (id: string, cheque: any) => Promise<void>;
+  deleteCheque: (id: string) => Promise<void>;
   updateChequeStatus: (id: string, status: string, date: string, bankId?: string) => Promise<void>;
   addTransfer: (transfer: any) => Promise<void>;
   updateTransfer: (id: string, transfer: any) => Promise<void>;
@@ -740,6 +742,81 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     await refreshData(); 
   };
+
+  const updateCheque = async (id: string, cheque: any) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase
+      .from('cheques')
+      .update({
+        cheque_number: cheque.cheque_number,
+        amount: cheque.amount,
+        due_date: cheque.due_date,
+        party_id: cheque.party_id,
+        party_name: cheque.party_name,
+        bank_name: cheque.bank_name,
+        notes: cheque.notes
+      })
+      .eq('id', id)
+      .eq('organization_id', targetOrgId);
+
+    if (error) throw error;
+
+    try {
+      await supabase.rpc('post_cheque_journal_entry', { p_cheque_id: id });
+    } catch (e) {
+      console.warn('post_cheque_journal_entry fallback:', e);
+    }
+
+    try {
+      await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+    } catch (e) {
+      // ignore
+    }
+
+    await refreshData();
+  };
+
+  const deleteCheque = async (id: string) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    
+    // 1. جلب معرف القيد المحاسبي المربوط بالشيك
+    const { data: chq } = await supabase.from('cheques').select('related_journal_entry_id').eq('id', id).single();
+    
+    // 2. حذف قيود اليومية المرتبطة بالشيك
+    if (chq?.related_journal_entry_id) {
+      await supabase.from('journal_lines').delete().eq('journal_entry_id', chq.related_journal_entry_id);
+      await supabase.from('journal_entries').delete().eq('id', chq.related_journal_entry_id);
+    }
+    
+    // حذف أي قيود أخرى مرتبطة بالشيك عن طريق related_document_id
+    const { data: relatedEntries } = await supabase
+      .from('journal_entries')
+      .select('id')
+      .eq('related_document_id', id)
+      .eq('organization_id', targetOrgId);
+
+    if (relatedEntries && relatedEntries.length > 0) {
+      const entryIds = relatedEntries.map(e => e.id);
+      await supabase.from('journal_lines').delete().in('journal_entry_id', entryIds);
+      await supabase.from('journal_entries').delete().in('id', entryIds);
+    }
+
+    // 3. حذف مرفقات الشيك
+    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
+
+    // 4. حذف سجل الشيك
+    const { error: delError } = await supabase.from('cheques').delete().eq('id', id);
+    if (delError) throw delError;
+
+    // 5. تحديث الأرصدة
+    try {
+      await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+    } catch (e) {
+      // ignore
+    }
+
+    await refreshData();
+  };
   const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => {
     // 1. محاولة استدعاء الدالة المباشرة RPC لصرف أو تحصيل الشيك
     if (status === 'cashed' || status === 'collected') {
@@ -1279,7 +1356,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     deleteSupplier, approveInvoice, approvePurchaseInvoice, convertPoToInvoice,
     addOpeningBalanceTransaction, addPaymentVoucher,
     // Assets & Cheques
-    addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
+    addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
     restoreItem, permanentDeleteItem, exportJournalToCSV,
     // HR
     addEmployee, updateEmployee, deleteEmployee, runPayroll,

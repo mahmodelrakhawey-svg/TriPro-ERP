@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Landmark, Plus, ArrowRight, ArrowUpRight, ArrowDownLeft, Check, X, Ban, Calendar, Search, Loader2, Upload, Paperclip, Eye, Download, Printer, MessageCircle, AlertTriangle, FileText, PieChart as PieChartIcon, Filter } from 'lucide-react';
+import { Landmark, Plus, ArrowRight, ArrowUpRight, ArrowDownLeft, Check, X, Ban, Calendar, Search, Loader2, Upload, Paperclip, Eye, Download, Printer, MessageCircle, AlertTriangle, FileText, PieChart as PieChartIcon, Filter, Edit, Trash2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { ChequePrint } from './ChequePrint';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
 export const ChequesPage = () => {
-  const { addCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount, selectedFiscalYear } = useAccounting();
+  const { addCheque, updateCheque, deleteCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount, selectedFiscalYear } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState<'outgoing' | 'incoming'>('outgoing');
@@ -25,6 +25,7 @@ export const ChequesPage = () => {
   
   // Modal States
   const [showAddModal, setShowModal] = useState(false);
+  const [editingChequeId, setEditingChequeId] = useState<string | null>(null);
   const [showTransferModal, setShowTransferModal] = useState(false);
   const [showCashModal, setShowCashModal] = useState(false);
   const [selectedCheque, setSelectedCheque] = useState<any>(null);
@@ -175,6 +176,25 @@ export const ChequesPage = () => {
         const partyList = activeTab === 'outgoing' ? suppliers : customers;
         const party = partyList.find(p => p.id === formData.partyId);
 
+        if (editingChequeId) {
+            await updateCheque(editingChequeId, {
+                cheque_number: formData.chequeNumber,
+                amount: formData.amount,
+                due_date: formData.dueDate,
+                party_id: formData.partyId,
+                party_name: party?.name,
+                bank_name: formData.bankName,
+                notes: formData.notes
+            });
+
+            setShowModal(false);
+            setEditingChequeId(null);
+            setFormData({ chequeNumber: '', amount: 0, dueDate: new Date().toISOString().split('T')[0], partyId: '', bankName: '', notes: '' });
+            fetchData();
+            showToast('تم تعديل بيانات الشيك بنجاح ✅', 'success');
+            return;
+        }
+
         await addCheque({
             organization_id: userOrgId,
             cheque_number: formData.chequeNumber,
@@ -194,10 +214,41 @@ export const ChequesPage = () => {
         setAttachments([]);
         if (fileInputRef.current) fileInputRef.current.value = '';
         fetchData();
-        showToast('تم حفظ الشيك بنجاح', 'success');
+        showToast('تم حفظ الشيك بنجاح ✅', 'success');
 
     } catch (err: any) {
         showToast('خطأ: ' + err.message, 'error');
+    }
+  };
+
+  const handleEditCheque = (cheque: any) => {
+    setEditingChequeId(cheque.id);
+    setFormData({
+      chequeNumber: cheque.cheque_number || '',
+      amount: Number(cheque.amount) || 0,
+      dueDate: cheque.due_date || new Date().toISOString().split('T')[0],
+      partyId: cheque.party_id || '',
+      bankName: cheque.bank_name || '',
+      notes: cheque.notes || ''
+    });
+    setShowModal(true);
+  };
+
+  const handleDeleteCheque = async (cheque: any) => {
+    if (!window.confirm(`هل أنت متأكد من حذف الشيك رقم (${cheque.cheque_number}) بمبلغ (${Number(cheque.amount || 0).toLocaleString()})؟\n\nسيتم حذف القيود المحاسبية وتصحيح رصيد الحساب فوراً.`)) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await deleteCheque(cheque.id);
+      showToast('تم حذف الشيك والقيود المحاسبية بنجاح ✅', 'success');
+      await fetchData();
+    } catch (err: any) {
+      console.error(err);
+      showToast('فشل حذف الشيك: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -446,7 +497,15 @@ export const ChequesPage = () => {
             <button onClick={() => navigate('/returned-cheques-report')} className="bg-white border border-red-200 text-red-700 px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-red-50">
                 <Ban size={18} /> الشيكات المرتجعة
             </button>
-            <button onClick={() => setShowModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-indigo-700">
+            <button 
+                onClick={() => { 
+                    setEditingChequeId(null); 
+                    setFormData({ chequeNumber: '', amount: 0, dueDate: new Date().toISOString().split('T')[0], partyId: '', bankName: '', notes: '' }); 
+                    setAttachments([]); 
+                    setShowModal(true); 
+                }} 
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-indigo-700"
+            >
                 <Plus size={18} /> تسجيل شيك جديد
             </button>
         </div>
@@ -621,6 +680,24 @@ export const ChequesPage = () => {
                                       <Paperclip size={14} />
                                   </button>
                               )}
+
+                              {/* زر التعديل */}
+                              <button 
+                                onClick={() => handleEditCheque(cheque)}
+                                className="bg-amber-50 text-amber-600 px-2 py-1 rounded text-xs font-bold hover:bg-amber-100 flex items-center gap-1"
+                                title="تعديل الشيك"
+                              >
+                                  <Edit size={14} />
+                              </button>
+
+                              {/* زر الحذف */}
+                              <button 
+                                onClick={() => handleDeleteCheque(cheque)}
+                                className="bg-rose-50 text-rose-600 px-2 py-1 rounded text-xs font-bold hover:bg-rose-100 flex items-center gap-1"
+                                title="حذف الشيك وتصحيح القيود"
+                              >
+                                  <Trash2 size={14} />
+                              </button>
                           </td>
                       </tr>
                   ))}
@@ -631,13 +708,15 @@ export const ChequesPage = () => {
           </table>
       </div>
 
-      {/* Add Modal */}
+      {/* Add / Edit Modal */}
       {showAddModal && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
                   <div className="flex justify-between items-center mb-6">
-                      <h3 className="font-bold text-xl">تسجيل شيك {activeTab === 'outgoing' ? 'صادر' : 'وارد'}</h3>
-                      <button onClick={() => setShowModal(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                      <h3 className="font-bold text-xl">
+                          {editingChequeId ? 'تعديل بيانات الشيك' : `تسجيل شيك ${activeTab === 'outgoing' ? 'صادر' : 'وارد'}`}
+                      </h3>
+                      <button onClick={() => { setShowModal(false); setEditingChequeId(null); }}><X className="text-slate-400 hover:text-red-500" /></button>
                   </div>
                   <form onSubmit={handleAddCheque} className="space-y-4">
                       <div>
@@ -656,7 +735,7 @@ export const ChequesPage = () => {
                           </div>
                           <div>
                               <label className="block text-sm font-bold mb-1">المبلغ</label>
-                              <input type="number" required className="w-full border rounded p-2" value={formData.amount} onChange={e => setFormData({...formData, amount: parseFloat(e.target.value)})} />
+                              <input type="number" step="any" required className="w-full border rounded p-2" value={formData.amount} onChange={e => setFormData({...formData, amount: parseFloat(e.target.value) || 0})} />
                           </div>
                       </div>
                       <div>
@@ -667,7 +746,12 @@ export const ChequesPage = () => {
                           <label className="block text-sm font-bold mb-1">البنك (المسحوب عليه)</label>
                           <input type="text" required className="w-full border rounded p-2" value={formData.bankName} onChange={e => setFormData({...formData, bankName: e.target.value})} placeholder="اسم البنك..." />
                       </div>
+                      <div>
+                          <label className="block text-sm font-bold mb-1">ملاحظات / بيان</label>
+                          <input type="text" className="w-full border rounded p-2" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="ملاحظات إضافية..." />
+                      </div>
                       
+                      {!editingChequeId && (
                       <div className="md:col-span-2">
                           <label className="block text-sm font-bold text-slate-700 mb-1">إرفاق صورة الشيك</label>
                           <div className="relative border-2 border-dashed border-slate-200 rounded-lg p-4 text-center">
@@ -696,8 +780,11 @@ export const ChequesPage = () => {
                               </div>
                           )}
                       </div>
+                      )}
 
-                      <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 mt-4">حفظ الشيك</button>
+                      <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 mt-4">
+                          {editingChequeId ? 'حفظ التعديلات' : 'حفظ الشيك'}
+                      </button>
                   </form>
               </div>
           </div>
