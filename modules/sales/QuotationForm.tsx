@@ -451,13 +451,22 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
   };
 
   // تحويل عرض السعر إلى فاتورة مبيعات
-  const handleConvertToInvoice = () => {
+  const handleConvertToInvoice = async () => {
     if (!editingId) return;
     
+    try {
+      await supabase.from('quotations').update({ status: 'converted' }).eq('id', editingId);
+      setFormData(prev => ({ ...prev, status: 'converted' }));
+    } catch (e) {
+      console.error(e);
+    }
+
     // توجيه المستخدم لشاشة فاتورة المبيعات مع تمرير البيانات
     navigate('/sales-invoice', { 
       state: { 
         quotationToConvert: {
+          id: editingId,
+          quotationNumber: formData.quotationNumber,
           customerId: formData.customerId,
           notes: `محول من عرض السعر رقم: ${formData.quotationNumber}`,
           items: items.map(i => ({
@@ -491,9 +500,17 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
               {editingId ? `عرض سعر: ${formData.quotationNumber}` : 'عرض سعر جديد'}
               {editingId && (
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                  formData.status === 'accepted' ? 'bg-emerald-100 text-emerald-700' : 'bg-teal-100 text-teal-700'
+                  formData.status === 'posted' || formData.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                  formData.status === 'converted' || formData.status === 'invoiced' ? 'bg-purple-100 text-purple-700' :
+                  formData.status === 'accepted' ? 'bg-teal-100 text-teal-700' : 
+                  formData.status === 'sent' ? 'bg-blue-100 text-blue-700' : 
+                  formData.status === 'expired' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                 }`}>
-                  {formData.status === 'accepted' ? 'معتمد ✅' : 'عرض سعر 📄'}
+                  {formData.status === 'posted' || formData.status === 'completed' ? 'مرحّل (مكتمل) ✅' :
+                   formData.status === 'converted' || formData.status === 'invoiced' ? 'محول لفاتورة 🔄' : 
+                   formData.status === 'accepted' ? 'معتمد 👍' : 
+                   formData.status === 'sent' ? 'مرسل للعميل 📬' : 
+                   formData.status === 'expired' ? 'منتهي ⏳' : 'مسودة 📝'}
                 </span>
               )}
             </h2>
@@ -577,14 +594,16 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
 
           {editingId && (
             <>
-              <button 
-                type="button" 
-                onClick={handleConvertToInvoice} 
-                className="bg-purple-600 text-white hover:bg-purple-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
-                title="تحويل عرض السعر إلى فاتورة مبيعات مباشرة"
-              >
-                <ArrowRightLeft size={16} /> تحويل لفاتورة
-              </button>
+              {formData.status !== 'converted' && formData.status !== 'invoiced' && formData.status !== 'posted' && formData.status !== 'completed' && formData.status !== 'expired' && (
+                <button 
+                  type="button" 
+                  onClick={handleConvertToInvoice} 
+                  className="bg-purple-600 text-white hover:bg-purple-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+                  title="تحويل عرض السعر إلى فاتورة مبيعات مباشرة"
+                >
+                  <ArrowRightLeft size={16} /> تحويل لفاتورة
+                </button>
+              )}
 
               <button 
                 type="button" 
@@ -687,7 +706,23 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
             />
           </div>
 
-          <div className="md:col-span-2 lg:col-span-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">حالة عرض السعر</label>
+            <select 
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-teal-500" 
+              value={formData.status} 
+              onChange={e => setFormData({...formData, status: e.target.value})}
+            >
+              <option value="draft">مسودة 📝</option>
+              <option value="sent">مرسل للعميل 📬</option>
+              <option value="accepted">معتمد 👍</option>
+              <option value="converted">محول لفاتورة 🔄</option>
+              <option value="posted">مرحّل (مكتمل) ✅</option>
+              <option value="expired">منتهي ⏳</option>
+            </select>
+          </div>
+
+          <div className="md:col-span-2 lg:col-span-3">
             <label className="block text-xs font-bold text-slate-700 mb-1">شروط وملاحظات العرض</label>
             <input 
               type="text" 

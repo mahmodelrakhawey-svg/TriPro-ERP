@@ -66,6 +66,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+  const [convertedQuotationId, setConvertedQuotationId] = useState<string | null>(null);
 
   // Navigation & Record State
   const [invoiceIds, setInvoiceIds] = useState<string[]>([]);
@@ -403,6 +404,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       loadInvoiceById(invId);
     } else if (location.state && (location.state as any).quotationToConvert) {
       const quote = (location.state as any).quotationToConvert;
+      setConvertedQuotationId(quote.id || null);
       setFormData(prev => ({
         ...prev,
         customerId: quote.customerId || '',
@@ -969,12 +971,19 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
 
         // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً
-        if (invoiceData.status === 'posted' || invoiceData.status === 'paid') { // This condition is always false because status is 'draft'
-            // تحديث: تمرير المنظمة والمستودع لضمان توافق المحرك الموحد V50
+        if (invoiceData.status === 'posted' || invoiceData.status === 'paid') {
             await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
             showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
         } else {
             setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح!');
+        }
+
+        if (convertedQuotationId) {
+            try {
+                await supabase.from('quotations').update({ status: 'converted' }).eq('id', convertedQuotationId);
+            } catch (qErr) {
+                console.error("Error updating quotation status:", qErr);
+            }
         }
 
         // تفريغ النموذج
@@ -1149,6 +1158,14 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         // --- 2. Approve the newly created invoice ---
         // تحديث: تمرير المعاملات الجديدة p_org_id و p_warehouse_id لتجنب أخطاء التواقيع المفقودة
         await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
+
+        if (convertedQuotationId) {
+            try {
+                await supabase.from('quotations').update({ status: 'posted' }).eq('id', convertedQuotationId);
+            } catch (qErr) {
+                console.error("Error updating quotation status:", qErr);
+            }
+        }
 
         // --- 3. Handle UI feedback and form reset ---
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');

@@ -25,7 +25,7 @@ export const QuotationList = () => {
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'sent' | 'accepted' | 'expired'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'sent' | 'converted' | 'posted' | 'accepted' | 'expired'>('all');
   
   // Printing & Action States
   const [quoteToPrint, setQuoteToPrint] = useState<any | null>(null);
@@ -73,7 +73,15 @@ export const QuotationList = () => {
       if (startDate) query = query.gte('quotation_date', startDate);
       if (endDate) query = query.lte('quotation_date', endDate);
       if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
-      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'converted') {
+          query = query.in('status', ['converted', 'invoiced']);
+        } else if (statusFilter === 'posted') {
+          query = query.in('status', ['posted', 'completed']);
+        } else {
+          query = query.eq('status', statusFilter);
+        }
+      }
 
       const { data, error } = await query;
       if (error) throw error;
@@ -112,9 +120,9 @@ export const QuotationList = () => {
   // Summary KPIs
   const summary = useMemo(() => {
     const totalAmount = filteredQuotations.reduce((sum, q) => sum + Number(q.total_amount || 0), 0);
-    const acceptedCount = filteredQuotations.filter(q => q.status === 'accepted').length;
+    const acceptedCount = filteredQuotations.filter(q => ['accepted', 'converted', 'invoiced', 'posted', 'completed'].includes(q.status)).length;
     const sentCount = filteredQuotations.filter(q => q.status === 'sent').length;
-    const draftCount = filteredQuotations.filter(q => q.status === 'draft' || !q.status).length;
+    const draftCount = filteredQuotations.filter(q => !q.status || q.status === 'draft').length;
 
     return { totalAmount, acceptedCount, sentCount, draftCount, count: filteredQuotations.length };
   }, [filteredQuotations]);
@@ -141,10 +149,18 @@ export const QuotationList = () => {
     }
   };
 
-  const handleConvertToInvoice = (quote: any) => {
+  const handleConvertToInvoice = async (quote: any) => {
+    try {
+      await supabase.from('quotations').update({ status: 'converted' }).eq('id', quote.id);
+    } catch (e) {
+      console.error(e);
+    }
+
     navigate('/sales-invoice', { 
       state: { 
         quotationToConvert: {
+          id: quote.id,
+          quotationNumber: quote.quotation_number,
           customerId: quote.customer_id,
           notes: `محول من عرض السعر رقم: ${quote.quotation_number}`,
           items: (quote.quotation_items || []).map((i: any) => ({
@@ -206,7 +222,7 @@ export const QuotationList = () => {
       'العميل': q.customers?.name || 'عميل عام',
       'الإجمالي': q.total_amount,
       'الضريبة': q.tax_amount || 0,
-      'الحالة': q.status === 'accepted' ? 'معتمد' : q.status === 'sent' ? 'مرسل' : 'مسودة',
+      'الحالة': (q.status === 'posted' || q.status === 'completed') ? 'مرحل ومكتمل' : (q.status === 'converted' || q.status === 'invoiced') ? 'محول لفاتورة' : q.status === 'accepted' ? 'معتمد' : q.status === 'sent' ? 'مرسل للعميل' : q.status === 'expired' ? 'منتهي' : 'مسودة',
       'ملاحظات': q.notes || ''
     }));
 
@@ -219,14 +235,20 @@ export const QuotationList = () => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'posted':
+      case 'completed':
+        return <span className="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><CheckCircle2 size={12} /> مرحّل (مكتمل) ✅</span>;
+      case 'converted':
+      case 'invoiced':
+        return <span className="bg-purple-100 text-purple-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><ArrowRightLeft size={12} /> محول لفاتورة 🔄</span>;
       case 'accepted':
-        return <span className="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><CheckCircle2 size={12} /> معتمد</span>;
+        return <span className="bg-teal-100 text-teal-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><CheckCircle2 size={12} /> معتمد 👍</span>;
       case 'sent':
-        return <span className="bg-blue-100 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><Clock size={12} /> مرسل للعميل</span>;
+        return <span className="bg-blue-100 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><Clock size={12} /> مرسل للعميل 📬</span>;
       case 'expired':
-        return <span className="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><AlertCircle size={12} /> منتهي</span>;
+        return <span className="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><AlertCircle size={12} /> منتهي ⏳</span>;
       default:
-        return <span className="bg-teal-100 text-teal-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1">عرض سعر</span>;
+        return <span className="bg-amber-100 text-amber-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1">مسودة 📝</span>;
     }
   };
 
@@ -379,9 +401,12 @@ export const QuotationList = () => {
             className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-teal-500"
           >
             <option value="all">جميع الحالات</option>
-            <option value="accepted">معتمد ومقبول ✅</option>
             <option value="sent">مرسل للعميل 📬</option>
+            <option value="converted">محول لفاتورة 🔄</option>
+            <option value="posted">مرحّل (مكتمل) ✅</option>
+            <option value="accepted">معتمد ومقبول 👍</option>
             <option value="draft">مسودة 📝</option>
+            <option value="expired">منتهي ⏳</option>
           </select>
         </div>
       </div>
@@ -430,13 +455,15 @@ export const QuotationList = () => {
                       <td className="p-3.5">
                         <div className="flex items-center justify-center gap-1">
                           
-                          <button 
-                            onClick={() => handleConvertToInvoice(quote)}
-                            className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                            title="تحويل عرض السعر لفاتورة مبيعات"
-                          >
-                            <ArrowRightLeft size={16} />
-                          </button>
+                          {quote.status !== 'converted' && quote.status !== 'invoiced' && quote.status !== 'posted' && quote.status !== 'completed' && quote.status !== 'expired' && (
+                            <button 
+                              onClick={() => handleConvertToInvoice(quote)}
+                              className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                              title="تحويل عرض السعر لفاتورة مبيعات"
+                            >
+                              <ArrowRightLeft size={16} />
+                            </button>
+                          )}
 
                           <button 
                             onClick={() => navigate('/quotation-new', { state: { quoteToEdit: quote } })}

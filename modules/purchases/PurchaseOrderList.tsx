@@ -25,7 +25,7 @@ export const PurchaseOrderList = () => {
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'sent' | 'converted' | 'cancelled'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'sent' | 'converted' | 'posted' | 'cancelled'>('all');
   
   // Printing & Action States
   const [orderToPrint, setOrderToPrint] = useState<any | null>(null);
@@ -79,7 +79,15 @@ export const PurchaseOrderList = () => {
       if (startDate) query = query.gte('order_date', startDate);
       if (endDate) query = query.lte('order_date', endDate);
       if (selectedSupplierId) query = query.eq('supplier_id', selectedSupplierId);
-      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'converted') {
+          query = query.in('status', ['converted', 'invoiced']);
+        } else if (statusFilter === 'posted') {
+          query = query.in('status', ['posted', 'completed']);
+        } else {
+          query = query.eq('status', statusFilter);
+        }
+      }
 
       let { data, error } = await query;
 
@@ -98,7 +106,15 @@ export const PurchaseOrderList = () => {
         if (startDate) retryQuery = retryQuery.gte('order_date', startDate);
         if (endDate) retryQuery = retryQuery.lte('order_date', endDate);
         if (selectedSupplierId) retryQuery = retryQuery.eq('supplier_id', selectedSupplierId);
-        if (statusFilter !== 'all') retryQuery = retryQuery.eq('status', statusFilter);
+        if (statusFilter !== 'all') {
+          if (statusFilter === 'converted') {
+            retryQuery = retryQuery.in('status', ['converted', 'invoiced']);
+          } else if (statusFilter === 'posted') {
+            retryQuery = retryQuery.in('status', ['posted', 'completed']);
+          } else {
+            retryQuery = retryQuery.eq('status', statusFilter);
+          }
+        }
 
         const retryRes = await retryQuery;
         data = retryRes.data;
@@ -142,8 +158,8 @@ export const PurchaseOrderList = () => {
   const summary = useMemo(() => {
     const totalAmount = filteredOrders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
     const sentCount = filteredOrders.filter(o => o.status === 'sent').length;
-    const convertedCount = filteredOrders.filter(o => o.status === 'converted').length;
-    const draftCount = filteredOrders.filter(o => o.status === 'draft' || !o.status).length;
+    const convertedCount = filteredOrders.filter(o => ['converted', 'invoiced', 'posted', 'completed'].includes(o.status)).length;
+    const draftCount = filteredOrders.filter(o => !o.status || o.status === 'draft').length;
 
     return { totalAmount, sentCount, convertedCount, draftCount, count: filteredOrders.length };
   }, [filteredOrders]);
@@ -251,7 +267,7 @@ export const PurchaseOrderList = () => {
       'المورد': o.suppliers?.name || 'مورد عام',
       'الإجمالي': o.total_amount,
       'الضريبة': o.tax_amount,
-      'الحالة': o.status === 'converted' ? 'محول لفاتورة' : o.status === 'sent' ? 'مرسل للمورد' : 'مسودة',
+      'الحالة': (o.status === 'posted' || o.status === 'completed') ? 'مرحل ومكتمل' : (o.status === 'converted' || o.status === 'invoiced') ? 'محول لفاتورة' : o.status === 'sent' ? 'مرسل للمورد' : o.status === 'cancelled' ? 'ملغي' : 'مسودة',
       'ملاحظات': o.notes || ''
     }));
 
@@ -264,14 +280,18 @@ export const PurchaseOrderList = () => {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case 'posted':
+      case 'completed':
+        return <span className="bg-emerald-100 text-emerald-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><CheckCircle2 size={12} /> مرحّل (مكتمل) ✅</span>;
       case 'converted':
-        return <span className="bg-purple-100 text-purple-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><CheckCircle2 size={12} /> محول لفاتورة</span>;
+      case 'invoiced':
+        return <span className="bg-purple-100 text-purple-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><ArrowRightLeft size={12} /> محول لفاتورة 🔄</span>;
       case 'sent':
-        return <span className="bg-blue-100 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><Clock size={12} /> مرسل للمورد</span>;
+        return <span className="bg-blue-100 text-blue-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><Clock size={12} /> مرسل للمورد 📬</span>;
       case 'cancelled':
-        return <span className="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><AlertCircle size={12} /> ملغي</span>;
+        return <span className="bg-red-100 text-red-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1"><AlertCircle size={12} /> ملغي ❌</span>;
       default:
-        return <span className="bg-amber-100 text-amber-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1">مسودة</span>;
+        return <span className="bg-amber-100 text-amber-700 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1">مسودة 📝</span>;
     }
   };
 
@@ -425,8 +445,10 @@ export const PurchaseOrderList = () => {
           >
             <option value="all">جميع الحالات</option>
             <option value="sent">بانتظار التوريد 📬</option>
-            <option value="converted">محول لفاتورة ✅</option>
+            <option value="converted">محول لفاتورة 🔄</option>
+            <option value="posted">مرحّل (مكتمل) ✅</option>
             <option value="draft">مسودة 📝</option>
+            <option value="cancelled">ملغي ❌</option>
           </select>
         </div>
       </div>
@@ -475,7 +497,7 @@ export const PurchaseOrderList = () => {
                       <td className="p-3.5">
                         <div className="flex items-center justify-center gap-1">
                           
-                          {order.status !== 'converted' && order.status !== 'cancelled' && (
+                          {order.status !== 'converted' && order.status !== 'invoiced' && order.status !== 'posted' && order.status !== 'completed' && order.status !== 'cancelled' && (
                             <button 
                               onClick={() => openConvertModal(order)}
                               className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"

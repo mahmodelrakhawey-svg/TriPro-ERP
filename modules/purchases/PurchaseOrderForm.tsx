@@ -511,10 +511,15 @@ const PurchaseOrderForm = () => {
               {editingId ? `أمر شراء: ${formData.orderNumber}` : 'أمر شراء جديد'}
               {editingId && (
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                  formData.status === 'converted' ? 'bg-purple-100 text-purple-700' :
-                  formData.status === 'sent' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
+                  formData.status === 'posted' || formData.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                  formData.status === 'converted' || formData.status === 'invoiced' ? 'bg-purple-100 text-purple-700' :
+                  formData.status === 'sent' ? 'bg-blue-100 text-blue-700' : 
+                  formData.status === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
                 }`}>
-                  {formData.status === 'converted' ? 'محول لفاتورة ✅' : formData.status === 'sent' ? 'مرسل للمورد 📬' : 'مسودة 📝'}
+                  {formData.status === 'posted' || formData.status === 'completed' ? 'مرحّل (مكتمل) ✅' :
+                   formData.status === 'converted' || formData.status === 'invoiced' ? 'محول لفاتورة 🔄' : 
+                   formData.status === 'sent' ? 'مرسل للمورد 📬' : 
+                   formData.status === 'cancelled' ? 'ملغي ❌' : 'مسودة 📝'}
                 </span>
               )}
             </h2>
@@ -598,7 +603,7 @@ const PurchaseOrderForm = () => {
 
           {editingId && (
             <>
-              {formData.status !== 'converted' && (
+              {formData.status !== 'converted' && formData.status !== 'invoiced' && formData.status !== 'posted' && formData.status !== 'completed' && formData.status !== 'cancelled' && (
                 <button 
                   type="button" 
                   onClick={() => {
@@ -690,7 +695,22 @@ const PurchaseOrderForm = () => {
           />
         </div>
 
-        <div className="md:col-span-2">
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1">حالة أمر الشراء</label>
+          <select 
+            className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
+            value={formData.status} 
+            onChange={e => setFormData({...formData, status: e.target.value})}
+          >
+            <option value="draft">مسودة 📝</option>
+            <option value="sent">مرسل للمورد 📬</option>
+            <option value="converted">محول لفاتورة 🔄</option>
+            <option value="posted">مرحّل (مكتمل) ✅</option>
+            <option value="cancelled">ملغي ❌</option>
+          </select>
+        </div>
+
+        <div>
           <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات / شروط التوريد</label>
           <input 
             type="text" 
