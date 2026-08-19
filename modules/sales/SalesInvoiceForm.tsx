@@ -4,9 +4,10 @@ import {
     Plus, Trash2, Save, User, Calendar, ShoppingCart, Warehouse,
     Wallet, Search, X, ChevronDown, Check, AlertCircle, Percent,
     CircleDollarSign, Package, Box, Info,
-    ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle
-    , Edit, RefreshCw, FileText, Landmark
-} from 'lucide-react'; // Removed unused useParams import
+    ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle,
+    Edit, RefreshCw, FileText, Landmark,
+    ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, List
+} from 'lucide-react';
 import { InvoiceItem, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -65,6 +66,12 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
+
+  // Navigation & Record State
+  const [invoiceIds, setInvoiceIds] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // Print State
   const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
@@ -300,69 +307,239 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       setIsRefreshingBalance(false);
   };
 
-  // Load invoice data if editing
-  useEffect(() => {
-    if (location.state && location.state.invoiceToEdit) {
-      const invId = location.state.invoiceToEdit.id;
-      
-      const fetchInvoiceDetails = async () => {
-          const { data: fullInv } = await supabase.from('invoices').select('*').eq('id', invId).single();
-          
-          if (fullInv) {
-              if (fullInv.status !== 'draft' && !can('sales', 'update')) { // Use handleError for consistency
-                  showToast('هذه الفاتورة مرحلة ولا يمكن تعديلها. يمكنك إنشاء إشعار دائن', 'warning');
-              }
+  // جلب كافة معرفات فواتير المبيعات للتنقل
+  const fetchInvoiceIds = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
 
-              setEditingId(fullInv.id);
-              setFormData(prev => ({
-                ...prev,
-                customerId: fullInv.customer_id || '',
-                invoiceNumber: fullInv.invoice_number || '',
-                date: fullInv.invoice_date || new Date().toISOString().split('T')[0],
-                salespersonId: fullInv.salesperson_id || '',
-                notes: fullInv.notes || '',
-                status: fullInv.status || 'draft',
-                currency: fullInv.currency || settings.currency || 'EGP',
-                exchangeRate: fullInv.exchange_rate || 1,
-                warehouseId: fullInv.warehouse_id || '',
-                paidAmount: fullInv.paid_amount || 0,
-                treasuryId: fullInv.treasury_account_id || '',
-                discountValue: fullInv.discount_amount || 0,
-                discountType: 'fixed',
-                costCenterId: fullInv.cost_center_id || ''
-              }));
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('id')
+        .eq('organization_id', userOrgId)
+        .order('invoice_date', { ascending: true })
+        .order('created_at', { ascending: true });
 
-              setEtaDetails({
-                status: fullInv.eta_status || 'draft',
-                uuid: fullInv.eta_uuid || '',
-                submissionId: fullInv.eta_submission_id || '',
-                qrCode: fullInv.eta_qr_code || '',
-                error: fullInv.eta_error || ''
-              });
-
-              // Fetch items
-              const { data: itemsData } = await supabase.from('invoice_items').select('*, products(name, sku)').eq('invoice_id', fullInv.id);
-              if (itemsData) { // Use handleError for consistency
-                 setItems(itemsData.map((i: any) => ({
-                   id: i.id,
-                   productId: i.product_id,
-                   product_id: i.product_id,
-                   productName: i.products?.name,
-                   product_name: i.products?.name,
-                   productSku: i.products?.sku,
-                   product_sku: i.products?.sku,
-                   quantity: i.quantity,
-                   unitPrice: i.unit_price,
-                   unit_price: i.unit_price,
-                   total: i.total
-                 })));
-              }
-          }
-      };
-      
-      fetchInvoiceDetails();
+      if (error) throw error;
+      const ids = (data || []).map(inv => inv.id);
+      setInvoiceIds(ids);
+    } catch (err) {
+      console.error('Error fetching invoice IDs:', err);
     }
-  }, [location]);
+  };
+
+  useEffect(() => {
+    fetchInvoiceIds();
+  }, []);
+
+  const loadInvoiceById = async (invId: string) => {
+    setLoadingInvoice(true);
+    try {
+      const { data: fullInv, error: invErr } = await supabase.from('invoices').select('*').eq('id', invId).single();
+      if (invErr) throw invErr;
+      if (!fullInv) throw new Error('الفاتورة غير موجودة');
+
+      setEditingId(fullInv.id);
+      setFormData(prev => ({
+        ...prev,
+        customerId: fullInv.customer_id || '',
+        invoiceNumber: fullInv.invoice_number || '',
+        date: fullInv.invoice_date || new Date().toISOString().split('T')[0],
+        salespersonId: fullInv.salesperson_id || '',
+        notes: fullInv.notes || '',
+        status: fullInv.status || 'draft',
+        currency: fullInv.currency || settings.currency || 'EGP',
+        exchangeRate: fullInv.exchange_rate || 1,
+        warehouseId: fullInv.warehouse_id || '',
+        paidAmount: fullInv.paid_amount || 0,
+        treasuryId: fullInv.treasury_account_id || '',
+        discountValue: fullInv.discount_amount || 0,
+        discountType: 'fixed',
+        costCenterId: fullInv.cost_center_id || ''
+      }));
+
+      setEtaDetails({
+        status: fullInv.eta_status || 'draft',
+        uuid: fullInv.eta_uuid || '',
+        submissionId: fullInv.eta_submission_id || '',
+        qrCode: fullInv.eta_qr_code || '',
+        error: fullInv.eta_error || ''
+      });
+
+      const { data: itemsData } = await supabase.from('invoice_items').select('*, products(name, sku, base_uom_id, sale_uom_id)').eq('invoice_id', fullInv.id);
+      if (itemsData) {
+        setItems(itemsData.map((i: any) => ({
+          id: i.id,
+          productId: i.product_id,
+          product_id: i.product_id,
+          productName: i.products?.name || 'صنف',
+          product_name: i.products?.name || 'صنف',
+          productSku: i.products?.sku || '',
+          product_sku: i.products?.sku || '',
+          quantity: Number(i.quantity) || 0,
+          unitPrice: Number(i.unit_price) || 0,
+          unit_price: Number(i.unit_price) || 0,
+          uomId: i.uom_id || i.products?.sale_uom_id || i.products?.base_uom_id || '',
+          total: Number(i.total) || 0
+        })));
+      }
+
+      const idx = invoiceIds.indexOf(invId);
+      if (idx !== -1) setCurrentIndex(idx);
+
+    } catch (err: any) {
+      console.error('Error loading invoice:', err);
+      showToast('فشل تحميل الفاتورة: ' + err.message, 'error');
+    } finally {
+      setLoadingInvoice(false);
+    }
+  };
+
+  // استقبال فاتورة للتعديل أو عرض سعر محول
+  useEffect(() => {
+    if (location.state && (location.state as any).invoiceToEdit) {
+      const invId = (location.state as any).invoiceToEdit.id;
+      loadInvoiceById(invId);
+    } else if (location.state && (location.state as any).quotationToConvert) {
+      const quote = (location.state as any).quotationToConvert;
+      setFormData(prev => ({
+        ...prev,
+        customerId: quote.customerId || '',
+        notes: quote.notes || ''
+      }));
+      if (quote.items && quote.items.length > 0) {
+        setItems(quote.items.map((i: any, idx: number) => ({
+          id: Date.now().toString() + idx,
+          productId: i.productId,
+          product_id: i.productId,
+          productName: products.find(p => p.id === i.productId)?.name || 'صنف',
+          product_name: products.find(p => p.id === i.productId)?.name || 'صنف',
+          quantity: Number(i.quantity) || 0,
+          unitPrice: Number(i.unitPrice) || 0,
+          unit_price: Number(i.unitPrice) || 0,
+          uomId: i.uomId || '',
+          total: (Number(i.quantity) || 0) * (Number(i.unitPrice) || 0)
+        })));
+      }
+      showToast('تم استيراد بيانات عرض السعر بنجاح ✅', 'success');
+    }
+  }, [location.state]);
+
+  const handleNavigate = (direction: 'first' | 'prev' | 'next' | 'last') => {
+    if (invoiceIds.length === 0) {
+      showToast('لا توجد فواتير مبيعات للتنقل بينها', 'info');
+      return;
+    }
+
+    let targetIdx = currentIndex;
+    if (direction === 'first') {
+      targetIdx = 0;
+    } else if (direction === 'last') {
+      targetIdx = invoiceIds.length - 1;
+    } else if (direction === 'prev') {
+      if (currentIndex <= 0) {
+        targetIdx = 0;
+        showToast('هذه هي أول فاتورة مسجلة', 'info');
+      } else {
+        targetIdx = currentIndex - 1;
+      }
+    } else if (direction === 'next') {
+      if (currentIndex >= invoiceIds.length - 1 || currentIndex === -1) {
+        targetIdx = invoiceIds.length - 1;
+        showToast('هذه هي آخر فاتورة مسجلة', 'info');
+      } else {
+        targetIdx = currentIndex + 1;
+      }
+    }
+
+    if (targetIdx >= 0 && targetIdx < invoiceIds.length) {
+      loadInvoiceById(invoiceIds[targetIdx]);
+    }
+  };
+
+  const handleNewInvoice = () => {
+    setEditingId(null);
+    setCurrentIndex(-1);
+    setItems([]);
+    setFormData({
+      customerId: '',
+      invoiceNumber: '',
+      warehouseId: warehouses.length === 1 ? warehouses[0].id : (settings.defaultWarehouseId || ''),
+      salespersonId: '',
+      costCenterId: '',
+      date: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      notes: '',
+      status: 'draft',
+      paidAmount: 0,
+      treasuryId: '',
+      discountType: 'fixed',
+      discountValue: 0,
+      currency: settings.currency || 'EGP',
+      exchangeRate: 1
+    });
+    showToast('تم فتح نموذج فاتورة مبيعات جديدة ➕', 'info');
+  };
+
+  const handleDeleteCurrent = async () => {
+    if (!editingId) return;
+
+    if (!window.confirm(`هل أنت متأكد من حذف فاتورة المبيعات رقم (${formData.invoiceNumber})؟\nسيتم إلغاء أثرها على المخزون والقيد المحاسبي بالكامل.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      const { data: inv } = await supabase.from('invoices').select('*, invoice_items(*)').eq('id', editingId).single();
+      if (inv && inv.status === 'posted') {
+        for (const item of (inv.invoice_items || [])) {
+          if (item.product_id && item.quantity) {
+            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
+            if (prod) {
+              const newStock = (Number(prod.stock) || 0) + Number(item.quantity);
+              let newWStock = prod.warehouse_stock || {};
+              if (inv.warehouse_id && newWStock[inv.warehouse_id] !== undefined) {
+                newWStock[inv.warehouse_id] = (Number(newWStock[inv.warehouse_id]) || 0) + Number(item.quantity);
+              }
+              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
+            }
+          }
+        }
+
+        if (inv.related_journal_entry_id) {
+          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
+        } else {
+          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', inv.invoice_number);
+        }
+      }
+
+      await supabase.from('invoice_items').delete().eq('invoice_id', editingId);
+      const { error: delErr } = await supabase.from('invoices').delete().eq('id', editingId);
+      if (delErr) throw delErr;
+
+      showToast('تم حذف فاتورة المبيعات وعكس الحركات بنجاح ✅', 'success');
+
+      const newIds = invoiceIds.filter(id => id !== editingId);
+      setInvoiceIds(newIds);
+
+      if (newIds.length > 0) {
+        const nextId = newIds[Math.min(currentIndex, newIds.length - 1)];
+        loadInvoiceById(nextId);
+      } else {
+        handleNewInvoice();
+      }
+
+    } catch (err: any) {
+      console.error('Error deleting sales invoice:', err);
+      showToast('فشل حذف الفاتورة: ' + err.message, 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Note: subtotal calculation kept for backward compatibility with existing form logic
   // The new InvoiceItemsList component handles its own calculations internally
@@ -430,7 +607,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               quantity: 1,
               unitPrice: initialPrice,
               unit_price: initialPrice,
-              uomId: defaultUomId,
+              uomId: defaultUomId || '',
               total: initialPrice
           }]);
       }
@@ -471,7 +648,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (product) {
             const price = getProductPrice(product);
             newItems[index].unitPrice = price;
-            newItems[index].uomId = product.sale_uom_id || product.base_uom_id;
+            newItems[index].uomId = product.sale_uom_id || product.base_uom_id || '';
             newItems[index].productName = product.name;
             newItems[index].productSku = product.sku;
             // تحديث الحقول التوافقية (Snake Case)
@@ -781,7 +958,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                     product_id: item.productId,
                     quantity: Number(item.quantity),
                     unit_price: Number(item.unitPrice),
-                    uom_id: item.uomId,
+                    uom_id: item.uomId || null,
                     total: Number(item.total),
                     cost: Number(unitCostForSelectedUom.toFixed(4))
                 };
@@ -960,7 +1137,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                 product_id: item.productId,
                 quantity: Number(item.quantity),
                 unit_price: Number(item.unitPrice),
-                uom_id: item.uomId,
+                uom_id: item.uomId || null,
                 total: Number(item.total),
                 cost: product?.cost || product?.purchase_price || 0
             };
@@ -1109,44 +1286,130 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         </div>
       )}
 
-      {/* Top Banner & Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
-        <div className="flex items-center gap-6">
-          {(settings as any).logoUrl && (
-            <img 
-              src={(settings as any).logoUrl} 
-              alt="Company Logo" 
-              className="w-20 h-20 object-contain rounded-xl border border-slate-100 p-1" 
-            />
-          )}
+      {/* Top Banner & Navigation Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 rounded-3xl shadow-sm border border-slate-200">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
+            <ShoppingCart size={28} />
+          </div>
           <div>
-            <div className="flex items-center gap-2 text-blue-600 mb-1">
-               <Box size={20} className="animate-pulse" />
-               <span className="text-xs font-bold uppercase tracking-widest">إصدار مستند</span>
-            </div>
-            <h2 className="text-3xl font-black text-slate-900 tracking-tight">{editingId ? 'تعديل فاتورة مبيعات' : 'فاتورة مبيعات ضريبية'}</h2>
-            <p className="text-slate-500 font-medium mt-1">تجهيز طلب العميل وتسجيل الحركات المخزنية والمالية</p>
+            <h2 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+              {editingId ? `فاتورة مبيعات: ${formData.invoiceNumber}` : 'فاتورة مبيعات جديدة'}
+              {editingId && (
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                  formData.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {formData.status === 'posted' ? 'مرحلة ✅' : 'مسودة 📝'}
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-slate-400 font-bold">تجهيز طلب العميل وتسجيل الحركات المخزنية والمالية</p>
           </div>
         </div>
-        
-        <div className="flex items-center gap-4">
-            {successMessage && (
-                <div className="bg-emerald-50 text-emerald-700 px-6 py-3 rounded-2xl animate-in zoom-in font-black flex items-center gap-2 border border-emerald-100 shadow-sm">
-                    <Check size={20} /> {successMessage}
-                </div>
+
+        {/* 🧭 أسهم التنقل بين فواتير المبيعات */}
+        <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200 print:hidden">
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('first')} 
+            disabled={invoiceIds.length === 0 || currentIndex === 0} 
+            title="أول فاتورة"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronsRight size={18} />
+          </button>
+          
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('prev')} 
+            disabled={invoiceIds.length === 0 || currentIndex <= 0} 
+            title="الفاتورة السابقة"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronRight size={18} />
+          </button>
+
+          {/* Record Counter */}
+          <div className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono font-black text-slate-700 select-none">
+            {loadingInvoice ? (
+              <Loader2 size={14} className="animate-spin text-blue-600" />
+            ) : editingId && currentIndex !== -1 ? (
+              <span>{currentIndex + 1} / {invoiceIds.length}</span>
+            ) : (
+              <span className="text-blue-600 font-bold">جديد ➕</span>
             )}
-            <div className="bg-slate-50 px-4 py-2 rounded-2xl border border-slate-200 text-sm font-bold text-slate-600">
-                <span className="opacity-50">رقم الفاتورة:</span> 
-                <span className="mr-2 font-mono text-blue-600">{formData.invoiceNumber || 'تلقائي'}</span>
-            </div>
-            <div className="flex gap-2 print:hidden">
-                <button onClick={handlePrint} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 shadow-sm text-sm font-bold">
-                    <Printer size={16} /> طباعة A4
-                </button>
-                <button onClick={handleThermalPrint} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 shadow-sm text-sm font-bold">
-                    <Printer size={16} /> طباعة حرارية
-                </button>
-            </div>
+          </div>
+
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('next')} 
+            disabled={invoiceIds.length === 0 || currentIndex >= invoiceIds.length - 1 || currentIndex === -1} 
+            title="الفاتورة التالية"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('last')} 
+            disabled={invoiceIds.length === 0 || currentIndex >= invoiceIds.length - 1 || currentIndex === -1} 
+            title="آخر فاتورة"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronsLeft size={18} />
+          </button>
+        </div>
+        
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
+          <button 
+            type="button" 
+            onClick={() => navigate('/invoices-list')} 
+            className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="عرض سجل فواتير المبيعات"
+          >
+            <List size={16} /> سجل الفواتير
+          </button>
+
+          <button 
+            type="button" 
+            onClick={handleNewInvoice} 
+            className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="بدء فاتورة مبيعات جديدة"
+          >
+            <Plus size={16} /> جديد
+          </button>
+
+          <button 
+            type="button" 
+            onClick={handlePrint} 
+            className="bg-slate-800 text-white hover:bg-slate-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+            title="طباعة الفاتورة A4"
+          >
+            <Printer size={16} /> A4
+          </button>
+
+          <button 
+            type="button" 
+            onClick={handleThermalPrint} 
+            className="bg-slate-700 text-white hover:bg-slate-600 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-colors"
+            title="طباعة حرارية"
+          >
+            <Printer size={16} /> حراري
+          </button>
+
+          {editingId && (
+            <button 
+              type="button" 
+              onClick={handleDeleteCurrent} 
+              disabled={deleting} 
+              className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="حذف هذه الفاتورة"
+            >
+              {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
+            </button>
+          )}
         </div>
       </div>
 
@@ -1553,7 +1816,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                                     </td>
                                                     <td className="py-4">
                                                         <select 
-                                                            value={item.uomId} 
+                                                            value={item.uomId || ''} 
                                                             onChange={e => handleItemChange(index, 'uomId', e.target.value)}
                                                             className="w-full border-2 border-slate-50 rounded-xl p-1.5 text-xs font-bold bg-white focus:border-blue-300 outline-none"
                                                         >

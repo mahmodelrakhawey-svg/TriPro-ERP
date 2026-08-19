@@ -2,14 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { useLocation } from 'react-router-dom';
-import { FilePlus, Save, Loader2, Calculator, Printer, Truck, Calendar } from 'lucide-react'; // Removed z import
+import { useNavigate, useLocation } from 'react-router-dom';
+import { 
+  FilePlus, Save, Loader2, Calculator, Printer, Truck, Calendar, 
+  Trash2, Plus, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, List
+} from 'lucide-react';
 import { createDebitNoteSchema } from '../../utils/validationSchemas';
+import { DebitNotePrint } from './DebitNotePrint';
 
 const DebitNoteForm = () => {
   const { settings, suppliers, currentUser } = useAccounting();
+  const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
+
   const [formData, setFormData] = useState({
     supplierId: '',
     date: new Date().toISOString().split('T')[0],
@@ -17,22 +23,151 @@ const DebitNoteForm = () => {
     isTaxable: settings?.enableTax ?? true,
     notes: '',
     noteNumber: '',
-    originalInvoiceNumber: ''
+    originalInvoiceNumber: '',
+    status: 'draft'
   });
+
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  // Navigation & Edit State
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [noteIds, setNoteIds] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const [loadingNote, setLoadingNote] = useState(false);
+  const [noteToPrint, setNoteToPrint] = useState<any | null>(null);
+  const [companySettings, setCompanySettings] = useState<any>(null);
 
   useEffect(() => {
-      if (location.state) {
-          setFormData(prev => ({
-              ...prev,
-              supplierId: location.state.supplierId || '',
-              amount: location.state.amount || 0,
-              isTaxable: location.state.isTaxable !== undefined ? location.state.isTaxable : (settings?.enableTax ?? true),
-              notes: location.state.notes || '',
-              originalInvoiceNumber: location.state.originalInvoiceNumber || ''
-          }));
+    supabase.rpc('get_current_company_settings').maybeSingle().then(({ data }) => {
+      if (data) setCompanySettings(data);
+    });
+  }, []);
+
+  // جلب كافة معرفات الإشعارات المدينة للتنقل
+  const fetchNoteIds = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
+
+      const { data, error } = await supabase
+        .from('debit_notes')
+        .select('id')
+        .eq('organization_id', userOrgId)
+        .order('note_date', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      const ids = (data || []).map(n => n.id);
+      setNoteIds(ids);
+    } catch (err) {
+      console.error('Error fetching debit note IDs:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchNoteIds();
+  }, []);
+
+  const loadNoteById = async (id: string) => {
+    setLoadingNote(true);
+    try {
+      const { data: note, error } = await supabase
+        .from('debit_notes')
+        .select('*, suppliers(id, name, phone)')
+        .eq('id', id)
+        .single();
+
+      if (error) throw error;
+      if (!note) throw new Error('الإشعار غير موجود');
+
+      setEditingId(note.id);
+      setFormData({
+        supplierId: note.supplier_id || '',
+        date: note.note_date || new Date().toISOString().split('T')[0],
+        amount: Number(note.amount_before_tax) || 0,
+        isTaxable: Number(note.tax_amount || 0) > 0,
+        notes: note.notes || '',
+        noteNumber: note.debit_note_number || '',
+        originalInvoiceNumber: note.original_invoice_number || '',
+        status: note.status || 'posted'
+      });
+
+      const idx = noteIds.indexOf(id);
+      if (idx !== -1) setCurrentIndex(idx);
+
+    } catch (err: any) {
+      console.error('Error loading debit note:', err);
+      showToast('فشل تحميل الإشعار المدين: ' + err.message, 'error');
+    } finally {
+      setLoadingNote(false);
+    }
+  };
+
+  useEffect(() => {
+    if (location.state && (location.state as any).noteToEdit) {
+      const passed = (location.state as any).noteToEdit;
+      loadNoteById(passed.id);
+    } else if (location.state) {
+      setFormData(prev => ({
+        ...prev,
+        supplierId: location.state.supplierId || '',
+        amount: location.state.amount || 0,
+        isTaxable: location.state.isTaxable !== undefined ? location.state.isTaxable : (settings?.enableTax ?? true),
+        notes: location.state.notes || '',
+        originalInvoiceNumber: location.state.originalInvoiceNumber || ''
+      }));
+    }
+  }, [location.state]);
+
+  const handleNavigate = (direction: 'first' | 'prev' | 'next' | 'last') => {
+    if (noteIds.length === 0) {
+      showToast('لا توجد إشعارات مدينة للتنقل بينها', 'info');
+      return;
+    }
+
+    let targetIdx = currentIndex;
+    if (direction === 'first') {
+      targetIdx = 0;
+    } else if (direction === 'last') {
+      targetIdx = noteIds.length - 1;
+    } else if (direction === 'prev') {
+      if (currentIndex <= 0) {
+        targetIdx = 0;
+        showToast('هذا هو أول إشعار مدين مسجل', 'info');
+      } else {
+        targetIdx = currentIndex - 1;
       }
-  }, [location.state, settings]);
+    } else if (direction === 'next') {
+      if (currentIndex >= noteIds.length - 1 || currentIndex === -1) {
+        targetIdx = noteIds.length - 1;
+        showToast('هذا هو آخر إشعار مدين مسجل', 'info');
+      } else {
+        targetIdx = currentIndex + 1;
+      }
+    }
+
+    if (targetIdx >= 0 && targetIdx < noteIds.length) {
+      loadNoteById(noteIds[targetIdx]);
+    }
+  };
+
+  const handleNewNote = () => {
+    setEditingId(null);
+    setCurrentIndex(-1);
+    setFormData({
+      supplierId: '',
+      date: new Date().toISOString().split('T')[0],
+      amount: 0,
+      isTaxable: settings?.enableTax ?? true,
+      notes: '',
+      noteNumber: '',
+      originalInvoiceNumber: '',
+      status: 'draft'
+    });
+    showToast('تم فتح نموذج إشعار مدين جديد ➕', 'info');
+  };
 
   // @ts-ignore
   const systemVatRate = ((settings.vatRate !== undefined && settings.vatRate !== null ? Number(settings.vatRate) : (settings.vat_rate ? settings.vat_rate * 100 : 15)) / 100);
@@ -41,13 +176,6 @@ const DebitNoteForm = () => {
   const taxAmount = formData.amount * taxRate;
   const totalAmount = formData.amount + taxAmount;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: e.target.type === 'number' ? parseFloat(value) || 0 : value
-    }));
-  };
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -59,220 +187,364 @@ const DebitNoteForm = () => {
     
     setSaving(true);
 
+    const { data: { session } } = await supabase.auth.getSession();
+    const userOrgId = session?.user?.user_metadata?.org_id;
+
+    if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
+
     if (currentUser?.role === 'demo') {
         showToast('تم حفظ الإشعار المدين وترحيل القيد بنجاح ✅ (محاكاة)', 'success');
-        setFormData({ supplierId: '', date: new Date().toISOString().split('T')[0], amount: 0, isTaxable: settings?.enableTax ?? true, notes: '', noteNumber: '', originalInvoiceNumber: '' });
         setSaving(false);
         return;
     }
 
     try {
       const noteNumber = formData.noteNumber || `DN-${Date.now().toString().slice(-6)}`;
+      let noteId = editingId;
 
-      // 1. حفظ الإشعار كمسودة
-      const { data: note, error: noteError } = await supabase.from('debit_notes').insert({
-        debit_note_number: noteNumber,
-        supplier_id: formData.supplierId,
-        note_date: formData.date,
-        amount_before_tax: formData.amount,
-        tax_amount: taxAmount,
-        total_amount: totalAmount,
-        notes: formData.notes,
-        status: 'draft',
-        original_invoice_number: formData.originalInvoiceNumber
-      }).select().single();
+      if (editingId) {
+        const { error: updateError } = await supabase.from('debit_notes').update({
+          supplier_id: formData.supplierId,
+          note_date: formData.date,
+          amount_before_tax: formData.amount,
+          tax_amount: taxAmount,
+          total_amount: totalAmount,
+          notes: formData.notes,
+          original_invoice_number: formData.originalInvoiceNumber
+        }).eq('id', editingId);
 
-      if (noteError) throw noteError;
+        if (updateError) throw updateError;
+        showToast('تم تحديث الإشعار المدين بنجاح ✅', 'success');
 
-      // 2. استدعاء الدالة الآمنة للترحيل
-      const { error: rpcError } = await supabase.rpc('approve_debit_note', { p_note_id: note.id });
-      
-      if (rpcError) throw rpcError;
+      } else {
+        // 1. حفظ الإشعار كمسودة
+        const { data: note, error: noteError } = await supabase.from('debit_notes').insert({
+          organization_id: userOrgId,
+          debit_note_number: noteNumber,
+          supplier_id: formData.supplierId,
+          note_date: formData.date,
+          amount_before_tax: formData.amount,
+          tax_amount: taxAmount,
+          total_amount: totalAmount,
+          notes: formData.notes,
+          status: 'draft',
+          original_invoice_number: formData.originalInvoiceNumber
+        }).select().single();
 
-      showToast('تم حفظ الإشعار المدين وترحيل القيد بنجاح', 'success');
-      setFormData({ supplierId: '', date: new Date().toISOString().split('T')[0], amount: 0, isTaxable: settings?.enableTax ?? true, notes: '', noteNumber: '', originalInvoiceNumber: '' });
+        if (noteError) throw noteError;
+        noteId = note.id;
+
+        // 2. استدعاء الدالة الآمنة للترحيل
+        const { error: rpcError } = await supabase.rpc('approve_debit_note', { p_note_id: note.id });
+        if (rpcError) throw rpcError;
+
+        showToast('تم حفظ الإشعار المدين وترحيل القيد بنجاح ✅', 'success');
+      }
+
+      await fetchNoteIds();
+      if (noteId) {
+        loadNoteById(noteId);
+      }
 
     } catch (error: any) {
-      console.error('Error saving debit note:', error);
-      showToast(error?.message || 'فشل حفظ الإشعار المدين', 'error');
+      console.error(error);
+      showToast('خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const handleDeleteCurrent = async () => {
+    if (!editingId) return;
+
+    if (!window.confirm(`هل أنت متأكد من حذف الإشعار المدين رقم (${formData.noteNumber})؟\nسيتم إلغاء القيد المحاسبي وعكس أثره بالكامل.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', formData.noteNumber);
+      const { error: delErr } = await supabase.from('debit_notes').delete().eq('id', editingId);
+      if (delErr) throw delErr;
+
+      showToast('تم حذف الإشعار المدين وعكس القيد بنجاح ✅', 'success');
+
+      const newIds = noteIds.filter(id => id !== editingId);
+      setNoteIds(newIds);
+
+      if (newIds.length > 0) {
+        const nextId = newIds[Math.min(currentIndex, newIds.length - 1)];
+        loadNoteById(nextId);
+      } else {
+        handleNewNote();
+      }
+
+    } catch (err: any) {
+      console.error('Error deleting debit note:', err);
+      showToast('فشل حذف الإشعار المدين: ' + err.message, 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handlePrintCurrent = () => {
+    setNoteToPrint({
+      noteNumber: formData.noteNumber,
+      date: formData.date,
+      supplierName: suppliers.find(s => s.id === formData.supplierId)?.name || 'مورد عام',
+      originalInvoiceNumber: formData.originalInvoiceNumber,
+      notes: formData.notes,
+      amountBeforeTax: formData.amount,
+      taxAmount: taxAmount,
+      totalAmount: totalAmount
+    });
+
+    setTimeout(() => {
+      window.print();
+      setNoteToPrint(null);
+    }, 200);
   };
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in">
-      <div className="flex justify-between items-center print:hidden">
-        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <FilePlus className="text-emerald-600" /> إشعار مدين (Debit Note)
-        </h2>
-        <button onClick={handlePrint} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 shadow-sm text-sm font-bold">
-            <Printer size={16} /> طباعة
-        </button>
+      
+      {/* 🚀 Header & Navigation Bar */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
+        
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+            <FilePlus size={24} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+              {editingId ? `إشعار مدين: ${formData.noteNumber}` : 'إشعار مدين جديد'}
+              {editingId && (
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-blue-100 text-blue-700">
+                  معتمد ومرحل ✅
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-slate-400 font-bold">تسوية حسابات الموردين وتخفيض المستحقات وإثبات الخصومات</p>
+          </div>
+        </div>
+
+        {/* 🧭 أسهم التنقل بين الإشعارات */}
+        <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('first')} 
+            disabled={noteIds.length === 0 || currentIndex === 0} 
+            title="أول إشعار"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronsRight size={18} />
+          </button>
+          
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('prev')} 
+            disabled={noteIds.length === 0 || currentIndex <= 0} 
+            title="الإشعار السابق"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronRight size={18} />
+          </button>
+
+          {/* Record Counter */}
+          <div className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono font-black text-slate-700 select-none">
+            {loadingNote ? (
+              <Loader2 size={14} className="animate-spin text-blue-600" />
+            ) : editingId && currentIndex !== -1 ? (
+              <span>{currentIndex + 1} / {noteIds.length}</span>
+            ) : (
+              <span className="text-blue-600 font-bold">جديد ➕</span>
+            )}
+          </div>
+
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('next')} 
+            disabled={noteIds.length === 0 || currentIndex >= noteIds.length - 1 || currentIndex === -1} 
+            title="الإشعار التالي"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('last')} 
+            disabled={noteIds.length === 0 || currentIndex >= noteIds.length - 1 || currentIndex === -1} 
+            title="آخر إشعار"
+            className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronsLeft size={18} />
+          </button>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
+          <button 
+            type="button" 
+            onClick={() => navigate('/debit-notes-list')} 
+            className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="عرض سجل الإشعارات المدينة"
+          >
+            <List size={16} /> سجل الإشعارات
+          </button>
+
+          <button 
+            type="button" 
+            onClick={handleNewNote} 
+            className="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="بدء إشعار مدين جديد"
+          >
+            <Plus size={16} /> جديد
+          </button>
+
+          {editingId && (
+            <>
+              <button 
+                type="button" 
+                onClick={handlePrintCurrent} 
+                className="bg-slate-800 text-white hover:bg-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                title="طباعة الإشعار المدين"
+              >
+                <Printer size={16} /> طباعة
+              </button>
+
+              <button 
+                type="button" 
+                onClick={handleDeleteCurrent} 
+                disabled={deleting} 
+                className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="حذف الإشعار المدين"
+              >
+                {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
+              </button>
+            </>
+          )}
+
+          <button 
+            type="button" 
+            onClick={handleSave} 
+            disabled={saving} 
+            className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
+            {editingId ? 'حفظ التعديل' : 'حفظ وترحيل'}
+          </button>
+        </div>
       </div>
 
-      <form onSubmit={handleSave} className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 space-y-6 print:hidden">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">المورد</label>
-                <div className="relative">
-                    <select required name="supplierId" value={formData.supplierId} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5 appearance-none">
-                        <option value="">اختر المورد...</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                    <Truck className="absolute left-3 top-3 text-slate-400" size={18} />
-                </div>
+      {/* Main Form Body */}
+      <form onSubmit={handleSave} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">المورد <span className="text-red-500">*</span></label>
+            <select 
+              required
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
+              value={formData.supplierId} 
+              onChange={e => setFormData({...formData, supplierId: e.target.value})}
+            >
+              <option value="">اختر المورد...</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ الإشعار <span className="text-red-500">*</span></label>
+            <input 
+              type="date" 
+              required
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
+              value={formData.date} 
+              onChange={e => setFormData({...formData, date: e.target.value})} 
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">المبلغ قبل الضريبة <span className="text-red-500">*</span></label>
+            <input 
+              type="number" 
+              step="any"
+              min="0.01"
+              required
+              placeholder="0.00"
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-mono font-bold text-blue-700 outline-none focus:border-blue-500" 
+              value={formData.amount || ''} 
+              onChange={e => setFormData({...formData, amount: Number(e.target.value)})} 
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">رقم الفاتورة الأصلية (اختياري)</label>
+            <input 
+              type="text" 
+              placeholder="مثال: PI-100234"
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-mono font-bold outline-none focus:border-blue-500" 
+              value={formData.originalInvoiceNumber} 
+              onChange={e => setFormData({...formData, originalInvoiceNumber: e.target.value})} 
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label className="block text-xs font-bold text-slate-700 mb-1">سبب الإشعار / البيان <span className="text-red-500">*</span></label>
+            <textarea 
+              rows={2}
+              required
+              placeholder="أدخل سبب التسوية أو الخصم المكتسب من المورد..."
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-blue-500" 
+              value={formData.notes} 
+              onChange={e => setFormData({...formData, notes: e.target.value})} 
+            />
+          </div>
+
+          {settings?.enableTax && (
+            <div className="md:col-span-2 flex items-center gap-2 pt-2">
+              <input 
+                type="checkbox" 
+                id="isDebitTaxable"
+                checked={formData.isTaxable}
+                onChange={e => setFormData({...formData, isTaxable: e.target.checked})}
+                className="w-4 h-4 text-blue-600 rounded"
+              />
+              <label htmlFor="isDebitTaxable" className="text-xs font-bold text-slate-700 cursor-pointer">
+                خاضع لضريبة القيمة المضافة ({settings.vatRate || 14}%)
+              </label>
             </div>
-            <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">التاريخ</label>
-                <div className="relative">
-                    <input type="date" required name="date" value={formData.date} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" />
-                    <Calendar className="absolute left-3 top-3 text-slate-400" size={18} />
-                </div>
-            </div>
-            <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ (قبل الضريبة)</label>
-                <div className="relative">
-                    <input type="number" required name="amount" min="0.01" step="any" value={formData.amount} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5 font-bold" />
-                    <Calculator className="absolute left-3 top-3 text-slate-400" size={18} />
-                </div>
-            </div>
-            <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">رقم الإشعار (اختياري)</label>
-                <input type="text" name="noteNumber" value={formData.noteNumber} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="تلقائي" />
-            </div>
-            <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">رقم الفاتورة الأصلية</label>
-                <input type="text" name="originalInvoiceNumber" value={formData.originalInvoiceNumber} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="رقم الفاتورة المرتبطة" />
-            </div>
-            <div className="md:col-span-2">
-                <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-                    <div className="flex items-center gap-3">
-                        <input
-                            type="checkbox"
-                            id="isTaxable"
-                            name="isTaxable"
-                            checked={formData.isTaxable}
-                            onChange={(e) => setFormData({ ...formData, isTaxable: e.target.checked })}
-                            className="w-5 h-5 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"
-                        />
-                        <label htmlFor="isTaxable" className="cursor-pointer select-none">
-                            <span className="block font-bold text-slate-800 text-sm">تطبيق ضريبة القيمة المضافة ({(systemVatRate * 100).toFixed(0)}%)</span>
-                            <span className="block text-xs text-slate-500">قم بإلغاء التحديد إذا كان الإشعار لخصم مكتسب تجاري أو تسوية بدون ضريبة</span>
-                        </label>
-                    </div>
-                    <span className={`text-xs font-bold px-3 py-1 rounded-full ${formData.isTaxable ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
-                        {formData.isTaxable ? `خاضع للضريبة (${(systemVatRate * 100).toFixed(0)}%)` : 'معفى / بدون ضريبة'}
-                    </span>
-                </div>
-            </div>
-            <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-slate-700 mb-1">البيان / السبب</label>
-                <textarea rows={2} name="notes" value={formData.notes} onChange={handleChange} className="w-full border rounded-lg px-4 py-2.5" placeholder="سبب إصدار الإشعار..."></textarea>
-            </div>
+          )}
+
         </div>
 
-        <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 flex flex-wrap gap-4 justify-between items-center text-sm font-bold">
-            <div className="text-slate-600">
-                المبلغ الأساسي: <span className="text-slate-900 font-mono text-base">{formData.amount.toLocaleString()}</span>
+        {/* Calculation Summary Box */}
+        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="text-xs text-slate-500">
+            سيتم إنشاء قيد اليومية تلقائياً: <span className="font-bold text-slate-800">من ح/ الموردين إلى ح/ مردودات ومسموحات المشتريات / الخصم المكتسب</span>
+          </div>
+          <div className="flex items-center gap-6">
+            {isTaxEnabled && (
+              <div className="text-xs font-bold text-slate-600">
+                قيمة الضريبة: <span className="font-mono text-blue-700">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
+              </div>
+            )}
+            <div className="text-sm font-black text-blue-900 flex items-center gap-2">
+              <span>إجمالي الإشعار المدين:</span>
+              <span className="font-mono text-lg" dir="ltr">{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
             </div>
-            <div className="text-slate-600">
-                الضريبة: <span className={`font-mono text-base ${taxAmount > 0 ? "text-slate-900" : "text-slate-400"}`}>
-                    {taxAmount > 0 ? `${taxAmount.toLocaleString()} (${(taxRate * 100).toFixed(0)}%)` : '0 (غير خاضع)'}
-                </span>
-            </div>
-            <div className="text-slate-600">
-                الإجمالي النهائي: <span className="text-emerald-600 text-xl font-mono">{totalAmount.toLocaleString()}</span>
-            </div>
-        </div>
-
-        <div className="flex justify-end">
-            <button type="submit" disabled={saving} className="bg-emerald-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-emerald-700 flex items-center gap-2 shadow-lg disabled:opacity-50">
-                {saving ? <Loader2 className="animate-spin" /> : <Save size={20} />} حفظ وترحيل
-            </button>
+          </div>
         </div>
       </form>
 
-      {/* Print Template */}
-      <div className="hidden print:block bg-white p-8 text-black">
-          <div className="text-center mb-8 border-b-2 border-slate-800 pb-6">
-              {settings.logoUrl && (
-                  <img src={settings.logoUrl} alt="Company Logo" className="w-24 h-24 mx-auto mb-4 object-contain" />
-              )}
-              <h1 className="text-3xl font-bold mb-2">
-                  {/* @ts-ignore */}
-                  {settings.companyName}</h1>
-              <p className="text-sm text-slate-600">{settings.address} - {settings.phone}</p>
-              <h2 className="text-2xl font-bold mt-6 border-t border-slate-200 pt-4">إشعار مدين / Debit Note</h2>
-              <p className="font-mono mt-2 text-lg">{formData.noteNumber || 'مسودة / Draft'}</p>
-          </div>
-          
-          <div className="grid grid-cols-2 gap-8 mb-8">
-              <div>
-                  <p className="text-sm text-slate-500 mb-1 font-bold">المورد / Supplier</p>
-                  <p className="font-bold text-lg">{suppliers.find(s => s.id === formData.supplierId)?.name}</p>
-              </div>
-              <div className="text-left">
-                  <p className="text-sm text-slate-500 mb-1 font-bold">التاريخ / Date</p>
-                  <p className="font-bold text-lg">{formData.date}</p>
-              </div>
-              {formData.originalInvoiceNumber && (
-                  <div className="col-span-2 text-center border-t border-slate-100 pt-4">
-                      <p className="text-sm text-slate-500 mb-1 font-bold">رقم الفاتورة الأصلية / Original Invoice No</p>
-                      <p className="font-bold text-lg">{formData.originalInvoiceNumber}</p>
-                  </div>
-              )}
-          </div>
-
-          <div className="border border-slate-300 rounded-lg overflow-hidden mb-8">
-              <table className="w-full text-right">
-                  <thead className="bg-slate-100 border-b border-slate-300">
-                      <tr>
-                          <th className="p-4 font-bold">البيان</th>
-                          <th className="p-4 font-bold text-left">المبلغ</th>
-                      </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200">
-                      <tr>
-                          <td className="p-4">
-                              <p className="font-bold mb-1">قيمة الإشعار (قبل الضريبة)</p>
-                              <p className="text-sm text-slate-600">{formData.notes}</p>
-                          </td>
-                          <td className="p-4 text-left font-mono">{formData.amount.toLocaleString()}</td>
-                      </tr>
-                      {taxAmount > 0 && (
-                          <tr>
-                              <td className="p-4 font-bold">ضريبة القيمة المضافة ({(taxRate * 100).toFixed(0)}%)</td>
-                              <td className="p-4 text-left font-mono">{taxAmount.toLocaleString()}</td>
-                          </tr>
-                      )}
-                      <tr className="bg-slate-50 font-bold text-lg">
-                          <td className="p-4">الإجمالي النهائي</td>
-                          <td className="p-4 text-left font-mono">{totalAmount.toLocaleString()}</td>
-                      </tr>
-                  </tbody>
-              </table>
-          </div>
-
-          <div className="flex justify-between mt-16 pt-8 border-t border-slate-200 text-sm text-slate-500">
-              <div className="text-center w-1/3">
-                  <p className="mb-16">المحاسب</p>
-                  <p className="border-t border-slate-300 pt-2">التوقيع</p>
-              </div>
-              <div className="text-center w-1/3">
-                  <p className="mb-16">المدير المالي</p>
-                  <p className="border-t border-slate-300 pt-2">التوقيع</p>
-              </div>
-              <div className="text-center w-1/3">
-                  <p className="mb-16">استلام المورد</p>
-                  <p className="border-t border-slate-300 pt-2">التوقيع</p>
-              </div>
-          </div>
-      </div>
+      {/* Hidden printable component */}
+      {noteToPrint && (
+        <DebitNotePrint noteData={noteToPrint} companySettings={companySettings} />
+      )}
     </div>
   );
 };

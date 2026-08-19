@@ -30,8 +30,10 @@ import PurchaseReports from './modules/purchases/PurchaseReports';
 import SalesInvoiceForm from './modules/sales/SalesInvoiceForm';
 import InvoiceList from './modules/sales/InvoiceList';
 import SalesReturnForm from './modules/sales/SalesReturnForm';
+import SalesReturnsList from './modules/sales/SalesReturnsList';
 import PurchaseInvoiceForm from './modules/purchases/PurchaseInvoiceForm';
 import PurchaseReturnForm from './modules/purchases/PurchaseReturnForm';
+import PurchaseReturnsList from './modules/purchases/PurchaseReturnsList';
 import StockAdjustmentForm from './modules/inventory/StockAdjustmentForm';
 import InventoryCountForm from './modules/inventory/InventoryCountForm';
 import InventoryCountList from './modules/inventory/InventoryCountList';
@@ -79,6 +81,7 @@ import PayrollReport from './modules/hr/reports/PayrollReport';
 import EmployeeStatement from './modules/hr/reports/EmployeeStatement';
 import EmployeeReports from './modules/hr/reports/EmployeeReports';
 import SalesOrders from './modules/sales/SalesOrders';
+import SalesOrderForm from './modules/sales/SalesOrderForm';
 import QuotationForm from './modules/sales/QuotationForm';
 import QuotationList from './modules/sales/QuotationList';
 import CreditNoteForm from './modules/sales/CreditNoteForm';
@@ -496,8 +499,10 @@ const MainLayout = () => {
                 <Route path="/invoices-list" element={<ModuleGuard module="sales"><InvoiceList /></ModuleGuard>} />
                 <Route path="/quotations-new" element={<ModuleGuard module="sales"><QuotationForm /></ModuleGuard>} />
                 <Route path="/quotations-list" element={<ModuleGuard module="sales"><QuotationList /></ModuleGuard>} />
+                <Route path="/sales-order-new" element={<ModuleGuard module="sales"><SalesOrderForm /></ModuleGuard>} />
                 <Route path="/sales-orders" element={<ModuleGuard module="sales"><SalesOrders /></ModuleGuard>} />
                 <Route path="/sales-return" element={<ModuleGuard module="sales"><SalesReturnForm /></ModuleGuard>} />
+                <Route path="/sales-returns-list" element={<ModuleGuard module="sales"><SalesReturnsList /></ModuleGuard>} />
                 <Route path="/credit-note" element={<ModuleGuard module="sales"><CreditNoteForm /></ModuleGuard>} />
                 <Route path="/credit-notes-list" element={<ModuleGuard module="sales"><CreditNoteList /></ModuleGuard>} />
                 <Route path="/offer-beneficiaries" element={<ModuleGuard module="sales"><OfferBeneficiariesReport /></ModuleGuard>} />
@@ -513,6 +518,7 @@ const MainLayout = () => {
                 <Route path="/purchase-order-new" element={<ModuleGuard module="purchases"><PurchaseOrderForm /></ModuleGuard>} />
                 <Route path="/purchase-order-list" element={<ModuleGuard module="purchases"><PurchaseOrderList /></ModuleGuard>} />
                 <Route path="/purchase-return" element={<ModuleGuard module="purchases"><PurchaseReturnForm /></ModuleGuard>} />
+                <Route path="/purchase-returns-list" element={<ModuleGuard module="purchases"><PurchaseReturnsList /></ModuleGuard>} />
                 <Route path="/debit-note" element={<ModuleGuard module="purchases"><DebitNoteForm /></ModuleGuard>} />
                 <Route path="/debit-notes-list" element={<ModuleGuard module="purchases"><DebitNoteList /></ModuleGuard>} />
                 <Route path="/net-purchases-report" element={<ModuleGuard module="purchases"><NetPurchasesReport /></ModuleGuard>} />

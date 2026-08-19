@@ -5,22 +5,23 @@ import { useToast } from '../../context/ToastContext';
 import { 
   FileCheck, Save, Trash2, Loader2, Search, Plus, 
   ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, 
-  Printer, List, RefreshCw, FileText, ArrowRightLeft, Warehouse as WarehouseIcon, X
+  Printer, List, RefreshCw, FileText, ArrowRightLeft, 
+  Warehouse as WarehouseIcon, X, CheckCircle2, Tag, ShieldCheck
 } from 'lucide-react';
-import { createPurchaseOrderSchema } from '../../utils/validationSchemas';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { PurchaseOrderPrint } from './PurchaseOrderPrint';
+import { SalesOrderPrint } from './SalesOrderPrint';
 
-const PurchaseOrderForm = () => {
-  const { suppliers, products, warehouses, currentUser, settings, convertPoToInvoice } = useAccounting();
+export const SalesOrderForm = () => {
+  const { customers, products, warehouses, currentUser, settings } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
 
   const [items, setItems] = useState<any[]>([]);
   const [uoms, setUoms] = useState<any[]>([]);
+  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
   const [formData, setFormData] = useState({ 
-      supplierId: '', 
+      customerId: '', 
       date: new Date().toISOString().split('T')[0], 
       deliveryDate: '',
       orderNumber: '',
@@ -29,6 +30,7 @@ const PurchaseOrderForm = () => {
   });
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [productSearch, setProductSearch] = useState('');
 
   // Navigation & Edit State
@@ -50,7 +52,7 @@ const PurchaseOrderForm = () => {
     });
   }, []);
 
-  // جلب كافة معرفات أوامر الشراء للتنقل
+  // جلب كافة معرفات أوامر البيع للتنقل
   const fetchOrderIds = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -58,7 +60,7 @@ const PurchaseOrderForm = () => {
       if (!userOrgId) return;
 
       const { data, error } = await supabase
-        .from('purchase_orders')
+        .from('sales_orders')
         .select('id')
         .eq('organization_id', userOrgId)
         .order('order_date', { ascending: true })
@@ -68,7 +70,7 @@ const PurchaseOrderForm = () => {
       const ids = (data || []).map(o => o.id);
       setOrderIds(ids);
     } catch (err) {
-      console.error('Error fetching PO IDs:', err);
+      console.error('Error fetching SO IDs:', err);
     }
   };
 
@@ -85,55 +87,55 @@ const PurchaseOrderForm = () => {
     if (currentUser) fetchUoms();
   }, [currentUser]);
 
-  // تحميل أمر شراء محدد
+  // تحميل أمر بيع محدد
   const loadOrderById = async (id: string) => {
     setLoadingOrder(true);
     try {
-      let { data: po, error: poError } = await supabase
-        .from('purchase_orders')
+      let { data: so, error: soError } = await supabase
+        .from('sales_orders')
         .select(`
           *,
-          suppliers(id, name, phone),
-          purchase_order_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id))
+          customers(id, name, phone),
+          sales_order_items(id, product_id, quantity, unit_price, uom_id, products(name, sku, sales_price, base_uom_id, sale_uom_id))
         `)
         .eq('id', id)
         .single();
 
-      if (poError && (poError.code === 'PGRST201' || poError.message?.includes('more than one relationship'))) {
+      if (soError && (soError.code === 'PGRST201' || soError.message?.includes('more than one relationship'))) {
         const retryRes = await supabase
-          .from('purchase_orders')
+          .from('sales_orders')
           .select(`
             *,
-            suppliers(id, name, phone),
-            purchase_order_items!purchase_order_id(id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id))
+            customers(id, name, phone),
+            sales_order_items!sales_order_id(id, product_id, quantity, unit_price, uom_id, products(name, sku, sales_price, base_uom_id, sale_uom_id))
           `)
           .eq('id', id)
           .single();
-        po = retryRes.data;
-        poError = retryRes.error;
+        so = retryRes.data;
+        soError = retryRes.error;
       }
 
-      if (poError) throw poError;
-      if (!po) throw new Error('أمر الشراء غير موجود');
+      if (soError) throw soError;
+      if (!so) throw new Error('أمر البيع غير موجود');
 
-      setEditingId(po.id);
+      setEditingId(so.id);
       setFormData({
-        supplierId: po.supplier_id || '',
-        date: po.order_date || new Date().toISOString().split('T')[0],
-        deliveryDate: po.expected_delivery_date || '',
-        orderNumber: po.po_number || po.order_number || '',
-        notes: po.notes || '',
-        status: po.status || 'draft'
+        customerId: so.customer_id || '',
+        date: so.order_date || new Date().toISOString().split('T')[0],
+        deliveryDate: so.expected_delivery_date || '',
+        orderNumber: so.order_number || '',
+        notes: so.notes || '',
+        status: so.status || 'draft'
       });
 
-      const formattedItems = (po.purchase_order_items || []).map((item: any) => ({
+      const formattedItems = (so.sales_order_items || []).map((item: any) => ({
         id: item.id,
         productId: item.product_id,
         name: item.products?.name || 'صنف',
         quantity: Number(item.quantity) || 0,
         unitPrice: Number(item.unit_price) || 0,
-        uomId: item.uom_id || item.products?.base_uom_id || '',
-        total: Number(item.total) || 0
+        uomId: item.uom_id || item.products?.sale_uom_id || item.products?.base_uom_id || '',
+        total: (Number(item.quantity) || 0) * (Number(item.unit_price) || 0)
       }));
 
       setItems(formattedItems);
@@ -142,14 +144,14 @@ const PurchaseOrderForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err: any) {
-      console.error('Error loading PO:', err);
-      showToast('فشل تحميل أمر الشراء: ' + err.message, 'error');
+      console.error('Error loading SO:', err);
+      showToast('فشل تحميل أمر البيع: ' + err.message, 'error');
     } finally {
       setLoadingOrder(false);
     }
   };
 
-  // استقبال أمر شراء ممرر
+  // استقبال أمر بيع ممرر
   useEffect(() => {
     if (location.state && (location.state as any).orderToEdit) {
       const passed = (location.state as any).orderToEdit;
@@ -159,7 +161,7 @@ const PurchaseOrderForm = () => {
 
   const handleNavigate = (direction: 'first' | 'prev' | 'next' | 'last') => {
     if (orderIds.length === 0) {
-      showToast('لا توجد أوامر شراء للتنقل بينها', 'info');
+      showToast('لا توجد أوامر بيع للتنقل بينها', 'info');
       return;
     }
 
@@ -171,14 +173,14 @@ const PurchaseOrderForm = () => {
     } else if (direction === 'prev') {
       if (currentIndex <= 0) {
         targetIdx = 0;
-        showToast('هذا هو أول أمر شراء مسجل', 'info');
+        showToast('هذا هو أول أمر بيع مسجل', 'info');
       } else {
         targetIdx = currentIndex - 1;
       }
     } else if (direction === 'next') {
       if (currentIndex >= orderIds.length - 1 || currentIndex === -1) {
         targetIdx = orderIds.length - 1;
-        showToast('هذا هو آخر أمر شراء مسجل', 'info');
+        showToast('هذا هو آخر أمر بيع مسجل', 'info');
       } else {
         targetIdx = currentIndex + 1;
       }
@@ -194,21 +196,24 @@ const PurchaseOrderForm = () => {
     setCurrentIndex(-1);
     setItems([]);
     setFormData({ 
-      supplierId: '', 
+      customerId: '', 
       date: new Date().toISOString().split('T')[0], 
       deliveryDate: '',
       orderNumber: '',
       notes: '',
       status: 'draft'
     });
-    showToast('تم فتح نموذج أمر شراء جديد ➕', 'info');
+    showToast('تم فتح نموذج أمر بيع جديد ➕', 'info');
   };
 
   const addItem = (product: any) => {
-    const defaultUomId = product.purchase_uom_id || product.base_uom_id || '';
+    let priceToUse = product.sales_price || 0;
+    if (pricingTier === 'wholesale') priceToUse = product.wholesalePrice || product.sales_price || 0;
+    if (pricingTier === 'half') priceToUse = product.halfWholesalePrice || product.sales_price || 0;
+
+    const defaultUomId = product.sale_uom_id || product.base_uom_id || '';
     const selectedUom = uoms.find(u => u.id === defaultUomId);
-    const basePrice = product.purchase_price || product.cost || 0;
-    const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
+    const initialPrice = selectedUom ? Number((priceToUse * selectedUom.ratio).toFixed(4)) : priceToUse;
 
     setItems([...items, { 
         productId: product.id, 
@@ -229,13 +234,39 @@ const PurchaseOrderForm = () => {
         const selectedUom = uoms.find(u => u.id === value);
         const product = products.find(p => p.id === newItems[index].productId);
         if (selectedUom && product) {
-            const basePrice = product.purchase_price || product.cost || 0;
+            let basePrice = product.sales_price || 0;
+            if (pricingTier === 'wholesale') basePrice = product.wholesalePrice || product.sales_price || 0;
+            if (pricingTier === 'half') basePrice = product.halfWholesalePrice || product.sales_price || 0;
+
             newItems[index].unitPrice = Number((basePrice * selectedUom.ratio).toFixed(4));
         }
     }
 
     newItems[index].total = (Number(newItems[index].quantity) || 0) * (Number(newItems[index].unitPrice) || 0);
     setItems(newItems);
+  };
+
+  const handlePricingTierChange = (tier: 'retail' | 'wholesale' | 'half') => {
+    setPricingTier(tier);
+    const updatedItems = items.map(item => {
+        if (!item.productId) return item;
+        const product = products.find(p => p.id === item.productId);
+        if (!product) return item;
+
+        let newPrice = product.sales_price || 0;
+        if (tier === 'wholesale') newPrice = product.wholesalePrice || product.sales_price || 0;
+        if (tier === 'half') newPrice = product.halfWholesalePrice || product.sales_price || 0;
+
+        const selectedUom = uoms.find(u => u.id === item.uomId);
+        if (selectedUom) newPrice = Number((newPrice * selectedUom.ratio).toFixed(4));
+
+        return {
+            ...item,
+            unitPrice: newPrice,
+            total: (Number(item.quantity) || 0) * newPrice
+        };
+    });
+    setItems(updatedItems);
   };
 
   const removeItem = (index: number) => {
@@ -249,182 +280,172 @@ const PurchaseOrderForm = () => {
   const taxAmount = subtotal * taxRate;
   const totalAmount = subtotal + taxAmount;
 
-  const deletePoItems = async (orderId: string) => {
-    let delRes = await supabase.from('purchase_order_items').delete().eq('purchase_order_id', orderId);
-    if (delRes.error && delRes.error.message?.includes('purchase_order_id')) {
-      delRes = await supabase.from('purchase_order_items').delete().eq('order_id', orderId);
+  const deleteSoItems = async (orderId: string) => {
+    let delRes = await supabase.from('sales_order_items').delete().eq('sales_order_id', orderId);
+    if (delRes.error && delRes.error.message?.includes('sales_order_id')) {
+      delRes = await supabase.from('sales_order_items').delete().eq('order_id', orderId);
     }
     return delRes.error;
   };
 
-  const insertPoItems = async (itemsList: any[]) => {
-    let insRes = await supabase.from('purchase_order_items').insert(itemsList);
-    if (insRes.error && insRes.error.message?.includes('purchase_order_id')) {
+  const insertSoItems = async (itemsList: any[]) => {
+    let insRes = await supabase.from('sales_order_items').insert(itemsList);
+    if (insRes.error && insRes.error.message?.includes('sales_order_id')) {
       const adjusted = itemsList.map(item => {
-        const { purchase_order_id, ...rest } = item;
-        return { ...rest, order_id: purchase_order_id };
+        const { sales_order_id, ...rest } = item;
+        return { ...rest, order_id: sales_order_id };
       });
-      insRes = await supabase.from('purchase_order_items').insert(adjusted);
+      insRes = await supabase.from('sales_order_items').insert(adjusted);
     }
     return insRes.error;
   };
 
-  const handleSave = async () => {
-    const validationData = {
-        supplierId: formData.supplierId,
-        orderNumber: formData.orderNumber || `PO-${Date.now().toString().slice(-6)}`,
-        orderDate: formData.date,
-        deliveryDate: formData.deliveryDate || undefined,
-        items: items.map(i => ({
-            productId: i.productId,
-            quantity: Number(i.quantity),
-            unitPrice: Number(i.unitPrice)
-        })),
-        notes: formData.notes
-    };
-    const validationResult = createPurchaseOrderSchema.safeParse(validationData);
-    if (!validationResult.success) {
-        showToast(validationResult.error.issues[0].message, 'warning');
-        return;
+  const handleSave = async (targetStatus?: string) => {
+    if (!formData.customerId) {
+      showToast('يرجى اختيار العميل', 'warning');
+      return;
     }
-    setSaving(true);
+    if (items.length === 0) {
+      showToast('يرجى إضافة صنف واحد على الأقل لأمر البيع', 'warning');
+      return;
+    }
 
-    if (currentUser?.role === 'demo') {
-        showToast('تم حفظ أمر الشراء بنجاح ✅ (محاكاة ديمو)', 'success');
-        setSaving(false);
-        return;
-    }
+    setSaving(true);
 
     try {
       const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-      if (!userOrgId) throw new Error("تعذر تحديد المنظمة. يرجى إعادة تسجيل الدخول.");
+      if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
 
-      const poNumber = formData.orderNumber || `PO-${Date.now().toString().slice(-6)}`;
+      const orderNum = formData.orderNumber || `SO-${Date.now().toString().slice(-6)}`;
+      const statusToSave = targetStatus || formData.status || 'draft';
 
-      let poId = editingId;
+      let soId = editingId;
 
       if (editingId) {
-        // تحديث أمر شراء موجود
         const updatePayload: any = {
-          supplier_id: formData.supplierId,
-          po_number: poNumber,
+          customer_id: formData.customerId,
+          order_number: orderNum,
           order_date: formData.date,
           expected_delivery_date: formData.deliveryDate || null,
           total_amount: totalAmount,
+          subtotal: subtotal,
           tax_amount: taxAmount,
+          status: statusToSave,
           notes: formData.notes
         };
 
-        let updateRes = await supabase.from('purchase_orders').update(updatePayload).eq('id', editingId);
-        if (updateRes.error) {
-          if (updateRes.error.message?.includes('po_number')) {
-            delete updatePayload.po_number;
-            updatePayload.order_number = poNumber;
-          }
-          if (updateRes.error.message?.includes('expected_delivery_date')) {
-            delete updatePayload.expected_delivery_date;
-          }
-          updateRes = await supabase.from('purchase_orders').update(updatePayload).eq('id', editingId);
-          if (updateRes.error && updateRes.error.message?.includes('expected_delivery_date')) {
-            delete updatePayload.expected_delivery_date;
-            updateRes = await supabase.from('purchase_orders').update(updatePayload).eq('id', editingId);
-          }
+        let updateRes = await supabase.from('sales_orders').update(updatePayload).eq('id', editingId);
+        if (updateRes.error && updateRes.error.message?.includes('expected_delivery_date')) {
+          delete updatePayload.expected_delivery_date;
+          updateRes = await supabase.from('sales_orders').update(updatePayload).eq('id', editingId);
         }
         if (updateRes.error) throw updateRes.error;
 
-        await deletePoItems(editingId);
+        await deleteSoItems(editingId);
 
         const itemsToInsert = items.map(item => ({
           organization_id: userOrgId,
-          purchase_order_id: editingId,
+          sales_order_id: editingId,
           product_id: item.productId,
           quantity: Number(item.quantity),
           unit_price: Number(item.unitPrice),
-          uom_id: item.uomId || null,
-          total: Number(item.quantity) * Number(item.unitPrice)
+          uom_id: item.uomId || null
         }));
 
-        const itemsError = await insertPoItems(itemsToInsert);
+        const itemsError = await insertSoItems(itemsToInsert);
         if (itemsError) throw itemsError;
 
-        showToast('تم تحديث أمر الشراء بنجاح ✅', 'success');
+        showToast(statusToSave === 'confirmed' ? 'تم تعميد وتأكيد أمر البيع بنجاح 🛡️✅' : 'تم تحديث أمر البيع بنجاح ✅', 'success');
 
       } else {
-        // إنشاء أمر شراء جديد
         const insertPayload: any = {
           organization_id: userOrgId,
-          supplier_id: formData.supplierId,
-          po_number: poNumber,
+          customer_id: formData.customerId,
+          order_number: orderNum,
           order_date: formData.date,
           expected_delivery_date: formData.deliveryDate || null,
           total_amount: totalAmount,
+          subtotal: subtotal,
           tax_amount: taxAmount,
-          status: 'sent',
+          status: statusToSave,
           notes: formData.notes
         };
 
-        let insertRes = await supabase.from('purchase_orders').insert(insertPayload).select().single();
-        if (insertRes.error) {
-          if (insertRes.error.message?.includes('po_number')) {
-            delete insertPayload.po_number;
-            insertPayload.order_number = poNumber;
-          }
-          if (insertRes.error.message?.includes('expected_delivery_date')) {
-            delete insertPayload.expected_delivery_date;
-          }
-          insertRes = await supabase.from('purchase_orders').insert(insertPayload).select().single();
-          if (insertRes.error && insertRes.error.message?.includes('expected_delivery_date')) {
-            delete insertPayload.expected_delivery_date;
-            insertRes = await supabase.from('purchase_orders').insert(insertPayload).select().single();
-          }
+        let insertRes = await supabase.from('sales_orders').insert(insertPayload).select().single();
+        if (insertRes.error && insertRes.error.message?.includes('expected_delivery_date')) {
+          delete insertPayload.expected_delivery_date;
+          insertRes = await supabase.from('sales_orders').insert(insertPayload).select().single();
         }
         if (insertRes.error) throw insertRes.error;
-        const po = insertRes.data;
-        poId = po.id;
+        const so = insertRes.data;
+        soId = so.id;
 
         const itemsToInsert = items.map(item => ({
           organization_id: userOrgId,
-          purchase_order_id: po.id,
+          sales_order_id: so.id,
           product_id: item.productId,
           quantity: Number(item.quantity),
           unit_price: Number(item.unitPrice),
-          uom_id: item.uomId || null,
-          total: Number(item.quantity) * Number(item.unitPrice)
+          uom_id: item.uomId || null
         }));
 
-        const itemsError = await insertPoItems(itemsToInsert);
+        const itemsError = await insertSoItems(itemsToInsert);
         if (itemsError) throw itemsError;
 
-        showToast('تم حفظ أمر الشراء بنجاح ✅', 'success');
+        showToast(statusToSave === 'confirmed' ? 'تم حفظ وتعميد أمر البيع بنجاح 🛡️✅' : 'تم حفظ أمر البيع كمسودة ✅', 'success');
       }
 
       await fetchOrderIds();
-      if (poId) {
-        loadOrderById(poId);
+      if (soId) {
+        loadOrderById(soId);
       }
 
     } catch (error: any) {
       console.error(error);
-      showToast('فشل حفظ أمر الشراء: ' + error.message, 'error');
+      showToast('فشل حفظ أمر البيع: ' + error.message, 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleConfirmOrder = async () => {
+    if (!editingId) {
+      await handleSave('confirmed');
+      return;
+    }
+
+    setConfirming(true);
+    try {
+      const { error } = await supabase
+        .from('sales_orders')
+        .update({ status: 'confirmed' })
+        .eq('id', editingId);
+
+      if (error) throw error;
+      setFormData(prev => ({ ...prev, status: 'confirmed' }));
+      showToast('تم تعميد أمر البيع بنجاح 🛡️✅ أصبح جاهزاً للصرف أو التشغيل', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast('فشل التعميد: ' + err.message, 'error');
+    } finally {
+      setConfirming(false);
     }
   };
 
   const handleDeleteCurrent = async () => {
     if (!editingId) return;
 
-    if (!window.confirm(`هل أنت متأكد من حذف أمر الشراء رقم (${formData.orderNumber})؟`)) {
+    if (!window.confirm(`هل أنت متأكد من حذف أمر البيع رقم (${formData.orderNumber})؟`)) {
       return;
     }
 
     setDeleting(true);
     try {
-      await deletePoItems(editingId);
-      const { error: delErr } = await supabase.from('purchase_orders').delete().eq('id', editingId);
+      await deleteSoItems(editingId);
+      const { error: delErr } = await supabase.from('sales_orders').delete().eq('id', editingId);
       if (delErr) throw delErr;
 
-      showToast('تم حذف أمر الشراء بنجاح ✅', 'success');
+      showToast('تم حذف أمر البيع بنجاح ✅', 'success');
 
       const newIds = orderIds.filter(id => id !== editingId);
       setOrderIds(newIds);
@@ -437,19 +458,19 @@ const PurchaseOrderForm = () => {
       }
 
     } catch (err: any) {
-      console.error('Error deleting PO:', err);
-      showToast('فشل حذف أمر الشراء: ' + err.message, 'error');
+      console.error('Error deleting SO:', err);
+      showToast('فشل حذف أمر البيع: ' + err.message, 'error');
     } finally {
       setDeleting(false);
     }
   };
 
   const handlePrintCurrent = () => {
-    const poData = {
+    const soData = {
       orderNumber: formData.orderNumber,
       date: formData.date,
       deliveryDate: formData.deliveryDate,
-      supplierName: suppliers.find(s => s.id === formData.supplierId)?.name || 'مورد عام',
+      customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل عام',
       notes: formData.notes,
       totalAmount: totalAmount,
       taxAmount: taxAmount,
@@ -462,27 +483,32 @@ const PurchaseOrderForm = () => {
       }))
     };
 
-    setOrderToPrint(poData);
+    setOrderToPrint(soData);
     setTimeout(() => {
       window.print();
       setOrderToPrint(null);
     }, 200);
   };
 
-  // تحويل إلى فاتورة مشتريات
+  // تحويل إلى فاتورة مبيعات
   const handleConvertToInvoice = async () => {
     if (!editingId) return;
     if (!targetWarehouseId) {
-      showToast('يرجى اختيار مستودع الاستلام لإصدار فاتورة المشتريات', 'warning');
+      showToast('يرجى اختيار مستودع الصرف لإصدار فاتورة المبيعات', 'warning');
       return;
     }
 
     setConverting(true);
     try {
-      await convertPoToInvoice(editingId, targetWarehouseId);
-      showToast('تم تحويل أمر الشراء إلى فاتورة مشتريات بنجاح ✅', 'success');
+      const { data, error } = await supabase.rpc('convert_so_to_invoice', {
+        p_so_id: editingId,
+        p_warehouse_id: targetWarehouseId
+      });
+
+      if (error) throw error;
+      showToast('تم تحويل أمر البيع إلى فاتورة مبيعات رسمية بنجاح ✅', 'success');
       setIsConvertModalOpen(false);
-      navigate('/purchase-invoices-list');
+      navigate('/invoices-list');
     } catch (err: any) {
       console.error(err);
       showToast('فشل التحويل: ' + err.message, 'error');
@@ -496,6 +522,19 @@ const PurchaseOrderForm = () => {
     (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
   ).slice(0, 8);
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'confirmed':
+        return <span className="bg-blue-100 text-blue-700 text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center gap-1"><ShieldCheck size={12} /> معمد ومؤكد</span>;
+      case 'invoiced':
+        return <span className="bg-purple-100 text-purple-700 text-xs px-2.5 py-0.5 rounded-full font-bold inline-flex items-center gap-1"><CheckCircle2 size={12} /> تم الفوترة والصرف</span>;
+      case 'manufacturing':
+        return <span className="bg-amber-100 text-amber-700 text-xs px-2.5 py-0.5 rounded-full font-bold">تحت التشغيل ⚙️</span>;
+      default:
+        return <span className="bg-slate-100 text-slate-700 text-xs px-2.5 py-0.5 rounded-full font-bold">مسودة 📝</span>;
+    }
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in">
       
@@ -508,27 +547,20 @@ const PurchaseOrderForm = () => {
           </div>
           <div>
             <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-              {editingId ? `أمر شراء: ${formData.orderNumber}` : 'أمر شراء جديد'}
-              {editingId && (
-                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                  formData.status === 'converted' ? 'bg-purple-100 text-purple-700' :
-                  formData.status === 'sent' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {formData.status === 'converted' ? 'محول لفاتورة ✅' : formData.status === 'sent' ? 'مرسل للمورد 📬' : 'مسودة 📝'}
-                </span>
-              )}
+              {editingId ? `أمر بيع: ${formData.orderNumber}` : 'أمر بيع وتعميد جديد'}
+              {editingId && getStatusBadge(formData.status)}
             </h2>
-            <p className="text-xs text-slate-400 font-bold">إصدار وتعميد طلبات الشراء والتوريد ومتابعة الموردين</p>
+            <p className="text-xs text-slate-400 font-bold">تسجيل وتعميد طلبات البيع وتجهيزها للتسليم أو التشغيل الصناعي</p>
           </div>
         </div>
 
-        {/* 🧭 أسهم التنقل بين أوامر الشراء */}
+        {/* 🧭 أسهم التنقل بين أوامر البيع */}
         <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
           <button 
             type="button" 
             onClick={() => handleNavigate('first')} 
             disabled={orderIds.length === 0 || currentIndex === 0} 
-            title="أول أمر شراء"
+            title="أول أمر بيع"
             className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <ChevronsRight size={18} />
@@ -538,7 +570,7 @@ const PurchaseOrderForm = () => {
             type="button" 
             onClick={() => handleNavigate('prev')} 
             disabled={orderIds.length === 0 || currentIndex <= 0} 
-            title="أمر الشراء السابق"
+            title="أمر البيع السابق"
             className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <ChevronRight size={18} />
@@ -551,7 +583,7 @@ const PurchaseOrderForm = () => {
             ) : editingId && currentIndex !== -1 ? (
               <span>{currentIndex + 1} / {orderIds.length}</span>
             ) : (
-              <span className="text-emerald-600 font-bold">جديد ➕</span>
+              <span className="text-blue-600 font-bold">جديد ➕</span>
             )}
           </div>
 
@@ -559,7 +591,7 @@ const PurchaseOrderForm = () => {
             type="button" 
             onClick={() => handleNavigate('next')} 
             disabled={orderIds.length === 0 || currentIndex >= orderIds.length - 1 || currentIndex === -1} 
-            title="أمر الشراء التالي"
+            title="أمر البيع التالي"
             className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <ChevronLeft size={18} />
@@ -569,7 +601,7 @@ const PurchaseOrderForm = () => {
             type="button" 
             onClick={() => handleNavigate('last')} 
             disabled={orderIds.length === 0 || currentIndex >= orderIds.length - 1 || currentIndex === -1} 
-            title="آخر أمر شراء"
+            title="آخر أمر بيع"
             className="p-2 text-slate-600 hover:bg-white hover:text-blue-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
           >
             <ChevronsLeft size={18} />
@@ -580,25 +612,37 @@ const PurchaseOrderForm = () => {
         <div className="flex items-center gap-2">
           <button 
             type="button" 
-            onClick={() => navigate('/purchase-order-list')} 
+            onClick={() => navigate('/sales-orders')} 
             className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-            title="عرض سجل أوامر الشراء"
+            title="عرض سجل أوامر البيع"
           >
-            <List size={16} /> سجل أوامر الشراء
+            <List size={16} /> سجل الأوامر
           </button>
 
           <button 
             type="button" 
             onClick={handleNewOrder} 
-            className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-            title="بدء أمر شراء جديد"
+            className="bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="بدء أمر بيع جديد"
           >
             <Plus size={16} /> جديد
           </button>
 
           {editingId && (
             <>
-              {formData.status !== 'converted' && (
+              {formData.status !== 'confirmed' && formData.status !== 'invoiced' && (
+                <button 
+                  type="button" 
+                  onClick={handleConfirmOrder} 
+                  disabled={confirming}
+                  className="bg-blue-600 text-white hover:bg-blue-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                  title="تعميد وتأكيد أمر البيع للتشغيل أو الصرف"
+                >
+                  {confirming ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />} تعميد الأمر
+                </button>
+              )}
+
+              {formData.status !== 'invoiced' && (
                 <button 
                   type="button" 
                   onClick={() => {
@@ -606,7 +650,7 @@ const PurchaseOrderForm = () => {
                     setIsConvertModalOpen(true);
                   }} 
                   className="bg-purple-600 text-white hover:bg-purple-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
-                  title="تحويل أمر الشراء إلى فاتورة مشتريات واستلام البضاعة"
+                  title="تحويل أمر البيع إلى فاتورة مبيعات وصرف المخزون"
                 >
                   <ArrowRightLeft size={16} /> تحويل لفاتورة
                 </button>
@@ -616,7 +660,7 @@ const PurchaseOrderForm = () => {
                 type="button" 
                 onClick={handlePrintCurrent} 
                 className="bg-slate-800 text-white hover:bg-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-                title="طباعة أمر الشراء"
+                title="طباعة أمر البيع"
               >
                 <Printer size={16} /> طباعة
               </button>
@@ -626,7 +670,7 @@ const PurchaseOrderForm = () => {
                 onClick={handleDeleteCurrent} 
                 disabled={deleting} 
                 className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                title="حذف أمر الشراء"
+                title="حذف أمر البيع"
               >
                 {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
               </button>
@@ -635,32 +679,62 @@ const PurchaseOrderForm = () => {
 
           <button 
             type="button" 
-            onClick={handleSave} 
+            onClick={() => handleSave()} 
             disabled={saving} 
-            className="bg-blue-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50"
+            className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
           >
             {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
-            {editingId ? 'حفظ التعديلات' : 'حفظ أمر الشراء'}
+            {editingId ? 'حفظ التعديلات' : 'حفظ كمسودة'}
           </button>
         </div>
       </div>
 
       {/* Main Form Body */}
-      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">المورد <span className="text-red-500">*</span></label>
+      <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="lg:col-span-1">
+          <label className="block text-xs font-bold text-slate-700 mb-1">العميل <span className="text-red-500">*</span></label>
           <select 
             className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
-            value={formData.supplierId} 
-            onChange={e => setFormData({...formData, supplierId: e.target.value})}
+            value={formData.customerId} 
+            onChange={e => setFormData({...formData, customerId: e.target.value})}
           >
-            <option value="">اختر المورد...</option>
-            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <option value="">اختر العميل...</option>
+            {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
 
+        {/* Pricing Tier */}
+        <div className="lg:col-span-1">
+          <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+            <Tag size={14} /> مستوى التسعير
+          </label>
+          <div className="flex bg-slate-50 p-1 rounded-xl border border-slate-200">
+            <button
+              type="button"
+              onClick={() => handlePricingTierChange('retail')}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${pricingTier === 'retail' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              قطاعي
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePricingTierChange('wholesale')}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${pricingTier === 'wholesale' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              جملة
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePricingTierChange('half')}
+              className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${pricingTier === 'half' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              نصف
+            </button>
+          </div>
+        </div>
+
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ أمر الشراء <span className="text-red-500">*</span></label>
+          <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ أمر البيع <span className="text-red-500">*</span></label>
           <input 
             type="date" 
             className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
@@ -670,7 +744,7 @@ const PurchaseOrderForm = () => {
         </div>
 
         <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ التسليم المتوقع (اختياري)</label>
+          <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ التسليم المتوقع</label>
           <input 
             type="date" 
             className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-blue-500" 
@@ -679,25 +753,14 @@ const PurchaseOrderForm = () => {
           />
         </div>
 
-        <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">رقم أمر الشراء (اختياري)</label>
-          <input 
-            type="text" 
-            className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-mono font-bold outline-none focus:border-blue-500" 
-            value={formData.orderNumber} 
-            onChange={e => setFormData({...formData, orderNumber: e.target.value})} 
-            placeholder="تلقائي (مثال: PO-123456)" 
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات / شروط التوريد</label>
+        <div className="md:col-span-2 lg:col-span-4">
+          <label className="block text-xs font-bold text-slate-700 mb-1">شروط وملاحظات التعميد والتسليم</label>
           <input 
             type="text" 
             className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-blue-500" 
             value={formData.notes} 
             onChange={e => setFormData({...formData, notes: e.target.value})} 
-            placeholder="أدخل أي شروط أو ملاحظات للمورد..." 
+            placeholder="شروط التسليم، مستودع الصرف المفضل، خطة التشغيل..." 
           />
         </div>
       </div>
@@ -707,7 +770,7 @@ const PurchaseOrderForm = () => {
         
         {/* Product Search */}
         <div className="relative">
-          <label className="block text-xs font-bold text-slate-600 mb-1">إضافة صنف لأمر الشراء</label>
+          <label className="block text-xs font-bold text-slate-600 mb-1">إضافة صنف لأمر البيع</label>
           <div className="relative">
             <input 
               type="text" 
@@ -732,7 +795,7 @@ const PurchaseOrderForm = () => {
                     <span className="text-xs text-slate-400 font-mono">الكود: {p.sku || '-'}</span>
                   </div>
                   <span className="text-blue-600 font-mono font-bold text-sm">
-                    {(p.purchase_price || p.cost || 0).toLocaleString()} {settings.currency || 'ج.م'}
+                    {(p.sales_price || 0).toLocaleString()} {settings.currency || 'ج.م'}
                   </span>
                 </div>
               ))}
@@ -748,7 +811,7 @@ const PurchaseOrderForm = () => {
                 <th className="p-3">الصنف المطلوب</th>
                 <th className="p-3 w-32 text-center">الوحدة</th>
                 <th className="p-3 w-28 text-center">الكمية المطلوبة</th>
-                <th className="p-3 w-32 text-center">السعر التقديري</th>
+                <th className="p-3 w-32 text-center">السعر المعتمد</th>
                 <th className="p-3 w-32 text-center">الإجمالي</th>
                 <th className="p-3 w-12 text-center"></th>
               </tr>
@@ -836,7 +899,7 @@ const PurchaseOrderForm = () => {
               </div>
             )}
             <div className="flex justify-between text-sm font-black text-blue-700 border-t border-slate-200 pt-2">
-              <span>إجمالي أمر الشراء:</span>
+              <span>إجمالي أمر البيع:</span>
               <span className="font-mono text-lg" dir="ltr">{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
             </div>
           </div>
@@ -850,17 +913,17 @@ const PurchaseOrderForm = () => {
           <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
-                <WarehouseIcon className="text-purple-600" /> اختيار مستودع الاستلام
+                <WarehouseIcon className="text-purple-600" /> اختيار مستودع الصرف
               </h3>
               <button onClick={() => setIsConvertModalOpen(false)} className="text-slate-400 hover:text-slate-600 p-1">
                 <X size={20} />
               </button>
             </div>
             <p className="text-sm text-slate-600 mb-4">
-              سيتم تحويل أمر الشراء إلى فاتورة مشتريات رسمية وتحديث كميات المخزون فوراً في المستودع المختار.
+              سيتم تحويل أمر البيع إلى فاتورة مبيعات رسمية وخصم الكميات فوراً من المستودع المختار.
             </p>
             <div className="mb-6">
-              <label className="block text-xs font-bold text-slate-700 mb-1">المستودع المستلم <span className="text-red-500">*</span></label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">المستودع المصروف منه <span className="text-red-500">*</span></label>
               <select 
                 value={targetWarehouseId} 
                 onChange={e => setTargetWarehouseId(e.target.value)}
@@ -885,7 +948,7 @@ const PurchaseOrderForm = () => {
                 className="px-5 py-2.5 rounded-xl bg-purple-600 text-white font-bold text-sm hover:bg-purple-700 disabled:opacity-50 flex items-center gap-2"
               >
                 {converting ? <Loader2 size={16} className="animate-spin" /> : <ArrowRightLeft size={16} />}
-                تأكيد التحويل لفاتورة
+                تأكيد الفوترة والصرف
               </button>
             </div>
           </div>
@@ -894,10 +957,10 @@ const PurchaseOrderForm = () => {
 
       {/* Hidden printable component */}
       {orderToPrint && (
-        <PurchaseOrderPrint orderData={orderToPrint} companySettings={companySettings} />
+        <SalesOrderPrint orderData={orderToPrint} companySettings={companySettings} />
       )}
     </div>
   );
 };
 
-export default PurchaseOrderForm;
+export default SalesOrderForm;

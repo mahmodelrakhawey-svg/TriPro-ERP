@@ -3,13 +3,15 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { 
     Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
-    CircleDollarSign, Loader2, CheckCircle, Package, Ruler, List, 
-    DollarSign, Activity
+    Loader2, CheckCircle, Package, Ruler, List, 
+    Printer, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft,
+    DollarSign, Activity, FileText
 } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createPurchaseInvoiceSchema } from '../../utils/validationSchemas';
+import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
@@ -32,27 +34,52 @@ const PurchaseInvoiceForm = () => {
 
   const [items, setItems] = useState<any[]>([]);
   const [uoms, setUoms] = useState<any[]>([]);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
 
-  // Print State
+  // Navigation & Edit State
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [invoiceIds, setInvoiceIds] = useState<string[]>([]);
+  const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const [loadingInvoice, setLoadingInvoice] = useState(false);
+  const [invoiceToPrint, setInvoiceToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
 
   useEffect(() => {
-    // 🛡️ استخدام RPC هو الحل الوحيد لتجنب خطأ 406 في جميع الشاشات المالية
-    supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
-      if (error) {
-        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
-      } else {
-        setCompanySettings(data);
-      }
+    supabase.rpc('get_current_company_settings').maybeSingle().then(({ data }) => {
+      if (data) setCompanySettings(data);
     });
   }, []);
 
-  // تحميل كافة الوحدات عند فتح الشاشة
+  // جلب كافة معرفات فواتير المشتريات للتنقل
+  const fetchInvoiceIds = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
+
+      const { data, error } = await supabase
+        .from('purchase_invoices')
+        .select('id')
+        .eq('organization_id', userOrgId)
+        .order('invoice_date', { ascending: true })
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      const ids = (data || []).map(inv => inv.id);
+      setInvoiceIds(ids);
+    } catch (err) {
+      console.error('Error fetching purchase invoice IDs:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchInvoiceIds();
+  }, []);
+
+  // تحميل الوحدات
   useEffect(() => {
     const fetchUoms = async () => {
       const orgId = (currentUser as any)?.organization_id;
@@ -62,7 +89,7 @@ const PurchaseInvoiceForm = () => {
     if (currentUser) fetchUoms();
   }, [currentUser]);
 
-  // تصفية حسابات الخزينة والبنوك لسداد الفاتورة
+  // حسابات الخزينة
   const treasuryAccounts = useMemo(() => {
     return accounts.filter(a => 
       !a.isGroup && (
@@ -76,8 +103,7 @@ const PurchaseInvoiceForm = () => {
   }, [accounts]);
 
   useEffect(() => {
-    // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات)
-    if (!formData.warehouseId) {
+    if (!formData.warehouseId && !editingId) {
       if (warehouses.length === 1) {
         setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
       } else if (settings.defaultWarehouseId) {
@@ -88,60 +114,127 @@ const PurchaseInvoiceForm = () => {
     if (!formData.currency && settings.currency) {
         setFormData(prev => ({ ...prev, currency: settings.currency }));
     }
-  }, [warehouses, settings, formData.warehouseId]);
+  }, [warehouses, settings, formData.warehouseId, editingId]);
 
-  // تحميل بيانات الفاتورة عند التعديل
-  useEffect(() => {
-    if (location.state && location.state.invoiceToEdit) {
-      const invId = location.state.invoiceToEdit.id;
-      
-      const fetchInvoiceDetails = async () => {
-          const { data: fullInv } = await supabase.from('purchase_invoices').select('*').eq('id', invId).single();
-          
-          if (fullInv) {
-              if (fullInv.status !== 'draft' && currentUser?.role !== 'admin' && currentUser?.role !== 'super_admin' && !can('purchases', 'update')) {
-                  showToast('تنبيه: هذه الفاتورة مرحلة ولا يمكن تعديلها.', 'warning');
-              }
+  // تحميل تفاصيل فاتورة مشتريات محددة
+  const loadInvoiceById = async (id: string) => {
+    setLoadingInvoice(true);
+    try {
+      const { data: fullInv, error: invError } = await supabase
+        .from('purchase_invoices')
+        .select(`
+          *,
+          suppliers(id, name, phone),
+          warehouses(id, name),
+          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id))
+        `)
+        .eq('id', id)
+        .single();
 
-              setEditingId(fullInv.id);
-              setFormData(prev => ({
-                ...prev,
-                supplierId: fullInv.supplier_id || '',
-                invoiceNumber: fullInv.invoice_number || '',
-                date: fullInv.invoice_date || new Date().toISOString().split('T')[0],
-                notes: fullInv.notes || '',
-                status: fullInv.status || 'draft',
-                currency: fullInv.currency || settings.currency || 'EGP',
-                exchangeRate: fullInv.exchange_rate || 1,
-                warehouseId: fullInv.warehouse_id || '',
-                paidAmount: fullInv.paid_amount || 0,
-                treasuryAccountId: fullInv.treasury_account_id || '',
-              }));
+      if (invError) throw invError;
+      if (!fullInv) throw new Error('الفاتورة غير موجودة');
 
-              // جلب البنود
-              const { data: itemsData } = await supabase.from('purchase_invoice_items').select('*, products(name, sku)').eq('purchase_invoice_id', fullInv.id);
-              if (itemsData) {
-                 setItems(itemsData.map((i: any) => ({
-                   id: i.id,
-                   productId: i.product_id,
-                   productName: i.products?.name,
-                   productSku: i.products?.sku,
-                   quantity: i.quantity,
-                   unitPrice: i.unit_price,
-                   uomId: i.uomId || i.uom_id,
-                   total: i.total,
-                   batchNumber: i.batch_number || '',
-                   expiryDate: i.expiry_date || ''
-                 })));
-              }
-          }
-      };
-      
-      fetchInvoiceDetails();
+      setEditingId(fullInv.id);
+      setFormData({
+        supplierId: fullInv.supplier_id || '',
+        invoiceNumber: fullInv.invoice_number || '',
+        date: fullInv.invoice_date || new Date().toISOString().split('T')[0],
+        notes: fullInv.notes || '',
+        status: fullInv.status || 'draft',
+        currency: fullInv.currency || settings.currency || 'EGP',
+        exchangeRate: fullInv.exchange_rate || 1,
+        warehouseId: fullInv.warehouse_id || '',
+        paidAmount: fullInv.paid_amount || 0,
+        treasuryAccountId: fullInv.treasury_account_id || '',
+      });
+
+      const formattedItems = (fullInv.purchase_invoice_items || []).map((i: any) => ({
+        id: i.id,
+        productId: i.product_id,
+        productName: i.products?.name || 'صنف',
+        productSku: i.products?.sku || '',
+        quantity: Number(i.quantity) || 0,
+        unitPrice: Number(i.unit_price) || 0,
+        uomId: i.uom_id || i.products?.base_uom_id || '',
+        total: Number(i.total) || 0,
+        batchNumber: i.batch_number || '',
+        expiryDate: i.expiry_date || ''
+      }));
+
+      setItems(formattedItems);
+
+      const idx = invoiceIds.indexOf(id);
+      if (idx !== -1) setCurrentIndex(idx);
+
+    } catch (err: any) {
+      console.error('Error loading purchase invoice:', err);
+      showToast('فشل تحميل الفاتورة: ' + err.message, 'error');
+    } finally {
+      setLoadingInvoice(false);
     }
-  }, [location, settings]);
+  };
 
-  const subtotal = useMemo(() => items.reduce((sum, item) => sum + (item.total || 0), 0), [items]);
+  // استقبال فاتورة محالة من السجل
+  useEffect(() => {
+    if (location.state && (location.state as any).invoiceToEdit) {
+      const inv = (location.state as any).invoiceToEdit;
+      loadInvoiceById(inv.id);
+    }
+  }, [location.state]);
+
+  // التنقل بين السجلات
+  const handleNavigate = (direction: 'first' | 'prev' | 'next' | 'last') => {
+    if (invoiceIds.length === 0) {
+      showToast('لا توجد فواتير مشتريات مسجلة للتنقل بينها', 'info');
+      return;
+    }
+
+    let targetIdx = currentIndex;
+    if (direction === 'first') {
+      targetIdx = 0;
+    } else if (direction === 'last') {
+      targetIdx = invoiceIds.length - 1;
+    } else if (direction === 'prev') {
+      if (currentIndex <= 0) {
+        targetIdx = 0;
+        showToast('هذه هي أول فاتورة مسجلة', 'info');
+      } else {
+        targetIdx = currentIndex - 1;
+      }
+    } else if (direction === 'next') {
+      if (currentIndex >= invoiceIds.length - 1 || currentIndex === -1) {
+        targetIdx = invoiceIds.length - 1;
+        showToast('هذه هي آخر فاتورة مسجلة', 'info');
+      } else {
+        targetIdx = currentIndex + 1;
+      }
+    }
+
+    if (targetIdx >= 0 && targetIdx < invoiceIds.length) {
+      loadInvoiceById(invoiceIds[targetIdx]);
+    }
+  };
+
+  const handleNewInvoice = () => {
+    setEditingId(null);
+    setCurrentIndex(-1);
+    setItems([]);
+    setFormData({
+      supplierId: '',
+      invoiceNumber: '',
+      warehouseId: warehouses.length === 1 ? warehouses[0].id : (settings.defaultWarehouseId || ''),
+      date: new Date().toISOString().split('T')[0],
+      notes: '',
+      status: 'draft',
+      currency: settings.currency || 'EGP',
+      exchangeRate: 1,
+      paidAmount: 0,
+      treasuryAccountId: ''
+    });
+    showToast('تم فتح نموذج فاتورة مشتريات جديدة ➕', 'info');
+  };
+
+  const subtotal = useMemo(() => items.reduce((sum, item) => sum + (Number(item.total) || 0), 0), [items]);
   const taxAmount = useMemo(() => subtotal * (settings.enableTax ? ((settings.vatRate || 0) / 100) : 0), [subtotal, settings]);
   const totalAmount = useMemo(() => subtotal + taxAmount, [subtotal, taxAmount]);
 
@@ -160,11 +253,8 @@ const PurchaseInvoiceForm = () => {
               const bName = b.name.toLowerCase();
               const aStarts = aName.startsWith(term);
               const bStarts = bName.startsWith(term);
-              
-              // إعطاء الأولوية للأصناف التي تبدأ بكلمة البحث لضمان التجميع (Grouping)
               if (aStarts && !bStarts) return -1;
               if (!aStarts && bStarts) return 1;
-              // ترتيب أبجدي تصاعدي لباقي النتائج
               return aName.localeCompare(bName);
           })
           .slice(0, 10);
@@ -180,7 +270,7 @@ const PurchaseInvoiceForm = () => {
           newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * (newItems[existingItemIndex].unitPrice || 0);
           setItems(newItems);
       } else {
-          const defaultUomId = product.purchase_uom_id || product.base_uom_id;
+          const defaultUomId = product.purchase_uom_id || product.base_uom_id || '';
           const selectedUom = uoms.find(u => u.id === defaultUomId);
           const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
 
@@ -224,12 +314,10 @@ const PurchaseInvoiceForm = () => {
     const newItems = [...items];
     newItems[index][field] = value;
 
-    // ذكاء المشتريات: تحديث سعر الشراء تلقائياً عند تغيير الوحدة
     if (field === 'uomId') {
         const selectedUom = uoms.find(u => u.id === value);
         const product = products.find(p => p.id === newItems[index].productId);
         if (selectedUom && product) {
-            // السعر الجديد = سعر الشراء الأساسي * معامل التحويل
             const basePrice = product.purchase_price || product.cost || 0;
             const newUnitPrice = basePrice * selectedUom.ratio;
             newItems[index].unitPrice = Number(newUnitPrice.toFixed(4));
@@ -240,7 +328,8 @@ const PurchaseInvoiceForm = () => {
       const product = products.find(p => p.id === value);
       if (product) {
         newItems[index].unitPrice = product.purchase_price || product.cost || 0;
-        newItems[index].uomId = product.purchase_uom_id || product.base_uom_id;
+        newItems[index].uomId = product.purchase_uom_id || product.base_uom_id || '';
+        newItems[index].productName = product.name;
       }
     }
 
@@ -252,15 +341,15 @@ const PurchaseInvoiceForm = () => {
     setItems(items.filter((_, i) => i !== index));
   };
 
-  const handleSave = async (e: React.FormEvent, post: boolean = false) => {
-    e.preventDefault();
+  const handleSave = async (e?: React.FormEvent, post: boolean = false) => {
+    if (e) e.preventDefault();
     
     const validationResult = createPurchaseInvoiceSchema.safeParse({ 
         ...formData, 
         items: items.map(i => ({
             productId: i.productId,
-            quantity: i.quantity,
-            unitPrice: i.unitPrice
+            quantity: Number(i.quantity),
+            unitPrice: Number(i.unitPrice)
         }))
     });
 
@@ -272,34 +361,8 @@ const PurchaseInvoiceForm = () => {
 
     setSaving(true);
 
-    // demo mode simulation
     if (currentUser?.role === 'demo') {
-      await new Promise(r => setTimeout(r, 500));
-      const invoiceNumber = formData.invoiceNumber || `PUR-DEMO-${Math.floor(Math.random()*10000)}`;
-      const demoInvoice = {
-        id: `demo-pinv-${Date.now()}`,
-        invoiceNumber,
-        supplier_id: formData.supplierId,
-        supplierName: suppliers.find(s => s.id === formData.supplierId)?.name || 'مورد ديمو',
-        warehouseId: formData.warehouseId,
-        date: formData.date,
-        total_amount: totalAmount,
-        tax_amount: taxAmount,
-        subtotal: subtotal,
-        notes: formData.notes,
-        status: 'draft',
-        currency: formData.currency,
-        exchange_rate: formData.exchangeRate,
-        items: items,
-        paidAmount: formData.paidAmount,
-        treasuryAccountId: formData.treasuryAccountId
-      };
-      addDemoPurchaseInvoice(demoInvoice);
-      setSuccessMessage('تم حفظ فاتورة مشتريات الديمو بنجاح!');
-      setItems([]);
-      setFormData(prev => ({ ...prev, supplierId: '', invoiceNumber: '', notes: '' }));
-      setEditingId(null);
-      setTimeout(() => setSuccessMessage(null), 4000);
+      showToast('تم حفظ فاتورة المشتريات بنجاح (محاكاة ديمو) ✅', 'success');
       setSaving(false);
       return;
     }
@@ -312,67 +375,102 @@ const PurchaseInvoiceForm = () => {
       const invoiceData = {
         organization_id: userOrgId,
         invoice_number: invoiceNumber,
-        supplier_id: formData.supplierId, // No change
+        supplier_id: formData.supplierId,
         warehouse_id: formData.warehouseId,
         invoice_date: formData.date,
         total_amount: totalAmount,
         tax_amount: taxAmount,
-        subtotal: subtotal, // إضافة هذا الحقل لضمان حساب المخزون بشكل صحيح
+        subtotal: subtotal,
         notes: formData.notes,
-        status: 'draft', // إرجاع الحالة لمسودة عند التعديل لضمان إعادة الترحيل النظيف
-        related_journal_entry_id: null, // تصفير المرجع القديم في الواجهة
+        status: 'draft',
         currency: formData.currency,
         exchange_rate: formData.exchangeRate,
         user_id: currentUser?.id,
-        paid_amount: formData.paidAmount, // No change
+        paid_amount: formData.paidAmount,
         treasury_account_id: formData.treasuryAccountId || null
       };
 
       let invoiceId = editingId;
 
       if (editingId) {
-        // تحديث فاتورة موجودة
-        const { error: updateError } = await supabase.from('purchase_invoices').update(invoiceData).eq('id', editingId);
+        // تحديث فاتورة موجودة: عكس القديم أولاً إذا كانت مرحلة
+        const { data: oldInv } = await supabase.from('purchase_invoices').select('*, purchase_invoice_items(*)').eq('id', editingId).single();
+        if (oldInv && oldInv.status === 'posted') {
+          for (const oldItem of (oldInv.purchase_invoice_items || [])) {
+            if (oldItem.product_id && oldItem.quantity) {
+              const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', oldItem.product_id).single();
+              if (prod) {
+                const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(oldItem.quantity));
+                let newWStock = prod.warehouse_stock || {};
+                if (oldInv.warehouse_id && newWStock[oldInv.warehouse_id] !== undefined) {
+                  newWStock[oldInv.warehouse_id] = Math.max(0, (Number(newWStock[oldInv.warehouse_id]) || 0) - Number(oldItem.quantity));
+                }
+                await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', oldItem.product_id);
+              }
+            }
+          }
+
+          if (oldInv.related_journal_entry_id) {
+            await supabase.from('journal_entries').delete().eq('id', oldInv.related_journal_entry_id);
+          } else {
+            await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', oldInv.invoice_number);
+          }
+        }
+
+        const { error: updateError } = await supabase.from('purchase_invoices').update({
+          ...invoiceData,
+          related_journal_entry_id: null
+        }).eq('id', editingId);
+
         if (updateError) throw updateError;
         
-        // حذف البنود القديمة لاستبدالها
         await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
 
-        // 🛡️ ملاحظة: تم نقل منطق تنظيف القيود القديمة ليكون داخل الـ RPC على السيرفر لضمان سلامة البيانات
+        const itemsToInsert = items.map(item => ({
+          organization_id: userOrgId,
+          purchase_invoice_id: editingId,
+          product_id: item.productId,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          uom_id: item.uomId || null,
+          total: item.total,
+          batch_number: item.batchNumber || null,
+          expiry_date: item.expiryDate || null
+        }));
+        const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
+        if (itemsError) throw itemsError;
+
       } else {
-        // إنشاء فاتورة جديدة
         const { data: invoice, error: insertError } = await supabase.from('purchase_invoices').insert(invoiceData).select().single();
         if (insertError) throw insertError;
         invoiceId = invoice.id;
+
+        const itemsToInsert = items.map(item => ({
+          organization_id: userOrgId,
+          purchase_invoice_id: invoiceId,
+          product_id: item.productId,
+          quantity: item.quantity,
+          unit_price: item.unitPrice,
+          uom_id: item.uomId || null,
+          total: item.total,
+          batch_number: item.batchNumber || null,
+          expiry_date: item.expiryDate || null
+        }));
+        const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
+        if (itemsError) throw itemsError;
       }
 
-      const itemsToInsert = items.map(item => ({
-        organization_id: userOrgId,
-        purchase_invoice_id: invoiceId, // استخدام المعرف الصحيح (سواء جديد أو موجود)
-        product_id: item.productId,
-        quantity: item.quantity,
-        unit_price: item.unitPrice,
-        uom_id: item.uomId,
-        total: item.total,
-        batch_number: item.batchNumber || null,
-        expiry_date: item.expiryDate || null
-      }));
-      const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
-      if (itemsError) throw itemsError;
-
-      // 🚀 إذا كانت الفاتورة مرحلة أو تم النقر على "حفظ وترحيل"، نستخدم الـ RPC فوراً
-      if (post || invoiceData.status === 'posted') {
-        // تحديث: تمرير المنظمة والمستودع لضمان توافق المحرك الموحد ودقة أرصدة المخازن
-        await approvePurchaseInvoice(invoiceId!, userOrgId, formData.warehouseId);
+      if (post && invoiceId) {
+        await approvePurchaseInvoice(invoiceId, userOrgId, formData.warehouseId);
+        showToast('تم حفظ وترحيل فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
       } else {
-        setSuccessMessage(editingId ? 'تم تحديث فاتورة المشتريات بنجاح!' : 'تم حفظ فاتورة المشتريات كمسودة بنجاح!');
+        showToast(editingId ? 'تم تحديث فاتورة المشتريات كمسودة بنجاح ✅' : 'تم حفظ فاتورة المشتريات كمسودة بنجاح ✅', 'success');
       }
 
-      // Reset form
-      setItems([]);
-      setFormData(prev => ({ ...prev, supplierId: '', invoiceNumber: '', notes: '' }));
-      setEditingId(null); // إعادة تعيين حالة التعديل
-      setTimeout(() => setSuccessMessage(null), 4000);
+      await fetchInvoiceIds();
+      if (invoiceId) {
+        loadInvoiceById(invoiceId);
+      }
 
     } catch (error: any) {
       console.error(error);
@@ -382,12 +480,97 @@ const PurchaseInvoiceForm = () => {
     }
   };
 
+  const handleDeleteCurrent = async () => {
+    if (!editingId) return;
+
+    if (!window.confirm(`هل أنت متأكد من حذف فاتورة المشتريات رقم (${formData.invoiceNumber})؟\nسيتم إلغاء أثرها على المخزون والقيد المحاسبي بالكامل.`)) {
+      return;
+    }
+
+    setDeleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      const { data: inv } = await supabase.from('purchase_invoices').select('*, purchase_invoice_items(*)').eq('id', editingId).single();
+      if (inv && inv.status === 'posted') {
+        for (const item of (inv.purchase_invoice_items || [])) {
+          if (item.product_id && item.quantity) {
+            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
+            if (prod) {
+              const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(item.quantity));
+              let newWStock = prod.warehouse_stock || {};
+              if (inv.warehouse_id && newWStock[inv.warehouse_id] !== undefined) {
+                newWStock[inv.warehouse_id] = Math.max(0, (Number(newWStock[inv.warehouse_id]) || 0) - Number(item.quantity));
+              }
+              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
+            }
+          }
+        }
+
+        if (inv.related_journal_entry_id) {
+          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
+        } else {
+          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', inv.invoice_number);
+        }
+      }
+
+      await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
+      const { error: delErr } = await supabase.from('purchase_invoices').delete().eq('id', editingId);
+      if (delErr) throw delErr;
+
+      showToast('تم حذف فاتورة المشتريات وعكس الحركات بنجاح ✅', 'success');
+
+      const newIds = invoiceIds.filter(id => id !== editingId);
+      setInvoiceIds(newIds);
+
+      if (newIds.length > 0) {
+        const nextId = newIds[Math.min(currentIndex, newIds.length - 1)];
+        loadInvoiceById(nextId);
+      } else {
+        handleNewInvoice();
+      }
+
+    } catch (err: any) {
+      console.error('Error deleting purchase invoice:', err);
+      showToast('فشل حذف الفاتورة: ' + err.message, 'error');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handlePrintCurrent = () => {
+    const invoiceData = {
+      invoiceNumber: formData.invoiceNumber,
+      date: formData.date,
+      supplierName: suppliers.find(s => s.id === formData.supplierId)?.name || 'مورد عام',
+      warehouseName: warehouses.find(w => w.id === formData.warehouseId)?.name || '-',
+      notes: formData.notes,
+      totalAmount: totalAmount,
+      taxAmount: taxAmount,
+      paidAmount: formData.paidAmount,
+      items: items.map(item => ({
+        productName: item.productName || products.find(p => p.id === item.productId)?.name || 'صنف',
+        uomName: uoms.find(u => u.id === item.uomId)?.name || '-',
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.total
+      }))
+    };
+
+    setInvoiceToPrint(invoiceData);
+    setTimeout(() => {
+      window.print();
+      setInvoiceToPrint(null);
+    }, 200);
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in">
       
-      {/* تنبيه للعملاء الجدد في حال عدم وجود مستودعات */}
+      {/* تنبيه للمستودعات */}
       {warehouses.length === 0 && (
-        <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-[2rem] mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
+        <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-2xl mb-4 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
           <div className="flex items-center gap-4">
             <div className="bg-amber-100 p-3 rounded-2xl">
               <AlertCircle className="text-amber-600" size={28} />
@@ -406,228 +589,362 @@ const PurchaseInvoiceForm = () => {
         </div>
       )}
 
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <ShoppingCart className="text-emerald-600" /> {editingId ? 'تعديل فاتورة مشتريات' : 'فاتورة مشتريات جديدة'}
-        </h2>
+      {/* 🚀 Header & Navigation Bar */}
+      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
+        
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+            <ShoppingCart size={24} />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
+              {editingId ? `فاتورة مشتريات: ${formData.invoiceNumber}` : 'فاتورة مشتريات جديدة'}
+              {editingId && (
+                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                  formData.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                }`}>
+                  {formData.status === 'posted' ? 'مرحلة ✅' : 'مسودة 📝'}
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-slate-400 font-bold">تسجيل استلام بضاعة وفواتير الموردين وتحديث المخزون</p>
+          </div>
+        </div>
+
+        {/* 🧭 أسهم التنقل بين الفواتير */}
+        <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('first')} 
+            disabled={invoiceIds.length === 0 || currentIndex === 0} 
+            title="أول فاتورة"
+            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronsRight size={18} />
+          </button>
+          
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('prev')} 
+            disabled={invoiceIds.length === 0 || currentIndex <= 0} 
+            title="الفاتورة السابقة"
+            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronRight size={18} />
+          </button>
+
+          {/* Record Counter */}
+          <div className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono font-black text-slate-700 select-none">
+            {loadingInvoice ? (
+              <Loader2 size={14} className="animate-spin text-emerald-600" />
+            ) : editingId && currentIndex !== -1 ? (
+              <span>{currentIndex + 1} / {invoiceIds.length}</span>
+            ) : (
+              <span className="text-emerald-600 font-bold">جديد ➕</span>
+            )}
+          </div>
+
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('next')} 
+            disabled={invoiceIds.length === 0 || currentIndex >= invoiceIds.length - 1 || currentIndex === -1} 
+            title="الفاتورة التالية"
+            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronLeft size={18} />
+          </button>
+
+          <button 
+            type="button" 
+            onClick={() => handleNavigate('last')} 
+            disabled={invoiceIds.length === 0 || currentIndex >= invoiceIds.length - 1 || currentIndex === -1} 
+            title="آخر فاتورة"
+            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            <ChevronsLeft size={18} />
+          </button>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex items-center gap-2">
+          <button 
+            type="button" 
+            onClick={() => navigate('/purchase-invoices-list')} 
+            className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="عرض سجل المشتريات"
+          >
+            <List size={16} /> سجل المشتريات
+          </button>
+
+          <button 
+            type="button" 
+            onClick={handleNewInvoice} 
+            className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="بدء فاتورة مشتريات جديدة"
+          >
+            <Plus size={16} /> جديد
+          </button>
+
+          {editingId && (
+            <>
+              <button 
+                type="button" 
+                onClick={handlePrintCurrent} 
+                className="bg-slate-800 text-white hover:bg-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+                title="طباعة الفاتورة"
+              >
+                <Printer size={16} /> طباعة
+              </button>
+
+              <button 
+                type="button" 
+                onClick={handleDeleteCurrent} 
+                disabled={deleting} 
+                className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                title="حذف هذه الفاتورة"
+              >
+                {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
+              </button>
+            </>
+          )}
+
+          <button 
+            type="button" 
+            onClick={() => handleSave(undefined, true)} 
+            disabled={saving} 
+            className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
+            {editingId ? 'حفظ وتحديث' : 'حفظ وترحيل'}
+          </button>
+        </div>
       </div>
 
-      <form onSubmit={(e) => handleSave(e, false)} className="space-y-6">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="space-y-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">المورد</label>
-              <select required value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
+              <label className="block text-xs font-bold text-slate-700 mb-1">المورد <span className="text-red-500">*</span></label>
+              <select required value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value})} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-emerald-500">
                 <option value="">اختر المورد...</option>
                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ الفاتورة</label>
-              <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full border rounded-lg p-2" />
+              <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ الفاتورة <span className="text-red-500">*</span></label>
+              <input type="date" required value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-emerald-500" />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">رقم فاتورة المورد</label>
-              <input type="text" value={formData.invoiceNumber} onChange={e => setFormData({...formData, invoiceNumber: e.target.value})} className="w-full border rounded-lg p-2" placeholder="رقم الفاتورة الأصلي" />
+              <label className="block text-xs font-bold text-slate-700 mb-1">رقم فاتورة المورد</label>
+              <input type="text" value={formData.invoiceNumber} onChange={e => setFormData({...formData, invoiceNumber: e.target.value})} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-mono font-bold outline-none focus:border-emerald-500" placeholder="رقم الفاتورة الأصلي" />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ المدفوع (سداد فوري)</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">المستودع (لاستلام البضاعة) <span className="text-red-500">*</span></label>
+              <select required value={formData.warehouseId} onChange={e => setFormData({...formData, warehouseId: e.target.value})} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-emerald-500">
+                <option value="">-- اختر المستودع --</option>
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">المبلغ المدفوع (سداد فوري)</label>
               <input 
                 type="number" 
                 step="any"
                 value={formData.paidAmount} 
                 onChange={e => setFormData({...formData, paidAmount: parseFloat(e.target.value) || 0})} 
-                className="w-full border rounded-lg p-2 font-bold text-emerald-600" 
+                className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-mono font-bold text-emerald-600 outline-none focus:border-emerald-500" 
                 placeholder="0.00"
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">حساب الدفع</label>
-              <select value={formData.treasuryAccountId} onChange={e => setFormData({...formData, treasuryAccountId: e.target.value})} className="w-full border rounded-lg p-2 bg-white" disabled={formData.paidAmount <= 0}>
-                <option value="">-- اختر الحساب --</option>
+              <label className="block text-xs font-bold text-slate-700 mb-1">حساب الدفع</label>
+              <select value={formData.treasuryAccountId} onChange={e => setFormData({...formData, treasuryAccountId: e.target.value})} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-emerald-500" disabled={formData.paidAmount <= 0}>
+                <option value="">-- اختر الخزينة / البنك --</option>
                 {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>)}
               </select>
             </div>
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">مستودع الاستلام</label>
-              <select required value={formData.warehouseId} onChange={e => setFormData({...formData, warehouseId: e.target.value})} className="w-full border rounded-lg p-2 bg-white">
-                <option value="">-- اختر المستودع --</option>
-                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-              </select>
-            </div>
-            <div className="space-y-2">
-                <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                    <CircleDollarSign className="text-green-500" size={16} /> العملة
-                </label>
-                <div className="flex gap-2">
-                    <select 
-                        value={formData.currency}
-                        onChange={(e) => setFormData({...formData, currency: e.target.value})}
-                        className="w-2/3 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none bg-white"
-                    >
-                        <option value="SAR">SAR</option>
-                        <option value="USD">USD</option>
-                        <option value="EUR">EUR</option>
-                        <option value="EGP">EGP</option>
-                    </select>
-                    <input 
-                        type="number" 
-                        value={formData.exchangeRate}
-                        onChange={(e) => setFormData({...formData, exchangeRate: parseFloat(e.target.value)})}
-                        className="w-1/3 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none text-center"
-                        placeholder="سعر الصرف"
-                        step="0.01"
-                    />
-                </div>
+            <div className="md:col-span-3">
+              <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات الفاتورة</label>
+              <input type="text" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="أدخل أي ملاحظات إضافية..." className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-emerald-500" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
-          <h3 className="font-bold">بنود الفاتورة</h3>
-          {/* 🏷️ ترويسة البنود الاحترافية لضمان دقة الإدخال */}
-          <div className="grid grid-cols-12 gap-2 pb-2 border-b-2 border-slate-50 text-[10px] font-black text-slate-400 uppercase tracking-widest no-print">
-            <div className="col-span-3 pr-2 flex items-center gap-1"><Package size={12} /> بيان الصنف</div>
-            <div className="col-span-2 text-center flex items-center justify-center gap-1"><Ruler size={12} /> الوحدة</div>
-            <div className="col-span-2 text-center flex items-center justify-center gap-1"><List size={12} /> العدد (الكمية)</div>
-            <div className="col-span-2 text-center flex items-center justify-center gap-1"><DollarSign size={12} /> سعر الشراء</div>
-            <div className="col-span-2 text-center flex items-center justify-center gap-1"><Activity size={12} /> القيمة (الإجمالي)</div>
-            <div className="col-span-1"></div>
-          </div>
-          {/* حقل البحث السريع والذكي عن الأصناف */}
-          <div className="relative mb-4 no-print">
+        {/* Product Search & Items */}
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+          
+          <div className="relative">
+            <label className="block text-xs font-bold text-slate-600 mb-1">إضافة صنف للفاتورة (ابحث بالاسم أو الباركود)</label>
             <div className="relative">
               <input 
                 type="text" 
-                placeholder="ابحث بالاسم أو امسح الباركود للإضافة السريعة..."
+                placeholder="ابحث بالاسم، الكود، أو الباركود واضغط Enter..." 
                 value={productSearchTerm}
-                onChange={(e) => { setProductSearchTerm(e.target.value); setShowProductResults(true); }}
-                onFocus={() => setShowProductResults(true)}
+                onChange={e => { setProductSearchTerm(e.target.value); setShowProductResults(true); }}
                 onKeyDown={handleSearchKeyDown}
-                className="w-full border-2 border-slate-100 rounded-xl px-4 py-2.5 pr-10 focus:border-emerald-500 outline-none transition-all font-bold text-slate-700"
+                className="w-full border rounded-xl p-2.5 pl-10 bg-slate-50 focus:bg-white text-sm outline-none focus:border-emerald-500 transition-colors"
               />
-              <Search className="absolute right-3 top-3 text-slate-400" size={18} />
+              <Search className="absolute left-3 top-3 text-slate-400" size={18} />
             </div>
+
             {showProductResults && filteredProducts.length > 0 && (
-              <div className="absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden max-h-60 overflow-y-auto">
+              <div className="absolute top-full left-0 w-full bg-white border border-slate-200 shadow-xl rounded-xl mt-1 z-20 overflow-hidden">
                 {filteredProducts.map(p => (
-                  <div key={p.id} onClick={() => addProductToInvoice(p)} className="p-3 hover:bg-emerald-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center group">
-                    <div><span className="font-bold text-slate-700 group-hover:text-emerald-700">{p.name}</span><p className="text-[10px] text-slate-400 font-mono">{p.sku}</p></div>
-                    <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full">{(p.purchase_price || p.cost || 0).toLocaleString()} {formData.currency || 'EGP'}</span>
+                  <div 
+                    key={p.id} 
+                    onClick={() => addProductToInvoice(p)}
+                    className="p-3 hover:bg-emerald-50 cursor-pointer border-b last:border-0 flex justify-between items-center transition-colors"
+                  >
+                    <div>
+                      <span className="font-bold text-slate-800 text-sm block">{p.name}</span>
+                      <span className="text-xs text-slate-400 font-mono">الكود: {p.sku || '-'} | الباركود: {p.barcode || '-'}</span>
+                    </div>
+                    <span className="font-bold text-emerald-600 font-mono text-sm">
+                      {(p.purchase_price || p.cost || 0).toLocaleString()} {settings.currency || 'ج.م'}
+                    </span>
                   </div>
                 ))}
               </div>
             )}
           </div>
 
-          {items.map((item, index) => (
-            <div key={index} className="border-b border-slate-100 pb-4 last:border-0 last:pb-0 space-y-2">
-              <div className="grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-3">
-                  <select required value={item.productId} onChange={e => handleItemChange(index, 'productId', e.target.value)} className="w-full border rounded p-2 bg-white">
-                    <option value="">اختر الصنف...</option>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </div>
-                <div className="col-span-2">
-                    <select 
-                        value={item.uomId} 
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-right text-sm">
+              <thead className="bg-slate-50 text-xs font-bold text-slate-600 border-b border-slate-200">
+                <tr>
+                  <th className="p-3">الصنف</th>
+                  <th className="p-3 w-32 text-center">الوحدة</th>
+                  <th className="p-3 w-28 text-center">الكمية</th>
+                  <th className="p-3 w-32 text-center">سعر الوحدة</th>
+                  <th className="p-3 w-32 text-center">الإجمالي</th>
+                  <th className="p-3 w-12 text-center"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item, index) => (
+                  <tr key={index} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="p-3 font-bold text-slate-800">
+                      {item.productName || products.find(p => p.id === item.productId)?.name || 'صنف'}
+                    </td>
+                    <td className="p-3">
+                      <select 
+                        value={item.uomId || ''} 
                         onChange={e => handleItemChange(index, 'uomId', e.target.value)}
-                        className="w-full border rounded p-2 text-xs bg-white focus:border-emerald-500"
-                    >
+                        className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold"
+                      >
                         {uoms.filter(u => {
                             const prod = products.find(p => p.id === item.productId);
                             const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
-                            return u.category_id === baseUom?.category_id;
+                            return !baseUom || u.category_id === baseUom.category_id;
                         }).map(u => (
-                            <option key={u.id} value={u.id}>{u.name}</option>
+                          <option key={u.id} value={u.id}>{u.name}</option>
                         ))}
-                    </select>
-                </div>
-                <div className="col-span-2">
-                  <input type="number" step="any" min="0.01" value={item.quantity} onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="الكمية" />
-                </div>
-                <div className="col-span-2">
-                  <input type="number" step="any" min="0" value={item.unitPrice} onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))} className="w-full border rounded p-2 text-center" placeholder="السعر" />
-                </div>
-                <div className="col-span-2">
-                  <input type="text" readOnly value={(item.total || 0).toLocaleString()} className="w-full bg-slate-100 border rounded p-2 text-center font-bold" />
-                </div>
-                <div className="col-span-1">
-                  <button type="button" onClick={() => removeItem(index)} className="text-red-500 hover:text-red-700 p-2">
-                    <Trash2 size={18} />
-                  </button>
-                </div>
+                      </select>
+                    </td>
+                    <td className="p-3">
+                      <input 
+                        type="number" 
+                        step="any" 
+                        min="0.01"
+                        value={item.quantity} 
+                        onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value) || 0)} 
+                        className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-emerald-700 bg-white" 
+                      />
+                    </td>
+                    <td className="p-3">
+                      <input 
+                        type="number" 
+                        step="any" 
+                        min="0"
+                        value={item.unitPrice} 
+                        onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value) || 0)} 
+                        className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white" 
+                      />
+                    </td>
+                    <td className="p-3 text-center font-mono font-black text-slate-900" dir="ltr">
+                      {((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td className="p-3 text-center">
+                      <button 
+                        type="button" 
+                        onClick={() => removeItem(index)} 
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="حذف الصنف"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-400 font-bold">
+                      لم تتم إضافة أي أصناف بعد. ابحث عن صنف بالأعلى لإضافته.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Totals Section */}
+          <div className="border-t border-slate-200 pt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="text-xs text-slate-500 font-bold">
+              عدد البنود: <span className="font-mono text-slate-800">{items.length}</span> صنف
+            </div>
+
+            <div className="w-full md:w-80 space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div className="flex justify-between text-xs font-bold text-slate-600">
+                <span>الإجمالي قبل الضريبة:</span>
+                <span className="font-mono">{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
               </div>
-
-              {/* حقول التشغيلة والصلاحية للأصناف المخزنية */}
-              {(() => {
-                const product = products.find(p => p.id === item.productId);
-                if (product && (product.product_type === 'STOCK' || product.item_type === 'STOCK')) {
-                  return (
-                    <div className="grid grid-cols-12 gap-4 pl-12 pr-4 bg-slate-50 p-3 rounded-xl border border-dashed border-slate-200">
-                      <div className="col-span-6 flex items-center gap-3">
-                        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">رقم التشغيلة (Batch):</span>
-                        <input 
-                          type="text" 
-                          placeholder="مثال: B2026-1" 
-                          value={item.batchNumber || ''} 
-                          onChange={e => handleItemChange(index, 'batchNumber', e.target.value)} 
-                          className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold text-slate-700 focus:border-emerald-500 focus:outline-none" 
-                        />
-                      </div>
-                      <div className="col-span-6 flex items-center gap-3">
-                        <span className="text-xs font-bold text-slate-500 whitespace-nowrap">تاريخ الصلاحية:</span>
-                        <input 
-                          type="date" 
-                          value={item.expiryDate || ''} 
-                          onChange={e => handleItemChange(index, 'expiryDate', e.target.value)} 
-                          className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold text-slate-700 focus:border-emerald-500 focus:outline-none" 
-                        />
-                      </div>
-                    </div>
-                  );
-                }
-                return null;
-              })()}
-            </div>
-          ))}
-          <button type="button" onClick={() => setItems([...items, { productId: '', quantity: 1, unitPrice: 0, uomId: '', total: 0, batchNumber: '', expiryDate: '' }])} className="flex items-center gap-2 text-blue-600 font-bold text-sm mt-2">
-            <Plus size={16} /> إضافة صنف
-          </button>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-            <div className="grid grid-cols-2 gap-6">
-                <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">ملاحظات</label>
-                    <textarea value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} rows={4} className="w-full border rounded-lg p-2"></textarea>
+              {settings.enableTax && (
+                <div className="flex justify-between text-xs font-bold text-slate-600">
+                  <span>ضريبة القيمة المضافة ({settings.vatRate || 14}%):</span>
+                  <span className="font-mono">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
                 </div>
-                <div className="bg-slate-50 p-4 rounded-lg space-y-2 text-sm">
-                    <div className="flex justify-between font-bold"><span>الإجمالي قبل الضريبة:</span> <span>{subtotal.toLocaleString()}</span></div>
-                    <div className="flex justify-between"><span>الضريبة:</span> <span>{taxAmount.toLocaleString()}</span></div>
-                    <div className="flex justify-between font-black text-lg border-t pt-2 mt-2"><span>الإجمالي النهائي:</span> <span>{totalAmount.toLocaleString()}</span></div>
+              )}
+              <div className="flex justify-between text-sm font-black text-emerald-800 border-t border-slate-200 pt-2">
+                <span>إجمالي الفاتورة النهائي:</span>
+                <span className="font-mono text-lg" dir="ltr">{totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
+              </div>
+              {formData.paidAmount > 0 && (
+                <div className="flex justify-between text-xs font-bold text-red-600 border-t border-slate-200 pt-1">
+                  <span>المتبقي على الحساب:</span>
+                  <span className="font-mono">{Math.max(0, totalAmount - formData.paidAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
                 </div>
+              )}
             </div>
-        </div>
+          </div>
 
-        <div className="flex justify-end gap-4">
-          <button type="submit" disabled={saving} className="bg-slate-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2 shadow-md disabled:opacity-50">
-            {saving ? <Loader2 className="animate-spin" /> : <Save size={20} />} {editingId ? 'حفظ التعديلات' : 'حفظ كمسودة'}
-          </button>
-          {!editingId && (
-            <button type="button" onClick={(e) => handleSave(e, true)} disabled={saving} className="bg-emerald-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-emerald-700 flex items-center gap-2 shadow-lg disabled:opacity-50">
-              {saving ? <Loader2 className="animate-spin" /> : <CheckCircle size={20} />} حفظ وترحيل
+          <div className="flex justify-end gap-2 pt-2">
+            <button 
+              type="button" 
+              onClick={(e) => handleSave(e, false)} 
+              disabled={saving} 
+              className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <Save size={16} /> حفظ كمسودة
             </button>
-          )}
-        </div>
+            <button 
+              type="button" 
+              onClick={(e) => handleSave(e, true)} 
+              disabled={saving} 
+              className="bg-emerald-600 text-white hover:bg-emerald-700 px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />} 
+              {editingId ? 'حفظ وتحديث الفاتورة' : 'حفظ وترحيل الفاتورة'}
+            </button>
+          </div>
 
-        {successMessage && (
-            <div className="bg-emerald-50 text-emerald-700 p-4 rounded-xl text-center font-bold animate-in fade-in">
-                {successMessage}
-            </div>
-        )}
-      </form>
+        </div>
+      </div>
+
+      {/* Hidden printable component */}
+      {invoiceToPrint && (
+        <PurchaseInvoicePrint invoiceData={invoiceToPrint} companySettings={companySettings} />
+      )}
     </div>
   );
 };

@@ -86,7 +86,7 @@ export const invoiceItemSchema = z.object({
   productId: idSchema,
   quantity: quantitySchema,
   unitPrice: amountSchema,
-  total: amountSchema,
+  total: amountSchema.optional(),
 });
 
 export const createInvoiceSchema = z.object({
