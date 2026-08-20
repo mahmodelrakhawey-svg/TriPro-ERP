@@ -199,7 +199,7 @@ const CashClosingForm = () => {
             await addEntry({
                 date: new Date().toISOString().split('T')[0],
                 description: `تسوية فروقات صندوق (إقفال يومي) - ${isOverage ? 'زيادة' : 'عجز'}`,
-                reference: `ADJ-${Date.now().toString().slice(-6)}`,
+                reference: `CASH-ADJ-${Date.now().toString().slice(-6)}`,
                 status: 'posted',
                 lines: lines as any[]
             });

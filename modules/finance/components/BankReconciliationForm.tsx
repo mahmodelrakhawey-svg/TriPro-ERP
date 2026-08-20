@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { supabase } from '../../../supabaseClient';
@@ -223,7 +223,7 @@ const BankReconciliationForm = () => {
 
           await addEntry({
               date: statementDate,
-              reference: `ADJ-${Date.now().toString().slice(-6)}`,
+              reference: `BANK-ADJ-${Date.now().toString().slice(-6)}`,
               description: description,
               status: 'posted',
               lines: lines as any[]

@@ -115,6 +115,7 @@ const Sidebar: React.FC = () => {
     { to: '/offer-beneficiaries', label: 'المستفيدين من العروض', icon: Users, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/customers', label: 'إدارة حسابات العملاء', icon: Users, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/customer-statement', label: 'كشف حساب عميل', icon: BookOpen, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
+    { to: '/customer-reconciliation', label: 'مطابقة أرصدة العملاء', icon: CheckSquare, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/customer-aging', label: 'أعمار ديون العملاء', icon: Clock, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/item-sales-analysis', label: 'تحليل مبيعات الأصناف', icon: BarChart3, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/sales-reports', label: 'تقارير المبيعات', icon: BarChart3, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },

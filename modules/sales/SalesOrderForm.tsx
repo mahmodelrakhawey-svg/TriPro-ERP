@@ -6,10 +6,11 @@ import {
   FileCheck, Save, Trash2, Loader2, Search, Plus, 
   ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, 
   Printer, List, RefreshCw, FileText, ArrowRightLeft, 
-  Warehouse as WarehouseIcon, X, CheckCircle2, Tag, ShieldCheck
+  Warehouse as WarehouseIcon, X, CheckCircle2, Tag, ShieldCheck, Box
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesOrderPrint } from './SalesOrderPrint';
+import { ProductStockViewer } from '../../components/ProductStockViewer';
 
 export const SalesOrderForm = () => {
   const { customers, products, warehouses, currentUser, settings } = useAccounting();
@@ -22,6 +23,7 @@ export const SalesOrderForm = () => {
   const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
   const [formData, setFormData] = useState({ 
       customerId: '', 
+      warehouseId: warehouses.length === 1 ? warehouses[0].id : (settings.defaultWarehouseId || ''),
       date: new Date().toISOString().split('T')[0], 
       deliveryDate: '',
       orderNumber: '',
@@ -32,6 +34,19 @@ export const SalesOrderForm = () => {
   const [deleting, setDeleting] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [productSearch, setProductSearch] = useState('');
+  const [activeStockViewer, setActiveStockViewer] = useState<string | null>(null);
+
+  // حساب الرصيد المتاح للصنف بالمستودع المختار أو الإجمالي
+  const getProductStock = (productId?: string) => {
+    if (!productId) return 0;
+    const product = products.find(p => p.id === productId);
+    if (!product) return 0;
+    if (formData.warehouseId) {
+      const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
+      return Number(warehouseStock?.[formData.warehouseId] || 0);
+    }
+    return Number(product.stock || 0);
+  };
 
   // Navigation & Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -121,6 +136,7 @@ export const SalesOrderForm = () => {
       setEditingId(so.id);
       setFormData({
         customerId: so.customer_id || '',
+        warehouseId: so.warehouse_id || (warehouses.length === 1 ? warehouses[0].id : (settings.defaultWarehouseId || '')),
         date: so.order_date || new Date().toISOString().split('T')[0],
         deliveryDate: so.expected_delivery_date || '',
         orderNumber: so.order_number || '',
@@ -197,6 +213,7 @@ export const SalesOrderForm = () => {
     setItems([]);
     setFormData({ 
       customerId: '', 
+      warehouseId: warehouses.length === 1 ? warehouses[0].id : (settings.defaultWarehouseId || ''),
       date: new Date().toISOString().split('T')[0], 
       deliveryDate: '',
       orderNumber: '',
@@ -753,7 +770,21 @@ export const SalesOrderForm = () => {
           />
         </div>
 
-        <div className="md:col-span-2 lg:col-span-4">
+        <div>
+          <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+            <WarehouseIcon size={14} className="text-blue-600" /> مستودع الصرف المعتمد
+          </label>
+          <select 
+            className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
+            value={formData.warehouseId} 
+            onChange={e => setFormData({...formData, warehouseId: e.target.value})}
+          >
+            <option value="">كل المستودعات (المخزون العام)</option>
+            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </div>
+
+        <div className="md:col-span-2 lg:col-span-3">
           <label className="block text-xs font-bold text-slate-700 mb-1">شروط وملاحظات التعميد والتسليم</label>
           <input 
             type="text" 
@@ -783,22 +814,32 @@ export const SalesOrderForm = () => {
           </div>
 
           {productSearch && filteredProducts.length > 0 && (
-            <div className="absolute top-full left-0 w-full bg-white border border-slate-200 shadow-xl rounded-xl mt-1 z-20 overflow-hidden">
-              {filteredProducts.map(p => (
-                <div 
-                  key={p.id} 
-                  onClick={() => addItem(p)} 
-                  className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 flex justify-between items-center transition-colors"
-                >
-                  <div>
-                    <span className="font-bold text-slate-800 text-sm block">{p.name}</span>
-                    <span className="text-xs text-slate-400 font-mono">الكود: {p.sku || '-'}</span>
+            <div className="absolute top-full left-0 w-full bg-white border border-slate-200 shadow-xl rounded-xl mt-1 z-20 overflow-hidden max-h-64 overflow-y-auto">
+              {filteredProducts.map(p => {
+                const pStock = formData.warehouseId 
+                  ? Number(((p as any).warehouse_stock || (p as any).warehouseStock)?.[formData.warehouseId] || 0)
+                  : Number(p.stock || 0);
+                return (
+                  <div 
+                    key={p.id} 
+                    onClick={() => addItem(p)} 
+                    className="p-3 hover:bg-blue-50 cursor-pointer border-b last:border-0 flex justify-between items-center transition-colors"
+                  >
+                    <div>
+                      <span className="font-bold text-slate-800 text-sm block">{p.name}</span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-xs text-slate-400 font-mono">الكود: {p.sku || '-'}</span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${pStock > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                          المتاح بالمخزن: {pStock}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-blue-600 font-mono font-bold text-sm">
+                      {(p.sales_price || 0).toLocaleString()} {settings.currency || 'ج.م'}
+                    </span>
                   </div>
-                  <span className="text-blue-600 font-mono font-bold text-sm">
-                    {(p.sales_price || 0).toLocaleString()} {settings.currency || 'ج.م'}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -808,7 +849,7 @@ export const SalesOrderForm = () => {
           <table className="w-full text-right text-sm">
             <thead className="bg-slate-50 text-xs font-bold text-slate-600 border-b border-slate-200">
               <tr>
-                <th className="p-3">الصنف المطلوب</th>
+                <th className="p-3">الصنف المطلوب والمخزون</th>
                 <th className="p-3 w-32 text-center">الوحدة</th>
                 <th className="p-3 w-28 text-center">الكمية المطلوبة</th>
                 <th className="p-3 w-32 text-center">السعر المعتمد</th>
@@ -817,9 +858,50 @@ export const SalesOrderForm = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {items.map((item, idx) => (
+              {items.map((item, idx) => {
+                const stock = getProductStock(item.productId);
+                const isShortage = item.productId && stock < item.quantity;
+                const rowViewerKey = item.id || `so-row-${idx}`;
+
+                return (
                 <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
-                  <td className="p-3 font-bold text-slate-800">{item.name}</td>
+                  <td className="p-3">
+                    <div className="flex items-start gap-2.5">
+                      <button 
+                        type="button"
+                        onClick={() => setActiveStockViewer(activeStockViewer === rowViewerKey ? null : rowViewerKey)}
+                        className={`mt-0.5 p-1.5 rounded-lg flex items-center justify-center transition-all ${
+                          isShortage 
+                            ? 'bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100' 
+                            : 'bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100'
+                        }`}
+                        title="عرض تفاصيل المخزون بالمستودعات"
+                      >
+                        <Box size={15} />
+                      </button>
+                      <div className="flex-1 space-y-1 relative">
+                        <div className="font-bold text-slate-800 text-sm flex items-center justify-between">
+                          <span>{item.name}</span>
+                          {item.productId && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded whitespace-nowrap ${
+                              isShortage
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-emerald-100 text-emerald-800'
+                            }`}>
+                              متاح بالمخزن: {stock}
+                            </span>
+                          )}
+                        </div>
+                        {activeStockViewer === rowViewerKey && (
+                          <ProductStockViewer 
+                            productId={item.productId} 
+                            currentWarehouseId={formData.warehouseId}
+                            onClose={() => setActiveStockViewer(null)}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </td>
                   <td className="p-3">
                     <select 
                       value={item.uomId || ''} 
@@ -869,7 +951,8 @@ export const SalesOrderForm = () => {
                     </button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {items.length === 0 && (
                 <tr>
                   <td colSpan={6} className="p-8 text-center text-slate-400 font-bold">

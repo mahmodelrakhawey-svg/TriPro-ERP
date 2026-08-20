@@ -43,6 +43,7 @@ import BankReconciliationForm from './modules/finance/components/BankReconciliat
 import OpeningInventory from './modules/inventory/OpeningInventory';
 import CustomerStatement from './modules/sales/CustomerStatement';
 import CustomerAgingReport from './modules/sales/CustomerAgingReport';
+import CustomerBalanceReconciliation from './modules/sales/CustomerBalanceReconciliation';
 import SupplierManager from './modules/purchases/SupplierManager';
 import SupplierStatement from './modules/purchases/SupplierStatement';
 import SupplierAgingReport from './modules/purchases/SupplierAgingReport';
@@ -508,6 +509,7 @@ const MainLayout = () => {
                 <Route path="/offer-beneficiaries" element={<ModuleGuard module="sales"><OfferBeneficiariesReport /></ModuleGuard>} />
                 <Route path="/customers" element={<ModuleGuard module="sales"><CustomerManager /></ModuleGuard>} />
                 <Route path="/customer-statement" element={<ModuleGuard module="sales"><CustomerStatement /></ModuleGuard>} />
+                <Route path="/customer-reconciliation" element={<ModuleGuard module="sales"><CustomerBalanceReconciliation /></ModuleGuard>} />
                 <Route path="/customer-aging" element={<ModuleGuard module="sales"><CustomerAgingReport /></ModuleGuard>} />
                 <Route path="/item-sales-analysis" element={<ModuleGuard module="sales"><ItemSalesAnalysis /></ModuleGuard>} />
                 <Route path="/sales-reports" element={<ModuleGuard module="sales"><SalesReports /></ModuleGuard>} />

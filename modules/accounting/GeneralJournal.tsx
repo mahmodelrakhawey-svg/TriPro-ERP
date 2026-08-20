@@ -8,27 +8,78 @@ import { useToastNotification } from '../../utils/toastUtils';
 import { usePagination } from '../../components/usePagination';
 import * as XLSX from 'xlsx';
 
-// دالة مساعدة لتحديد مصدر القيد بناءً على المرجع
-const getEntrySource = (reference: string) => {
-    if (!reference) return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
-    const ref = reference.toUpperCase();
+// دالة مساعدة لتحديد مصدر القيد بناءً على المرجع ونص البيان
+const getEntrySource = (reference: string = '', description: string = '') => {
+    if (!reference && !description) return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
+    const ref = (reference || '').toUpperCase().trim();
+    const desc = (description || '').trim();
+
+    // 1. فواتير ومرتجعات وإشعارات المبيعات
     if (ref.startsWith('INV-')) return { label: 'فاتورة مبيعات', color: 'bg-blue-100 text-blue-700' };
-    if (ref.startsWith('PUR-') || ref.startsWith('PINV-') || ref.startsWith('PI-')) return { label: 'فاتورة مشتريات', color: 'bg-purple-100 text-purple-700' };
-    if (ref.startsWith('RCT-') || ref.startsWith('RV-')) return { label: 'سند قبض', color: 'bg-emerald-100 text-emerald-700' };
-    if (ref.startsWith('PAY-') || ref.startsWith('PV-')) return { label: 'سند صرف', color: 'bg-orange-100 text-orange-700' };
-    if (ref.startsWith('DEP-')) return { label: 'إهلاك/تأمين', color: 'bg-amber-100 text-amber-700' };
-    if (ref.startsWith('TRN-')) return { label: 'تحويل', color: 'bg-indigo-100 text-indigo-700' };
-    if (ref.startsWith('ADJ-')) return { label: 'تسوية مخزنية', color: 'bg-red-100 text-red-700' };
-    if (ref.startsWith('PAYROLL-')) return { label: 'رواتب', color: 'bg-pink-100 text-pink-700' };
-    if (ref.startsWith('CLOSE-')) return { label: 'إقفال سنة', color: 'bg-gray-800 text-white' };
     if (ref.startsWith('SR-') || ref.startsWith('SRET-')) return { label: 'مرتجع مبيعات', color: 'bg-blue-50 text-blue-600' };
+    if (ref.startsWith('CN-') || desc.includes('إشعار دائن')) return { label: 'إشعار دائن', color: 'bg-cyan-100 text-cyan-800' };
+
+    // 2. فواتير ومرتجعات وإشعارات المشتريات
+    if (ref.startsWith('PUR-') || ref.startsWith('PINV-') || ref.startsWith('PI-')) return { label: 'فاتورة مشتريات', color: 'bg-purple-100 text-purple-700' };
     if (ref.startsWith('PR-') || ref.startsWith('PRET-')) return { label: 'مرتجع مشتريات', color: 'bg-purple-50 text-purple-600' };
-    if (ref.startsWith('ASSET-')) return { label: 'أصل ثابت', color: 'bg-cyan-100 text-cyan-700' };
-    if (ref.startsWith('CHQ-')) return { label: 'شيك', color: 'bg-indigo-50 text-indigo-600' };
+    if (ref.startsWith('DN-') || desc.includes('إشعار مدين')) return { label: 'إشعار مدين', color: 'bg-rose-100 text-rose-800' };
+
+    // 3. سندات القبض والصرف
+    if (ref.startsWith('RCT-') || ref.startsWith('RV-')) return { label: 'سند قبض', color: 'bg-emerald-100 text-emerald-700' };
+    if (ref.startsWith('PAY-') || ref.startsWith('PV-') || ref.startsWith('EXP-')) return { label: 'سند صرف', color: 'bg-orange-100 text-orange-700' };
+
+    // 4. الشيكات والأوراق المالية
+    if (ref.startsWith('CHQ-') || desc.includes('شيك وارد') || desc.includes('شيك صادر')) return { label: 'شيك', color: 'bg-indigo-50 text-indigo-600' };
+
+    // 5. التحويلات النقدية والبنكية
+    if (ref.startsWith('TRN-') || ref.startsWith('TRF-')) return { label: 'تحويل', color: 'bg-indigo-100 text-indigo-700' };
+
+    // 6. تسويات بنكية
+    if (ref.startsWith('BANK-ADJ-') || ref.startsWith('BNK-') || ref.startsWith('BADJ-')) {
+        return { label: 'تسوية بنكية', color: 'bg-sky-100 text-sky-700' };
+    }
+
+    // 7. تسويات عجز وفروقات الصندوق
+    if (ref.startsWith('CASH-ADJ-') || ref.startsWith('CSH-ADJ-') || ref.startsWith('CADJ-')) {
+        return { label: 'تسوية فروقات صندوق', color: 'bg-amber-100 text-amber-800' };
+    }
+
+    // 8. تسويات بادئة ADJ عامة - يتم الفحص والتمييز الذكي بناءً على نص البيان
+    if (ref.startsWith('ADJ-')) {
+        if (desc.includes('صندوق') || desc.includes('خزينة') || desc.includes('إقفال يومي') || desc.includes('عجز') || desc.includes('زيادة في الصندوق') || desc.includes('فروقات صندوق')) {
+            return { label: 'تسوية فروقات صندوق', color: 'bg-amber-100 text-amber-800' };
+        }
+        if (desc.includes('عمولات') || desc.includes('فوائد') || desc.includes('بنك') || desc.includes('مصروفات بنكية') || desc.includes('تسوية بنك')) {
+            return { label: 'تسوية بنكية', color: 'bg-sky-100 text-sky-700' };
+        }
+        return { label: 'تسوية مخزنية', color: 'bg-red-100 text-red-700' };
+    }
+    if (ref.startsWith('STK-') || ref.startsWith('REV-') || desc.includes('تسوية مخزنية') || desc.includes('جرد مخزني')) {
+        return { label: 'تسوية مخزنية', color: 'bg-red-100 text-red-700' };
+    }
+
+    // 9. الأصول الثابتة والإهلاك
+    if (ref.startsWith('DEP-')) return { label: 'إهلاك/تأمين', color: 'bg-amber-100 text-amber-700' };
+    if (ref.startsWith('ASSET-') || desc.includes('أصل ثابت')) return { label: 'أصل ثابت', color: 'bg-cyan-100 text-cyan-700' };
+
+    // 10. الرواتب والإغلاقات والأنظمة الفرعية
+    if (ref.startsWith('PAYROLL-') || desc.includes('رواتب')) return { label: 'رواتب', color: 'bg-pink-100 text-pink-700' };
     if (ref.startsWith('SHIFT-')) return { label: 'إغلاق وردية', color: 'bg-indigo-100 text-indigo-700' };
     if (ref.startsWith('PHARM-')) return { label: 'صرف صيدلية', color: 'bg-teal-100 text-teal-700' };
     if (ref.startsWith('HIMS-')) return { label: 'فاتورة طبية', color: 'bg-rose-100 text-rose-700' };
-    if (ref.startsWith('MAN-')) return { label: 'رصيد افتتاحي', color: 'bg-slate-100 text-slate-500' };
+    if (ref.startsWith('CLOSE-')) return { label: 'إقفال سنة', color: 'bg-gray-800 text-white' };
+
+    // 11. الأرصدة الافتتاحية
+    if (ref.startsWith('OP-') || ref.startsWith('OB-') || ref.startsWith('OPENING-') || desc.includes('رصيد افتتاحي')) {
+        return { label: 'رصيد افتتاحي', color: 'bg-slate-100 text-slate-700' };
+    }
+    if (ref.startsWith('MAN-')) {
+        if (desc.includes('افتتاحي') || desc.includes('رصيد افتتاحي')) {
+            return { label: 'رصيد افتتاحي', color: 'bg-slate-100 text-slate-700' };
+        }
+        return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
+    }
+
     return { label: 'قيد يدوي', color: 'bg-slate-200 text-slate-600' };
 };
 
@@ -203,18 +254,32 @@ const GeneralJournal = () => {
     if (filterSource) {
         if (filterSource === 'sales_invoice') {
             query = query.like('reference', 'INV-%');
+        } else if (filterSource === 'sales_return') {
+            query = query.or('reference.like.SR-%,reference.like.SRET-%');
+        } else if (filterSource === 'credit_note') {
+            query = query.like('reference', 'CN-%');
         } else if (filterSource === 'purchase_invoice') {
             query = query.or('reference.like.PI-%,reference.like.PUR-%,reference.like.PINV-%');
+        } else if (filterSource === 'purchase_return') {
+            query = query.or('reference.like.PR-%,reference.like.PRET-%');
+        } else if (filterSource === 'debit_note') {
+            query = query.like('reference', 'DN-%');
         } else if (filterSource === 'receipt_voucher') {
             query = query.or('reference.like.RCT-%,reference.like.RV-%');
         } else if (filterSource === 'payment_voucher') {
-            query = query.or('reference.like.PAY-%,reference.like.PV-%');
+            query = query.or('reference.like.PAY-%,reference.like.PV-%,reference.like.EXP-%');
+        } else if (filterSource === 'cheque') {
+            query = query.like('reference', 'CHQ-%');
         } else if (filterSource === 'asset_depreciation') {
             query = query.or('reference.like.DEP-%,reference.like.ASSET-%');
         } else if (filterSource === 'treasury_transfer') {
-            query = query.like('reference', 'TRN-%');
+            query = query.or('reference.like.TRN-%,reference.like.TRF-%');
+        } else if (filterSource === 'bank_adjustment') {
+            query = query.or('reference.like.BANK-ADJ-%,reference.like.BNK-%,reference.like.BADJ-%');
+        } else if (filterSource === 'cash_adjustment') {
+            query = query.or('reference.like.CASH-ADJ-%,reference.like.CADJ-%,reference.like.CSH-%');
         } else if (filterSource === 'stock_adjustment') {
-            query = query.like('reference', 'ADJ-%');
+            query = query.or('reference.like.STK-ADJ-%,reference.like.ADJ-%,reference.like.REV-%');
         } else if (filterSource === 'payroll') {
             query = query.like('reference', 'PAYROLL-%');
         } else if (filterSource === 'shift_closing') {
@@ -224,7 +289,7 @@ const GeneralJournal = () => {
         } else if (filterSource === 'hims') {
             query = query.like('reference', 'HIMS-%');
         } else if (filterSource === 'opening_balance') {
-            query = query.like('reference', 'MAN-%');
+            query = query.or('reference.like.OP-%,reference.like.OB-%,reference.like.OPENING-%');
         } else if (filterSource === 'manual_journal') {
             query = query
                 .not('reference', 'like', 'INV-%')
@@ -235,21 +300,30 @@ const GeneralJournal = () => {
                 .not('reference', 'like', 'RV-%')
                 .not('reference', 'like', 'PAY-%')
                 .not('reference', 'like', 'PV-%')
+                .not('reference', 'like', 'EXP-%')
                 .not('reference', 'like', 'DEP-%')
                 .not('reference', 'like', 'TRN-%')
+                .not('reference', 'like', 'TRF-%')
                 .not('reference', 'like', 'ADJ-%')
+                .not('reference', 'like', 'STK-%')
+                .not('reference', 'like', 'REV-%')
+                .not('reference', 'like', 'BANK-%')
+                .not('reference', 'like', 'CASH-%')
                 .not('reference', 'like', 'PAYROLL-%')
                 .not('reference', 'like', 'CLOSE-%')
                 .not('reference', 'like', 'SR-%')
                 .not('reference', 'like', 'SRET-%')
                 .not('reference', 'like', 'PR-%')
                 .not('reference', 'like', 'PRET-%')
+                .not('reference', 'like', 'DN-%')
+                .not('reference', 'like', 'CN-%')
+                .not('reference', 'like', 'OP-%')
+                .not('reference', 'like', 'OB-%')
                 .not('reference', 'like', 'ASSET-%')
                 .not('reference', 'like', 'CHQ-%')
                 .not('reference', 'like', 'SHIFT-%')
                 .not('reference', 'like', 'PHARM-%')
-                .not('reference', 'like', 'HIMS-%')
-                .not('reference', 'like', 'MAN-%');
+                .not('reference', 'like', 'HIMS-%');
         }
     }
 
@@ -446,7 +520,7 @@ const GeneralJournal = () => {
 
       const flatData: any[] = [];
       entries.forEach((entry: any) => {
-        const sourceInfo = getEntrySource(entry.reference);
+        const sourceInfo = getEntrySource(entry.reference, entry.description);
         const userName = userMap.get(entry.user_id) || 'النظام';
         const statusLabel = entry.status === 'posted' ? 'مرحل' : 'مسودة';
         const dateStr = entry.transaction_date || (entry.created_at ? entry.created_at.split('T')[0] : '-');
@@ -580,7 +654,7 @@ const GeneralJournal = () => {
   };
 
   const handleEditEntry = (entry: JournalEntry) => {
-    const source = getEntrySource(entry.reference || '');
+    const source = getEntrySource(entry.reference || '', entry.description || '');
     if (source.label !== 'قيد يدوي') {
         toast.error('لا يمكن تعديل القيود التي تم إنشاؤها آلياً. يرجى تعديل المستند الأصلي (مثل الفاتورة أو السند).');
         return;
@@ -692,17 +766,26 @@ const GeneralJournal = () => {
                     className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 bg-white"
                 >
                     <option value="">كل المصادر</option>
-                    <option value="manual_journal">قيد يدوي (JE)</option>
+                    <option value="manual_journal">قيد يدوي (JE/MAN)</option>
                     <option value="sales_invoice">فاتورة مبيعات (INV)</option>
-                    <option value="purchase_invoice">فاتورة مشتريات (PI/PUR/PINV)</option>
+                    <option value="sales_return">مرتجع مبيعات (SR)</option>
+                    <option value="credit_note">إشعار دائن (CN)</option>
+                    <option value="purchase_invoice">فاتورة مشتريات (PI/PUR)</option>
+                    <option value="purchase_return">مرتجع مشتريات (PR)</option>
+                    <option value="debit_note">إشعار مدين (DN)</option>
                     <option value="receipt_voucher">سند قبض (RCT/RV)</option>
-                    <option value="payment_voucher">سند صرف (PAY/PV)</option>
-                    <option value="asset_depreciation">إهلاك أصول (DEP/ASSET)</option>
-                    <option value="treasury_transfer">تحويل خزينة (TRN)</option>
-                    <option value="stock_adjustment">تسوية مخزنية (ADJ)</option>
+                    <option value="payment_voucher">سند صرف (PAY/PV/EXP)</option>
+                    <option value="cheque">شيكات (CHQ)</option>
+                    <option value="treasury_transfer">تحويل خزينة/أموال (TRN)</option>
+                    <option value="bank_adjustment">تسوية بنكية (BANK-ADJ)</option>
+                    <option value="cash_adjustment">تسوية فروقات صندوق (CASH-ADJ)</option>
+                    <option value="stock_adjustment">تسوية مخزنية (STK-ADJ/ADJ)</option>
+                    <option value="asset_depreciation">أصول وإهلاك (DEP/ASSET)</option>
                     <option value="payroll">رواتب (PAYROLL)</option>
                     <option value="shift_closing">إغلاق وردية (SHIFT)</option>
+                    <option value="pharmacy">صرف صيدلية (PHARM)</option>
                     <option value="hims">فاتورة طبية (HIMS)</option>
+                    <option value="opening_balance">رصيد افتتاحي (OP/OB)</option>
                 </select>
             </div>
             <div>
@@ -809,7 +892,7 @@ const GeneralJournal = () => {
               const totalDebit = (entry.lines || []).reduce((sum, line) => sum + (line.debit || 0), 0);
               const totalCredit = (entry.lines || []).reduce((sum, line) => sum + (line.credit || 0), 0);
               const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
-              const source = getEntrySource(entry.reference || '');
+              const source = getEntrySource(entry.reference || '', entry.description || '');
 
               return (
             <div key={entry.id} className="border border-slate-200 rounded-lg overflow-hidden">
