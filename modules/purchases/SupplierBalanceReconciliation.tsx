@@ -46,12 +46,17 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
-      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب الموردين ومقاولي الباطن
+      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب الموردين حصراً (221 / 2211) واستبعاد أوراق الدفع أو الحسابات الدائنة الأخرى
       const supplierAccounts = accounts.filter(a => 
-        a.code.startsWith(supplierAccountCode) || 
-        a.code.startsWith('201') || 
-        a.code.startsWith('221') || 
-        a.code.startsWith('211')
+        !a.isGroup && (
+          a.code === supplierAccountCode || 
+          a.code === '2211' || 
+          a.code === '221' || 
+          a.code.startsWith('2211') || 
+          a.code === '20101' || 
+          a.code.startsWith('20101') || 
+          (supplierAcc && a.id === supplierAcc.id)
+        )
       );
       const accountIds = supplierAccounts.map(a => a.id);
 
@@ -207,8 +212,22 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           return isChequeVoucher ? sum : sum + Number(p.amount || 0);
         }, 0);
 
-        // رصيد المورد = الرصيد الافتتاحي + المشتريات المتبقية - المرتجعات - الإشعارات المدينة - الشيكات - المدفوعات
-        const supplierBalance = opening + supInvTotal - supRetTotal - supDnTotal - supChqTotal - supPayTotal;
+        // احتساب القيود اليدوية المسجلة باسم المورد مباشرة في اليومية العامة
+        let manualSupplierEntriesTotal = 0;
+        glLines?.forEach((line: any) => {
+          const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
+          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
+          
+          const isAlreadyCounted = subLedgerRefs.has(ref) || ref.startsWith('PINV-') || ref.startsWith('PV-') || ref.startsWith('PRET-') || ref.startsWith('DN-') || ref.startsWith('SUB-');
+          if (!isAlreadyCounted && supplier.name && desc.includes(supplier.name)) {
+            const netManual = Number(line.credit || 0) - Number(line.debit || 0); // دائن - مدين للمورد
+            manualSupplierEntriesTotal += netManual;
+            if (ref) subLedgerRefs.add(ref);
+          }
+        });
+
+        // رصيد المورد = الرصيد الافتتاحي + المشتريات المتبقية + القيود اليدوية باسم المورد - المرتجعات - الإشعارات المدينة - الشيكات - المدفوعات
+        const supplierBalance = opening + supInvTotal + manualSupplierEntriesTotal - supRetTotal - supDnTotal - supChqTotal - supPayTotal;
         totalSupplierStatementsBalance += supplierBalance;
 
         calculatedSupplierBalances.push({
@@ -221,6 +240,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           returnsTotal: supRetTotal,
           debitNotesTotal: supDnTotal,
           paymentsTotal: supPayTotal + supChqTotal,
+          manualEntriesTotal: manualSupplierEntriesTotal,
           balance: supplierBalance
         });
       });
@@ -237,6 +257,11 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         if (!ref && !desc) return false;
         const cleanRef = (ref || '').trim().toUpperCase();
         const cleanDesc = (desc || '').trim();
+
+        // فحص ما إذا كان القيد يذكر اسم أي مورد
+        if (suppliersList?.some(s => s.name && cleanDesc.includes(s.name))) {
+          return true;
+        }
 
         // تجاهل قيود الإقفال والافتتاحية
         if (

@@ -45,13 +45,16 @@ export const CustomerBalanceReconciliation: React.FC = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
-      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب العملاء
+      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب العملاء حصراً (1221) واستبعاد سلف الموظفين (1223) أو أوراق القبض (1222)
       const customerAccounts = accounts.filter(a => 
-        a.code.startsWith(customerAccountCode) || 
-        a.code.startsWith('1221') || 
-        a.code.startsWith('122') || 
-        a.code.startsWith('10201') || 
-        a.code.startsWith('1021')
+        !a.isGroup && (
+          a.code === customerAccountCode || 
+          a.code === '1221' || 
+          a.code.startsWith('1221') || 
+          a.code === '10201' || 
+          a.code.startsWith('10201') || 
+          (customerAcc && a.id === customerAcc.id)
+        )
       );
       const accountIds = customerAccounts.map(a => a.id);
 
@@ -191,8 +194,23 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           return isChequeVoucher ? sum : sum + Number(r.amount || 0);
         }, 0);
 
-        // رصيد العميل = الرصيد الافتتاحي + الفواتير المتبقية - المرتجعات - الإشعارات الدائنة - الشيكات - المقبوضات
-        const customerBalance = opening + custInvTotal - custRetTotal - custCnTotal - custChqTotal - custRcTotal;
+        // احتساب القيود اليدوية المسجلة باسم العميل مباشرة في اليومية العامة (مثل رصيد أول المدة أو تسويات يدوية)
+        let manualCustomerEntriesTotal = 0;
+        glLines?.forEach((line: any) => {
+          const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
+          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
+          
+          // إذا كان القيد يذكر اسم العميل ولم يكن مستنداً تم احتسابه مسبقاً (فاتورة/سند)
+          const isAlreadyCounted = subLedgerRefs.has(ref) || ref.startsWith('INV-') || ref.startsWith('RV-') || ref.startsWith('SR-') || ref.startsWith('CN-');
+          if (!isAlreadyCounted && customer.name && desc.includes(customer.name)) {
+            const netManual = Number(line.debit || 0) - Number(line.credit || 0);
+            manualCustomerEntriesTotal += netManual;
+            if (ref) subLedgerRefs.add(ref);
+          }
+        });
+
+        // رصيد العميل = الرصيد الافتتاحي + الفواتير المتبقية + القيود اليدوية باسم العميل - المرتجعات - الإشعارات الدائنة - الشيكات - المقبوضات
+        const customerBalance = opening + custInvTotal + manualCustomerEntriesTotal - custRetTotal - custCnTotal - custChqTotal - custRcTotal;
         totalCustomerStatementsBalance += customerBalance;
 
         calculatedCustomerBalances.push({
@@ -205,6 +223,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           returnsTotal: custRetTotal,
           creditNotesTotal: custCnTotal,
           receiptsTotal: custRcTotal + custChqTotal,
+          manualEntriesTotal: manualCustomerEntriesTotal,
           balance: customerBalance
         });
       });
@@ -217,6 +236,11 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         if (!ref && !desc) return false;
         const cleanRef = (ref || '').trim().toUpperCase();
         const cleanDesc = (desc || '').trim();
+
+        // فحص ما إذا كان القيد يذكر اسم أي عميل
+        if (customersList?.some(c => c.name && cleanDesc.includes(c.name))) {
+          return true;
+        }
 
         // تجاهل قيود الإقفال والافتتاحية العامة
         if (
@@ -248,7 +272,6 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           }
         }
 
-        return false;
       };
 
       const discrepancies: any[] = [];
