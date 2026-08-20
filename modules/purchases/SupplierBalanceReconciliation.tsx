@@ -212,13 +212,25 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           return isChequeVoucher ? sum : sum + Number(p.amount || 0);
         }, 0);
 
-        // احتساب القيود اليدوية المسجلة باسم المورد مباشرة في اليومية العامة
+        // احتساب القيود اليدوية المسجلة باسم المورد مباشرة في اليومية العامة (مع استبعاد القيود الافتتاحية المضافة مسبقاً من جدول الموردين)
         let manualSupplierEntriesTotal = 0;
         glLines?.forEach((line: any) => {
           const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
           const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
           
           const isAlreadyCounted = subLedgerRefs.has(ref) || ref.startsWith('PINV-') || ref.startsWith('PV-') || ref.startsWith('PRET-') || ref.startsWith('DN-') || ref.startsWith('SUB-');
+          const isOpening = ref.startsWith('OP-') || ref.startsWith('OB-') || ref.startsWith('OPENING-') || desc.includes('رصيد افتتاحي');
+
+          if (isOpening) {
+            if (ref) subLedgerRefs.add(ref);
+            if (!opening && supplier.name && desc.includes(supplier.name)) {
+              // إذا لم يكن مسجلاً في جدول الموردين ويوجد قيد افتتاحي
+              const netManual = Number(line.credit || 0) - Number(line.debit || 0);
+              manualSupplierEntriesTotal += netManual;
+            }
+            return;
+          }
+
           if (!isAlreadyCounted && supplier.name && desc.includes(supplier.name)) {
             const netManual = Number(line.credit || 0) - Number(line.debit || 0); // دائن - مدين للمورد
             manualSupplierEntriesTotal += netManual;

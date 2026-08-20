@@ -194,14 +194,25 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           return isChequeVoucher ? sum : sum + Number(r.amount || 0);
         }, 0);
 
-        // احتساب القيود اليدوية المسجلة باسم العميل مباشرة في اليومية العامة (مثل رصيد أول المدة أو تسويات يدوية)
+        // احتساب القيود اليدوية المسجلة باسم العميل مباشرة في اليومية العامة (مع استبعاد القيود الافتتاحية المضافة مسبقاً من جدول العملاء)
         let manualCustomerEntriesTotal = 0;
         glLines?.forEach((line: any) => {
           const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
           const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
           
-          // إذا كان القيد يذكر اسم العميل ولم يكن مستنداً تم احتسابه مسبقاً (فاتورة/سند)
           const isAlreadyCounted = subLedgerRefs.has(ref) || ref.startsWith('INV-') || ref.startsWith('RV-') || ref.startsWith('SR-') || ref.startsWith('CN-');
+          const isOpening = ref.startsWith('OP-') || ref.startsWith('OB-') || ref.startsWith('OPENING-') || desc.includes('رصيد افتتاحي');
+
+          if (isOpening) {
+            if (ref) subLedgerRefs.add(ref);
+            if (!opening && customer.name && desc.includes(customer.name)) {
+              // إذا لم يكن مسجلاً في جدول العملاء ويوجد قيد افتتاحي
+              const netManual = Number(line.debit || 0) - Number(line.credit || 0);
+              manualCustomerEntriesTotal += netManual;
+            }
+            return;
+          }
+
           if (!isAlreadyCounted && customer.name && desc.includes(customer.name)) {
             const netManual = Number(line.debit || 0) - Number(line.credit || 0);
             manualCustomerEntriesTotal += netManual;
