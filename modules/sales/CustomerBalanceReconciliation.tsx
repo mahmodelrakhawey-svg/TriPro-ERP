@@ -238,27 +238,23 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       });
 
 
-      // إضافة أي حركات لعملاء مشاريع لم يُسجلوا كعملاء تجاريين
+      // إضافة أي حركات وتسويات عامة على حساب العملاء (1221) لم تُسجل باسم عميل محدد
       let unlinkedDebits = 0;
       let unlinkedCredits = 0;
       glLines?.forEach((line: any) => {
         const jeId = line.journal_entries?.id;
         if (!accountedEntryIds.has(jeId)) {
-          const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
-          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
-          // إذا كان مستخلص مشروع أو حركة عميل عامة غير مربوطة بعميل مسجل
-          if (desc.includes('مستخلص') || ref.startsWith('BILL-') || ref.startsWith('CUST-BILL-')) {
-            unlinkedDebits += Number(line.debit || 0);
-            unlinkedCredits += Number(line.credit || 0);
-            accountedEntryIds.add(jeId);
-          }
+          unlinkedDebits += Number(line.debit || 0);
+          unlinkedCredits += Number(line.credit || 0);
         }
       });
 
-      const totalCalculatedSubLedger = totalCustomerStatementsBalance + (unlinkedDebits - unlinkedCredits);
+      const unassignedGlAdjustments = unlinkedDebits - unlinkedCredits;
+      const totalCalculatedSubLedger = totalCustomerStatementsBalance + unassignedGlAdjustments;
 
       setSubLedgerBalance(totalCalculatedSubLedger);
       setCustomerBalances(calculatedCustomerBalances);
+
 
       // 3. تحليل الفروقات الذكي
       const isRefMatched = (ref: string, desc: string, debit?: number, credit?: number): boolean => {
