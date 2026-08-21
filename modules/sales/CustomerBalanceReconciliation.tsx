@@ -140,10 +140,41 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         .eq('type', 'incoming');
 
       // جلب مستخلصات عملاء المقاولات والمشاريع المعتمدة (project_progress_billings)
-      const { data: projectBillings } = await supabase
-        .from('project_progress_billings')
-        .select('id, billing_number, net_amount, gross_amount, status, billing_date, projects(client_name)')
-        .neq('status', 'draft');
+      let projectBillings: any[] = [];
+      try {
+        const { data: pbData, error: pbError } = await supabase
+          .from('project_progress_billings')
+          .select(`
+            id,
+            billing_number,
+            net_amount,
+            gross_amount,
+            status,
+            billing_date,
+            project_id,
+            projects (
+              id,
+              name,
+              customer_id,
+              customers (
+                name
+              )
+            )
+          `)
+          .neq('status', 'draft');
+
+        if (!pbError && pbData) {
+          projectBillings = pbData;
+        } else {
+          const { data: simplePb } = await supabase
+            .from('project_progress_billings')
+            .select('id, billing_number, net_amount, gross_amount, status, billing_date, project_id')
+            .neq('status', 'draft');
+          if (simplePb) projectBillings = simplePb;
+        }
+      } catch (err) {
+        console.warn('Project progress billings query warning:', err);
+      }
 
       const subLedgerRefs = new Set<string>();
 
@@ -162,6 +193,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         }
         if (pb.id) subLedgerRefs.add(pb.id);
       });
+
 
       cheques?.forEach(chq => {
         const rawNum = String(chq.cheque_number || '').trim();
@@ -235,8 +267,15 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           }
         });
 
-        // رصيد العميل = الرصيد الافتتاحي + إجمالي الفواتير + القيود اليدوية - المرتجعات - الإشعارات الدائنة - الشيكات - المقبوضات
-        const customerBalance = opening + custGrossInvTotal + manualCustomerEntriesTotal - custRetTotal - custCnTotal - custChqTotal - custRcTotal;
+        // ربط مستخلصات المشاريع الخاصة بالعميل
+        const custProjectBillings = projectBillings?.filter(pb => 
+          pb.projects?.customer_id === customer.id || 
+          (customer.name && pb.projects?.customers?.name === customer.name)
+        ) || [];
+        const custPbTotal = custProjectBillings.reduce((sum, pb) => sum + Number(pb.net_amount || 0), 0);
+
+        // رصيد العميل = الرصيد الافتتاحي + إجمالي الفواتير + مستخلصات المشاريع + القيود اليدوية - المرتجعات - الإشعارات الدائنة - الشيكات - المقبوضات
+        const customerBalance = opening + custGrossInvTotal + custPbTotal + manualCustomerEntriesTotal - custRetTotal - custCnTotal - custChqTotal - custRcTotal;
         totalCustomerStatementsBalance += customerBalance;
 
         calculatedCustomerBalances.push({
@@ -245,7 +284,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           phone: customer.phone,
           opening,
           invoicesCount: custInvoices.length,
-          grossInvoices: custGrossInvTotal,
+          grossInvoices: custGrossInvTotal + custPbTotal,
           returnsTotal: custRetTotal,
           creditNotesTotal: custCnTotal,
           receiptsTotal: custRcTotal + custChqTotal,
@@ -254,12 +293,24 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         });
       });
 
-      // إضافة إجمالي مستخلصات عملاء المشاريع المعتمدة
-      const projectBillingsTotal = projectBillings?.reduce((sum, pb) => sum + Number(pb.net_amount || 0), 0) || 0;
-      const totalCalculatedSubLedger = totalCustomerStatementsBalance + projectBillingsTotal;
+      // احتساب مستخلصات المشاريع غير المرتبطة بعميل في الجدول لتضمينها في الأستاذ المساعد
+      const matchedProjectBillingIds = new Set<string>();
+      customersList?.forEach(customer => {
+        const custPb = projectBillings?.filter(pb => 
+          pb.projects?.customer_id === customer.id || 
+          (customer.name && pb.projects?.customers?.name === customer.name)
+        ) || [];
+        custPb.forEach(pb => matchedProjectBillingIds.add(pb.id));
+      });
+
+      const unlinkedProjectBillings = projectBillings?.filter(pb => !matchedProjectBillingIds.has(pb.id)) || [];
+      const unlinkedPbTotal = unlinkedProjectBillings.reduce((sum, pb) => sum + Number(pb.net_amount || 0), 0);
+
+      const totalCalculatedSubLedger = totalCustomerStatementsBalance + unlinkedPbTotal;
 
       setSubLedgerBalance(totalCalculatedSubLedger);
       setCustomerBalances(calculatedCustomerBalances);
+
 
       // 3. تحليل الفروقات الذكي
       const isRefMatched = (ref: string, desc: string, debit?: number, credit?: number): boolean => {
