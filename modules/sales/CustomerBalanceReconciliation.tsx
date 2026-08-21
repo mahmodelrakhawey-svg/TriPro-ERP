@@ -139,6 +139,12 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         .select('party_id, amount, cheque_number, status, type')
         .eq('type', 'incoming');
 
+      // جلب مستخلصات عملاء المقاولات والمشاريع المعتمدة (project_progress_billings)
+      const { data: projectBillings } = await supabase
+        .from('project_progress_billings')
+        .select('id, billing_number, net_amount, gross_amount, status, billing_date, projects(client_name)')
+        .neq('status', 'draft');
+
       const subLedgerRefs = new Set<string>();
 
       // تسجيل جميع مراجع المستندات للمطابقة
@@ -146,6 +152,17 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       returns?.forEach(ret => { if (ret.return_number) subLedgerRefs.add(ret.return_number.trim()); });
       receipts?.forEach(rc => { if (rc.voucher_number) subLedgerRefs.add(rc.voucher_number.trim()); });
       creditNotes?.forEach(cn => { if (cn.credit_note_number) subLedgerRefs.add(cn.credit_note_number.trim()); });
+      
+      projectBillings?.forEach(pb => {
+        if (pb.billing_number) {
+          const bNum = String(pb.billing_number).trim();
+          subLedgerRefs.add(bNum);
+          subLedgerRefs.add(`BILL-${bNum}`);
+          subLedgerRefs.add(`CUST-BILL-${bNum}`);
+        }
+        if (pb.id) subLedgerRefs.add(pb.id);
+      });
+
       cheques?.forEach(chq => {
         const rawNum = String(chq.cheque_number || '').trim();
         if (rawNum) {
@@ -174,7 +191,6 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         const opening = Number(customer.opening_balance || 0);
         
         const custInvoices = invoices?.filter(i => i.customer_id === customer.id) || [];
-        const custInvTotal = custInvoices.reduce((sum, i) => sum + (Number(i.total_amount || 0) - Number(i.paid_amount || 0)), 0);
         const custGrossInvTotal = custInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
         
         const custReturns = returns?.filter(r => r.customer_id === customer.id) || [];
@@ -194,7 +210,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           return isChequeVoucher ? sum : sum + Number(r.amount || 0);
         }, 0);
 
-        // احتساب القيود اليدوية المسجلة باسم العميل مباشرة في اليومية العامة (مع استبعاد القيود الافتتاحية المضافة مسبقاً من جدول العملاء)
+        // احتساب القيود اليدوية المسجلة باسم العميل مباشرة في اليومية العامة
         let manualCustomerEntriesTotal = 0;
         glLines?.forEach((line: any) => {
           const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
@@ -206,7 +222,6 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           if (isOpening) {
             if (ref) subLedgerRefs.add(ref);
             if (!opening && customer.name && desc.includes(customer.name)) {
-              // إذا لم يكن مسجلاً في جدول العملاء ويوجد قيد افتتاحي
               const netManual = Number(line.debit || 0) - Number(line.credit || 0);
               manualCustomerEntriesTotal += netManual;
             }
@@ -220,8 +235,8 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           }
         });
 
-        // رصيد العميل = الرصيد الافتتاحي + الفواتير المتبقية + القيود اليدوية باسم العميل - المرتجعات - الإشعارات الدائنة - الشيكات - المقبوضات
-        const customerBalance = opening + custInvTotal + manualCustomerEntriesTotal - custRetTotal - custCnTotal - custChqTotal - custRcTotal;
+        // رصيد العميل = الرصيد الافتتاحي + إجمالي الفواتير + القيود اليدوية - المرتجعات - الإشعارات الدائنة - الشيكات - المقبوضات
+        const customerBalance = opening + custGrossInvTotal + manualCustomerEntriesTotal - custRetTotal - custCnTotal - custChqTotal - custRcTotal;
         totalCustomerStatementsBalance += customerBalance;
 
         calculatedCustomerBalances.push({
@@ -239,14 +254,45 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         });
       });
 
-      setSubLedgerBalance(totalCustomerStatementsBalance);
+      // إضافة إجمالي مستخلصات عملاء المشاريع المعتمدة
+      const projectBillingsTotal = projectBillings?.reduce((sum, pb) => sum + Number(pb.net_amount || 0), 0) || 0;
+      const totalCalculatedSubLedger = totalCustomerStatementsBalance + projectBillingsTotal;
+
+      setSubLedgerBalance(totalCalculatedSubLedger);
       setCustomerBalances(calculatedCustomerBalances);
 
       // 3. تحليل الفروقات الذكي
-      const isRefMatched = (ref: string, desc: string): boolean => {
+      const isRefMatched = (ref: string, desc: string, debit?: number, credit?: number): boolean => {
         if (!ref && !desc) return false;
         const cleanRef = (ref || '').trim().toUpperCase();
         const cleanDesc = (desc || '').trim();
+
+        // قيود متوازنة داخلياً لنفس الحساب (صافي أثرها صفر)
+        if (debit && credit && Math.abs(debit - credit) < 0.01) {
+          return true;
+        }
+
+        // فحص مستخلصات مشاريع المقاولات
+        if (
+          cleanDesc.includes('صافي المستخلص المستحق') || 
+          cleanDesc.includes('مستخلص عميل') || 
+          cleanRef.startsWith('BILL-') || 
+          cleanRef.startsWith('CUST-BILL-') ||
+          (projectBillings && projectBillings.some(pb => String(pb.billing_number).trim() === cleanRef))
+        ) {
+          return true;
+        }
+
+        // فحص فواتير علاج ومستخلصات المستشفيات (HIMS)
+        if (
+          cleanRef.startsWith('HIMS-') || 
+          cleanDesc.includes('فاتورة علاج HIMS') || 
+          cleanDesc.includes('تحميل المريض') ||
+          cleanDesc.includes('إيراد عيادات') ||
+          cleanDesc.includes('إيراد خدمات طبية')
+        ) {
+          return true;
+        }
 
         // فحص ما إذا كان القيد يذكر اسم أي عميل
         if (customersList?.some(c => c.name && cleanDesc.includes(c.name))) {
@@ -283,15 +329,17 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           }
         }
 
+        return false;
       };
 
       const discrepancies: any[] = [];
       glEntriesMap.forEach((entry) => {
-        const matched = isRefMatched(entry.ref, entry.description);
+        const matched = isRefMatched(entry.ref, entry.description, entry.debit, entry.credit);
         if (!matched) {
           discrepancies.push(entry);
         }
       });
+
 
       setDiscrepancyEntries(discrepancies);
 
