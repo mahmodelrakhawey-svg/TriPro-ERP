@@ -141,12 +141,59 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         .select('party_id, amount, cheque_number, status, type')
         .eq('type', 'outgoing');
 
-      const { data: subBillings } = await supabase
-        .from('subcontractor_billings')
-        .select('id, billing_number, net_amount, gross_amount, status, issue_date, subcontractor_name')
-        .neq('status', 'draft');
+      let subBillingsNormalized: any[] = [];
+      try {
+        const { data: subBillings, error: sbError } = await supabase
+          .from('subcontractor_billings')
+          .select(`
+            id,
+            billing_number,
+            net_amount,
+            gross_amount,
+            status,
+            billing_date,
+            subcontractor_contracts (
+              subcontractors (
+                name
+              )
+            )
+          `)
+          .neq('status', 'draft');
 
-      setSubcontractorBillings(subBillings || []);
+        if (!sbError && subBillings) {
+          subBillingsNormalized = subBillings.map((sb: any) => ({
+            id: sb.id,
+            billing_number: sb.billing_number,
+            net_amount: sb.net_amount,
+            gross_amount: sb.gross_amount,
+            status: sb.status,
+            issue_date: sb.billing_date,
+            subcontractor_name: sb.subcontractor_contracts?.subcontractors?.name || '-'
+          }));
+        } else {
+          // خطة بديلة في حال عدم توفر العلاقات المتقدمة
+          const { data: basicBillings } = await supabase
+            .from('subcontractor_billings')
+            .select('id, billing_number, net_amount, gross_amount, status, billing_date')
+            .neq('status', 'draft');
+          if (basicBillings) {
+            subBillingsNormalized = basicBillings.map((sb: any) => ({
+              id: sb.id,
+              billing_number: sb.billing_number,
+              net_amount: sb.net_amount,
+              gross_amount: sb.gross_amount,
+              status: sb.status,
+              issue_date: sb.billing_date,
+              subcontractor_name: '-'
+            }));
+          }
+        }
+      } catch (sbErr) {
+        console.warn('Subcontractor billings fetch warning:', sbErr);
+      }
+
+      setSubcontractorBillings(subBillingsNormalized);
+
 
       const subLedgerRefs = new Set<string>();
 
@@ -156,13 +203,14 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       payments?.forEach(pay => { if (pay.voucher_number) subLedgerRefs.add(pay.voucher_number.trim()); });
       debitNotes?.forEach(dn => { if (dn.debit_note_number) subLedgerRefs.add(dn.debit_note_number.trim()); });
       
-      subBillings?.forEach(sb => {
+      subBillingsNormalized?.forEach(sb => {
         if (sb.billing_number) {
           subLedgerRefs.add(sb.billing_number.trim());
           subLedgerRefs.add(`SUB-BILL-${sb.billing_number.replace(/^SUB-(BILL-)?/i, '')}`);
         }
         if (sb.id) subLedgerRefs.add(sb.id);
       });
+
 
       cheques?.forEach(chq => {
         const rawNum = String(chq.cheque_number || '').trim();
@@ -258,8 +306,9 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       });
 
       // إضافة إجمالي مستخلصات مقاولي الباطن المعتمدة
-      const subBillingsTotal = subBillings?.reduce((sum, sb) => sum + Number(sb.net_amount || 0), 0) || 0;
+      const subBillingsTotal = subBillingsNormalized?.reduce((sum, sb) => sum + Number(sb.net_amount || 0), 0) || 0;
       const calculatedSubLedgerBalance = totalSupplierStatementsBalance + subBillingsTotal;
+
 
       setSubLedgerBalance(calculatedSubLedgerBalance);
       setSupplierBalances(calculatedSupplierBalances);
