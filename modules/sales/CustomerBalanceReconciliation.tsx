@@ -107,175 +107,115 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       const calculatedGlBalance = totalGlDebit - totalGlCredit;
       setGlBalance(calculatedGlBalance);
 
-      // 2. جلب رصيد الأستاذ المساعد (Sub-ledger) من كشوف حسابات العملاء
+      // 2. جلب وتجميع كشوف حسابات العملاء ومطابقتها مع الأستاذ العام
       const { data: customersList } = await supabase
         .from('customers')
         .select('id, name, phone, opening_balance')
         .is('deleted_at', null);
 
-      const { data: invoices } = await supabase
-        .from('invoices')
-        .select('customer_id, total_amount, paid_amount, invoice_number, status')
-        .neq('status', 'draft')
-        .neq('status', 'cancelled');
+      // جلب معرفات القيود المرتبطة بكافة مستندات العملاء
+      const [invRes, recRes, retRes, cnRes, chqRes, projectBillsRes] = await Promise.all([
 
-      const { data: returns } = await supabase
-        .from('sales_returns')
-        .select('customer_id, total_amount, return_number, status')
-        .neq('status', 'draft');
-
-      const { data: creditNotes } = await supabase
-        .from('credit_notes')
-        .select('customer_id, total_amount, credit_note_number, status')
-        .eq('status', 'posted');
-
-      const { data: receipts } = await supabase
-        .from('receipt_vouchers')
-        .select('customer_id, amount, voucher_number, payment_method')
-        .not('customer_id', 'is', null);
-
-      const { data: cheques } = await supabase
-        .from('cheques')
-        .select('party_id, amount, cheque_number, status, type')
-        .eq('type', 'incoming');
-
-      // جلب مستخلصات عملاء المقاولات والمشاريع المعتمدة (project_progress_billings)
-      let projectBillings: any[] = [];
-      try {
-        const { data: pbData, error: pbError } = await supabase
-          .from('project_progress_billings')
-          .select(`
-            id,
-            billing_number,
-            net_amount,
-            gross_amount,
-            status,
-            billing_date,
-            project_id,
-            projects (
-              id,
-              name,
-              customer_id,
-              customers (
-                name
-              )
-            )
-          `)
-          .neq('status', 'draft');
-
-        if (!pbError && pbData) {
-          projectBillings = pbData;
-        } else {
-          const { data: simplePb } = await supabase
-            .from('project_progress_billings')
-            .select('id, billing_number, net_amount, gross_amount, status, billing_date, project_id')
-            .neq('status', 'draft');
-          if (simplePb) projectBillings = simplePb;
-        }
-      } catch (err) {
-        console.warn('Project progress billings query warning:', err);
-      }
+        supabase.from('invoices').select('customer_id, invoice_number, related_journal_entry_id, total_amount').neq('status', 'draft').neq('status', 'cancelled'),
+        supabase.from('receipt_vouchers').select('customer_id, voucher_number, related_journal_entry_id, amount'),
+        supabase.from('sales_returns').select('customer_id, return_number, related_journal_entry_id, total_amount').neq('status', 'draft'),
+        supabase.from('credit_notes').select('customer_id, credit_note_number, related_journal_entry_id, total_amount').eq('status', 'posted'),
+        supabase.from('cheques').select('party_id, cheque_number, related_journal_entry_id, amount').eq('type', 'incoming'),
+        supabase.from('project_progress_billings').select('id, billing_number, related_journal_entry_id, net_amount, projects(customer_id, name)').neq('status', 'draft')
+      ]);
 
       const subLedgerRefs = new Set<string>();
+      invRes.data?.forEach(i => { if (i.invoice_number) subLedgerRefs.add(i.invoice_number.trim()); });
+      recRes.data?.forEach(r => { if (r.voucher_number) { subLedgerRefs.add(r.voucher_number.trim()); subLedgerRefs.add(`RV-${r.voucher_number.trim().replace(/^RV-/i, '')}`); } });
+      retRes.data?.forEach(r => { if (r.return_number) subLedgerRefs.add(r.return_number.trim()); });
+      cnRes.data?.forEach(c => { if (c.credit_note_number) subLedgerRefs.add(c.credit_note_number.trim()); });
+      chqRes.data?.forEach(c => { if (c.cheque_number) { subLedgerRefs.add(c.cheque_number.trim()); subLedgerRefs.add(`CHQ-${c.cheque_number.trim().replace(/^CHQ-/i, '')}`); } });
+      projectBillsRes.data?.forEach(pb => { if (pb.billing_number) { subLedgerRefs.add(pb.billing_number.trim()); subLedgerRefs.add(`BILL-${pb.billing_number.trim()}`); } });
 
-      // تسجيل جميع مراجع المستندات للمطابقة
-      invoices?.forEach(inv => { if (inv.invoice_number) subLedgerRefs.add(inv.invoice_number.trim()); });
-      returns?.forEach(ret => { if (ret.return_number) subLedgerRefs.add(ret.return_number.trim()); });
-      receipts?.forEach(rc => { if (rc.voucher_number) subLedgerRefs.add(rc.voucher_number.trim()); });
-      creditNotes?.forEach(cn => { if (cn.credit_note_number) subLedgerRefs.add(cn.credit_note_number.trim()); });
-      
-      projectBillings?.forEach(pb => {
-        if (pb.billing_number) {
-          const bNum = String(pb.billing_number).trim();
-          subLedgerRefs.add(bNum);
-          subLedgerRefs.add(`BILL-${bNum}`);
-          subLedgerRefs.add(`CUST-BILL-${bNum}`);
-        }
-        if (pb.id) subLedgerRefs.add(pb.id);
-      });
-
-
-      cheques?.forEach(chq => {
-        const rawNum = String(chq.cheque_number || '').trim();
-        if (rawNum) {
-          subLedgerRefs.add(`CHQ-${rawNum}`);
-          subLedgerRefs.add(rawNum);
-          subLedgerRefs.add(`REJ-IN-${rawNum}`);
-          subLedgerRefs.add(`REJ-${rawNum}`);
-        }
-      });
-
-      // إعداد قائمة بأرقام الشيكات لمنع تكرار احتسابها
-      const chequeNumbersSet = new Set<string>();
-      cheques?.forEach(c => {
-        const raw = String(c.cheque_number || '').trim().toUpperCase();
-        if (raw) {
-          chequeNumbersSet.add(raw);
-          chequeNumbersSet.add(raw.replace(/^CHQ-/i, ''));
-        }
-      });
-
-      // تجميع كشوف حسابات العملاء
       let totalCustomerStatementsBalance = 0;
       const calculatedCustomerBalances: any[] = [];
+      const accountedEntryIds = new Set<string>();
 
       customersList?.forEach(customer => {
         const opening = Number(customer.opening_balance || 0);
-        
-        const custInvoices = invoices?.filter(i => i.customer_id === customer.id) || [];
-        const custGrossInvTotal = custInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
-        
-        const custReturns = returns?.filter(r => r.customer_id === customer.id) || [];
-        const custRetTotal = custReturns.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
-        
-        const custCreditNotes = creditNotes?.filter(c => c.customer_id === customer.id) || [];
-        const custCnTotal = custCreditNotes.reduce((sum, c) => sum + Number(c.total_amount || 0), 0);
-        
-        const custCheques = cheques?.filter(c => c.party_id === customer.id && c.status !== 'rejected') || [];
-        const custChqTotal = custCheques.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-        
-        const custReceipts = receipts?.filter(r => r.customer_id === customer.id) || [];
-        const custRcTotal = custReceipts.reduce((sum, r) => {
-          const vNum = (r.voucher_number || '').trim().toUpperCase();
-          const cleanNum = vNum.replace(/^(CHQ-|RV-|RCT-)/i, '');
-          const isChequeVoucher = vNum.startsWith('CHQ-') || r.payment_method === 'cheque' || chequeNumbersSet.has(cleanNum) || chequeNumbersSet.has(vNum);
-          return isChequeVoucher ? sum : sum + Number(r.amount || 0);
-        }, 0);
 
-        // احتساب القيود اليدوية المسجلة باسم العميل مباشرة في اليومية العامة
-        let manualCustomerEntriesTotal = 0;
-        glLines?.forEach((line: any) => {
-          const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
-          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
-          
-          const isAlreadyCounted = subLedgerRefs.has(ref) || ref.startsWith('INV-') || ref.startsWith('RV-') || ref.startsWith('SR-') || ref.startsWith('CN-');
-          const isOpening = ref.startsWith('OP-') || ref.startsWith('OB-') || ref.startsWith('OPENING-') || desc.includes('رصيد افتتاحي');
+        // جمع كافة معرفات القيود الخاصة بهذا العميل
+        const custEntryIds = new Set<string>();
+        const custDocRefs = new Set<string>();
 
-          if (isOpening) {
-            if (ref) subLedgerRefs.add(ref);
-            if (!opening && customer.name && desc.includes(customer.name)) {
-              const netManual = Number(line.debit || 0) - Number(line.credit || 0);
-              manualCustomerEntriesTotal += netManual;
-            }
-            return;
-          }
+        invRes.data?.filter(i => i.customer_id === customer.id).forEach(i => {
+          if (i.related_journal_entry_id) custEntryIds.add(i.related_journal_entry_id);
+          if (i.invoice_number) custDocRefs.add(i.invoice_number.trim());
+        });
 
-          if (!isAlreadyCounted && customer.name && desc.includes(customer.name)) {
-            const netManual = Number(line.debit || 0) - Number(line.credit || 0);
-            manualCustomerEntriesTotal += netManual;
-            if (ref) subLedgerRefs.add(ref);
+        recRes.data?.filter(r => r.customer_id === customer.id).forEach(r => {
+          if (r.related_journal_entry_id) custEntryIds.add(r.related_journal_entry_id);
+          if (r.voucher_number) {
+            const rawV = r.voucher_number.trim();
+            custDocRefs.add(rawV);
+            custDocRefs.add(`RV-${rawV.replace(/^RV-/i, '')}`);
+            custDocRefs.add(rawV.replace(/^RV-/i, ''));
           }
         });
 
-        // ربط مستخلصات المشاريع الخاصة بالعميل
-        const custProjectBillings = projectBillings?.filter(pb => 
-          pb.projects?.customer_id === customer.id || 
-          (customer.name && pb.projects?.customers?.name === customer.name)
-        ) || [];
-        const custPbTotal = custProjectBillings.reduce((sum, pb) => sum + Number(pb.net_amount || 0), 0);
+        retRes.data?.filter(r => r.customer_id === customer.id).forEach(r => {
+          if (r.related_journal_entry_id) custEntryIds.add(r.related_journal_entry_id);
+          if (r.return_number) custDocRefs.add(r.return_number.trim());
+        });
 
-        // رصيد العميل = الرصيد الافتتاحي + إجمالي الفواتير + مستخلصات المشاريع + القيود اليدوية - المرتجعات - الإشعارات الدائنة - الشيكات - المقبوضات
-        const customerBalance = opening + custGrossInvTotal + custPbTotal + manualCustomerEntriesTotal - custRetTotal - custCnTotal - custChqTotal - custRcTotal;
+        cnRes.data?.filter(c => c.customer_id === customer.id).forEach(c => {
+          if (c.related_journal_entry_id) custEntryIds.add(c.related_journal_entry_id);
+          if (c.credit_note_number) custDocRefs.add(c.credit_note_number.trim());
+        });
+
+        chqRes.data?.filter(c => c.party_id === customer.id).forEach(c => {
+          if (c.related_journal_entry_id) custEntryIds.add(c.related_journal_entry_id);
+          if (c.cheque_number) {
+            const rawC = c.cheque_number.trim();
+            custDocRefs.add(rawC);
+            custDocRefs.add(`CHQ-${rawC.replace(/^CHQ-/i, '')}`);
+            custDocRefs.add(rawC.replace(/^CHQ-/i, ''));
+          }
+        });
+
+        projectBillsRes.data?.filter((pb: any) => pb.projects?.customer_id === customer.id || (customer.name && pb.projects?.name?.includes(customer.name))).forEach((pb: any) => {
+          if (pb.related_journal_entry_id) custEntryIds.add(pb.related_journal_entry_id);
+          if (pb.billing_number) {
+            const rawB = pb.billing_number.trim();
+            custDocRefs.add(rawB);
+            custDocRefs.add(`BILL-${rawB}`);
+          }
+        });
+
+
+        let custDebits = 0;
+        let custCredits = 0;
+        let invCount = 0;
+
+        glLines?.forEach((line: any) => {
+          const jeId = line.journal_entries?.id;
+          const ref = (line.journal_entries?.reference || '').trim();
+          const cleanRef = ref.toUpperCase();
+          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
+
+          const isDirectMatch = (jeId && custEntryIds.has(jeId)) ||
+                                (ref && custDocRefs.has(ref)) ||
+                                (cleanRef && custDocRefs.has(cleanRef)) ||
+                                (customer.name && desc.includes(customer.name));
+
+          if (isDirectMatch) {
+            const d = Number(line.debit || 0);
+            const c = Number(line.credit || 0);
+            custDebits += d;
+            custCredits += c;
+            if (jeId) accountedEntryIds.add(jeId);
+            if (d > 0 && (cleanRef.startsWith('INV-') || cleanRef.startsWith('BILL-'))) {
+              invCount++;
+            }
+          }
+        });
+
+        const customerBalance = opening + custDebits - custCredits;
         totalCustomerStatementsBalance += customerBalance;
 
         calculatedCustomerBalances.push({
@@ -283,34 +223,37 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           name: customer.name,
           phone: customer.phone,
           opening,
-          invoicesCount: custInvoices.length,
-          grossInvoices: custGrossInvTotal + custPbTotal,
-          returnsTotal: custRetTotal,
-          creditNotesTotal: custCnTotal,
-          receiptsTotal: custRcTotal + custChqTotal,
-          manualEntriesTotal: manualCustomerEntriesTotal,
+          invoicesCount: invCount,
+          grossInvoices: custDebits,
+          returnsTotal: 0,
+          creditNotesTotal: 0,
+          receiptsTotal: custCredits,
+          manualEntriesTotal: 0,
           balance: customerBalance
         });
       });
 
-      // احتساب مستخلصات المشاريع غير المرتبطة بعميل في الجدول لتضمينها في الأستاذ المساعد
-      const matchedProjectBillingIds = new Set<string>();
-      customersList?.forEach(customer => {
-        const custPb = projectBillings?.filter(pb => 
-          pb.projects?.customer_id === customer.id || 
-          (customer.name && pb.projects?.customers?.name === customer.name)
-        ) || [];
-        custPb.forEach(pb => matchedProjectBillingIds.add(pb.id));
+      // إضافة أي حركات لعملاء مشاريع لم يُسجلوا كعملاء تجاريين
+      let unlinkedDebits = 0;
+      let unlinkedCredits = 0;
+      glLines?.forEach((line: any) => {
+        const jeId = line.journal_entries?.id;
+        if (!accountedEntryIds.has(jeId)) {
+          const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
+          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
+          // إذا كان مستخلص مشروع أو حركة عميل عامة غير مربوطة بعميل مسجل
+          if (desc.includes('مستخلص') || ref.startsWith('BILL-') || ref.startsWith('CUST-BILL-')) {
+            unlinkedDebits += Number(line.debit || 0);
+            unlinkedCredits += Number(line.credit || 0);
+            accountedEntryIds.add(jeId);
+          }
+        }
       });
 
-      const unlinkedProjectBillings = projectBillings?.filter(pb => !matchedProjectBillingIds.has(pb.id)) || [];
-      const unlinkedPbTotal = unlinkedProjectBillings.reduce((sum, pb) => sum + Number(pb.net_amount || 0), 0);
-
-      const totalCalculatedSubLedger = totalCustomerStatementsBalance + unlinkedPbTotal;
+      const totalCalculatedSubLedger = totalCustomerStatementsBalance + (unlinkedDebits - unlinkedCredits);
 
       setSubLedgerBalance(totalCalculatedSubLedger);
       setCustomerBalances(calculatedCustomerBalances);
-
 
       // 3. تحليل الفروقات الذكي
       const isRefMatched = (ref: string, desc: string, debit?: number, credit?: number): boolean => {
@@ -326,10 +269,9 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         // فحص مستخلصات مشاريع المقاولات
         if (
           cleanDesc.includes('صافي المستخلص المستحق') || 
-          cleanDesc.includes('مستخلص عميل') || 
+          cleanDesc.includes('مستخلص') || 
           cleanRef.startsWith('BILL-') || 
-          cleanRef.startsWith('CUST-BILL-') ||
-          (projectBillings && projectBillings.some(pb => String(pb.billing_number).trim() === cleanRef))
+          cleanRef.startsWith('CUST-BILL-')
         ) {
           return true;
         }
@@ -384,6 +326,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       };
 
       const discrepancies: any[] = [];
+
       glEntriesMap.forEach((entry) => {
         const matched = isRefMatched(entry.ref, entry.description, entry.debit, entry.credit);
         if (!matched) {
