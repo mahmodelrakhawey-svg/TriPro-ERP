@@ -191,6 +191,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         let custDebits = 0;
         let custCredits = 0;
         let invCount = 0;
+        let hasOpeningInGl = false;
 
         glLines?.forEach((line: any) => {
           const jeId = line.journal_entries?.id;
@@ -212,10 +213,14 @@ export const CustomerBalanceReconciliation: React.FC = () => {
             if (d > 0 && (cleanRef.startsWith('INV-') || cleanRef.startsWith('BILL-'))) {
               invCount++;
             }
+            if (cleanRef.startsWith('OP-') || cleanRef.startsWith('OB-') || cleanRef.startsWith('OPENING-') || desc.includes('رصيد افتتاحي')) {
+              hasOpeningInGl = true;
+            }
           }
         });
 
-        const customerBalance = opening + custDebits - custCredits;
+        // إذا كان القيد الافتتاحي موجوداً في دفتر اليومية، فهو محسوب بالفعل ضمن custDebits
+        const customerBalance = custDebits - custCredits + (hasOpeningInGl ? 0 : opening);
         totalCustomerStatementsBalance += customerBalance;
 
         calculatedCustomerBalances.push({
@@ -232,6 +237,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           balance: customerBalance
         });
       });
+
 
       // إضافة أي حركات لعملاء مشاريع لم يُسجلوا كعملاء تجاريين
       let unlinkedDebits = 0;

@@ -286,9 +286,10 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           }
         });
 
-        // رصيد المورد = الرصيد الافتتاحي + المشتريات المتبقية + القيود اليدوية باسم المورد - المرتجعات - الإشعارات المدينة - الشيكات - المدفوعات
-        const supplierBalance = opening + supInvTotal + manualSupplierEntriesTotal - supRetTotal - supDnTotal - supChqTotal - supPayTotal;
+        // رصيد المورد = الرصيد الافتتاحي + إجمالي فواتير المشتريات + القيود اليدوية باسم المورد - المرتجعات - الإشعارات المدينة - الشيكات - المدفوعات
+        const supplierBalance = opening + supGrossInvTotal + manualSupplierEntriesTotal - supRetTotal - supDnTotal - supChqTotal - supPayTotal;
         totalSupplierStatementsBalance += supplierBalance;
+
 
         calculatedSupplierBalances.push({
           id: supplier.id,
