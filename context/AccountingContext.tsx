@@ -8,11 +8,12 @@ import { secureStorage } from '../utils/securityMiddleware';
 export interface UserProfile {
   id: string;
   full_name: string | null;
-  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef' | 'owner' | 'medical_director';
+  role: UserRole;
   organization_id: string | null;
   is_active: boolean;
   avatar_url?: string;
 }
+
 
 export const SYSTEM_ACCOUNTS = {
   CASH: '1231',

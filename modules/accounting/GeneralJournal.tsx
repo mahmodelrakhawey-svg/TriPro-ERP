@@ -347,7 +347,7 @@ const GeneralJournal = () => {
     totalCount, 
     refresh 
   } = usePagination('journal_entries', {
-    select: '*, journal_lines (*), journal_attachments (*)',
+    select: '*, journal_lines (*, accounts:account_id(id, code, name)), journal_attachments (*)',
     pageSize: 20,
     orderBy: 'transaction_date',
     ascending: false
@@ -387,7 +387,7 @@ const GeneralJournal = () => {
           userId: entry.user_id,
           attachments: entry.journal_attachments || [],
           lines: (entry.journal_lines || []).map((line: any) => {
-            const account = accounts.find((a: any) => a.id === line.account_id);
+            const account = accounts.find((a: any) => a.id === line.account_id) || line.accounts;
             return {
               id: line.id,
               accountId: line.account_id,
@@ -401,6 +401,7 @@ const GeneralJournal = () => {
           })
       }));
   }, [serverEntries, currentUser, accounts]);
+
 
   const loading = currentUser?.role === 'demo' ? false : serverLoading;
 

@@ -45,6 +45,7 @@ const AVAILABLE_MODULES = [
   { id: 'manufacturing', label: 'التصنيع والإنتاج' },
   { id: 'construction', label: 'المقاولات والمشاريع' },
   { id: 'hims', label: 'مديول المستشفيات (HIMS)' },
+  { id: 'stadium', label: 'إدارة الاستاد والمركز الشبابي' },
 ];
 
 const PLAN_CONFIGS: Record<string, { name: string, maxUsers: number, modules: string[] }> = {
@@ -58,12 +59,18 @@ const PLAN_CONFIGS: Record<string, { name: string, maxUsers: number, modules: st
     maxUsers: 5,
     modules: ['accounting', 'sales', 'purchases', 'inventory', 'hr']
   },
+  sports: {
+    name: 'باقة الأندية والاستادات الرياضية (مستخدمين: 10)',
+    maxUsers: 10,
+    modules: ['accounting', 'hr', 'stadium']
+  },
   premium: {
-    name: 'الباقة المتكاملة (مستخدمين: 15)',
-    maxUsers: 15,
-    modules: ['accounting', 'sales', 'purchases', 'inventory', 'hr', 'restaurant', 'manufacturing', 'construction', 'hims']
+    name: 'الباقة المتكاملة (مستخدمين: 20)',
+    maxUsers: 20,
+    modules: ['accounting', 'sales', 'purchases', 'inventory', 'hr', 'restaurant', 'manufacturing', 'construction', 'hims', 'stadium']
   }
 };
+
 
 interface PlatformStats {
   total_platform_sales: number;
@@ -389,9 +396,11 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
               >
                 <option value="basic">🥉 الباقة الأساسية (Basic)</option>
                 <option value="pro">🥈 الباقة الاحترافية (Pro)</option>
+                <option value="sports">🏟️ باقة الأندية والاستادات الرياضية (Sports)</option>
                 <option value="premium">🥇 الباقة المتكاملة (Premium)</option>
               </select>
             </div>
+
             <div className="col-span-2">
               <label className="block text-sm font-bold text-slate-700 mb-1">اسم الشركة</label>
               <input required type="text" className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500" value={formData.companyName} onChange={e => setFormData({...formData, companyName: e.target.value})} />
@@ -444,6 +453,7 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
                 onChange={e => setFormData({...formData, coaTemplate: e.target.value})}
               >
                 <option value="commercial">🏢 نشاط تجاري عام</option>
+                <option value="stadium">🏟️ الأندية الرياضية والاستادات والمراكز الشبابية</option>
                 <option value="restaurant">🍽️ مديول المطاعم والكافيهات</option>
                 <option value="construction">🏗️ نشاط المقاولات والإنشاءات</option>
                 <option value="manufacturing">🏭 نشاط المصانع والتصنيع</option>
@@ -454,11 +464,35 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
                 <option value="hospital">🏥 المستشفيات والمراكز الطبية</option>
               </select>
             </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-bold text-slate-700 mb-2">تخصيص الموديولات المتاحة للشركة</label>
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-200">
+                {AVAILABLE_MODULES.map(mod => (
+                  <label key={mod.id} className={`flex items-center gap-2 p-2 border rounded-lg hover:bg-white cursor-pointer transition-colors ${formData.modules.includes(mod.id) ? 'bg-blue-50/80 border-blue-300 font-bold text-blue-900' : 'bg-white text-slate-600 border-slate-200'}`}>
+                    <input 
+                      type="checkbox" 
+                      checked={formData.modules.includes(mod.id)} 
+                      onChange={() => {
+                        const newModules = formData.modules.includes(mod.id) 
+                          ? formData.modules.filter(m => m !== mod.id) 
+                          : [...formData.modules, mod.id];
+                        setFormData({...formData, modules: newModules});
+                      }} 
+                      className="w-4 h-4 text-blue-600 rounded" 
+                    />
+                    <span className="text-xs">{mod.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ انتهاء الاشتراك</label>
               <input required type="date" className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500" value={formData.subscriptionExpiry} onChange={e => setFormData({...formData, subscriptionExpiry: e.target.value})} />
               <p className="text-[10px] text-blue-600 mt-1 font-bold">✨ تم تعيين 14 يوماً كفترة تجريبية تلقائياً</p>
             </div>
+
             <div className="col-span-2">
               <label className="block text-sm font-bold text-slate-700 mb-1">البريد الإلكتروني للمدير</label>
               <input required type="email" className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />

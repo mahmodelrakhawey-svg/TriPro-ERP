@@ -191,7 +191,26 @@ export interface SystemSettings {
   allowNegativeStock?: boolean;
 }
 
-export type UserRole = 'admin' | 'accountant' | 'sales' | 'storekeeper' | 'worker' | 'manager' | 'super_admin' | 'viewer' | 'demo';
+export type UserRole = 
+  | 'admin' 
+  | 'accountant' 
+  | 'sales' 
+  | 'storekeeper' 
+  | 'worker' 
+  | 'manager' 
+  | 'super_admin' 
+  | 'viewer' 
+  | 'demo'
+  | 'chef'
+  | 'owner'
+  | 'medical_director'
+  | 'stadium_director'
+  | 'stadium_receptionist'
+  | 'stadium_booking_officer'
+  | 'stadium_gate_security'
+  | 'stadium_maintenance_lead'
+  | 'stadium_sports_supervisor';
+
 
 export interface User {
   id: string;

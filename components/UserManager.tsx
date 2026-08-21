@@ -6,17 +6,20 @@ import { Shield, User, CheckCircle, XCircle, AlertTriangle, PenTool, Plus, X, Sa
 import { DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
 import { createUserManagerUserSchema, resetPasswordSchema } from '../utils/validationSchemas';
 
+import { UserRole } from '../types';
+
 // تعريف أنواع البيانات
 type UserProfile = {
   id: string;
   email?: string; // إضافة البريد الإلكتروني للنوع
   full_name: string | null;
-  role: 'super_admin' | 'admin' | 'manager' | 'accountant' | 'viewer' | 'demo' | 'chef' | 'medical_director' | 'owner';
+  role: UserRole;
   is_active: boolean;
   created_at: string;
   organizations?: { name: string }; // إضافة اسم المنظمة للنوع
   last_activity?: string;
 };
+
 
 const UserManager = () => {
   const { currentUser, currentSelectedOrgId } = useAccounting();
@@ -465,16 +468,29 @@ const UserManager = () => {
                         user.role === 'admin' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' :
                         'border-slate-200 bg-white text-slate-700'}`}
                   >
-                    {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">Super Admin</option>}
-                    <option value="admin">Admin</option>
-                    <option value="manager">Manager</option>
-                    <option value="medical_director">مدير طبي (Medical Director)</option>
-                    <option value="accountant">Accountant</option>
-                    <option value="viewer">Viewer</option>
-                    <option value="demo">Demo (تجريبي)</option>
-                    <option value="chef">Chef (شيف)</option>
-                    <option value="owner">Owner (مالك)</option>
+                    {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">Super Admin (مدير النظام)</option>}
+                    <optgroup label="── الإدارة والحسابات العامة ──">
+                      <option value="admin">Admin (مسؤول)</option>
+                      <option value="manager">Manager (مدير)</option>
+                      <option value="accountant">Accountant (محاسب)</option>
+                      <option value="viewer">Viewer (مشاهدة فقط)</option>
+                      <option value="owner">Owner (مالك منشأة)</option>
+                      <option value="demo">Demo (تجريبي)</option>
+                    </optgroup>
+                    <optgroup label="── قطاع الاستاد والمنشآت الرياضية ──">
+                      <option value="stadium_director">مدير عام الاستاد والنشاط (Stadium Director)</option>
+                      <option value="stadium_receptionist">موظف الاستقبال والعضويات (Stadium Receptionist)</option>
+                      <option value="stadium_booking_officer">مسؤول حجز الملاعب (Booking Officer)</option>
+                      <option value="stadium_gate_security">ضابط أمن البوابات وفحص الدخول (Gate Security)</option>
+                      <option value="stadium_maintenance_lead">مسؤول صيانة المنشآت (Maintenance Lead)</option>
+                      <option value="stadium_sports_supervisor">المشرف الرياضي والأكاديميات (Sports Supervisor)</option>
+                    </optgroup>
+                    <optgroup label="── قطاعات أخرى ──">
+                      <option value="medical_director">مدير طبي (Medical Director)</option>
+                      <option value="chef">Chef (شيف مطبخ)</option>
+                    </optgroup>
                   </select>
+
                 </td>
                 <td className="px-6 py-4 text-center">
                   <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black
@@ -591,19 +607,32 @@ const UserManager = () => {
                         <label className="block text-sm font-bold text-slate-700 mb-1">الدور / الصلاحية</label>
                         <select 
                             value={newUserData.role}
-                            onChange={(e) => setNewUserData({...newUserData, role: e.target.value})}
-                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500 bg-white"
+                            onChange={(e) => setNewUserData({...newUserData, role: e.target.value as any})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500 bg-white font-medium text-sm"
                         >
-                            <option value="viewer">Viewer (مشاهدة فقط)</option>
-                            <option value="accountant">Accountant (محاسب)</option>
-                            <option value="manager">Manager (مدير)</option>
-                            <option value="medical_director">Medical Director (مدير طبي)</option>
-                            <option value="admin">Admin (مسؤول)</option>
-                            {currentUserRole === 'super_admin' && <option value="super_admin">Super Admin (مدير النظام)</option>}
-                            <option value="demo">Demo (تجريبي)</option>
-                            <option value="chef">Chef (شيف مطبخ)</option>
-                            <option value="owner">Owner (مالك منشأة)</option>
+                            {(currentUserRole === 'super_admin') && <option value="super_admin">Super Admin (مدير النظام)</option>}
+                            <optgroup label="── الإدارة والحسابات العامة ──">
+                                <option value="admin">Admin (مسؤول عام)</option>
+                                <option value="manager">Manager (مدير فرع)</option>
+                                <option value="accountant">Accountant (محاسب مالي)</option>
+                                <option value="viewer">Viewer (مشاهدة وتقارير فقط)</option>
+                                <option value="owner">Owner (مالك منشأة)</option>
+                                <option value="demo">Demo (تجريبي)</option>
+                            </optgroup>
+                            <optgroup label="── قطاع الاستاد والمنشآت الرياضية ──">
+                                <option value="stadium_director">🏟️ مدير عام الاستاد والنشاط (Stadium Director)</option>
+                                <option value="stadium_receptionist">🎫 موظف الاستقبال والعضويات (Stadium Receptionist)</option>
+                                <option value="stadium_booking_officer">⚽ مسؤول حجز الملاعب (Booking Officer)</option>
+                                <option value="stadium_gate_security">🛡️ ضابط أمن البوابات وفحص الدخول (Gate Security)</option>
+                                <option value="stadium_maintenance_lead">🔧 مسؤول صيانة المنشآت (Maintenance Lead)</option>
+                                <option value="stadium_sports_supervisor">🏆 المشرف الرياضي والأكاديميات (Sports Supervisor)</option>
+                            </optgroup>
+                            <optgroup label="── قطاعات تخصصية أخرى ──">
+                                <option value="medical_director">🏥 مدير طبي (Medical Director)</option>
+                                <option value="chef">👨‍🍳 Chef (شيف مطبخ)</option>
+                            </optgroup>
                         </select>
+
                     </div>
 
                     <div className="pt-4 flex gap-3 border-t border-slate-100 mt-4">

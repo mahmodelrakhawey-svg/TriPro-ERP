@@ -68,12 +68,18 @@ import {
   Lock,
   Paperclip,
   CheckSquare,
-    Sparkles,
-    HeartPulse,
-    FlaskConical,
-    Bed
+  Sparkles,
+  HeartPulse,
+  FlaskConical,
+  Bed,
+  Trophy,
+  Dumbbell,
+  Award,
+  QrCode,
 } from 'lucide-react';
 import { Wrench } from 'lucide-react'; // Import Wrench icon
+
+
  
 const Sidebar: React.FC = () => {
   const { organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, can } = useAccounting();
@@ -87,14 +93,19 @@ const Sidebar: React.FC = () => {
   // دالة للتحقق مما إذا كان الموديول مسموحاً به لهذه الشركة
   const isModuleAllowed = (module: string) => {
     const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
-    return isSuperAdmin || 
-      userRole === 'admin' ||
-      userRole === 'demo' ||
-      allowedModules.length === 0 || 
-      allowedModules.includes(module) || 
-      allowedModules.includes(normalizedModule) ||
-      (can && (can(module, 'view') || can(normalizedModule, 'view') || can(module, '*') || can(normalizedModule, '*')));
+    
+    // 🛡️ عزل موديولات المنشأة بناءً على اشتراكها في SaaS
+    if (Array.isArray(allowedModules) && allowedModules.length > 0) {
+      return allowedModules.includes(module) || allowedModules.includes(normalizedModule);
+    }
+
+    // إذا لم تكن هناك قيود مسجلة، أو سوبر أدمن بدون اختيار شركة محددة
+    if (userRole === 'demo') return true;
+    if (isSuperAdmin && !currentSelectedOrgId) return true;
+
+    return true;
   };
+
 
   // تعريف عناصر القائمة
   const navItems = [
@@ -273,6 +284,32 @@ const Sidebar: React.FC = () => {
     { to: '/hims/insurance-claims', label: 'إدارة مطالبات التأمين', icon: ClipboardList, color: 'text-indigo-400', module: 'hims', permission: 'hims_billing.view' },
     { to: '/hims/inpatient-board', label: 'شاشة رقابة حركة الأسرة', icon: Bed, color: 'text-emerald-500', module: 'hims', permission: 'hims_inpatient.view' },
 
+    // ─────────────────────────────────────────
+    // 🏟️ مديول الاستاد الرياضي ومركز التنمية الشبابية
+    // ─────────────────────────────────────────
+    { type: 'section', label: 'الاستاد الرياضي والمركز الشبابي' },
+    { to: '/stadium', label: 'لوحة تحكم الاستاد', icon: Trophy, color: 'text-green-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/gate-scanner', label: 'شاشة فحص البوابات (QR)', icon: QrCode, color: 'text-emerald-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/members', label: 'إدارة الأعضاء والاشتراكات', icon: Users, color: 'text-green-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/facilities', label: 'الملاعب والمرافق', icon: Building2, color: 'text-green-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/maintenance', label: 'صيانة الملاعب والمرافق', icon: Wrench, color: 'text-indigo-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/bookings', label: 'الحجوزات بالساعة', icon: Calendar, color: 'text-green-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/rentals', label: 'عقود الإيجار الدورية', icon: FileText, color: 'text-green-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/programs', label: 'برامج التدريب والأكاديميات', icon: Dumbbell, color: 'text-green-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/tournaments', label: 'البطولات والفعاليات الرياضية', icon: Trophy, color: 'text-amber-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/coaches', label: 'الكوادر والمدربون', icon: Award, color: 'text-green-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/budget', label: 'الموازنة التقديرية للاستاد', icon: PieChart, color: 'text-emerald-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/disbursements', label: 'طلبات واعتمادات الصرف', icon: CheckSquare, color: 'text-amber-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/custodies', label: 'عهد الأنشطة والبطولات', icon: Wallet, color: 'text-amber-400', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/reports/revenue', label: 'تقرير الإيرادات', icon: BarChart3, color: 'text-green-300', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/reports/expenses', label: 'تقرير المصروفات والنفقات', icon: DollarSign, color: 'text-amber-300', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/reports/pnl', label: 'قائمة الفائض والعجز (P&L)', icon: PieChart, color: 'text-emerald-300', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/reports/occupancy', label: 'معدل إشغال المرافق', icon: Activity, color: 'text-green-300', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/reports/member-aging', label: 'الاشتراكات المنتهية', icon: AlertTriangle, color: 'text-green-300', module: 'stadium', permission: 'stadium.view' },
+    { to: '/stadium/reports/program-profit', label: 'ربحية البرامج التدريبية', icon: TrendingUp, color: 'text-green-300', module: 'stadium', permission: 'stadium.view' },
+
+
+
     // الإدارة والنظام
     { type: 'section', label: 'الإدارة والنظام' },
     { to: '/users', label: 'إدارة المستخدمين', icon: Users, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
@@ -292,6 +329,31 @@ const Sidebar: React.FC = () => {
     if (item.superAdminOnly && !isSuperAdmin) return false;
     if (item.adminOnly && !isSuperAdmin && (userRole as string) !== 'admin' && (userRole as string) !== 'manager') return false;
     
+    // 🏟️ تصفية ذكية للأدوار التخصصية لقطاع الاستاد
+    if (userRole && typeof userRole === 'string' && userRole.startsWith('stadium_')) {
+      if (!item.to || !item.to.startsWith('/stadium')) {
+        return false;
+      }
+      if (userRole === 'stadium_gate_security') {
+        return item.to === '/stadium/gate-scanner';
+      }
+      if (userRole === 'stadium_booking_officer') {
+        return ['/stadium/bookings', '/stadium/facilities', '/stadium/reports/occupancy'].includes(item.to);
+      }
+      if (userRole === 'stadium_receptionist') {
+        return ['/stadium/members', '/stadium/bookings', '/stadium/programs', '/stadium/gate-scanner', '/stadium/reports/member-aging'].includes(item.to);
+      }
+      if (userRole === 'stadium_maintenance_lead') {
+        return ['/stadium/maintenance', '/stadium/facilities'].includes(item.to);
+      }
+      if (userRole === 'stadium_sports_supervisor') {
+        return ['/stadium/programs', '/stadium/coaches', '/stadium/tournaments', '/stadium/reports/program-profit'].includes(item.to);
+      }
+      if (userRole === 'stadium_director') {
+        return true; // صلاحية كاملة على كل شاشات الاستاد
+      }
+    }
+
     // Check module allowance (SaaS level)
     if (item.module && !isModuleAllowed(item.module)) return false;
     
@@ -303,6 +365,7 @@ const Sidebar: React.FC = () => {
 
     return true;
   }), [isSuperAdmin, userRole, allowedModules, organization, can]);
+
 
   // إخفاء العناوين (Sections) التي لا تحتوي على عناصر تحتها
   const visibleItems = React.useMemo(() => filteredItems.filter((item, idx) => {

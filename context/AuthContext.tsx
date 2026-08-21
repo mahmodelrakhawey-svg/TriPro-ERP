@@ -311,8 +311,49 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (userRole === 'medical_director' && (module === 'hims' || module.startsWith('hims'))) {
       return true;
     }
+
+    // 🏟️ أدوار قطاع الاستاد والمنشآت الرياضية
+    if (userRole === 'stadium_director' && (module === 'stadium' || module.startsWith('stadium'))) {
+      return true;
+    }
+
+    if (userRole === 'stadium_receptionist') {
+      if (['stadium/members', 'stadium/bookings', 'stadium/programs', 'stadium/gate-scanner'].some(m => module === m || module.startsWith(m))) {
+        return action !== 'delete';
+      }
+      if (module === 'stadium') return true;
+    }
+
+    if (userRole === 'stadium_booking_officer') {
+      if (['stadium/bookings', 'stadium/facilities'].some(m => module === m || module.startsWith(m))) {
+        return true;
+      }
+      if (module === 'stadium') return true;
+    }
+
+    if (userRole === 'stadium_gate_security') {
+      if (module === 'stadium/gate-scanner' || module === 'stadium') {
+        return true;
+      }
+      return false;
+    }
+
+    if (userRole === 'stadium_maintenance_lead') {
+      if (['stadium/maintenance', 'stadium/facilities'].some(m => module === m || module.startsWith(m))) {
+        return true;
+      }
+      if (module === 'stadium') return true;
+    }
+
+    if (userRole === 'stadium_sports_supervisor') {
+      if (['stadium/programs', 'stadium/coaches', 'stadium/tournaments', 'stadium/reports'].some(m => module === m || module.startsWith(m))) {
+        return true;
+      }
+      if (module === 'stadium') return true;
+    }
     
     // تحسين قيود الديمو: منع الحذف ومنع تعديل الإعدادات الحساسة
+
     if (userRole === 'demo') {
         if (action === 'delete') return false; // ممنوع الحذف نهائياً
         if (module === 'settings' && action === 'update') return false; // ممنوع تعديل إعدادات الشركة

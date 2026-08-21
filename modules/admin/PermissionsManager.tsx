@@ -43,6 +43,7 @@ const moduleMetadata: Record<string, { label: string; group: string; iconColor: 
   restaurant: { label: 'المطاعم والكافيهات والمطبخ', group: 'restaurant', iconColor: 'text-rose-600 bg-rose-50' },
   construction: { label: 'المقاولات والمشاريع والمستخلصات', group: 'projects', iconColor: 'text-indigo-600 bg-indigo-50' },
   hims: { label: 'المنظومة الطبية والمستشفيات', group: 'medical', iconColor: 'text-teal-600 bg-teal-50' },
+  stadium: { label: 'الاستاد الرياضي والمركز الشبابي', group: 'stadium', iconColor: 'text-green-600 bg-green-50' },
   reports: { label: 'التقارير المالية والإحصائيات', group: 'reports', iconColor: 'text-sky-600 bg-sky-50' },
   admin: { label: 'إدارة النظام والأمان والنسخ', group: 'admin', iconColor: 'text-slate-700 bg-slate-100' }
 };
@@ -59,9 +60,11 @@ const filterGroups = [
   { id: 'restaurant', label: 'نقاط البيع والمطاعم' },
   { id: 'hr', label: 'الموارد البشرية' },
   { id: 'manufacturing', label: 'التصنيع والإنتاج' },
+  { id: 'stadium', label: 'الاستاد والمركز الشبابي' },
   { id: 'reports', label: 'التقارير المالية' },
   { id: 'admin', label: 'الأمان وإدارة النظام' }
 ];
+
 
 // قوالب الأدوار الجاهزة (Role Presets)
 const rolePresets: Record<string, { name: string; description: string; matchActions: (p: Permission) => boolean }> = {

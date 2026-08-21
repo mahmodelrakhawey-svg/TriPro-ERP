@@ -185,6 +185,29 @@ import PatientPortal from './modules/hims/pages/PatientPortal';
 import { InsuranceClaimsManager } from './modules/hims/pages/InsuranceClaimsManager';
 import { InpatientDashboard } from './modules/hims/pages/InpatientDashboard';
 
+// 🏟️ Stadium Module Imports — استاد المنصورة ومركز التنمية الشبابية
+import StadiumDashboard from './modules/stadium/components/StadiumDashboard';
+import MemberManager from './modules/stadium/components/MemberManager';
+import FacilityManager from './modules/stadium/components/FacilityManager';
+import BookingManager from './modules/stadium/components/BookingManager';
+import RentalManager from './modules/stadium/components/RentalManager';
+import TrainingProgramManager from './modules/stadium/components/TrainingProgramManager';
+import CoachManager from './modules/stadium/components/CoachManager';
+import DisbursementManager from './modules/stadium/components/DisbursementManager';
+import StadiumCustodyManager from './modules/stadium/components/StadiumCustodyManager';
+import GateScanner from './modules/stadium/components/GateScanner';
+import FacilityMaintenanceManager from './modules/stadium/components/FacilityMaintenanceManager';
+import StadiumBudgetManager from './modules/stadium/components/StadiumBudgetManager';
+import TournamentManager from './modules/stadium/components/TournamentManager';
+import StadiumRevenueReport from './modules/stadium/reports/StadiumRevenueReport';
+import StadiumExpenseReport from './modules/stadium/reports/StadiumExpenseReport';
+import StadiumPnLReport from './modules/stadium/reports/StadiumPnLReport';
+import OccupancyReport from './modules/stadium/reports/OccupancyReport';
+import MemberAgingReport from './modules/stadium/reports/MemberAgingReport';
+import ProgramProfitReport from './modules/stadium/reports/ProgramProfitReport';
+
+
+
 // إنشاء عميل React Query
 const queryClient = new QueryClient(); // Keep this line
 
@@ -450,6 +473,36 @@ const MainLayout = () => {
                     </Routes>
                   </ModuleGuard>
                 } />
+
+                {/* 🏟️ مديول الاستاد الرياضي ومركز التنمية الشبابية */}
+                <Route path="/stadium/*" element={
+                  <ModuleGuard module="stadium">
+                    <Routes>
+                      <Route index element={<StadiumDashboard />} />
+                      <Route path="gate-scanner" element={<GateScanner />} />
+                      <Route path="members" element={<MemberManager />} />
+                      <Route path="facilities" element={<FacilityManager />} />
+                      <Route path="maintenance" element={<FacilityMaintenanceManager />} />
+                      <Route path="bookings" element={<BookingManager />} />
+                      <Route path="rentals" element={<RentalManager />} />
+                      <Route path="programs" element={<TrainingProgramManager />} />
+                      <Route path="tournaments" element={<TournamentManager />} />
+                      <Route path="coaches" element={<CoachManager />} />
+                      <Route path="budget" element={<StadiumBudgetManager />} />
+                      <Route path="disbursements" element={<DisbursementManager />} />
+                      <Route path="custodies" element={<StadiumCustodyManager />} />
+                      <Route path="reports/revenue" element={<StadiumRevenueReport />} />
+                      <Route path="reports/expenses" element={<StadiumExpenseReport />} />
+                      <Route path="reports/pnl" element={<StadiumPnLReport />} />
+                      <Route path="reports/occupancy" element={<OccupancyReport />} />
+                      <Route path="reports/member-aging" element={<MemberAgingReport />} />
+                      <Route path="reports/program-profit" element={<ProgramProfitReport />} />
+
+                    </Routes>
+
+                  </ModuleGuard>
+                } />
+
 
                 <Route path="/mfg/*" element={
                   <ModuleGuard module="manufacturing">
