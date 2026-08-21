@@ -45,18 +45,17 @@ export const CustomerBalanceReconciliation: React.FC = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
-      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب العملاء حصراً (1221) واستبعاد سلف الموظفين (1223) أو أوراق القبض (1222)
+      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب العملاء التجاريين حصراً (1221 أو 10201) واستبعاد الحسابات الفرعية المستقلة كالتأمين (122101) أو سلف الموظفين (1223)
       const customerAccounts = accounts.filter(a => 
         !a.isGroup && (
           a.code === customerAccountCode || 
           a.code === '1221' || 
-          a.code.startsWith('1221') || 
           a.code === '10201' || 
-          a.code.startsWith('10201') || 
           (customerAcc && a.id === customerAcc.id)
         )
       );
       const accountIds = customerAccounts.map(a => a.id);
+
 
       if (accountIds.length === 0) {
         setLoading(false);
