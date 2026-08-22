@@ -119,9 +119,43 @@ export const MemberManager: React.FC = () => {
     setLoading(false);
   };
 
+  /**
+   * تحديث تلقائي لحالة الأعضاء المنتهية العضوية:
+   * يبحث عن جميع الأعضاء النشطين الذين انتهت عضويتهم ويحدّث حالتهم إلى 'expired'.
+   * يُشغَّل مرة واحدة عند تحميل الصفحة.
+   */
+  const autoExpireMembers = async () => {
+    if (!orgId) return;
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      const { data: expired, error } = await supabase
+        .from('stadium_members')
+        .select('id, full_name, end_date')
+        .eq('organization_id', orgId)
+        .eq('status', 'active')
+        .lt('end_date', today);
+
+      if (error || !expired || expired.length === 0) return;
+
+      const ids = expired.map((m: any) => m.id);
+      const { error: updateErr } = await supabase
+        .from('stadium_members')
+        .update({ status: 'expired', updated_at: new Date().toISOString() })
+        .in('id', ids);
+
+      if (!updateErr && expired.length > 0) {
+        toast(`تم تحديث ${expired.length} عضوية منتهية تلقائياً`, { icon: '🔄' });
+        fetchMembers();
+      }
+    } catch (e) {
+      console.error('autoExpireMembers error:', e);
+    }
+  };
+
   useEffect(() => {
     if (orgId) {
       getTreasuryAccounts(orgId).then(setTreasuryAccounts);
+      autoExpireMembers(); // تشغيل التحديث التلقائي عند فتح صفحة الأعضاء
     }
   }, [orgId]);
 

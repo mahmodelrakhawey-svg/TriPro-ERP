@@ -70,7 +70,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       const { data: glLines, error: glError } = await supabase
         .from('journal_lines')
-        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status)')
+        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
         .in('account_id', accountIds)
         .eq('journal_entries.status', 'posted');
 
@@ -261,40 +261,46 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       // بناء خريطة لربط كل قيد يومية أو مرجع بالمورد المعني
       // ============================================================
       const entryIdToSupplierId = new Map<string, string>();
+      const docIdToSupplierId = new Map<string, string>();
       const refToSupplierId = new Map<string, string>();
       const subLedgerRefs = new Set<string>();
 
-      const registerEntry = (jeId: string | null | undefined, suppId: string | null | undefined, ref?: string) => {
+      const registerDoc = (docId: string | null | undefined, jeId: string | null | undefined, suppId: string | null | undefined, ref?: string) => {
         if (suppId) {
+          if (docId) docIdToSupplierId.set(docId, suppId);
           if (jeId) entryIdToSupplierId.set(jeId, suppId);
           if (ref) {
             const clean = ref.trim().toUpperCase();
             refToSupplierId.set(clean, suppId);
             // إضافة بدائل البادئات الشائعة
-            const rawNum = clean.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-)/i, '');
-            refToSupplierId.set(rawNum, suppId);
-            refToSupplierId.set(`PUR-${rawNum}`, suppId);
-            refToSupplierId.set(`PI-${rawNum}`, suppId);
-            refToSupplierId.set(`SUB-BILL-${rawNum}`, suppId);
-            refToSupplierId.set(`SUB-${rawNum}`, suppId);
-            refToSupplierId.set(`PV-${rawNum}`, suppId);
-            refToSupplierId.set(`CHQ-${rawNum}`, suppId);
+            const rawNum = clean.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-)/i, '');
+            if (rawNum) {
+              refToSupplierId.set(rawNum, suppId);
+              refToSupplierId.set(`PUR-${rawNum}`, suppId);
+              refToSupplierId.set(`PI-${rawNum}`, suppId);
+              refToSupplierId.set(`SUB-BILL-${rawNum}`, suppId);
+              refToSupplierId.set(`SUB-${rawNum}`, suppId);
+              refToSupplierId.set(`PV-${rawNum}`, suppId);
+              refToSupplierId.set(`CHQ-${rawNum}`, suppId);
+              refToSupplierId.set(`REJ-OUT-${rawNum}`, suppId);
+              refToSupplierId.set(`REJ-CHQ-${rawNum}`, suppId);
+            }
           }
         }
         if (ref) subLedgerRefs.add(ref.trim().toUpperCase());
       };
 
-      invRes.data?.forEach(i => registerEntry(i.related_journal_entry_id, i.supplier_id, i.invoice_number));
-      retRes.data?.forEach(r => registerEntry(r.related_journal_entry_id, r.supplier_id, r.return_number));
-      dnRes.data?.forEach(d => registerEntry(d.related_journal_entry_id, d.supplier_id, d.debit_note_number));
-      pvRes.data?.forEach(p => registerEntry(p.related_journal_entry_id, p.supplier_id, p.voucher_number));
-      chqRes.data?.forEach(c => registerEntry(c.related_journal_entry_id, c.party_id, String(c.cheque_number)));
+      invRes.data?.forEach(i => registerDoc(i.id, i.related_journal_entry_id, i.supplier_id, i.invoice_number));
+      retRes.data?.forEach(r => registerDoc(r.id, r.related_journal_entry_id, r.supplier_id, r.return_number));
+      dnRes.data?.forEach(d => registerDoc(d.id, d.related_journal_entry_id, d.supplier_id, d.debit_note_number));
+      pvRes.data?.forEach(p => registerDoc(p.id, p.related_journal_entry_id, p.supplier_id, p.voucher_number));
+      chqRes.data?.forEach(c => registerDoc(c.id, c.related_journal_entry_id, c.party_id, String(c.cheque_number)));
 
       // ربط مستخلصات مقاولي الباطن بالموردين
       subBillingsNormalized.forEach(sb => {
         const suppId = sb.supplier_id || (sb.subcontractor_name ? subNameToSupplierMap.get(sb.subcontractor_name.trim().toLowerCase()) : null);
-        registerEntry(sb.related_journal_entry_id, suppId, sb.billing_number);
-        registerEntry(sb.related_journal_entry_id, suppId, `SUB-BILL-${sb.billing_number}`);
+        registerDoc(sb.id, sb.related_journal_entry_id, suppId, sb.billing_number);
+        registerDoc(sb.id, sb.related_journal_entry_id, suppId, `SUB-BILL-${sb.billing_number}`);
       });
 
       // ربط القيود اليدوية بأسماء الموردين أو مقاولي الباطن
@@ -343,6 +349,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       glLines?.forEach((line: any) => {
         const jeId = line.journal_entries?.id;
+        const docId = line.journal_entries?.related_document_id;
         const debit = Number(line.debit || 0);
         const credit = Number(line.credit || 0);
         const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
@@ -363,12 +370,17 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           return;
         }
 
-        // استنتاج المورد من: ID القيد -> المرجع -> الاسم في البيان
-        let suppId = entryIdToSupplierId.get(jeId) || refToSupplierId.get(ref);
-        
+        // استنتاج المورد من: ID القيد -> مستند الأصل -> المرجع -> الاسم في البيان
+        let suppId = entryIdToSupplierId.get(jeId);
+        if (!suppId && docId) {
+          suppId = docIdToSupplierId.get(docId);
+        }
         if (!suppId && ref) {
-          const rawRef = ref.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-)/i, '');
-          suppId = refToSupplierId.get(rawRef);
+          suppId = refToSupplierId.get(ref);
+          if (!suppId) {
+            const rawRef = ref.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-)/i, '');
+            if (rawRef) suppId = refToSupplierId.get(rawRef);
+          }
         }
 
         if (!suppId) {
@@ -389,12 +401,12 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             b.returnsTotal += debit;
           } else if (ref.startsWith('DN-') || desc.includes('إشعار مدين')) {
             b.debitNotesTotal += debit;
-          } else if (ref.startsWith('CHQ-') || desc.includes('شيك')) {
-            b.chequesTotal += debit;
+          } else if (ref.startsWith('CHQ-') || ref.startsWith('REJ-') || desc.includes('شيك') || desc.includes('ارتداد') || desc.includes('رفض')) {
+            b.chequesTotal += (debit - credit);
           } else if (desc.includes('مستخلص') || ref.startsWith('SUB-') || /^\d+$/.test(ref)) {
             b.subBillingsForSupplier += credit;
           } else {
-            b.paymentsTotal += debit;
+            b.paymentsTotal += (debit - credit);
           }
         }
       });

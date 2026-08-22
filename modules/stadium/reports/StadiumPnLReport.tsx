@@ -55,6 +55,10 @@ export const StadiumPnLReport: React.FC = () => {
   const [startDate, setStartDate] = useState(`${currentYear}-01-01`);
   const [endDate, setEndDate] = useState(`${currentYear}-12-31`);
 
+  // مصدر البيانات: gl = قيود الأستاذ العام ، fallback = جداول المديول المباشرة
+  const [dataSource, setDataSource] = useState<'gl' | 'fallback' | null>(null);
+  const [glEntriesCount, setGlEntriesCount] = useState(0);
+
   const [revenues, setRevenues] = useState<RevenueBreakdown>({
     subscriptions: 0,
     bookings: 0,
@@ -83,6 +87,7 @@ export const StadiumPnLReport: React.FC = () => {
   const fetchPnLData = async () => {
     if (!orgId) return;
     setLoading(true);
+    setDataSource(null);
     try {
       // ─────────────────────────────────────────────
       // 1. جلب القيود المحاسبية من دفتر اليومية العام للمنشأة
@@ -140,6 +145,9 @@ export const StadiumPnLReport: React.FC = () => {
         const totalRev = Math.max(0, subTotal) + Math.max(0, bookTotal) + Math.max(0, rentTotal) + Math.max(0, progTotal);
         const totalExp = Math.max(0, maintTotal) + Math.max(0, supTotal) + Math.max(0, tourTotal) + Math.max(0, utilTotal) + Math.max(0, coachTotal) + Math.max(0, adminTotal) + Math.max(0, otherTotal);
 
+        setDataSource('gl');
+        setGlEntriesCount(entries.length);
+
         setRevenues({
           subscriptions: Math.max(0, subTotal),
           bookings: Math.max(0, bookTotal),
@@ -164,6 +172,8 @@ export const StadiumPnLReport: React.FC = () => {
       // ─────────────────────────────────────────────
       // 2. خطة بديلة (Fallback) في حال عدم وجود قيود يومية مسجلة بعد
       // ─────────────────────────────────────────────
+      setDataSource('fallback');
+      setGlEntriesCount(0);
       const { data: subData } = await supabase
         .from('stadium_subscriptions')
         .select('amount_paid')
@@ -340,6 +350,19 @@ export const StadiumPnLReport: React.FC = () => {
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             مقارنة الإيرادات بالمصروفات وتحديد النتيجة المالية الصافية للنشاط الرياضي
           </p>
+          {/* مؤشر مصدر البيانات */}
+          {dataSource === 'gl' && (
+            <span className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-700">
+              <CheckCircle2 size={12} />
+              البيانات من دفتر الأستاذ العام (GL) — {glEntriesCount} قيد محاسبي
+            </span>
+          )}
+          {dataSource === 'fallback' && (
+            <span className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 border border-amber-200 dark:border-amber-700">
+              <AlertCircle size={12} />
+              البيانات من جداول المديول المباشرة — لا توجد قيود GL في هذه الفترة
+            </span>
+          )}
         </div>
         <button
           onClick={exportToExcel}

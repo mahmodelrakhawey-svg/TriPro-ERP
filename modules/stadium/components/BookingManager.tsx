@@ -76,6 +76,19 @@ const BookingManager: React.FC = () => {
   const watchStartTime = watch('start_time');
   const watchEndTime = watch('end_time');
 
+  // مؤشر وقت الذروة: 16:00 → 22:00
+  const [isPeakTime, setIsPeakTime] = useState(false);
+
+  /**
+   * يحدد ما إذا كان وقت الحجز يقع في فترة الذروة (أوقات الازدحام).
+   * أوقات الذروة: 16:00 حتى 22:00 كل يوم.
+   * إذا كان للمرفق peak_price_per_hour محدد يُطبَّق تلقائياً.
+   */
+  const isPeakTimeRange = (startTime: string): boolean => {
+    const [h] = startTime.split(':').map(Number);
+    return h >= 16 && h < 22;
+  };
+
   useEffect(() => {
     if (watchFacility && watchStartTime && watchEndTime && facilities.length > 0) {
       const facility = facilities.find(f => f.id === watchFacility);
@@ -83,8 +96,14 @@ const BookingManager: React.FC = () => {
         const start = new Date(`2000-01-01T${watchStartTime}`);
         const end = new Date(`2000-01-01T${watchEndTime}`);
         const durationHours = (end.getTime() - start.getTime()) / (1000 * 60 * 60);
+
+        // تحديد وقت الذروة وتطبيق السعر المناسب
+        const peakApplied = isPeakTimeRange(watchStartTime) && !!facility.peak_price_per_hour;
+        const effectivePrice = peakApplied ? (facility.peak_price_per_hour || facility.price_per_hour) : facility.price_per_hour;
+
+        setIsPeakTime(peakApplied);
         setValue('duration_hours' as any, durationHours);
-        setValue('total_amount' as any, durationHours * facility.price_per_hour);
+        setValue('total_amount' as any, durationHours * effectivePrice);
       }
     }
   }, [watchFacility, watchStartTime, watchEndTime, facilities, setValue]);
@@ -170,7 +189,12 @@ const BookingManager: React.FC = () => {
     const start = new Date(`2000-01-01T${data.start_time}`);
     const end = new Date(`2000-01-01T${data.end_time}`);
     const durationHours = Math.max(0.5, (end.getTime() - start.getTime()) / (1000 * 60 * 60));
-    const pricePerHour = selectedFacility?.price_per_hour || 0;
+
+    // تطبيق سعر الذروة عند الحجز (16:00 - 22:00) إذا كان محدداً للمرفق
+    const peakApplied = isPeakTimeRange(data.start_time) && !!selectedFacility?.peak_price_per_hour;
+    const pricePerHour = peakApplied
+      ? (selectedFacility?.peak_price_per_hour || selectedFacility?.price_per_hour || 0)
+      : (selectedFacility?.price_per_hour || 0);
     const totalAmount = durationHours * pricePerHour;
 
     const bookingData = {
@@ -509,6 +533,11 @@ const BookingManager: React.FC = () => {
                 <label className="block mb-1">وقت البدء *</label>
                 <input type="time" {...register('start_time')} className="w-full p-2 border rounded" />
                 {errors.start_time && <p className="text-red-500 text-sm mt-1">{errors.start_time.message}</p>}
+                {isPeakTime && (
+                  <p className="text-xs mt-1 font-bold text-orange-600 dark:text-orange-400 flex items-center gap-1">
+                    🔥 وقت ذروة (16:00 - 22:00) — سعر الذروة مطبق
+                  </p>
+                )}
               </div>
 
               <div>
@@ -533,16 +562,18 @@ const BookingManager: React.FC = () => {
                 {errors.booker_phone && <p className="text-red-500 text-sm mt-1">{errors.booker_phone.message}</p>}
               </div>
 
-              <div className="md:col-span-2 bg-gray-50 dark:bg-gray-800 p-4 rounded-md flex items-center justify-between mt-2">
+              <div className={`md:col-span-2 p-4 rounded-md flex items-center justify-between mt-2 ${isPeakTime ? 'bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800' : 'bg-gray-50 dark:bg-gray-800'}`}>
                 <div className="flex items-center gap-2">
                   <Clock className="w-5 h-5 text-gray-500" />
                   <span className="font-medium">المدة:</span>
                   <span>{watch('duration_hours' as any) || 0} ساعة</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <DollarSign className="w-5 h-5 text-gray-500" />
-                  <span className="font-medium">الإجمالي:</span>
-                  <span className="text-lg font-bold text-green-600">{watch('total_amount' as any) || 0}</span>
+                  <DollarSign className={`w-5 h-5 ${isPeakTime ? 'text-orange-500' : 'text-gray-500'}`} />
+                  <span className="font-medium">الإجمالي {isPeakTime ? '(سعر ذروة 🔥)' : ''}:</span>
+                  <span className={`text-lg font-bold ${isPeakTime ? 'text-orange-600 dark:text-orange-400' : 'text-green-600'}`}>
+                    {watch('total_amount' as any) || 0} ج.م
+                  </span>
                 </div>
               </div>
 

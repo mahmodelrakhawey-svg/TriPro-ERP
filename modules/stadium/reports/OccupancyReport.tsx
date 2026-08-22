@@ -17,6 +17,8 @@ interface FacilityStats {
   bookedHours: number;
   occupancyRate: number;
   revenue: number;
+  peakHours: number;   // ساعات الذروة (16:00 - 22:00)
+  offPeakHours: number; // ساعات خارج الذروة
 }
 
 const OccupancyReport: React.FC = () => {
@@ -29,6 +31,9 @@ const OccupancyReport: React.FC = () => {
   const [stats, setStats] = useState<FacilityStats[]>([]);
   const [loading, setLoading] = useState(false);
   
+  // ملخص الذروة للكل
+  const [peakSummary, setPeakSummary] = useState({ peakHours: 0, offPeakHours: 0, peakRevenue: 0 });
+
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 25;
@@ -56,10 +61,10 @@ const OccupancyReport: React.FC = () => {
         return;
       }
 
-      // Get bookings for the period
+      // جلب الحجوزات مع وقت البدء لتحليل الذروة
       const { data: bookings, error: bookError } = await supabase
         .from('stadium_bookings')
-        .select('facility_id, duration_hours, total_amount')
+        .select('facility_id, duration_hours, total_amount, start_time')
         .eq('organization_id', orgId)
         .in('status', ['confirmed', 'paid'])
         .gte('booking_date', dateFrom)
@@ -69,11 +74,32 @@ const OccupancyReport: React.FC = () => {
 
       const daysInRange = Math.max(1, differenceInDays(new Date(dateTo), new Date(dateFrom)) + 1);
 
+      // دالة تحديد وقت الذروة: 16:00 - 22:00
+      const isPeak = (startTime: string) => {
+        const h = parseInt((startTime || '00:00').split(':')[0], 10);
+        return h >= 16 && h < 22;
+      };
+
+      let totalPeakHours = 0, totalOffPeakHours = 0, totalPeakRevenue = 0;
+
       const calculatedStats = facilities.map(facility => {
         const facilityBookings = (bookings || []).filter(b => b.facility_id === facility.id);
         
         const bookedHours = facilityBookings.reduce((sum, b) => sum + (Number(b.duration_hours) || 0), 0);
         const revenue = facilityBookings.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
+
+        // تصنيف ساعات الذروة وغير الذروة
+        const peakHours = facilityBookings
+          .filter(b => isPeak(b.start_time || ''))
+          .reduce((sum, b) => sum + (Number(b.duration_hours) || 0), 0);
+        const offPeakHours = bookedHours - peakHours;
+
+        // مجموع الذروة الكلي
+        totalPeakHours += peakHours;
+        totalOffPeakHours += offPeakHours;
+        totalPeakRevenue += facilityBookings
+          .filter(b => isPeak(b.start_time || ''))
+          .reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
 
         // افتراض ساعات التشغيل اليومية = 14 ساعة (مثلاً من 8 صباحاً إلى 10 مساءً)
         const dailyHours = 14;
@@ -87,10 +113,13 @@ const OccupancyReport: React.FC = () => {
           availableHours,
           bookedHours,
           occupancyRate,
-          revenue
+          revenue,
+          peakHours,
+          offPeakHours,
         };
       });
 
+      setPeakSummary({ peakHours: totalPeakHours, offPeakHours: totalOffPeakHours, peakRevenue: totalPeakRevenue });
 
       // Sort by occupancy rate descending
       calculatedStats.sort((a, b) => b.occupancyRate - a.occupancyRate);
@@ -112,6 +141,7 @@ const OccupancyReport: React.FC = () => {
     name: s.name,
     'الساعات المتاحة': s.availableHours,
     'الساعات المحجوزة': s.bookedHours,
+    'ساعات ذروة 🔥': parseFloat(s.peakHours.toFixed(1)),
   }));
 
   return (
@@ -119,7 +149,7 @@ const OccupancyReport: React.FC = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
           <BarChart3 className="w-6 h-6 text-purple-600" />
-          تقرير إشغال المرافق
+          تقرير إشغال المرافق وتحليل أوقات الذروة
         </h1>
         
         <div className="flex items-center gap-3 bg-white p-2 rounded-lg shadow-sm border border-gray-100">
@@ -142,8 +172,33 @@ const OccupancyReport: React.FC = () => {
         </div>
       </div>
 
+      {/* KPI Cards — تحليل أوقات الذروة */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl shadow-sm border border-orange-100 p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center text-2xl shrink-0">🔥</div>
+          <div>
+            <p className="text-xs text-gray-500">ساعات الذروة (16:00-22:00)</p>
+            <p className="text-xl font-bold text-orange-600 font-mono">{peakSummary.peakHours.toFixed(1)} س</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-2xl shrink-0">🌙</div>
+          <div>
+            <p className="text-xs text-gray-500">ساعات خارج الذروة</p>
+            <p className="text-xl font-bold text-blue-600 font-mono">{peakSummary.offPeakHours.toFixed(1)} س</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-green-100 p-4 flex items-center gap-4">
+          <div className="w-12 h-12 rounded-xl bg-green-100 text-green-600 flex items-center justify-center text-2xl shrink-0">💰</div>
+          <div>
+            <p className="text-xs text-gray-500">إيرادات الذروة</p>
+            <p className="text-xl font-bold text-green-600 font-mono">{peakSummary.peakRevenue.toLocaleString('ar-EG')} ج.م</p>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6 h-80 min-w-0">
-        <h3 className="text-sm font-semibold text-gray-600 mb-4">مقارنة الساعات (المتاحة مقابل المحجوزة)</h3>
+        <h3 className="text-sm font-semibold text-gray-600 mb-4">مقارنة الساعات المحجوزة — ذروة مقابل عادية لكل مرفق</h3>
         <ResponsiveContainer width="100%" height="100%" minWidth={0}>
           <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
 
@@ -154,6 +209,7 @@ const OccupancyReport: React.FC = () => {
             <Legend wrapperStyle={{fontSize: '12px', paddingTop: '10px'}} />
             <Bar dataKey="الساعات المتاحة" fill="#e5e7eb" radius={[4, 4, 0, 0]} />
             <Bar dataKey="الساعات المحجوزة" fill="#a855f7" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="ساعات ذروة 🔥" fill="#f97316" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -167,6 +223,7 @@ const OccupancyReport: React.FC = () => {
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600">النوع</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-center">الساعات المتاحة</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600 text-center">الساعات المحجوزة</th>
+                <th className="px-6 py-4 text-sm font-semibold text-orange-600 text-center">ذروة 🔥</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600">نسبة الإشغال</th>
                 <th className="px-6 py-4 text-sm font-semibold text-gray-600">الإيرادات (ج.م)</th>
 
@@ -175,11 +232,11 @@ const OccupancyReport: React.FC = () => {
             <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">جاري التحميل...</td>
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">جاري التحميل...</td>
                 </tr>
               ) : currentData.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-gray-500">لا توجد بيانات</td>
+                  <td colSpan={7} className="px-6 py-8 text-center text-gray-500">لا توجد بيانات</td>
                 </tr>
               ) : (
                 currentData.map((row) => (
@@ -191,6 +248,12 @@ const OccupancyReport: React.FC = () => {
 
                     <td className="px-6 py-4 text-center text-gray-600">{row.availableHours.toFixed(1)}</td>
                     <td className="px-6 py-4 text-center font-medium text-purple-600">{row.bookedHours.toFixed(1)}</td>
+                    <td className="px-6 py-4 text-center font-bold text-orange-500">
+                      {row.peakHours.toFixed(1)}
+                      {row.bookedHours > 0 && (
+                        <span className="text-[10px] text-gray-400 mr-1">({((row.peakHours / row.bookedHours) * 100).toFixed(0)}%)</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <div className="w-full bg-gray-200 rounded-full h-2.5 max-w-[100px]">

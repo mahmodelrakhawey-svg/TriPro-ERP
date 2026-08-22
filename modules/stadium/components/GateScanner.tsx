@@ -47,7 +47,9 @@ export const GateScanner: React.FC = () => {
         .from('stadium_members')
         .select('*')
         .eq('organization_id', orgId)
-        .limit(10);
+        .eq('status', 'active')
+        .order('full_name', { ascending: true })
+        .limit(20);
       setActiveMembersList(data || []);
     } catch (e) {
       console.error(e);
@@ -88,6 +90,12 @@ export const GateScanner: React.FC = () => {
       setLogsLoading(false);
     }
     if (inputRef.current) inputRef.current.focus();
+
+    // تحديث تلقائي لسجل الدخول كل 60 ثانية
+    const interval = setInterval(() => {
+      if (orgId) fetchTodayLogs();
+    }, 60000);
+    return () => clearInterval(interval);
   }, [orgId]);
 
 

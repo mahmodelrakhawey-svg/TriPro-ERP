@@ -70,7 +70,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
 
       const { data: glLines, error: glError } = await supabase
         .from('journal_lines')
-        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status)')
+        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
         .in('account_id', accountIds)
         .eq('journal_entries.status', 'posted');
 
@@ -156,7 +156,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id'),
         supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
         supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted'),
-        supabase.from('cheques').select('id, party_id, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming').neq('status', 'rejected'),
+        supabase.from('cheques').select('id, party_id, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming'),
         supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED'),
         supabase.from('project_progress_billings').select('id, billing_number, net_amount, related_journal_entry_id, project_id, projects(customer_id, name)').not('status', 'in', '("draft","cancelled")'),
         supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, related_journal_entry_id'),
@@ -170,34 +170,54 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         if (p.customer_id) patientToCustomer.set(p.id, p.customer_id);
       });
 
-      // خريطة تربط كل قيد يومية بالعميل المعني به
+      // خريطة تربط كل قيد يومية أو مستند أو مرجع بالعميل المعني به
       const entryIdToCustomerId = new Map<string, string>();
+      const docIdToCustomerId = new Map<string, string>();
+      const refToCustomerId = new Map<string, string>();
       const subLedgerRefs = new Set<string>();
 
-      const registerEntry = (jeId: string | null | undefined, custId: string | null | undefined, ref?: string) => {
-        if (jeId && custId) entryIdToCustomerId.set(jeId, custId);
-        if (ref) subLedgerRefs.add(ref.trim().toUpperCase());
+      const registerDoc = (docId: string | null | undefined, jeId: string | null | undefined, custId: string | null | undefined, ref?: string) => {
+        if (custId) {
+          if (docId) docIdToCustomerId.set(docId, custId);
+          if (jeId) entryIdToCustomerId.set(jeId, custId);
+          if (ref) {
+            const clean = ref.trim().toUpperCase();
+            subLedgerRefs.add(clean);
+            refToCustomerId.set(clean, custId);
+            const rawNum = clean.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-)/i, '');
+            if (rawNum) {
+              refToCustomerId.set(rawNum, custId);
+              refToCustomerId.set(`INV-${rawNum}`, custId);
+              refToCustomerId.set(`RV-${rawNum}`, custId);
+              refToCustomerId.set(`SR-${rawNum}`, custId);
+              refToCustomerId.set(`CN-${rawNum}`, custId);
+              refToCustomerId.set(`CHQ-${rawNum}`, custId);
+              refToCustomerId.set(`REJ-CHQ-${rawNum}`, custId);
+              refToCustomerId.set(`REJ-${rawNum}`, custId);
+            }
+          }
+        }
       };
 
-      invRes.data?.forEach(i => registerEntry(i.related_journal_entry_id, i.customer_id, i.invoice_number));
-      recRes.data?.forEach(r => registerEntry(r.related_journal_entry_id, r.customer_id, r.voucher_number));
-      retRes.data?.forEach(r => registerEntry(r.related_journal_entry_id, r.customer_id, r.return_number));
-      cnRes.data?.forEach(c => registerEntry(c.related_journal_entry_id, c.customer_id, c.credit_note_number));
-      chqRes.data?.forEach(c => registerEntry(c.related_journal_entry_id, c.party_id, String(c.cheque_number)));
-      ordRes.data?.forEach(o => registerEntry(o.related_journal_entry_id, o.customer_id, o.order_number));
+      invRes.data?.forEach(i => registerDoc(i.id, i.related_journal_entry_id, i.customer_id, i.invoice_number));
+      recRes.data?.forEach(r => registerDoc(r.id, r.related_journal_entry_id, r.customer_id, r.voucher_number));
+      retRes.data?.forEach(r => registerDoc(r.id, r.related_journal_entry_id, r.customer_id, r.return_number));
+      cnRes.data?.forEach(c => registerDoc(c.id, c.related_journal_entry_id, c.customer_id, c.credit_note_number));
+      chqRes.data?.forEach(c => registerDoc(c.id, c.related_journal_entry_id, c.party_id, String(c.cheque_number)));
+      ordRes.data?.forEach(o => registerDoc(o.id, o.related_journal_entry_id, o.customer_id, o.order_number));
 
       projectBillsRes.data?.forEach((pb: any) => {
         const custId = pb.projects?.customer_id;
-        registerEntry(pb.related_journal_entry_id, custId, pb.billing_number);
+        registerDoc(pb.id, pb.related_journal_entry_id, custId, pb.billing_number);
       });
 
       patientBillsRes.data?.forEach((hb: any) => {
         const custId = hb.insurance_provider_id || (hb.patient_id ? patientToCustomer.get(hb.patient_id) : null);
-        registerEntry(hb.related_journal_entry_id, custId);
+        registerDoc(hb.id, hb.related_journal_entry_id, custId);
       });
 
       claimsRes.data?.forEach((cl: any) => {
-        registerEntry(cl.related_journal_entry_id, cl.insurance_provider_id);
+        registerDoc(cl.id, cl.related_journal_entry_id, cl.insurance_provider_id);
       });
 
       // ربط القيود اليدوية بأسماء العملاء
@@ -247,9 +267,10 @@ export const CustomerBalanceReconciliation: React.FC = () => {
 
       glLines?.forEach((line: any) => {
         const jeId = line.journal_entries?.id;
+        const docId = line.journal_entries?.related_document_id;
         const debit = Number(line.debit || 0);
         const credit = Number(line.credit || 0);
-        const ref = (line.journal_entries?.reference || '').toUpperCase();
+        const ref = (line.journal_entries?.reference || '').toUpperCase().trim();
         const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`;
 
         // القيود الافتتاحية والإقفال
@@ -268,7 +289,25 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           return;
         }
 
-        const custId = entryIdToCustomerId.get(jeId);
+        // استنتاج العميل من: ID القيد -> مستند الأصل -> المرجع -> الاسم في البيان
+        let custId = entryIdToCustomerId.get(jeId);
+        if (!custId && docId) {
+          custId = docIdToCustomerId.get(docId);
+        }
+        if (!custId && ref) {
+          custId = refToCustomerId.get(ref);
+          if (!custId) {
+            const rawNum = ref.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-)/i, '');
+            if (rawNum) {
+              custId = refToCustomerId.get(rawNum) || refToCustomerId.get(`CHQ-${rawNum}`) || refToCustomerId.get(`REJ-CHQ-${rawNum}`);
+            }
+          }
+        }
+        if (!custId) {
+          const matchedCust = customersList?.find(c => c.name && desc.toLowerCase().includes(c.name.trim().toLowerCase()));
+          if (matchedCust) custId = matchedCust.id;
+        }
+
         if (custId && customerBreakdown.has(custId)) {
           matchedEntryIds.add(jeId);
           const b = customerBreakdown.get(custId)!;
@@ -281,12 +320,13 @@ export const CustomerBalanceReconciliation: React.FC = () => {
             b.returnsTotal += credit;
           } else if (ref.startsWith('CN-') || desc.includes('إشعار دائن')) {
             b.creditNotesTotal += credit;
-          } else if (ref.startsWith('CHQ-') || desc.includes('شيك')) {
-            b.chequesTotal += credit;
+          } else if (ref.startsWith('CHQ-') || ref.startsWith('REJ-') || desc.includes('شيك') || desc.includes('ارتداد') || desc.includes('رفض')) {
+            // شيكات واردة أو شيكات مرتدة (سداد - ارتداد)
+            b.chequesTotal += (credit - debit);
           } else if (desc.includes('مستخلص') || ref.startsWith('BILL-') || /^\d+$/.test(ref)) {
             b.billingsTotal += debit;
           } else {
-            b.receiptsTotal += credit;
+            b.receiptsTotal += (credit - debit);
           }
         }
       });
@@ -366,6 +406,11 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           cleanDesc.includes('إيراد خدمات طبية') ||
           cleanDesc.includes('إيراد عيادات')
         ) return true;
+
+        // شيكات مرتدة أو مستندات معروفة في خرائط المراجع
+        if (refToCustomerId.has(cleanRef)) return true;
+        const rawNum = cleanRef.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-)/i, '');
+        if (rawNum && refToCustomerId.has(rawNum)) return true;
 
         // فحص اسم أي عميل في البيان
         if (customersList?.some(c => c.name && cleanDesc.includes(c.name))) return true;
