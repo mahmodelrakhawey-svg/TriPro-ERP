@@ -5,7 +5,7 @@ import {
     Wallet, Search, X, ChevronDown, Check, AlertCircle, Percent,
     CircleDollarSign, Package, Box, Info,
     ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle,
-    Edit, RefreshCw, FileText, Landmark,
+    Edit, RefreshCw, FileText, Landmark, Unlock, Undo2,
     ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, List
 } from 'lucide-react';
 import { InvoiceItem, Product } from '../../types';
@@ -482,6 +482,73 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
       exchangeRate: 1
     });
     showToast('تم فتح نموذج فاتورة مبيعات جديدة ➕', 'info');
+  };
+
+  const handleUnpostInvoice = async () => {
+    if (!editingId) return;
+
+    if (!window.confirm(`هل أنت متأكد من إلغاء تترحيل فاتورة المبيعات رقم (${formData.invoiceNumber})؟\n\nسيتم:\n1- عكس حركة المخزون وإعادة الكميات للمستودع.\n2- حذف القيد المحاسبي من دفتر اليومية بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها بحرية.`)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      // 1. جلب بيانات الفاتورة والأصناف
+      const { data: inv, error: invFetchErr } = await supabase.from('invoices').select('*, invoice_items(*)').eq('id', editingId).single();
+      if (invFetchErr) throw invFetchErr;
+
+      if (inv && (inv.status === 'posted' || inv.status === 'paid')) {
+        // 2. عكس حركة المخزون (إعادة البضاعة للمخزن)
+        for (const item of (inv.invoice_items || [])) {
+          if (item.product_id && item.quantity) {
+            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
+            if (prod) {
+              const newStock = (Number(prod.stock) || 0) + Number(item.quantity);
+              let newWStock = prod.warehouse_stock || {};
+              if (inv.warehouse_id && newWStock[inv.warehouse_id] !== undefined) {
+                newWStock[inv.warehouse_id] = (Number(newWStock[inv.warehouse_id]) || 0) + Number(item.quantity);
+              }
+              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
+            }
+          }
+        }
+
+        // 3. حذف القيد المحاسبي المرتبط من دفتر الأستاذ العام
+        if (inv.related_journal_entry_id) {
+          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
+        } else {
+          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', inv.invoice_number);
+        }
+      }
+
+      // 4. تحويل حالة الفاتورة إلى draft وتصفير القيد المرتبط
+      const { error: updateErr } = await supabase.from('invoices').update({
+        status: 'draft',
+        related_journal_entry_id: null
+      }).eq('id', editingId);
+
+      if (updateErr) throw updateErr;
+
+      // 5. تحديث واجهة المستخدم
+      setFormData(prev => ({
+        ...prev,
+        status: 'draft'
+      }));
+
+      // تحديث رصيد العميل فوراً
+      await fetchCustomerBalance();
+
+      showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
+
+    } catch (err: any) {
+      console.error('Error unposting sales invoice:', err);
+      showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDeleteCurrent = async () => {
@@ -2040,13 +2107,25 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
                 </div>
 
                 {formData.status !== 'draft' ? (
-                    <button 
-                        type="button" 
-                        onClick={handleCreateCreditNote}
-                        className="mt-8 w-full bg-red-600 hover:bg-red-500 text-white py-5 rounded-[24px] font-black text-xl shadow-2xl shadow-red-600/30 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3"
-                    >
-                        إنشاء إشعار دائن / مرتجع
-                    </button>
+                    <div className="mt-8 space-y-3">
+                        <button 
+                            type="button" 
+                            onClick={handleUnpostInvoice}
+                            disabled={saving}
+                            className="w-full bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white py-4 rounded-[24px] font-black text-lg shadow-xl shadow-amber-600/30 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3"
+                            title="عكس حركة المخزون وحذف القيد المحاسبي وتحويل الفاتورة لمسودة قابلة للتعديل"
+                        >
+                            {saving ? <Loader2 className="animate-spin" /> : <Unlock size={22} />}
+                            إلغاء الترحيل والتعديل 🔓
+                        </button>
+                        <button 
+                            type="button" 
+                            onClick={handleCreateCreditNote}
+                            className="w-full bg-red-600 hover:bg-red-500 text-white py-4 rounded-[24px] font-black text-lg shadow-xl shadow-red-600/30 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-3"
+                        >
+                            إنشاء إشعار دائن / مرتجع
+                        </button>
+                    </div>
                 ) : (
                     <button 
                         type="submit" 

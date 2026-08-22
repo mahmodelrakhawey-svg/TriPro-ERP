@@ -6,7 +6,7 @@ import {
   Search, Loader2, Edit, Plus, ChevronLeft, ChevronRight, 
   AlertCircle, FileText, CheckCircle, MessageCircle, Printer, 
   Landmark, RotateCcw, Download, Trash2, Warehouse as WarehouseIcon,
-  DollarSign
+  DollarSign, Unlock
 } from 'lucide-react';
 import { etaService } from '../../services/etaService';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
@@ -141,6 +141,57 @@ export const InvoiceList = () => {
     } catch (err: any) {
       console.error(err);
       showToast('فشل ترحيل الفاتورة: ' + err.message, 'error');
+    }
+  };
+
+  const handleUnpost = async (invoice: any) => {
+    if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل فاتورة المبيعات رقم (${invoice.invoice_number})؟\n\nسيتم:\n1- عكس حركة المخزون وإعادة الكميات للمستودع.\n2- حذف القيد المحاسبي بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها.`)) {
+      return;
+    }
+
+    setDeletingId(invoice.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      // 1. عكس حركة المخزون
+      for (const item of (invoice.invoice_items || [])) {
+        if (item.product_id && item.quantity) {
+          const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
+          if (prod) {
+            const newStock = (Number(prod.stock) || 0) + Number(item.quantity);
+            let newWStock = prod.warehouse_stock || {};
+            if (invoice.warehouse_id && newWStock[invoice.warehouse_id] !== undefined) {
+              newWStock[invoice.warehouse_id] = (Number(newWStock[invoice.warehouse_id]) || 0) + Number(item.quantity);
+            }
+            await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
+          }
+        }
+      }
+
+      // 2. حذف القيد المحاسبي المرتبط
+      if (invoice.related_journal_entry_id) {
+        await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
+      } else {
+        await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', invoice.invoice_number);
+      }
+
+      // 3. تحديث حالة الفاتورة لمسودة
+      const { error: updateErr } = await supabase.from('invoices').update({
+        status: 'draft',
+        related_journal_entry_id: null
+      }).eq('id', invoice.id);
+
+      if (updateErr) throw updateErr;
+
+      showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة ✅', 'success');
+      fetchInvoices();
+
+    } catch (err: any) {
+      console.error('Error unposting invoice:', err);
+      showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -477,14 +528,22 @@ export const InvoiceList = () => {
                       </td>
                       <td className="p-3.5">
                         <div className="flex items-center justify-center gap-1">
-                          
-                          {inv.status === 'draft' && (
+                          {inv.status === 'draft' ? (
                             <button 
                               onClick={() => handleApprove(inv)}
                               className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                               title="ترحيل الفاتورة وتوليد القيد"
                             >
                               <CheckCircle size={16} />
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleUnpost(inv)}
+                              disabled={deletingId === inv.id}
+                              className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="إلغاء الترحيل وتحويل لمسودة للتعديل"
+                            >
+                              {deletingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
                             </button>
                           )}
 
