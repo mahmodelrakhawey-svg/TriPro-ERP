@@ -84,29 +84,70 @@ const TrialBalanceAdvanced = () => {
 
     // 🔒 منطق النسخة الأصلية: جلب البيانات الفعلية من قاعدة البيانات
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      // ✅ أولوية 1: استخدام currentUser من الـ Context (محلي — لا يحتاج شبكة)
+      let userOrgId: string | undefined =
+        (currentUser as any)?.organization_id ||
+        (currentUser as any)?.user_metadata?.org_id;
+
+      // ✅ أولوية 2: جلب الجلسة من الكاش المحلي (getSession لا يطلب الشبكة)
+      if (!userOrgId) {
+        const { data: sessionData } = await supabase.auth.getSession();
+        userOrgId =
+          sessionData?.session?.user?.user_metadata?.org_id ||
+          sessionData?.session?.user?.id;
+      }
 
       if (!userOrgId) {
-        throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
+        // ✅ أولوية 3: محاولة الجلب من الشبكة كآخر خيار مع timeout
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const { data: { user } } = await supabase.auth.getUser();
+          clearTimeout(timeoutId);
+          userOrgId = user?.user_metadata?.org_id;
+        } catch (_netErr) {
+          // الشبكة غير متاحة — نستخدم البيانات المحلية في accounts
+          console.warn('الشبكة غير متاحة، سيتم استخدام بيانات الـ Context المحلية.');
+          setLedgerLines([]);
+          toast.error('تعذر الاتصال بالخادم. يرجى التحقق من الاتصال بالإنترنت وإعادة المحاولة.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (!userOrgId) {
+        toast.error('تعذر تحديد المنظمة. يرجى تسجيل الخروج والدخول مجدداً.');
+        setLoading(false);
+        return;
       }
 
       const { data, error } = await supabase
         .from('journal_lines')
         .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
         .eq('journal_entries.status', 'posted')
-        .eq('journal_entries.organization_id', userOrgId) // فلترة البيانات حسب المنظمة
+        .eq('journal_entries.organization_id', userOrgId)
         .lte('journal_entries.transaction_date', endDate);
 
       if (error) throw error;
       setLedgerLines(data || []);
     } catch (err: any) {
       console.error('Error fetching ledger:', err);
-      toast.error('فشل جلب البيانات: ' + err.message);
+      // تمييز أخطاء الشبكة عن أخطاء البيانات
+      if (
+        err?.message?.includes('Failed to fetch') ||
+        err?.message?.includes('ERR_CONNECTION') ||
+        err?.name === 'AbortError' ||
+        err?.message?.includes('network')
+      ) {
+        toast.error('انقطع الاتصال بالخادم. يرجى التحقق من الإنترنت وإعادة المحاولة.');
+      } else {
+        toast.error('فشل جلب البيانات: ' + err.message);
+      }
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleRefresh = async () => {
     setLoading(true);

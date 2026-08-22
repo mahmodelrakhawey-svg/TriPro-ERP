@@ -438,9 +438,22 @@ const GeneralJournal = () => {
         return;
     }
     try {
-        const { error } = await supabase.from('journal_entries').delete().eq('id', entryId);
-        if (error) throw error;
-        toast.success('تم حذف القيد بنجاح.');
+        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        
+        // محاولة الحذف الآمن عبر دالة الـ RPC
+        const { data, error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
+          p_entry_id: entryId,
+          p_org_id: orgId
+        });
+
+        if (rpcError) {
+          // محاولة الحذف المباشر لأسطر القيد ثم رأس القيد
+          await supabase.from('journal_lines').delete().eq('journal_entry_id', entryId);
+          const { error } = await supabase.from('journal_entries').delete().eq('id', entryId);
+          if (error) throw error;
+        }
+
+        toast.success('تم حذف القيد وتحديث الأرصدة بنجاح.');
         refreshData();
         refresh();
     } catch (err: any) {

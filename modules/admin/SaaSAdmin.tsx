@@ -1275,7 +1275,8 @@ const SaaSAdmin: React.FC = () => {
 
   const handleImpersonate = async (orgId: string, orgName: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
       if (!user) throw new Error('لم يتم العثور على المستخدم');
 
       // حفظ معرف المنظمة الأصلي (بيئة المدير) قبل التبديل للتمكن من العودة لاحقاً

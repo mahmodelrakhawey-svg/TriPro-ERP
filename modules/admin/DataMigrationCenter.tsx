@@ -119,7 +119,8 @@ const DataMigrationCenter = () => {
         const currentStepId = steps[activeStep].id;
 
         // Resolve Organization ID safely
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: sessionData } = await supabase.auth.getSession();
+        const user = sessionData?.session?.user;
         let orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id || user?.user_metadata?.org_id;
         
         if (!orgId) {
@@ -548,7 +549,8 @@ const DataMigrationCenter = () => {
       description: string, 
       lines: { accountId: string, debit: number, credit: number }[]
   ) => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
       const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
       
       const { data: entry } = await supabase.from('journal_entries').insert({
@@ -557,7 +559,7 @@ const DataMigrationCenter = () => {
           reference: ref,
           description: description.substring(0, 255),
           status: 'posted',
-          user_id: user?.id,
+          user_id: user?.id || currentUser?.id,
           organization_id: orgId
       }).select().single();
 

@@ -122,6 +122,7 @@ import PerformanceComparisonReport from './modules/reports/PerformanceComparison
 import RecycleBin from './modules/admin/RecycleBin';
 import SaasAdmin from './modules/admin/SaaSAdmin';
 import DataMigrationCenter from './modules/admin/DataMigrationCenter';
+import SystemStressTest from './modules/admin/SystemStressTest';
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement'; // Re-add this import
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
 import UserGuide from './components/UserGuide';
@@ -648,6 +649,7 @@ const MainLayout = () => {
                 <Route path="/permissions" element={<PermissionsManager />} />
                 <Route path="/recycle-bin" element={<RecycleBin />} />
                 <Route path="/data-migration" element={<DataMigrationCenter />} />
+                <Route path="/stress-test" element={<SystemStressTest />} />
                 <Route path="/admin/test-dashboard" element={<ModuleGuard module="admin"><AdminTestDashboard /></ModuleGuard>} />
                 <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} />
                 <Route path="/profile" element={<UserProfile />} />

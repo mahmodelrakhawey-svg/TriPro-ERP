@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -782,7 +782,8 @@ const ProductManager = () => {
         };
 
         // جلب معرف المستخدم مرة واحدة فقط خارج الحلقة
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: sessionData } = await supabase.auth.getSession();
+        const user = sessionData?.session?.user;
 
         for (const row of data as any[]) {
           const name = row['اسم المنتج'] || row['Name'] || row['name'];
@@ -1157,7 +1158,8 @@ const ProductManager = () => {
                 const inventoryAcc = formData.inventory_account_id || (formData.product_type === 'RAW_MATERIAL' ? (defaultRawAcc || defaultFinishedAcc) : defaultFinishedAcc);
 
                 if (totalValue > 0 && inventoryAcc && equityAccId) {
-                     const { data: { user } } = await supabase.auth.getUser();
+                     const { data: sessionData } = await supabase.auth.getSession();
+                     const user = sessionData?.session?.user;
                      const ref = `MAN-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
 
                      const { data: entry } = await supabase.from('journal_entries').insert({

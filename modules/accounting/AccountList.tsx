@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock } from 'lucide-react';
@@ -8,7 +8,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 
 const AccountList = () => {
-  const { accounts, deleteAccount, refreshData, isLoading, can } = useAccounting();
+  const { accounts, deleteAccount, refreshData, isLoading, can, currentUser } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState(''); // Removed unused `isLoading` from useAccounting
@@ -204,8 +204,8 @@ const AccountList = () => {
 
     try {
       // جلب معرف المنظمة الحالي
-      const { data: { user } } = await supabase.auth.getUser();
-      const orgId = user?.user_metadata?.org_id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const orgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
 
       if (!orgId) throw new Error('تعذر تحديد معرف المنظمة');
       
@@ -230,8 +230,8 @@ const AccountList = () => {
     showToast('جاري تشغيل عملية الإصلاح الشامل...', 'info');
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const orgId = user?.user_metadata?.org_id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const orgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
 
       if (!orgId) throw new Error('تعذر تحديد معرف المنظمة');
       
@@ -373,6 +373,14 @@ const AccountList = () => {
               <span>إنشاء الحسابات المفقودة</span>
             </button>
             <button 
+              onClick={() => navigate('/stress-test')}
+              className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-2 rounded-lg hover:bg-indigo-100 font-bold transition-all shadow-sm"
+              title="تشغيل محرك الفحص والضغط الآلي الشامل لجميع المديولات"
+            >
+              <Sparkles size={18} className="text-indigo-600 animate-pulse" />
+              <span>الفحص والضغط الآلي الشامل</span>
+            </button>
+            <button 
               onClick={handleAutoFixAccountTypes}
               className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:bg-amber-100 font-bold transition-colors shadow-sm"
               title="إصلاح أنواع الحسابات تلقائياً بناءً على أكوادها"
@@ -387,8 +395,8 @@ const AccountList = () => {
                 if (window.confirm(`هل أنت متأكد من إعادة فتح السنة المالية ${year}؟\nسيتم حذف قيد الإقفال والسماح بالتعديلات.`)) {
                   showToast('جاري فتح السنة المالية...', 'info');
                   try {
-                    const { data: { user } } = await supabase.auth.getUser();
-                    const orgId = user?.user_metadata?.org_id;
+                    const { data: sessionData } = await supabase.auth.getSession();
+                    const orgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
                     const { data, error } = await supabase.rpc('reopen_financial_year', { p_year: parseInt(year), p_org_id: orgId });
                     if (error) throw error;
                     showToast(data, 'success');

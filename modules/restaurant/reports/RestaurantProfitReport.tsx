@@ -56,8 +56,8 @@ const RestaurantProfitReport = () => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
 
       if (!userOrgId) return;
 

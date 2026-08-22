@@ -4,7 +4,7 @@ import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
 import { 
   Scale, AlertTriangle, CheckCircle, Search, ArrowRight, 
-  RefreshCw, Trash2, Plus, Save, X, Truck, BookOpen, 
+  RefreshCw, Trash2, Plus, X, Truck, BookOpen, 
   FileText, FileCheck, Download, HardHat
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -24,11 +24,11 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const [supplierSearch, setSupplierSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'overview' | 'discrepancies' | 'suppliers' | 'subcontractors'>('overview');
   
-  // تحديد حساب الموردين الرئيسي (221 أو 201 في الدليل الموحد)
+  // تحديد حساب الموردين الرئيسي
   const supplierAcc = getSystemAccount('SUPPLIERS');
   const supplierAccountCode = supplierAcc ? supplierAcc.code : '221';
 
-  // حالة نافذة الإصلاح (إنشاء سند صرف)
+  // حالة نافذة الإصلاح
   const [fixModalOpen, setFixModalOpen] = useState(false);
   const [entryToFix, setEntryToFix] = useState<any>(null);
   const [fixFormData, setFixFormData] = useState({
@@ -37,30 +37,33 @@ export const SupplierBalanceReconciliation: React.FC = () => {
     notes: ''
   });
 
-  // تصفية حسابات النقدية والبنوك
-  const treasuryAccounts = useMemo(() => 
-    accounts.filter(a => !a.isGroup && (a.code.startsWith('123') || a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('بنك'))),
+  const treasuryAccounts = useMemo(() =>
+    accounts.filter(a => !a.isGroup && (
+      a.code.startsWith('123') ||
+      a.code.startsWith('101') ||
+      a.name.includes('صندوق') ||
+      a.name.includes('خزينة') ||
+      a.name.includes('بنك')
+    )),
     [accounts]
   );
 
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
-      // 1. جلب رصيد دفتر الأستاذ (GL) لحساب الموردين حصراً (221 / 2211) واستبعاد أوراق الدفع أو الحسابات الدائنة الأخرى
-      const supplierAccounts = accounts.filter(a => 
+      // ============================================================
+      // الجزء الأول: رصيد الأستاذ العام (GL) لحساب الموردين
+      // ============================================================
+      const supplierAccounts = accounts.filter(a =>
         !a.isGroup && (
-          a.code === supplierAccountCode || 
-          a.code === '2211' || 
-          a.code === '221' || 
-          a.code.startsWith('2211') || 
-          a.code === '20101' || 
-          a.code.startsWith('20101') || 
+          a.code === supplierAccountCode ||
           (supplierAcc && a.id === supplierAcc.id)
         )
       );
       const accountIds = supplierAccounts.map(a => a.id);
 
       if (accountIds.length === 0) {
+        showToast('لم يتم العثور على حساب الموردين في دليل الحسابات', 'warning');
         setLoading(false);
         return;
       }
@@ -73,77 +76,99 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       if (glError) throw glError;
 
+      let totalGlDebit  = 0;
       let totalGlCredit = 0;
-      let totalGlDebit = 0;
-      
-      // تخزين القيود للمراجعة وتجميع المبالغ لنفس القيد
-      const glEntriesMap = new Map();
+      const glEntriesMap = new Map<string, any>();
+
+      // نُعلِّم القيود الافتتاحية
+      const openingEntryIds = new Set<string>();
 
       glLines?.forEach((line: any) => {
-        const debitVal = Number(line.debit || 0);
+        const debitVal  = Number(line.debit  || 0);
         const creditVal = Number(line.credit || 0);
+        totalGlDebit  += debitVal;
         totalGlCredit += creditVal;
-        totalGlDebit += debitVal;
-        
-        const ref = line.journal_entries?.reference || '';
-        const entryKey = line.journal_entries?.id; 
-        
+
+        const ref      = (line.journal_entries?.reference || '').trim();
+        const entryKey = line.journal_entries?.id;
+        const desc     = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
+        const cleanRef = ref.toUpperCase();
+
+        const isOpening =
+          cleanRef.startsWith('OP-')      || cleanRef.startsWith('OB-')      ||
+          cleanRef.startsWith('OPENING-') || cleanRef.startsWith('OP-SUP-')  ||
+          cleanRef.startsWith('OP-SUPP-') ||
+          desc.includes('رصيد افتتاحي')   || desc.includes('رصيد أول المدة');
+
+        if (isOpening && entryKey) openingEntryIds.add(entryKey);
+
         if (!glEntriesMap.has(entryKey)) {
           glEntriesMap.set(entryKey, {
             id: line.id,
             journal_entries: line.journal_entries,
             debit: debitVal,
             credit: creditVal,
-            description: line.description || line.journal_entries?.description || '',
+            description: desc,
             date: line.journal_entries?.transaction_date,
-            ref: ref
+            ref,
+            isOpening
           });
         } else {
-          const existing = glEntriesMap.get(entryKey);
-          existing.debit += debitVal;
-          existing.credit += creditVal;
+          const ex = glEntriesMap.get(entryKey);
+          ex.debit  += debitVal;
+          ex.credit += creditVal;
+          if (isOpening) ex.isOpening = true;
         }
       });
 
-      // رصيد الموردين دائن بطبيعته (دائن - مدين)
+      // رصيد الموردين دائن بطبيعته
       const calculatedGlBalance = totalGlCredit - totalGlDebit;
       setGlBalance(calculatedGlBalance);
 
-      // 2. جلب رصيد الأستاذ المساعد (Sub-ledger) من كشوف حسابات الموردين ومقاولي الباطن
+      // ============================================================
+      // الجزء الثاني: رصيد الأستاذ المساعد — من المستندات مباشرة
+      // ============================================================
       const { data: suppliersList } = await supabase
         .from('suppliers')
         .select('id, name, phone, opening_balance')
         .is('deleted_at', null);
 
-      const { data: invoices } = await supabase
-        .from('purchase_invoices')
-        .select('supplier_id, total_amount, paid_amount, invoice_number, status')
-        .neq('status', 'draft')
-        .neq('status', 'cancelled');
+      // جلب كل المستندات دفعة واحدة
+      const [
+        invRes,       // فواتير المشتريات
+        retRes,       // مرتجعات المشتريات
+        dnRes,        // الإشعارات المدينة
+        pvRes,        // سندات الصرف
+        chqRes,       // الشيكات الصادرة
+        subBillRes    // مستخلصات مقاولي الباطن
+      ] = await Promise.all([
+        supabase
+          .from('purchase_invoices')
+          .select('id, supplier_id, invoice_number, total_amount, paid_amount, treasury_account_id, related_journal_entry_id, status')
+          .not('status', 'in', '("draft","cancelled")'),
 
-      const { data: returns } = await supabase
-        .from('purchase_returns')
-        .select('supplier_id, total_amount, return_number, status')
-        .neq('status', 'draft');
+        supabase
+          .from('purchase_returns')
+          .select('id, supplier_id, return_number, total_amount, related_journal_entry_id, status')
+          .not('status', 'in', '("draft","cancelled")'),
 
-      const { data: debitNotes } = await supabase
-        .from('debit_notes')
-        .select('supplier_id, total_amount, debit_note_number, status')
-        .eq('status', 'posted');
+        supabase
+          .from('debit_notes')
+          .select('id, supplier_id, debit_note_number, total_amount, related_journal_entry_id, status')
+          .eq('status', 'posted'),
 
-      const { data: payments } = await supabase
-        .from('payment_vouchers')
-        .select('supplier_id, amount, voucher_number, payment_method')
-        .not('supplier_id', 'is', null);
+        supabase
+          .from('payment_vouchers')
+          .select('id, supplier_id, voucher_number, amount, payment_method, related_journal_entry_id')
+          .not('supplier_id', 'is', null),
 
-      const { data: cheques } = await supabase
-        .from('cheques')
-        .select('party_id, amount, cheque_number, status, type')
-        .eq('type', 'outgoing');
+        supabase
+          .from('cheques')
+          .select('id, party_id, cheque_number, amount, status, related_journal_entry_id')
+          .eq('type', 'outgoing'),
 
-      let subBillingsNormalized: any[] = [];
-      try {
-        const { data: subBillings, error: sbError } = await supabase
+        // مستخلصات مقاولي الباطن — نجلب مع اسم مقاول الباطن ومعرف القيد
+        supabase
           .from('subcontractor_billings')
           .select(`
             id,
@@ -152,256 +177,329 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             gross_amount,
             status,
             billing_date,
+            related_journal_entry_id,
             subcontractor_contracts (
-              subcontractors (
-                name
-              )
+              subcontractor_id,
+              subcontractors ( id, name, supplier_id )
             )
           `)
-          .neq('status', 'draft');
+          .not('status', 'in', '("draft","cancelled")'),
 
-        if (!sbError && subBillings) {
-          subBillingsNormalized = subBillings.map((sb: any) => ({
-            id: sb.id,
-            billing_number: sb.billing_number,
-            net_amount: sb.net_amount,
-            gross_amount: sb.gross_amount,
-            status: sb.status,
-            issue_date: sb.billing_date,
-            subcontractor_name: sb.subcontractor_contracts?.subcontractors?.name || '-'
-          }));
-        } else {
-          // خطة بديلة في حال عدم توفر العلاقات المتقدمة
-          const { data: basicBillings } = await supabase
-            .from('subcontractor_billings')
-            .select('id, billing_number, net_amount, gross_amount, status, billing_date')
-            .neq('status', 'draft');
-          if (basicBillings) {
-            subBillingsNormalized = basicBillings.map((sb: any) => ({
-              id: sb.id,
-              billing_number: sb.billing_number,
-              net_amount: sb.net_amount,
-              gross_amount: sb.gross_amount,
-              status: sb.status,
-              issue_date: sb.billing_date,
-              subcontractor_name: '-'
-            }));
+        // جلب جدول مقاولي الباطن لربطهم بالموردين بالاسم
+        supabase
+          .from('subcontractors')
+          .select('id, name, supplier_id')
+      ]);
+
+      const subToSupplierMap = new Map<string, string>();
+      const subNameToSupplierMap = new Map<string, string>();
+
+      // بناء خريطة الربط بين مقاولي الباطن والموردين
+      (chqRes as any); // Type safety
+      const subcontractorsList = (subBillRes as any).data ? (await supabase.from('subcontractors').select('id, name, supplier_id')).data : [];
+      
+      subcontractorsList?.forEach((sub: any) => {
+        if (sub.supplier_id) {
+          subToSupplierMap.set(sub.id, sub.supplier_id);
+        }
+        if (sub.name) {
+          const matchedSupplier = suppliersList?.find(s => 
+            s.name && (s.name.trim().toLowerCase() === sub.name.trim().toLowerCase() || s.name.includes(sub.name) || sub.name.includes(s.name))
+          );
+          if (matchedSupplier) {
+            subToSupplierMap.set(sub.id, matchedSupplier.id);
+            subNameToSupplierMap.set(sub.name.trim().toLowerCase(), matchedSupplier.id);
           }
         }
-      } catch (sbErr) {
-        console.warn('Subcontractor billings fetch warning:', sbErr);
-      }
+      });
 
+      // ============================================================
+      // معالجة مستخلصات مقاولي الباطن
+      // ============================================================
+      let subBillingsNormalized: any[] = [];
+      if (!subBillRes.error && subBillRes.data) {
+        subBillingsNormalized = subBillRes.data.map((sb: any) => {
+          const rawSub = sb.subcontractor_contracts?.subcontractors;
+          const subId = sb.subcontractor_contracts?.subcontractor_id || rawSub?.id;
+          const mappedSupplierId = (subId ? subToSupplierMap.get(subId) : null) || rawSub?.supplier_id || null;
+          return {
+            id:                       sb.id,
+            billing_number:           sb.billing_number,
+            net_amount:               Number(sb.net_amount  || 0),
+            gross_amount:             Number(sb.gross_amount || 0),
+            status:                   sb.status,
+            issue_date:               sb.billing_date,
+            related_journal_entry_id: sb.related_journal_entry_id,
+            subcontractor_id:         subId,
+            subcontractor_name:       rawSub?.name || '-',
+            supplier_id:              mappedSupplierId
+          };
+        });
+      } else {
+        const { data: basicBillings } = await supabase
+          .from('subcontractor_billings')
+          .select('id, billing_number, net_amount, gross_amount, status, billing_date, related_journal_entry_id')
+          .not('status', 'in', '("draft","cancelled")');
+        if (basicBillings) {
+          subBillingsNormalized = basicBillings.map((sb: any) => ({
+            id:                       sb.id,
+            billing_number:           sb.billing_number,
+            net_amount:               Number(sb.net_amount  || 0),
+            gross_amount:             Number(sb.gross_amount || 0),
+            status:                   sb.status,
+            issue_date:               sb.billing_date,
+            related_journal_entry_id: sb.related_journal_entry_id,
+            subcontractor_id:         null,
+            subcontractor_name:       '-',
+            supplier_id:              null
+          }));
+        }
+      }
       setSubcontractorBillings(subBillingsNormalized);
 
-
+      // ============================================================
+      // بناء خريطة لربط كل قيد يومية أو مرجع بالمورد المعني
+      // ============================================================
+      const entryIdToSupplierId = new Map<string, string>();
+      const refToSupplierId = new Map<string, string>();
       const subLedgerRefs = new Set<string>();
 
-      // تسجيل جميع مراجع المستندات للمطابقة
-      invoices?.forEach(inv => { if (inv.invoice_number) subLedgerRefs.add(inv.invoice_number.trim()); });
-      returns?.forEach(ret => { if (ret.return_number) subLedgerRefs.add(ret.return_number.trim()); });
-      payments?.forEach(pay => { if (pay.voucher_number) subLedgerRefs.add(pay.voucher_number.trim()); });
-      debitNotes?.forEach(dn => { if (dn.debit_note_number) subLedgerRefs.add(dn.debit_note_number.trim()); });
-      
-      subBillingsNormalized?.forEach(sb => {
-        if (sb.billing_number) {
-          subLedgerRefs.add(sb.billing_number.trim());
-          subLedgerRefs.add(`SUB-BILL-${sb.billing_number.replace(/^SUB-(BILL-)?/i, '')}`);
+      const registerEntry = (jeId: string | null | undefined, suppId: string | null | undefined, ref?: string) => {
+        if (suppId) {
+          if (jeId) entryIdToSupplierId.set(jeId, suppId);
+          if (ref) {
+            const clean = ref.trim().toUpperCase();
+            refToSupplierId.set(clean, suppId);
+            // إضافة بدائل البادئات الشائعة
+            const rawNum = clean.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-)/i, '');
+            refToSupplierId.set(rawNum, suppId);
+            refToSupplierId.set(`PUR-${rawNum}`, suppId);
+            refToSupplierId.set(`PI-${rawNum}`, suppId);
+            refToSupplierId.set(`SUB-BILL-${rawNum}`, suppId);
+            refToSupplierId.set(`SUB-${rawNum}`, suppId);
+            refToSupplierId.set(`PV-${rawNum}`, suppId);
+            refToSupplierId.set(`CHQ-${rawNum}`, suppId);
+          }
         }
-        if (sb.id) subLedgerRefs.add(sb.id);
+        if (ref) subLedgerRefs.add(ref.trim().toUpperCase());
+      };
+
+      invRes.data?.forEach(i => registerEntry(i.related_journal_entry_id, i.supplier_id, i.invoice_number));
+      retRes.data?.forEach(r => registerEntry(r.related_journal_entry_id, r.supplier_id, r.return_number));
+      dnRes.data?.forEach(d => registerEntry(d.related_journal_entry_id, d.supplier_id, d.debit_note_number));
+      pvRes.data?.forEach(p => registerEntry(p.related_journal_entry_id, p.supplier_id, p.voucher_number));
+      chqRes.data?.forEach(c => registerEntry(c.related_journal_entry_id, c.party_id, String(c.cheque_number)));
+
+      // ربط مستخلصات مقاولي الباطن بالموردين
+      subBillingsNormalized.forEach(sb => {
+        const suppId = sb.supplier_id || (sb.subcontractor_name ? subNameToSupplierMap.get(sb.subcontractor_name.trim().toLowerCase()) : null);
+        registerEntry(sb.related_journal_entry_id, suppId, sb.billing_number);
+        registerEntry(sb.related_journal_entry_id, suppId, `SUB-BILL-${sb.billing_number}`);
       });
 
+      // ربط القيود اليدوية بأسماء الموردين أو مقاولي الباطن
+      suppliersList?.forEach(supp => {
+        if (!supp.name) return;
+        const suppName = supp.name.trim().toLowerCase();
+        glLines?.forEach((line: any) => {
+          const jeId = line.journal_entries?.id;
+          if (!jeId || entryIdToSupplierId.has(jeId)) return;
+          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.toLowerCase();
+          const ref = (line.journal_entries?.reference || '').toLowerCase();
+          if (desc.includes(suppName) || ref.includes(supp.id.toLowerCase())) {
+            entryIdToSupplierId.set(jeId, supp.id);
+          }
+        });
+      });
 
-      cheques?.forEach(chq => {
-        const rawNum = String(chq.cheque_number || '').trim();
-        if (rawNum) {
-          subLedgerRefs.add(`CHQ-${rawNum}`);
-          subLedgerRefs.add(rawNum);
-          subLedgerRefs.add(`REJ-OUT-${rawNum}`);
-          subLedgerRefs.add(`REJ-${rawNum}`);
+      // حساب رصيد كل مورد من خلال قيود الأستاذ العام المرتبطة به
+      const supplierBreakdown = new Map<string, {
+        grossInvoices: number,
+        subBillingsForSupplier: number,
+        invoiceImmediatePayments: number,
+        returnsTotal: number,
+        debitNotesTotal: number,
+        paymentsTotal: number,
+        chequesTotal: number,
+        totalDebit: number,
+        totalCredit: number
+      }>();
+
+      suppliersList?.forEach(s => {
+        supplierBreakdown.set(s.id, {
+          grossInvoices: 0,
+          subBillingsForSupplier: 0,
+          invoiceImmediatePayments: 0,
+          returnsTotal: 0,
+          debitNotesTotal: 0,
+          paymentsTotal: 0,
+          chequesTotal: 0,
+          totalDebit: 0,
+          totalCredit: 0
+        });
+      });
+
+      const matchedEntryIds = new Set<string>();
+
+      glLines?.forEach((line: any) => {
+        const jeId = line.journal_entries?.id;
+        const debit = Number(line.debit || 0);
+        const credit = Number(line.credit || 0);
+        const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
+        const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`;
+
+        // القيود الافتتاحية والإقفال
+        if (openingEntryIds.has(jeId)) {
+          matchedEntryIds.add(jeId);
+          suppliersList?.forEach(s => {
+            if (s.name && desc.includes(s.name)) {
+              const b = supplierBreakdown.get(s.id);
+              if (b) {
+                b.totalCredit += credit;
+                b.totalDebit += debit;
+              }
+            }
+          });
+          return;
+        }
+
+        // استنتاج المورد من: ID القيد -> المرجع -> الاسم في البيان
+        let suppId = entryIdToSupplierId.get(jeId) || refToSupplierId.get(ref);
+        
+        if (!suppId && ref) {
+          const rawRef = ref.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-)/i, '');
+          suppId = refToSupplierId.get(rawRef);
+        }
+
+        if (!suppId) {
+          const lowerDesc = desc.toLowerCase();
+          const matchedSupp = suppliersList?.find(s => s.name && lowerDesc.includes(s.name.trim().toLowerCase()));
+          if (matchedSupp) suppId = matchedSupp.id;
+        }
+
+        if (suppId && supplierBreakdown.has(suppId)) {
+          matchedEntryIds.add(jeId);
+          const b = supplierBreakdown.get(suppId)!;
+          b.totalCredit += credit;
+          b.totalDebit += debit;
+
+          if (ref.startsWith('PUR-') || ref.startsWith('PI-') || desc.includes('مشتريات') || desc.includes('فاتورة مشتريات')) {
+            b.grossInvoices += credit;
+          } else if (ref.startsWith('PR-') || desc.includes('مرتجع مشتريات')) {
+            b.returnsTotal += debit;
+          } else if (ref.startsWith('DN-') || desc.includes('إشعار مدين')) {
+            b.debitNotesTotal += debit;
+          } else if (ref.startsWith('CHQ-') || desc.includes('شيك')) {
+            b.chequesTotal += debit;
+          } else if (desc.includes('مستخلص') || ref.startsWith('SUB-') || /^\d+$/.test(ref)) {
+            b.subBillingsForSupplier += credit;
+          } else {
+            b.paymentsTotal += debit;
+          }
         }
       });
 
-      // إعداد قائمة بأرقام الشيكات لمنع تكرار احتسابها
-      const chequeNumbersSet = new Set<string>();
-      cheques?.forEach(c => {
-        const raw = String(c.cheque_number || '').trim().toUpperCase();
-        if (raw) {
-          chequeNumbersSet.add(raw);
-          chequeNumbersSet.add(raw.replace(/^CHQ-/i, ''));
-        }
-      });
-
-      // تجميع أرصدة كشوف حسابات الموردين
-      let totalSupplierStatementsBalance = 0;
+      let totalSubLedger = 0;
       const calculatedSupplierBalances: any[] = [];
 
       suppliersList?.forEach(supplier => {
         const opening = Number(supplier.opening_balance || 0);
-        
-        const supInvoices = invoices?.filter(i => i.supplier_id === supplier.id) || [];
-        const supInvTotal = supInvoices.reduce((sum, i) => sum + (Number(i.total_amount || 0) - Number(i.paid_amount || 0)), 0);
-        const supGrossInvTotal = supInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
-        
-        const supReturns = returns?.filter(r => r.supplier_id === supplier.id) || [];
-        const supRetTotal = supReturns.reduce((sum, r) => sum + Number(r.total_amount || 0), 0);
-        
-        const supDebitNotes = debitNotes?.filter(d => d.supplier_id === supplier.id) || [];
-        const supDnTotal = supDebitNotes.reduce((sum, d) => sum + Number(d.total_amount || 0), 0);
-        
-        const supCheques = cheques?.filter(c => c.party_id === supplier.id && c.status !== 'rejected') || [];
-        const supChqTotal = supCheques.reduce((sum, c) => sum + Number(c.amount || 0), 0);
-        
-        const supPayments = payments?.filter(p => p.supplier_id === supplier.id) || [];
-        const supPayTotal = supPayments.reduce((sum, p) => {
-          const vNum = (p.voucher_number || '').trim().toUpperCase();
-          const cleanNum = vNum.replace(/^(CHQ-|PV-)/i, '');
-          const isChequeVoucher = vNum.startsWith('CHQ-') || p.payment_method === 'cheque' || chequeNumbersSet.has(cleanNum) || chequeNumbersSet.has(vNum);
-          return isChequeVoucher ? sum : sum + Number(p.amount || 0);
-        }, 0);
+        const b = supplierBreakdown.get(supplier.id) || {
+          grossInvoices: 0,
+          subBillingsForSupplier: 0,
+          invoiceImmediatePayments: 0,
+          returnsTotal: 0,
+          debitNotesTotal: 0,
+          paymentsTotal: 0,
+          chequesTotal: 0,
+          totalDebit: 0,
+          totalCredit: 0
+        };
 
-        // احتساب القيود اليدوية المسجلة باسم المورد مباشرة في اليومية العامة (مع استبعاد القيود الافتتاحية المضافة مسبقاً من جدول الموردين)
-        let manualSupplierEntriesTotal = 0;
-        glLines?.forEach((line: any) => {
-          const ref = (line.journal_entries?.reference || '').trim().toUpperCase();
-          const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.trim();
-          
-          const isAlreadyCounted = subLedgerRefs.has(ref) || ref.startsWith('PINV-') || ref.startsWith('PV-') || ref.startsWith('PRET-') || ref.startsWith('DN-') || ref.startsWith('SUB-');
-          const isOpening = ref.startsWith('OP-') || ref.startsWith('OB-') || ref.startsWith('OPENING-') || desc.includes('رصيد افتتاحي');
+        // الرصيد الصافي للمورد = الدائن - المدين من واقع القيود المرتبطة به
+        const supplierBalance = (b.totalCredit - b.totalDebit);
 
-          if (isOpening) {
-            if (ref) subLedgerRefs.add(ref);
-            if (!opening && supplier.name && desc.includes(supplier.name)) {
-              // إذا لم يكن مسجلاً في جدول الموردين ويوجد قيد افتتاحي
-              const netManual = Number(line.credit || 0) - Number(line.debit || 0);
-              manualSupplierEntriesTotal += netManual;
-            }
-            return;
-          }
-
-          if (!isAlreadyCounted && supplier.name && desc.includes(supplier.name)) {
-            const netManual = Number(line.credit || 0) - Number(line.debit || 0); // دائن - مدين للمورد
-            manualSupplierEntriesTotal += netManual;
-            if (ref) subLedgerRefs.add(ref);
-          }
-        });
-
-        // رصيد المورد = الرصيد الافتتاحي + إجمالي فواتير المشتريات + القيود اليدوية باسم المورد - المرتجعات - الإشعارات المدينة - الشيكات - المدفوعات
-        const supplierBalance = opening + supGrossInvTotal + manualSupplierEntriesTotal - supRetTotal - supDnTotal - supChqTotal - supPayTotal;
-        totalSupplierStatementsBalance += supplierBalance;
-
+        totalSubLedger += supplierBalance;
 
         calculatedSupplierBalances.push({
           id: supplier.id,
           name: supplier.name,
           phone: supplier.phone,
-          opening,
-          invoicesCount: supInvoices.length,
-          grossInvoices: supGrossInvTotal,
-          returnsTotal: supRetTotal,
-          debitNotesTotal: supDnTotal,
-          paymentsTotal: supPayTotal + supChqTotal,
-          manualEntriesTotal: manualSupplierEntriesTotal,
+          opening: opening,
+          hasGlOpening: false,
+          grossInvoices: b.grossInvoices,
+          subBillingsForSupplier: b.subBillingsForSupplier,
+          invoiceImmediatePayments: b.invoiceImmediatePayments,
+          returnsTotal: b.returnsTotal,
+          debitNotesTotal: b.debitNotesTotal,
+          paymentsTotal: b.paymentsTotal,
+          chequesTotal: b.chequesTotal,
           balance: supplierBalance
         });
       });
 
-      // إضافة إجمالي مستخلصات مقاولي الباطن المعتمدة
-      const subBillingsTotal = subBillingsNormalized?.reduce((sum, sb) => sum + Number(sb.net_amount || 0), 0) || 0;
-      const calculatedSubLedgerBalance = totalSupplierStatementsBalance + subBillingsTotal;
-
-
-      setSubLedgerBalance(calculatedSubLedgerBalance);
+      setSubLedgerBalance(totalSubLedger);
       setSupplierBalances(calculatedSupplierBalances);
 
-      // 3. تحليل الفروقات الذكي
-      const isRefMatched = (ref: string, desc: string): boolean => {
+      // ============================================================
+      // الجزء الثالث: تحليل الفروقات — القيود في GL غير المربوطة بأي مورد
+      // ============================================================
+      const isRefMatched = (ref: string, desc: string, jeId: string): boolean => {
         if (!ref && !desc) return false;
         const cleanRef = (ref || '').trim().toUpperCase();
         const cleanDesc = (desc || '').trim();
 
-        // فحص ما إذا كان القيد يذكر اسم أي مورد
-        if (suppliersList?.some(s => s.name && cleanDesc.includes(s.name))) {
-          return true;
-        }
+        if (matchedEntryIds.has(jeId)) return true;
+        if (openingEntryIds.has(jeId)) return true;
 
-        // تجاهل قيود الإقفال والافتتاحية
         if (
-          cleanRef.startsWith('CLOSE-') || 
-          cleanRef.startsWith('CLOSING-') || 
-          cleanRef.startsWith('OPENING-') || 
-          cleanRef.startsWith('OB-') || 
-          cleanRef.startsWith('OP-') || 
-          cleanDesc.includes('رصيد افتتاحي')
-        ) {
-          return true;
-        }
+          cleanRef.startsWith('CLOSE-') || cleanRef.startsWith('CLOSING-') ||
+          cleanRef.startsWith('OPENING-') || cleanRef.startsWith('OB-') ||
+          cleanRef.startsWith('OP-') || cleanRef.startsWith('OP-SUP-') ||
+          cleanRef.startsWith('OP-SUPP-') ||
+          cleanDesc.includes('رصيد افتتاحي') || cleanDesc.includes('رصيد أول المدة')
+        ) return true;
 
-        // فحص التطابق المباشر
-        if (cleanRef && subLedgerRefs.has(cleanRef)) return true;
-
-        // فحص تطابق بادئات ومقاطع الشيكات المرفوضة
-        if (cleanRef.startsWith('REJ-OUT-') || cleanRef.startsWith('REJ-IN-') || cleanRef.startsWith('REJ-')) {
-          const num = cleanRef.replace(/^REJ-(OUT-|IN-)?/i, '');
-          if (subLedgerRefs.has(num) || subLedgerRefs.has(`CHQ-${num}`)) return true;
-        }
-
-        // فحص تطابق مستخلصات المقاولين
-        if (cleanRef.startsWith('SUB-BILL-') || cleanRef.startsWith('SUB-')) {
-          const num = cleanRef.replace(/^SUB-(BILL-)?/i, '');
-          if (subLedgerRefs.has(num) || subLedgerRefs.has(`SUB-BILL-${num}`)) return true;
-        }
-
-        // فحص التطابق الجزئي
-        for (const subRef of subLedgerRefs) {
-          const s = String(subRef).trim().toUpperCase();
-          if (s && (cleanRef === s || cleanRef.startsWith(s) || s.startsWith(cleanRef) || cleanRef.includes(s))) {
-            return true;
-          }
-        }
+        if (suppliersList?.some(s => s.name && cleanDesc.includes(s.name))) return true;
 
         return false;
       };
 
       const discrepancies: any[] = [];
       glEntriesMap.forEach((entry) => {
-        const matched = isRefMatched(entry.ref, entry.description);
-        if (!matched) {
-          discrepancies.push(entry);
-        }
+        const matched = isRefMatched(
+          entry.ref,
+          entry.description,
+          entry.journal_entries?.id
+        );
+        if (!matched) discrepancies.push(entry);
       });
 
       setDiscrepancyEntries(discrepancies);
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching supplier reconciliation:', error);
+      showToast('خطأ في جلب بيانات المطابقة: ' + (error.message || ''), 'error');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteEntry = async (entryId: string) => {
-    if (!window.confirm('هل أنت متأكد من حذف هذا القيد؟ لا يمكن التراجع عن هذا الإجراء.')) {
-      return;
-    }
+    if (!window.confirm('هل أنت متأكد من حذف هذا القيد؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     try {
       const { error } = await supabase.from('journal_entries').delete().eq('id', entryId);
       if (error) throw error;
       showToast('تم حذف القيد بنجاح.', 'success');
       fetchReconciliation();
     } catch (err: any) {
-      console.error(err);
       showToast('فشل حذف القيد: ' + err.message, 'error');
     }
   };
 
   const openFixModal = (entry: any) => {
     setEntryToFix(entry);
-    setFixFormData({
-      supplierId: '',
-      treasuryAccountId: treasuryAccounts[0]?.id || '',
-      notes: entry.description || ''
-    });
+    setFixFormData({ supplierId: '', treasuryAccountId: treasuryAccounts[0]?.id || '', notes: entry.description || '' });
     setFixModalOpen(true);
   };
 
@@ -411,33 +509,28 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       showToast('الرجاء اختيار المورد وحساب الخزينة/البنك', 'warning');
       return;
     }
-
     try {
-      // إذا كان القيد مديناً على المورد (سند صرف)
       const isPayment = entryToFix.debit > 0;
-      const amount = isPayment ? entryToFix.debit : entryToFix.credit;
-
+      const amount    = isPayment ? entryToFix.debit : entryToFix.credit;
       if (isPayment) {
         const { error } = await supabase.from('payment_vouchers').insert({
-          voucher_number: entryToFix.ref || `PV-FIX-${Date.now().toString().slice(-6)}`,
-          payment_date: entryToFix.date,
-          amount: amount,
-          supplier_id: fixFormData.supplierId,
+          voucher_number:      entryToFix.ref || `PV-FIX-${Date.now().toString().slice(-6)}`,
+          payment_date:        entryToFix.date,
+          amount,
+          supplier_id:         fixFormData.supplierId,
           treasury_account_id: fixFormData.treasuryAccountId,
-          notes: fixFormData.notes,
-          payment_method: 'cash'
+          notes:               fixFormData.notes,
+          payment_method:      'cash'
         });
         if (error) throw error;
+        showToast('تم إنشاء سند الصرف وربطه بالقيد بنجاح ✅', 'success');
       } else {
-        showToast('هذا القيد دائن، يمكنك ربطه كفاتورة مشتريات من شاشة المشتريات.', 'info');
+        showToast('هذا القيد دائن — يمكنك ربطه كفاتورة مشتريات من شاشة المشتريات.', 'info');
         return;
       }
-      
-      showToast('تم إنشاء سند الصرف وربطه بالقيد بنجاح ✅', 'success');
       setFixModalOpen(false);
       fetchReconciliation();
     } catch (err: any) {
-      console.error(err);
       showToast('خطأ: ' + err.message, 'error');
     }
   };
@@ -445,31 +538,33 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const exportSupplierBalances = () => {
     if (supplierBalances.length === 0) return;
     const worksheet = XLSX.utils.json_to_sheet(supplierBalances.map(s => ({
-      'اسم المورد': s.name,
-      'رقم الهاتف': s.phone || '-',
-      'الرصيد الافتتاحي': s.opening,
-      'إجمالي المشتريات': s.grossInvoices,
-      'إجمالي المرتجعات': s.returnsTotal,
-      'الإشعارات المدينة': s.debitNotesTotal,
-      'إجمالي المدفوعات': s.paymentsTotal,
-      'صافي مستحقات المورد': s.balance
+      'اسم المورد':             s.name,
+      'رقم الهاتف':             s.phone || '-',
+      'الرصيد الافتتاحي':       s.opening,
+      'قيد افتتاحي في الأستاذ': s.hasGlOpening ? 'نعم' : 'لا',
+      'إجمالي المشتريات':       s.grossInvoices,
+      'مستخلصات باطن':          s.subBillingsForSupplier,
+      'سداد فوري من الفواتير':  s.invoiceImmediatePayments,
+      'إجمالي المرتجعات':       s.returnsTotal,
+      'الإشعارات المدينة':      s.debitNotesTotal,
+      'سندات الصرف':            s.paymentsTotal,
+      'الشيكات الصادرة':        s.chequesTotal,
+      'صافي المستحق':           s.balance
     })));
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'أرصدة الموردين');
     XLSX.writeFile(workbook, `Supplier_Balances_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  useEffect(() => {
-    fetchReconciliation();
-  }, [accounts]);
+  useEffect(() => { fetchReconciliation(); }, [accounts]);
 
-  const difference = glBalance - subLedgerBalance;
-  const isBalanced = Math.abs(difference) < 1;
+  const difference   = glBalance - subLedgerBalance;
+  const isBalanced   = Math.abs(difference) < 1;
 
   const filteredSuppliers = useMemo(() => {
     if (!supplierSearch.trim()) return supplierBalances;
     const q = supplierSearch.toLowerCase();
-    return supplierBalances.filter(s => 
+    return supplierBalances.filter(s =>
       s.name.toLowerCase().includes(q) || (s.phone && s.phone.includes(q))
     );
   }, [supplierBalances, supplierSearch]);
@@ -482,44 +577,39 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
             <Scale className="text-orange-600" size={28} /> مطابقة أرصدة الموردين والمقاولين
           </h2>
-          <p className="text-slate-500 text-sm">مقارنة فورية بين رصيد دفتر الأستاذ العام (GL) وأرصدة كشوف حسابات الموردين ومقاولي الباطن</p>
+          <p className="text-slate-500 text-sm">مقارنة فورية بين الأستاذ العام (GL) وأرصدة كشوف حسابات الموردين ومقاولي الباطن — يشمل جميع المديولات</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={fetchReconciliation} 
-            disabled={loading}
-            className="flex items-center gap-2 bg-white border border-slate-300 px-4 py-2.5 rounded-xl hover:bg-slate-50 font-bold text-slate-700 shadow-sm transition-all disabled:opacity-50"
-          >
-            <RefreshCw size={18} className={loading ? 'animate-spin text-orange-600' : ''} /> تحديث المطابقة
-          </button>
-        </div>
+        <button
+          onClick={fetchReconciliation}
+          disabled={loading}
+          className="flex items-center gap-2 bg-white border border-slate-300 px-4 py-2.5 rounded-xl hover:bg-slate-50 font-bold text-slate-700 shadow-sm transition-all disabled:opacity-50"
+        >
+          <RefreshCw size={18} className={loading ? 'animate-spin text-orange-600' : ''} /> تحديث المطابقة
+        </button>
       </div>
 
-      {/* Main KPI Cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* GL Balance */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <p className="text-xs font-bold text-slate-500 mb-1">رصيد دفتر الأستاذ العام (حساب {supplierAccountCode})</p>
           <h3 className="text-3xl font-black text-slate-800 font-mono dir-ltr">
             {glBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h3>
           <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1 font-bold">
-            <BookOpen size={13} /> مجموع القيود المرحلة لحساب الموردين (دائن)
+            <BookOpen size={13} /> مجموع القيود المرحلة لحساب الموردين (دائن - مدين)
           </p>
         </div>
 
-        {/* Sub-ledger Balance */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <p className="text-xs font-bold text-slate-500 mb-1">رصيد كشوف حسابات الموردين (الأستاذ المساعد)</p>
           <h3 className="text-3xl font-black text-orange-600 font-mono dir-ltr">
             {subLedgerBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h3>
           <p className="text-[11px] text-slate-400 mt-2 flex items-center gap-1 font-bold">
-            <Truck size={13} /> فواتير الشراء + مستخلصات المقاولين - المرتجعات - السندات
+            <Truck size={13} /> افتتاحي + مشتريات + مستخلصات - سداد فوري - سندات - شيكات - مرتجعات - إشعارات
           </p>
         </div>
 
-        {/* Difference */}
         <div className={`p-6 rounded-2xl shadow-sm border ${isBalanced ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
           <p className={`text-xs font-bold mb-1 ${isBalanced ? 'text-emerald-700' : 'text-red-700'}`}>
             الفرق المتبقي (Discrepancy)
@@ -528,7 +618,10 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             {difference.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h3>
           <div className="flex items-center gap-2 mt-2">
-            {isBalanced ? <CheckCircle size={16} className="text-emerald-600"/> : <AlertTriangle size={16} className="text-red-600"/>}
+            {isBalanced
+              ? <CheckCircle size={16} className="text-emerald-600"/>
+              : <AlertTriangle size={16} className="text-red-600"/>
+            }
             <span className={`text-xs font-bold ${isBalanced ? 'text-emerald-700' : 'text-red-700'}`}>
               {isBalanced ? 'الحسابات متطابقة 100% ✅' : 'يوجد فرق يحتاج مراجعة ⚠️'}
             </span>
@@ -537,39 +630,32 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-slate-200 gap-2">
-        <button
-          onClick={() => setActiveTab('overview')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'overview' ? 'border-orange-600 text-orange-700' : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Scale size={16} /> ملخص المطابقة
-        </button>
-        <button
-          onClick={() => setActiveTab('discrepancies')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'discrepancies' ? 'border-orange-600 text-orange-700' : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <AlertTriangle size={16} /> القيود غير المربوطة ({discrepancyEntries.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('suppliers')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'suppliers' ? 'border-orange-600 text-orange-700' : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Truck size={16} /> كشف أرصدة الموردين ({supplierBalances.length})
-        </button>
-        <button
-          onClick={() => setActiveTab('subcontractors')}
-          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-all flex items-center gap-2 ${
-            activeTab === 'subcontractors' ? 'border-orange-600 text-orange-700' : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <HardHat size={16} /> مستخلصات مقاولي الباطن ({subcontractorBillings.length})
-        </button>
+      <div className="flex border-b border-slate-200 gap-1 overflow-x-auto">
+        {(['overview', 'discrepancies', 'suppliers', 'subcontractors'] as const).map(tab => {
+          const labels: Record<string, string> = {
+            overview:        'ملخص المطابقة',
+            discrepancies:   `القيود غير المربوطة (${discrepancyEntries.length})`,
+            suppliers:       `كشف أرصدة الموردين (${supplierBalances.length})`,
+            subcontractors:  `مستخلصات الباطن (${subcontractorBillings.length})`
+          };
+          const icons: Record<string, React.ReactNode> = {
+            overview:       <Scale size={16} />,
+            discrepancies:  <AlertTriangle size={16} />,
+            suppliers:      <Truck size={16} />,
+            subcontractors: <HardHat size={16} />
+          };
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`pb-3 px-4 text-sm font-bold border-b-2 whitespace-nowrap transition-all flex items-center gap-2 ${
+                activeTab === tab ? 'border-orange-600 text-orange-700' : 'border-transparent text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              {icons[tab]} {labels[tab]}
+            </button>
+          );
+        })}
       </div>
 
       {/* Tab 1: Overview */}
@@ -579,15 +665,15 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
               <FileCheck className="text-orange-600" size={20} /> نتيجة فحص التكامل المحاسبي
             </h3>
-            
+
             {isBalanced ? (
               <div className="p-6 bg-emerald-50 rounded-xl border border-emerald-200 text-center space-y-2">
                 <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto mb-2">
                   <CheckCircle size={28} />
                 </div>
-                <h4 className="text-lg font-black text-emerald-800">الأستاذ العام متطابق تماماً مع كشوف حسابات الموردين والمقاولين!</h4>
+                <h4 className="text-lg font-black text-emerald-800">الأستاذ العام متطابق تماماً مع كشوف حسابات الموردين!</h4>
                 <p className="text-sm text-emerald-700 max-w-xl mx-auto">
-                  جميع فواتير المشتريات، مستخلصات مقاولي الباطن، سندات الصرف، الإشعارات المدينة، والأرصدة الافتتاحية مسجلة ومرحلة بدقة وتساوي إجمالي رصيد حساب الموردين في ميزان المراجعة.
+                  جميع فواتير المشتريات، مستخلصات مقاولي الباطن، السداد الفوري، سندات الصرف، الشيكات الصادرة، الإشعارات المدينة، والأرصدة الافتتاحية مسجلة بدقة.
                 </p>
               </div>
             ) : (
@@ -597,7 +683,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                   <h4 className="text-base font-black text-red-800">تنبيه: يوجد فرق محاسبي بقيمة {Math.abs(difference).toLocaleString()} {settings.currency || 'ج.م'}</h4>
                 </div>
                 <p className="text-sm text-red-700 leading-relaxed">
-                  هذا الفرق ناتج إما عن قيود يومية تم تسجيلها يدوياً على حساب الموردين العام دون إنشاء مستند مشتريات/صرف لها، أو مستندات غير مرحلة. يمكنك الانتقال لتبويب <strong>«القيود غير المربوطة»</strong> لمعالجة الفروقات بنقرة واحدة.
+                  هذا الفرق ناتج عن قيود على حساب الموردين دون مستند مشتريات/صرف مرتبط، أو أرصدة افتتاحية غير متوافقة. انتقل لتبويب <strong>«القيود غير المربوطة»</strong> لمعالجة الفروقات.
                 </p>
                 <button
                   onClick={() => setActiveTab('discrepancies')}
@@ -608,10 +694,16 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               </div>
             )}
           </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800 space-y-1">
+            <p className="font-bold flex items-center gap-1"><FileText size={15} /> منهجية حساب الأستاذ المساعد</p>
+            <p>رصيد المورد = الرصيد الافتتاحي + إجمالي فواتير المشتريات + مستخلصات باطن − السداد الفوري من الفواتير − سندات الصرف − الشيكات الصادرة − المرتجعات − الإشعارات المدينة</p>
+            <p className="text-blue-600 text-xs font-bold">ملاحظة: مستخلصات مقاولي الباطن تُضاف مرة واحدة فقط — إما ضمن المورد المطابق له أو كرصيد منفصل إذا لم يكن موجوداً في جدول الموردين</p>
+          </div>
         </div>
       )}
 
-      {/* Tab 2: Discrepancies Table */}
+      {/* Tab 2: Discrepancies */}
       {activeTab === 'discrepancies' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
@@ -634,11 +726,11 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                 <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-xs">
                   <tr>
                     <th className="p-3">التاريخ</th>
-                    <th className="p-3">رقم القيد / المرجع</th>
+                    <th className="p-3">المرجع</th>
                     <th className="p-3">البيان</th>
                     <th className="p-3 text-center">مدين</th>
                     <th className="p-3 text-center">دائن</th>
-                    <th className="p-3 text-center">إجراء التصحيح</th>
+                    <th className="p-3 text-center">إجراء</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -646,17 +738,21 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                     <tr key={entry.id} className="hover:bg-slate-50/70 transition-colors">
                       <td className="p-3 font-mono text-xs text-slate-500">{entry.date}</td>
                       <td className="p-3 font-mono font-bold text-slate-800">{entry.ref || 'قيد يدوي'}</td>
-                      <td className="p-3 text-slate-700 font-medium">{entry.description}</td>
-                      <td className="p-3 text-center font-mono font-bold text-emerald-700">{entry.debit ? entry.debit.toLocaleString() : '-'}</td>
-                      <td className="p-3 text-center font-mono font-bold text-slate-800">{entry.credit ? entry.credit.toLocaleString() : '-'}</td>
+                      <td className="p-3 text-slate-700 font-medium text-xs max-w-xs truncate">{entry.description}</td>
+                      <td className="p-3 text-center font-mono font-bold text-emerald-700">
+                        {entry.debit ? entry.debit.toLocaleString(undefined, {minimumFractionDigits: 2}) : '-'}
+                      </td>
+                      <td className="p-3 text-center font-mono font-bold text-slate-800">
+                        {entry.credit ? entry.credit.toLocaleString(undefined, {minimumFractionDigits: 2}) : '-'}
+                      </td>
                       <td className="p-3 text-center">
                         <div className="flex items-center justify-center gap-1.5">
-                          <button 
+                          <button
                             onClick={() => navigate('/general-journal', { state: { initialSearch: entry.ref } })}
                             className="text-blue-600 hover:bg-blue-50 px-2 py-1 rounded text-xs font-bold transition-colors"
                             title="عرض القيد باليومية"
                           >
-                            عرض القيد
+                            عرض
                           </button>
                           {entry.debit > 0 && (
                             <button
@@ -685,7 +781,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 3: Detailed Supplier Balances */}
+      {/* Tab 3: Supplier Balances */}
       {activeTab === 'suppliers' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 space-y-4 p-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
@@ -712,11 +808,12 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-xs">
                 <tr>
                   <th className="p-3">اسم المورد</th>
-                  <th className="p-3 text-center">الرصيد الافتتاحي</th>
+                  <th className="p-3 text-center">افتتاحي</th>
                   <th className="p-3 text-center">إجمالي المشتريات</th>
-                  <th className="p-3 text-center">المرتجعات والإشعارات</th>
-                  <th className="p-3 text-center">إجمالي المدفوعات</th>
-                  <th className="p-3 text-center">صافي الرصيد المستحق</th>
+                  <th className="p-3 text-center">سداد فوري</th>
+                  <th className="p-3 text-center">مرتجعات+إشعارات</th>
+                  <th className="p-3 text-center">سندات+شيكات</th>
+                  <th className="p-3 text-center">صافي المستحق</th>
                   <th className="p-3 text-center">كشف الحساب</th>
                 </tr>
               </thead>
@@ -726,13 +823,40 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                     <td className="p-3">
                       <p className="font-bold text-slate-800">{sup.name}</p>
                       {sup.phone && <p className="text-xs text-slate-400 font-mono">{sup.phone}</p>}
+                      {sup.hasGlOpening && (
+                        <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold">قيد افتتاحي في GL</span>
+                      )}
+                      {sup.subBillingsForSupplier > 0 && (
+                        <span className="text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded font-bold mr-1">مقاول باطن</span>
+                      )}
                     </td>
-                    <td className="p-3 text-center font-mono font-bold text-slate-600">{sup.opening.toLocaleString()}</td>
-                    <td className="p-3 text-center font-mono font-bold text-slate-800">{sup.grossInvoices.toLocaleString()}</td>
-                    <td className="p-3 text-center font-mono font-bold text-amber-600">{(sup.returnsTotal + sup.debitNotesTotal).toLocaleString()}</td>
-                    <td className="p-3 text-center font-mono font-bold text-emerald-600">{sup.paymentsTotal.toLocaleString()}</td>
+                    <td className="p-3 text-center font-mono text-slate-600">
+                      {sup.opening.toLocaleString(undefined, {minimumFractionDigits: 2})}
+                    </td>
+                    <td className="p-3 text-center font-mono font-bold text-slate-800">
+                      {(sup.grossInvoices + sup.subBillingsForSupplier).toLocaleString(undefined, {minimumFractionDigits: 2})}
+                    </td>
+                    <td className="p-3 text-center font-mono text-blue-600">
+                      {sup.invoiceImmediatePayments > 0
+                        ? `(${sup.invoiceImmediatePayments.toLocaleString(undefined, {minimumFractionDigits: 2})})`
+                        : '-'}
+                    </td>
+                    <td className="p-3 text-center font-mono text-amber-600">
+                      {(sup.returnsTotal + sup.debitNotesTotal) > 0
+                        ? `(${(sup.returnsTotal + sup.debitNotesTotal).toLocaleString(undefined, {minimumFractionDigits: 2})})`
+                        : '-'}
+                    </td>
+                    <td className="p-3 text-center font-mono text-emerald-600">
+                      {(sup.paymentsTotal + sup.chequesTotal) > 0
+                        ? `(${(sup.paymentsTotal + sup.chequesTotal).toLocaleString(undefined, {minimumFractionDigits: 2})})`
+                        : '-'}
+                    </td>
                     <td className="p-3 text-center font-mono font-black text-slate-900" dir="ltr">
-                      <span className={`px-2 py-0.5 rounded text-xs ${sup.balance > 0 ? 'bg-orange-50 text-orange-700 font-black' : sup.balance < 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                      <span className={`px-2 py-0.5 rounded text-xs font-black ${
+                        sup.balance > 0.01  ? 'bg-orange-50 text-orange-700' :
+                        sup.balance < -0.01 ? 'bg-emerald-50 text-emerald-700' :
+                        'bg-slate-100 text-slate-500'
+                      }`}>
                         {sup.balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </span>
                     </td>
@@ -765,10 +889,12 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             </span>
           </div>
 
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800 font-bold">
+            مستخلصات مقاولي الباطن المرتبطين بموردين في النظام تُدرج ضمن رصيد المورد في تبويب «أرصدة الموردين». المستخلصات المعروضة هنا لمقاولين غير مسجلين كموردين.
+          </div>
+
           {subcontractorBillings.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 font-bold">
-              لا توجد مستخلصات مقاولي باطن مسجلة حالياً.
-            </div>
+            <div className="p-12 text-center text-slate-400 font-bold">لا توجد مستخلصات مقاولي باطن مسجلة حالياً.</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-right text-sm">
@@ -779,24 +905,34 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                     <th className="p-3 text-center">التاريخ</th>
                     <th className="p-3 text-center">إجمالي المستخلص</th>
                     <th className="p-3 text-center">صافي المستحق</th>
+                    <th className="p-3 text-center">مسجل كمورد</th>
                     <th className="p-3 text-center">الحالة</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {subcontractorBillings.map((bill) => (
-                    <tr key={bill.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="p-3 font-mono font-bold text-slate-800">{bill.billing_number || bill.id.slice(0, 8)}</td>
-                      <td className="p-3 font-bold text-slate-700">{bill.subcontractor_name || '-'}</td>
-                      <td className="p-3 text-center font-mono text-xs text-slate-500">{bill.issue_date || '-'}</td>
-                      <td className="p-3 text-center font-mono font-bold text-slate-800">{(Number(bill.gross_amount) || 0).toLocaleString()}</td>
-                      <td className="p-3 text-center font-mono font-black text-orange-700">{(Number(bill.net_amount) || 0).toLocaleString()}</td>
-                      <td className="p-3 text-center">
-                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                          {bill.status || 'معتمد'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                  {subcontractorBillings.map((bill) => {
+                    const isSupplier = bill.subcontractor_id && supplierBalances.some(s => s.id === bill.subcontractor_id);
+                    return (
+                      <tr key={bill.id} className={`hover:bg-slate-50/70 transition-colors ${isSupplier ? 'bg-blue-50/30' : ''}`}>
+                        <td className="p-3 font-mono font-bold text-slate-800">{bill.billing_number || bill.id.slice(0, 8)}</td>
+                        <td className="p-3 font-bold text-slate-700">{bill.subcontractor_name || '-'}</td>
+                        <td className="p-3 text-center font-mono text-xs text-slate-500">{bill.issue_date || '-'}</td>
+                        <td className="p-3 text-center font-mono font-bold text-slate-800">{bill.gross_amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        <td className="p-3 text-center font-mono font-black text-orange-700">{bill.net_amount.toLocaleString(undefined, {minimumFractionDigits: 2})}</td>
+                        <td className="p-3 text-center">
+                          {isSupplier
+                            ? <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-2 py-0.5 rounded-full">مُدرج في المورد</span>
+                            : <span className="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded-full">منفصل</span>
+                          }
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            {bill.status || 'معتمد'}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -812,9 +948,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
                 <Plus className="text-orange-600" size={18} /> ربط القيد كسند صرف لمورد
               </h3>
-              <button onClick={() => setFixModalOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X size={18} />
-              </button>
+              <button onClick={() => setFixModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
 
             <form onSubmit={handleFixSubmit} className="space-y-4">
@@ -824,20 +958,20 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                   <span className="font-mono font-bold">{entryToFix.ref || 'بدون مرجع'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">المبلغ:</span>
+                  <span className="text-slate-500">المبلغ المدين:</span>
                   <span className="font-mono font-bold text-orange-600 text-sm">{entryToFix.debit.toLocaleString()} {settings.currency || 'ج.م'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">البيان:</span>
-                  <span className="font-medium text-slate-700">{entryToFix.description}</span>
+                  <span className="font-medium text-slate-700 text-right max-w-xs">{entryToFix.description}</span>
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">اختر المورد المعني بالسند <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">المورد المعني <span className="text-red-500">*</span></label>
                 <select
                   required
-                  className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-orange-500"
+                  className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-orange-500"
                   value={fixFormData.supplierId}
                   onChange={e => setFixFormData({...fixFormData, supplierId: e.target.value})}
                 >
@@ -850,7 +984,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة / البنك <span className="text-red-500">*</span></label>
                 <select
                   required
-                  className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-orange-500"
+                  className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-orange-500"
                   value={fixFormData.treasuryAccountId}
                   onChange={e => setFixFormData({...fixFormData, treasuryAccountId: e.target.value})}
                 >
@@ -859,29 +993,18 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات إضافية</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات</label>
                 <input
                   type="text"
-                  className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-orange-500"
+                  className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm outline-none focus:border-orange-500"
                   value={fixFormData.notes}
                   onChange={e => setFixFormData({...fixFormData, notes: e.target.value})}
                 />
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setFixModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200 transition-colors"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-orange-600 text-white font-bold rounded-xl text-xs hover:bg-orange-700 transition-colors shadow-sm"
-                >
-                  إنشاء وربط السند
-                </button>
+                <button type="button" onClick={() => setFixModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200">إلغاء</button>
+                <button type="submit" className="px-5 py-2 bg-orange-600 text-white font-bold rounded-xl text-xs hover:bg-orange-700 shadow-sm">إنشاء وربط السند</button>
               </div>
             </form>
           </div>

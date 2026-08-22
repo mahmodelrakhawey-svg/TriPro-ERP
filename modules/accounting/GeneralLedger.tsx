@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
@@ -123,8 +123,8 @@ const GeneralLedger = () => {
       // تحديد الحسابات المستهدفة (الحساب المختار + أبنائه)
       const targetAccountIds = getAccountAndChildrenIds(selectedAccount, accounts as unknown as Account[]);
       
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userOrgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
 
       if (!userOrgId) {
         throw new Error('تعذر تحديد المنظمة التابع لها.');
@@ -199,8 +199,8 @@ const GeneralLedger = () => {
       const from = pageIndex * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userOrgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
 
       if (!userOrgId) {
         throw new Error('تعذر تحديد المنظمة.');
