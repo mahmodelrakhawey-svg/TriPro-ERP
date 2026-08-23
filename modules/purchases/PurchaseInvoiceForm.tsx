@@ -459,6 +459,26 @@ const PurchaseInvoiceForm = () => {
         treasury_account_id: formData.treasuryAccountId || null
       };
 
+      // 🚀 ضمان إنشاء الأصناف الجديدة في المخزن تلقائياً إذا لم تكن موجودة مسبقاً
+      for (const item of items) {
+        if (!item.productId && item.productName) {
+          const generatedSku = 'PRD-' + Math.floor(100000 + Math.random() * 900000);
+          const { data: newProd, error: prodErr } = await supabase.from('products').insert({
+            organization_id: userOrgId,
+            name: item.productName,
+            sku: generatedSku,
+            purchase_price: Number(item.unitPrice) || 0,
+            sales_price: Math.round((Number(item.unitPrice) || 0) * 1.25),
+            product_type: 'STOCK',
+            stock: 0
+          }).select().single();
+
+          if (!prodErr && newProd) {
+            item.productId = newProd.id;
+          }
+        }
+      }
+
       let invoiceId = editingId;
 
       if (editingId) {
