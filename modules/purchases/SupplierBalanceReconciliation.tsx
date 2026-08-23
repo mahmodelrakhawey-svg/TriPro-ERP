@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 
 export const SupplierBalanceReconciliation: React.FC = () => {
-  const { accounts, suppliers, getSystemAccount, settings } = useAccounting();
+  const { accounts, suppliers, getSystemAccount, settings, currentUser } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   
@@ -140,7 +140,10 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         dnRes,        // الإشعارات المدينة
         pvRes,        // سندات الصرف
         chqRes,       // الشيكات الصادرة
-        subBillRes    // مستخلصات مقاولي الباطن
+        subBillRes,   // مستخلصات مقاولي الباطن
+        stadiumDisbRes, // طلبات واعتمادات صرف الاستاد
+        stadiumMaintRes, // تذاكر صيانة مرافق وملاعب الاستاد
+        stadiumCustodyRes // عهد الأنشطة والبطولات والصيانة
       ] = await Promise.all([
         supabase
           .from('purchase_invoices')
@@ -164,7 +167,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
         supabase
           .from('cheques')
-          .select('id, party_id, cheque_number, amount, status, related_journal_entry_id')
+          .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
           .eq('type', 'outgoing'),
 
         // مستخلصات مقاولي الباطن — نجلب مع اسم مقاول الباطن ومعرف القيد
@@ -185,11 +188,27 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           `)
           .not('status', 'in', '("draft","cancelled")'),
 
-        // جلب جدول مقاولي الباطن لربطهم بالموردين بالاسم
+        // طلبات صرف الاستاد
         supabase
-          .from('subcontractors')
-          .select('id, name, supplier_id')
+          .from('stadium_disbursements')
+          .select('id, request_number, title, amount, payment_type, beneficiary_name, expense_account_code, status, journal_entry_id, cheque_id'),
+
+        // صيانة مرافق وملاعب الاستاد
+        supabase
+          .from('stadium_maintenance_tickets')
+          .select('id, ticket_number, title, actual_cost, assigned_technician, status, journal_entry_id, payment_method'),
+
+        // عهد الأنشطة والصيانة
+        supabase
+          .from('stadium_custodies')
+          .select('id, custodian_name, purpose, total_amount, spent_amount, status, journal_entry_id, settlement_journal_id')
       ]);
+
+      // خريطة أسماء الموردين للربط التلقائي
+      const supplierNameToIdMap = new Map<string, string>();
+      suppliersList?.forEach(s => {
+        if (s.name) supplierNameToIdMap.set(s.name.trim().toLowerCase(), s.id);
+      });
 
       const subToSupplierMap = new Map<string, string>();
       const subNameToSupplierMap = new Map<string, string>();
@@ -273,7 +292,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             const clean = ref.trim().toUpperCase();
             refToSupplierId.set(clean, suppId);
             // إضافة بدائل البادئات الشائعة
-            const rawNum = clean.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-)/i, '');
+            const rawNum = clean.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-|DISB-|CUST-|SETTL-|MAINT-|STD-)/i, '');
             if (rawNum) {
               refToSupplierId.set(rawNum, suppId);
               refToSupplierId.set(`PUR-${rawNum}`, suppId);
@@ -284,6 +303,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               refToSupplierId.set(`CHQ-${rawNum}`, suppId);
               refToSupplierId.set(`REJ-OUT-${rawNum}`, suppId);
               refToSupplierId.set(`REJ-CHQ-${rawNum}`, suppId);
+              refToSupplierId.set(`DISB-${rawNum}`, suppId);
             }
           }
         }
@@ -294,7 +314,56 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       retRes.data?.forEach(r => registerDoc(r.id, r.related_journal_entry_id, r.supplier_id, r.return_number));
       dnRes.data?.forEach(d => registerDoc(d.id, d.related_journal_entry_id, d.supplier_id, d.debit_note_number));
       pvRes.data?.forEach(p => registerDoc(p.id, p.related_journal_entry_id, p.supplier_id, p.voucher_number));
-      chqRes.data?.forEach(c => registerDoc(c.id, c.related_journal_entry_id, c.party_id, String(c.cheque_number)));
+      
+      // ربط الشيكات بالـ party_id أو بمطابقة party_name مع اسم المورد
+      chqRes.data?.forEach(c => {
+        let suppId = c.party_id;
+        if (!suppId && c.party_name) {
+          const pName = c.party_name.trim().toLowerCase();
+          suppId = supplierNameToIdMap.get(pName) || suppliersList?.find(s => s.name && (pName.includes(s.name.trim().toLowerCase()) || s.name.trim().toLowerCase().includes(pName)))?.id;
+        }
+        registerDoc(c.id, c.related_journal_entry_id, suppId, String(c.cheque_number));
+      });
+
+      // ربط مستخلصات مقاولي الباطن بالموردين
+      subBillingsNormalized.forEach(sb => {
+        const suppId = sb.supplier_id || (sb.subcontractor_name ? subNameToSupplierMap.get(sb.subcontractor_name.trim().toLowerCase()) : null);
+        registerDoc(sb.id, sb.related_journal_entry_id, suppId, sb.billing_number);
+        registerDoc(sb.id, sb.related_journal_entry_id, suppId, `SUB-BILL-${sb.billing_number}`);
+      });
+
+      // ربط طلبات صرف الاستاد بالموردين إذا كان المستفيد مورداً مسجلاً
+      stadiumDisbRes?.data?.forEach((d: any) => {
+        let suppId: string | undefined;
+        if (d.beneficiary_name) {
+          const bName = d.beneficiary_name.trim().toLowerCase();
+          suppId = supplierNameToIdMap.get(bName) || suppliersList?.find(s => s.name && (bName.includes(s.name.trim().toLowerCase()) || s.name.trim().toLowerCase().includes(bName)))?.id;
+        }
+        registerDoc(d.id, d.journal_entry_id, suppId, d.request_number);
+      });
+
+      // ربط تذاكر صيانة الاستاد بالموردين إذا كان الفني/المقاول مورداً مسجلاً
+      stadiumMaintRes?.data?.forEach((m: any) => {
+        let suppId: string | undefined;
+        if (m.assigned_technician) {
+          const tName = m.assigned_technician.trim().toLowerCase();
+          suppId = supplierNameToIdMap.get(tName) || suppliersList?.find(s => s.name && (tName.includes(s.name.trim().toLowerCase()) || s.name.trim().toLowerCase().includes(tName)))?.id;
+        }
+        registerDoc(m.id, m.journal_entry_id, suppId, m.ticket_number);
+      });
+
+      // ربط عهد الاستاد
+      stadiumCustodyRes?.data?.forEach((c: any) => {
+        let suppId: string | undefined;
+        if (c.custodian_name) {
+          const cName = c.custodian_name.trim().toLowerCase();
+          suppId = supplierNameToIdMap.get(cName);
+        }
+        registerDoc(c.id, c.journal_entry_id, suppId);
+        if (c.settlement_journal_id) {
+          registerDoc(c.id, c.settlement_journal_id, suppId);
+        }
+      });
 
       // ربط مستخلصات مقاولي الباطن بالموردين
       subBillingsNormalized.forEach(sb => {
@@ -378,14 +447,20 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         if (!suppId && ref) {
           suppId = refToSupplierId.get(ref);
           if (!suppId) {
-            const rawRef = ref.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-)/i, '');
-            if (rawRef) suppId = refToSupplierId.get(rawRef);
+            const rawRef = ref.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-|DISB-|CUST-|SETTL-|MAINT-|STD-|REQ-)/i, '');
+            if (rawRef) {
+              suppId = refToSupplierId.get(rawRef) || refToSupplierId.get(`PV-${rawRef}`) || refToSupplierId.get(`CHQ-${rawRef}`) || refToSupplierId.get(`DISB-${rawRef}`);
+            }
           }
         }
 
         if (!suppId) {
           const lowerDesc = desc.toLowerCase();
-          const matchedSupp = suppliersList?.find(s => s.name && lowerDesc.includes(s.name.trim().toLowerCase()));
+          const matchedSupp = suppliersList?.find(s => {
+            if (!s.name) return false;
+            const sName = s.name.trim().toLowerCase();
+            return lowerDesc.includes(sName) || (sName.length > 3 && sName.split(' ').some(w => w.length > 3 && lowerDesc.includes(w)));
+          });
           if (matchedSupp) suppId = matchedSupp.id;
         }
 
@@ -472,6 +547,28 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           cleanDesc.includes('رصيد افتتاحي') || cleanDesc.includes('رصيد أول المدة')
         ) return true;
 
+        // معاملات وصرفيات وصيانة وعهد مديول الاستاد الرياضي (Stadium Module)
+        if (
+          cleanRef.startsWith('DISB-') ||
+          cleanRef.startsWith('CUST-') ||
+          cleanRef.startsWith('SETTL-') ||
+          cleanRef.startsWith('MAINT-') ||
+          cleanRef.startsWith('STD-') ||
+          cleanRef.startsWith('TOURN-') ||
+          cleanDesc.includes('استاد المنصورة') ||
+          cleanDesc.includes('مصروفات الاستاد') ||
+          cleanDesc.includes('صيانة ملاعب') ||
+          cleanDesc.includes('صيانة منشأة') ||
+          cleanDesc.includes('مهمات وأدوات رياضية') ||
+          cleanDesc.includes('صرف طلب') ||
+          cleanDesc.includes('عهدة نشاط') ||
+          cleanDesc.includes('تسوية عهدة') ||
+          cleanDesc.includes('مستحقات كوادر') ||
+          cleanDesc.includes('عمولة مدرب') ||
+          cleanDesc.includes('بطولات ومعسكرات') ||
+          cleanDesc.includes('فواتير تشغيل ومرافق')
+        ) return true;
+
         if (suppliersList?.some(s => s.name && cleanDesc.includes(s.name))) return true;
 
         return false;
@@ -509,33 +606,114 @@ export const SupplierBalanceReconciliation: React.FC = () => {
     }
   };
 
+  const [extractedSupplierName, setExtractedSupplierName] = useState('');
+
   const openFixModal = (entry: any) => {
     setEntryToFix(entry);
-    setFixFormData({ supplierId: '', treasuryAccountId: treasuryAccounts[0]?.id || '', notes: entry.description || '' });
+    const desc = entry.description || '';
+    const match = desc.match(/للمورد\s+([^\s]+)/i) || desc.match(/مورد\s+([^\s]+)/i) || desc.match(/طرف\s+([^\s]+)/i) || desc.match(/إلى\s+([^\s]+)/i);
+    const extName = match ? match[1].trim() : '';
+    setExtractedSupplierName(extName);
+
+    const existing = suppliers.find(s => s.name && extName && s.name.trim().toLowerCase() === extName.toLowerCase());
+    setFixFormData({ 
+      supplierId: existing ? existing.id : '', 
+      treasuryAccountId: treasuryAccounts[0]?.id || '', 
+      notes: entry.description || '' 
+    });
     setFixModalOpen(true);
+  };
+
+  const handleQuickCreateSupplierAndFix = async (nameToCreate: string) => {
+    if (!nameToCreate?.trim() || !entryToFix) return;
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 1. إنشاء المورد الجديد
+      const { data: newSupp, error: suppErr } = await supabase
+        .from('suppliers')
+        .insert({
+          name: nameToCreate.trim(),
+          organization_id: userOrgId,
+          opening_balance: 0
+        })
+        .select('id, name')
+        .single();
+
+      if (suppErr || !newSupp) throw suppErr || new Error('فشل إنشاء المورد');
+
+      // 2. ربط الشيك أو إنشاء سند صرف
+      const isCheque = entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك');
+      const jeId = entryToFix.journal_entries?.id || entryToFix.id;
+      const rawNum = entryToFix.ref?.replace('CHQ-', '').trim();
+
+      if (isCheque) {
+        if (jeId) {
+          await supabase.from('cheques').update({ party_id: newSupp.id }).eq('related_journal_entry_id', jeId);
+        }
+        if (rawNum) {
+          await supabase.from('cheques').update({ party_id: newSupp.id }).eq('cheque_number', rawNum);
+        }
+      } else {
+        await supabase.from('payment_vouchers').insert({
+          voucher_number: entryToFix.ref || `PV-FIX-${Date.now().toString().slice(-6)}`,
+          payment_date: entryToFix.date,
+          amount: entryToFix.debit || entryToFix.credit,
+          supplier_id: newSupp.id,
+          treasury_account_id: fixFormData.treasuryAccountId || treasuryAccounts[0]?.id,
+          notes: entryToFix.description,
+          payment_method: 'cash'
+        });
+      }
+
+      showToast(`تم إنشاء المورد «${newSupp.name}» وربط القيد بنجاح ✅`, 'success');
+      setFixModalOpen(false);
+      fetchReconciliation();
+    } catch (err: any) {
+      showToast('خطأ: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFixSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fixFormData.supplierId || !fixFormData.treasuryAccountId) {
-      showToast('الرجاء اختيار المورد وحساب الخزينة/البنك', 'warning');
+    const isCheque  = entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك');
+    if (!fixFormData.supplierId || (!isCheque && !fixFormData.treasuryAccountId)) {
+      showToast(isCheque ? 'الرجاء اختيار المورد' : 'الرجاء اختيار المورد وحساب الخزينة/البنك', 'warning');
       return;
     }
     try {
       const isPayment = entryToFix.debit > 0;
       const amount    = isPayment ? entryToFix.debit : entryToFix.credit;
+      const jeId      = entryToFix.journal_entries?.id || entryToFix.id;
+      const rawNum    = entryToFix.ref?.replace('CHQ-', '').trim();
+
       if (isPayment) {
-        const { error } = await supabase.from('payment_vouchers').insert({
-          voucher_number:      entryToFix.ref || `PV-FIX-${Date.now().toString().slice(-6)}`,
-          payment_date:        entryToFix.date,
-          amount,
-          supplier_id:         fixFormData.supplierId,
-          treasury_account_id: fixFormData.treasuryAccountId,
-          notes:               fixFormData.notes,
-          payment_method:      'cash'
-        });
-        if (error) throw error;
-        showToast('تم إنشاء سند الصرف وربطه بالقيد بنجاح ✅', 'success');
+        if (isCheque) {
+          // تحديث المورد في جدول الشيكات مباشرة لربطه دون إنشاء قيد مكرر
+          if (jeId) {
+            await supabase.from('cheques').update({ party_id: fixFormData.supplierId }).eq('related_journal_entry_id', jeId);
+          }
+          if (rawNum) {
+            await supabase.from('cheques').update({ party_id: fixFormData.supplierId }).eq('cheque_number', rawNum);
+          }
+          showToast('تم ربط الشيك بالمورد بنجاح ومطابقة الأستاذ المساعد ✅', 'success');
+        } else {
+          const { error } = await supabase.from('payment_vouchers').insert({
+            voucher_number:      entryToFix.ref || `PV-FIX-${Date.now().toString().slice(-6)}`,
+            payment_date:        entryToFix.date,
+            amount,
+            supplier_id:         fixFormData.supplierId,
+            treasury_account_id: fixFormData.treasuryAccountId,
+            notes:               fixFormData.notes,
+            payment_method:      'cash'
+          });
+          if (error) throw error;
+          showToast('تم إنشاء سند الصرف وربطه بالقيد بنجاح ✅', 'success');
+        }
       } else {
         showToast('هذا القيد دائن — يمكنك ربطه كفاتورة مشتريات من شاشة المشتريات.', 'info');
         return;
@@ -770,9 +948,9 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                             <button
                               onClick={() => openFixModal(entry)}
                               className="bg-orange-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold hover:bg-orange-700 transition-colors"
-                              title="إنشاء سند صرف وربطه بالمورد"
+                              title="ربط هذا القيد بمورد لمعالجة الفرق وتطابق الأستاذ المساعد"
                             >
-                              ربط كسند صرف
+                              {entry.ref?.startsWith('CHQ-') ? 'ربط الشيك بمورد' : 'ربط بمورد / إصلاح'}
                             </button>
                           )}
                           <button
@@ -979,8 +1157,24 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                 </div>
               </div>
 
+              {extractedSupplierName && !suppliers.some(s => s.name?.trim().toLowerCase() === extractedSupplierName.toLowerCase()) && (
+                <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl space-y-2">
+                  <div className="text-xs text-orange-800 font-bold flex items-center gap-1.5">
+                    <AlertTriangle size={15} className="text-orange-600" />
+                    الطرف «{extractedSupplierName}» غير مسجل في قائمة الموردين الحالية.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCreateSupplierAndFix(extractedSupplierName)}
+                    className="w-full bg-orange-600 text-white font-bold text-xs py-2 px-3 rounded-lg hover:bg-orange-700 transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <Plus size={14} /> إضافة «{extractedSupplierName}» كمورد جديد وربط القيد فوراً
+                  </button>
+                </div>
+              )}
+
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">المورد المعني <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">أو اختر مورد موجود <span className="text-red-500">*</span></label>
                 <select
                   required
                   className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-orange-500"
@@ -992,17 +1186,29 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة / البنك <span className="text-red-500">*</span></label>
-                <select
-                  required
-                  className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-orange-500"
-                  value={fixFormData.treasuryAccountId}
-                  onChange={e => setFixFormData({...fixFormData, treasuryAccountId: e.target.value})}
-                >
-                  {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
-                </select>
-              </div>
+              {entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك') ? (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <CheckCircle size={15} className="text-blue-600" />
+                    شيك صادر مسجل مسبقاً بالأستاذ العام
+                  </p>
+                  <p className="leading-relaxed">
+                    <strong>لن يتم إنشاء أي قيد محاسبي جديد</strong> (منعاً للازدواجية وتكرار المبالغ) — الربط سيقوم فقط بتعيين المورد للشيك ليظهر ضمن كشف حسابه وتتطابق الأرصدة فوراً.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة / البنك <span className="text-red-500">*</span></label>
+                  <select
+                    required
+                    className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-orange-500"
+                    value={fixFormData.treasuryAccountId}
+                    onChange={e => setFixFormData({...fixFormData, treasuryAccountId: e.target.value})}
+                  >
+                    {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات</label>
@@ -1016,7 +1222,9 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button type="button" onClick={() => setFixModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200">إلغاء</button>
-                <button type="submit" className="px-5 py-2 bg-orange-600 text-white font-bold rounded-xl text-xs hover:bg-orange-700 shadow-sm">إنشاء وربط السند</button>
+                <button type="submit" className="px-5 py-2 bg-orange-600 text-white font-bold rounded-xl text-xs hover:bg-orange-700 shadow-sm">
+                  {entryToFix.ref?.startsWith('CHQ-') ? 'ربط الشيك بالمورد' : 'إنشاء وربط السند'}
+                </button>
               </div>
             </form>
           </div>

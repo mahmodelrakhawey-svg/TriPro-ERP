@@ -178,14 +178,25 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         const providerClaimIds = claimList?.map(c => c.id) || [];
 
         // 1) جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل والقيود اليدوية التي تحوي اسمه
-        const [invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, patientBillsRes, insBillsRes, claimsRes, projectBillsRes] = await Promise.all([
+        const custName = selectedCustomer?.name?.trim();
+        const custPhone = selectedCustomer?.phone?.replace(/[^0-9]/g, '');
+
+        const [
+          invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, 
+          patientBillsRes, insBillsRes, claimsRes, projectBillsRes,
+          stadiumSubsRes, stadiumRentalsRes, stadiumBookingsRes, stadiumProgramsRes, stadiumTournamentsRes
+        ] = await Promise.all([
              supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-             supabase.from('cheques').select('related_journal_entry_id').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+             custName
+               ? supabase.from('cheques').select('related_journal_entry_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null).or(`party_id.eq.${selectedCustomerId},party_name.ilike.%${custName}%`)
+               : supabase.from('cheques').select('related_journal_entry_id').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('orders').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-             supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${selectedCustomer?.name}%`),
+             custName
+               ? supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${custName}%`)
+               : Promise.resolve({ data: [] }),
              patientIds.length > 0
                ? supabase.from('hims_billing').select('id, related_journal_entry_id').in('patient_id', patientIds).eq('organization_id', userOrgId)
                : Promise.resolve({ data: [] }),
@@ -195,6 +206,22 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
              supabase.from('hims_insurance_claims').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
              projectIds.length > 0
                ? supabase.from('project_progress_billings').select('id, related_journal_entry_id').in('project_id', projectIds).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null)
+               : Promise.resolve({ data: [] }),
+             // مستندات الاستاد الرياضي
+             custName
+               ? supabase.from('stadium_subscriptions').select('journal_entry_id, stadium_members!inner(full_name, phone)').eq('organization_id', userOrgId).ilike('stadium_members.full_name', `%${custName}%`).not('journal_entry_id', 'is', null)
+               : Promise.resolve({ data: [] }),
+             custName
+               ? supabase.from('stadium_rental_payments').select('journal_entry_id, stadium_rental_contracts!inner(tenant_name, tenant_phone)').eq('organization_id', userOrgId).ilike('stadium_rental_contracts.tenant_name', `%${custName}%`).not('journal_entry_id', 'is', null)
+               : Promise.resolve({ data: [] }),
+             custName
+               ? supabase.from('stadium_bookings').select('journal_entry_id').eq('organization_id', userOrgId).ilike('booker_name', `%${custName}%`).not('journal_entry_id', 'is', null)
+               : Promise.resolve({ data: [] }),
+             custName
+               ? supabase.from('stadium_program_enrollments').select('journal_entry_id').eq('organization_id', userOrgId).ilike('participant_name', `%${custName}%`).not('journal_entry_id', 'is', null)
+               : Promise.resolve({ data: [] }),
+             custName
+               ? supabase.from('stadium_tournament_teams').select('journal_entry_id').eq('organization_id', userOrgId).or(`captain_name.ilike.%${custName}%,team_name.ilike.%${custName}%`).not('journal_entry_id', 'is', null)
                : Promise.resolve({ data: [] })
         ]);
 
@@ -207,6 +234,11 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         ordRes.data?.forEach(o => { if (o.related_journal_entry_id) customerEntryIds.add(o.related_journal_entry_id); });
         manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
         projectBillsRes.data?.forEach(pb => { if (pb.related_journal_entry_id) customerEntryIds.add(pb.related_journal_entry_id); });
+        stadiumSubsRes.data?.forEach((s: any) => { if (s.journal_entry_id) customerEntryIds.add(s.journal_entry_id); });
+        stadiumRentalsRes.data?.forEach((r: any) => { if (r.journal_entry_id) customerEntryIds.add(r.journal_entry_id); });
+        stadiumBookingsRes.data?.forEach((b: any) => { if (b.journal_entry_id) customerEntryIds.add(b.journal_entry_id); });
+        stadiumProgramsRes.data?.forEach((p: any) => { if (p.journal_entry_id) customerEntryIds.add(p.journal_entry_id); });
+        stadiumTournamentsRes.data?.forEach((t: any) => { if (t.journal_entry_id) customerEntryIds.add(t.journal_entry_id); });
 
         // إضافة القيود المربوطة مباشرة بالفواتير الطبية والمطالبات (التي لم يتم استبدالها)
         patientBillsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });

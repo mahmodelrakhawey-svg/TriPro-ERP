@@ -11,7 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 
 export const CustomerBalanceReconciliation: React.FC = () => {
-  const { accounts, customers, getSystemAccount, settings } = useAccounting();
+  const { accounts, customers, getSystemAccount, settings, currentUser } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   
@@ -150,19 +150,41 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         projectBillsRes,
         patientBillsRes,
         claimsRes,
-        himsPatientsRes
+        himsPatientsRes,
+        stadiumSubsRes,
+        stadiumRentalsRes,
+        stadiumBookingsRes,
+        stadiumProgramsRes,
+        stadiumTournamentsRes
       ] = await Promise.all([
         supabase.from('invoices').select('id, customer_id, invoice_number, total_amount, paid_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
         supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id'),
         supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
         supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted'),
-        supabase.from('cheques').select('id, party_id, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming'),
+        supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming'),
         supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED'),
         supabase.from('project_progress_billings').select('id, billing_number, net_amount, related_journal_entry_id, project_id, projects(customer_id, name)').not('status', 'in', '("draft","cancelled")'),
         supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, related_journal_entry_id'),
         supabase.from('hims_insurance_claims').select('id, insurance_provider_id, related_journal_entry_id'),
-        supabase.from('hims_patients').select('id, customer_id')
+        supabase.from('hims_patients').select('id, customer_id'),
+        // مستندات مديول الاستاد الرياضي
+        supabase.from('stadium_subscriptions').select('id, member_id, journal_entry_id, amount_paid, payment_method, stadium_members(id, full_name, phone)'),
+        supabase.from('stadium_rental_payments').select('id, contract_id, amount_paid, journal_entry_id, payment_method, stadium_rental_contracts(tenant_name, tenant_phone)'),
+        supabase.from('stadium_bookings').select('id, booker_name, booker_phone, total_amount, journal_entry_id, payment_method'),
+        supabase.from('stadium_program_enrollments').select('id, participant_name, participant_phone, amount_paid, journal_entry_id, payment_method'),
+        supabase.from('stadium_tournament_teams').select('id, team_name, captain_name, captain_phone, entry_fee_paid, journal_entry_id, payment_method')
       ]);
+
+      // خريطة أسماء وأرقام هواتف العملاء للربط التلقائي
+      const customerNameToIdMap = new Map<string, string>();
+      const customerPhoneToIdMap = new Map<string, string>();
+      customersList?.forEach(c => {
+        if (c.name) customerNameToIdMap.set(c.name.trim().toLowerCase(), c.id);
+        if (c.phone) {
+          const cleanP = c.phone.replace(/[^0-9]/g, '');
+          if (cleanP) customerPhoneToIdMap.set(cleanP, c.id);
+        }
+      });
 
       // خريطة لربط مريض المستشفى بالعميل
       const patientToCustomer = new Map<string, string>();
@@ -184,7 +206,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
             const clean = ref.trim().toUpperCase();
             subLedgerRefs.add(clean);
             refToCustomerId.set(clean, custId);
-            const rawNum = clean.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-)/i, '');
+            const rawNum = clean.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-|STD-|RENT-|BOOK-|TOURN-|PROG-)/i, '');
             if (rawNum) {
               refToCustomerId.set(rawNum, custId);
               refToCustomerId.set(`INV-${rawNum}`, custId);
@@ -194,6 +216,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
               refToCustomerId.set(`CHQ-${rawNum}`, custId);
               refToCustomerId.set(`REJ-CHQ-${rawNum}`, custId);
               refToCustomerId.set(`REJ-${rawNum}`, custId);
+              refToCustomerId.set(`STD-${rawNum}`, custId);
             }
           }
         }
@@ -203,7 +226,23 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       recRes.data?.forEach(r => registerDoc(r.id, r.related_journal_entry_id, r.customer_id, r.voucher_number));
       retRes.data?.forEach(r => registerDoc(r.id, r.related_journal_entry_id, r.customer_id, r.return_number));
       cnRes.data?.forEach(c => registerDoc(c.id, c.related_journal_entry_id, c.customer_id, c.credit_note_number));
-      chqRes.data?.forEach(c => registerDoc(c.id, c.related_journal_entry_id, c.party_id, String(c.cheque_number)));
+      
+      // ربط الشيكات بالعميل إما بالـ party_id أو بمطابقة party_name مع اسم العميل
+      chqRes.data?.forEach(c => {
+        let custId = c.party_id;
+        if (!custId && c.party_name) {
+          const pName = c.party_name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+          custId = customerNameToIdMap.get(pName) || customersList?.find(cust => {
+            if (!cust.name) return false;
+            const cNorm = cust.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+            return cNorm.includes(pName) || pName.includes(cNorm) || 
+                   cNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
+                   pName.split(' ').some(w => w.length > 2 && cNorm.includes(w));
+          })?.id;
+        }
+        registerDoc(c.id, c.related_journal_entry_id, custId, String(c.cheque_number));
+      });
+      
       ordRes.data?.forEach(o => registerDoc(o.id, o.related_journal_entry_id, o.customer_id, o.order_number));
 
       projectBillsRes.data?.forEach((pb: any) => {
@@ -218,6 +257,45 @@ export const CustomerBalanceReconciliation: React.FC = () => {
 
       claimsRes.data?.forEach((cl: any) => {
         registerDoc(cl.id, cl.related_journal_entry_id, cl.insurance_provider_id);
+      });
+
+      // ربط حركات الاستاد بالعملاء (مطابقة بالاسم أو رقم الهاتف)
+      stadiumSubsRes?.data?.forEach((sub: any) => {
+        const mem = sub.stadium_members;
+        const name = mem?.full_name?.trim().toLowerCase();
+        const phone = mem?.phone?.replace(/[^0-9]/g, '');
+        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
+        registerDoc(sub.id, sub.journal_entry_id, custId);
+      });
+
+      stadiumRentalsRes?.data?.forEach((r: any) => {
+        const contract = r.stadium_rental_contracts;
+        const name = contract?.tenant_name?.trim().toLowerCase();
+        const phone = contract?.tenant_phone?.replace(/[^0-9]/g, '');
+        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
+        registerDoc(r.id, r.journal_entry_id, custId);
+      });
+
+      stadiumBookingsRes?.data?.forEach((b: any) => {
+        const name = b.booker_name?.trim().toLowerCase();
+        const phone = b.booker_phone?.replace(/[^0-9]/g, '');
+        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
+        registerDoc(b.id, b.journal_entry_id, custId);
+      });
+
+      stadiumProgramsRes?.data?.forEach((p: any) => {
+        const name = p.participant_name?.trim().toLowerCase();
+        const phone = p.participant_phone?.replace(/[^0-9]/g, '');
+        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
+        registerDoc(p.id, p.journal_entry_id, custId);
+      });
+
+      stadiumTournamentsRes?.data?.forEach((t: any) => {
+        const capName = t.captain_name?.trim().toLowerCase();
+        const teamName = t.team_name?.trim().toLowerCase();
+        const phone = t.captain_phone?.replace(/[^0-9]/g, '');
+        const custId = (capName ? customerNameToIdMap.get(capName) : null) || (teamName ? customerNameToIdMap.get(teamName) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
+        registerDoc(t.id, t.journal_entry_id, custId);
       });
 
       // ربط القيود اليدوية بأسماء العملاء
@@ -304,7 +382,12 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           }
         }
         if (!custId) {
-          const matchedCust = customersList?.find(c => c.name && desc.toLowerCase().includes(c.name.trim().toLowerCase()));
+          const lowerDesc = desc.toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+          const matchedCust = customersList?.find(c => {
+            if (!c.name) return false;
+            const cNorm = c.name.toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+            return lowerDesc.includes(cNorm) || cNorm.split(' ').some(w => w.length > 2 && lowerDesc.includes(w));
+          });
           if (matchedCust) custId = matchedCust.id;
         }
 
@@ -407,9 +490,38 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           cleanDesc.includes('إيراد عيادات')
         ) return true;
 
+        // معاملات وعمليات مديول الاستاد الرياضي (Stadium Module)
+        if (
+          cleanRef.startsWith('STD-') ||
+          cleanRef.startsWith('RENT-') ||
+          cleanRef.startsWith('BOOK-') ||
+          cleanRef.startsWith('TOURN-') ||
+          cleanRef.startsWith('PROG-') ||
+          cleanRef.startsWith('DISB-') ||
+          cleanRef.startsWith('CUST-') ||
+          cleanRef.startsWith('SETTL-') ||
+          cleanRef.startsWith('MAINT-') ||
+          cleanDesc.includes('استاد المنصورة') ||
+          cleanDesc.includes('اشتراك عضو') ||
+          cleanDesc.includes('تجديد اشتراك') ||
+          cleanDesc.includes('حجز ملعب') ||
+          cleanDesc.includes('دفعة إيجار') ||
+          cleanDesc.includes('إيرادات الاشتراكات') ||
+          cleanDesc.includes('إيرادات حجوزات') ||
+          cleanDesc.includes('إيرادات الإيجارات') ||
+          cleanDesc.includes('إيرادات الأكاديميات') ||
+          cleanDesc.includes('رسوم برنامج تدريبي') ||
+          cleanDesc.includes('اشتراك بطولة') ||
+          cleanDesc.includes('مصروفات الاستاد') ||
+          cleanDesc.includes('صيانة ملاعب') ||
+          cleanDesc.includes('صرف طلب') ||
+          cleanDesc.includes('عهدة نشاط') ||
+          cleanDesc.includes('تسوية عهدة')
+        ) return true;
+
         // شيكات مرتدة أو مستندات معروفة في خرائط المراجع
         if (refToCustomerId.has(cleanRef)) return true;
-        const rawNum = cleanRef.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-)/i, '');
+        const rawNum = cleanRef.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-|STD-|RENT-|BOOK-|TOURN-|PROG-)/i, '');
         if (rawNum && refToCustomerId.has(rawNum)) return true;
 
         // فحص اسم أي عميل في البيان
@@ -452,33 +564,114 @@ export const CustomerBalanceReconciliation: React.FC = () => {
     }
   };
 
+  const [extractedCustomerName, setExtractedCustomerName] = useState('');
+
   const openFixModal = (entry: any) => {
     setEntryToFix(entry);
-    setFixFormData({ customerId: '', treasuryAccountId: treasuryAccounts[0]?.id || '', notes: entry.description || '' });
+    const desc = entry.description || '';
+    const match = desc.match(/العميل\s+([^\s]+)/i) || desc.match(/عميل\s+([^\s]+)/i) || desc.match(/من\s+([^\s]+)/i) || desc.match(/طرف\s+([^\s]+)/i);
+    const extName = match ? match[1].trim() : '';
+    setExtractedCustomerName(extName);
+
+    const existing = customers.find(c => c.name && extName && c.name.trim().toLowerCase() === extName.toLowerCase());
+    setFixFormData({ 
+      customerId: existing ? existing.id : '', 
+      treasuryAccountId: treasuryAccounts[0]?.id || '', 
+      notes: entry.description || '' 
+    });
     setFixModalOpen(true);
+  };
+
+  const handleQuickCreateCustomerAndFix = async (nameToCreate: string) => {
+    if (!nameToCreate?.trim() || !entryToFix) return;
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 1. إنشاء العميل الجديد
+      const { data: newCust, error: custErr } = await supabase
+        .from('customers')
+        .insert({
+          name: nameToCreate.trim(),
+          organization_id: userOrgId,
+          opening_balance: 0
+        })
+        .select('id, name')
+        .single();
+
+      if (custErr || !newCust) throw custErr || new Error('فشل إنشاء العميل');
+
+      // 2. ربط الشيك أو إنشاء سند قبض
+      const isCheque = entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك');
+      const jeId = entryToFix.journal_entries?.id || entryToFix.id;
+      const rawNum = entryToFix.ref?.replace('CHQ-', '').trim();
+
+      if (isCheque) {
+        if (jeId) {
+          await supabase.from('cheques').update({ party_id: newCust.id }).eq('related_journal_entry_id', jeId);
+        }
+        if (rawNum) {
+          await supabase.from('cheques').update({ party_id: newCust.id }).eq('cheque_number', rawNum);
+        }
+      } else {
+        await supabase.from('receipt_vouchers').insert({
+          voucher_number: entryToFix.ref || `RV-FIX-${Date.now().toString().slice(-6)}`,
+          voucher_date: entryToFix.date,
+          amount: entryToFix.credit || entryToFix.debit,
+          customer_id: newCust.id,
+          treasury_account_id: fixFormData.treasuryAccountId || treasuryAccounts[0]?.id,
+          notes: entryToFix.description,
+          payment_method: 'cash'
+        });
+      }
+
+      showToast(`تم إنشاء العميل «${newCust.name}» وربط القيد بنجاح ✅`, 'success');
+      setFixModalOpen(false);
+      fetchReconciliation();
+    } catch (err: any) {
+      showToast('خطأ: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleFixSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fixFormData.customerId || !fixFormData.treasuryAccountId) {
-      showToast('الرجاء اختيار العميل وحساب الخزينة/البنك', 'warning');
+    const isCheque  = entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك');
+    if (!fixFormData.customerId || (!isCheque && !fixFormData.treasuryAccountId)) {
+      showToast(isCheque ? 'الرجاء اختيار العميل' : 'الرجاء اختيار العميل وحساب الخزينة/البنك', 'warning');
       return;
     }
     try {
       const isReceipt = entryToFix.credit > 0;
       const amount    = isReceipt ? entryToFix.credit : entryToFix.debit;
+      const jeId      = entryToFix.journal_entries?.id || entryToFix.id;
+      const rawNum    = entryToFix.ref?.replace('CHQ-', '').trim();
+
       if (isReceipt) {
-        const { error } = await supabase.from('receipt_vouchers').insert({
-          voucher_number:       entryToFix.ref || `RV-FIX-${Date.now().toString().slice(-6)}`,
-          voucher_date:         entryToFix.date,
-          amount,
-          customer_id:          fixFormData.customerId,
-          treasury_account_id:  fixFormData.treasuryAccountId,
-          notes:                fixFormData.notes,
-          payment_method:       'cash'
-        });
-        if (error) throw error;
-        showToast('تم إنشاء سند القبض وربطه بالقيد بنجاح ✅', 'success');
+        if (isCheque) {
+          // تحديث العميل في جدول الشيكات مباشرة لربطه دون تكرار القيد
+          if (jeId) {
+            await supabase.from('cheques').update({ party_id: fixFormData.customerId }).eq('related_journal_entry_id', jeId);
+          }
+          if (rawNum) {
+            await supabase.from('cheques').update({ party_id: fixFormData.customerId }).eq('cheque_number', rawNum);
+          }
+          showToast('تم ربط الشيك بالعميل بنجاح ومطابقة الأستاذ المساعد ✅', 'success');
+        } else {
+          const { error } = await supabase.from('receipt_vouchers').insert({
+            voucher_number:       entryToFix.ref || `RV-FIX-${Date.now().toString().slice(-6)}`,
+            voucher_date:         entryToFix.date,
+            amount,
+            customer_id:          fixFormData.customerId,
+            treasury_account_id:  fixFormData.treasuryAccountId,
+            notes:                fixFormData.notes,
+            payment_method:       'cash'
+          });
+          if (error) throw error;
+          showToast('تم إنشاء سند القبض وربطه بالقيد بنجاح ✅', 'success');
+        }
       } else {
         showToast('هذا القيد مدين — يمكنك ربطه كفاتورة مبيعات من شاشة الفواتير.', 'info');
         return;
@@ -848,8 +1041,24 @@ export const CustomerBalanceReconciliation: React.FC = () => {
                 </div>
               </div>
 
+              {extractedCustomerName && !customers.some(c => c.name?.trim().toLowerCase() === extractedCustomerName.toLowerCase()) && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
+                  <div className="text-xs text-emerald-800 font-bold flex items-center gap-1.5">
+                    <AlertTriangle size={15} className="text-emerald-600" />
+                    الطرف «{extractedCustomerName}» غير مسجل في قائمة العملاء الحالية.
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickCreateCustomerAndFix(extractedCustomerName)}
+                    className="w-full bg-emerald-600 text-white font-bold text-xs py-2 px-3 rounded-lg hover:bg-emerald-700 transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                  >
+                    <Plus size={14} /> إضافة «{extractedCustomerName}» كعميل جديد وربط القيد فوراً
+                  </button>
+                </div>
+              )}
+
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">العميل المعني <span className="text-red-500">*</span></label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">أو اختر عميل موجود <span className="text-red-500">*</span></label>
                 <select
                   required
                   className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-emerald-500"
@@ -861,17 +1070,29 @@ export const CustomerBalanceReconciliation: React.FC = () => {
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة / البنك <span className="text-red-500">*</span></label>
-                <select
-                  required
-                  className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-emerald-500"
-                  value={fixFormData.treasuryAccountId}
-                  onChange={e => setFixFormData({...fixFormData, treasuryAccountId: e.target.value})}
-                >
-                  {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
-                </select>
-              </div>
+              {entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك') ? (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <CheckCircle size={15} className="text-blue-600" />
+                    شيك وارد مسجل مسبقاً بالأستاذ العام
+                  </p>
+                  <p className="leading-relaxed">
+                    <strong>لن يتم إنشاء أي قيد محاسبي جديد</strong> (منعاً للازدواجية وتكرار المبالغ) — الربط سيقوم فقط بتعيين العميل للشيك ليظهر ضمن كشف حسابه ومطابقة الرصيد فوراً.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة / البنك <span className="text-red-500">*</span></label>
+                  <select
+                    required
+                    className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-emerald-500"
+                    value={fixFormData.treasuryAccountId}
+                    onChange={e => setFixFormData({...fixFormData, treasuryAccountId: e.target.value})}
+                  >
+                    {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات</label>
@@ -885,7 +1106,9 @@ export const CustomerBalanceReconciliation: React.FC = () => {
 
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button type="button" onClick={() => setFixModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200">إلغاء</button>
-                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-sm">إنشاء وربط السند</button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 shadow-sm">
+                  {entryToFix.ref?.startsWith('CHQ-') ? 'ربط الشيك بالعميل' : 'إنشاء وربط السند'}
+                </button>
               </div>
             </form>
           </div>
