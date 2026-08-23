@@ -1,4 +1,4 @@
-﻿﻿﻿import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -84,7 +84,7 @@ type ProductFormData = {
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry, settings } = useAccounting();
+  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry, settings, recalculateStock, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   
   // نقلنا تعريفات الحالة للأعلى لمنع خطأ TS2448 (Used before declaration)
@@ -738,12 +738,14 @@ const ProductManager = () => {
         let successCount = 0;
         let failCount = 0;
 
-        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
-        const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || null;
-        const defaultCogs = getSystemAccount('COGS')?.id || null;
-        const defaultSales = getSystemAccount('SALES_REVENUE')?.id || null;
-        const equityAcc = getSystemAccount('OPENING_BALANCES')?.id || getSystemAccount('RETAINED_EARNINGS')?.id || contextAccounts.find(a => a.code === '3999')?.id; // حساب الأرصدة الافتتاحية
+        const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || getSystemAccount('INVENTORY')?.id || contextAccounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '103' || a.name?.includes('مخزون'))?.id || null;
+        const defaultCogs = getSystemAccount('COGS')?.id || contextAccounts.find(a => a.code === '511' || a.code === '311' || a.name?.includes('تكلفة'))?.id || null;
+        const defaultSales = getSystemAccount('SALES_REVENUE')?.id || contextAccounts.find(a => a.code === '411' || a.name?.includes('مبيعات'))?.id || null;
+        const equityAcc = getSystemAccount('OPENING_BALANCES')?.id || 
+                          getSystemAccount('RETAINED_EARNINGS')?.id || 
+                          contextAccounts.find(a => a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300') || a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي'))?.id; // حساب الأرصدة الافتتاحية
         const targetWarehouseId = importWarehouseId || (warehouses.length > 0 ? warehouses[0].id : null);
 
         // 1. التأكد من وجود كافة التصنيفات وإنشاء المفقود منها تلقائياً
@@ -802,7 +804,7 @@ const ProductManager = () => {
           const isService = (String(rawType || '').includes('خدم') || String(rawType || '').toLowerCase().includes('serv'));
           const isRaw = (String(rawType || '').includes('خام') || String(rawType || '').toLowerCase().includes('raw'));
           const productType = isService ? 'SERVICE' : (isRaw ? 'RAW_MATERIAL' : 'STOCK');
-          const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id;
+          const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || contextAccounts.find(a => a.code === '10301' || a.code === '1211' || a.name?.includes('خامات'))?.id;
           const itemInvAcc = productType === 'RAW_MATERIAL' ? (rawMaterialAcc || defaultInventory) : defaultInventory;
 
           if (name) {
@@ -814,6 +816,8 @@ const ProductManager = () => {
                 barcode: barcode ? String(barcode).trim() : null,
                 sales_price: sales_price ? Number(sales_price) : 0,
                 purchase_price: purchase_price ? Number(purchase_price) : 0,
+                cost: purchase_price ? Number(purchase_price) : 0,
+                weighted_average_cost: purchase_price ? Number(purchase_price) : 0,
                 stock: stock ? Number(stock) : 0,
                 opening_balance: stock ? Number(stock) : 0,
                 description: description ? String(description).trim() : null,
@@ -833,37 +837,32 @@ const ProductManager = () => {
 
               // 2. معالجة الرصيد الافتتاحي والقيد
               if (newProduct && stock && Number(stock) > 0 && targetWarehouseId) {
-                  await supabase.from('opening_inventories').insert({
+                  const { error: opErr } = await supabase.from('opening_inventories').insert({
                       product_id: newProduct.id,
                       warehouse_id: targetWarehouseId,
                       quantity: Number(stock),
                       cost: Number(purchase_price) || 0,
-                      organization_id: orgId
+                      organization_id: orgId,
+                      created_by: currentUser?.id
                   });
+                  if (opErr) console.error("Error creating opening inventory:", opErr);
 
                   const totalValue = Number(stock) * (Number(purchase_price) || 0);
                   if (totalValue > 0 && itemInvAcc && equityAcc) { // Use handleError for consistency
-                      // جلب معرف المستخدم مباشرة لضمان عدم كونه فارغاً
-                      const ref = `IMP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+                      const ref = `IMP-OP-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+                      const lineDesc = productType === 'RAW_MATERIAL' ? `مخزون مواد خام افتتاحي - ${newProduct.name}` : `مخزون افتتاحي - ${newProduct.name}`;
 
-                      // إنشاء القيد المحاسبي
-                      const { data: entry } = await supabase.from('journal_entries').insert({
-                          transaction_date: new Date().toISOString().split('T')[0],
+                      await addEntry({
+                          date: new Date().toISOString().split('T')[0],
                           description: `رصيد افتتاحي (استيراد) - ${newProduct.name}`.substring(0, 255),
-                          status: 'posted', // تصحيح: يجب أن يكون posted
-                          user_id: user?.id || currentUser?.id, // تصحيح اسم العمود
-                          organization_id: orgId
-                      }).select().single();
-
-                      if (entry) { // Use handleError for consistency
-                          const lineDesc = productType === 'RAW_MATERIAL' ? `مخزون مواد خام افتتاحي - ${newProduct.name}` : `مخزون افتتاحي - ${newProduct.name}`;
-                          await supabase.from('journal_lines').insert([
-                              // من حـ/ المخزون (أو مخزون المواد الخام)
-                              { journal_entry_id: entry.id, account_id: itemInvAcc, debit: totalValue, credit: 0, description: lineDesc, organization_id: orgId },
-                              // إلى حـ/ الأرصدة الافتتاحية
-                              { journal_entry_id: entry.id, account_id: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
-                          ]);
-                      }
+                          reference: ref,
+                          status: 'posted',
+                          p_org_id: orgId,
+                          lines: [
+                              { accountId: itemInvAcc, debit: totalValue, credit: 0, description: lineDesc },
+                              { accountId: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}` }
+                          ]
+                      });
                   }
               }
 
@@ -899,6 +898,142 @@ const ProductManager = () => {
         reader.readAsText(file);
     } else {
         reader.readAsBinaryString(file);
+    }
+  };
+
+  const [isSyncingOpenings, setIsSyncingOpenings] = useState(false);
+
+  const handleSyncMissingOpeningEntries = async () => {
+    const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) {
+      showToast('يرجى تحديد المنظمة أولاً', 'warning');
+      return;
+    }
+
+    if (!window.confirm('هل تريد فحص جميع الأصناف المخزنية وتوليد القيود الافتتاحية للأصناف التي لديها رصيد/تكلفة وليس لها قيد افتتاحى مسجل؟')) {
+      return;
+    }
+
+    setIsSyncingOpenings(true);
+    try {
+      // 1. جلب جميع الأصناف المخزنية
+      const { data: allProds, error: prodsErr } = await supabase
+        .from('products')
+        .select('*')
+        .eq('organization_id', orgId)
+        .in('item_type', ['STOCK', 'RAW_MATERIAL']);
+
+      if (prodsErr) throw prodsErr;
+
+      if (!allProds || allProds.length === 0) {
+        showToast('لا توجد أصناف مخزنية في هذه المنظمة.', 'info');
+        setIsSyncingOpenings(false);
+        return;
+      }
+
+      // 2. جلب جميع قيود اليومية الخاصة بالأرصدة الافتتاحية للمنظمة
+      const { data: existingEntries, error: entErr } = await supabase
+        .from('journal_entries')
+        .select('id, description, reference, related_document_id, related_document_type')
+        .eq('organization_id', orgId);
+
+      if (entErr) throw entErr;
+
+      // 3. جلب حسابات النظام
+      const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || getSystemAccount('INVENTORY')?.id || contextAccounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '103' || a.name?.includes('مخزون'))?.id;
+      const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || contextAccounts.find(a => a.code === '10301' || a.code === '1211' || a.name?.includes('خامات'))?.id;
+      const equityAcc = getSystemAccount('OPENING_BALANCES')?.id || 
+                        getSystemAccount('RETAINED_EARNINGS')?.id || 
+                        contextAccounts.find(a => a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300') || a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي'))?.id;
+
+      if (!equityAcc) {
+        throw new Error('لم يتم العثور على حساب الأرصدة الافتتاحية في الدليل المحاسبي (كود 3999 أو 313).');
+      }
+
+      const defaultWhId = warehouses.length > 0 ? warehouses[0].id : null;
+      let createdCount = 0;
+      const createdNames: string[] = [];
+
+      for (const prod of allProds) {
+        // فحص إذا كان للصنف قيد افتتاحي مسجل مسبقاً
+        const hasEntry = existingEntries?.some(e => 
+          e.related_document_id === prod.id ||
+          (e.reference && e.reference.includes(prod.id.slice(-8))) ||
+          (e.description && (e.description.includes('رصيد افتتاحي') || e.description.includes('افتتاحي')) && e.description.includes(prod.name))
+        );
+
+        if (!hasEntry) {
+          const qty = Number(prod.stock) || Number(prod.opening_balance) || 0;
+          const cost = Number(prod.purchase_price) || Number(prod.cost) || Number(prod.weighted_average_cost) || 0;
+          const totalValue = qty * cost;
+
+          if (qty > 0 && cost > 0 && totalValue > 0) {
+            const itemInvAcc = prod.inventory_account_id || (prod.item_type === 'RAW_MATERIAL' ? (rawMaterialAcc || defaultInventory) : defaultInventory);
+            
+            if (itemInvAcc) {
+              // أ. تسجيل في opening_inventories إذا لم يكن مسجلاً
+              if (defaultWhId) {
+                const { data: existingOp } = await supabase
+                  .from('opening_inventories')
+                  .select('id')
+                  .eq('product_id', prod.id)
+                  .maybeSingle();
+
+                if (!existingOp) {
+                  await supabase.from('opening_inventories').insert({
+                    product_id: prod.id,
+                    warehouse_id: defaultWhId,
+                    quantity: qty,
+                    cost: cost,
+                    organization_id: orgId,
+                    created_by: currentUser?.id
+                  });
+                }
+              }
+
+              // ب. إنشاء القيد المحاسبي عبر addEntry
+              const ref = `OP-PROD-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+              const lineDesc = prod.item_type === 'RAW_MATERIAL' 
+                ? `مخزون مواد خام افتتاحي - ${prod.name}` 
+                : `مخزون افتتاحي - ${prod.name}`;
+
+              await addEntry({
+                date: new Date().toISOString().split('T')[0],
+                description: `رصيد افتتاحي - ${prod.name}`.substring(0, 255),
+                reference: ref,
+                status: 'posted',
+                p_org_id: orgId,
+                lines: [
+                  { accountId: itemInvAcc, debit: totalValue, credit: 0, description: lineDesc },
+                  { accountId: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${prod.name}` }
+                ]
+              });
+              createdCount++;
+              createdNames.push(prod.name);
+            }
+          }
+        }
+      }
+
+      if (createdCount > 0) {
+        if (orgId) {
+          try {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+          } catch (e) {
+            console.error('Failed to recalculate balances', e);
+          }
+        }
+        await refreshData();
+        refresh();
+        showToast(`تم بنجاح توليد ${createdCount} قيد افتتاحي للأصناف: (${createdNames.join('، ')}) ✅`, 'success');
+      } else {
+        showToast('جميع الأصناف المسجلة لديها قيود افتتاحية بالفعل، أو أن التكلفة أو الرصيد صفر.', 'info');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast('حدث خطأ أثناء توليد القيود الافتتاحية: ' + err.message, 'error');
+    } finally {
+      setIsSyncingOpenings(false);
     }
   };
 
@@ -1048,7 +1183,7 @@ const ProductManager = () => {
     }
 
     try {
-      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
       if (editingId) {
         // تحديث صنف موجود (تحديث عادي)
@@ -1138,48 +1273,58 @@ const ProductManager = () => {
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
 
         // إنشاء الرصيد الافتتاحي والقيد للمنتجات المخزنية والمواد الخام
-        if (newProduct && isPhysicalStock && formData.opening_stock > 0) {
+        if (newProduct && isPhysicalStock && Number(formData.opening_stock) > 0) {
             const targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
             if (targetWarehouseId) {
-                await supabase.from('opening_inventories').insert({
+                const { error: opInvErr } = await supabase.from('opening_inventories').insert({
                     product_id: newProduct.id,
                     warehouse_id: targetWarehouseId,
-                    quantity: formData.opening_stock,
-                    cost: formData.purchase_price || 0,
-                    organization_id: orgId
+                    quantity: Number(formData.opening_stock),
+                    cost: Number(formData.purchase_price) || 0,
+                    organization_id: orgId,
+                    created_by: currentUser?.id
                 });
-                
-                // إنشاء القيد المحاسبي يدوياً لضمان ظهوره في دفتر اليومية
-                const totalValue = formData.opening_stock * (formData.purchase_price || 0);
-                const openingEquityAcc = getSystemAccount('OPENING_BALANCES') || getSystemAccount('RETAINED_EARNINGS') || contextAccounts.find(a => a.code === '3999');
-                const equityAccId = openingEquityAcc?.id;
-                const defaultRawAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id;
-                const defaultFinishedAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id;
-                const inventoryAcc = formData.inventory_account_id || (formData.product_type === 'RAW_MATERIAL' ? (defaultRawAcc || defaultFinishedAcc) : defaultFinishedAcc);
+                if (opInvErr) console.error("Error creating opening inventory record:", opInvErr);
+            }
+            
+            // إنشاء القيد المحاسبي لضمان ظهوره في دفتر اليومية وميزان المراجعة
+            const totalValue = Number(formData.opening_stock) * (Number(formData.purchase_price) || 0);
+            const openingEquityAcc = getSystemAccount('OPENING_BALANCES') || 
+                                     getSystemAccount('RETAINED_EARNINGS') || 
+                                     contextAccounts.find(a => a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300') || a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي'));
+            const equityAccId = openingEquityAcc?.id;
 
-                if (totalValue > 0 && inventoryAcc && equityAccId) {
-                     const { data: sessionData } = await supabase.auth.getSession();
-                     const user = sessionData?.session?.user;
-                     const ref = `MAN-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+            const defaultRawAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id;
+            const defaultFinishedAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || getSystemAccount('INVENTORY')?.id;
+            const fallbackInvAcc = contextAccounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '103' || a.code === '122' || a.code === '121' || a.name?.includes('مخزون') || a.name?.includes('بضائع'))?.id;
 
-                     const { data: entry } = await supabase.from('journal_entries').insert({
-                          transaction_date: new Date().toISOString().split('T')[0],
-                          description: `رصيد افتتاحي - ${newProduct.name}`.substring(0, 255),
-                          status: 'posted',
-                          user_id: user?.id || currentUser?.id,
-                          organization_id: orgId
-                      }).select().single();
+            const inventoryAcc = formData.inventory_account_id || 
+                                 (formData.product_type === 'RAW_MATERIAL' ? (defaultRawAcc || defaultFinishedAcc || fallbackInvAcc) : (defaultFinishedAcc || fallbackInvAcc));
 
-                      if (entry) {
-                          const lineDesc = formData.product_type === 'RAW_MATERIAL' 
-                              ? `مخزون مواد خام افتتاحي - ${newProduct.name}` 
-                              : `مخزون افتتاحي - ${newProduct.name}`;
-                          await supabase.from('journal_lines').insert([
-                              { journal_entry_id: entry.id, account_id: inventoryAcc, debit: totalValue, credit: 0, description: lineDesc, organization_id: orgId },
-                              { journal_entry_id: entry.id, account_id: equityAccId, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}`, organization_id: orgId }
-                          ]);
-                      }
-                }
+            if (totalValue > 0 && inventoryAcc && equityAccId) {
+                 const ref = `OP-PROD-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+                 const lineDesc = formData.product_type === 'RAW_MATERIAL' 
+                     ? `مخزون مواد خام افتتاحي - ${newProduct.name}` 
+                     : `مخزون افتتاحي - ${newProduct.name}`;
+
+                 await addEntry({
+                      date: new Date().toISOString().split('T')[0],
+                      description: `رصيد افتتاحي - ${newProduct.name}`.substring(0, 255),
+                      reference: ref,
+                      status: 'posted',
+                      p_org_id: orgId,
+                      lines: [
+                          { accountId: inventoryAcc, debit: totalValue, credit: 0, description: lineDesc },
+                          { accountId: equityAccId, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${newProduct.name}` }
+                      ]
+                 });
+            }
+
+            // إعادة احتساب المخزون للصنف الجديد
+            try {
+              await recalculateStock(newProduct.id);
+            } catch (e) {
+              console.error('Failed to recalculate stock', e);
             }
 
             // إعادة احتساب أرصدة الحسابات الإجمالية للنظام
@@ -1190,6 +1335,9 @@ const ProductManager = () => {
                 console.error('Failed to recalculate balances', e);
               }
             }
+
+            // تحديث بيانات النظام المالية لظهور القيد فوراً في الواجهة
+            await refreshData();
         }
         
         // تحديث حد الطلب بشكل منفصل لأن الدالة قد لا تدعمه بعد
@@ -1674,7 +1822,16 @@ const ProductManager = () => {
           </button>
           <p className="text-slate-500">تعريف المنتجات وربطها بالحسابات المحاسبية</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
+            <button 
+                onClick={handleSyncMissingOpeningEntries} 
+                disabled={isSyncingOpenings}
+                className="bg-amber-50 border border-amber-300 text-amber-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-amber-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50" 
+                title="توليد قيود الأرصدة الافتتاحية في دفتر اليومية لجميع الأصناف الحالية التي ليس لها قيد"
+            >
+                {isSyncingOpenings ? <Loader2 size={16} className="animate-spin text-amber-600" /> : <RefreshCw size={16} className="text-amber-600" />}
+                <span>توليد القيود الافتتاحية</span>
+            </button>
             <button onClick={handleExportExcel} className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-100 text-sm font-bold" title="تصدير القائمة الحالية إلى Excel">
                 <FileSpreadsheet size={16} /> تصدير
             </button>

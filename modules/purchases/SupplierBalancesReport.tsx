@@ -39,8 +39,8 @@ const SupplierBalancesReport = () => {
       const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone, opening_balance').match(filter).is('deleted_at', null);
       
       // 2. جلب الحركات المالية
-      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount').match(filter).neq('status', 'draft');
-      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount').match(filter).not('supplier_id', 'is', null);
+      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_number').match(filter).neq('status', 'draft');
+      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount, notes').match(filter).not('supplier_id', 'is', null);
       const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
       const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
       const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected');
@@ -71,7 +71,11 @@ const SupplierBalancesReport = () => {
 
       const balances = suppliers.map(supplier => {
         const opening = Number(supplier.opening_balance || 0);
-        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, i) => sum + (Number(i.total_amount || 0) - Number(i.paid_amount || 0)), 0) || 0;
+        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, inv) => {
+          const pvPaidForThisInvoice = payments?.filter(p => p.supplier_id === supplier.id && p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
+          const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
+          return sum + (Number(inv.total_amount || 0) - immediatePaidAtCheckout);
+        }, 0) || 0;
         
         // جلب مستخلصات مقاولي الباطن إن كان المورد مقاول باطن
         const sName = (supplier.name || '').trim().toLowerCase();

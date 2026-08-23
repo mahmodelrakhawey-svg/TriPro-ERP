@@ -3,7 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { 
   FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, 
   Edit, CheckCircle, DollarSign, X, ChevronLeft, ChevronRight, 
-  Plus, Download, MessageCircle, Trash2, Filter, Warehouse as WarehouseIcon
+  Plus, Download, MessageCircle, Trash2, Filter, Warehouse as WarehouseIcon, Clock
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -132,7 +132,7 @@ export const PurchaseInvoiceList = () => {
     const totalTax = filteredInvoices.reduce((sum, i) => sum + Number(i.tax_amount || 0), 0);
     const totalPaid = filteredInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
     const totalRemaining = totalAmount - totalPaid;
-    const postedCount = filteredInvoices.filter(i => i.status === 'posted').length;
+    const postedCount = filteredInvoices.filter(i => i.status === 'posted' || i.status === 'paid').length;
     const draftCount = filteredInvoices.filter(i => i.status === 'draft').length;
 
     return { totalAmount, totalTax, totalPaid, totalRemaining, postedCount, draftCount, count: filteredInvoices.length };
@@ -225,10 +225,11 @@ export const PurchaseInvoiceList = () => {
         amount: paymentFormData.amount,
         date: paymentFormData.date,
         treasuryAccountId: paymentFormData.treasuryAccountId,
-        description: paymentFormData.notes,
+        notes: paymentFormData.notes,
         subType: 'supplier',
+        invoiceId: selectedInvoiceForPayment.id
       });
-      showToast('تم إنشاء سند الصرف بنجاح ✅', 'success');
+      showToast('تم إنشاء سند الصرف وتحديث الفاتورة بنجاح ✅', 'success');
       setIsPaymentModalOpen(false);
       fetchInvoices();
     } catch (err: any) {
@@ -443,7 +444,8 @@ export const PurchaseInvoiceList = () => {
             className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-blue-500"
           >
             <option value="all">جميع الحالات</option>
-            <option value="posted">مرحلة ومكتملة ✅</option>
+            <option value="posted">مرحلة ومكتملة 📄</option>
+            <option value="paid">مسددة بالكامل ✅</option>
             <option value="draft">مسودة 📝</option>
           </select>
         </div>
@@ -495,9 +497,23 @@ export const PurchaseInvoiceList = () => {
                       </td>
                       <td className="p-3.5 text-center">
                         <span className={`text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1 ${
-                          inv.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                          (inv.status === 'paid' || (total > 0 && remaining <= 0))
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : (paid > 0 && remaining > 0)
+                            ? 'bg-blue-100 text-blue-800'
+                            : inv.status === 'posted'
+                            ? 'bg-teal-100 text-teal-800'
+                            : 'bg-amber-100 text-amber-800'
                         }`}>
-                          {inv.status === 'posted' ? <><CheckCircle size={12} /> مرحلة</> : 'مسودة'}
+                          {(inv.status === 'paid' || (total > 0 && remaining <= 0)) ? (
+                            <><CheckCircle size={12} /> مسددة بالكامل</>
+                          ) : (paid > 0 && remaining > 0) ? (
+                            <><Clock size={12} /> مسددة جزئياً</>
+                          ) : inv.status === 'posted' ? (
+                            <><CheckCircle size={12} /> مرحلة</>
+                          ) : (
+                            'مسودة'
+                          )}
                         </span>
                       </td>
                       <td className="p-3.5">
@@ -521,7 +537,7 @@ export const PurchaseInvoiceList = () => {
                             <Edit size={16} />
                           </button>
 
-                          {inv.status === 'posted' && remaining > 0 && (
+                          {(inv.status === 'posted' || inv.status === 'paid') && remaining > 0 && (
                             <button 
                               onClick={() => openPaymentModal(inv)}
                               className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"

@@ -461,6 +461,82 @@ const GeneralJournal = () => {
     }
   };
 
+  const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
+
+  const handleCleanDuplicateChequeEntries = async () => {
+    const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) return;
+
+    if (!window.confirm('هل تريد فحص وتنظيف جميع قيود الشيكات المكررة والإبقاء على قيد واحد فقط لكل شيك؟\n\nسيتم تصحيح أرصدة البنوك وأوراق القبض/الدفع تلقائياً.')) {
+      return;
+    }
+
+    setIsCleaningDuplicates(true);
+    try {
+      // 1. جلب جميع قيود الشيكات
+      const { data: entries, error } = await supabase
+        .from('journal_entries')
+        .select('id, reference, description, created_at, transaction_date')
+        .eq('organization_id', orgId)
+        .like('reference', 'CHQ-%')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+
+      if (!entries || entries.length === 0) {
+        toast.info('لا توجد قيود شيكات لفحصها.');
+        return;
+      }
+
+      // تجميع القيود حسب المرجع
+      const groupedByRef = new Map<string, any[]>();
+      for (const entry of entries) {
+        const ref = entry.reference || '';
+        if (!groupedByRef.has(ref)) {
+          groupedByRef.set(ref, []);
+        }
+        groupedByRef.get(ref)!.push(entry);
+      }
+
+      const duplicateIdsToDelete: string[] = [];
+      groupedByRef.forEach((list) => {
+        if (list.length > 1) {
+          // نترك أول قيد ونحذف باقي القيود المكررة
+          for (let i = 1; i < list.length; i++) {
+            duplicateIdsToDelete.push(list[i].id);
+          }
+        }
+      });
+
+      if (duplicateIdsToDelete.length === 0) {
+        toast.success('سجل قيود الشيكات سليم ولا توجد أي قيود مكررة ✅');
+        return;
+      }
+
+      // 2. حذف أسطر القيود المكررة ثم رؤوس القيود
+      await supabase.from('journal_lines').delete().in('journal_entry_id', duplicateIdsToDelete);
+      const { error: delErr } = await supabase.from('journal_entries').delete().in('id', duplicateIdsToDelete);
+      if (delErr) throw delErr;
+
+      // 3. إعادة احتساب أرصدة الحسابات وميزان المراجعة
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      } catch (e) {
+        console.error('Failed to recalculate balances', e);
+      }
+
+      await clearCache();
+      await refreshData();
+      refresh();
+      toast.success(`تم بنجاح تنظيف ${duplicateIdsToDelete.length} قيد شيكات مكرر وإعادة ضبط الأرصدة ✅`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error('حدث خطأ أثناء تنظيف القيود المكررة: ' + err.message);
+    } finally {
+      setIsCleaningDuplicates(false);
+    }
+  };
+
   const handleExportExcel = async () => {
     setIsExporting(true);
     try {
@@ -716,6 +792,15 @@ const GeneralJournal = () => {
                 />
                 <Filter className="absolute left-3 top-2.5 text-slate-400" size={16} />
             </div>
+            <button 
+                onClick={handleCleanDuplicateChequeEntries}
+                disabled={isCleaningDuplicates}
+                className="flex items-center gap-2 bg-amber-50 border border-amber-300 text-amber-800 px-3.5 py-2 rounded-lg hover:bg-amber-100 disabled:opacity-60 font-bold text-sm shadow-sm transition-all"
+                title="فحص وتنظيف قيود الشيكات المكررة والإبقاء على قيد واحد فقط لكل شيك"
+            >
+                {isCleaningDuplicates ? <Loader2 size={16} className="animate-spin text-amber-600" /> : <AlertTriangle size={16} className="text-amber-600" />}
+                <span>تنظيف مكررات الشيكات</span>
+            </button>
             <button 
                 onClick={() => setShowAdvanced(!showAdvanced)} 
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${showAdvanced ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}

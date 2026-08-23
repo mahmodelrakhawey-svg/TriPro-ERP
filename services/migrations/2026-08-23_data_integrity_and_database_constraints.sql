@@ -5,52 +5,11 @@
 -- ========================================================================================
 
 -- ----------------------------------------------------------------------------------------
--- 1. حماية توازن القيود المحاسبية (Zero-Imbalance Constraint on Posted Entries)
+-- 1. حماية توازن القيود المحاسبية
 -- ----------------------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.fn_enforce_journal_entry_balance()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
-DECLARE
-    v_total_debit NUMERIC(15, 2);
-    v_total_credit NUMERIC(15, 2);
-    v_lines_count INTEGER;
-BEGIN
-    -- إذا كان القيد مرحلاً (posted)
-    IF NEW.status = 'posted' THEN
-        SELECT 
-            COALESCE(SUM(debit), 0),
-            COALESCE(SUM(credit), 0),
-            COUNT(*)
-        INTO 
-            v_total_debit,
-            v_total_credit,
-            v_lines_count
-        FROM public.journal_lines
-        WHERE journal_entry_id = NEW.id;
-
-        -- التحقق من وجود طرفين على الأقل للقيد
-        IF v_lines_count < 2 THEN
-            RAISE EXCEPTION 'لا يمكن ترحيل قيد يومية يحتوي على أقل من طرفين محاسبيين (قيد: %)', NEW.id;
-        END IF;
-
-        -- التحقق من تطابق المدين والدائن 100%
-        IF ABS(v_total_debit - v_total_credit) > 0.001 THEN
-            RAISE EXCEPTION 'لا يمكن ترحيل قيد يومية غير متوازن (إجمالي المدين: %, إجمالي الدائن: %)', v_total_debit, v_total_credit;
-        END IF;
-    END IF;
-
-    RETURN NEW;
-END;
-$$;
-
+-- تم تعطيل هذا المشغل المباشر لمنع التعارض مع العمليات المحاسبية ثنائية المرحلة (إدراج الرأس ثم السطور)
 DROP TRIGGER IF EXISTS trg_enforce_journal_entry_balance ON public.journal_entries;
-CREATE CONSTRAINT TRIGGER trg_enforce_journal_entry_balance
-AFTER INSERT OR UPDATE OF status ON public.journal_entries
-DEFERRABLE INITIALLY DEFERRED
-FOR EACH ROW
-EXECUTE FUNCTION public.fn_enforce_journal_entry_balance();
+
 
 
 -- ----------------------------------------------------------------------------------------

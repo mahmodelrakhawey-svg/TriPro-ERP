@@ -471,6 +471,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (matchByPrefix) return matchByPrefix;
     }
     // Fallback by name and alternate standard codes
+    if (key === 'OPENING_BALANCES') {
+      return accounts.find(a => a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي') || a.name?.includes('افتتاحية') || a.name?.toLowerCase().includes('opening') || a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300'));
+    }
+    if (key === 'INVENTORY_FINISHED_GOODS' || key === 'INVENTORY') {
+      return accounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '103' || a.code === '122' || a.code === '121' || a.name?.includes('بضائع بغرض البيع') || a.name?.includes('منتج تام') || a.name?.includes('تام الصنع') || a.name?.includes('المخزون') || a.name?.includes('مخزون'));
+    }
+    if (key === 'INVENTORY_RAW_MATERIALS') {
+      return accounts.find(a => a.code === '10301' || a.code === '1211' || a.code === '103' || a.name?.includes('خامات') || a.name?.includes('مواد خام') || a.name?.includes('المخزون') || a.name?.includes('مخزون'));
+    }
+    if (key === 'COGS') {
+      return accounts.find(a => a.code === '511' || a.code === '311' || a.code?.startsWith('51') || a.name?.includes('تكلفة المبيعات') || a.name?.includes('تكلفة البضاعة'));
+    }
+    if (key === 'SALES_REVENUE') {
+      return accounts.find(a => a.code === '411' || a.code === '41' || a.code?.startsWith('41') || a.name?.includes('المبيعات') || a.name?.includes('إيراد المبيعات'));
+    }
     if (key === 'NOTES_RECEIVABLE') {
       return accounts.find(a => a.name?.includes('أوراق القبض') || a.name?.includes('أوراق قبض') || a.name?.includes('شيكات واردة') || a.name?.includes('تحت التحصيل') || a.code === '1222' || a.code?.startsWith('10103') || a.code?.startsWith('1231'));
     }
@@ -666,8 +681,81 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const addPaymentVoucher = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('vouchers').insert({ ...data, type: 'payment', organization_id: targetOrgId }); 
-    if (error) throw error;
+    const supplierId = data.partyId || data.supplierId || data.supplier_id;
+    const treasuryId = data.treasuryAccountId || data.treasury_account_id || data.treasuryId;
+    const amount = Number(data.amount) || 0;
+    const date = data.date || data.payment_date || new Date().toISOString().split('T')[0];
+    const notes = data.notes || data.description || '';
+    const voucherNumber = data.voucher_number || data.voucherNumber || `PV-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
+
+    const supplier = suppliers.find(s => s.id === supplierId);
+    const supplierName = data.partyName || data.supplierName || supplier?.name || '';
+    const fullDesc = notes 
+      ? (supplierName && !notes.includes(supplierName) ? `${notes} (${supplierName})` : notes)
+      : `سند صرف للمورد ${supplierName}`.trim();
+
+    const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '20101' || a.code?.startsWith('201') || a.name?.includes('مورد'));
+    const supplierAccId = supplierAcc?.id;
+
+    // 1. إدراج السند في جدول payment_vouchers
+    const { data: pvData, error: pvError } = await supabase.from('payment_vouchers').insert({
+      voucher_number: voucherNumber,
+      payment_date: date,
+      supplier_id: supplierId || null,
+      amount: amount,
+      treasury_account_id: treasuryId || null,
+      notes: fullDesc,
+      payment_method: data.paymentMethod || data.payment_method || 'cash',
+      organization_id: targetOrgId
+    }).select('id').maybeSingle();
+
+    if (pvError) {
+      console.warn('payment_vouchers insert warning:', pvError);
+    }
+
+    // 2. إنشاء القيد المحاسبي لسند الصرف
+    if (amount > 0 && supplierAccId && treasuryId) {
+      try {
+        await addEntry({
+          date: date,
+          description: fullDesc,
+          reference: voucherNumber,
+          status: 'posted',
+          p_org_id: targetOrgId,
+          related_document_id: pvData?.id || data.invoiceId || null,
+          related_document_type: 'payment_voucher',
+          lines: [
+            { accountId: supplierAccId, debit: amount, credit: 0, description: fullDesc },
+            { accountId: treasuryId, debit: 0, credit: amount, description: `سداد سند صرف ${voucherNumber}` }
+          ]
+        });
+      } catch (jeErr) {
+        console.error('Failed to create journal entry for payment voucher:', jeErr);
+      }
+    }
+
+    // 3. تحديث المبلغ المدفوع في فاتورة المشتريات إن وجدت
+    if (data.invoiceId) {
+      try {
+        const { data: currentInv, error: fetchInvErr } = await supabase
+          .from('purchase_invoices')
+          .select('paid_amount, total_amount, status')
+          .eq('id', data.invoiceId)
+          .maybeSingle();
+
+        if (!fetchInvErr && currentInv) {
+          const newPaid = (Number(currentInv.paid_amount) || 0) + amount;
+          const newStatus = newPaid >= Number(currentInv.total_amount) ? 'paid' : (currentInv.status === 'draft' ? 'draft' : 'posted');
+          await supabase
+            .from('purchase_invoices')
+            .update({ paid_amount: newPaid, status: newStatus })
+            .eq('id', data.invoiceId);
+        }
+      } catch (invErr) {
+        console.error('Failed to update purchase invoice paid_amount:', invErr);
+      }
+    }
+
     await refreshData(); 
   };
 
@@ -819,6 +907,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData();
   };
   const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const actionDate = date || new Date().toISOString().split('T')[0];
+
     // 1. محاولة استدعاء الدالة المباشرة RPC لصرف أو تحصيل الشيك
     if (status === 'cashed' || status === 'collected') {
       try {
@@ -826,22 +917,89 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           p_cheque_id: id,
           p_status: status,
           p_bank_account_id: bankId || null,
-          p_action_date: date || new Date().toISOString().split('T')[0],
+          p_action_date: actionDate,
           p_user_id: currentUser?.id || null
         });
         if (!rpcError && (rpcRes?.success || rpcRes === true)) {
           await refreshData();
           return;
         }
+        if (rpcError) {
+          console.warn('RPC cash_or_collect_cheque fallback to manual:', rpcError);
+        }
       } catch (rpcErr) {
-        console.warn('RPC cash_or_collect_cheque fallback to REST:', rpcErr);
+        console.warn('RPC cash_or_collect_cheque fallback:', rpcErr);
       }
     }
 
-    // 2. التحديث عبر REST مع التراجع الذكي في حال عدم وجود عمود الحساب
+    // 2. إنشاء القيد المحاسبي المباشر عبر addEntry الآمنة
+    try {
+      const { data: cheque } = await supabase
+        .from('cheques')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (cheque && (status === 'cashed' || status === 'collected') && bankId) {
+        const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE') || accounts.find(a => a.code === '10103' || a.code === '1222' || a.name?.includes('أوراق قبض') || a.name?.includes('قبض'));
+        const notesPayableAcc = getSystemAccount('NOTES_PAYABLE') || accounts.find(a => a.code === '20102' || a.code === '222' || a.name?.includes('أوراق دفع') || a.name?.includes('دفع'));
+        const amount = Number(cheque.amount) || 0;
+
+        if (amount > 0) {
+          let lines: any[] = [];
+          let desc = '';
+          let ref = '';
+
+          if (cheque.type === 'incoming' || cheque.type === 'in') {
+            desc = `تحصيل شيك وارد رقم ${cheque.cheque_number || ''} - إيداع بنكي (${cheque.party_name || ''})`;
+            ref = `CHQ-${cheque.cheque_number || id.slice(-8)}-COL`;
+            if (notesReceivableAcc?.id) {
+              lines = [
+                { accountId: bankId, debit: amount, credit: 0, description: desc },
+                { accountId: notesReceivableAcc.id, debit: 0, credit: amount, description: desc }
+              ];
+            }
+          } else {
+            desc = `صرف شيك صادر رقم ${cheque.cheque_number || ''} - خصم بنكي (${cheque.party_name || ''})`;
+            ref = `CHQ-${cheque.cheque_number || id.slice(-8)}-CSH`;
+            if (notesPayableAcc?.id) {
+              lines = [
+                { accountId: notesPayableAcc.id, debit: amount, credit: 0, description: desc },
+                { accountId: bankId, debit: 0, credit: amount, description: desc }
+              ];
+            }
+          }
+
+          if (lines.length === 2) {
+            // فحص هل القيد مسجل مسبقاً لنفس الشيك والمرجع لمنع التكرار نهائياً
+            const { data: existingEntry } = await supabase
+              .from('journal_entries')
+              .select('id')
+              .eq('organization_id', targetOrgId)
+              .eq('reference', ref)
+              .maybeSingle();
+
+            if (!existingEntry) {
+              await addEntry({
+                date: actionDate,
+                reference: ref,
+                description: desc,
+                status: 'posted',
+                p_org_id: targetOrgId,
+                lines: lines
+              });
+            }
+          }
+        }
+      }
+    } catch (entryErr) {
+      console.warn('Cheque journal entry creation error:', entryErr);
+    }
+
+    // 3. التحديث عبر REST مع التراجع الذكي
     const updatePayload: { status: string; current_account_id?: string | null; transfer_date?: string } = { 
       status, 
-      transfer_date: date || new Date().toISOString().split('T')[0] 
+      transfer_date: actionDate 
     };
     if (bankId !== undefined) {
       updatePayload.current_account_id = bankId;

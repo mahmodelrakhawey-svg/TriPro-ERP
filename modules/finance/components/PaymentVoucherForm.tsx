@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -84,38 +84,20 @@ const PaymentVoucherForm = () => {
           return;
       }
 
-      // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالمورد + مستخلصات مقاولي الباطن + القيود اليدوية
+      // 🛡️ الحل الشامل والموحد: حساب الرصيد الفعلي للمورد مباشرة ليتطابق 100% مع كشف الحساب والأستاذ العام
       const [
           pinvRes, payRes, pretRes, dnRes, chqRes, subRes
       ] = await Promise.all([
-          supabase.from('purchase_invoices').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
-          supabase.from('payment_vouchers').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
-          supabase.from('purchase_returns').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
-          supabase.from('debit_notes').select('id').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
-          supabase.from('cheques').select('id').eq('party_id', supplier.id).eq('type', 'outgoing').eq('organization_id', userOrgId),
+          supabase.from('purchase_invoices').select('total_amount, paid_amount, invoice_number').eq('supplier_id', supplier.id).eq('organization_id', userOrgId).neq('status', 'draft'),
+          supabase.from('payment_vouchers').select('amount, notes').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
+          supabase.from('purchase_returns').select('total_amount').eq('supplier_id', supplier.id).eq('organization_id', userOrgId).neq('status', 'draft'),
+          supabase.from('debit_notes').select('total_amount').eq('supplier_id', supplier.id).eq('organization_id', userOrgId).eq('status', 'posted'),
+          supabase.from('cheques').select('amount').eq('party_id', supplier.id).eq('type', 'outgoing').eq('organization_id', userOrgId).neq('status', 'rejected'),
           supabase.from('subcontractors').select('id, name').or(`name.eq."${supplier.name}",supplier_id.eq."${supplier.id}"`).eq('organization_id', userOrgId)
       ]);
 
-      const docIds = new Set<string>();
-      pinvRes.data?.forEach(i => docIds.add(i.id));
-      payRes.data?.forEach(p => docIds.add(p.id));
-      pretRes.data?.forEach(r => docIds.add(r.id));
-      dnRes.data?.forEach(d => docIds.add(d.id));
-      chqRes.data?.forEach(c => docIds.add(c.id));
-
-      const allEntryIds = new Set<string>();
-
-      // 1. جلب القيود المرتبطة بهذه المستندات
-      if (docIds.size > 0) {
-          const { data: relatedEntries } = await supabase.from('journal_entries')
-              .select('id')
-              .eq('organization_id', userOrgId)
-              .eq('status', 'posted')
-              .in('related_document_id', Array.from(docIds));
-          relatedEntries?.forEach(je => allEntryIds.add(je.id));
-      }
-
-      // 2. إذا كان المورد مقاول باطن، نجلب قيود مستخلصاته
+      // حساب مستخلصات مقاولي الباطن
+      let contractorBillings = 0;
       if (subRes.data && subRes.data.length > 0) {
         const subIds = subRes.data.map(s => s.id);
         const { data: contracts } = await supabase.from('subcontractor_contracts')
@@ -126,41 +108,28 @@ const PaymentVoucherForm = () => {
         const contractIds = contracts?.map(c => c.id) || [];
         if (contractIds.length > 0) {
           const { data: billings } = await supabase.from('subcontractor_billings')
-            .select('related_journal_entry_id')
+            .select('net_amount')
             .in('contract_id', contractIds)
             .eq('organization_id', userOrgId)
-            .not('related_journal_entry_id', 'is', null);
-          billings?.forEach(b => b.related_journal_entry_id && allEntryIds.add(b.related_journal_entry_id));
+            .neq('status', 'draft');
+          contractorBillings = billings?.reduce((sum, b) => sum + Number(b.net_amount || 0), 0) || 0;
         }
       }
 
-      // 3. جلب القيود اليدوية أو الخاصة بالمقاول التي تذكر اسم المورد في البيان
-      const { data: manualEntries } = await supabase.from('journal_entries')
-          .select('id, related_document_type, reference, description')
-          .eq('organization_id', userOrgId)
-          .eq('status', 'posted')
-          .ilike('description', `%${supplier.name}%`);
-      manualEntries?.forEach(je => allEntryIds.add(je.id));
+      const totalInvoiced = pinvRes.data?.reduce((sum, inv) => {
+        const pvPaidForThisInvoice = payRes.data?.filter(p => p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
+        const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
+        return sum + (Number(inv.total_amount || 0) - immediatePaidAtCheckout);
+      }, 0) || 0;
 
-      let movement = 0;
-      if (allEntryIds.size > 0) {
-          const { data: ledgerLines } = await supabase.from('journal_lines')
-            .select('debit, credit')
-            .in('journal_entry_id', Array.from(allEntryIds))
-            .eq('account_id', supplierAcc.id);
+      const totalPayments = payRes.data?.reduce((sum, p) => sum + Number(p.amount || 0), 0) || 0;
+      const totalReturns = pretRes.data?.reduce((sum, r) => sum + Number(r.total_amount || 0), 0) || 0;
+      const totalDebitNotes = dnRes.data?.reduce((sum, d) => sum + Number(d.total_amount || 0), 0) || 0;
+      const totalCheques = chqRes.data?.reduce((sum, c) => sum + Number(c.amount || 0), 0) || 0;
+      const opening = Number(supplier.opening_balance || 0);
 
-          // رصيد المورد دائن، لذا الحركات الدائنة تزيد الرصيد والحركات المدينة تخفضه
-          movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.credit) - Number(l.debit)), 0) || 0;
-      }
-
-      const hasOpeningEntry = manualEntries?.some((je: any) => 
-        je.related_document_type === 'opening_balance' || 
-        (je.reference && (je.reference.startsWith('OP-SUPP-') || je.reference.startsWith('OP-') || je.reference.startsWith('OB-') || je.reference.startsWith('OPENING-'))) || 
-        (je.description && je.description.includes('رصيد افتتاحي'))
-      );
-      const initialBal = hasOpeningEntry ? 0 : Number(supplier.opening_balance || 0);
-
-      setDynamicBalance(initialBal + movement);
+      const realBalance = opening + totalInvoiced + contractorBillings - totalPayments - totalReturns - totalDebitNotes - totalCheques;
+      setDynamicBalance(realBalance);
     };
     getRealBalance();
   }, [formData.supplierId, suppliers, getSystemAccount, organization?.id]);

@@ -143,9 +143,17 @@ const SupplierStatement = () => {
         let allTrans: any[] = [];
 
         invoices?.forEach(inv => {
+            const pvPaidForThisInvoice = payments?.filter(p => p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
+            const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
+
             allTrans.push({
-                date: inv.invoice_date, type: 'invoice', ref: inv.invoice_number, desc: 'فاتورة مشتريات', 
-                credit: inv.total_amount, debit: inv.paid_amount || 0, paid_amount: inv.paid_amount 
+                date: inv.invoice_date, 
+                type: 'invoice', 
+                ref: inv.invoice_number, 
+                desc: 'فاتورة مشتريات', 
+                credit: Number(inv.total_amount || 0), 
+                debit: immediatePaidAtCheckout, 
+                paid_amount: Number(inv.paid_amount || 0)
             });
         });
 
