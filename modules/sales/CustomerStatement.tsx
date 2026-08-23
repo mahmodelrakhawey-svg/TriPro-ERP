@@ -5,6 +5,7 @@ import { supabase } from '../../supabaseClient';
 import { Printer, FileText, Loader2, Search, Download, MessageCircle, AlertTriangle, ShieldAlert, RefreshCw } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useToast } from '../../context/ToastContext';
+import { SubledgerRegistry } from '../../services/subledgerRegistry';
 
 type Transaction = {
   id: string;
@@ -154,37 +155,21 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           }
         }
 
-        // First, get the patient IDs associated with this customer ID
-        const { data: patientList } = await supabase
-          .from('hims_patients')
-          .select('id')
-          .eq('customer_id', selectedCustomerId);
-        const patientIds = patientList?.map(p => p.id) || [];
+        // جلب المديولات المسموحة للمنظمة من جدول organizations
+        const { data: orgData } = await supabase
+          .from('organizations')
+          .select('allowed_modules')
+          .eq('id', userOrgId)
+          .maybeSingle();
+        const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
 
-        // Fetch project IDs associated with this customer ID (for construction projects)
-        const { data: projectList } = await supabase
-          .from('projects')
-          .select('id')
-          .eq('customer_id', selectedCustomerId)
-          .eq('organization_id', userOrgId);
-        const projectIds = projectList?.map(p => p.id) || [];
-
-        // Fetch claim IDs associated with this insurance provider
-        const { data: claimList } = await supabase
-          .from('hims_insurance_claims')
-          .select('id')
-          .eq('insurance_provider_id', selectedCustomerId)
-          .eq('organization_id', userOrgId);
-        const providerClaimIds = claimList?.map(c => c.id) || [];
-
-        // 1) جلب معرفات القيود المرتبطة بكافة مستندات هذا العميل والقيود اليدوية التي تحوي اسمه
+        // 1) جلب معرفات القيود المرتبطة بمستندات المديول الأساسي والقيود اليدوية التي تحوي اسمه
         const custName = selectedCustomer?.name?.trim();
         const custPhone = selectedCustomer?.phone?.replace(/[^0-9]/g, '');
 
         const [
-          invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes, 
-          patientBillsRes, insBillsRes, claimsRes, projectBillsRes,
-          stadiumSubsRes, stadiumRentalsRes, stadiumBookingsRes, stadiumProgramsRes, stadiumTournamentsRes
+          invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes,
+          modularEntryIds
         ] = await Promise.all([
              supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
@@ -197,32 +182,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
              custName
                ? supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${custName}%`)
                : Promise.resolve({ data: [] }),
-             patientIds.length > 0
-               ? supabase.from('hims_billing').select('id, related_journal_entry_id').in('patient_id', patientIds).eq('organization_id', userOrgId)
-               : Promise.resolve({ data: [] }),
-             providerClaimIds.length > 0
-               ? supabase.from('hims_billing').select('id, related_journal_entry_id').or(`insurance_provider_id.eq.${selectedCustomerId},insurance_claim_id.in.(${providerClaimIds.join(',')})`).eq('organization_id', userOrgId)
-               : supabase.from('hims_billing').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
-             supabase.from('hims_insurance_claims').select('id, related_journal_entry_id').eq('insurance_provider_id', selectedCustomerId).eq('organization_id', userOrgId),
-             projectIds.length > 0
-               ? supabase.from('project_progress_billings').select('id, related_journal_entry_id').in('project_id', projectIds).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null)
-               : Promise.resolve({ data: [] }),
-             // مستندات الاستاد الرياضي
-             custName
-               ? supabase.from('stadium_subscriptions').select('journal_entry_id, stadium_members!inner(full_name, phone)').eq('organization_id', userOrgId).ilike('stadium_members.full_name', `%${custName}%`).not('journal_entry_id', 'is', null)
-               : Promise.resolve({ data: [] }),
-             custName
-               ? supabase.from('stadium_rental_payments').select('journal_entry_id, stadium_rental_contracts!inner(tenant_name, tenant_phone)').eq('organization_id', userOrgId).ilike('stadium_rental_contracts.tenant_name', `%${custName}%`).not('journal_entry_id', 'is', null)
-               : Promise.resolve({ data: [] }),
-             custName
-               ? supabase.from('stadium_bookings').select('journal_entry_id').eq('organization_id', userOrgId).ilike('booker_name', `%${custName}%`).not('journal_entry_id', 'is', null)
-               : Promise.resolve({ data: [] }),
-             custName
-               ? supabase.from('stadium_program_enrollments').select('journal_entry_id').eq('organization_id', userOrgId).ilike('participant_name', `%${custName}%`).not('journal_entry_id', 'is', null)
-               : Promise.resolve({ data: [] }),
-             custName
-               ? supabase.from('stadium_tournament_teams').select('journal_entry_id').eq('organization_id', userOrgId).or(`captain_name.ilike.%${custName}%,team_name.ilike.%${custName}%`).not('journal_entry_id', 'is', null)
-               : Promise.resolve({ data: [] })
+             SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, selectedCustomerId, custName, allowedModules)
         ]);
 
         const customerEntryIds = new Set<string>();
@@ -233,52 +193,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         chqRes.data?.forEach(c => { if (c.related_journal_entry_id) customerEntryIds.add(c.related_journal_entry_id); });
         ordRes.data?.forEach(o => { if (o.related_journal_entry_id) customerEntryIds.add(o.related_journal_entry_id); });
         manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
-        projectBillsRes.data?.forEach(pb => { if (pb.related_journal_entry_id) customerEntryIds.add(pb.related_journal_entry_id); });
-        stadiumSubsRes.data?.forEach((s: any) => { if (s.journal_entry_id) customerEntryIds.add(s.journal_entry_id); });
-        stadiumRentalsRes.data?.forEach((r: any) => { if (r.journal_entry_id) customerEntryIds.add(r.journal_entry_id); });
-        stadiumBookingsRes.data?.forEach((b: any) => { if (b.journal_entry_id) customerEntryIds.add(b.journal_entry_id); });
-        stadiumProgramsRes.data?.forEach((p: any) => { if (p.journal_entry_id) customerEntryIds.add(p.journal_entry_id); });
-        stadiumTournamentsRes.data?.forEach((t: any) => { if (t.journal_entry_id) customerEntryIds.add(t.journal_entry_id); });
-
-        // إضافة القيود المربوطة مباشرة بالفواتير الطبية والمطالبات (التي لم يتم استبدالها)
-        patientBillsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
-        insBillsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
-        claimsRes.data?.forEach(h => { if (h.related_journal_entry_id) customerEntryIds.add(h.related_journal_entry_id); });
-
-        // جلب كافة القيود التاريخية المربوطة بهذه الفواتير الطبية أو المطالبات مباشرة من جدول القيود لمنع فقدان القيود المستبدلة
-        const billingIds = [
-          ...(patientBillsRes.data?.map(b => b.id) || []),
-          ...(insBillsRes.data?.map(b => b.id) || [])
-        ];
-        const claimIds = claimsRes.data?.map(c => c.id) || [];
-
-        if (billingIds.length > 0 || claimIds.length > 0) {
-          const queries = [];
-          if (billingIds.length > 0) {
-            queries.push(
-              supabase
-                .from('journal_entries')
-                .select('id')
-                .in('related_document_id', billingIds)
-                .eq('related_document_type', 'hims_billing')
-                .eq('organization_id', userOrgId)
-            );
-          }
-          if (claimIds.length > 0) {
-            queries.push(
-              supabase
-                .from('journal_entries')
-                .select('id')
-                .in('related_document_id', claimIds)
-                .eq('related_document_type', 'hims_insurance_claims')
-                .eq('organization_id', userOrgId)
-            );
-          }
-          const jeResults = await Promise.all(queries);
-          jeResults.forEach(res => {
-            res.data?.forEach((je: any) => { if (je.id) customerEntryIds.add(je.id); });
-          });
-        }
+        modularEntryIds.forEach(id => { if (id) customerEntryIds.add(id); });
 
         let ledgerLines: any[] = [];
         let journalEntries: any[] = [];

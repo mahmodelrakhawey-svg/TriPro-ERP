@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { SubledgerRegistry } from '../../services/subledgerRegistry';
 
 export const SupplierBalanceReconciliation: React.FC = () => {
   const { accounts, suppliers, getSystemAccount, settings, currentUser } = useAccounting();
@@ -51,6 +52,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
       // ============================================================
       // الجزء الأول: رصيد الأستاذ العام (GL) لحساب الموردين
       // ============================================================
@@ -126,24 +129,28 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       setGlBalance(calculatedGlBalance);
 
       // ============================================================
-      // الجزء الثاني: رصيد الأستاذ المساعد — من المستندات مباشرة
-      // ============================================================
+      // جلب المديولات المسموحة للمنظمة من جدول organizations
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('allowed_modules')
+        .eq('id', userOrgId)
+        .maybeSingle();
+      const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
+
       const { data: suppliersList } = await supabase
         .from('suppliers')
         .select('id, name, phone, opening_balance')
         .is('deleted_at', null);
 
-      // جلب كل المستندات دفعة واحدة
+      // جلب المستندات الأساسية + المستندات الموديلية من مجمع الأستاذ المساعد
       const [
         invRes,       // فواتير المشتريات
         retRes,       // مرتجعات المشتريات
         dnRes,        // الإشعارات المدينة
         pvRes,        // سندات الصرف
         chqRes,       // الشيكات الصادرة
-        subBillRes,   // مستخلصات مقاولي الباطن
-        stadiumDisbRes, // طلبات واعتمادات صرف الاستاد
-        stadiumMaintRes, // تذاكر صيانة مرافق وملاعب الاستاد
-        stadiumCustodyRes // عهد الأنشطة والبطولات والصيانة
+        subBillRes,   // مستخلصات مقاولي الباطن (للعرض في التبويب)
+        modularSupplierDocs // المستندات الموديلية المفعلة
       ] = await Promise.all([
         supabase
           .from('purchase_invoices')
@@ -170,7 +177,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
           .eq('type', 'outgoing'),
 
-        // مستخلصات مقاولي الباطن — نجلب مع اسم مقاول الباطن ومعرف القيد
+        // مستخلصات مقاولي الباطن للتبويب المنفصل
         supabase
           .from('subcontractor_billings')
           .select(`
@@ -188,26 +195,17 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           `)
           .not('status', 'in', '("draft","cancelled")'),
 
-        // طلبات صرف الاستاد
-        supabase
-          .from('stadium_disbursements')
-          .select('id, request_number, title, amount, payment_type, beneficiary_name, expense_account_code, status, journal_entry_id, cheque_id'),
-
-        // صيانة مرافق وملاعب الاستاد
-        supabase
-          .from('stadium_maintenance_tickets')
-          .select('id, ticket_number, title, actual_cost, assigned_technician, status, journal_entry_id, payment_method'),
-
-        // عهد الأنشطة والصيانة
-        supabase
-          .from('stadium_custodies')
-          .select('id, custodian_name, purpose, total_amount, spent_amount, status, journal_entry_id, settlement_journal_id')
+        SubledgerRegistry.fetchSupplierDocs(userOrgId, allowedModules)
       ]);
 
       // خريطة أسماء الموردين للربط التلقائي
       const supplierNameToIdMap = new Map<string, string>();
       suppliersList?.forEach(s => {
-        if (s.name) supplierNameToIdMap.set(s.name.trim().toLowerCase(), s.id);
+        if (s.name) {
+          const norm = s.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+          supplierNameToIdMap.set(s.name.trim().toLowerCase(), s.id);
+          supplierNameToIdMap.set(norm, s.id);
+        }
       });
 
       const subToSupplierMap = new Map<string, string>();
@@ -319,50 +317,32 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       chqRes.data?.forEach(c => {
         let suppId = c.party_id;
         if (!suppId && c.party_name) {
-          const pName = c.party_name.trim().toLowerCase();
-          suppId = supplierNameToIdMap.get(pName) || suppliersList?.find(s => s.name && (pName.includes(s.name.trim().toLowerCase()) || s.name.trim().toLowerCase().includes(pName)))?.id;
+          const pName = c.party_name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+          suppId = supplierNameToIdMap.get(pName) || suppliersList?.find(s => {
+            if (!s.name) return false;
+            const sNorm = s.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+            return sNorm.includes(pName) || pName.includes(sNorm) || 
+                   sNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
+                   pName.split(' ').some(w => w.length > 2 && sNorm.includes(w));
+          })?.id;
         }
         registerDoc(c.id, c.related_journal_entry_id, suppId, String(c.cheque_number));
       });
 
-      // ربط مستخلصات مقاولي الباطن بالموردين
-      subBillingsNormalized.forEach(sb => {
-        const suppId = sb.supplier_id || (sb.subcontractor_name ? subNameToSupplierMap.get(sb.subcontractor_name.trim().toLowerCase()) : null);
-        registerDoc(sb.id, sb.related_journal_entry_id, suppId, sb.billing_number);
-        registerDoc(sb.id, sb.related_journal_entry_id, suppId, `SUB-BILL-${sb.billing_number}`);
-      });
-
-      // ربط طلبات صرف الاستاد بالموردين إذا كان المستفيد مورداً مسجلاً
-      stadiumDisbRes?.data?.forEach((d: any) => {
-        let suppId: string | undefined;
-        if (d.beneficiary_name) {
-          const bName = d.beneficiary_name.trim().toLowerCase();
-          suppId = supplierNameToIdMap.get(bName) || suppliersList?.find(s => s.name && (bName.includes(s.name.trim().toLowerCase()) || s.name.trim().toLowerCase().includes(bName)))?.id;
+      // ربط مستندات الموردين الواردة من مجمع الأستاذ المساعد للمديولات المفعلة
+      modularSupplierDocs.forEach(doc => {
+        let suppId = doc.supplierId;
+        if (!suppId && doc.supplierName) {
+          const pName = doc.supplierName.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+          suppId = supplierNameToIdMap.get(pName) || suppliersList?.find(s => {
+            if (!s.name) return false;
+            const sNorm = s.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+            return sNorm.includes(pName) || pName.includes(sNorm) || 
+                   sNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
+                   pName.split(' ').some(w => w.length > 2 && sNorm.includes(w));
+          })?.id;
         }
-        registerDoc(d.id, d.journal_entry_id, suppId, d.request_number);
-      });
-
-      // ربط تذاكر صيانة الاستاد بالموردين إذا كان الفني/المقاول مورداً مسجلاً
-      stadiumMaintRes?.data?.forEach((m: any) => {
-        let suppId: string | undefined;
-        if (m.assigned_technician) {
-          const tName = m.assigned_technician.trim().toLowerCase();
-          suppId = supplierNameToIdMap.get(tName) || suppliersList?.find(s => s.name && (tName.includes(s.name.trim().toLowerCase()) || s.name.trim().toLowerCase().includes(tName)))?.id;
-        }
-        registerDoc(m.id, m.journal_entry_id, suppId, m.ticket_number);
-      });
-
-      // ربط عهد الاستاد
-      stadiumCustodyRes?.data?.forEach((c: any) => {
-        let suppId: string | undefined;
-        if (c.custodian_name) {
-          const cName = c.custodian_name.trim().toLowerCase();
-          suppId = supplierNameToIdMap.get(cName);
-        }
-        registerDoc(c.id, c.journal_entry_id, suppId);
-        if (c.settlement_journal_id) {
-          registerDoc(c.id, c.settlement_journal_id, suppId);
-        }
+        registerDoc(doc.docId, doc.journalEntryId, suppId, doc.ref || undefined);
       });
 
       // ربط مستخلصات مقاولي الباطن بالموردين

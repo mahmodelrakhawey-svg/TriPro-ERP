@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { SubledgerRegistry } from '../../services/subledgerRegistry';
 
 export const CustomerBalanceReconciliation: React.FC = () => {
   const { accounts, customers, getSystemAccount, settings, currentUser } = useAccounting();
@@ -50,6 +51,8 @@ export const CustomerBalanceReconciliation: React.FC = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
       // ============================================================
       // الجزء الأول: رصيد الأستاذ العام (GL)
       // نأخذ فقط حساب العملاء المحدد (وليس كل الحسابات الفرعية)
@@ -132,14 +135,20 @@ export const CustomerBalanceReconciliation: React.FC = () => {
 
       // ============================================================
       // الجزء الثاني: رصيد الأستاذ المساعد (Sub-ledger)
-      // تجميع حركات كل عميل بدقة كاملة مطابقة لكشف حساب العميل (CustomerStatement)
-      // ============================================================
+      // جلب المديولات المسموحة للمنظمة من جدول organizations
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('allowed_modules')
+        .eq('id', userOrgId)
+        .maybeSingle();
+      const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
+
       const { data: customersList } = await supabase
         .from('customers')
         .select('id, name, phone, opening_balance')
         .is('deleted_at', null);
 
-      // جلب كافة المستندات لربط قيود اليومية بالعملاء
+      // جلب المستندات الأساسية + المستندات الموديلية من مجمع الأستاذ المساعد
       const [
         invRes,
         recRes,
@@ -147,15 +156,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         cnRes,
         chqRes,
         ordRes,
-        projectBillsRes,
-        patientBillsRes,
-        claimsRes,
-        himsPatientsRes,
-        stadiumSubsRes,
-        stadiumRentalsRes,
-        stadiumBookingsRes,
-        stadiumProgramsRes,
-        stadiumTournamentsRes
+        modularCustomerDocs
       ] = await Promise.all([
         supabase.from('invoices').select('id, customer_id, invoice_number, total_amount, paid_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
         supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id'),
@@ -163,33 +164,22 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted'),
         supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming'),
         supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED'),
-        supabase.from('project_progress_billings').select('id, billing_number, net_amount, related_journal_entry_id, project_id, projects(customer_id, name)').not('status', 'in', '("draft","cancelled")'),
-        supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, related_journal_entry_id'),
-        supabase.from('hims_insurance_claims').select('id, insurance_provider_id, related_journal_entry_id'),
-        supabase.from('hims_patients').select('id, customer_id'),
-        // مستندات مديول الاستاد الرياضي
-        supabase.from('stadium_subscriptions').select('id, member_id, journal_entry_id, amount_paid, payment_method, stadium_members(id, full_name, phone)'),
-        supabase.from('stadium_rental_payments').select('id, contract_id, amount_paid, journal_entry_id, payment_method, stadium_rental_contracts(tenant_name, tenant_phone)'),
-        supabase.from('stadium_bookings').select('id, booker_name, booker_phone, total_amount, journal_entry_id, payment_method'),
-        supabase.from('stadium_program_enrollments').select('id, participant_name, participant_phone, amount_paid, journal_entry_id, payment_method'),
-        supabase.from('stadium_tournament_teams').select('id, team_name, captain_name, captain_phone, entry_fee_paid, journal_entry_id, payment_method')
+        SubledgerRegistry.fetchCustomerDocs(userOrgId, allowedModules)
       ]);
 
       // خريطة أسماء وأرقام هواتف العملاء للربط التلقائي
       const customerNameToIdMap = new Map<string, string>();
       const customerPhoneToIdMap = new Map<string, string>();
       customersList?.forEach(c => {
-        if (c.name) customerNameToIdMap.set(c.name.trim().toLowerCase(), c.id);
+        if (c.name) {
+          const norm = c.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+          customerNameToIdMap.set(c.name.trim().toLowerCase(), c.id);
+          customerNameToIdMap.set(norm, c.id);
+        }
         if (c.phone) {
           const cleanP = c.phone.replace(/[^0-9]/g, '');
           if (cleanP) customerPhoneToIdMap.set(cleanP, c.id);
         }
-      });
-
-      // خريطة لربط مريض المستشفى بالعميل
-      const patientToCustomer = new Map<string, string>();
-      himsPatientsRes.data?.forEach(p => {
-        if (p.customer_id) patientToCustomer.set(p.id, p.customer_id);
       });
 
       // خريطة تربط كل قيد يومية أو مستند أو مرجع بالعميل المعني به
@@ -245,57 +235,24 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       
       ordRes.data?.forEach(o => registerDoc(o.id, o.related_journal_entry_id, o.customer_id, o.order_number));
 
-      projectBillsRes.data?.forEach((pb: any) => {
-        const custId = pb.projects?.customer_id;
-        registerDoc(pb.id, pb.related_journal_entry_id, custId, pb.billing_number);
-      });
-
-      patientBillsRes.data?.forEach((hb: any) => {
-        const custId = hb.insurance_provider_id || (hb.patient_id ? patientToCustomer.get(hb.patient_id) : null);
-        registerDoc(hb.id, hb.related_journal_entry_id, custId);
-      });
-
-      claimsRes.data?.forEach((cl: any) => {
-        registerDoc(cl.id, cl.related_journal_entry_id, cl.insurance_provider_id);
-      });
-
-      // ربط حركات الاستاد بالعملاء (مطابقة بالاسم أو رقم الهاتف)
-      stadiumSubsRes?.data?.forEach((sub: any) => {
-        const mem = sub.stadium_members;
-        const name = mem?.full_name?.trim().toLowerCase();
-        const phone = mem?.phone?.replace(/[^0-9]/g, '');
-        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
-        registerDoc(sub.id, sub.journal_entry_id, custId);
-      });
-
-      stadiumRentalsRes?.data?.forEach((r: any) => {
-        const contract = r.stadium_rental_contracts;
-        const name = contract?.tenant_name?.trim().toLowerCase();
-        const phone = contract?.tenant_phone?.replace(/[^0-9]/g, '');
-        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
-        registerDoc(r.id, r.journal_entry_id, custId);
-      });
-
-      stadiumBookingsRes?.data?.forEach((b: any) => {
-        const name = b.booker_name?.trim().toLowerCase();
-        const phone = b.booker_phone?.replace(/[^0-9]/g, '');
-        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
-        registerDoc(b.id, b.journal_entry_id, custId);
-      });
-
-      stadiumProgramsRes?.data?.forEach((p: any) => {
-        const name = p.participant_name?.trim().toLowerCase();
-        const phone = p.participant_phone?.replace(/[^0-9]/g, '');
-        const custId = (name ? customerNameToIdMap.get(name) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
-        registerDoc(p.id, p.journal_entry_id, custId);
-      });
-
-      stadiumTournamentsRes?.data?.forEach((t: any) => {
-        const capName = t.captain_name?.trim().toLowerCase();
-        const teamName = t.team_name?.trim().toLowerCase();
-        const phone = t.captain_phone?.replace(/[^0-9]/g, '');
-        const custId = (capName ? customerNameToIdMap.get(capName) : null) || (teamName ? customerNameToIdMap.get(teamName) : null) || (phone ? customerPhoneToIdMap.get(phone) : null);
-        registerDoc(t.id, t.journal_entry_id, custId);
+      // ربط المستندات الواردة من مجمع الأستاذ المساعد للمديولات المفعلة
+      modularCustomerDocs.forEach(doc => {
+        let custId = doc.customerId;
+        if (!custId && doc.customerName) {
+          const pName = doc.customerName.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+          custId = customerNameToIdMap.get(pName) || customersList?.find(cust => {
+            if (!cust.name) return false;
+            const cNorm = cust.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
+            return cNorm.includes(pName) || pName.includes(cNorm) || 
+                   cNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
+                   pName.split(' ').some(w => w.length > 2 && cNorm.includes(w));
+          })?.id;
+        }
+        if (!custId && doc.customerPhone) {
+          const cleanP = doc.customerPhone.replace(/[^0-9]/g, '');
+          if (cleanP) custId = customerPhoneToIdMap.get(cleanP);
+        }
+        registerDoc(doc.docId, doc.journalEntryId, custId, doc.ref || undefined);
       });
 
       // ربط القيود اليدوية بأسماء العملاء
