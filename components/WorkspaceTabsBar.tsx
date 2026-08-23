@@ -28,6 +28,7 @@ const ROUTE_INFO: Record<string, { title: string; icon: any }> = {
     
     '/purchase-invoice': { title: 'فاتورة مشتريات', icon: ShoppingCart },
     '/purchase-invoices': { title: 'سجل المشتريات', icon: FileText },
+    '/purchase-invoices-list': { title: 'سجل المشتريات', icon: FileText },
     '/purchase-return': { title: 'مرتجع مشتريات', icon: FileText },
     '/purchase-returns': { title: 'سجل مرتجع المشتريات', icon: FileText },
     '/suppliers': { title: 'إدارة الموردين', icon: Truck },

@@ -385,6 +385,36 @@ export const PurchaseInvoiceList = () => {
         </div>
       </div>
 
+      {/* 🟢 شريط السنة المالية وزر إظهار كافة السنوات */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-emerald-50/60 border border-emerald-200/80 p-3.5 rounded-2xl">
+        <div className="flex items-center gap-2 text-xs font-bold text-emerald-800">
+          <span>عرض فواتير السنة المالية:</span>
+          <span className="bg-emerald-600 text-white px-2.5 py-0.5 rounded-lg font-mono font-black">{selectedFiscalYear || '2026'}</span>
+          <span className="text-[11px] text-emerald-600 font-medium">({startDate || 'كافة الفترات'} إلى {endDate || 'كافة الفترات'})</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {(startDate || endDate) ? (
+            <button
+              type="button"
+              onClick={() => { setStartDate(''); setEndDate(''); }}
+              className="bg-white hover:bg-emerald-100 text-emerald-700 border border-emerald-300 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+            >
+              <span>عرض كل السنوات (إلغاء حصر السنة)</span>
+              <span>🌐</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { setStartDate(`${selectedFiscalYear || '2026'}-01-01`); setEndDate(`${selectedFiscalYear || '2026'}-12-31`); }}
+              className="bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
+            >
+              <span>حصر لسنة {selectedFiscalYear || '2026'} فقط</span>
+              <span>🔒</span>
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* 🔍 Multi-Filter Section */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm grid grid-cols-1 md:grid-cols-5 gap-3">
         <div className="relative">
