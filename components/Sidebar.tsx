@@ -212,8 +212,8 @@ const Sidebar: React.FC = () => {
     { to: '/cheque-movement-report', label: 'تقرير حركة الشيكات', icon: History, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/returned-cheques-report', label: 'الشيكات المرتجعة', icon: RotateCcw, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/bank-reconciliation', label: 'تسوية المذكرة البنكية', icon: ShieldCheck, color: 'text-amber-400', module: 'accounting', permission: 'accounting.reconcile' },
-    { to: '/cash-closing', label: 'إقفال الصندوق اليومي', icon: Lock, color: 'text-amber-400', module: 'accounting', permission: 'treasury.manage' },
     { to: '/deficit-report', label: 'تقرير العجز والزيادة', icon: AlertTriangle, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
+    { to: '/payment-gateways', label: 'بوابات الدفع الإلكتروني', icon: CreditCard, color: 'text-amber-400', module: 'accounting', permission: 'treasury.manage' },
     
     // المحاسبة والتقارير المالية
     { type: 'section', label: 'المحاسبة والتقارير' },

@@ -55,7 +55,7 @@ interface CloudBackup {
   id: string;
   organization_id: string;
   backup_date: string;
-  backup_data: any;
+  backup_data?: any;
   file_size_kb: number;
   notes: string;
 }
@@ -261,7 +261,7 @@ const Settings = () => {
     if (!orgId) return;
     const { data } = await supabase
       .from('organization_backups')
-      .select('*')
+      .select('id, organization_id, file_size_kb, backup_date, notes, created_at')
       .eq('organization_id', orgId)
       .order('backup_date', { ascending: false })
       .limit(5);
@@ -536,9 +536,20 @@ const Settings = () => {
 
     setLoading(true);
     try {
-      const payload = typeof backup.backup_data === 'string' 
-        ? JSON.parse(backup.backup_data) 
-        : backup.backup_data;
+      let rawData = backup.backup_data;
+      if (!rawData) {
+        const { data: record, error: fetchErr } = await supabase
+          .from('organization_backups')
+          .select('backup_data')
+          .eq('id', backup.id)
+          .single();
+        if (fetchErr) throw fetchErr;
+        rawData = record?.backup_data;
+      }
+
+      const payload = typeof rawData === 'string' 
+        ? JSON.parse(rawData) 
+        : rawData;
 
       const { data, error } = await supabase.rpc('restore_organization_backup', { 
         p_org_id: backup.organization_id,

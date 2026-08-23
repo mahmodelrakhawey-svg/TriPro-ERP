@@ -50,7 +50,7 @@ const CustomerAgingReport = () => {
 
       // 4. جلب فواتير المستشفيات (HIMS)
       const { data: patients } = await supabase.from('hims_patients').select('id, customer_id').match(filter);
-      const { data: himsBills } = await supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, bill_date, total_amount, paid_amount').match(filter);
+      const { data: himsBills } = await supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, created_at, total_amount, patient_paid_amount').match(filter);
 
       if (!customers) return;
 
@@ -102,13 +102,13 @@ const CustomerAgingReport = () => {
         });
 
         // معالجة فواتير المستشفيات
-        himsBills?.forEach(hb => {
+        himsBills?.forEach((hb: any) => {
           const custId = hb.insurance_provider_id || patientCustMap.get(hb.patient_id);
           if (custId === customer.id) {
-            const remaining = Number(hb.total_amount || 0) - Number(hb.paid_amount || 0);
+            const remaining = Number(hb.total_amount || 0) - Number(hb.patient_paid_amount || 0);
             if (remaining <= 0) return;
             balance += remaining;
-            const bDate = new Date(hb.bill_date || today);
+            const bDate = new Date(hb.created_at || today);
             const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
             if (diffDays <= 30) range0_30 += remaining;
             else if (diffDays <= 60) range31_60 += remaining;

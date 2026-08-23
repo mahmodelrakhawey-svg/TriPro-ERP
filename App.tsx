@@ -69,6 +69,7 @@ import StockTransfer from './modules/inventory/StockTransfer';
 import StockTransferList from './modules/inventory/StockTransferList';
 import WarehouseManager from './modules/inventory/WarehouseManager';
 import CashClosingForm from './modules/finance/components/CashClosingForm';
+import { PaymentGatewaySettings } from './modules/finance/components/PaymentGatewaySettings';
 import DeficitReport from './modules/reports/DeficitReport';
 import Login from './components/Login';
 import UserManager from './components/UserManager';
@@ -549,6 +550,7 @@ const MainLayout = () => {
                 <Route path="/returned-cheques-report" element={<ModuleGuard module="accounting"><ReturnedChequesReport /></ModuleGuard>} />
                 <Route path="/bank-reconciliation" element={<ModuleGuard module="accounting"><BankReconciliationForm /></ModuleGuard>} />
                 <Route path="/cash-closing" element={<ModuleGuard module="accounting"><CashClosingForm /></ModuleGuard>} />
+                <Route path="/payment-gateways" element={<ModuleGuard module="accounting"><PaymentGatewaySettings /></ModuleGuard>} />
                 <Route path="/deficit-report" element={<ModuleGuard module="accounting"><DeficitReport /></ModuleGuard>} />
                 
                 {/* 🛒 مديول المبيعات والعملاء */}
