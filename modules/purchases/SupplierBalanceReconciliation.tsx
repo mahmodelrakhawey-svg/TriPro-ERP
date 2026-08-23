@@ -63,7 +63,17 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           (supplierAcc && a.id === supplierAcc.id)
         )
       );
-      const accountIds = supplierAccounts.map(a => a.id);
+      let accountIds = supplierAccounts.map(a => a.id);
+
+      if (accountIds.length === 0) {
+        const { data: dbAccs } = await supabase
+          .from('accounts')
+          .select('id, code, name')
+          .or(`code.eq.${supplierAccountCode},code.eq.201,code.eq.2101`);
+        if (dbAccs && dbAccs.length > 0) {
+          accountIds = dbAccs.map(a => a.id);
+        }
+      }
 
       if (accountIds.length === 0) {
         showToast('لم يتم العثور على حساب الموردين في دليل الحسابات', 'warning');

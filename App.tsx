@@ -98,6 +98,7 @@ import ExpenseAnalysisReport from './modules/reports/ExpenseAnalysisReport';
 import BudgetManager from './modules/accounting/BudgetManager';
 import BudgetVarianceReport from './modules/accounting/BudgetVarianceReport';
 import FiscalYearClosing from './modules/accounting/FiscalYearClosing';
+import { FiscalPeriodManager } from './modules/accounting/FiscalPeriodManager';
 import TrialBalanceAdvanced from './modules/accounting/TrialBalanceAdvanced';
 import ItemSalesAnalysis from './modules/reports/ItemSalesAnalysis';
 import PurchaseAnalysisReport from './modules/purchases/PurchaseAnalysisReport';
@@ -534,6 +535,7 @@ const MainLayout = () => {
                 <Route path="/budget-setup" element={<ModuleGuard module="accounting"><BudgetManager /></ModuleGuard>} />
                 <Route path="/budget-report" element={<ModuleGuard module="accounting"><BudgetVarianceReport /></ModuleGuard>} />
                 <Route path="/fiscal-year-closing" element={<ModuleGuard module="accounting"><FiscalYearClosing /></ModuleGuard>} />
+                <Route path="/fiscal-periods" element={<ModuleGuard module="accounting"><FiscalPeriodManager /></ModuleGuard>} />
                 {/* 💰 مديول الخزينة والبنوك */}
                 <Route path="/receipt-voucher" element={<ModuleGuard module="accounting"><ReceiptVoucherForm /></ModuleGuard>} />
                 <Route path="/receipt-vouchers-list" element={<ModuleGuard module="accounting"><ReceiptVoucherList /></ModuleGuard>} />

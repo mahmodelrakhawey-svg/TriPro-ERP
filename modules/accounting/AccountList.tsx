@@ -1,7 +1,7 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock } from 'lucide-react';
+import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AddAccountModal from './AddAccountModal';
 import { useNavigate } from 'react-router-dom';
@@ -411,6 +411,14 @@ const AccountList = () => {
             >
               <FolderOpen size={18} />
               <span>إعادة فتح سنة</span>
+            </button>
+            <button 
+              onClick={() => navigate('/fiscal-periods')}
+              className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 text-indigo-700 px-4 py-2 rounded-lg hover:bg-indigo-100 font-bold transition-colors shadow-sm"
+              title="إدارة وقفل الفترات المالية الشهرية (يناير، فبراير، ...)"
+            >
+              <Calendar size={18} />
+              <span>قفل الفترات الشهرية</span>
             </button>
             <button 
               onClick={() => navigate('/fiscal-year-closing')}

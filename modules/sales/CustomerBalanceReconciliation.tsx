@@ -63,7 +63,17 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           (customerAcc && a.id === customerAcc.id)
         )
       );
-      const accountIds = customerAccounts.map(a => a.id);
+      let accountIds = customerAccounts.map(a => a.id);
+
+      if (accountIds.length === 0) {
+        const { data: dbAccs } = await supabase
+          .from('accounts')
+          .select('id, code, name')
+          .eq('code', customerAccountCode);
+        if (dbAccs && dbAccs.length > 0) {
+          accountIds = dbAccs.map(a => a.id);
+        }
+      }
 
       if (accountIds.length === 0) {
         showToast('لم يتم العثور على حساب العملاء في دليل الحسابات', 'warning');

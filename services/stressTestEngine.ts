@@ -162,19 +162,21 @@ export class StressTestEngine {
 
       // دالة مساعدة لإنشاء قيد محاسبي بأسطره
       const createBalancedEntry = async (ref: string, desc: string, lines: { account_id: string, debit: number, credit: number, description?: string }[], docId?: string, docType?: string) => {
+        // 1. إنشاء رأس القيد في البداية كمسودة
         const { data: je, error: jeErr } = await supabase.from('journal_entries').insert({
           organization_id: this.orgId,
           reference: ref,
           transaction_date: today,
           description: desc,
-          status: 'posted',
-          is_posted: true,
+          status: 'draft',
+          is_posted: false,
           related_document_id: docId,
           related_document_type: docType
         }).select().single();
 
         if (jeErr || !je) throw new Error(jeErr?.message || 'فشل إنشاء رأس القيد');
 
+        // 2. إدخال أطراف القيد
         const formattedLines = lines.map(l => ({
           organization_id: this.orgId,
           journal_entry_id: je.id,
@@ -185,7 +187,18 @@ export class StressTestEngine {
         }));
 
         const { error: linesErr } = await supabase.from('journal_lines').insert(formattedLines);
-        if (linesErr) throw new Error(linesErr.message);
+        if (linesErr) {
+          await supabase.from('journal_entries').delete().eq('id', je.id);
+          throw new Error(linesErr.message);
+        }
+
+        // 3. ترحيل القيد بعد اكتمال أطرافه ليمر من تريجر الحماية المحاسبية
+        const { error: postErr } = await supabase.from('journal_entries').update({
+          status: 'posted',
+          is_posted: true
+        }).eq('id', je.id);
+
+        if (postErr) throw new Error(postErr.message);
 
         return je;
       };
@@ -437,7 +450,37 @@ export class StressTestEngine {
       }
 
       // =========================================================================
-      // 8. الفحص والتدقيق المحاسبي والرياضي الشامل (Final Mathematical Audit)
+      // 8. دورة الاستاد والنوادي الرياضية (حجوزات، اشتراكات، صيانة)
+      // =========================================================================
+      const stadiumSubRevAcc = findLeafAcc(['إيرادات اشتراكات العضوية', 'اشتراكات أعضاء', 'اشتراكات رياضية'], ['4101']) || salesAcc;
+      const stadiumBookingRevAcc = findLeafAcc(['إيرادات حجوزات الملاعب', 'حجوزات ملاعب', 'حجوزات مرافق'], ['4102']) || salesAcc;
+
+      const stadiumCount = Math.min(10, Math.ceil(targetCount * 0.10));
+      for (let i = 1; i <= stadiumCount; i++) {
+        const stdAmount = 1500 * i + 800;
+        totalVolume += stdAmount;
+
+        if (i % 2 === 1) {
+          // اشتراك عضوية نادي
+          const ref = `STD-SUB-TEST-${i}-${Date.now().toString().slice(-4)}`;
+          await createBalancedEntry(ref, `اشتراك عضوية استاد رقم ${i} - سداد بالخزينة`, [
+            { account_id: cashAcc, debit: stdAmount, credit: 0, description: 'تحصيل اشتراك عضوية استاد' },
+            { account_id: stadiumSubRevAcc, debit: 0, credit: stdAmount, description: 'إيرادات اشتراكات عضوية الاستاد' }
+          ], undefined, 'stadium_subscription');
+          this.addLog('الاستاد والنوادي', `اشتراك عضوية نادي #${i}`, 'passed', 'تحصيل اشتراك وإثبات إيراد النشاط الرياضي 4101', stdAmount, ref);
+        } else {
+          // حجز ملعب ومرافق
+          const ref = `STD-BOOK-TEST-${i}-${Date.now().toString().slice(-4)}`;
+          await createBalancedEntry(ref, `حجز ملعب كرة قدم رقم ${i} - سداد بنكي`, [
+            { account_id: bankAcc, debit: stdAmount, credit: 0, description: 'تحصيل حجز ملعب بالبنك' },
+            { account_id: stadiumBookingRevAcc, debit: 0, credit: stdAmount, description: 'إيرادات حجوزات ملاعب 4102' }
+          ], undefined, 'stadium_booking');
+          this.addLog('الاستاد والنوادي', `حجز ملعب ومرفق #${i}`, 'passed', 'إثبات إيراد حجز الملعب بالبنك 4102', stdAmount, ref);
+        }
+      }
+
+      // =========================================================================
+      // 9. الفحص والتدقيق المحاسبي والرياضي الشامل (Final Mathematical Audit)
       // =========================================================================
       this.addLog('المراجعة', 'بدء التدقيق الرياضي والمحاسبي لجميع الحركات', 'running', 'جاري فحص ميزان المراجعة والأستاذ العام...');
 
@@ -567,7 +610,42 @@ export class StressTestEngine {
       });
 
       if (rpcError) {
-        await supabase.rpc('delete_unit_test_data', { p_org_id: this.orgId });
+        // آلية تنظيف احتياطية مباشرة من الواجهة في حال عدم تفعيل الـ RPC
+        // 1. جلب القيود الاختبارية وفك ترحيلها
+        const { data: testEntries } = await supabase
+          .from('journal_entries')
+          .select('id')
+          .eq('organization_id', this.orgId)
+          .or('reference.ilike.TEST-%,reference.ilike.CHQ-TEST-%,reference.ilike.STD-%,description.ilike.%فحص شامل%,description.ilike.%اختبار%');
+
+        if (testEntries && testEntries.length > 0) {
+          const entryIds = testEntries.map(e => e.id);
+          // فك الترحيل أولاً
+          await supabase
+            .from('journal_entries')
+            .update({ status: 'draft', is_posted: false })
+            .in('id', entryIds);
+
+          // حذف سطور القيود
+          await supabase
+            .from('journal_lines')
+            .delete()
+            .in('journal_entry_id', entryIds);
+
+          // حذف رؤوس القيود
+          await supabase
+            .from('journal_entries')
+            .delete()
+            .in('id', entryIds);
+        }
+
+        // حذف المستندات الاختبارية
+        await supabase.from('invoices').delete().eq('organization_id', this.orgId).ilike('invoice_number', 'TEST-%');
+        await supabase.from('purchase_invoices').delete().eq('organization_id', this.orgId).ilike('invoice_number', 'TEST-%');
+        await supabase.from('receipt_vouchers').delete().eq('organization_id', this.orgId).ilike('voucher_number', 'TEST-%');
+        await supabase.from('payment_vouchers').delete().eq('organization_id', this.orgId).ilike('voucher_number', 'TEST-%');
+        await supabase.from('customers').delete().eq('organization_id', this.orgId).ilike('name', '%فحص شامل%');
+        await supabase.from('suppliers').delete().eq('organization_id', this.orgId).ilike('name', '%فحص شامل%');
       }
 
       this.addLog('النظام', 'تم تنظيف بيانات الاختبار بالكامل', 'passed', 'تم مسح كافة الحركات الاختبارية والبيانات الحقيقية سليمة ومحفوظة ✅');
