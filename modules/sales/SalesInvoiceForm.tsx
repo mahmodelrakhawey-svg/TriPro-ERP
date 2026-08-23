@@ -19,6 +19,7 @@ import CustomerStatement from './CustomerStatement';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 import { etaService } from '../../services/etaService';
+import { secureStorage } from '../../utils/securityMiddleware';
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
   const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
@@ -460,7 +461,53 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
     }
   };
 
+  // 🛡️ استعادة المسودة التلقائية من secureStorage عند فتح نموذج جديد
+  useEffect(() => {
+    if (!editingId && (!location.state || (!(location.state as any).invoiceToEdit && !(location.state as any).quotationToConvert))) {
+      try {
+        const savedDraft = secureStorage.getItem('tripro_sales_invoice_draft');
+        if (savedDraft) {
+          const parsed = typeof savedDraft === 'string' ? JSON.parse(savedDraft) : savedDraft;
+          if (parsed.items && parsed.items.length > 0) {
+            setItems(parsed.items);
+            if (parsed.formData) {
+              setFormData(prev => ({ ...prev, ...parsed.formData }));
+            }
+            showToast('تمت استعادة مسودة الفاتورة غير المحفوظة تلقائياً ✅', 'info');
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse sales draft from secureStorage', e);
+      }
+    }
+  }, []);
+
+  // 🛡️ حفظ المسودة التلقائي في secureStorage عند تعديل الأصناف أو البيانات
+  useEffect(() => {
+    if (!editingId) {
+      if (items.length > 0 || formData.customerId || formData.notes) {
+        secureStorage.setItem('tripro_sales_invoice_draft', JSON.stringify({ formData, items }));
+      }
+    }
+  }, [formData, items, editingId]);
+
+  // 🛡️ حماية ضد التحديث أو المغادرة غير المقصودة للصفحة
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (items.length > 0 && !editingId) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [items.length, editingId]);
+
   const handleNewInvoice = () => {
+    try {
+      secureStorage.removeItem('tripro_sales_invoice_draft');
+    } catch (e) {}
     setEditingId(null);
     setCurrentIndex(-1);
     setItems([]);
@@ -1054,6 +1101,9 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
         }
 
         // تفريغ النموذج
+        try {
+            secureStorage.removeItem('tripro_sales_invoice_draft');
+        } catch (e) {}
         setItems([]);
         setFormData(prev => ({
             ...prev,
@@ -1236,6 +1286,9 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
 
         // --- 3. Handle UI feedback and form reset ---
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');
+        try {
+            secureStorage.removeItem('tripro_sales_invoice_draft');
+        } catch (e) {}
         setItems([]);
         setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
         setEditingId(null);

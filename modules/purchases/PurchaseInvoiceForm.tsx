@@ -12,6 +12,7 @@ import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createPurchaseInvoiceSchema } from '../../utils/validationSchemas';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
+import { secureStorage } from '../../utils/securityMiddleware';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
@@ -215,7 +216,53 @@ const PurchaseInvoiceForm = () => {
     }
   };
 
+  // 🛡️ استعادة المسودة التلقائية من secureStorage عند فتح نموذج جديد
+  useEffect(() => {
+    if (!editingId && (!location.state || !(location.state as any).invoiceToEdit)) {
+      try {
+        const savedDraft = secureStorage.getItem('tripro_purchase_invoice_draft');
+        if (savedDraft) {
+          const parsed = typeof savedDraft === 'string' ? JSON.parse(savedDraft) : savedDraft;
+          if (parsed.items && parsed.items.length > 0) {
+            setItems(parsed.items);
+            if (parsed.formData) {
+              setFormData(prev => ({ ...prev, ...parsed.formData }));
+            }
+            showToast('تمت استعادة مسودة الفاتورة غير المحفوظة تلقائياً ✅', 'info');
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to parse purchase draft from secureStorage', e);
+      }
+    }
+  }, []);
+
+  // 🛡️ حفظ المسودة التلقائي في secureStorage عند تعديل الأصناف أو البيانات
+  useEffect(() => {
+    if (!editingId) {
+      if (items.length > 0 || formData.supplierId || formData.notes) {
+        secureStorage.setItem('tripro_purchase_invoice_draft', JSON.stringify({ formData, items }));
+      }
+    }
+  }, [formData, items, editingId]);
+
+  // 🛡️ حماية ضد التحديث أو المغادرة غير المقصودة للصفحة
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (items.length > 0 && !editingId) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [items.length, editingId]);
+
   const handleNewInvoice = () => {
+    try {
+      secureStorage.removeItem('tripro_purchase_invoice_draft');
+    } catch (e) {}
     setEditingId(null);
     setCurrentIndex(-1);
     setItems([]);
@@ -466,6 +513,10 @@ const PurchaseInvoiceForm = () => {
       } else {
         showToast(editingId ? 'تم تحديث فاتورة المشتريات كمسودة بنجاح ✅' : 'تم حفظ فاتورة المشتريات كمسودة بنجاح ✅', 'success');
       }
+
+      try {
+        secureStorage.removeItem('tripro_purchase_invoice_draft');
+      } catch (e) {}
 
       await fetchInvoiceIds();
       if (invoiceId) {
