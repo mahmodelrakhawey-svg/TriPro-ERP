@@ -9,6 +9,7 @@ import { ToastProvider } from './context/ToastContext';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import WorkspaceTabsBar from './components/WorkspaceTabsBar';
 import AdminTestDashboard from './components/AdminTestDashboard';
 import Quotations from './components/Quotations';
 import Dashboard from './components/Dashboard';
@@ -437,6 +438,7 @@ const MainLayout = () => {
                 <PrintHeader />
                 <div className="print:hidden">
                     <Header />
+                    <WorkspaceTabsBar />
                 </div>
                 {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
                 <main className="flex-1 p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
