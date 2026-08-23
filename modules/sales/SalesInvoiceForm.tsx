@@ -20,6 +20,8 @@ import InvoiceItemsList from '../../components/InvoiceItemsList';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 import { etaService } from '../../services/etaService';
 import { secureStorage } from '../../utils/securityMiddleware';
+import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
+import { logDocumentAction } from '../../services/auditService';
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
   const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
@@ -1098,6 +1100,24 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
             } catch (qErr) {
                 console.error("Error updating quotation status:", qErr);
             }
+        }
+
+        // 🛡️ تسجيل العملية في سجل التدقيق والتتبع
+        if (invoiceId) {
+            logDocumentAction({
+                documentType: 'sales_invoice',
+                documentId: String(invoiceId),
+                action: (invoiceData.status === 'posted' || invoiceData.status === 'paid') ? 'posted' : (editingId ? 'updated' : 'created'),
+                details: {
+                    invoice_number: invoiceNumber,
+                    total_amount: totalAmount,
+                    customer_id: formData.customerId,
+                    items_count: items.length,
+                    note: editingId ? `تم تعديل فاتورة المبيعات رقم ${invoiceNumber}` : `تم إنشاء فاتورة مبيعات رقم ${invoiceNumber}`
+                },
+                userId: currentUser?.id,
+                userName: (currentUser as any)?.name || (currentUser as any)?.email || 'المستخدم'
+            });
         }
 
         // تفريغ النموذج
@@ -2292,6 +2312,15 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
             </div>
         </div>
       </form>
+
+      {/* 🕒 سجل التدقيق والتتبع الزمني */}
+      {editingId && (
+        <DocumentAuditTimeline
+          documentType="sales_invoice"
+          documentId={editingId}
+          documentCreatedAt={formData.date}
+        />
+      )}
 
       {/* Quick Add Customer Modal */}
       {isCustomerModalOpen && (

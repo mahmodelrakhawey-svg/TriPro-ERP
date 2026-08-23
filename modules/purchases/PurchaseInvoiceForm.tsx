@@ -5,7 +5,7 @@ import {
     Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
     Loader2, CheckCircle, Package, Ruler, List, 
     Printer, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft,
-    DollarSign, Activity, FileText
+    DollarSign, Activity, FileText, Sparkles
 } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -13,6 +13,9 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { createPurchaseInvoiceSchema } from '../../utils/validationSchemas';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
 import { secureStorage } from '../../utils/securityMiddleware';
+import InvoiceOCRScannerModal from '../../components/InvoiceOCRScannerModal';
+import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
+import { logDocumentAction } from '../../services/auditService';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
@@ -39,9 +42,12 @@ const PurchaseInvoiceForm = () => {
   const [deleting, setDeleting] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
+  const [isOCRModalOpen, setIsOCRModalOpen] = useState(false);
 
   // Navigation & Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [invoiceCreatedAt, setInvoiceCreatedAt] = useState<string | undefined>(undefined);
+  const [creatorName, setCreatorName] = useState<string | undefined>(undefined);
   const [invoiceIds, setInvoiceIds] = useState<string[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(-1);
   const [loadingInvoice, setLoadingInvoice] = useState(false);
@@ -136,6 +142,7 @@ const PurchaseInvoiceForm = () => {
       if (!fullInv) throw new Error('الفاتورة غير موجودة');
 
       setEditingId(fullInv.id);
+      setInvoiceCreatedAt(fullInv.created_at || fullInv.invoice_date);
       setFormData({
         supplierId: fullInv.supplier_id || '',
         invoiceNumber: fullInv.invoice_number || '',
@@ -357,6 +364,21 @@ const PurchaseInvoiceForm = () => {
       }
   };
 
+  const handleApplyOCRData = (ocrResult: any) => {
+    setFormData(prev => ({
+      ...prev,
+      supplierId: ocrResult.supplierId || prev.supplierId,
+      invoiceNumber: ocrResult.invoiceNumber || prev.invoiceNumber,
+      date: ocrResult.date || prev.date,
+      notes: ocrResult.notes || prev.notes
+    }));
+
+    if (ocrResult.items && ocrResult.items.length > 0) {
+      setItems(ocrResult.items);
+      showToast(`تم استيراد ${ocrResult.items.length} صنف من الفاتورة بنجاح عبر الذكاء الاصطناعي 🤖✅`, 'success');
+    }
+  };
+
   const handleItemChange = (index: number, field: string, value: any) => {
     const newItems = [...items];
     newItems[index][field] = value;
@@ -514,6 +536,24 @@ const PurchaseInvoiceForm = () => {
         showToast(editingId ? 'تم تحديث فاتورة المشتريات كمسودة بنجاح ✅' : 'تم حفظ فاتورة المشتريات كمسودة بنجاح ✅', 'success');
       }
 
+      // 🛡️ تسجيل العملية في سجل التدقيق والتتبع
+      if (invoiceId) {
+        logDocumentAction({
+          documentType: 'purchase_invoice',
+          documentId: invoiceId,
+          action: post ? 'posted' : (editingId ? 'updated' : 'created'),
+          details: {
+            invoice_number: formData.invoiceNumber,
+            total_amount: totalAmount,
+            supplier_id: formData.supplierId,
+            items_count: items.length,
+            note: post ? `تم ترحيل الفاتورة رقم ${formData.invoiceNumber} بقيمة ${totalAmount.toLocaleString()} ج.م` : (editingId ? `تم تعديل الفاتورة رقم ${formData.invoiceNumber}` : `تم إنشاء الفاتورة رقم ${formData.invoiceNumber}`)
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email || 'المستخدم'
+        });
+      }
+
       try {
         secureStorage.removeItem('tripro_purchase_invoice_draft');
       } catch (e) {}
@@ -610,6 +650,19 @@ const PurchaseInvoiceForm = () => {
     };
 
     setInvoiceToPrint(invoiceData);
+    if (editingId) {
+      logDocumentAction({
+        documentType: 'purchase_invoice',
+        documentId: editingId,
+        action: 'printed',
+        details: {
+          invoice_number: formData.invoiceNumber,
+          note: `تمت طباعة فاتورة المشتريات رقم ${formData.invoiceNumber}`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email || 'المستخدم'
+      });
+    }
     setTimeout(() => {
       window.print();
       setInvoiceToPrint(null);
@@ -735,6 +788,17 @@ const PurchaseInvoiceForm = () => {
           >
             <Plus size={16} /> جديد
           </button>
+
+          {!editingId && (
+            <button 
+              type="button" 
+              onClick={() => setIsOCRModalOpen(true)} 
+              className="bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-colors shadow-xs"
+              title="المسح الذكي لفاتورة المشتريات بالذكاء الاصطناعي"
+            >
+              <Sparkles size={16} className="text-purple-600 animate-pulse" /> مسح ذكي (AI OCR)
+            </button>
+          )}
 
           {editingId && (
             <>
@@ -991,6 +1055,25 @@ const PurchaseInvoiceForm = () => {
 
         </div>
       </div>
+
+      {/* 🕒 سجل التدقيق والتتبع الزمني */}
+      {editingId && (
+        <DocumentAuditTimeline
+          documentType="purchase_invoice"
+          documentId={editingId}
+          documentCreatedAt={invoiceCreatedAt}
+          creatorName={creatorName}
+        />
+      )}
+
+      {/* 📸 نافذة المسح الذكي للفواتير بالذكاء الاصطناعي */}
+      <InvoiceOCRScannerModal
+        isOpen={isOCRModalOpen}
+        onClose={() => setIsOCRModalOpen(false)}
+        products={products}
+        suppliers={suppliers}
+        onApplyData={handleApplyOCRData}
+      />
 
       {/* Hidden printable component */}
       {invoiceToPrint && (

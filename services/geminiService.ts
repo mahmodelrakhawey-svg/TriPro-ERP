@@ -315,7 +315,110 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
   throw new Error(
     lastServerErrorMessage ||
     'مفتاح Gemini API غير متوفر. يرجى:\n' +
-    '1. الضغط على زر 🔑 "إدخال مفتاح AI المباشر" في نموذج إضافة المريض.\n' +
+    '1. الضغط على زر 🔑 "إدخال مفتاح AI المباشر" في النموذج.\n' +
     '2. أو إضافة VITE_GEMINI_API_KEY في ملف .env (احصل على مفتاح مجاني من aistudio.google.com/app/apikey).'
   );
+};
+
+/**
+ * 🧾 المسح الذكي لفواتير المشتريات بالذكاء الاصطناعي (AI Invoice OCR)
+ * يستخرج: المورد، رقم الفاتورة، التاريخ، الأصناف، الكميات، الأسعار، الضرائب والإجمالي
+ */
+export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: string) => {
+  const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+  
+  // 1. استخراج المفتاح
+  const clientStoredKey = typeof window !== 'undefined' ? secureStorage.getItem<string>('user_gemini_api_key') : null;
+  const envKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
+  const rawKey = (clientStoredKey && isValidApiKey(clientStoredKey)) ? clientStoredKey : envKey;
+
+  if (!rawKey || !rawKey.trim()) {
+    throw new Error('مفتاح Gemini API غير متوفر. يرجى إدخال مفتاح Gemini المجاني أو ضبط VITE_GEMINI_API_KEY.');
+  }
+
+  const cleanKey = rawKey.trim().replace(/["'\s]/g, '');
+
+  const invoicePrompt = `
+أنت خبير فحص ومطابقة فواتير المشتريات والحسابات.
+قم بفحص صورة فاتورة المشتريات بدقة واستخراج جميع البيانات المالية وجدول الأصناف بالتفصيل باللغة العربية.
+
+يجب أن ترجع النتيجة بصيغة JSON فقط كالتالي:
+{
+  "supplierName": "اسم المورد أو الشركة المصدرة للفاتورة",
+  "invoiceNumber": "رقم الفاتورة المكتوب في الورقة إن وجد",
+  "invoiceDate": "YYYY-MM-DD (تاريخ الفاتورة بصيغة سنة-شهر-يوم)",
+  "notes": "ملاحظات أو طريقة الدفع إن وجدت",
+  "subtotal": 0.0,
+  "taxAmount": 0.0,
+  "totalAmount": 0.0,
+  "items": [
+    {
+      "productName": "اسم الصنف أو الوصف المكتوب بدقة",
+      "quantity": 1.0,
+      "unitPrice": 0.0,
+      "total": 0.0,
+      "barcode": "",
+      "uomName": "الوحدة مثل: قطعة، كرتونة، كيلو، علبة"
+    }
+  ]
+}
+
+ملاحظات هامة:
+- إذا لم تجد رقم الفاتورة أو التاريخ، ضع التاريخ الحالي ورقم فاتورة فارغ.
+- استخرج كل سطر وصنف في جدول الفاتورة بشكل منفصل.
+- تأكد أن quantity و unitPrice و total أرقام صحيحة أو عشرية وليست نصوصاً.
+`;
+
+  // محاولة عبر النماذج المتاحة
+  const endpointsToTry = [
+    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent?key=${cleanKey}`
+  ];
+
+  let lastErrorMsg = '';
+
+  for (const endpoint of endpointsToTry) {
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
+                { text: invoicePrompt }
+              ]
+            }
+          ],
+          generationConfig: { responseMimeType: "application/json" }
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+        const rawText = data.candidates[0].content.parts[0].text;
+        const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(cleanJson);
+        return parsed;
+      }
+
+      const errMsg = data?.error?.message || `HTTP ${res.status}`;
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid')))) {
+        throw new Error(`مفتاح Gemini غير صالح: ${errMsg}`);
+      }
+      if (res.status === 429 || errMsg.includes('Quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
+        throw new Error('تم تجاوز حد الطلبات المجانية لـ Gemini مؤقتاً. يرجى الانتظار ثوانٍ ثم إعادة المحاولة.');
+      }
+      lastErrorMsg = errMsg;
+    } catch (err: any) {
+      if (err?.message && (err.message.includes('مفتاح Gemini') || err.message.includes('حد الطلبات'))) {
+        throw err;
+      }
+      lastErrorMsg = err?.message || String(err);
+    }
+  }
+
+  throw new Error(lastErrorMsg || 'فشل استخراج بيانات الفاتورة عبر الذكاء الاصطناعي. يرجى التأكد من وضوح الصورة ومفتاح API.');
 };

@@ -7,6 +7,8 @@ import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building
 import { PaymentVoucherPrint } from '../reports/PaymentVoucherPrint';
 import { VoucherSchema } from '../../../utils/schemas';
 import { useNavigate, useLocation } from 'react-router-dom';
+import DocumentAuditTimeline from '../../../components/DocumentAuditTimeline';
+import { logDocumentAction } from '../../../services/auditService';
 
 const PaymentVoucherForm = () => {
   const navigate = useNavigate();
@@ -804,6 +806,15 @@ const PaymentVoucherForm = () => {
 
       </form>
       </div>
+
+      {/* 🕒 سجل التدقيق والتتبع الزمني */}
+      {currentVoucherId && (
+        <DocumentAuditTimeline
+          documentType="payment_voucher"
+          documentId={currentVoucherId}
+          documentCreatedAt={formData.date}
+        />
+      )}
       
       <PaymentVoucherPrint voucher={voucherToPrint} companySettings={companySettings} />
     </div>
