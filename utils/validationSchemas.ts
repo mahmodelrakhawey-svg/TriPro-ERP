@@ -216,7 +216,8 @@ export type CreatePurchaseOrder = z.infer<typeof createPurchaseOrderSchema>;
 // ============== PURCHASE INVOICE SCHEMAS ==============
 
 export const purchaseInvoiceItemSchema = z.object({
-  productId: idSchema,
+  productId: z.string().optional().nullable().or(z.literal('')),
+  productName: z.string().optional(),
   quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
   unitPrice: amountSchema,
 });

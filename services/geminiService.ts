@@ -369,11 +369,11 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
 - تأكد أن quantity و unitPrice و total أرقام صحيحة أو عشرية وليست نصوصاً.
 `;
 
-  // محاولة عبر النماذج المتاحة
+  // محاولة عبر النماذج المعتمدة والرسمية
   const endpointsToTry = [
-    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent?key=${cleanKey}`
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${cleanKey}`
   ];
 
   let lastErrorMsg = '';

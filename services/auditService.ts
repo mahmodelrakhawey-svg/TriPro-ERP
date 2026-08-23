@@ -34,26 +34,29 @@ export const logDocumentAction = async ({
     if (!documentId) return;
 
     try {
+        const actionLabel = getActionArabicLabel(action);
+        const description = details?.note || `${actionLabel} (${documentId})`;
+
         const payload = {
-            table_name: documentType,
-            record_id: documentId,
-            action: action,
-            new_values: {
-                ...details,
+            event_type: 'DOCUMENT_AUDIT',
+            description: description,
+            module: documentType,
+            severity: 'info',
+            metadata: {
+                document_type: documentType,
+                document_id: String(documentId),
+                action: action,
+                action_label: actionLabel,
                 user_name: userName || 'مستخدم النظام',
-                action_label: getActionArabicLabel(action)
+                ...details
             },
             user_id: userId || null,
             created_at: new Date().toISOString()
         };
 
-        const { error } = await supabase.from('audit_logs').insert([payload]);
-        if (error) {
-            // محاولة تخزين محلي آمن في حال عدم وجود الجدول
-            console.warn('audit_logs insert warning:', error.message);
-        }
+        await supabase.from('security_logs').insert([payload]);
     } catch (err) {
-        console.warn('Failed to log document action to audit_logs:', err);
+        console.warn('Silent notice: Failed to log document action to security_logs:', err);
     }
 };
 
@@ -68,29 +71,32 @@ export const getDocumentAuditTrail = async (
 
     try {
         const { data, error } = await supabase
-            .from('audit_logs')
+            .from('security_logs')
             .select('*')
-            .eq('table_name', documentType)
-            .eq('record_id', documentId)
+            .eq('event_type', 'DOCUMENT_AUDIT')
+            .eq('module', documentType)
             .order('created_at', { ascending: true });
 
         if (error) {
-            console.warn('Failed to fetch audit trail:', error);
             return [];
         }
 
-        return (data || []).map((row: any) => ({
+        const filtered = (data || []).filter((row: any) => {
+            const metaDocId = row.metadata?.document_id;
+            return metaDocId === String(documentId) || metaDocId === documentId;
+        });
+
+        return filtered.map((row: any) => ({
             id: row.id,
-            document_type: row.table_name,
-            document_id: row.record_id,
-            action: row.action,
-            details: row.new_values,
+            document_type: row.metadata?.document_type || row.module,
+            document_id: row.metadata?.document_id || documentId,
+            action: row.metadata?.action || 'created',
+            details: row.metadata,
             user_id: row.user_id,
-            user_name: row.new_values?.user_name || 'مستخدم النظام',
-            created_at: row.created_at || row.timestamp
+            user_name: row.metadata?.user_name || 'مستخدم النظام',
+            created_at: row.created_at
         }));
     } catch (err) {
-        console.error('Error fetching audit trail:', err);
         return [];
     }
 };
