@@ -117,16 +117,19 @@ const PurchaseReturnForm = () => {
       if (error) throw error;
 
       if (invItems && invItems.length > 0) {
-        const mapped = invItems.map(item => ({
-          id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          productId: item.product_id,
-          name: item.products?.name || 'صنف',
-          quantity: Number(item.quantity) || 1,
-          maxQuantity: Number(item.quantity) || 1,
-          price: Number(item.unit_price) || 0,
-          uomId: item.uom_id || item.products?.base_uom_id || '',
-          total: Number(item.total) || ((Number(item.quantity) || 1) * (Number(item.unit_price) || 0))
-        }));
+        const mapped = invItems.map((item: any) => {
+          const prod = Array.isArray(item.products) ? item.products[0] : item.products;
+          return {
+            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            productId: item.product_id,
+            name: prod?.name || 'صنف',
+            quantity: Number(item.quantity) || 1,
+            maxQuantity: Number(item.quantity) || 1,
+            price: Number(item.unit_price) || 0,
+            uomId: item.uom_id || prod?.base_uom_id || '',
+            total: Number(item.total) || ((Number(item.quantity) || 1) * (Number(item.unit_price) || 0))
+          };
+        });
         setItems(mapped);
         showToast(`تم استيراد ${mapped.length} صنف من الفاتورة الأصلية بنجاح ✅`, 'info');
       }
