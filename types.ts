@@ -177,11 +177,15 @@ export interface SystemSettings {
   max_cash_deficit_limit?: number;
   enable_tax?: boolean;
   allow_negative_stock?: boolean;
+  enable_service_charge?: boolean;
+  service_charge_rate?: number;
   // خصائص إضافية للواجهة
   companyName?: string;
   taxNumber?: string;
   logoUrl?: string;
   vatRate?: number;
+  enableServiceCharge?: boolean;
+  serviceChargeRate?: number;
   footerText?: string;
   accountMappings?: { [key: string]: string };
   lastClosedDate?: string;

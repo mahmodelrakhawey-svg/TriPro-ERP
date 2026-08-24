@@ -17,6 +17,8 @@ export interface ActiveOrder {
   deliveryFee?: number;
   discount?: { type: 'percentage' | 'fixed'; value: number };
   loyaltyDiscount?: { points: number; amount: number };
+  serviceChargeEnabled?: boolean;
+  taxEnabled?: boolean;
 }
 
 interface OrderSummaryProps {
@@ -33,9 +35,15 @@ interface OrderSummaryProps {
   onAddDiscount: () => void;
   onPayLater: () => void;
   onRedeemPoints: () => void;
+  onToggleServiceCharge?: () => void;
+  onToggleTax?: () => void;
 }
 
-const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateItem, onClearOrder, onAcceptOrder, onPayment, onPrintProforma, onTransfer, onMerge, isSubmitting, onSelectCustomer, onAddDiscount, onPayLater, onRedeemPoints }) => {
+const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ 
+  order, onUpdateItem, onClearOrder, onAcceptOrder, onPayment, 
+  onPrintProforma, onTransfer, onMerge, isSubmitting, onSelectCustomer, 
+  onAddDiscount, onPayLater, onRedeemPoints, onToggleServiceCharge, onToggleTax 
+}) => {
   const { settings, customers } = useAccounting();
 
   const customerDetails = useMemo(() => {
@@ -44,18 +52,28 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
   }, [order, customers]);
 
   const finalTotals = useMemo(() => {
-    if (!order) return { subtotal: 0, tax: 0, total: 0, discountAmount: 0 };
+    if (!order) return { subtotal: 0, serviceCharge: 0, tax: 0, total: 0, discountAmount: 0, isTaxEnabled: false, isServiceEnabled: false, vatPercent: 0, servicePercent: 0 };
     const subtotal = order.items.reduce((sum, item) => sum + ((Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)), 0);
     const discountAmount = order.discount?.type === 'fixed' ? order.discount.value : subtotal * ((order.discount?.value || 0) / 100);
     const subtotalAfterDiscount = subtotal - discountAmount;
     const loyaltyDiscountAmount = order.loyaltyDiscount?.amount || 0;
     const subtotalAfterLoyalty = subtotalAfterDiscount - loyaltyDiscountAmount;
-    const isTaxEnabled = settings?.enableTax !== false && settings?.enable_tax !== false;
-    const vatPercent = isTaxEnabled ? (settings?.vatRate ?? 14) : 0;
-    const tax = subtotalAfterLoyalty * (vatPercent / 100);
-    const total = subtotalAfterLoyalty + tax + (order.deliveryFee || 0);
-    return { subtotal, tax, total, discountAmount, isTaxEnabled, vatPercent };
-  }, [order, settings.vatRate, settings.enableTax, settings.enable_tax]);
+
+    // رسوم الخدمة
+    const globalServiceEnabled = settings?.enableServiceCharge !== false && settings?.enable_service_charge !== false && (Boolean(settings?.enableServiceCharge) || Boolean(settings?.enable_service_charge));
+    const isServiceEnabled = order.serviceChargeEnabled !== undefined ? order.serviceChargeEnabled : globalServiceEnabled;
+    const servicePercent = isServiceEnabled ? (Number(settings?.serviceChargeRate) || 12) : 0;
+    const serviceCharge = isServiceEnabled ? subtotalAfterLoyalty * (servicePercent / 100) : 0;
+
+    // ضريبة القيمة المضافة
+    const globalTaxEnabled = settings?.enableTax !== false && settings?.enable_tax !== false;
+    const isTaxEnabled = order.taxEnabled !== undefined ? order.taxEnabled : globalTaxEnabled;
+    const vatPercent = isTaxEnabled ? (Number(settings?.vatRate) || 14) : 0;
+    const tax = isTaxEnabled ? (subtotalAfterLoyalty + serviceCharge) * (vatPercent / 100) : 0;
+
+    const total = subtotalAfterLoyalty + serviceCharge + tax + (order.deliveryFee || 0);
+    return { subtotal, serviceCharge, tax, total, discountAmount, isTaxEnabled, isServiceEnabled, vatPercent, servicePercent };
+  }, [order, settings.vatRate, settings.enableTax, settings.enable_tax, settings.enableServiceCharge, settings.enable_service_charge, settings.serviceChargeRate]);
 
   const newItemsTotal = useMemo(() => {
     if (!order || !order.items) return 0;
@@ -138,8 +156,54 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ order, onUpdateIte
         {order.deliveryFee && (
           <div className="flex justify-between text-sm"><span className="text-slate-500">رسوم التوصيل</span><span className="font-semibold">{order.deliveryFee.toFixed(2)}</span></div>
         )}
-        <div className="flex justify-between text-sm"><span className="text-slate-500">{finalTotals.isTaxEnabled ? `الضريبة (${finalTotals.vatPercent}%)` : 'الضريبة (معطلة)'}</span><span className="font-semibold">{finalTotals.tax.toFixed(2)}</span></div>
-        <div className="flex justify-between text-lg font-bold text-slate-800"><span>الإجمالي</span><span>{(Number(finalTotals.total) || 0).toFixed(2)} {settings?.currency || 'EGP'}</span></div>
+
+        {/* سطر رسوم الخدمة مع زر إلغاء/تفعيل سريع */}
+        {(settings?.enableServiceCharge || settings?.enable_service_charge || finalTotals.isServiceEnabled || order.serviceChargeEnabled !== undefined) && (
+          <div className="flex justify-between items-center text-sm">
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500">رسوم الخدمة ({finalTotals.servicePercent}%)</span>
+              <button 
+                type="button"
+                onClick={onToggleServiceCharge}
+                className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold border transition-colors ${
+                  finalTotals.isServiceEnabled 
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' 
+                    : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+                }`}
+                title={finalTotals.isServiceEnabled ? 'اضغط لإلغاء الخدمة من هذا الطلب' : 'اضغط لتفعيل الخدمة'}
+              >
+                {finalTotals.isServiceEnabled ? 'مفعلة ✓' : 'ملغاة ✕'}
+              </button>
+            </div>
+            <span className={`font-semibold ${!finalTotals.isServiceEnabled ? 'text-slate-400 line-through' : ''}`}>
+              {finalTotals.serviceCharge.toFixed(2)}
+            </span>
+          </div>
+        )}
+
+        {/* سطر ضريبة القيمة المضافة مع زر إلغاء/تفعيل سريع */}
+        <div className="flex justify-between items-center text-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-500">الضريبة ({finalTotals.vatPercent}%)</span>
+            <button 
+              type="button"
+              onClick={onToggleTax}
+              className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold border transition-colors ${
+                finalTotals.isTaxEnabled 
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100' 
+                  : 'bg-slate-100 text-slate-500 border-slate-300 hover:bg-slate-200'
+              }`}
+              title={finalTotals.isTaxEnabled ? 'اضغط لإلغاء الضريبة من هذا الطلب' : 'اضغط لتفعيل الضريبة'}
+            >
+              {finalTotals.isTaxEnabled ? 'مفعلة ✓' : 'ملغاة ✕'}
+            </button>
+          </div>
+          <span className={`font-semibold ${!finalTotals.isTaxEnabled ? 'text-slate-400 line-through' : ''}`}>
+            {finalTotals.tax.toFixed(2)}
+          </span>
+        </div>
+
+        <div className="flex justify-between text-lg font-bold text-slate-800 border-t pt-2 mt-1"><span>الإجمالي النهائي</span><span>{(Number(finalTotals.total) || 0).toFixed(2)} {settings?.currency || 'EGP'}</span></div>
       </div>
       <div className="p-2 border-t flex gap-2">
         <button onClick={onAddDiscount} className="flex-1 text-xs bg-slate-100 text-slate-600 font-bold py-2 rounded-lg hover:bg-slate-200 flex items-center justify-center gap-1"><Percent size={14}/> خصم</button>

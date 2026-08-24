@@ -46,9 +46,9 @@ const ACCOUNT_LABELS: Record<string, string> = {
   LABOR_COST_ALLOCATED: 'تكاليف العمالة الصناعية المحملة',
   RETENTION_CUSTOMER: 'محتجز ضمان لدى الغير (عملاء) (1249)',
   RETENTION_SUBCONTRACTOR: 'محتجز ضمان لمقاولي الباطن (2229)',
-  ADVANCE_PAYMENT_SUBCONTRACTOR: 'دفعات مقدمة للمقاولين (1245)',
   EQUIPMENT_INTERNAL_REVENUE: 'إيراد تشغيل معدات داخلي (425)',
   CONSTRUCTION_REVENUE: 'إيراد عقود ومشاريع / مستخلصات (41103)',
+  SERVICE_CHARGE_REVENUE: 'إيرادات رسوم الخدمة (المطاعم) (41104)',
 };
 
 interface CloudBackup {
@@ -153,6 +153,7 @@ const Settings = () => {
   const [formData, setFormData] = useState({ 
       companyName: '', taxNumber: '', phone: '', address: '', footerText: '', vatRate: 0.14, currency: '', logoUrl: '', 
       enableTax: true, allowNegativeStock: false, preventPriceModification: false, maxCashDeficitLimit: 500, decimalPlaces: 2,
+      enableServiceCharge: false, serviceChargeRate: 12,
       accountMappings: {} as Record<string, string>,
       defaultWarehouseId: '',
       defaultTreasuryId: '',
@@ -231,6 +232,12 @@ const Settings = () => {
                 currency: sData.currency || '',
                 logoUrl: sData.logo_url || '',
                 enableTax: sData.enable_tax !== undefined ? sData.enable_tax : true,
+                enableServiceCharge: sData.enable_service_charge !== undefined 
+                    ? sData.enable_service_charge 
+                    : (sData.account_mappings?.enable_service_charge !== undefined ? sData.account_mappings.enable_service_charge : false),
+                serviceChargeRate: sData.service_charge_rate !== undefined && sData.service_charge_rate !== null 
+                    ? (sData.service_charge_rate <= 1 && sData.service_charge_rate > 0 ? sData.service_charge_rate * 100 : sData.service_charge_rate) 
+                    : (sData.account_mappings?.service_charge_rate !== undefined ? (sData.account_mappings.service_charge_rate <= 1 && sData.account_mappings.service_charge_rate > 0 ? sData.account_mappings.service_charge_rate * 100 : sData.account_mappings.service_charge_rate) : 12),
                 allowNegativeStock: sData.allow_negative_stock !== undefined ? sData.allow_negative_stock : false,
                 preventPriceModification: sData.prevent_price_modification !== undefined ? sData.prevent_price_modification : false,
                 maxCashDeficitLimit: sData.max_cash_deficit_limit !== undefined ? sData.max_cash_deficit_limit : 500,
@@ -291,6 +298,7 @@ const Settings = () => {
           companyName: z.string().min(1, 'اسم المنشأة مطلوب'),
           email: z.string().email('البريد الإلكتروني غير صحيح').optional().or(z.literal('')),
           vatRate: z.coerce.number().min(0).max(100, 'نسبة الضريبة يجب أن تكون بين 0 و 100'),
+          serviceChargeRate: z.coerce.number().min(0).max(100, 'نسبة الخدمة يجب أن تكون بين 0 و 100').optional(),
           maxCashDeficitLimit: z.coerce.number().min(0, 'الحد الأقصى للعجز يجب أن يكون 0 أو أكثر'),
           decimalPlaces: z.coerce.number().min(0).max(4, 'عدد الكسور العشرية يجب أن يكون بين 0 و 4')
       });
@@ -307,7 +315,13 @@ const Settings = () => {
       }
 
       try {
-        const payload = {
+        const accountMappingsWithService = {
+            ...(formData.accountMappings || {}),
+            enable_service_charge: formData.enableServiceCharge,
+            service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100
+        };
+
+        const payload: any = {
             company_name: formData.companyName,
             tax_number: formData.taxNumber,
             phone: formData.phone,
@@ -318,11 +332,13 @@ const Settings = () => {
             logo_url: formData.logoUrl,
             allow_negative_stock: formData.allowNegativeStock,
             enable_tax: formData.enableTax,
+            enable_service_charge: formData.enableServiceCharge,
+            service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100,
             prevent_price_modification: formData.preventPriceModification,
             max_cash_deficit_limit: formData.maxCashDeficitLimit,
             decimal_places: formData.decimalPlaces,
             updated_at: new Date().toISOString(),
-            account_mappings: formData.accountMappings,
+            account_mappings: accountMappingsWithService,
             default_warehouse_id: formData.defaultWarehouseId || null,
             default_treasury_id: formData.defaultTreasuryId || null,
             production_warehouse_id: formData.productionWarehouseId || null,
@@ -334,11 +350,18 @@ const Settings = () => {
             eta_is_active: formData.etaIsActive
         };
 
-        let error;
-        if (settingsId) {
-            ({ error } = await supabase.from('company_settings').update(payload).eq('id', settingsId));
-        } else {
-            ({ error } = await supabase.from('company_settings').insert(payload));
+        let { error } = settingsId 
+            ? await supabase.from('company_settings').update(payload).eq('id', settingsId)
+            : await supabase.from('company_settings').insert(payload);
+
+        // Fallback: If dedicated columns don't exist in company_settings table, omit them and save via account_mappings
+        if (error && (error.message?.includes('column') || error.code === 'PGRST204' || (error as any).details?.includes('column'))) {
+            delete payload.enable_service_charge;
+            delete payload.service_charge_rate;
+            const retry = settingsId 
+                ? await supabase.from('company_settings').update(payload).eq('id', settingsId)
+                : await supabase.from('company_settings').insert(payload);
+            error = retry.error;
         }
 
         if (error) throw error;
@@ -1021,50 +1044,12 @@ const Settings = () => {
                                   {formData.enableTax ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
                               </button>
                           </div>
-                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
-                              <div>
-                                  <label className="block text-sm font-bold text-slate-700">السماح بالبيع بدون رصيد</label>
-                                  <p className="text-xs text-slate-500 mt-1">يسمح بإنشاء فواتير حتى لو كانت الكمية غير متوفرة (غير مستحسن)</p>
-                              </div>
-                              <button 
-                                  type="button" 
-                                  onClick={() => setFormData({...formData, allowNegativeStock: !formData.allowNegativeStock})}
-                                  className={`text-3xl transition-colors ${formData.allowNegativeStock ? 'text-red-600' : 'text-slate-300'}`}
-                              >
-                                  {formData.allowNegativeStock ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
-                              </button>
-                          </div>
-                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
-                              <div>
-                                  <label className="block text-sm font-bold text-slate-700">منع تعديل الأسعار في الفاتورة</label>
-                                  <p className="text-xs text-slate-500 mt-1">عند التفعيل، لن يتمكن البائعون من تغيير سعر بيع الصنف المحدد مسبقاً</p>
-                              </div>
-                              <button 
-                                  type="button" 
-                                  onClick={() => setFormData({...formData, preventPriceModification: !formData.preventPriceModification})}
-                                  className={`text-3xl transition-colors ${formData.preventPriceModification ? 'text-emerald-600' : 'text-slate-300'}`}
-                              >
-                                  {formData.preventPriceModification ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
-                              </button>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">الحد الأقصى للعجز المسموح به (للموظفين)</label>
-                              <div className="relative">
-                                  <input 
-                                    type="number" 
-                                    min="0"
-                                    value={formData.maxCashDeficitLimit || ''}
-                                    onChange={(e) => setFormData({...formData, maxCashDeficitLimit: e.target.value as any})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
-                                  />
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">لن يتمكن الموظف من إقفال الصندوق إذا تجاوز العجز هذا المبلغ.</p>
-                          </div>
+
                           <div className={`transition-opacity duration-200 ${!formData.enableTax ? 'opacity-50 pointer-events-none' : ''}`}>
                               <label className="block text-sm font-medium text-slate-700 mb-1">نسبة ضريبة القيمة المضافة (VAT)</label>
                               <div className="relative">
                                   <input 
-                                    type="text"
+                                    type="text" 
                                     inputMode="decimal"
                                     min="0"
                                     max="100"
@@ -1081,7 +1066,87 @@ const Settings = () => {
                                   />
                                   <span className="absolute left-3 top-2.5 text-slate-400 text-sm">%</span>
                               </div>
-                              <p className="text-xs text-slate-500 mt-1">أدخل 15 لنسبة 15%</p>
+                              <p className="text-xs text-slate-500 mt-1">أدخل 14 لنسبة 14% أو 15 لنسبة 15%</p>
+                          </div>
+
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-700">تفعيل رسوم الخدمة (للمطاعم والكافيهات)</label>
+                                  <p className="text-xs text-slate-500 mt-1">تطبيق نسبة خدمة على طلبات المطاعم مع إمكانية إلغائها أو تفعيلها لكل طلب</p>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => setFormData({...formData, enableServiceCharge: !formData.enableServiceCharge})}
+                                  className={`text-3xl transition-colors ${formData.enableServiceCharge ? 'text-emerald-600' : 'text-slate-300'}`}
+                              >
+                                  {formData.enableServiceCharge ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+
+                          <div className={`transition-opacity duration-200 ${!formData.enableServiceCharge ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">نسبة رسوم الخدمة (%)</label>
+                              <div className="relative">
+                                  <input 
+                                    type="text" 
+                                    inputMode="decimal"
+                                    min="0"
+                                    max="100"
+                                    value={formData.serviceChargeRate || ''}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setFormData({...formData, serviceChargeRate: val as any});
+                                        }
+                                    }}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none text-left"
+                                    placeholder="12"
+                                    disabled={!formData.enableServiceCharge}
+                                  />
+                                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">%</span>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">أدخل 12 لنسبة خدمة 12%</p>
+                          </div>
+
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-700">السماح بالبيع بدون رصيد</label>
+                                  <p className="text-xs text-slate-500 mt-1">يسمح بإنشاء فواتير حتى لو كانت الكمية غير متوفرة (غير مستحسن)</p>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => setFormData({...formData, allowNegativeStock: !formData.allowNegativeStock})}
+                                  className={`text-3xl transition-colors ${formData.allowNegativeStock ? 'text-red-600' : 'text-slate-300'}`}
+                              >
+                                  {formData.allowNegativeStock ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-700">منع تعديل الأسعار في الفاتورة</label>
+                                  <p className="text-xs text-slate-500 mt-1">عند التفعيل، لن يتمكن البائعون من تغيير سعر بيع الصنف المحدد مسبقاً</p>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => setFormData({...formData, preventPriceModification: !formData.preventPriceModification})}
+                                  className={`text-3xl transition-colors ${formData.preventPriceModification ? 'text-emerald-600' : 'text-slate-300'}`}
+                              >
+                                  {formData.preventPriceModification ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">الحد الأقصى للعجز المسموح به (للموظفين)</label>
+                              <div className="relative">
+                                  <input 
+                                    type="number" 
+                                    min="0"
+                                    value={formData.maxCashDeficitLimit || ''}
+                                    onChange={(e) => setFormData({...formData, maxCashDeficitLimit: e.target.value as any})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
+                                  />
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">لن يتمكن الموظف من إقفال الصندوق إذا تجاوز العجز هذا المبلغ.</p>
                           </div>
                           <div>
                               <label className="block text-sm font-medium text-slate-700 mb-1">العملة الافتراضية</label>

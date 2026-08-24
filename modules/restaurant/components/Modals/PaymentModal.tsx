@@ -50,23 +50,23 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
 
   const calculateTotals = (itemsToCalculate: any[]) => {
     const subtotal = itemsToCalculate.reduce((sum, item) => sum + (Number(item.unit_price) * item.payQuantity), 0);
-    const tax = subtotal * ((settings?.vatRate || settings?.vat_rate || 15) / 100);
-    const total = subtotal + tax;
-    return { subtotal, tax, total };
+    const globalServiceEnabled = settings?.enableServiceCharge !== false && settings?.enable_service_charge !== false && (Boolean(settings?.enableServiceCharge) || Boolean(settings?.enable_service_charge));
+    const serviceRate = globalServiceEnabled ? (Number(settings?.serviceChargeRate) || 12) / 100 : 0;
+    const serviceCharge = subtotal * serviceRate;
+
+    const isTaxEnabled = settings?.enableTax !== false && settings?.enable_tax !== false;
+    const vatRate = isTaxEnabled ? (Number(settings?.vatRate) || 14) / 100 : 0;
+    const tax = (subtotal + serviceCharge) * vatRate;
+    const total = subtotal + serviceCharge + tax;
+    return { subtotal, serviceCharge, tax, total };
   };
 
   const currentTotals = useMemo(() => {
-    if (!order) return { subtotal: 0, tax: 0, total: 0 };
-    if (splitMode) {
-      const itemsToCalculate = selectedItems.filter(item => item.payQuantity > 0);
-      return calculateTotals(itemsToCalculate);
-    } else {
-      return {
-        subtotal: Number(order.subtotal),
-        tax: Number(order.total_tax),
-        total: Number(order.grand_total)
-      };
-    }
+    if (!order) return { subtotal: 0, serviceCharge: 0, tax: 0, total: 0 };
+    const itemsToCalculate = splitMode 
+      ? selectedItems.filter(item => item.payQuantity > 0)
+      : (order.order_items || []).map((item: any) => ({ ...item, payQuantity: item.quantity }));
+    return calculateTotals(itemsToCalculate);
   }, [splitMode, selectedItems, order, settings]);
 
   const handleItemQuantityChange = (itemId: string, change: number) => {
@@ -122,11 +122,11 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
           onClose();
         }
       } else {
-        // 2. استخدام الدالة السيادية الموحدة (RPC) لإتمام العملية بالكامل في قاعدة البيانات
+        // 2. استخدام الدالة السيادية الموحدة (RPC) لإتمام العملية بالكامل في قاعدة البيانات بمبلغ الإجمالي الشامل
         await completeRestaurantOrder(
           orderId,
           paymentMethod,
-          order.grand_total,
+          currentTotals.total,
           paymentAccount.id,
           order.warehouse_id
         );

@@ -52,6 +52,7 @@ export const SYSTEM_ACCOUNTS = {
   EXPENSE_GENERAL: '53', // مصروفات إدارية وعمومية
   SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
   CONSTRUCTION_REVENUE: '41103', // إيراد عقود ومشاريع (مستخلصات)
+  SERVICE_CHARGE_REVENUE: '41104', // إيرادات رسوم الخدمة (المطاعم)
   HIMS_BILLING_REVENUE: '41101', // إيرادات الخدمات الطبية
   HIMS_INSURANCE_RECEIVABLE: '122101', // ذمم التأمين
 };
@@ -316,6 +317,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           ? Boolean(raw.enableTax) 
           : (raw.enable_tax !== undefined ? Boolean(raw.enable_tax) : true);
 
+        const isServiceChargeEnabled = raw.enableServiceCharge !== undefined 
+          ? Boolean(raw.enableServiceCharge) 
+          : (raw.enable_service_charge !== undefined 
+              ? Boolean(raw.enable_service_charge) 
+              : (raw.account_mappings?.enable_service_charge !== undefined 
+                  ? Boolean(raw.account_mappings.enable_service_charge) 
+                  : false));
+
+        let serviceRateNum = 12;
+        if (raw.serviceChargeRate !== undefined && raw.serviceChargeRate !== null) {
+          serviceRateNum = Number(raw.serviceChargeRate);
+        } else if (raw.service_charge_rate !== undefined && raw.service_charge_rate !== null) {
+          serviceRateNum = Number(raw.service_charge_rate);
+        } else if (raw.account_mappings?.service_charge_rate !== undefined && raw.account_mappings?.service_charge_rate !== null) {
+          serviceRateNum = Number(raw.account_mappings.service_charge_rate);
+        }
+        const serviceChargeRatePercentage = serviceRateNum <= 1 && serviceRateNum > 0 ? serviceRateNum * 100 : serviceRateNum;
+        const serviceChargeRateDecimal = serviceChargeRatePercentage / 100;
+
         const allowNegativeStock = raw.allowNegativeStock !== undefined 
           ? Boolean(raw.allowNegativeStock) 
           : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : false);
@@ -341,6 +361,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           enable_tax: isTaxEnabled,
           vatRate: vatRatePercentage,
           vat_rate: vatRateDecimal,
+          enableServiceCharge: isServiceChargeEnabled,
+          enable_service_charge: isServiceChargeEnabled,
+          serviceChargeRate: serviceChargeRatePercentage,
+          service_charge_rate: serviceChargeRateDecimal,
           allowNegativeStock,
           allow_negative_stock: allowNegativeStock,
           preventPriceModification,

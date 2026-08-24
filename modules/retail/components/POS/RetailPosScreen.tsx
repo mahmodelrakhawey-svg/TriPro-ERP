@@ -274,7 +274,7 @@ export default function RetailPosScreen() {
             organization_id: currentUser.organization_id
           })
           .select()
-          .single();
+          .maybeSingle();
         if (!seedErr && newTerm) {
           setTerminals([newTerm]);
         }
@@ -293,7 +293,7 @@ export default function RetailPosScreen() {
           .select('*, pos_terminals(*)')
           .eq('id', parsed.id)
           .is('end_time', null)
-          .single();
+          .maybeSingle();
 
         if (!shiftErr && dbShift) {
           activeShiftDb = dbShift;
@@ -345,7 +345,7 @@ export default function RetailPosScreen() {
           .from('company_settings')
           .select('account_mappings')
           .eq('organization_id', currentUser.organization_id)
-          .single();
+          .maybeSingle();
         treasuryId = mappings?.account_mappings?.CASH || null;
       }
 
@@ -367,7 +367,7 @@ export default function RetailPosScreen() {
           .from('shifts')
           .select('*, pos_terminals(*)')
           .eq('id', newShift.id)
-          .single();
+          .maybeSingle();
 
         setActiveShift(fullShift);
         secureStorage.setItem(`tripro_shift_${currentUser.id}`, fullShift);
@@ -385,7 +385,7 @@ export default function RetailPosScreen() {
     if (!activeShift) return;
     try {
       // Fetch expected sales and balance from shifts
-      const { data, error } = await supabase.rpc('get_current_shift_summary', {
+      const { data, error } = await supabase.rpc('get_shift_summary', {
         p_shift_id: activeShift.id
       });
       // Fallback query if RPC isn't built or fails
@@ -635,7 +635,7 @@ export default function RetailPosScreen() {
               .from('company_settings')
               .select('account_mappings')
               .eq('organization_id', currentUser.organization_id)
-              .single();
+              .maybeSingle();
             treasuryId = mappings?.account_mappings?.CASH || null;
           }
 

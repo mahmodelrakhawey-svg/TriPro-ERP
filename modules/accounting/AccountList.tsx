@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock, Calendar } from 'lucide-react';
@@ -64,6 +64,7 @@ const AccountList = () => {
     '411', // إيرادات المبيعات (صالة/تيك أوي) / مبيعات سلع ومنتجات
     '41101', // إيرادات تشغيل وخدمات متنوعة
     '41103', // إيراد عقود ومشاريع (مستخلصات)
+    '41104', // إيرادات رسوم الخدمة (المطاعم)
     '412', // إيرادات التوصيل (Delivery) / مردودات ومسموحات مبيعات
     '413', // خصم مسموح به
     '421', // إيرادات متنوعة

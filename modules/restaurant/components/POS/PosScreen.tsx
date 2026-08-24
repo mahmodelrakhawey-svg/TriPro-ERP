@@ -1099,8 +1099,15 @@ const PosScreen = () => {
 
       // حساب الإجمالي بناءً على الأصناف التي سيتم دفعها
       const subtotal = itemsToProcess.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
-      const tax = subtotal * ((settings.vatRate || 15) / 100);
-      const total = subtotal + tax;
+      const globalServiceEnabled = settings?.enableServiceCharge !== false && settings?.enable_service_charge !== false && (Boolean(settings?.enableServiceCharge) || Boolean(settings?.enable_service_charge));
+      const isServiceEnabled = activeOrder.serviceChargeEnabled !== undefined ? activeOrder.serviceChargeEnabled : globalServiceEnabled;
+      const serviceRate = isServiceEnabled ? (Number(settings?.serviceChargeRate) || 12) : 0;
+      const serviceCharge = isServiceEnabled ? subtotal * (serviceRate / 100) : 0;
+
+      const isTaxEnabled = activeOrder.taxEnabled !== undefined ? activeOrder.taxEnabled : (settings?.enableTax !== false && settings?.enable_tax !== false);
+      const vatRate = isTaxEnabled ? (Number(settings.vatRate) || 14) : 0;
+      const tax = isTaxEnabled ? (subtotal + serviceCharge) * (vatRate / 100) : 0;
+      const total = subtotal + serviceCharge + tax;
 
       // Save the order details for printing before clearing the state
       setIsProformaPrint(false); // طباعة نهائية
@@ -1316,8 +1323,15 @@ const PosScreen = () => {
       const loyaltyAmount = activeOrder.loyaltyDiscount?.amount || 0;
       
       const subtotalAfterDiscount = subtotal - discountAmount - loyaltyAmount;
-      const tax = subtotalAfterDiscount * ((settings.vatRate || 15) / 100);
-      const total = subtotalAfterDiscount + tax + (activeOrder.deliveryFee || 0);
+      const globalServiceEnabled = settings?.enableServiceCharge !== false && settings?.enable_service_charge !== false && (Boolean(settings?.enableServiceCharge) || Boolean(settings?.enable_service_charge));
+      const isServiceEnabled = activeOrder.serviceChargeEnabled !== undefined ? activeOrder.serviceChargeEnabled : globalServiceEnabled;
+      const serviceRate = isServiceEnabled ? (Number(settings?.serviceChargeRate) || 12) : 0;
+      const serviceCharge = isServiceEnabled ? subtotalAfterDiscount * (serviceRate / 100) : 0;
+
+      const isTaxEnabled = activeOrder.taxEnabled !== undefined ? activeOrder.taxEnabled : (settings?.enableTax !== false && settings?.enable_tax !== false);
+      const vatRate = isTaxEnabled ? (Number(settings.vatRate) || 14) : 0;
+      const tax = isTaxEnabled ? (subtotalAfterDiscount + serviceCharge) * (vatRate / 100) : 0;
+      const total = subtotalAfterDiscount + serviceCharge + tax + (activeOrder.deliveryFee || 0);
 
       setIsProformaPrint(false);
       setOrderToPrint(activeOrder);
@@ -1345,12 +1359,36 @@ const PosScreen = () => {
     }
   };
 
-    const handleReprintLast = () => {
-      if (lastOrder) {
-        setIsProformaPrint(false);
-        setOrderToPrint({ ...lastOrder });
-      }
-    };
+  const handleToggleServiceCharge = () => {
+    if (!activeOrder) return;
+    const globalServiceEnabled = settings?.enableServiceCharge !== false && settings?.enable_service_charge !== false && (Boolean(settings?.enableServiceCharge) || Boolean(settings?.enable_service_charge));
+    const currentServiceState = activeOrder.serviceChargeEnabled !== undefined ? activeOrder.serviceChargeEnabled : globalServiceEnabled;
+    const newServiceState = !currentServiceState;
+    setActiveOrder({
+      ...activeOrder,
+      serviceChargeEnabled: newServiceState
+    });
+    showToast(newServiceState ? 'تم تفعيل رسوم الخدمة للطلب' : 'تم إلغاء رسوم الخدمة من الطلب', 'info');
+  };
+
+  const handleToggleTax = () => {
+    if (!activeOrder) return;
+    const globalTaxEnabled = settings?.enableTax !== false && settings?.enable_tax !== false;
+    const currentTaxState = activeOrder.taxEnabled !== undefined ? activeOrder.taxEnabled : globalTaxEnabled;
+    const newTaxState = !currentTaxState;
+    setActiveOrder({
+      ...activeOrder,
+      taxEnabled: newTaxState
+    });
+    showToast(newTaxState ? 'تم تفعيل ضريبة القيمة المضافة للطلب' : 'تم إلغاء الضريبة من الطلب', 'info');
+  };
+
+  const handleReprintLast = () => {
+    if (lastOrder) {
+      setIsProformaPrint(false);
+      setOrderToPrint({ ...lastOrder });
+    }
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-100" dir="rtl">
@@ -1492,6 +1530,8 @@ const PosScreen = () => {
             onAddDiscount={handleAddDiscount}
             onPayLater={handlePayLater}
             onRedeemPoints={handleRedeemPoints}
+            onToggleServiceCharge={handleToggleServiceCharge}
+            onToggleTax={handleToggleTax}
           />
         </section>
 
