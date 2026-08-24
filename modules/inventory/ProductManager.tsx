@@ -1228,7 +1228,7 @@ const ProductManager = () => {
         };
         await updateProduct(editingId, itemData);
 
-        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL';
+        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED';
 
         // إنشاء / تحديث الرصيد الافتتاحي والقيد للصنف المعدل
         if (isPhysicalStock && formData.opening_stock !== undefined) {
@@ -1268,6 +1268,8 @@ const ProductManager = () => {
                      const ref = `OP-PROD-${editingId.slice(0, 8)}-${Date.now().toString().slice(-4)}`;
                      const lineDesc = formData.product_type === 'RAW_MATERIAL' 
                          ? `مخزون مواد خام افتتاحي - ${formData.name}` 
+                         : formData.product_type === 'MANUFACTURED'
+                         ? `مخزون إنتاج تام افتتاحي - ${formData.name}`
                          : `مخزون افتتاحي - ${formData.name}`;
 
                      await addEntry({
@@ -1307,7 +1309,7 @@ const ProductManager = () => {
             return;
         }
         
-        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL';
+        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED';
         const productPayload = {
           name: formData.name,
           sku: formData.sku || null,
@@ -2430,8 +2432,8 @@ const ProductManager = () => {
                   </div>
               )}
 
-              {/* حقل الرصيد الافتتاحي (يظهر لصنف مخزني) */}
-              {(formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (
+              {/* حقل الرصيد الافتتاحي (يظهر للأصناف المخزنية والمواد الخام والتصنيعية) */}
+              {(formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED') && (
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                       <h4 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
                           <PackageOpen className="text-emerald-600" size={18} /> الرصيد الافتتاحي الأولي
@@ -2481,7 +2483,7 @@ const ProductManager = () => {
               )}
 
               {/* إذا كان الصنف قيد التعديل، عرض سجل الرصيد الافتتاحي إن وجد */}
-              {editingId && (formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (
+              {editingId && (formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED') && (
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
                       <h4 className="font-bold text-slate-700 text-xs flex items-center gap-2">
                           <PackageOpen className="text-blue-600" size={16} /> سجل الرصيد الافتتاحي المسجل للصنف:
