@@ -84,7 +84,10 @@ const PurchaseReturnForm = () => {
   // تصفية فواتير المشتريات بناءً على المورد المختار
   const supplierInvoices = useMemo(() => {
     if (!formData.supplierId) return [];
-    return purchaseInvoices.filter(inv => inv.supplierId === formData.supplierId && (inv.status as any) === 'posted');
+    return purchaseInvoices.filter(inv => {
+      const invSuppId = inv.supplier_id || inv.supplierId;
+      return String(invSuppId) === String(formData.supplierId);
+    });
   }, [formData.supplierId, purchaseInvoices]);
 
   // تحديث معرف المنظمة عند اختيار فاتورة
@@ -96,6 +99,41 @@ const PurchaseReturnForm = () => {
           }
       }
   }, [formData.originalInvoiceId, supplierInvoices]);
+
+  // معالجة اختيار فاتورة الشراء الأصلية واستيراد أصنافها تلقائياً
+  const handleSelectInvoice = async (invoiceId: string) => {
+    setFormData(prev => ({ ...prev, originalInvoiceId: invoiceId }));
+    if (!invoiceId) return;
+
+    try {
+      const { data: invItems, error } = await supabase
+        .from('purchase_invoice_items')
+        .select(`
+          id, product_id, quantity, unit_price, total, uom_id,
+          products(name, sku, purchase_price, base_uom_id)
+        `)
+        .eq('purchase_invoice_id', invoiceId);
+
+      if (error) throw error;
+
+      if (invItems && invItems.length > 0) {
+        const mapped = invItems.map(item => ({
+          id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          productId: item.product_id,
+          name: item.products?.name || 'صنف',
+          quantity: Number(item.quantity) || 1,
+          maxQuantity: Number(item.quantity) || 1,
+          price: Number(item.unit_price) || 0,
+          uomId: item.uom_id || item.products?.base_uom_id || '',
+          total: Number(item.total) || ((Number(item.quantity) || 1) * (Number(item.unit_price) || 0))
+        }));
+        setItems(mapped);
+        showToast(`تم استيراد ${mapped.length} صنف من الفاتورة الأصلية بنجاح ✅`, 'info');
+      }
+    } catch (e: any) {
+      console.error('Failed to load invoice items:', e);
+    }
+  };
 
   useEffect(() => {
     if (warehouses.length === 1 && !formData.warehouseId && !editingId) {
@@ -461,7 +499,7 @@ const PurchaseReturnForm = () => {
       date: formData.date,
       supplierName: suppliers.find(s => s.id === formData.supplierId)?.name || '-',
       warehouseName: warehouses.find(w => w.id === formData.warehouseId)?.name || '-',
-      originalInvoiceNumber: supplierInvoices.find(i => i.id === formData.originalInvoiceId)?.invoiceNumber || '',
+      originalInvoiceNumber: supplierInvoices.find(i => i.id === formData.originalInvoiceId)?.invoice_number || supplierInvoices.find(i => i.id === formData.originalInvoiceId)?.invoiceNumber || '',
       notes: formData.notes,
       totalAmount: totalAmount,
       taxAmount: taxAmount,
@@ -640,18 +678,48 @@ const PurchaseReturnForm = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">المورد <span className="text-red-500">*</span></label>
-            <select required value={formData.supplierId} onChange={e => setFormData({ ...formData, supplierId: e.target.value })} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-orange-500">
+            <select 
+              required 
+              value={formData.supplierId} 
+              onChange={e => {
+                setFormData(prev => ({ 
+                  ...prev, 
+                  supplierId: e.target.value,
+                  originalInvoiceId: '' 
+                }));
+              }} 
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-orange-500"
+            >
               <option value="">اختر المورد...</option>
               {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">الفاتورة الأصلية (اختياري)</label>
-            <select value={formData.originalInvoiceId} onChange={e => setFormData({ ...formData, originalInvoiceId: e.target.value })} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-orange-500" disabled={!formData.supplierId}>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              الفاتورة الأصلية (اختياري)
+              {formData.supplierId && (
+                <span className="text-[11px] font-normal text-slate-500 mr-2">
+                  ({supplierInvoices.length} فاتورة متاحة)
+                </span>
+              )}
+            </label>
+            <select 
+              value={formData.originalInvoiceId} 
+              onChange={e => handleSelectInvoice(e.target.value)} 
+              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm outline-none focus:border-orange-500 font-medium" 
+              disabled={!formData.supplierId}
+            >
               <option value="">-- بدون ربط (مرتجع حر) --</option>
-              {supplierInvoices.map(inv => (
-                <option key={inv.id} value={inv.id}>{inv.invoiceNumber} ({new Date(inv.date).toLocaleDateString('ar-EG')})</option>
-              ))}
+              {supplierInvoices.map(inv => {
+                const invNum = inv.invoice_number || inv.invoiceNumber || inv.id?.substring(0, 8);
+                const invDate = inv.invoice_date || inv.date || inv.created_at;
+                const invTotal = inv.total || inv.grand_total || inv.net_total || 0;
+                return (
+                  <option key={inv.id} value={inv.id}>
+                    فاتورة رقم {invNum} ({invDate ? new Date(invDate).toLocaleDateString('ar-EG') : ''}) - {Number(invTotal).toLocaleString()} ج.م
+                  </option>
+                );
+              })}
             </select>
           </div>
           <div>

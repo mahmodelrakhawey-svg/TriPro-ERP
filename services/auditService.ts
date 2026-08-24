@@ -37,26 +37,30 @@ export const logDocumentAction = async ({
         const actionLabel = getActionArabicLabel(action);
         const description = details?.note || `${actionLabel} (${documentId})`;
 
-        const payload = {
+        const payload: any = {
             event_type: 'DOCUMENT_AUDIT',
             description: description,
-            module: documentType,
-            severity: 'info',
             metadata: {
+                module: documentType,
+                severity: 'info',
                 document_type: documentType,
                 document_id: String(documentId),
                 action: action,
                 action_label: actionLabel,
+                user_id: userId || null,
                 user_name: userName || 'مستخدم النظام',
                 ...details
             },
-            user_id: userId || null,
             created_at: new Date().toISOString()
         };
 
+        if (organizationId) {
+            payload.organization_id = organizationId;
+        }
+
         await supabase.from('security_logs').insert([payload]);
     } catch (err) {
-        console.warn('Silent notice: Failed to log document action to security_logs:', err);
+        // صامت لضمان عدم التأثير على العمليات الرئيسية
     }
 };
 

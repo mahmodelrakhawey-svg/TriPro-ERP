@@ -61,7 +61,7 @@ interface CloudBackup {
 }
 
 const Settings = () => {
-  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses } = useAccounting();
+  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses, refreshData } = useAccounting();
   const currentUserRole = currentUser?.role || '';
   const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'terminals' | 'demo' | 'eta'>('general');
   const [terminalsList, setTerminalsList] = useState<any[]>([]);
@@ -402,13 +402,16 @@ const Settings = () => {
         }
 
         // تسجيل العملية في سجلات الأمان
-        await supabase.from('security_logs').insert({
-            event_type: 'settings_update',
-            description: `تم تحديث إعدادات المنشأة بواسطة ${(currentUser as any)?.full_name}`,
-            organization_id: (currentUser as any)?.organization_id,
-            performed_by: currentUser?.id,
-            metadata: { changes }
-        });
+        try {
+            await supabase.from('security_logs').insert({
+                event_type: 'settings_update',
+                description: `تم تحديث إعدادات المنشأة بواسطة ${(currentUser as any)?.full_name}`,
+                organization_id: (currentUser as any)?.organization_id,
+                metadata: { changes, performed_by: currentUser?.id }
+            });
+        } catch (e) {
+            // صامت
+        }
 
         // تحديث القيمة الأصلية المسجلة للتغييرات التالية
         setOriginalSettings({ ...formData });
@@ -844,7 +847,8 @@ const Settings = () => {
       }
   };
 
-  const handleAutoMapping = () => {
+  const handleAutoMapping = async () => {
+      const orgId = (currentUser as any)?.organization_id;
       const mappingSource = {
           ...SYSTEM_ACCOUNTS, 
           CASH_SHORTAGE: '541',
@@ -861,11 +865,35 @@ const Settings = () => {
       };
 
       const newMappings = { ...formData.accountMappings };
+      let currentAccs = [...accounts];
       let linkedCount = 0;
+
+      // إنشاء حساب رسوم الخدمة 41104 تلقائياً إذا لم يكن مضافاً في شجرة الحسابات
+      if (orgId && !currentAccs.some(acc => acc.code === '41104')) {
+          try {
+              const parent41 = currentAccs.find(acc => acc.code === '41') || currentAccs.find(acc => acc.code === '4');
+              const { data: createdAcc, error: createErr } = await supabase.from('accounts').insert({
+                  organization_id: orgId,
+                  code: '41104',
+                  name: 'إيرادات رسوم الخدمة (المطاعم)',
+                  type: 'REVENUE',
+                  is_group: false,
+                  is_active: true,
+                  parent_id: parent41?.id || null
+              }).select().maybeSingle();
+
+              if (!createErr && createdAcc) {
+                  currentAccs.push(createdAcc);
+                  await refreshData();
+              }
+          } catch (e) {
+              console.error('Failed to auto-create 41104 account:', e);
+          }
+      }
 
       Object.entries(mappingSource).forEach(([key, defaultCode]) => {
           // البحث عن الحساب بالكود الافتراضي بشرط ألا يكون حساباً تجميعياً
-          const matchedAccount = accounts.find(acc => acc.code === defaultCode && !acc.isGroup);
+          const matchedAccount = currentAccs.find(acc => acc.code === defaultCode && !acc.isGroup);
           if (matchedAccount) {
               newMappings[key] = matchedAccount.id;
               linkedCount++;
