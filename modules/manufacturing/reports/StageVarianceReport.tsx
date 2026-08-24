@@ -62,22 +62,22 @@ const StageVarianceReport = ({ orderId }: { orderId: string }) => {
       <div className="overflow-x-auto">
         <table className="w-full text-right text-xs">
           <thead>
-            <tr className="bg-slate-100 text-slate-600">
-              <th className="p-3 border-b border-l row-span-2">المرحلة</th>
-              <th colSpan={3} className="p-2 border-b border-l text-center bg-blue-50/50">تكلفة المواد</th>
-              <th colSpan={3} className="p-2 border-b border-l text-center bg-amber-50/50">الأجور المباشرة</th>
-              <th colSpan={3} className="p-2 border-b text-center bg-purple-50/50">الإجمالي الكلي</th>
+            <tr className="bg-slate-100 text-slate-700 font-bold">
+              <th rowSpan={2} className="p-3 border-b border-l text-right align-middle bg-slate-100 min-w-[180px]">المرحلة</th>
+              <th colSpan={3} className="p-2 border-b border-l text-center bg-blue-50 text-blue-900 font-black">تكلفة المواد</th>
+              <th colSpan={3} className="p-2 border-b border-l text-center bg-amber-50 text-amber-900 font-black">الأجور المباشرة</th>
+              <th colSpan={3} className="p-2 border-b text-center bg-purple-50 text-purple-900 font-black">الإجمالي الكلي</th>
             </tr>
-            <tr className="bg-slate-50 text-[10px] text-slate-500">
+            <tr className="bg-slate-50 text-[10px] text-slate-500 font-bold">
               <th className="p-2 border-b border-l text-center">معياري</th>
               <th className="p-2 border-b border-l text-center">فعلي</th>
               <th className="p-2 border-b border-l text-center">الانحراف</th>
               <th className="p-2 border-b border-l text-center">معياري</th>
               <th className="p-2 border-b border-l text-center">فعلي</th>
               <th className="p-2 border-b border-l text-center">الانحراف</th>
-              <th className="p-2 border-b border-l text-center font-bold">معياري</th>
-              <th className="p-2 border-b border-l text-center font-bold">فعلي</th>
-              <th className="p-2 border-b text-center font-bold">الفرق</th>
+              <th className="p-2 border-b border-l text-center font-black text-slate-800">معياري</th>
+              <th className="p-2 border-b border-l text-center font-black text-slate-800">فعلي</th>
+              <th className="p-2 border-b text-center font-black text-slate-800">الفرق</th>
             </tr>
           </thead>
           <tbody>

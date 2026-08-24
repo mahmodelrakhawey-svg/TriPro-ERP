@@ -639,7 +639,7 @@ export const InvoiceList = () => {
 
       {/* Hidden printable invoice */}
       {invoiceToPrint && (
-        <SalesInvoicePrint invoice={invoiceToPrint} />
+        <SalesInvoicePrint invoice={invoiceToPrint} companySettings={companySettings} />
       )}
     </div>
   );

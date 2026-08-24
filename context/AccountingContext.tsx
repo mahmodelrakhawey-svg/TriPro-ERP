@@ -680,7 +680,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
   const addPaymentVoucher = async (data: any) => { 
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data: { session } } = await supabase.auth.getSession();
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id || (currentUser as any)?.user_metadata?.org_id;
     const supplierId = data.partyId || data.supplierId || data.supplier_id;
     const treasuryId = data.treasuryAccountId || data.treasury_account_id || data.treasuryId;
     const amount = Number(data.amount) || 0;
@@ -694,8 +695,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ? (supplierName && !notes.includes(supplierName) ? `${notes} (${supplierName})` : notes)
       : `سند صرف للمورد ${supplierName}`.trim();
 
-    const supplierAcc = getSystemAccount('SUPPLIERS') || accounts.find(a => a.code === '201' || a.code === '20101' || a.code?.startsWith('201') || a.name?.includes('مورد'));
-    const supplierAccId = supplierAcc?.id;
+    // 🛡️ تحديد حساب المورد المدين
+    let supplierAccId = supplier?.account_id || supplier?.accountId || 
+                          getSystemAccount('SUPPLIERS')?.id || 
+                          accounts.find(a => a.code === '201' || a.code === '20101' || a.code === '2201' || a.code?.startsWith('201') || a.name?.includes('مورد'))?.id;
+
+    if (!supplierAccId && targetOrgId) {
+      const { data: dbAcc } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('organization_id', targetOrgId)
+        .or('code.eq.201,code.eq.20101,code.eq.2201,name.ilike.%مورد%')
+        .limit(1)
+        .maybeSingle();
+      if (dbAcc) supplierAccId = dbAcc.id;
+    }
 
     // 1. إدراج السند في جدول payment_vouchers
     const { data: pvData, error: pvError } = await supabase.from('payment_vouchers').insert({
@@ -713,24 +727,94 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.warn('payment_vouchers insert warning:', pvError);
     }
 
-    // 2. إنشاء القيد المحاسبي لسند الصرف
+    const voucherId = pvData?.id;
+
+    // 2. إنشاء القيد المحاسبي لسند الصرف بشكل مضمون
     if (amount > 0 && supplierAccId && treasuryId) {
-      try {
-        await addEntry({
-          date: date,
-          description: fullDesc,
-          reference: voucherNumber,
-          status: 'posted',
-          p_org_id: targetOrgId,
-          related_document_id: pvData?.id || data.invoiceId || null,
-          related_document_type: 'payment_voucher',
-          lines: [
-            { accountId: supplierAccId, debit: amount, credit: 0, description: fullDesc },
-            { accountId: treasuryId, debit: 0, credit: amount, description: `سداد سند صرف ${voucherNumber}` }
-          ]
-        });
-      } catch (jeErr) {
-        console.error('Failed to create journal entry for payment voucher:', jeErr);
+      let entryCreated = false;
+
+      // محاولة 1: الدالة الآمنة في قاعدة البيانات
+      if (voucherId) {
+        try {
+          const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', {
+            p_voucher_id: voucherId,
+            p_debit_account_id: supplierAccId
+          });
+          if (!rpcErr) entryCreated = true;
+        } catch (rpcEx) {
+          console.warn('approve_payment_voucher RPC failed, falling back to manual entry:', rpcEx);
+        }
+      }
+
+      // محاولة 2: استخدام دالة addEntry
+      if (!entryCreated) {
+        try {
+          await addEntry({
+            date: date,
+            description: fullDesc,
+            reference: voucherNumber,
+            status: 'posted',
+            p_org_id: targetOrgId,
+            lines: [
+              { account_id: supplierAccId, accountId: supplierAccId, debit: amount, credit: 0, description: fullDesc },
+              { account_id: treasuryId, accountId: treasuryId, debit: 0, credit: amount, description: `سداد سند صرف ${voucherNumber}` }
+            ]
+          });
+          entryCreated = true;
+        } catch (addErr) {
+          console.warn('addEntry RPC failed, falling back to direct table insert:', addErr);
+        }
+      }
+
+      // محاولة 3: إدراج مباشر في journal_entries و journal_lines
+      if (!entryCreated && targetOrgId) {
+        try {
+          const { data: newJe, error: jeErr } = await supabase
+            .from('journal_entries')
+            .insert({
+              transaction_date: date,
+              description: fullDesc,
+              reference: voucherNumber,
+              status: 'posted',
+              is_posted: true,
+              organization_id: targetOrgId,
+              related_document_id: voucherId || data.invoiceId || null,
+              related_document_type: 'payment_voucher'
+            })
+            .select('id')
+            .single();
+
+          if (!jeErr && newJe) {
+            await supabase.from('journal_lines').insert([
+              {
+                journal_entry_id: newJe.id,
+                account_id: supplierAccId,
+                debit: amount,
+                credit: 0,
+                description: fullDesc,
+                organization_id: targetOrgId
+              },
+              {
+                journal_entry_id: newJe.id,
+                account_id: treasuryId,
+                debit: 0,
+                credit: amount,
+                description: `سداد سند صرف ${voucherNumber}`,
+                organization_id: targetOrgId
+              }
+            ]);
+
+            if (voucherId) {
+              await supabase
+                .from('payment_vouchers')
+                .update({ related_journal_entry_id: newJe.id })
+                .eq('id', voucherId);
+            }
+            entryCreated = true;
+          }
+        } catch (directErr) {
+          console.error('Direct journal entry insert error:', directErr);
+        }
       }
     }
 
@@ -753,6 +837,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       } catch (invErr) {
         console.error('Failed to update purchase invoice paid_amount:', invErr);
+      }
+    }
+
+    // 4. إعادة مزامنة أرصدة الحسابات والموردين
+    if (targetOrgId) {
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+      } catch (recErr) {
+        console.warn('recalculate balances error:', recErr);
       }
     }
 

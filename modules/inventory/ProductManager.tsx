@@ -354,7 +354,8 @@ const ProductManager = () => {
         cogs_account_id: cogsAccId || '',
         sales_account_id: salesAccId || '',
         image_url: item.image_url || '',
-        opening_stock: 0,
+        opening_stock: (Number(item.stock) || Number((item as any).opening_balance) || 0),
+        opening_warehouse_id: warehouses[0]?.id || '',
         category_id: item.category_id || null,
         min_stock_level: item.min_stock_level || 0,
         requires_serial: item.requires_serial, // Now it's guaranteed to be boolean
@@ -1225,7 +1226,81 @@ const ProductManager = () => {
             overhead_cost: formData.overhead_cost || 0,
             is_overhead_percentage: formData.is_overhead_percentage || false
         };
-        await updateProduct(editingId, itemData); // Use handleError for consistency
+        await updateProduct(editingId, itemData);
+
+        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL';
+
+        // إنشاء / تحديث الرصيد الافتتاحي والقيد للصنف المعدل
+        if (isPhysicalStock && formData.opening_stock !== undefined) {
+            // حذف أي رصيد افتتاحي سابق أو قيد مرتبط بهذا الصنف لتجنب التكرار
+            await supabase.from('opening_inventories').delete().eq('product_id', editingId);
+            await supabase.from('journal_entries').delete().eq('organization_id', orgId).like('reference', `OP-PROD-%${editingId.slice(0, 8)}%`);
+
+            if (Number(formData.opening_stock) > 0) {
+                const targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
+                if (targetWarehouseId) {
+                    const { error: opInvErr } = await supabase.from('opening_inventories').insert({
+                        product_id: editingId,
+                        warehouse_id: targetWarehouseId,
+                        quantity: Number(formData.opening_stock),
+                        cost: Number(formData.purchase_price) || 0,
+                        organization_id: orgId,
+                        created_by: currentUser?.id
+                    });
+                    if (opInvErr) console.error("Error creating opening inventory record:", opInvErr);
+                }
+
+                // إنشاء القيد المحاسبي
+                const totalValue = Number(formData.opening_stock) * (Number(formData.purchase_price) || 0);
+                const openingEquityAcc = getSystemAccount('OPENING_BALANCES') || 
+                                         getSystemAccount('RETAINED_EARNINGS') || 
+                                         contextAccounts.find(a => a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300') || a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي'));
+                const equityAccId = openingEquityAcc?.id;
+
+                const defaultRawAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id;
+                const defaultFinishedAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || getSystemAccount('INVENTORY')?.id;
+                const fallbackInvAcc = contextAccounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '103' || a.code === '122' || a.code === '121' || a.name?.includes('مخزون') || a.name?.includes('بضائع'))?.id;
+
+                const inventoryAcc = formData.inventory_account_id || 
+                                     (formData.product_type === 'RAW_MATERIAL' ? (defaultRawAcc || defaultFinishedAcc || fallbackInvAcc) : (defaultFinishedAcc || fallbackInvAcc));
+
+                if (totalValue > 0 && inventoryAcc && equityAccId) {
+                     const ref = `OP-PROD-${editingId.slice(0, 8)}-${Date.now().toString().slice(-4)}`;
+                     const lineDesc = formData.product_type === 'RAW_MATERIAL' 
+                         ? `مخزون مواد خام افتتاحي - ${formData.name}` 
+                         : `مخزون افتتاحي - ${formData.name}`;
+
+                     await addEntry({
+                          date: new Date().toISOString().split('T')[0],
+                          description: `رصيد افتتاحي - ${formData.name}`.substring(0, 255),
+                          reference: ref,
+                          status: 'posted',
+                          p_org_id: orgId,
+                          lines: [
+                              { accountId: inventoryAcc, debit: totalValue, credit: 0, description: lineDesc },
+                              { accountId: equityAccId, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${formData.name}` }
+                          ]
+                     });
+                }
+            }
+
+            // إعادة احتساب المخزون للصنف المعدل
+            try {
+              await recalculateStock(editingId);
+            } catch (e) {
+              console.error('Failed to recalculate stock', e);
+            }
+
+            if (orgId) {
+              try {
+                await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+              } catch (e) {
+                console.error('Failed to recalculate balances', e);
+              }
+            }
+
+            await refreshData();
+        }
       } else {
         if (!can('products', 'create')) {
             showToast('ليس لديك صلاحية إضافة منتجات', 'error');
@@ -2355,8 +2430,8 @@ const ProductManager = () => {
                   </div>
               )}
 
-              {/* حقل الرصيد الافتتاحي (يظهر عند الإضافة لصنف مخزني) */}
-              {!editingId && (formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (
+              {/* حقل الرصيد الافتتاحي (يظهر لصنف مخزني) */}
+              {(formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL') && (
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
                       <h4 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
                           <PackageOpen className="text-emerald-600" size={18} /> الرصيد الافتتاحي الأولي

@@ -269,6 +269,17 @@ const CustomerManager = () => {
         let result;
         if (formData.id) {
             result = await updateCustomer(formData.id, formData);
+
+            // إنشاء / تحديث حركة الرصيد الافتتاحي عند التعديل
+            if (formData.opening_balance !== undefined && Number(formData.opening_balance) !== 0) {
+              await addOpeningBalanceTransaction(
+                formData.id,
+                'customer',
+                Number(formData.opening_balance),
+                new Date().toISOString().split('T')[0],
+                formData.name!
+              );
+            }
         } else {
             result = await addCustomer(formData as any);
             
@@ -639,8 +650,7 @@ const CustomerManager = () => {
               <div><label className="block text-sm font-bold mb-1">البريد الإلكتروني</label><input type="email" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">الرقم الضريبي</label><input type="text" value={formData.tax_number || ''} onChange={e => setFormData({...formData, tax_number: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">العنوان</label><input type="text" value={formData.address || ''} onChange={e => setFormData({...formData, address: e.target.value})} className="w-full border rounded-lg p-2" /></div>
-              <div><label className="block text-sm font-bold mb-1">حد الائتمان</label><input type="number" step="any" value={formData.credit_limit || ''} onChange={e => setFormData({...formData, credit_limit: Number(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0" /></div>
-              {!formData.id && <div><label className="block text-sm font-bold mb-1">الرصيد الافتتاحي (مدين)</label><input type="number" step="any" value={formData.opening_balance || ''} onChange={e => setFormData({...formData, opening_balance: Number(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0.00" /></div>}
+              <div><label className="block text-sm font-bold mb-1">الرصيد الافتتاحي (مدين)</label><input type="number" step="any" value={formData.opening_balance || ''} onChange={e => setFormData({...formData, opening_balance: Number(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0.00" /></div>
               <button type="submit" className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700 mt-4">حفظ البيانات</button>
             </form>
           </div>

@@ -1459,23 +1459,39 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           subtotal: subtotal,
           taxAmount: taxAmount,
           totalAmount: totalAmount,
+          currency: formData.currency || 'EGP',
+          isThermal: false,
           items: items.map(item => ({
-              productName: item.productName,
-              uomName: uoms.find(u => u.id === item.uomId)?.name || '',
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              total: item.total
+              productName: item.productName || item.product_name || products.find(p => p.id === (item.productId || item.product_id))?.name || 'صنف',
+              uomName: uoms.find(u => u.id === (item.uomId || item.uom_id))?.name || '',
+              quantity: Number(item.quantity || 0),
+              unitPrice: Number(item.unitPrice ?? item.unit_price ?? 0),
+              total: Number(item.total ?? (Number(item.quantity || 0) * Number(item.unitPrice ?? item.unit_price ?? 0)))
           }))
       };
       setInvoiceToPrint(printData);
   };
 
   const handleThermalPrint = () => {
-      // إضافة كلاس للطباعة الحرارية للجسم مؤقتاً
-      document.body.classList.add('thermal-print');
-      window.print(); // Use handleError for consistency
-      // إزالة الكلاس بعد الطباعة (أو بعد فترة قصيرة)
-      setTimeout(() => document.body.classList.remove('thermal-print'), 1000);
+      const printData = {
+          invoiceNumber: formData.invoiceNumber || 'مسودة',
+          date: formData.date,
+          customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل نقدي',
+          status: formData.status,
+          subtotal: subtotal,
+          taxAmount: taxAmount,
+          totalAmount: totalAmount,
+          currency: formData.currency || 'EGP',
+          isThermal: true,
+          items: items.map(item => ({
+              productName: item.productName || item.product_name || products.find(p => p.id === (item.productId || item.product_id))?.name || 'صنف',
+              uomName: uoms.find(u => u.id === (item.uomId || item.uom_id))?.name || '',
+              quantity: Number(item.quantity || 0),
+              unitPrice: Number(item.unitPrice ?? item.unit_price ?? 0),
+              total: Number(item.total ?? (Number(item.quantity || 0) * Number(item.unitPrice ?? item.unit_price ?? 0)))
+          }))
+      };
+      setInvoiceToPrint(printData);
   };
 
   const handleCreateCreditNote = () => {
