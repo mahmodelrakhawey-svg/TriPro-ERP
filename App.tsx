@@ -537,6 +537,7 @@ const MainLayout = () => {
                 <Route path="/expense-analysis" element={<ModuleGuard module="accounting"><ExpenseAnalysisReport /></ModuleGuard>} />
                 <Route path="/budget-setup" element={<ModuleGuard module="accounting"><BudgetManager /></ModuleGuard>} />
                 <Route path="/budget-report" element={<ModuleGuard module="accounting"><BudgetVarianceReport /></ModuleGuard>} />
+                <Route path="/budget-variance" element={<ModuleGuard module="accounting"><BudgetVarianceReport /></ModuleGuard>} />
                 <Route path="/fiscal-year-closing" element={<ModuleGuard module="accounting"><FiscalYearClosing /></ModuleGuard>} />
                 <Route path="/fiscal-periods" element={<ModuleGuard module="accounting"><FiscalPeriodManager /></ModuleGuard>} />
                 {/* 💰 مديول الخزينة والبنوك */}

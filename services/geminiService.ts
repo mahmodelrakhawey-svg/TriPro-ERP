@@ -255,11 +255,11 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 const isValidApiKey = (key: string | null | undefined): boolean => {
   if (!key || typeof key !== 'string') return false;
   const clean = key.trim();
-  // يجب أن يتجاوز 10 أحرف ويحتوي على حروف إنجليزية/أرقام فقط (لا عربي)
-  if (clean.length < 10) return false;
+  // مفاتيح Google AI Studio الرسمية تتجاوز 25 حرف وتبدأ بـ AIza
+  if (clean.length < 20) return false;
   if (/[\u0600-\u06FF\u0750-\u077F]/.test(clean)) return false; // رفض الحروف العربية
   if (/[\u274C\u2705\u26A0\u2714\u274E\u2139]/.test(clean)) return false; // رفض الإيموجي
-  return /^[A-Za-z0-9._\-]+$/.test(clean); // أحرف إنجليزية وأرقام فقط
+  return clean.startsWith('AIza') || /^[A-Za-z0-9._\-]{25,}$/.test(clean);
 };
 
 /**
@@ -274,8 +274,7 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
     console.log("استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
     return await callGeminiRestDirect(base64Data, mimeType, clientStoredKey);
   } else if (clientStoredKey && !isValidApiKey(clientStoredKey)) {
-    // مسح المفتاح الفاسد من التخزين تلقائياً
-    console.warn('[scanNationalID] تم اكتشاف مفتاح API فاسد في localStorage وتم حذفه تلقائياً:', clientStoredKey.substring(0, 30));
+    // مسح المفتاح غير الصالح تلقائياً
     secureStorage.removeItem('user_gemini_api_key');
   }
 
@@ -299,7 +298,6 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
     }
   } catch (serverErr: any) {
     if (serverErr.message && !serverErr.message.includes('404')) {
-      console.warn("Server API Route returned error, attempting fallback if available:", serverErr.message);
       lastServerErrorMessage = serverErr.message;
     }
   }
@@ -314,9 +312,9 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
 
   throw new Error(
     lastServerErrorMessage ||
-    'مفتاح Gemini API غير متوفر. يرجى:\n' +
-    '1. الضغط على زر 🔑 "إدخال مفتاح AI المباشر" في النموذج.\n' +
-    '2. أو إضافة VITE_GEMINI_API_KEY في ملف .env (احصل على مفتاح مجاني من aistudio.google.com/app/apikey).'
+    'مفتاح Gemini API غير متوفر أو غير صالح. يرجى:\n' +
+    '1. الضغط على زر 🔑 وإدخال مفتاح Google AI Studio (يبدأ بـ AIzaSy...).\n' +
+    '2. احصل على مفتاحك المجاني من aistudio.google.com/app/apikey.'
   );
 };
 
@@ -330,13 +328,21 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
   // 1. استخراج المفتاح
   const clientStoredKey = typeof window !== 'undefined' ? secureStorage.getItem<string>('user_gemini_api_key') : null;
   const envKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
-  const rawKey = (clientStoredKey && isValidApiKey(clientStoredKey)) ? clientStoredKey : envKey;
+  const rawKey = clientStoredKey || envKey;
 
   if (!rawKey || !rawKey.trim()) {
-    throw new Error('مفتاح Gemini API غير متوفر. يرجى إدخال مفتاح Gemini المجاني أو ضبط VITE_GEMINI_API_KEY.');
+    throw new Error('مفتاح Google Gemini API غير متوفر. يرجى الضغط على زر 🔑 وإدخال مفتاح API المجاني الخاص بك.');
   }
 
   const cleanKey = rawKey.trim().replace(/["'\s]/g, '');
+
+  if (!cleanKey.startsWith('AIza') && cleanKey.startsWith('AQ.')) {
+    secureStorage.removeItem('user_gemini_api_key');
+    throw new Error(
+      'المفتاح المدخل يبدو كـ Access Token مؤقت وليس Google AI Studio API Key.\n' +
+      'يرجى إنشاء مفتاح API مجاني (يبدأ بـ AIzaSy...) من الرابط: https://aistudio.google.com/app/apikey'
+    );
+  }
 
   const invoicePrompt = `
 أنت خبير فحص ومطابقة فواتير المشتريات والحسابات.
@@ -369,11 +375,45 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
 - تأكد أن quantity و unitPrice و total أرقام صحيحة أو عشرية وليست نصوصاً.
 `;
 
-  // محاولة عبر النماذج المعتمدة والرسمية
+  // المحاولة الأولى: عبر المكتبة الرسمية GoogleGenAI SDK
+  try {
+    const ai = new GoogleGenAI({ apiKey: cleanKey });
+    for (const modelName of ['gemini-1.5-flash', 'gemini-2.0-flash']) {
+      try {
+        const response = await ai.models.generateContent({
+          model: modelName,
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
+                { text: invoicePrompt }
+              ]
+            }
+          ],
+          config: {
+            responseMimeType: "application/json"
+          }
+        });
+
+        if (response.text) {
+          const cleanJson = response.text.replace(/```json/gi, '').replace(/```/g, '').trim();
+          return JSON.parse(cleanJson);
+        }
+      } catch (subErr) {
+        console.warn(`SDK model ${modelName} attempt:`, subErr);
+      }
+    }
+  } catch (sdkErr: any) {
+    console.warn("GoogleGenAI SDK fallback to REST:", sdkErr);
+  }
+
+  // المحاولة الثانية: عبر REST API المباشر
   const endpointsToTry = [
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanKey}`,
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${cleanKey}`
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${cleanKey}`
   ];
 
   let lastErrorMsg = '';
@@ -405,20 +445,23 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
       }
 
       const errMsg = data?.error?.message || `HTTP ${res.status}`;
-      if (res.status === 401 || res.status === 403 || (res.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid')))) {
-        throw new Error(`مفتاح Gemini غير صالح: ${errMsg}`);
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid') || errMsg.includes('INVALID_ARGUMENT')))) {
+        throw new Error(`مفتاح Gemini API غير صالح: ${errMsg}\nيرجى التأكد من الحصول على مفتاح AI Studio من aistudio.google.com/app/apikey`);
       }
       if (res.status === 429 || errMsg.includes('Quota') || errMsg.includes('RESOURCE_EXHAUSTED')) {
         throw new Error('تم تجاوز حد الطلبات المجانية لـ Gemini مؤقتاً. يرجى الانتظار ثوانٍ ثم إعادة المحاولة.');
       }
       lastErrorMsg = errMsg;
     } catch (err: any) {
-      if (err?.message && (err.message.includes('مفتاح Gemini') || err.message.includes('حد الطلبات'))) {
+      if (err?.message && (err.message.includes('مفتاح Gemini') || err.message.includes('حد الطلبات') || err.message.includes('Access Token'))) {
         throw err;
       }
       lastErrorMsg = err?.message || String(err);
     }
   }
 
-  throw new Error(lastErrorMsg || 'فشل استخراج بيانات الفاتورة عبر الذكاء الاصطناعي. يرجى التأكد من وضوح الصورة ومفتاح API.');
+  throw new Error(
+    lastErrorMsg || 
+    'تعذر الاتصال بخدمة Gemini. يرجى التأكد من صحة مفتاح Google AI Studio (يبدأ بـ AIzaSy...).'
+  );
 };

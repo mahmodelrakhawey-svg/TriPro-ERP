@@ -1,18 +1,21 @@
 import { useState, useMemo, useEffect } from 'react';
+import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
-import { Download, Printer, Percent, List, Layers, MessageCircle } from 'lucide-react';
+import { Download, Printer, Percent, List, Layers, MessageCircle, RefreshCw, Loader2, Sparkles, TrendingUp, DollarSign, Award } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis } from 'recharts';
 import { useToast } from '../../context/ToastContext';
 
 const OfferBeneficiariesReport = () => {
-  const { invoices, customers, products, settings, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { customers, products, settings, selectedFiscalYear, fiscalYearRange, currentUser } = useAccounting();
   const { showToast } = useToast();
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [viewMode, setViewMode] = useState<'detailed' | 'grouped'>('grouped');
   const [selectedCustomerId, setSelectedCustomerId] = useState('all');
+  const [loading, setLoading] = useState(false);
+  const [salesRecords, setSalesRecords] = useState<any[]>([]);
 
   // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
   useEffect(() => {
@@ -22,66 +25,206 @@ const OfferBeneficiariesReport = () => {
     }
   }, [selectedFiscalYear]);
 
+  // جلب الفواتير وبنودها من قاعدة البيانات
+  const fetchReportData = async () => {
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        setLoading(false);
+        return;
+      }
+
+      // 0. جلب خريطة المنتجات والعملاء بشكل مباشر لضمان دقة الأسعار والعروض
+      const [prodRes, custRes] = await Promise.all([
+        supabase.from('products').select('id, name, sku, sales_price, price, offer_price, offer_start_date, offer_end_date').eq('organization_id', userOrgId),
+        supabase.from('customers').select('id, name, phone').eq('organization_id', userOrgId)
+      ]);
+
+      const productMap: Record<string, any> = {};
+      (prodRes.data || products || []).forEach((p: any) => {
+        productMap[p.id] = p;
+      });
+
+      const customerMap: Record<string, any> = {};
+      (custRes.data || customers || []).forEach((c: any) => {
+        customerMap[c.id] = c;
+      });
+
+      // 1. جلب فواتير المبيعات مع بنود الأصناف
+      const { data: invData, error: invErr } = await supabase
+        .from('invoices')
+        .select(`
+          id, invoice_number, invoice_date, total_amount, discount_amount, customer_id, status,
+          invoice_items (
+            product_id, quantity, unit_price, total
+          )
+        `)
+        .eq('organization_id', userOrgId)
+        .not('status', 'in', '("draft","cancelled")')
+        .gte('invoice_date', startDate)
+        .lte('invoice_date', endDate);
+
+      // 2. جلب طلبات المطعم مع بنودها
+      const { data: ordData, error: ordErr } = await supabase
+        .from('orders')
+        .select(`
+          id, order_number, created_at, grand_total, discount_amount, customer_id, status,
+          order_items (
+            product_id, quantity, unit_price, total_price
+          )
+        `)
+        .eq('organization_id', userOrgId)
+        .not('status', 'in', '("DRAFT","CANCELLED")')
+        .gte('created_at', `${startDate}T00:00:00`)
+        .lte('created_at', `${endDate}T23:59:59`);
+
+      const allRecords: any[] = [];
+
+      if (!invErr && invData) {
+        invData.forEach((inv: any) => {
+          const cust = customerMap[inv.customer_id];
+          allRecords.push({
+            id: inv.id,
+            invoiceNumber: inv.invoice_number,
+            date: inv.invoice_date,
+            customerId: inv.customer_id,
+            customerName: cust?.name || 'عميل نقدي',
+            customerPhone: cust?.phone,
+            discountAmount: Number(inv.discount_amount || 0),
+            items: (inv.invoice_items || []).map((i: any) => {
+              const prod = productMap[i.product_id];
+              const originalPrice = Number(prod?.sales_price || prod?.price || i.unit_price || 0);
+              const offerPrice = Number(prod?.offer_price || 0);
+              const soldPrice = Number(i.unit_price || 0);
+
+              return {
+                productId: i.product_id,
+                productName: prod?.name || 'صنف',
+                quantity: Number(i.quantity || 0),
+                soldPrice: soldPrice,
+                total: Number(i.total || (Number(i.quantity || 0) * soldPrice)),
+                originalPrice: originalPrice,
+                offerPrice: offerPrice
+              };
+            })
+          });
+        });
+      }
+
+      if (!ordErr && ordData) {
+        ordData.forEach((ord: any) => {
+          const cust = customerMap[ord.customer_id];
+          allRecords.push({
+            id: ord.id,
+            invoiceNumber: ord.order_number,
+            date: ord.created_at ? ord.created_at.split('T')[0] : '',
+            customerId: ord.customer_id,
+            customerName: cust?.name || 'عميل المطعم (صالة/سفري)',
+            customerPhone: cust?.phone,
+            discountAmount: Number(ord.discount_amount || 0),
+            items: (ord.order_items || []).map((i: any) => {
+              const prod = productMap[i.product_id];
+              const originalPrice = Number(prod?.sales_price || prod?.price || i.unit_price || 0);
+              const offerPrice = Number(prod?.offer_price || 0);
+              const soldPrice = Number(i.unit_price || 0);
+
+              return {
+                productId: i.product_id,
+                productName: prod?.name || 'وجبة/صنف',
+                quantity: Number(i.quantity || 0),
+                soldPrice: soldPrice,
+                total: Number(i.total_price || (Number(i.quantity || 0) * soldPrice)),
+                originalPrice: originalPrice,
+                offerPrice: offerPrice
+              };
+            })
+          });
+        });
+      }
+
+      setSalesRecords(allRecords);
+    } catch (e) {
+      console.error("Error fetching offer beneficiaries data:", e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchReportData();
+  }, [startDate, endDate, currentUser]);
+
   const reportData = useMemo(() => {
     const data: any[] = [];
     
-    invoices?.forEach(inv => {
-      if (inv.status === 'draft' || inv.date < startDate || inv.date > endDate) return;
+    salesRecords.forEach(inv => {
       if (selectedCustomerId !== 'all' && inv.customerId !== selectedCustomerId) return;
 
-      inv.items?.forEach(item => {
-        const product = products.find(p => p.id === item.productId);
-        if (!product) return;
+      inv.items?.forEach((item: any) => {
+        const originalPrice = item.originalPrice > 0 ? item.originalPrice : item.soldPrice;
+        const isOffer = (item.offerPrice > 0 && Math.abs(item.soldPrice - item.offerPrice) < 0.01) || 
+                        (item.soldPrice < originalPrice);
 
-        // التحقق مما إذا كان الصنف مباعاً ضمن عرض
-        // نعتبره عرضاً إذا كان السعر مساوياً لسعر العرض الحالي وكان التاريخ ضمن الفترة
-        // أو إذا كان السعر أقل من سعر البيع الأصلي (خصم)
-        
-        const isOffer = (product.offer_price && item.unitPrice === product.offer_price) || 
-                        (item.unitPrice < (product.sales_price || product.price));
-
-        if (isOffer) {
-          const originalPrice = product.sales_price || product.price || 0;
-          const savings = (originalPrice - item.unitPrice) * item.quantity;
+        if (isOffer && originalPrice > item.soldPrice) {
+          const savings = (originalPrice - item.soldPrice) * item.quantity;
           
           if (savings > 0) {
-            const discountPercentage = originalPrice > 0 ? ((originalPrice - item.unitPrice) / originalPrice) * 100 : 0;
-            const customer = customers.find(c => c.id === inv.customerId);
+            const discountPercentage = originalPrice > 0 ? ((originalPrice - item.soldPrice) / originalPrice) * 100 : 0;
             data.push({
               invoiceNumber: inv.invoiceNumber,
               date: inv.date,
-              customerName: inv.customerName || customer?.name || 'عميل نقدي',
-              customerPhone: customer?.phone,
+              customerName: inv.customerName,
+              customerPhone: inv.customerPhone,
               productName: item.productName,
               quantity: item.quantity,
               originalPrice,
-              soldPrice: item.unitPrice,
+              soldPrice: item.soldPrice,
               savings,
               discountPercentage
             });
           }
         }
       });
+
+      // إذا كان هناك خصم عام على الفاتورة (Invoice-level discount)
+      if (inv.discountAmount > 0) {
+        data.push({
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.date,
+          customerName: inv.customerName,
+          customerPhone: inv.customerPhone,
+          productName: 'خصم نقدي مباشر على الفاتورة',
+          quantity: 1,
+          originalPrice: inv.discountAmount,
+          soldPrice: 0,
+          savings: inv.discountAmount,
+          discountPercentage: 100
+        });
+      }
     });
 
     return data.sort((a, b) => b.savings - a.savings);
-  }, [invoices, products, customers, startDate, endDate, selectedCustomerId]);
+  }, [salesRecords, selectedCustomerId]);
 
   const totalSavings = reportData.reduce((sum, item) => sum + item.savings, 0);
 
   const groupedData = useMemo(() => {
     const groups: Record<string, any> = {};
     reportData.forEach(item => {
-      if (!groups[item.customerName]) {
-        groups[item.customerName] = {
-          customerName: item.customerName,
+      const key = item.customerName || 'عميل نقدي';
+      if (!groups[key]) {
+        groups[key] = {
+          customerName: key,
           customerPhone: item.customerPhone,
           savings: 0,
           count: 0
         };
       }
-      groups[item.customerName].savings += item.savings;
-      groups[item.customerName].count += 1;
+      groups[key].savings += item.savings;
+      groups[key].count += 1;
     });
     return Object.values(groups).sort((a: any, b: any) => b.savings - a.savings);
   }, [reportData]);
@@ -90,63 +233,62 @@ const OfferBeneficiariesReport = () => {
     let offerSalesTotal = 0;
     let regularSalesTotal = 0;
 
-    invoices?.forEach(inv => {
-      if (inv.status === 'draft' || inv.date < startDate || inv.date > endDate) return;
+    salesRecords.forEach(inv => {
       if (selectedCustomerId !== 'all' && inv.customerId !== selectedCustomerId) return;
 
-      inv.items?.forEach(item => {
-        const product = products.find(p => p.id === item.productId);
-        if (!product) return;
-
-        const isOffer = (product.offer_price && item.unitPrice === product.offer_price) || 
-                        (item.unitPrice < (product.sales_price || product.price));
+      inv.items?.forEach((item: any) => {
+        const originalPrice = item.originalPrice > 0 ? item.originalPrice : item.soldPrice;
+        const isOffer = (item.offerPrice > 0 && Math.abs(item.soldPrice - item.offerPrice) < 0.01) || 
+                        (item.soldPrice < originalPrice);
 
         if (isOffer) {
-            offerSalesTotal += item.total;
+          offerSalesTotal += item.total;
         } else {
-            regularSalesTotal += item.total;
+          regularSalesTotal += item.total;
         }
       });
     });
 
     return [
-        { name: 'مبيعات العروض', value: offerSalesTotal },
-        { name: 'مبيعات عادية', value: regularSalesTotal }
+      { name: 'مبيعات العروض', value: offerSalesTotal },
+      { name: 'مبيعات عادية', value: regularSalesTotal }
     ];
-  }, [invoices, products, startDate, endDate, selectedCustomerId]);
+  }, [salesRecords, selectedCustomerId]);
 
   const topSellingOffers = useMemo(() => {
     const productStats: Record<string, number> = {};
     reportData.forEach(item => {
+      if (item.productName !== 'خصم نقدي مباشر على الفاتورة') {
         productStats[item.productName] = (productStats[item.productName] || 0) + item.quantity;
+      }
     });
     
     return Object.entries(productStats)
-        .map(([name, quantity]) => ({ name, quantity }))
-        .sort((a, b) => b.quantity - a.quantity)
-        .slice(0, 5);
+      .map(([name, quantity]) => ({ name, quantity }))
+      .sort((a, b) => b.quantity - a.quantity)
+      .slice(0, 5);
   }, [reportData]);
 
   const handleExportExcel = () => {
     let dataToExport = [];
     if (viewMode === 'detailed') {
-        dataToExport = reportData.map(item => ({
-            'رقم الفاتورة': item.invoiceNumber,
-            'التاريخ': item.date,
-            'العميل': item.customerName,
-            'الصنف': item.productName,
-            'الكمية': item.quantity,
-            'السعر الأصلي': item.originalPrice,
-            'سعر البيع (العرض)': item.soldPrice,
-            'نسبة الخصم': `${item.discountPercentage.toFixed(1)}%`,
-            'قيمة التوفير': item.savings
-        }));
+      dataToExport = reportData.map(item => ({
+        'رقم الفاتورة': item.invoiceNumber,
+        'التاريخ': item.date,
+        'العميل': item.customerName,
+        'الصنف': item.productName,
+        'الكمية': item.quantity,
+        'السعر الأصلي': item.originalPrice,
+        'سعر البيع (العرض)': item.soldPrice,
+        'نسبة الخصم': `${item.discountPercentage.toFixed(1)}%`,
+        'قيمة التوفير': item.savings
+      }));
     } else {
-        dataToExport = groupedData.map((item: any) => ({
-            'العميل': item.customerName,
-            'عدد العمليات': item.count,
-            'إجمالي التوفير': item.savings
-        }));
+      dataToExport = groupedData.map((item: any) => ({
+        'العميل': item.customerName,
+        'عدد العمليات': item.count,
+        'إجمالي التوفير': item.savings
+      }));
     }
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
@@ -156,10 +298,10 @@ const OfferBeneficiariesReport = () => {
 
   const handleWhatsApp = (phone: string | undefined, name: string, savings: number) => {
     if (!phone) {
-        showToast('لا يوجد رقم هاتف مسجل لهذا العميل', 'warning');
-        return;
+      showToast('لا يوجد رقم هاتف مسجل لهذا العميل', 'warning');
+      return;
     }
-    const message = `مرحباً ${name}،\nسعدنا بتعاملك معنا! لقد وفرت ${savings.toLocaleString()} ${settings.currency} من خلال عروضنا.\nتابعنا للمزيد من العروض الحصرية!`;
+    const message = `مرحباً ${name}،\nسعدنا بتعاملك معنا! لقد وفرت ${savings.toLocaleString()} ${settings.currency || 'EGP'} من خلال عروضنا وخصوماتنا الحصرية.\nتابعنا دائماً للمزيد من العروض المميزة!`;
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
@@ -173,6 +315,14 @@ const OfferBeneficiariesReport = () => {
           <p className="text-slate-500">قائمة العملاء الذين استفادوا من الخصومات والعروض</p>
         </div>
         <div className="flex gap-2">
+          <button 
+            onClick={fetchReportData} 
+            disabled={loading}
+            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-50 font-bold text-sm shadow-sm transition-all disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+            <span>تحديث</span>
+          </button>
           <button onClick={handleExportExcel} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm transition-all">
             <Download size={16} /> تصدير Excel
           </button>

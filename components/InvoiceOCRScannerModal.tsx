@@ -52,9 +52,13 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
     const handleSaveApiKey = () => {
         const clean = apiKeyInput.trim();
         if (clean) {
+            if (!clean.startsWith('AIza')) {
+                setScanError('تنبيه: مفتاح Google AI Studio الرسمي يبدأ دائماً بـ AIzaSy... يرجى التأكد من نسخه من aistudio.google.com/app/apikey');
+            } else {
+                setScanError(null);
+            }
             secureStorage.setItem('user_gemini_api_key', clean);
             setShowKeyInput(false);
-            setScanError(null);
         }
     };
 

@@ -16,6 +16,7 @@ import { ProductStockViewer } from '../../components/ProductStockViewer';
 import { useToast } from '../../context/ToastContext';
 import { handleError, AppError } from '../../utils/errorHandler';
 import CustomerStatement from './CustomerStatement';
+import { SubledgerRegistry } from '../../services/subledgerRegistry';
 import InvoiceItemsList from '../../components/InvoiceItemsList';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 import { etaService } from '../../services/etaService';
@@ -184,7 +185,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
   }, [formData.customerId, customers]);
 
-  // حساب مديونية العميل عند اختياره
+  // حساب مديونية العميل عند اختياره (مطابق تماماً لكشف الحساب والأستاذ العام)
   const fetchCustomerBalance = async () => {
       if (!formData.customerId) {
           setCustomerBalance(0);
@@ -200,11 +201,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       }
       
       try {
-          const { data: sessionData } = await supabase.auth.getSession();
-const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
+          const { data: { session } } = await supabase.auth.getSession();
+          const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id || (settings as any)?.organization_id;
 
           if (!userOrgId) {
-              showToast('فشل تحديد المنظمة لحساب رصيد العميل.', 'error');
               setCustomerBalance(0);
               return;
           }
@@ -215,25 +215,65 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
               return;
           }
 
-          const customerAcc = getSystemAccount('CUSTOMERS');
-          if (!customerAcc) {
+          // 1. تحديد حساب العملاء (1221) أو حساب التأمين (122101)
+          let targetAccountId = getSystemAccount('CUSTOMERS')?.id;
+          if (!targetAccountId) {
+            const { data: customerAccounts } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('organization_id', userOrgId)
+              .eq('code', '1221')
+              .limit(1);
+            targetAccountId = customerAccounts?.[0]?.id;
+          }
+
+          if (customer?.customer_type === 'insurance_provider') {
+            const { data: insAcc } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('organization_id', userOrgId)
+              .eq('code', '122101')
+              .limit(1);
+            if (insAcc && insAcc.length > 0) {
+              targetAccountId = insAcc[0].id;
+            }
+          }
+
+          if (!targetAccountId) {
               console.error("Customer A/R account not found for balance calculation.");
               setCustomerBalance(0);
               return;
           }
 
-          // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + القيود اليدوية التي تذكر اسمه
+          // جلب المديولات المسموحة للمنظمة
+          const { data: orgData } = await supabase
+            .from('organizations')
+            .select('allowed_modules')
+            .eq('id', userOrgId)
+            .maybeSingle();
+          const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
+
+          // 2. جمع معرفات القيود المرتبطة بالعميل + القيود اليدوية + مستخلصات المشاريع + مجمع الأستاذ المساعد
+          const custName = customer?.name?.trim();
           const [
               invRes, recRes, retRes, cnRes, chqRes, ordRes,
-              manualEntriesRes // Fetch manual entries that mention the customer
+              clientProjectsRes,
+              manualEntriesRes,
+              modularEntryIds
           ] = await Promise.all([
               supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
               supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
               supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
               supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              supabase.from('cheques').select('related_journal_entry_id').eq('party_id', customer.id).eq('type', 'incoming').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
+              custName
+                ? supabase.from('cheques').select('related_journal_entry_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null).or(`party_id.eq.${customer.id},party_name.ilike.%${custName}%`)
+                : supabase.from('cheques').select('related_journal_entry_id').eq('party_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
               supabase.from('orders').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              supabase.from('journal_entries').select('id, related_document_type, reference, description').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${customer.name}%`)
+              supabase.from('projects').select('id, name').eq('customer_id', customer.id).eq('organization_id', userOrgId),
+              custName
+                ? supabase.from('journal_entries').select('id, reference, description, related_document_type').eq('organization_id', userOrgId).eq('status', 'posted').or(`description.ilike.%${custName}%,reference.ilike.%${custName}%,reference.ilike.%OP-CUST-${customer.id}%,reference.ilike.%OB-${customer.id}%`)
+                : Promise.resolve({ data: [] as any[] }),
+              SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, customer.id, custName, allowedModules)
           ]);
 
           const allEntryIds = new Set<string>();
@@ -243,19 +283,51 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
           cnRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
           chqRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
           ordRes.data?.forEach(o => o.related_journal_entry_id && allEntryIds.add(o.related_journal_entry_id));
-          manualEntriesRes.data?.forEach(je => allEntryIds.add(je.id)); // Add IDs from manual entries
+          manualEntriesRes.data?.forEach(je => allEntryIds.add(je.id));
+          modularEntryIds?.forEach(id => { if (id) allEntryIds.add(id); });
+
+          // جلب مستخلصات مشاريع هذا العميل
+          const projectIds = clientProjectsRes.data?.map(p => p.id) || [];
+          if (projectIds.length > 0) {
+            const { data: billings } = await supabase.from('project_progress_billings')
+              .select('related_journal_entry_id')
+              .in('project_id', projectIds)
+              .eq('organization_id', userOrgId)
+              .not('related_journal_entry_id', 'is', null);
+            billings?.forEach(b => b.related_journal_entry_id && allEntryIds.add(b.related_journal_entry_id));
+          }
 
           let movement = 0;
+          let hasOpeningEntryInTrans = false;
+
           if (allEntryIds.size > 0) {
               const { data: ledgerLines } = await supabase.from('journal_lines')
-                .select('debit, credit')
+                .select('journal_entry_id, debit, credit')
                 .in('journal_entry_id', Array.from(allEntryIds))
-                .eq('account_id', customerAcc.id);
+                .eq('account_id', targetAccountId);
 
               movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.debit) - Number(l.credit)), 0) || 0;
+
+              const journalEntryIds = Array.from(new Set(ledgerLines?.map(l => l.journal_entry_id).filter(Boolean) || []));
+              if (journalEntryIds.length > 0) {
+                  const { data: entries } = await supabase
+                    .from('journal_entries')
+                    .select('id, reference, description, related_document_type')
+                    .in('id', journalEntryIds)
+                    .eq('organization_id', userOrgId);
+
+                  hasOpeningEntryInTrans = entries?.some(je => 
+                    je.related_document_type === 'opening_balance' ||
+                    je.reference?.startsWith('OP-CUST-') ||
+                    je.reference?.startsWith('OB-') ||
+                    je.reference?.startsWith('OP-') ||
+                    je.reference?.startsWith('OPENING-') ||
+                    je.description?.includes('رصيد افتتاحي')
+                  ) || false;
+              }
           }
           
-          // Add unposted restaurant sales (if any)
+          // 3. إضافة مبيعات المطاعم غير المرحّلة (إن وجدت)
           const { data: openOrders } = await supabase.from('orders')
             .select('grand_total')
             .eq('customer_id', customer.id)
@@ -265,45 +337,40 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
 
           const unpostedRestaurantSales = openOrders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
 
-          const hasOpeningEntry = manualEntriesRes.data?.some((je: any) => 
-            je.related_document_type === 'opening_balance' || 
-            (je.reference && (je.reference.startsWith('OP-CUST-') || je.reference.startsWith('OP-') || je.reference.startsWith('OB-') || je.reference.startsWith('OPENING-'))) || 
-            (je.description && je.description.includes('رصيد افتتاحي'))
-          );
-          const initialBal = hasOpeningEntry ? 0 : Number(customer.opening_balance || 0);
+          const initialBal = hasOpeningEntryInTrans ? 0 : Number(customer.opening_balance || 0);
 
           setCustomerBalance(initialBal + movement + unpostedRestaurantSales);
 
-            // 🔍 التحقق من الفواتير المتأخرة
-            const { data: overdueData } = await supabase
-                .from('invoices')
-                .select('total_amount, paid_amount, due_date, status')
-                .eq('customer_id', formData.customerId)
-                .eq('organization_id', userOrgId)
-                .neq('status', 'draft');
+          // 🔍 التحقق من الفواتير المتأخرة
+          const { data: overdueData } = await supabase
+              .from('invoices')
+              .select('total_amount, paid_amount, due_date, status')
+              .eq('customer_id', formData.customerId)
+              .eq('organization_id', userOrgId)
+              .neq('status', 'draft');
 
-            const today = new Date().toISOString().split('T')[0];
-            const overdueInvoices = overdueData?.filter((inv: any) => 
-                inv.status !== 'paid' && 
-                inv.due_date && 
-                inv.due_date < today && 
-                (inv.total_amount - (inv.paid_amount || 0)) > 0
-            ) || [];
-            
-            if (overdueInvoices.length > 0) {
-                setTimeout(() => { // Use handleError for consistency
-                    showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
-                }, 500);
-            }
-        } catch (error: any) {
-            console.error("Error calculating customer balance:", error);
-            handleError(error, { showNotification: showToast, context: { customerId: formData.customerId } });
-        }
-    };
+          const today = new Date().toISOString().split('T')[0];
+          const overdueInvoices = overdueData?.filter((inv: any) => 
+              inv.status !== 'paid' && 
+              inv.due_date && 
+              inv.due_date < today && 
+              (inv.total_amount - (inv.paid_amount || 0)) > 0
+          ) || [];
+          
+          if (overdueInvoices.length > 0) {
+              setTimeout(() => {
+                  showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
+              }, 500);
+          }
+      } catch (error: any) {
+          console.error("Error calculating customer balance:", error);
+          handleError(error, { showNotification: showToast, context: { customerId: formData.customerId } });
+      }
+  };
 
-    useEffect(() => {
-        fetchCustomerBalance();
-    }, [formData.customerId, currentUser, contextInvoices]);
+  useEffect(() => {
+      fetchCustomerBalance();
+  }, [formData.customerId, customers, accounts, currentUser, contextInvoices]);
 
   const handleRefreshBalance = async () => {
       setIsRefreshingBalance(true);
@@ -693,10 +760,32 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
       ).slice(0, 8);
   }, [productSearchTerm, products]);
 
-  const getProductPrice = (product: any) => {
-      const price = product.sales_price || 0; // Removed product.price
-      if (pricingTier === 'wholesale') return product.wholesalePrice || price;
-      if (pricingTier === 'half') return product.halfWholesalePrice || price;
+  // 🏷️ دالة التحقق من سريان العرض على الصنف
+  const isOfferActive = (product: any, invDate?: string) => {
+      const targetDate = invDate || formData.date || new Date().toISOString().split('T')[0];
+      const offerPrice = Number(product.offer_price || product.offerPrice || 0);
+      if (offerPrice > 0) {
+          const start = product.offer_start_date || product.offerStartDate;
+          const end = product.offer_end_date || product.offerEndDate;
+          if (start && end) {
+              return targetDate >= start && targetDate <= end;
+          }
+          if (end) {
+              return targetDate <= end;
+          }
+          return true;
+      }
+      return false;
+  };
+
+  const getProductPrice = (product: any, invDate?: string) => {
+      // 🏷️ إذا كان هناك عرض ساري على الصنف، يتم تطبيق سعر العرض تلقائياً
+      if (isOfferActive(product, invDate)) {
+          return Number(product.offer_price || product.offerPrice);
+      }
+      const price = Number(product.sales_price || product.price || 0);
+      if (pricingTier === 'wholesale') return Number(product.wholesalePrice || price);
+      if (pricingTier === 'half') return Number(product.halfWholesalePrice || price);
       return price;
   };
 
@@ -1879,7 +1968,10 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
                                     <div className="divide-y divide-slate-50 max-h-80 overflow-y-auto">
                                         {filteredProducts.map(p => {
                                             const stock = getProductStock(p.id);
+                                            const isOffer = isOfferActive(p);
                                             const price = getProductPrice(p);
+                                            const regularPrice = Number(p.sales_price || p.price || 0);
+
                                             return (
                                                 <button
                                                     key={p.id}
@@ -1892,12 +1984,28 @@ const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
                                                             <Box size={20} />
                                                         </div>
                                                         <div>
-                                                            <p className="font-bold text-slate-800">{p.name}</p>
+                                                            <div className="flex items-center gap-2">
+                                                                <p className="font-bold text-slate-800">{p.name}</p>
+                                                                {isOffer && (
+                                                                    <span className="bg-red-100 text-red-700 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-200">
+                                                                        🔥 عرض خاص
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                             <p className="text-xs text-slate-400 font-mono">{p.sku || 'بدون كود'}</p>
                                                         </div>
                                                     </div>
                                                     <div className="text-left">
-                                                        <p className="font-black text-blue-600">{(price || 0).toLocaleString()} <span className="text-[10px] font-normal">{formData.currency || 'EGP'}</span></p>
+                                                        <div className="flex items-center gap-1.5 justify-end">
+                                                            {isOffer && regularPrice > price && (
+                                                                <span className="text-xs text-slate-400 line-through font-bold">
+                                                                    {regularPrice.toLocaleString()}
+                                                                </span>
+                                                            )}
+                                                            <p className="font-black text-blue-600">
+                                                                {(price || 0).toLocaleString()} <span className="text-[10px] font-normal">{formData.currency || 'EGP'}</span>
+                                                            </p>
+                                                        </div>
                                                         <p className={`text-[10px] font-bold ${stock > 5 ? 'text-emerald-500' : 'text-red-500'}`}>
                                                             المخزون: {stock}
                                                         </p>

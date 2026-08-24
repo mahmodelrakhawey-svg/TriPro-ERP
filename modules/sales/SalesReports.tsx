@@ -33,68 +33,133 @@ const SalesReports = () => {
     }
   }, [selectedFiscalYear]);
 
-  // State for restaurant orders
+  // State for showroom invoices and restaurant orders
+  const [showroomInvoices, setShowroomInvoices] = useState<any[]>([]);
   const [restaurantOrders, setRestaurantOrders] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // Fetch Restaurant Orders on date change
-  useEffect(() => {
-    const fetchRestaurantOrders = async () => {
-        if (currentUser?.role === 'demo') return;
+  // Fetch Sales & Restaurant Data on date/filter change
+  const fetchSalesData = async () => {
+    if (currentUser?.role === 'demo') {
+        const mappedDemo = (invoices || []).map((inv: any) => ({
+            id: inv.id,
+            invoiceNumber: inv.invoiceNumber || inv.invoice_number,
+            date: inv.date || inv.invoice_date,
+            totalAmount: Number(inv.totalAmount || inv.total_amount || 0),
+            salespersonId: inv.salespersonId || inv.salesperson_id || 'unassigned',
+            customerId: inv.customerId || inv.customer_id,
+            warehouseId: inv.warehouseId || inv.warehouse_id,
+            status: inv.status,
+            source: 'showroom',
+            items: (inv.items || []).map((i: any) => ({
+                productId: i.productId || i.product_id,
+                productName: i.productName || i.name || 'صنف',
+                productSku: i.productSku || i.sku || '-',
+                quantity: Number(i.quantity || 0),
+                total: Number(i.total || (Number(i.quantity || 0) * Number(i.unitPrice || i.price || 0)))
+            }))
+        }));
+        setShowroomInvoices(mappedDemo);
+        return;
+    }
 
-        try {
-            const { data: { user } } = await supabase.auth.getUser();
-            const userOrgId = user?.user_metadata?.org_id;
+    setLoading(true);
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
-            if (!userOrgId) return;
-
-            const { data, error } = await supabase
-                .from('orders')
-                .select(`
-                    id, order_number, created_at, grand_total, user_id, customer_id, warehouse_id, status,
-                    order_items (
-                        product_id, quantity, total_price,
-                        products (name, sku)
-                    )
-                `)
-                .eq('organization_id', userOrgId)
-                .eq('status', 'COMPLETED')
-                .gte('created_at', `${startDate}T00:00:00`)
-                .lte('created_at', `${endDate}T23:59:59`);
-
-            if (!error && data) {
-                const mappedOrders = data.map((o: any) => ({
-                    id: o.id,
-                    invoiceNumber: o.order_number,
-                    date: o.created_at.split('T')[0],
-                    totalAmount: o.grand_total,
-                    salespersonId: o.user_id,
-                    customerId: o.customer_id,
-                    warehouseId: o.warehouse_id,
-                    status: 'paid', // Restaurant orders are considered paid/confirmed sales
-                    source: 'restaurant',
-                    items: o.order_items.map((i: any) => ({
-                        productId: i.product_id,
-                        productName: i.products?.name || 'وجبة/صنف',
-                        productSku: i.products?.sku,
-                        quantity: i.quantity,
-                        total: i.total_price
-                    }))
-                }));
-                setRestaurantOrders(mappedOrders);
-            }
-        } catch (e) {
-            console.error("Error fetching restaurant orders:", e);
+        if (!userOrgId) {
+            setLoading(false);
+            return;
         }
-    };
 
-    fetchRestaurantOrders();
-  }, [startDate, endDate, currentUser]);
+        // 1. جلب فواتير المعرض (Showroom Invoices) مع بنود الأصناف
+        const { data: invData, error: invError } = await supabase
+            .from('invoices')
+            .select(`
+                id, invoice_number, invoice_date, total_amount, salesperson_id, customer_id, warehouse_id, status,
+                invoice_items (
+                    product_id, quantity, unit_price, total,
+                    products (name, sku)
+                )
+            `)
+            .eq('organization_id', userOrgId)
+            .not('status', 'in', '("draft","cancelled")')
+            .gte('invoice_date', startDate)
+            .lte('invoice_date', endDate);
+
+        if (!invError && invData) {
+            const mappedShowroom = invData.map((inv: any) => ({
+                id: inv.id,
+                invoiceNumber: inv.invoice_number,
+                date: inv.invoice_date,
+                totalAmount: Number(inv.total_amount || 0),
+                salespersonId: inv.salesperson_id || 'unassigned',
+                customerId: inv.customer_id,
+                warehouseId: inv.warehouse_id,
+                status: inv.status,
+                source: 'showroom',
+                items: (inv.invoice_items || []).map((i: any) => ({
+                    productId: i.product_id,
+                    productName: i.products?.name || 'صنف',
+                    productSku: i.products?.sku || '-',
+                    quantity: Number(i.quantity || 0),
+                    total: Number(i.total || (Number(i.quantity || 0) * Number(i.unit_price || 0)))
+                }))
+            }));
+            setShowroomInvoices(mappedShowroom);
+        }
+
+        // 2. جلب طلبات المطعم (Restaurant Orders)
+        const { data: ordData, error: ordError } = await supabase
+            .from('orders')
+            .select(`
+                id, order_number, created_at, grand_total, user_id, customer_id, warehouse_id, status,
+                order_items (
+                    product_id, quantity, total_price,
+                    products (name, sku)
+                )
+            `)
+            .eq('organization_id', userOrgId)
+            .not('status', 'in', '("DRAFT","CANCELLED")')
+            .gte('created_at', `${startDate}T00:00:00`)
+            .lte('created_at', `${endDate}T23:59:59`);
+
+        if (!ordError && ordData) {
+            const mappedOrders = ordData.map((o: any) => ({
+                id: o.id,
+                invoiceNumber: o.order_number,
+                date: o.created_at ? o.created_at.split('T')[0] : '',
+                totalAmount: Number(o.grand_total || 0),
+                salespersonId: o.user_id || 'unassigned',
+                customerId: o.customer_id,
+                warehouseId: o.warehouse_id,
+                status: o.status,
+                source: 'restaurant',
+                items: (o.order_items || []).map((i: any) => ({
+                    productId: i.product_id,
+                    productName: i.products?.name || 'وجبة/صنف',
+                    productSku: i.products?.sku || '-',
+                    quantity: Number(i.quantity || 0),
+                    total: Number(i.total_price || 0)
+                }))
+            }));
+            setRestaurantOrders(mappedOrders);
+        }
+    } catch (e) {
+        console.error("Error fetching sales reports data:", e);
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSalesData();
+  }, [startDate, endDate, currentUser, invoices]);
 
   // --- CORE LOGIC ---
   const analytics = useMemo(() => {
-    // Combine Invoices and Restaurant Orders
-    const showroomSales = (invoices || []).map((inv: any) => ({ ...inv, source: 'showroom' }));
-    const allSales = [...showroomSales, ...restaurantOrders];
+    const allSales = [...showroomInvoices, ...restaurantOrders];
 
     // 1. Filter Combined Sales
     const filteredInvoices = allSales.filter((inv: any) => {
@@ -106,11 +171,11 @@ const SalesReports = () => {
         let matchType = true;
         if (customerType !== 'all') {
             const customer = (customers || []).find(c => c.id === inv.customerId);
-            const type = customer?.customerType || 'store';
+            const type = customer?.customerType || customer?.customer_type || 'store';
             matchType = type === customerType;
         }
 
-        return matchSalesperson && matchCustomer && matchDate && matchType && matchSource && inv.status !== 'draft';
+        return matchSalesperson && matchCustomer && matchDate && matchType && matchSource;
     });
 
     // 2. Aggregate Data
@@ -122,46 +187,50 @@ const SalesReports = () => {
     let totalItems = 0;
 
     filteredInvoices.forEach((inv: any) => {
-        totalRevenue += inv.totalAmount;
+        const invTotal = Number(inv.totalAmount || 0);
+        totalRevenue += invTotal;
         
         // --- Branch Analytics Logic ---
         const wid = inv.warehouseId || 'unassigned';
         if (!branchStatsMap[wid]) {
-            const wName = (warehouses || []).find(w => w.id === wid)?.name || 'فرع غير معروف';
+            const wName = (warehouses || []).find(w => w.id === wid)?.name || 'فرع المعرض / المطعم';
             branchStatsMap[wid] = { name: wName, storeSales: 0, onlineSales: 0, total: 0 };
         }
         
         const customer = (customers || []).find(c => c.id === inv.customerId);
-        const isOnline = customer?.customerType === 'online';
+        const isOnline = customer?.customerType === 'online' || customer?.customer_type === 'online';
         
-        branchStatsMap[wid].total += inv.totalAmount;
-        if (isOnline) branchStatsMap[wid].onlineSales += inv.totalAmount;
-        else branchStatsMap[wid].storeSales += inv.totalAmount;
+        branchStatsMap[wid].total += invTotal;
+        if (isOnline) branchStatsMap[wid].onlineSales += invTotal;
+        else branchStatsMap[wid].storeSales += invTotal;
 
         // --- Salesperson Stats ---
         const sid = inv.salespersonId || 'unassigned';
         if (!salespersonStatsMap[sid]) {
-            const sName = (salespeople || []).find(s => s.id === sid)?.name || 'غير محدد';
+            const sName = (salespeople || []).find(s => s.id === sid)?.name || (sid === 'unassigned' ? 'مبيعات مباشرة / أخرى' : 'غير محدد');
             salespersonStatsMap[sid] = { name: sName, qty: 0, total: 0, commission: 0 };
         }
-        salespersonStatsMap[sid].total += inv.totalAmount;
+        salespersonStatsMap[sid].total += invTotal;
 
         // --- Product Stats ---
-        inv.items.forEach(item => {
+        (inv.items || []).forEach((item: any) => {
             if (!item.productId) return;
-            totalItems += item.quantity;
-            salespersonStatsMap[sid].qty += item.quantity;
+            const itemQty = Number(item.quantity || 0);
+            const itemTotal = Number(item.total || 0);
+
+            totalItems += itemQty;
+            salespersonStatsMap[sid].qty += itemQty;
 
             if (!productSalesMap[item.productId]) {
                 productSalesMap[item.productId] = { 
-                    name: item.productName, 
+                    name: item.productName || 'صنف', 
                     sku: item.productSku || '-', 
                     qty: 0, 
                     total: 0 
                 };
             }
-            productSalesMap[item.productId].qty += item.quantity;
-            productSalesMap[item.productId].total += item.total;
+            productSalesMap[item.productId].qty += itemQty;
+            productSalesMap[item.productId].total += itemTotal;
         });
     });
 
@@ -175,7 +244,7 @@ const SalesReports = () => {
     const commission = (totalRevenue * commissionRate) / 100;
 
     return { productList, salespersonList, branchList, totalRevenue, totalItems, commission, invoiceCount: filteredInvoices.length };
-  }, [invoices, restaurantOrders, salespersonId, customerId, customerType, sourceFilter, startDate, endDate, commissionRate, salespeople, warehouses, customers]);
+  }, [showroomInvoices, restaurantOrders, salespersonId, customerId, customerType, sourceFilter, startDate, endDate, commissionRate, salespeople, warehouses, customers]);
 
   // --- EXPORT LOGIC ---
   const handleExport = () => {
@@ -230,6 +299,7 @@ const SalesReports = () => {
                 onClick={async () => {
                     setIsRefreshing(true);
                     await recalculateStock();
+                    await fetchSalesData();
                     setIsRefreshing(false);
                 }}
                 disabled={isRefreshing}
