@@ -83,8 +83,12 @@ const InventoryRevaluation = () => {
 
       // 2. إنشاء القيد المحاسبي لتسوية فرق القيمة المخزنية (إثبات الربح أو الخسارة الناتجة عن التقييم)
       if (Math.abs(valueDifference) > 0.01) {
-          const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => a.code === '122');
-          let revalAcc = getSystemAccount('INVENTORY_REVALUATION') || accounts.find(a => a.code === (valueDifference > 0 ? '421' : '512') || a.name.includes('تقييم'));
+          const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '10302' || a.code === '122');
+          let revalAcc = getSystemAccount('INVENTORY_REVALUATION') || 
+                         (valueDifference > 0 
+                            ? (getSystemAccount('REVENUE_OTHER') || accounts.find(a => (a.code === '421' || a.name?.includes('إيرادات متنوعة')) && !a.name?.includes('ضريب')))
+                            : (getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => (a.code === '512' || a.code === '5121' || a.name?.includes('تسويات الجرد') || a.name?.includes('عجز المخزون')) && !a.name?.includes('ضريب')))) ||
+                         accounts.find(a => a.name?.includes('تقييم') && !a.name?.includes('ضريب'));
 
           if (inventoryAcc && revalAcc) {
               const lines = [];

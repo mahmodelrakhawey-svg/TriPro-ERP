@@ -39,6 +39,8 @@ export const SYSTEM_ACCOUNTS = {
   INVENTORY_FINISHED_GOODS: '10302',
   LABOR_COST_ALLOCATED: '513',
   WASTAGE_EXPENSE: '5121',
+  INVENTORY_ADJUSTMENTS: '512', // تسويات الجرد (عجز المخزون)
+  INVENTORY_REVALUATION: '512', // إعادة تقييم المخزون
   SECURITY_DEPOSIT_ACCOUNT: '226',
   WHT_PAYABLE: '2232', // ضريبة الخصم والتحصيل - علينا
   WHT_RECEIVABLE: '1242', // ضريبة الخصم والتحصيل - لنا
@@ -518,6 +520,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     if (key === 'BANK_ACCOUNTS' || key === 'BANK_MAIN') {
       return accounts.find(a => a.name?.includes('بنك') || a.name?.toLowerCase().includes('bank') || a.code?.startsWith('1232') || a.code?.startsWith('10102'));
+    }
+    if (key === 'INVENTORY_ADJUSTMENTS' || key === 'WASTAGE_EXPENSE' || key === 'INVENTORY_REVALUATION') {
+      return accounts.find(a => (a.code === '512' || a.code === '5121' || a.name?.includes('تسويات الجرد') || a.name?.includes('عجز المخزون') || a.name?.includes('الهالك والفاقد') || a.name?.includes('تكلفة الهالك')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223') && !a.code?.startsWith('124'));
+    }
+    if (key === 'CASH_SHORTAGE') {
+      return accounts.find(a => (a.code === '541' || a.name?.includes('عجز الصندوق') || a.name?.includes('عجز الخزينة')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223'));
+    }
+    if (key === 'REVENUE_OTHER' || key === 'OTHER_REVENUE') {
+      return accounts.find(a => (a.code === '421' || a.code === '441' || a.name?.includes('إيرادات متنوعة') || a.name?.includes('إيرادات أخرى')) && !a.name?.includes('ضريب'));
     }
     return undefined;
   };

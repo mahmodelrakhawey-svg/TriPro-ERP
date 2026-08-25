@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -275,29 +275,44 @@ const StockAdjustmentForm = () => {
 
         if (totalValue !== 0) {
             // نظام البحث الاحتياطي عن الحسابات لضمان عدم تعطل القيد
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => a.code === '122' || a.code === '1201');
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || 
+                                 getSystemAccount('INVENTORY') || 
+                                 accounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '122' || a.code === '103' || (a.name?.includes('مخزون') && !a.name?.includes('ضريب')));
             
-            let adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS');
+            let adjustmentAcc;
+            if (totalValue > 0) {
+                // زيادة مخزنية: إيرادات متنوعة أو أرباح تسويات
+                adjustmentAcc = getSystemAccount('REVENUE_OTHER') || 
+                                getSystemAccount('OTHER_REVENUE') || 
+                                accounts.find(a => (a.code === '421' || a.code === '441' || a.name?.includes('إيرادات متنوعة') || a.name?.includes('أرباح تسوية') || a.name?.includes('زيادة المخزون')) && !a.name?.includes('ضريب'));
+            } else {
+                // عجز أو تالف: تسويات الجرد (عجز المخزون 512) أو الهالك والفاقد (5121)
+                adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS') || 
+                                getSystemAccount('WASTAGE_EXPENSE') || 
+                                accounts.find(a => (a.code === '512' || a.code === '5121' || a.name?.includes('تسويات الجرد') || a.name?.includes('عجز المخزون') || a.name?.includes('هالك') || a.name?.includes('تالف') || a.name?.includes('الهالك والفاقد')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223'));
+            }
+
+            // بحث احتياطي نهائي في حال لم يتوفر حساب محدد
             if (!adjustmentAcc) {
-                // البحث عن حساب "فروقات الجرد" (541) أو "الهالك" (512) أو "إيرادات متنوعة" (421) للزيادة
-                adjustmentAcc = accounts.find(a => a.code === (totalValue > 0 ? '421' : '512') || a.code === '541' || a.name.includes('تسوية'));
+                adjustmentAcc = getSystemAccount('INVENTORY_ADJUSTMENTS') || 
+                                accounts.find(a => (a.code === '512' || a.code === '5121') && !a.name?.includes('ضريب'));
             }
 
             if (inventoryAcc && adjustmentAcc) {
                 const lines = [];
                 if (totalValue > 0) {
-                    // زيادة (Gain): من ح/ المخزون إلى ح/ تسويات (إيراد/تخفيض مصروف)
+                    // زيادة (Gain): من ح/ المخزون إلى ح/ تسويات أو إيرادات متنوعة
                     lines.push({ accountId: inventoryAcc.id, debit: totalValue, credit: 0, description: 'زيادة مخزنية - تسوية' });
                     lines.push({ accountId: adjustmentAcc.id, debit: 0, credit: totalValue, description: 'أرباح/فروقات تسوية مخزنية' });
                 } else {
-                    // عجز (Loss): من ح/ تسويات (مصروف) إلى ح/ المخزون
-                    lines.push({ accountId: adjustmentAcc.id, debit: Math.abs(totalValue), credit: 0, description: 'خسائر/فروقات تسوية مخزنية' });
-                    lines.push({ accountId: inventoryAcc.id, debit: 0, credit: Math.abs(totalValue), description: 'عجز مخزني - تسوية' });
+                    // عجز أو تالف (Loss): من ح/ تسويات الجرد أو الهالك إلى ح/ المخزون
+                    lines.push({ accountId: adjustmentAcc.id, debit: Math.abs(totalValue), credit: 0, description: 'خسائر/فروقات تسوية مخزنية (عجز أو تالف)' });
+                    lines.push({ accountId: inventoryAcc.id, debit: 0, credit: Math.abs(totalValue), description: 'تخفيض المخزون - تسوية عجز أو تالف' });
                 }
                 
                 await addEntry({ date: date, reference: adjustmentNumber, description: `تسوية مخزنية رقم ${adjustmentNumber} - ${reason}`, status: 'posted', lines: lines });
             } else {
-                showToast('تنبيه: تم حفظ التسوية ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات المطلوبة.', 'warning');
+                showToast('تنبيه: تم حفظ التسوية ولكن لم يتم إنشاء القيد المحاسبي لعدم العثور على الحسابات المطلوبة في شجرة الحسابات.', 'warning');
             }
         }
 

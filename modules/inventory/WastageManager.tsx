@@ -83,8 +83,8 @@ const WastageManager = () => {
 
         // 4. إنشاء القيد المحاسبي لإثبات الخسارة (من ح/ الهالك إلى ح/ المخزون)
         if (totalLostCost > 0) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || accounts.find(a => a.code === '122' || a.code === '1201');
-            const wastageAcc = accounts.find(a => a.code === '512' || a.name.includes('هالك') || a.name.includes('تالف'));
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '10302' || a.code === '122' || a.code === '1201');
+            const wastageAcc = getSystemAccount('WASTAGE_EXPENSE') || getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => (a.code === '5121' || a.code === '512' || a.name?.includes('هالك') || a.name?.includes('تالف') || a.name?.includes('تسويات الجرد')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223'));
 
             if (inventoryAcc && wastageAcc) {
                 await addEntry({

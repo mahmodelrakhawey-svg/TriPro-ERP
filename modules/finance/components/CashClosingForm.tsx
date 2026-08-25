@@ -177,9 +177,14 @@ const CashClosingForm = () => {
             adjustmentAccount = accounts.find(a => a.code === adjustmentCode);
         }
         
-        // 3. محاولة البحث بالاسم في حال عدم تطابق الكود
+        // 3. محاولة البحث بالاسم في حال عدم تطابق الكود (مع استبعاد حسابات الضرائب)
         if (!adjustmentAccount) {
-           adjustmentAccount = accounts.find(a => a.name.includes(isOverage ? 'إيرادات أخرى' : 'فروقات') || a.name.includes('تسوية'));
+           adjustmentAccount = accounts.find(a => 
+             (isOverage 
+               ? (a.name?.includes('إيرادات أخرى') || a.name?.includes('زيادة الصندوق') || a.name?.includes('إيرادات متنوعة') || a.name?.includes('أرباح'))
+               : (a.name?.includes('عجز الصندوق') || a.name?.includes('عجز الخزينة') || a.name?.includes('فروقات الخزينة') || a.name?.includes('فروقات الصندوق'))
+             ) && !a.name?.includes('ضريب') && !a.code?.startsWith('223')
+           );
         }
 
         if (adjustmentAccount) {
