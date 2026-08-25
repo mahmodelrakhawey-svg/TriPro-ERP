@@ -79,6 +79,29 @@ export const WorkspaceTabsBar: React.FC = () => {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
+    // حالة تفعيل/تعطيل الشريط
+    const [isEnabled, setIsEnabled] = useState<boolean>(() => {
+        try {
+            const saved = secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled');
+            return saved !== false;
+        } catch {
+            return true;
+        }
+    });
+
+    useEffect(() => {
+        const handleToggle = (e: any) => {
+            const val = e.detail !== undefined ? e.detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
+            setIsEnabled(val);
+        };
+        window.addEventListener('workspace-tabs-visibility-changed', handleToggle);
+        window.addEventListener('storage', handleToggle);
+        return () => {
+            window.removeEventListener('workspace-tabs-visibility-changed', handleToggle);
+            window.removeEventListener('storage', handleToggle);
+        };
+    }, []);
+
     // استرجاع التبويبات المحفوظة
     const [tabs, setTabs] = useState<WorkspaceTab[]>(() => {
         try {
@@ -165,6 +188,15 @@ export const WorkspaceTabsBar: React.FC = () => {
     const filteredRoutes = Object.entries(ROUTE_INFO).filter(([path, info]) => 
         path !== '/' && (info.title.toLowerCase().includes(searchTerm.toLowerCase()) || path.includes(searchTerm.toLowerCase()))
     );
+
+    const handleHideBar = () => {
+        try {
+            secureStorage.setItem('tripro_workspace_tabs_enabled', false);
+            window.dispatchEvent(new CustomEvent('workspace-tabs-visibility-changed', { detail: false }));
+        } catch (e) {}
+    };
+
+    if (!isEnabled) return null;
 
     return (
         <div className="bg-white border-b border-slate-200 px-4 py-1.5 flex items-center justify-between gap-3 select-none print:hidden shadow-xs relative z-30">
@@ -281,6 +313,16 @@ export const WorkspaceTabsBar: React.FC = () => {
                         إغلاق الباقي
                     </button>
                 )}
+
+                {/* زر إخفاء شريط التبويبات */}
+                <button
+                    type="button"
+                    onClick={handleHideBar}
+                    className="p-1.5 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
+                    title="إخفاء شريط التبويبات (يمكنك إعادة إظهاره من الشريط العلوي أو الإعدادات)"
+                >
+                    <X size={14} />
+                </button>
             </div>
         </div>
     );

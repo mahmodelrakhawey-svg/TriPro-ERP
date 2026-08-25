@@ -4,8 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
+import { secureStorage } from '../utils/securityMiddleware';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator, Layers } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
@@ -185,6 +186,37 @@ const Settings = () => {
     { code: 'EUR', label: 'يورو (EUR)' },
     { code: 'GBP', label: 'جنيه إسترليني (GBP)' },
   ];
+  const [enableWorkspaceTabs, setEnableWorkspaceTabs] = useState<boolean>(() => {
+    try {
+      const saved = secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled');
+      return saved !== false;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    const handleTabsToggle = (e: any) => {
+      const val = e.detail !== undefined ? e.detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
+      setEnableWorkspaceTabs(val);
+    };
+    window.addEventListener('workspace-tabs-visibility-changed', handleTabsToggle);
+    window.addEventListener('storage', handleTabsToggle);
+    return () => {
+      window.removeEventListener('workspace-tabs-visibility-changed', handleTabsToggle);
+      window.removeEventListener('storage', handleTabsToggle);
+    };
+  }, []);
+
+  const handleToggleWorkspaceTabs = (enabled: boolean) => {
+    setEnableWorkspaceTabs(enabled);
+    try {
+      secureStorage.setItem('tripro_workspace_tabs_enabled', enabled);
+      window.dispatchEvent(new CustomEvent('workspace-tabs-visibility-changed', { detail: enabled }));
+    } catch (e) {}
+    showToast(enabled ? 'تم تفعيل شريط تبويبات مساحة العمل بنجاح 📑' : 'تم تعطيل شريط تبويبات مساحة العمل 🔕', 'info');
+  };
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -1046,6 +1078,31 @@ const Settings = () => {
                                 className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
                                 placeholder="نص يظهر أسفل الفواتير والسندات..."
                               ></textarea>
+                          </div>
+
+                          {/* خيار تفعيل/تعطيل شريط تبويبات الشاشات المفتوحة */}
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 hover:bg-slate-100/80 p-4 rounded-xl border border-slate-200 transition-colors">
+                              <div className="flex items-center gap-3">
+                                  <div className={`p-2.5 rounded-xl ${enableWorkspaceTabs ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                                      <Layers size={20} />
+                                  </div>
+                                  <div>
+                                      <label className="block text-sm font-bold text-slate-800">
+                                          شريط تبويبات الشاشات المفتوحة (Workspace Tabs Bar)
+                                      </label>
+                                      <p className="text-xs text-slate-500 mt-0.5">
+                                          إظهار شريط علوي أعلى الصفحات لتجميع الشاشات التي تفتحها والتنقل والتبديل السريع بينها أو إغلاقها.
+                                      </p>
+                                  </div>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => handleToggleWorkspaceTabs(!enableWorkspaceTabs)}
+                                  className={`text-3xl transition-colors focus:outline-none ${enableWorkspaceTabs ? 'text-emerald-600' : 'text-slate-300'}`}
+                                  title={enableWorkspaceTabs ? 'انقر لتعطيل الشريط' : 'انقر لتفعيل الشريط'}
+                              >
+                                  {enableWorkspaceTabs ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
                           </div>
                       </div>
                       <div className="pt-4 text-left">

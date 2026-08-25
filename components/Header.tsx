@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { secureStorage } from '../utils/securityMiddleware';
-import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar } from 'lucide-react';
+import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
@@ -34,6 +34,38 @@ const Header = () => {
     const [timeLeft, setTimeLeft] = useState('');
     const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
     const { unreadCount, refreshNotifications } = useNotifications();
+
+    // حالة إظهار/إخفاء شريط تبويبات الشاشات المفتوحة
+    const [showTabsBar, setShowTabsBar] = useState<boolean>(() => {
+        try {
+            const saved = secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled');
+            return saved !== false;
+        } catch {
+            return true;
+        }
+    });
+
+    useEffect(() => {
+        const handleTabsToggle = (e: any) => {
+            const val = e.detail !== undefined ? e.detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
+            setShowTabsBar(val);
+        };
+        window.addEventListener('workspace-tabs-visibility-changed', handleTabsToggle);
+        window.addEventListener('storage', handleTabsToggle);
+        return () => {
+            window.removeEventListener('workspace-tabs-visibility-changed', handleTabsToggle);
+            window.removeEventListener('storage', handleTabsToggle);
+        };
+    }, []);
+
+    const toggleTabsBar = () => {
+        const nextState = !showTabsBar;
+        setShowTabsBar(nextState);
+        try {
+            secureStorage.setItem('tripro_workspace_tabs_enabled', nextState);
+            window.dispatchEvent(new CustomEvent('workspace-tabs-visibility-changed', { detail: nextState }));
+        } catch (e) {}
+    };
 
     const pageTitle = routeTitles[location.pathname] || 'TriPro ERP';
 
@@ -265,6 +297,21 @@ const Header = () => {
                         <Trash2 size={14} />
                     </button>
                 </div>
+
+                {/* زر إظهار / إخفاء شريط تبويبات الشاشات المفتوحة */}
+                <button
+                    type="button"
+                    onClick={toggleTabsBar}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-xs ${
+                        showTabsBar 
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400' 
+                            : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+                    }`}
+                    title={showTabsBar ? "شريط التبويبات مفعّل (انقر للإخفاء)" : "شريط التبويبات معطّل (انقر للتفعيل)"}
+                >
+                    <Layers size={15} className={showTabsBar ? "text-emerald-600" : "text-slate-400"} />
+                    <span className="hidden md:inline">{showTabsBar ? "شريط التبويبات" : "التبويبات معطلة"}</span>
+                </button>
 
                 {/* Smart Notification Bell */}
                 <div className="relative">
