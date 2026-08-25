@@ -69,6 +69,31 @@ const RestaurantAnalytics = () => {
     }
   }, [activeTab, currentUser]);
 
+  // 🛡️ معالجة وتجميع بيانات أداء الكاشير والموظفين
+  const displayData = React.useMemo(() => {
+    if (activeTab === 'staff') {
+      const map = new Map<string, any>();
+      data.forEach(item => {
+        const id = item.staff_id || item.user_id || 'unknown';
+        const name = item.staff_name || item.name || (item.staff_id ? `كاشير (${item.staff_id.slice(0, 6)})` : 'كاشير');
+        if (!map.has(id)) {
+          map.set(id, { 
+            ...item,
+            staff_id: id, 
+            staff_name: name, 
+            total_orders: 0, 
+            total_sales: 0 
+          });
+        }
+        const cur = map.get(id);
+        cur.total_orders += Number(item.total_orders || item.order_count || 1);
+        cur.total_sales += Number(item.total_sales || item.total_revenue || 0);
+      });
+      return Array.from(map.values()).sort((a, b) => b.total_sales - a.total_sales);
+    }
+    return data;
+  }, [data, activeTab]);
+
   // 🚀 تنفيذ جلب البيانات آلياً عند تغيير التبويب أو عند اكتمال تحميل بيانات المستخدم
   useEffect(() => {
     if (currentUser) {
@@ -294,6 +319,22 @@ const RestaurantAnalytics = () => {
       );
     }
 
+    if (activeTab === 'staff') {
+      return (
+        <div className="h-[300px] w-full mt-6">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={displayData}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="staff_name" tick={{fontSize: 11}} />
+              <YAxis />
+              <Tooltip />
+              <Bar dataKey="total_sales" fill="#3b82f6" radius={[4, 4, 0, 0]} name="إجمالي مبيعات الكاشير" />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      );
+    }
+
     if (activeTab === 'loyalty') {
         return (
           <div className="h-[300px] w-full mt-6">
@@ -504,7 +545,7 @@ const RestaurantAnalytics = () => {
                         return acc + (curr.total_sales || curr.total_revenue || curr.total_amount || curr.pair_count || curr.total_sold || 0);
                     }, 0);
 
-                    return data.map((item, idx) => {
+                    return displayData.map((item, idx) => {
                     // 🛡️ ذكاء محاسبي: تحديد القيم بناءً على نوع التقرير المختار
                     const currentVal = isVariance 
                         ? ((item.theoretical_qty || 0) * (item.unit_cost || 0))
@@ -533,7 +574,7 @@ const RestaurantAnalytics = () => {
                       <tr key={idx} className={`${rowClass} transition-colors group`}>
                     <td className="p-4 font-bold text-slate-700">
                         {categoryBadge}
-                        {item.product_name || item.ingredient_name || item.customer_name || item.product_a || item.payment_method || (item.sale_hour !== undefined ? `الساعة ${item.sale_hour}:00` : null) || item.staff_id || item.sale_date || 'غير معروف'}
+                        {item.product_name || item.ingredient_name || item.customer_name || item.product_a || item.payment_method || (item.sale_hour !== undefined ? `الساعة ${item.sale_hour}:00` : null) || item.staff_name || item.staff_id || item.sale_date || 'غير معروف'}
                     </td>
                     <td className="p-4 text-center font-mono text-slate-600">
                         {item.product_b || (item.total_visits ? `${item.total_visits} زيارة` : '') || (item.total_quantity || item.total_sold || item.theoretical_qty || item.transaction_count || item.total_orders || item.total_invoices || 0) + (item.uom_name || '')}

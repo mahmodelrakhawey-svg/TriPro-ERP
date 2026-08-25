@@ -46,14 +46,16 @@ GROUP BY pay.payment_method, pay.created_at::date, pay.organization_id;
 DROP VIEW IF EXISTS view_restaurant_staff_performance CASCADE;
 CREATE OR REPLACE VIEW view_restaurant_staff_performance AS
 SELECT 
-    user_id as staff_id,
-    COUNT(id) as total_orders,
-    SUM(grand_total) as total_sales,
-    created_at::date as sale_date,
-    organization_id
-FROM orders
-WHERE status IN ('PAID', 'COMPLETED')
-GROUP BY user_id, created_at::date, organization_id;
+    o.user_id as staff_id,
+    COALESCE(p.full_name, 'كاشير ' || SUBSTRING(o.user_id::text, 1, 6)) as staff_name,
+    COUNT(o.id) as total_orders,
+    SUM(o.grand_total) as total_sales,
+    o.created_at::date as sale_date,
+    o.organization_id
+FROM orders o
+LEFT JOIN profiles p ON o.user_id = p.id
+WHERE o.status NOT IN ('CANCELLED', 'draft')
+GROUP BY o.user_id, p.full_name, o.created_at::date, o.organization_id;
 
 -- 5. هندسة المنيو وتحليل الربحية (Menu Engineering)
 DROP VIEW IF EXISTS view_restaurant_menu_engineering CASCADE;

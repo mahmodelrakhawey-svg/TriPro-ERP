@@ -129,6 +129,7 @@ const Sidebar: React.FC = () => {
     { to: '/customer-reconciliation', label: 'مطابقة أرصدة العملاء', icon: CheckSquare, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/customer-aging', label: 'أعمار ديون العملاء', icon: Clock, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/item-sales-analysis', label: 'تحليل مبيعات الأصناف', icon: BarChart3, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
+    { to: '/reports/sales-by-user', label: 'تقرير مبيعات الكاشير والمستخدمين', icon: Users, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/sales-reports', label: 'تقارير المبيعات', icon: BarChart3, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
 
     // موديول المشتريات
@@ -258,6 +259,7 @@ const Sidebar: React.FC = () => {
     { to: '/kitchen-end-day', label: 'جرد نهاية اليوم', icon: ClipboardCheck, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/restaurant-analytics', label: 'مركز ذكاء المطاعم (BI)', icon: Sparkles, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/restaurant-sales', label: 'تقارير مبيعات المطعم', icon: BarChart3, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/reports/sales-by-user', label: 'تقرير مبيعات الكاشير والمستخدمين', icon: Users, color: 'text-rose-400', module: 'restaurant', permission: 'sales.view' },
     
     // موديول المستشفيات (HIMS)
     { type: 'section', label: 'إدارة المستشفيات (HIMS)' },
