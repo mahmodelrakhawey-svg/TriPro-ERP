@@ -319,66 +319,51 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
 };
 
 /**
- * 🧾 المسح الذكي لفواتير المشتريات بالذكاء الاصطناعي (AI Invoice OCR)
- * يستخرج: المورد، رقم الفاتورة، التاريخ، الأصناف، الكميات، الأسعار، الضرائب والإجمالي
+ * استدعاء مباشر لـ Gemini REST API من المتصفح لمسح فواتير المشتريات
  */
-export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: string) => {
+const callGeminiInvoiceRestDirect = async (base64Data: string, mimeType: string, apiKey: string) => {
   const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
-  
-  // 1. استخراج المفتاح
-  const clientStoredKey = typeof window !== 'undefined' ? secureStorage.getItem<string>('user_gemini_api_key') : null;
-  const envKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
-  const rawKey = clientStoredKey || envKey;
+  const cleanKey = apiKey.replace(/["'\s]/g, '').trim();
 
-  if (!rawKey || !rawKey.trim()) {
-    throw new Error('مفتاح Google Gemini API غير متوفر. يرجى الضغط على زر 🔑 وإدخال مفتاح API المجاني الخاص بك.');
-  }
-
-  const cleanKey = rawKey.trim().replace(/["'\s]/g, '');
-
-  if (!cleanKey.startsWith('AIza') && cleanKey.startsWith('AQ.')) {
-    secureStorage.removeItem('user_gemini_api_key');
-    throw new Error(
-      'المفتاح المدخل يبدو كـ Access Token مؤقت وليس Google AI Studio API Key.\n' +
-      'يرجى إنشاء مفتاح API مجاني (يبدأ بـ AIzaSy...) من الرابط: https://aistudio.google.com/app/apikey'
-    );
+  if (!cleanKey) {
+    throw new Error("مفتاح Gemini API مفقود. يرجى إدخال المفتاح أولاً.");
   }
 
   const invoicePrompt = `
-أنت خبير فحص ومطابقة فواتير المشتريات والحسابات.
-قم بفحص صورة فاتورة المشتريات بدقة واستخراج جميع البيانات المالية وجدول الأصناف بالتفصيل باللغة العربية.
+    أنت خبير فحص ومطابقة فواتير المشتريات والحسابات.
+    قم بفحص صورة فاتورة المشتريات بدقة واستخراج جميع البيانات المالية وجدول الأصناف بالتفصيل باللغة العربية.
 
-يجب أن ترجع النتيجة بصيغة JSON فقط كالتالي:
-{
-  "supplierName": "اسم المورد أو الشركة المصدرة للفاتورة",
-  "invoiceNumber": "رقم الفاتورة المكتوب في الورقة إن وجد",
-  "invoiceDate": "YYYY-MM-DD (تاريخ الفاتورة بصيغة سنة-شهر-يوم)",
-  "notes": "ملاحظات أو طريقة الدفع إن وجدت",
-  "subtotal": 0.0,
-  "taxAmount": 0.0,
-  "totalAmount": 0.0,
-  "items": [
+    يجب أن ترجع النتيجة بصيغة JSON فقط كالتالي:
     {
-      "productName": "اسم الصنف أو الوصف المكتوب بدقة",
-      "quantity": 1.0,
-      "unitPrice": 0.0,
-      "total": 0.0,
-      "barcode": "",
-      "uomName": "الوحدة مثل: قطعة، كرتونة، كيلو، علبة"
+      "supplierName": "اسم المورد أو الشركة المصدرة للفاتورة",
+      "invoiceNumber": "رقم الفاتورة المكتوب في الورقة إن وجد",
+      "invoiceDate": "YYYY-MM-DD (تاريخ الفاتورة بصيغة سنة-شهر-يوم)",
+      "notes": "ملاحظات أو طريقة الدفع إن وجدت",
+      "subtotal": 0.0,
+      "taxAmount": 0.0,
+      "totalAmount": 0.0,
+      "items": [
+        {
+          "productName": "اسم الصنف أو الوصف المكتوب بدقة",
+          "quantity": 1.0,
+          "unitPrice": 0.0,
+          "total": 0.0,
+          "barcode": "",
+          "uomName": "الوحدة مثل: قطعة، كرتونة، كيلو، علبة"
+        }
+      ]
     }
-  ]
-}
 
-ملاحظات هامة:
-- إذا لم تجد رقم الفاتورة أو التاريخ، ضع التاريخ الحالي ورقم فاتورة فارغ.
-- استخرج كل سطر وصنف في جدول الفاتورة بشكل منفصل.
-- تأكد أن quantity و unitPrice و total أرقام صحيحة أو عشرية وليست نصوصاً.
-`;
+    ملاحظات هامة:
+    - إذا لم تجد رقم الفاتورة أو التاريخ، ضع التاريخ الحالي ورقم فاتورة فارغ.
+    - استخرج كل سطر وصنف في جدول الفاتورة بشكل منفصل.
+    - تأكد أن quantity و unitPrice و total أرقام صحيحة أو عشرية وليست نصوصاً.
+  `;
 
   // المحاولة الأولى: عبر المكتبة الرسمية GoogleGenAI SDK
   try {
     const ai = new GoogleGenAI({ apiKey: cleanKey });
-    for (const modelName of ['gemini-1.5-flash', 'gemini-2.0-flash']) {
+    for (const modelName of VALID_MODELS) {
       try {
         const response = await ai.models.generateContent({
           model: modelName,
@@ -398,22 +383,30 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
 
         if (response.text) {
           const cleanJson = response.text.replace(/```json/gi, '').replace(/```/g, '').trim();
-          return JSON.parse(cleanJson);
+          const parsed = JSON.parse(cleanJson);
+          if (parsed && typeof parsed === 'object') {
+            return parsed;
+          }
         }
-      } catch (subErr) {
-        console.warn(`SDK model ${modelName} attempt:`, subErr);
+      } catch (subErr: any) {
+        console.warn(`[callGeminiInvoiceRestDirect] SDK model ${modelName} attempt:`, subErr?.message);
+        if (subErr?.message?.toLowerCase().includes('api_key_invalid') || subErr?.message?.toLowerCase().includes('api key not valid')) {
+          throw new Error(`مفتاح Gemini API غير صالح: ${subErr.message}`);
+        }
       }
     }
   } catch (sdkErr: any) {
-    console.warn("GoogleGenAI SDK fallback to REST:", sdkErr);
+    if (sdkErr?.message?.includes('مفتاح Gemini API غير صالح')) {
+      throw sdkErr;
+    }
+    console.warn("[callGeminiInvoiceRestDirect] GoogleGenAI SDK fallback to REST:", sdkErr);
   }
 
-  // المحاولة الثانية: عبر REST API المباشر
+  // المحاولة الثانية: عبر REST API المباشر بنماذج v1 الرسمية
   const endpointsToTry = [
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-8b:generateContent?key=${cleanKey}`,
-    `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${cleanKey}`
+    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${cleanKey}`,
+    `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent?key=${cleanKey}`
   ];
 
   let lastErrorMsg = '';
@@ -424,11 +417,14 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          systemInstruction: {
+            parts: [{ text: invoicePrompt }]
+          },
           contents: [
             {
               parts: [
                 { inlineData: { mimeType: mimeType || 'image/jpeg', data: cleanBase64 } },
-                { text: invoicePrompt }
+                { text: "Extract invoice details and items table from this purchase invoice. Return valid JSON only." }
               ]
             }
           ],
@@ -440,8 +436,7 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
       if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         const rawText = data.candidates[0].content.parts[0].text;
         const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
-        const parsed = JSON.parse(cleanJson);
-        return parsed;
+        return JSON.parse(cleanJson);
       }
 
       const errMsg = data?.error?.message || `HTTP ${res.status}`;
@@ -453,7 +448,7 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
       }
       lastErrorMsg = errMsg;
     } catch (err: any) {
-      if (err?.message && (err.message.includes('مفتاح Gemini') || err.message.includes('حد الطلبات') || err.message.includes('Access Token'))) {
+      if (err?.message && (err.message.includes('مفتاح Gemini') || err.message.includes('حد الطلبات') || err.message.includes('RESOURCE_EXHAUSTED'))) {
         throw err;
       }
       lastErrorMsg = err?.message || String(err);
@@ -463,5 +458,64 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
   throw new Error(
     lastErrorMsg || 
     'تعذر الاتصال بخدمة Gemini. يرجى التأكد من صحة مفتاح Google AI Studio (يبدأ بـ AIzaSy...).'
+  );
+};
+
+/**
+ * 🧾 المسح الذكي لفواتير المشتريات بالذكاء الاصطناعي (AI Invoice OCR)
+ * يستخرج: المورد، رقم الفاتورة، التاريخ، الأصناف، الكميات، الأسعار، الضرائب والإجمالي
+ */
+export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: string) => {
+  const cleanBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+
+  // 0. المحاولة المباشرة من المتصفح إذا قام المستخدم بإدخال مفتاح مخصص في التطبيق (localStorage / secureStorage)
+  const clientStoredKey = typeof window !== 'undefined' 
+    ? (secureStorage.getItem<string>('user_gemini_api_key')) 
+    : null;
+  if (clientStoredKey && isValidApiKey(clientStoredKey)) {
+    console.log("[scanPurchaseInvoiceOCR] استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
+    return await callGeminiInvoiceRestDirect(cleanBase64, mimeType, clientStoredKey);
+  } else if (clientStoredKey && !isValidApiKey(clientStoredKey)) {
+    // مسح المفتاح غير الصالح تلقائياً
+    secureStorage.removeItem('user_gemini_api_key');
+  }
+
+  // 1. المحاولة الأولى: استدعاء السيرفر /api/scan-invoice (يعتمد على GEMINI_API_KEY على سيرفر Vercel)
+  let lastServerErrorMessage = '';
+  try {
+    const res = await fetch('/api/scan-invoice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64Data: cleanBase64, mimeType })
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      return data;
+    } else {
+      const errJson = await res.json().catch(() => ({}));
+      if (errJson.error) {
+        lastServerErrorMessage = errJson.error;
+      }
+    }
+  } catch (serverErr: any) {
+    if (serverErr.message && !serverErr.message.includes('404')) {
+      lastServerErrorMessage = serverErr.message;
+    }
+  }
+
+  // 2. التراجع المحلي المباشر في حالة وجود مفتاح بيئة VITE_GEMINI_API_KEY
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY || 
+                 (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
+  if (apiKey && apiKey.trim()) {
+    const cleanApiKey = apiKey.trim().replace(/["'\s]/g, '');
+    return await callGeminiInvoiceRestDirect(cleanBase64, mimeType, cleanApiKey);
+  }
+
+  throw new Error(
+    lastServerErrorMessage ||
+    'مفتاح Gemini API غير متوفر أو غير صالح. يرجى:\n' +
+    '1. الضغط على زر 🔑 وإدخال مفتاح Google AI Studio (يبدأ بـ AIzaSy...).\n' +
+    '2. احصل على مفتاحك المجاني من aistudio.google.com/app/apikey.'
   );
 };

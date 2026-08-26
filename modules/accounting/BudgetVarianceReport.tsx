@@ -97,7 +97,7 @@ const BudgetVarianceReport = () => {
           const prompt = `أنت خبير مراقبة تكاليف وأداء. حلل تقرير انحرافات الموازنة والمستهدفات التالي لشهر ${month}/${year} وقدم 3 نصائح عملية لتحسين الأداء المالي باللغة العربية:\n${summaryText}`;
 
           let responseText = '';
-          for (const modelName of ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']) {
+          for (const modelName of ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite']) {
             try {
               const res = await ai.models.generateContent({
                 model: modelName,

@@ -59,6 +59,10 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
             }
             secureStorage.setItem('user_gemini_api_key', clean);
             setShowKeyInput(false);
+        } else {
+            secureStorage.removeItem('user_gemini_api_key');
+            setShowKeyInput(false);
+            setScanError(null);
         }
     };
 
@@ -135,7 +139,11 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
 
         } catch (err: any) {
             console.error("OCR Scan Error:", err);
-            setScanError(err.message || 'فشل مسح الفاتورة. تأكد من وضوح الصورة ومفتاح Gemini API.');
+            const errMsg = err.message || 'فشل مسح الفاتورة. تأكد من وضوح الصورة ومفتاح Gemini API.';
+            setScanError(errMsg);
+            if (errMsg.includes('مفتاح') || errMsg.includes('API') || errMsg.includes('🔑') || errMsg.includes('غير متوفر')) {
+                setShowKeyInput(true);
+            }
         } finally {
             setIsScanning(false);
         }
