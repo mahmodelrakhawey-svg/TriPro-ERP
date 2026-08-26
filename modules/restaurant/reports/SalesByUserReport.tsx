@@ -37,23 +37,82 @@ return;
     }
     try {
       const { data: { session } } = await supabase.auth.getSession();
-const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
       if (!userOrgId) {
-        showToast('لم يتم العثور على معرف المنظمة', 'error');        return;
+        showToast('لم يتم العثور على معرف المنظمة', 'error');
+        return;
       }
 
-      // هنا نقوم باستدعاء الدالة البرمجية التي تحل مشكلة الربط بين الجداول
+      // 1. محاولة استدعاء الدالة البرمجية الموحدة في Supabase
       const { data, error } = await supabase.rpc('get_sales_by_user_report', {
         p_org_id: userOrgId,
         p_start_date: startDate,
         p_end_date: endDate
       });
 
-      if (error) throw error;
-      setReportData(data || []);
+      if (!error && data) {
+        setReportData(data || []);
+      } else {
+        console.warn('RPC get_sales_by_user_report error, switching to direct client-side fallback...', error);
+        
+        // 2. بديل فوري وآمن (Direct Client Query Fallback)
+        const [profilesRes, ordersRes, invoicesRes] = await Promise.all([
+          supabase.from('profiles').select('id, full_name').eq('organization_id', userOrgId),
+          supabase.from('orders')
+            .select('id, user_id, grand_total, created_at, status')
+            .eq('organization_id', userOrgId)
+            .not('status', 'in', '("CANCELLED","draft")')
+            .gte('created_at', `${startDate}T00:00:00`)
+            .lte('created_at', `${endDate}T23:59:59`),
+          supabase.from('invoices')
+            .select('id, user_id, salesperson_id, total_amount, invoice_date, status')
+            .eq('organization_id', userOrgId)
+            .not('status', 'in', '("draft","cancelled")')
+            .gte('invoice_date', startDate)
+            .lte('invoice_date', endDate)
+        ]);
+
+        const profileNameMap: Record<string, string> = {};
+        (profilesRes.data || []).forEach((p: any) => {
+          profileNameMap[p.id] = p.full_name || 'مستخدم';
+        });
+
+        const userSalesMap: Record<string, { user_id: string; user_name: string; total_orders: number; total_sales: number }> = {};
+
+        (ordersRes.data || []).forEach((ord: any) => {
+          const uId = ord.user_id || 'unassigned';
+          if (!userSalesMap[uId]) {
+            userSalesMap[uId] = {
+              user_id: uId,
+              user_name: profileNameMap[uId] || (uId === 'unassigned' ? 'كاشير عام' : `كاشير (${uId.substring(0, 6)})`),
+              total_orders: 0,
+              total_sales: 0
+            };
+          }
+          userSalesMap[uId].total_orders += 1;
+          userSalesMap[uId].total_sales += Number(ord.grand_total || 0);
+        });
+
+        (invoicesRes.data || []).forEach((inv: any) => {
+          const uId = inv.salesperson_id || inv.user_id || 'unassigned';
+          if (!userSalesMap[uId]) {
+            userSalesMap[uId] = {
+              user_id: uId,
+              user_name: profileNameMap[uId] || (uId === 'unassigned' ? 'بائع عام' : `بائع (${uId.substring(0, 6)})`),
+              total_orders: 0,
+              total_sales: 0
+            };
+          }
+          userSalesMap[uId].total_orders += 1;
+          userSalesMap[uId].total_sales += Number(inv.total_amount || 0);
+        });
+
+        const fallbackList = Object.values(userSalesMap).sort((a, b) => b.total_sales - a.total_sales);
+        setReportData(fallbackList);
+      }
     } catch (error: any) {
       console.error('Error fetching report:', error);
-      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
+      showToast('حدث خطأ أثناء جلب البيانات: ' + (error?.message || 'تعذر الاتصال'), 'error');
     } finally {
       setLoading(false);
     }

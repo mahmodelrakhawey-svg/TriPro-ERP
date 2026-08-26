@@ -71,7 +71,7 @@ const OfferBeneficiariesReport = () => {
       const { data: ordData, error: ordErr } = await supabase
         .from('orders')
         .select(`
-          id, order_number, created_at, grand_total, discount_amount, customer_id, status,
+          id, order_number, created_at, grand_total, customer_id, status,
           order_items (
             product_id, quantity, unit_price, total_price
           )

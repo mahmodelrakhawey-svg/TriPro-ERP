@@ -39,8 +39,8 @@ BEGIN
         FROM public.invoices i
         WHERE (p_org_id IS NULL OR i.organization_id = p_org_id)
           AND i.status NOT IN ('draft', 'cancelled')
-          AND i.invoice_date >= p_start_date
-          AND i.invoice_date <= p_end_date
+          AND i.invoice_date::date >= p_start_date
+          AND i.invoice_date::date <= p_end_date
           AND COALESCE(i.salesperson_id, i.user_id) IS NOT NULL
     )
     SELECT 
@@ -55,4 +55,4 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.get_sales_by_user_report(uuid, date, date) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.get_sales_by_user_report(uuid, date, date) TO authenticated, anon;
