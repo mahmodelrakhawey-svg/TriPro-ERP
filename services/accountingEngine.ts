@@ -98,22 +98,41 @@ class UnifiedAccountingEngine {
     try {
       // 3. إنشاء رأس القيد في جدول journal_entries كمسودة أولاً
       const entryRef = reference || `JE-${Date.now().toString().slice(-6)}`;
-      const { data: entry, error: entryError } = await supabase
+      const entryPayload: any = {
+        organization_id: organizationId || null,
+        transaction_date: transactionDate,
+        reference: entryRef,
+        description: description.trim(),
+        status: 'draft',
+        is_posted: false,
+        related_document_id: relatedDocumentId || null,
+        related_document_type: relatedDocumentType || null
+      };
+
+      let { data: entry, error: entryError } = await supabase
         .from('journal_entries')
-        .insert({
+        .insert(entryPayload)
+        .select('id, reference')
+        .single();
+
+      if (entryError) {
+        // Fallback for minimal journal entry columns
+        const minimalPayload: any = {
           organization_id: organizationId,
           transaction_date: transactionDate,
           reference: entryRef,
           description: description.trim(),
           status: 'draft',
-          is_posted: false,
-          related_document_id: relatedDocumentId || null,
-          related_document_type: relatedDocumentType || null,
-          cost_center_id: costCenterId || null,
-          auto_generated: true
-        })
-        .select('id, reference')
-        .single();
+          is_posted: false
+        };
+        const retry = await supabase
+          .from('journal_entries')
+          .insert(minimalPayload)
+          .select('id, reference')
+          .single();
+        entry = retry.data;
+        entryError = retry.error;
+      }
 
       if (entryError || !entry) {
         throw new Error(entryError?.message || 'فشل في حفظ رأس قيد اليومية');

@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { useAccounting } from '../../../../context/AccountingContext';
 import type { OrderItem } from '../../../../types';
-import { Utensils, User, Star, Percent, CreditCard, GitMerge, ArrowRightLeft, Printer, Minus, Plus } from 'lucide-react';
+import { Utensils, User, Star, Percent, CreditCard, GitMerge, ArrowRightLeft, Printer, Minus, Plus, Wallet } from 'lucide-react';
+import { loyaltyService } from '../../../../services/loyaltyService';
 
 // This interface was in PosScreen.tsx, it's better to move it to a shared types file,
 // but for this refactoring, we'll place it here.
@@ -103,17 +104,38 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({
         <button onClick={onClearOrder} className="text-xs text-red-500 hover:text-red-700 font-bold">إلغاء الطلب</button>
       </div>
         {order.customer ? (
-          <div className="text-xs mt-2 bg-blue-50 text-blue-700 p-2 rounded-lg flex justify-between items-center">
-            <span className="font-bold">العميل: {order.customer.name}</span>
-            <div className="flex items-center gap-3">
-              {customerDetails && (
-                <>
-                  <span className="font-bold flex items-center gap-1"><Star size={12} className="text-amber-500"/> {(customerDetails as any).loyalty_points || 0} نقطة</span>
-                  <button onClick={onRedeemPoints} className="text-xs font-bold text-amber-600 hover:underline">استبدال</button>
-                </>
-              )}
-              <button onClick={onSelectCustomer} className="font-bold">تغيير</button>
+          <div className="text-xs mt-2 bg-purple-50 border border-purple-100 text-purple-900 p-2.5 rounded-xl space-y-1.5">
+            <div className="flex justify-between items-center">
+              <span className="font-bold text-sm text-slate-800">👤 {order.customer.name}</span>
+              <button onClick={onSelectCustomer} className="text-xs text-purple-600 hover:underline font-bold">تغيير</button>
             </div>
+            {order.customer.phone && (
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] pt-1 border-t border-purple-200/50">
+                {(() => {
+                  const acc = loyaltyService.getAccountByPhone(order.customer.phone, order.customer.name, order.customer.id);
+                  return (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-amber-700 flex items-center gap-0.5">
+                          ⭐ {acc.currentPointsBalance} نقطة
+                        </span>
+                        {acc.walletBalance > 0 && (
+                          <span className="font-bold text-emerald-700 flex items-center gap-0.5">
+                            💳 {acc.walletBalance.toFixed(2)} ج
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={onRedeemPoints}
+                        className="px-2 py-0.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-xs"
+                      >
+                        استبدال النقاط
+                      </button>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         ) : (
           <button onClick={onSelectCustomer} className="text-xs mt-2 text-blue-600 hover:underline flex items-center gap-1">

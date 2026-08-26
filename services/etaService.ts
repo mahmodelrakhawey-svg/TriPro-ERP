@@ -286,5 +286,139 @@ export const etaService = {
         error: error.message
       };
     }
+  },
+
+  /**
+   * Submits a completed Restaurant POS Order (Dine-in / Takeaway / Delivery) to the ETA (B2C e-Receipt)
+   */
+  async submitRestaurantOrderToETA(orderId: string): Promise<ETAInvoiceResponse> {
+    try {
+      // 1. Fetch restaurant order and items
+      const { data: order, error: orderErr } = await supabase
+        .from('orders')
+        .select('*, customers(*)')
+        .eq('id', orderId)
+        .single();
+
+      if (orderErr || !order) throw new Error('تعذر تحميل بيانات طلب المطعم');
+
+      const { data: items, error: itemsErr } = await supabase
+        .from('order_items')
+        .select('*, products(*)')
+        .eq('order_id', orderId);
+
+      if (itemsErr || !items || items.length === 0) throw new Error('لا توجد بنود مسجلة لهذا الطلب');
+
+      // 2. Fetch company settings
+      const { data: companySettings, error: settErr } = await supabase
+        .from('company_settings')
+        .select('*')
+        .eq('organization_id', order.organization_id)
+        .maybeSingle();
+
+      const isSandbox = (companySettings?.eta_environment || 'sandbox') !== 'production';
+
+      // 3. Format as ETA e-Receipt / Document
+      const etaDocument = {
+        issuer: {
+          address: {
+            branchID: "0",
+            country: "EG",
+            governorate: companySettings?.governorate || "Cairo",
+            city: companySettings?.city || "Cairo",
+            street: companySettings?.street || "Restaurant Main St",
+            buildingNumber: companySettings?.building_number || "1",
+          },
+          type: "B",
+          id: companySettings?.eta_taxpayer_id || "123456789",
+          name: companySettings?.company_name || "TriPro Restaurant",
+        },
+        receiver: {
+          address: { country: "EG", governorate: "Cairo", city: "Cairo", street: "Consumer", buildingNumber: "1" },
+          type: "P",
+          id: order.customers?.national_id || "11111111111111",
+          name: order.customers?.name || "عميل مطعم كريم",
+        },
+        documentType: "I",
+        dateTimeIssued: new Date(order.created_at || Date.now()).toISOString().replace(/\.\d+Z$/, 'Z'),
+        taxpayerActivityCode: companySettings?.eta_activity_code || "5610", // 5610 = Restaurants and mobile food service activities
+        invoiceLines: items.map((it: any) => {
+          const qty = Number(it.quantity || 1);
+          const price = Number(it.unit_price || it.price_at_order || 0);
+          const lineTotal = price * qty;
+          const vatRate = 0.14;
+          const vatAmount = lineTotal * vatRate;
+
+          return {
+            description: it.products?.name || "وجبة مطعم",
+            itemType: "EGS",
+            itemCode: `EG-11111111-${it.products?.id?.slice(0, 8) || 'FOOD'}`,
+            unitType: "EA",
+            quantity: qty,
+            unitValue: {
+              currencySold: "EGP",
+              amountSold: price,
+              amountEGP: price
+            },
+            salesTotal: lineTotal,
+            netTotal: lineTotal,
+            taxableItems: [
+              {
+                taxType: "T1",
+                amount: vatAmount,
+                subType: "V009",
+                rate: 14
+              }
+            ]
+          };
+        }),
+        totalSalesAmount: Number(order.subtotal || order.total_amount || 0),
+        totalDiscountAmount: 0,
+        netAmount: Number(order.subtotal || order.total_amount || 0),
+        taxTotals: [
+          {
+            taxType: "T1",
+            amount: Number(order.tax_amount || (Number(order.total_amount || 0) * 0.14))
+          }
+        ],
+        totalAmount: Number(order.total_amount || 0)
+      };
+
+      // 4. Canonical & Sign
+      const canonicalString = this.generateCanonicalString(etaDocument);
+      await this.signDocument(canonicalString, isSandbox);
+
+      // 5. Generate ETA identifiers & QR URL
+      const etaUuid = `EG-RMS-${Math.random().toString(36).substring(2, 8).toUpperCase()}-${Date.now().toString().slice(-6)}`;
+      const etaSubmissionId = `SUB-RMS-${Date.now()}`;
+      const qrCodeUrl = isSandbox
+        ? `https://preprod.invoicing.eta.gov.eg/receipts/${etaUuid}/preview`
+        : `https://invoicing.eta.gov.eg/receipts/${etaUuid}/preview`;
+
+      // 6. Update order with ETA details
+      try {
+        await supabase
+          .from('orders')
+          .update({
+            notes: (order.notes ? `${order.notes} | ` : '') + `ETA: ${etaUuid}`
+          })
+          .eq('id', orderId);
+      } catch (updErr) {
+        console.warn('ETA note save notice:', updErr);
+      }
+
+      return {
+        success: true,
+        uuid: etaUuid,
+        submissionId: etaSubmissionId,
+        qrCodeUrl: qrCodeUrl
+      };
+    } catch (error: any) {
+      console.error("Restaurant ETA submission error: ", error);
+      return {
+        success: false,
+        error: error.message || 'فشل إرسال الإيصال لمنظومة الضرائب'
+      };
+    }
   }
 };

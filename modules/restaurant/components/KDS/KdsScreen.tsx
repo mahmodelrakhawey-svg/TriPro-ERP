@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../../../../supabaseClient';
 import { useToast } from '../../../../context/ToastContext';
 import { useAccounting } from '../../../../context/AccountingContext';
-import { Utensils, Clock, Check, ChefHat } from 'lucide-react';
+import { Utensils, Clock, Check, ChefHat, Layers, Filter, Flame, Timer, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { KitchenStation, kitchenStationService } from '../../../../services/kitchenStationService';
+import { cookPacingService } from '../../../../services/cookPacingService';
 
 // --- أنواع البيانات ---
 type KitchenOrderItem = {
@@ -14,6 +17,9 @@ type KitchenOrderItem = {
   notes: string | null; // Changed to unit_price
   selectedModifiers?: { name: string; unit_price: number }[];
   product_name: string;
+  station_id?: string | null;
+  station_name?: string;
+  station_color?: string;
 };
 
 type KitchenOrderTicket = {
@@ -38,6 +44,9 @@ const TimeAgo = ({ date }: { date: string }) => {
   return <>{time}</>;
 };
 const OrderTicket = React.memo(({ ticket, onUpdateStatus, borderColor }: { ticket: KitchenOrderTicket, onUpdateStatus: (id: string, status: 'PREPARING' | 'READY' | 'SERVED') => void, borderColor: string }) => {
+  const pacingEval = useMemo(() => {
+    return cookPacingService.evaluateTicketPacing(ticket.created_at, ticket.items);
+  }, [ticket.created_at, ticket.items]);
 
   const getStatusColor = (status: KitchenOrderItem['status']) => {
     switch (status) {
@@ -62,50 +71,76 @@ const OrderTicket = React.memo(({ ticket, onUpdateStatus, borderColor }: { ticke
         </div>
       </header>
       <main className="p-3 space-y-3 flex-1">
-        {ticket.items.map(item => (
-          <div key={item.id} className={`p-2 rounded-md border ${getStatusColor(item.status)}`}>
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="font-bold text-lg text-slate-900">
-                  <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white font-mono text-sm mr-2">{item.quantity}x</span>
-                  {item.product_name}
-                </p>
-                {/* عرض الإضافات بشكل بارز للطباخ */}
-                {item.selectedModifiers && item.selectedModifiers.length > 0 && (
-                  <div className="mt-1 ml-9 flex flex-wrap gap-1">
-                    {item.selectedModifiers.map((mod, idx) => (
-                      <span key={idx} className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-sm"> {/* Changed to unit_price */}
-                        {mod.name}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                {item.notes && (
-                  <p className="text-sm text-red-700 font-black mt-2 ml-9 bg-red-50 p-2 rounded border-2 border-red-200 animate-pulse">
-                    ⚠️ {item.notes}
+        {ticket.items.map(item => {
+          const itemPacing = pacingEval.itemsPacing[item.id];
+          const isHold = itemPacing?.state === 'HOLD' && item.status === 'NEW';
+          const isFire = itemPacing?.state === 'FIRE_NOW' && item.status === 'NEW';
+
+          return (
+            <div key={item.id} className={`p-2 rounded-md border ${getStatusColor(item.status)}`}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-bold text-lg text-slate-900">
+                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white font-mono text-sm mr-2">{item.quantity}x</span>
+                    {item.product_name}
                   </p>
-                )}
-              </div>
-              <div className="flex gap-2 flex-shrink-0">
-                {item.status === 'NEW' && (
-                  <button onClick={() => onUpdateStatus(item.id, 'PREPARING')} className="bg-amber-500 text-white p-2 rounded-lg hover:bg-amber-600 transition-colors">
-                    <ChefHat size={20} />
-                  </button>
-                )}
-                {item.status === 'PREPARING' && (
-                  <button onClick={() => onUpdateStatus(item.id, 'READY')} className="bg-emerald-500 text-white p-2 rounded-lg hover:bg-emerald-600 transition-colors">
-                    <Check size={20} />
-                  </button>
-                )}
-                {item.status === 'READY' && (
-                  <button onClick={() => onUpdateStatus(item.id, 'SERVED')} className="bg-sky-500 text-white p-2 rounded-lg hover:bg-sky-600 transition-colors" title="تقديم الطلب (إخفاء من الشاشة)">
-                    <Utensils size={20} />
-                  </button>
-                )}
+
+                  {/* Cook Pacing Indicators */}
+                  {isHold && (
+                    <div className="mt-1 ml-9 inline-flex items-center gap-1 bg-amber-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-md shadow-sm">
+                      <Timer size={12} className="animate-spin" />
+                      <span>تأخير ذكي (HOLD): ابدأ بعد {Math.ceil(itemPacing.secondsRemainingToStart / 60)} دقيقة لتتزامن الطاولة</span>
+                    </div>
+                  )}
+
+                  {isFire && (
+                    <div className="mt-1 ml-9 inline-flex items-center gap-1 bg-rose-600 text-white text-[11px] font-bold px-2 py-0.5 rounded-md shadow-sm animate-pulse">
+                      <Flame size={12} />
+                      <span>ابدأ التحضير الآن (FIRE)! 🔥</span>
+                    </div>
+                  )}
+
+                  {/* عرض الإضافات بشكل بارز للطباخ */}
+                  {item.selectedModifiers && item.selectedModifiers.length > 0 && (
+                    <div className="mt-1 ml-9 flex flex-wrap gap-1">
+                      {item.selectedModifiers.map((mod, idx) => (
+                        <span key={idx} className="bg-indigo-600 text-white text-[10px] px-2 py-0.5 rounded font-bold shadow-sm">
+                          {mod.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {item.notes && (
+                    <p className="text-sm text-red-700 font-black mt-2 ml-9 bg-red-50 p-2 rounded border-2 border-red-200 animate-pulse">
+                      ⚠️ {item.notes}
+                    </p>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  {item.status === 'NEW' && (
+                    <button
+                      onClick={() => onUpdateStatus(item.id, 'PREPARING')}
+                      className="bg-amber-500 text-white p-2 rounded-lg hover:bg-amber-600 transition-colors"
+                      title={isHold ? 'بدء التحضير الفوري وتجاوز الانتظار' : 'بدء التحضير'}
+                    >
+                      <ChefHat size={20} />
+                    </button>
+                  )}
+                  {item.status === 'PREPARING' && (
+                    <button onClick={() => onUpdateStatus(item.id, 'READY')} className="bg-emerald-500 text-white p-2 rounded-lg hover:bg-emerald-600 transition-colors">
+                      <Check size={20} />
+                    </button>
+                  )}
+                  {item.status === 'READY' && (
+                    <button onClick={() => onUpdateStatus(item.id, 'SERVED')} className="bg-sky-500 text-white p-2 rounded-lg hover:bg-sky-600 transition-colors" title="تقديم الطلب (إخفاء من الشاشة)">
+                      <Utensils size={20} />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </main>
     </div>
   );
@@ -114,6 +149,8 @@ const OrderTicket = React.memo(({ ticket, onUpdateStatus, borderColor }: { ticke
 // --- المكون الرئيسي ---
 const KdsScreen = () => {
   const [tickets, setTickets] = useState<KitchenOrderTicket[]>([]);
+  const [stations, setStations] = useState<KitchenStation[]>([]);
+  const [selectedStationId, setSelectedStationId] = useState<string>('ALL');
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
   const { updateKitchenOrderStatus } = useAccounting();
@@ -134,6 +171,12 @@ const KdsScreen = () => {
     
     return profile?.organization_id;
   }, []);
+
+  useEffect(() => {
+    getOrgId().then(orgId => {
+      kitchenStationService.getStations(orgId).then(res => setStations(res));
+    });
+  }, [getOrgId]);
 
   const fetchKitchenOrders = async () => {
     try {
@@ -270,34 +313,105 @@ const KdsScreen = () => {
     }
   }, [updateKitchenOrderStatus, setTickets, memoizedFetchKitchenOrders]);
 
-  const newTickets = useMemo(() => tickets.filter(t => t.items.some(i => i.status === 'NEW')), [tickets]);
-  const preparingTickets = useMemo(() => tickets.filter(t => !t.items.some(i => i.status === 'NEW') && t.items.some(i => i.status === 'PREPARING')), [tickets]);
-  const readyTickets = useMemo(() => tickets.filter(t => !t.items.some(i => i.status === 'NEW' || i.status === 'PREPARING') && t.items.some(i => i.status === 'READY')), [tickets]);
+  // تصفية التذاكر والأصناف بحسب محطة المطبخ المختارة (شواية، بارد، مشروبات، مقليات...)
+  const filteredTickets = useMemo(() => {
+    if (selectedStationId === 'ALL') return tickets;
+
+    return tickets
+      .map(ticket => ({
+        ...ticket,
+        items: ticket.items.filter(item => {
+          if (!item.station_id) return true; // إذا لم يحدد، يعرض في المحطة
+          return item.station_id === selectedStationId;
+        })
+      }))
+      .filter(ticket => ticket.items.length > 0);
+  }, [tickets, selectedStationId]);
+
+  const newTickets = useMemo(() => filteredTickets.filter(t => t.items.some(i => i.status === 'NEW')), [filteredTickets]);
+  const preparingTickets = useMemo(() => filteredTickets.filter(t => !t.items.some(i => i.status === 'NEW') && t.items.some(i => i.status === 'PREPARING')), [filteredTickets]);
+  const readyTickets = useMemo(() => filteredTickets.filter(t => !t.items.some(i => i.status === 'NEW' || i.status === 'PREPARING') && t.items.some(i => i.status === 'READY')), [filteredTickets]);
 
   if (loading) return <div className="p-8 text-center text-lg font-bold">جاري تحميل طلبات المطبخ...</div>;
 
   return (
-    <div className="h-screen bg-slate-800 text-white p-4" dir="rtl">
-      <header className="mb-4">
-        <h1 className="text-3xl font-bold flex items-center gap-3"><Utensils /> شاشة المطبخ (KDS)</h1>
+    <div className="min-h-screen bg-slate-900 text-white p-4" dir="rtl">
+      {/* KDS Header with Station Filters */}
+      <header className="mb-4 flex flex-wrap justify-between items-center gap-3 bg-slate-800 p-4 rounded-xl border border-slate-700">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-rose-600 rounded-xl">
+            <Utensils className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-black">شاشة المطبخ الذكي (KDS Routing)</h1>
+            <span className="text-xs text-slate-400">توجيه الأطباق لمحطات الطهي المخصصة</span>
+          </div>
+        </div>
+
+        {/* Station Filter Chips */}
+        <div className="flex flex-wrap items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-700 text-xs">
+          <button
+            onClick={() => setSelectedStationId('ALL')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              selectedStationId === 'ALL' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            كل المحطات
+          </button>
+          {stations.map(st => (
+            <button
+              key={st.id}
+              onClick={() => setSelectedStationId(st.id)}
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                selectedStationId === st.id ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: st.color }} />
+              {st.name.split('(')[0].trim()}
+            </button>
+          ))}
+        </div>
+
+        {/* Quick link to Expo */}
+        <Link
+          to="/restaurant/expo"
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/20 transition"
+        >
+          <Layers className="w-4 h-4" /> شاشة التجميع (Expo) 🚀
+        </Link>
       </header>
-      <main className="grid grid-cols-1 md:grid-cols-3 gap-4 h-[calc(100vh-5rem)]">
-        <section className="bg-slate-700/50 rounded-lg p-3 overflow-y-auto">
-          <h2 className="text-xl font-bold text-blue-300 mb-3 sticky top-0 bg-slate-700/80 backdrop-blur-sm py-2 z-10">طلبات جديدة ({newTickets.length})</h2>
+
+      <main className="grid grid-cols-1 md:grid-cols-3 gap-4 h-[calc(100vh-8.5rem)]">
+        <section className="bg-slate-800/80 border border-slate-700 rounded-xl p-3 overflow-y-auto">
+          <h2 className="text-lg font-black text-blue-400 mb-3 sticky top-0 bg-slate-800/95 backdrop-blur-sm py-2 z-10 border-b border-slate-700">
+            طلبات جديدة ({newTickets.length})
+          </h2>
           <div className="space-y-4">
-            {newTickets.map(ticket => <OrderTicket key={ticket.order_id} ticket={ticket} onUpdateStatus={handleUpdateStatus} borderColor="border-blue-500" />)}
+            {newTickets.map(ticket => (
+              <OrderTicket key={ticket.order_id} ticket={ticket} onUpdateStatus={handleUpdateStatus} borderColor="border-blue-500" />
+            ))}
           </div>
         </section>
-        <section className="bg-slate-700/50 rounded-lg p-3 overflow-y-auto">
-          <h2 className="text-xl font-bold text-amber-300 mb-3 sticky top-0 bg-slate-700/80 backdrop-blur-sm py-2 z-10">قيد التحضير ({preparingTickets.length})</h2>
+
+        <section className="bg-slate-800/80 border border-slate-700 rounded-xl p-3 overflow-y-auto">
+          <h2 className="text-lg font-black text-amber-400 mb-3 sticky top-0 bg-slate-800/95 backdrop-blur-sm py-2 z-10 border-b border-slate-700">
+            قيد التحضير ({preparingTickets.length})
+          </h2>
           <div className="space-y-4">
-            {preparingTickets.map(ticket => <OrderTicket key={ticket.order_id} ticket={ticket} onUpdateStatus={handleUpdateStatus} borderColor="border-amber-500" />)}
+            {preparingTickets.map(ticket => (
+              <OrderTicket key={ticket.order_id} ticket={ticket} onUpdateStatus={handleUpdateStatus} borderColor="border-amber-500" />
+            ))}
           </div>
         </section>
-        <section className="bg-slate-700/50 rounded-lg p-3 overflow-y-auto">
-          <h2 className="text-xl font-bold text-emerald-300 mb-3 sticky top-0 bg-slate-700/80 backdrop-blur-sm py-2 z-10">جاهز للتقديم ({readyTickets.length})</h2>
-           <div className="space-y-4">
-            {readyTickets.map(ticket => <OrderTicket key={ticket.order_id} ticket={ticket} onUpdateStatus={handleUpdateStatus} borderColor="border-emerald-500" />)}
+
+        <section className="bg-slate-800/80 border border-slate-700 rounded-xl p-3 overflow-y-auto">
+          <h2 className="text-lg font-black text-emerald-400 mb-3 sticky top-0 bg-slate-800/95 backdrop-blur-sm py-2 z-10 border-b border-slate-700">
+            جاهز للتقديم ({readyTickets.length})
+          </h2>
+          <div className="space-y-4">
+            {readyTickets.map(ticket => (
+              <OrderTicket key={ticket.order_id} ticket={ticket} onUpdateStatus={handleUpdateStatus} borderColor="border-emerald-500" />
+            ))}
           </div>
         </section>
       </main>

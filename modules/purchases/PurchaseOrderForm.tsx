@@ -8,7 +8,7 @@ import {
   Printer, List, RefreshCw, FileText, ArrowRightLeft, Warehouse as WarehouseIcon, X
 } from 'lucide-react';
 import { createPurchaseOrderSchema } from '../../utils/validationSchemas';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';
 
 const PurchaseOrderForm = () => {
@@ -16,6 +16,8 @@ const PurchaseOrderForm = () => {
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const queryOrderId = searchParams.get('id');
 
   const [items, setItems] = useState<any[]>([]);
   const [uoms, setUoms] = useState<any[]>([]);
@@ -126,14 +128,32 @@ const PurchaseOrderForm = () => {
         status: po.status || 'draft'
       });
 
-      const formattedItems = (po.purchase_order_items || []).map((item: any) => ({
+      let itemsData = po.purchase_order_items;
+      if (!itemsData || itemsData.length === 0) {
+        let itQuery = await supabase
+          .from('purchase_order_items')
+          .select('id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id)')
+          .eq('purchase_order_id', id);
+
+        if (itQuery.error && itQuery.error.message?.includes('purchase_order_id')) {
+          itQuery = await supabase
+            .from('purchase_order_items')
+            .select('id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id)')
+            .eq('order_id', id);
+        }
+        if (itQuery.data && itQuery.data.length > 0) {
+          itemsData = itQuery.data;
+        }
+      }
+
+      const formattedItems = (itemsData || []).map((item: any) => ({
         id: item.id,
         productId: item.product_id,
-        name: item.products?.name || 'صنف',
+        name: item.products?.name || (products.find(p => p.id === item.product_id)?.name) || 'صنف',
         quantity: Number(item.quantity) || 0,
         unitPrice: Number(item.unit_price) || 0,
         uomId: item.uom_id || item.products?.base_uom_id || '',
-        total: Number(item.total) || 0
+        total: Number(item.total) || (Number(item.quantity) * Number(item.unit_price)) || 0
       }));
 
       setItems(formattedItems);
@@ -149,13 +169,15 @@ const PurchaseOrderForm = () => {
     }
   };
 
-  // استقبال أمر شراء ممرر
+  // استقبال أمر شراء ممرر عبر URL query param (?id=...) أو عبر state
   useEffect(() => {
-    if (location.state && (location.state as any).orderToEdit) {
+    if (queryOrderId) {
+      loadOrderById(queryOrderId);
+    } else if (location.state && (location.state as any).orderToEdit) {
       const passed = (location.state as any).orderToEdit;
       loadOrderById(passed.id);
     }
-  }, [location.state]);
+  }, [queryOrderId, location.state]);
 
   const handleNavigate = (direction: 'first' | 'prev' | 'next' | 'last') => {
     if (orderIds.length === 0) {

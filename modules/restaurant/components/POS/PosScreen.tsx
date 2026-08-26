@@ -17,6 +17,18 @@ import { QRCodeModal } from '../Modals/QRCodeModal';
 import { closeShiftSchema, validateData } from '../../../../utils/validationSchemas';
 import { BulkQRCodeModal } from '../Modals/BulkQRCodeModal';
 import { secureStorage } from '../../../../utils/securityMiddleware';
+import { happyHourService } from '../../../../services/happyHourService';
+import { itemAvailabilityGuard } from '../../../../services/itemAvailabilityGuard';
+import { BlindShiftCloseModal } from './BlindShiftCloseModal';
+import { PettyCashModal } from './PettyCashModal';
+import { cashShiftService, CashierShift } from '../../../../services/cashShiftService';
+import { waiterPagingService, WaiterCallRequest } from '../../../../services/waiterPagingService';
+import { Link } from 'react-router-dom';
+import { thermalPrinterService } from '../../../../services/thermalPrinterService';
+import { loyaltyService } from '../../../../services/loyaltyService';
+import { etaService } from '../../../../services/etaService';
+import { whatsappService } from '../../../../services/whatsappService';
+import { Bell, AlertCircle, Smartphone, Gift } from 'lucide-react';
 
 
 const DELIVERY_FEE = 15; // قيمة افتراضية لرسوم التوصيل
@@ -181,19 +193,55 @@ const ReservationModal = ({ isOpen, onClose, onConfirm, table }: { isOpen: boole
   );
 };
 
-const MenuItemCard = ({ item, onClick, currency }: { item: Product; onClick: () => void; currency?: string }) => (
-  <div onClick={onClick} className="bg-white border border-slate-200 rounded-lg p-2 text-center cursor-pointer hover:bg-blue-50 hover:border-blue-300 transition-all h-full flex flex-col justify-between shadow-sm group overflow-hidden">
-    <div className="w-full aspect-[4/3] mb-2 bg-slate-50 rounded-md flex items-center justify-center overflow-hidden relative border border-slate-100">
-      {(item as any).image_url ? (
-        <img src={(item as any).image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
-      ) : (
-        <Utensils className="text-slate-300/50" size={32} />
-      )}
+const MenuItemCard = ({ item, onClick, currency }: { item: Product; onClick: () => void; currency?: string }) => {
+  const basePrice = item.sales_price || (item as any).price || 0;
+  const happyHourEval = happyHourService.evaluateProductPrice(item.id, basePrice, item.category_id);
+  const is86 = (item as any).is_86 || itemAvailabilityGuard.getManual86List().includes(item.id);
+
+  return (
+    <div
+      onClick={onClick}
+      className={`bg-white border rounded-lg p-2 text-center cursor-pointer transition-all h-full flex flex-col justify-between shadow-sm group overflow-hidden relative ${
+        is86 ? 'opacity-50 border-slate-300 bg-slate-100' : 'border-slate-200 hover:bg-blue-50 hover:border-blue-300'
+      }`}
+    >
+      {/* Badges */}
+      {is86 ? (
+        <span className="absolute top-2 right-2 z-10 bg-red-600 text-white text-[10px] font-black px-2 py-0.5 rounded shadow">
+          نفد (86)
+        </span>
+      ) : happyHourEval.isHappyHour ? (
+        <span className="absolute top-2 right-2 z-10 bg-pink-600 text-white text-[10px] font-black px-2 py-0.5 rounded shadow flex items-center gap-0.5">
+          🔥 -{happyHourEval.discountPct}%
+        </span>
+      ) : null}
+
+      <div className="w-full aspect-[4/3] mb-2 bg-slate-50 rounded-md flex items-center justify-center overflow-hidden relative border border-slate-100">
+        {(item as any).image_url ? (
+          <img src={(item as any).image_url} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
+        ) : (
+          <Utensils className="text-slate-300/50" size={32} />
+        )}
+      </div>
+
+      <div className="font-semibold text-slate-800 text-sm line-clamp-2">{item.name}</div>
+
+      <div className="text-sm font-bold mt-1">
+        {happyHourEval.isHappyHour ? (
+          <div className="flex items-center justify-center gap-1.5">
+            <span className="text-rose-600 font-extrabold">{happyHourEval.finalPrice.toFixed(2)}</span>
+            <span className="text-[11px] text-slate-400 line-through">{basePrice.toFixed(2)}</span>
+            <span className="text-xs font-normal text-slate-500">{currency || 'EGP'}</span>
+          </div>
+        ) : (
+          <span className="text-blue-600">
+            {basePrice.toFixed(2)} <span className="text-xs font-normal text-slate-500">{currency || 'EGP'}</span>
+          </span>
+        )}
+      </div>
     </div>
-    <div className="font-semibold text-slate-800 text-sm line-clamp-2">{item.name}</div>
-    <div className="text-sm font-bold text-blue-600 mt-1">{(item.sales_price || (item as any).price || 0).toFixed(2)} <span className="text-xs font-normal text-slate-500">{currency || 'EGP'}</span></div>
-  </div>
-);
+  );
+};
 
 // --- Customer Selection Modal ---
 const CustomerModal = ({ isOpen, onClose, onSelect, customers }: { isOpen: boolean, onClose: () => void, onSelect: (customer: any) => void, customers: any[] }) => {
@@ -579,6 +627,11 @@ const PosScreen = () => {
   const [modifierTarget, setModifierTarget] = useState<Product | null>(null);
   const [isCloseShiftModalOpen, setIsCloseShiftModalOpen] = useState(false);
   const [isClosingShift, setIsClosingShift] = useState(false);
+  const [isBlindCloseOpen, setIsBlindCloseOpen] = useState(false);
+  const [isPettyCashOpen, setIsPettyCashOpen] = useState(false);
+  const [isWaiterCallsOpen, setIsWaiterCallsOpen] = useState(false);
+  const [waiterCalls, setWaiterCalls] = useState<WaiterCallRequest[]>([]);
+  const [activeCashShift, setActiveCashShift] = useState<CashierShift | null>(null);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [shiftSummary, setShiftSummary] = useState<any>(null);
   const [lastOrder, setLastOrder] = useState<ActiveOrder | null>(null);
@@ -621,6 +674,29 @@ const PosScreen = () => {
       setActiveCategory(menuCategories[0].id);
     }
   }, [menuCategories, activeCategory]);
+
+  useEffect(() => {
+    const shift = cashShiftService.getActiveShift(currentUser?.id);
+    if (!shift && currentUser) {
+      // Auto open shift if none active
+      const newS = cashShiftService.openShift({
+        organizationId: currentUser.organization_id || undefined,
+        cashierId: currentUser.id,
+        cashierName: (currentUser as any)?.full_name || (currentUser as any)?.name || (currentUser as any)?.username || 'الكاشير',
+        openingFloat: 200
+      });
+      setActiveCashShift(newS);
+    } else {
+      setActiveCashShift(shift);
+    }
+
+    const loadCalls = () => {
+      setWaiterCalls(waiterPagingService.getPendingCalls());
+    };
+    loadCalls();
+    const interval = setInterval(loadCalls, 5000);
+    return () => clearInterval(interval);
+  }, [currentUser]);
 
   // New useEffect to fetch external orders
   useEffect(() => {
@@ -924,6 +1000,11 @@ const PosScreen = () => {
       showToast('الرجاء تحديد طاولة أولاً', 'warning');
       return;
     }
+    const is86 = (product as any).is_86 || itemAvailabilityGuard.getManual86List().includes(product.id);
+    if (is86) {
+      showToast('عذراً، هذا الصنف نفد من المخزن حالياً (86)', 'error');
+      return;
+    }
     // فتح مودال الخيارات
     setModifierTarget(product);
   };
@@ -931,9 +1012,10 @@ const PosScreen = () => {
   const handleConfirmModifiers = (modifiers: SelectedModifier[], totalPrice: number, totalUnitCost: number, notes: string) => {
     if (!modifierTarget || !activeOrder) return;
     
-    const basePrice = modifierTarget.sales_price || modifierTarget.price || 0;
-    // تم استلام الإجماليات جاهزة من المودال (totalPrice و totalUnitCost)
-    // لا حاجة لإعادة الحساب هنا
+    const rawPrice = modifierTarget.sales_price || modifierTarget.price || 0;
+    const hh = happyHourService.evaluateProductPrice(modifierTarget.id, rawPrice, modifierTarget.category_id);
+    const basePrice = hh.isHappyHour ? hh.finalPrice : rawPrice;
+    const finalUnitPrice = hh.isHappyHour ? Number((totalPrice - rawPrice + basePrice).toFixed(2)) : totalPrice;
     
     setActiveOrder(prevOrder => {
         if (!prevOrder) return null;
@@ -943,7 +1025,7 @@ const PosScreen = () => {
             name: modifierTarget.name,
             quantity: 1,
             price: Number(basePrice),
-            unitPrice: totalPrice,
+            unitPrice: finalUnitPrice,
             unitCost: totalUnitCost,
             notes: notes,
             selectedModifiers: modifiers,
@@ -1010,9 +1092,10 @@ const PosScreen = () => {
       }));
 
     setIsSubmitting(true);
+    let orderPayload: any = null;
     try {
        // --- OFFLINE MODE CHANGE ---
-       const payload = {
+       orderPayload = {
          p_session_id: activeOrder.type === 'dine-in' ? activeOrder.sessionId : null,
          p_items: itemsToSend,
          p_order_type: activeOrder.type === 'dine-in' ? 'DINE_IN' : activeOrder.type.toUpperCase(),
@@ -1020,13 +1103,26 @@ const PosScreen = () => {
          p_user_id: currentUser?.id || null,
          p_notes: null,
          p_warehouse_id: activeOrder.warehouseId || settings.defaultWarehouseId
-     
        };
  
        // 🚀 استخدام الدالة المركزية لضمان تمرير p_org_id تلقائياً
-       const newOrderId = await createRestaurantOrder(payload);
+       const newOrderId = await createRestaurantOrder(orderPayload);
        showToast('تم إرسال الطلب للمطبخ بنجاح ✅', 'success');
- 
+
+       // 🖨️ طباعة صامتة فورية لطابعات المطبخ والأقسام الحرارية (ESC/POS Network)
+       thermalPrinterService.routeOrderToPrinters({
+         orderNumber: `ORD-${Date.now().toString().slice(-4)}`,
+         tableName: activeOrder.tableName,
+         orderType: activeOrder.type === 'dine-in' ? 'صالة' : 'سفري',
+         serverName: currentUser?.full_name || 'الكاشير',
+         items: kitchenItems.map(it => ({
+           name: it.name,
+           quantity: it.quantity,
+           notes: it.notes,
+           selectedModifiers: it.selectedModifiers
+         }))
+       }).catch(err => console.warn('Thermal printer dispatch notice:', err));
+
        // Optimistic UI Update
        setKitchenOrderToPrint({
          tableName: activeOrder.tableName,
@@ -1045,10 +1141,24 @@ const PosScreen = () => {
          return { ...prev, items: newItems, orderId: newOrderId };
        });
  
-     } catch (error: any) {
-       console.error(error);
-       showToast('فشل إرسال الطلب: ' + (error.message || 'تحقق من الاتصال بالإنترنت'), 'error');
-     } finally {
+      } catch (error: any) {
+        console.error('POS order send error:', error);
+        
+        // 📴 المرونة في وضع عدم الاتصال (Offline Queue Fallback)
+        try {
+          if (orderPayload) {
+            await offlineService.queueOrder(orderPayload);
+            showToast('📴 تم حفظ الطلب محلياً في وضع عدم الاتصال (Offline) - ستتم المزامنة تلقائياً عند عودة الإنترنت', 'warning');
+            
+            setKitchenOrderToPrint({
+              tableName: activeOrder.tableName,
+              items: kitchenItems,
+            });
+          }
+        } catch (queueErr) {
+          showToast('فشل إرسال الطلب: ' + (error.message || 'تحقق من الاتصال بالإنترنت'), 'error');
+        }
+      } finally {
        setIsSubmitting(false);
      }
   };
@@ -1149,6 +1259,54 @@ const PosScreen = () => {
           // تصفير حالة طلب الحساب عند إتمام الدفع
           if (activeOrder.type === 'dine-in' && activeOrder.tableId) {
               await supabase.from('restaurant_tables').update({ bill_requested: false }).eq('id', activeOrder.tableId);
+          }
+
+          // 🎁 احتساب نقاط الولاء والكاش باك للعميل تلقائياً
+          if (activeOrder.customer?.phone) {
+            try {
+              loyaltyService.processCompletedOrder({
+                customerPhone: activeOrder.customer.phone,
+                customerName: activeOrder.customer.name,
+                customerId: activeOrder.customer.id,
+                orderId: activeOrder.orderId,
+                orderTotal: total
+              });
+            } catch (lErr) {
+              console.warn('Loyalty points notice:', lErr);
+            }
+          }
+
+          // 🏛️ الربط التلقائي مع منظومة الإيصال الإلكتروني لمصلحة الضرائب المصرية (ETA)
+          if (settings?.eta_is_active && activeOrder.orderId) {
+            etaService.submitRestaurantOrderToETA(activeOrder.orderId)
+              .then(etaRes => {
+                if (etaRes.success) {
+                  showToast(`تم اعتماد الإيصال بمصلحة الضرائب (ETA): ${etaRes.uuid?.slice(0, 10)}... 🏛️`, 'info');
+                }
+              })
+              .catch(eErr => console.warn('ETA submission notice:', eErr));
+          }
+
+          // 📲 إرسال الإيصال الإلكتروني عبر واتساب
+          if (activeOrder.customer?.phone) {
+            try {
+              const receiptData = {
+                restaurantName: settings?.company_name || 'مطعمنا',
+                orderNumber: (activeOrder.orderId || '').slice(-4) || '1001',
+                date: new Date().toLocaleString('ar-EG'),
+                items: activeOrder.items.map(it => ({
+                  name: it.name,
+                  quantity: it.quantity,
+                  price: it.price
+                })),
+                subtotal: total,
+                grandTotal: total,
+                customerName: activeOrder.customer.name
+              };
+              whatsappService.sendReceiptViaWhatsApp(activeOrder.customer.phone, receiptData);
+            } catch (wErr) {
+              console.warn('WhatsApp receipt notice:', wErr);
+            }
           }
 
           // 🧹 تنظيف الحالة فوراً لضمان تجربة مستخدم سريعة
@@ -1405,14 +1563,56 @@ const PosScreen = () => {
           <button onClick={() => setActiveTab('dine-in')} className={`px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-2 ${activeTab === 'dine-in' ? 'bg-white shadow text-blue-600' : 'text-slate-600'}`}><LayoutGrid size={16} /> طاولات</button>
           <button onClick={() => setActiveTab('takeaway')} className={`px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-2 ${activeTab === 'takeaway' ? 'bg-white shadow text-blue-600' : 'text-slate-600'}`}><Coffee size={16} /> سفري</button>
           <button onClick={() => setActiveTab('delivery')} className={`px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-2 ${activeTab === 'delivery' ? 'bg-white shadow text-blue-600' : 'text-slate-600'}`}><HardHat size={16} /> توصيل</button>
+          {/* Waiter Calls Badge */}
+          <button
+            onClick={() => setIsWaiterCallsOpen(true)}
+            className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 mr-2 transition ${
+              waiterCalls.length > 0
+                ? 'bg-amber-500 text-white animate-pulse shadow-md shadow-amber-500/20'
+                : 'text-slate-600 hover:bg-slate-200'
+            }`}
+          >
+            <Bell size={14} />
+            <span>نداءات ({waiterCalls.length})</span>
+          </button>
+
+          {/* Petty Cash */}
+          <button
+            onClick={() => setIsPettyCashOpen(true)}
+            className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-amber-700 bg-amber-50 hover:bg-amber-100 mr-1 border border-amber-200"
+          >
+            <Wallet size={14} /> صرف نثري
+          </button>
+
+          {/* Blind Shift Close */}
+          <button
+            onClick={() => setIsBlindCloseOpen(true)}
+            className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-rose-700 bg-rose-50 hover:bg-rose-100 mr-1 border border-rose-200"
+          >
+            <Lock size={14} /> الجرد الأعمى
+          </button>
+
+          {/* Mobile Waiter Shortcut */}
+          <Link
+            to="/restaurant/waiter"
+            className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 mr-1 border border-indigo-200"
+            title="فتح واجهة الويتر المحمولة للهاتف"
+          >
+            <Smartphone size={14} /> <span className="hidden sm:inline">ويتر موبايل</span>
+          </Link>
+
+          {/* Thermal Printers Shortcut */}
+          <Link
+            to="/restaurant/printers"
+            className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-slate-700 bg-slate-100 hover:bg-slate-200 mr-1"
+            title="إعدادات طابعات المطبخ ESC/POS"
+          >
+            <Printer size={14} /> <span className="hidden lg:inline">طابعات المطبخ</span>
+          </Link>
+
           {lastOrder && (
-            <button onClick={handleReprintLast} className="px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-2 text-indigo-600 hover:bg-indigo-50 hover:shadow-sm mr-2 border border-transparent hover:border-indigo-100 transition-all">
-              <Printer size={16} /> <span className="hidden md:inline">إعادة طباعة</span>
-            </button>
-          )}
-          {currentShift && (
-            <button onClick={handleOpenCloseShiftModal} className="px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-2 text-red-600 hover:bg-red-50 hover:shadow-sm mr-2 border border-transparent hover:border-red-100 transition-all">
-              <Lock size={16} /> إغلاق الوردية
+            <button onClick={handleReprintLast} className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-indigo-600 hover:bg-indigo-50 mr-1">
+              <Printer size={14} /> <span className="hidden md:inline">إعادة طباعة</span>
             </button>
           )}
         </div>
@@ -1624,6 +1824,81 @@ const PosScreen = () => {
         onSelect={handleSelectCustomer}
         customers={useAccounting().customers}
       />
+
+      {/* Blind Shift Close Modal */}
+      {isBlindCloseOpen && activeCashShift && (
+        <BlindShiftCloseModal
+          shift={activeCashShift}
+          onClose={() => setIsBlindCloseOpen(false)}
+          onSuccess={() => {
+            setIsBlindCloseOpen(false);
+            setActiveCashShift(null);
+            showToast('تم إقفال الوردية بنجاح 🔒', 'success');
+          }}
+        />
+      )}
+
+      {/* Petty Cash Modal */}
+      {isPettyCashOpen && activeCashShift && (
+        <PettyCashModal
+          shift={activeCashShift}
+          onClose={() => setIsPettyCashOpen(false)}
+          onSuccess={() => {
+            setIsPettyCashOpen(false);
+            const updated = cashShiftService.getActiveShift(currentUser?.id);
+            setActiveCashShift(updated);
+          }}
+        />
+      )}
+
+      {/* Waiter Calls Drawer / Modal */}
+      {isWaiterCallsOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden space-y-4 p-6">
+            <div className="flex justify-between items-center border-b pb-3">
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5 text-amber-500" />
+                <h3 className="font-bold text-lg text-slate-800">نداءات وطلبات الطاولات الحية ({waiterCalls.length})</h3>
+              </div>
+              <button onClick={() => setIsWaiterCallsOpen(false)} className="text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {waiterCalls.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 space-y-2">
+                <Bell className="w-12 h-12 text-slate-300 mx-auto stroke-1" />
+                <p className="font-bold">لا توجد نداءات معلقة من الطاولات حالياً 🎉</p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-96 overflow-y-auto">
+                {waiterCalls.map(c => (
+                  <div key={c.id} className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-2xl flex justify-between items-center text-xs">
+                    <div>
+                      <span className="font-black text-sm text-slate-900 block">{c.table_name}</span>
+                      <span className="font-bold text-amber-800 mt-0.5 block">
+                        {c.request_type === 'CALL_WAITER' ? '🛎️ استدعاء الويتر للطاولة' : '💳 طلب الفاتورة والحساب'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">{new Date(c.created_at).toLocaleTimeString('ar-EG')}</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        waiterPagingService.completeCall(c.id);
+                        setWaiterCalls(waiterPagingService.getPendingCalls());
+                        showToast(`تمت تلبية طلب ${c.table_name} ✅`, 'success');
+                      }}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow"
+                    >
+                      تمت التلبية ✓
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Hidden component for printing */}
       <div style={{ position: 'absolute', left: '-9999px', top: '-9999px' }}>
         <PrintableInvoice ref={printRef} order={orderToPrint} settings={settings} isProforma={isProformaPrint} />

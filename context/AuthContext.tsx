@@ -304,8 +304,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const can = (module: string, action: string): boolean => {
-    // السماح للمدير العام ومدير المنظمة بالوصول الكامل
-    if (userRole === 'super_admin' || userRole === 'admin') return true;    
+    // السماح للمدير العام ومدير المنظمة والمالك والمدير بالوصول الكامل
+    if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'owner' || userRole === 'manager') return true;    
 
     // المدير الطبي يمتلك صلاحية كاملة على موديول المستشفيات
     if (userRole === 'medical_director' && (module === 'hims' || module.startsWith('hims'))) {
@@ -353,18 +353,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     // تحسين قيود الديمو: منع الحذف ومنع تعديل الإعدادات الحساسة
-
     if (userRole === 'demo') {
         if (action === 'delete') return false; // ممنوع الحذف نهائياً
         if (module === 'settings' && action === 'update') return false; // ممنوع تعديل إعدادات الشركة
         return true; // مسموح باقي العمليات (إنشاء، عرض، طباعة)
     }
     
-    // ✅ دعم الرموز الشاملة (Wildcards) للتحقق من الصلاحيات
+    // ✅ دعم الرموز الشاملة (Wildcards) والتحقق الموسع
     if (userPermissions.has(`${module}.${action}`)) return true;
     if (userPermissions.has(`${module}.*`)) return true;
     if (userPermissions.has(`*.${action}`)) return true;
     if (userPermissions.has(`*.*`)) return true;
+
+    // إذا كان المطلوب هو العرض (view)، وتتوفر لدى المستخدم أي صلاحية إدارة أو إنشاء في الموديول
+    if (action === 'view') {
+      if (userPermissions.has(`${module}.manage`) || 
+          userPermissions.has(`${module}.create`) || 
+          userPermissions.has(`${module}.pos`) || 
+          userPermissions.has(`${module}.kitchen`)) {
+        return true;
+      }
+    }
+
+    // توافق موديول المطعم ونقاط البيع
+    if (module === 'restaurant') {
+      if (userPermissions.has('restaurant.pos') || 
+          userPermissions.has('restaurant.kitchen') || 
+          userPermissions.has('restaurant.manage') ||
+          userPermissions.has('sales.view')) {
+        return true;
+      }
+    }
 
     return false;
   };

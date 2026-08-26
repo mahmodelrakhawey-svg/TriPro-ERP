@@ -41,10 +41,14 @@ import {
   Star,
   Layers,
   Clock,
+  Flame,
   ShieldCheck,
+  Smartphone,
+  Printer,
   TrendingUp,
   Scissors,
   Camera,
+  Monitor,
   FilePlus,
   Calendar,
   CalendarRange,
@@ -76,6 +80,9 @@ import {
   Dumbbell,
   Award,
   QrCode,
+  ShoppingBag,
+  Gift,
+  Zap,
 } from 'lucide-react';
 import { Wrench } from 'lucide-react'; // Import Wrench icon
 
@@ -96,6 +103,15 @@ const Sidebar: React.FC = () => {
     
     // 🛡️ عزل موديولات المنشأة بناءً على اشتراكها في SaaS
     if (Array.isArray(allowedModules) && allowedModules.length > 0) {
+      if (module === 'restaurant') {
+        return (
+          allowedModules.includes('restaurant') ||
+          allowedModules.includes('pos') ||
+          allowedModules.includes('retail') ||
+          allowedModules.includes('sales') ||
+          allowedModules.includes('inventory')
+        );
+      }
       return allowedModules.includes(module) || allowedModules.includes(normalizedModule);
     }
 
@@ -254,9 +270,23 @@ const Sidebar: React.FC = () => {
     // المطعم ونقاط البيع
     { type: 'section', label: 'المطعم والبيع' },
     { to: '/pos', label: 'نقطة البيع', icon: Utensils, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.pos' },
+    { to: '/restaurant/waiter', label: 'ويتر الصالة المتنقل (Handheld)', icon: Smartphone, color: 'text-amber-400', module: 'restaurant', permission: 'restaurant.pos' },
+    { to: '/restaurant/kiosk', label: 'كشك الخدمة الذاتية (Kiosk)', icon: Monitor, color: 'text-cyan-400', module: 'restaurant', permission: 'restaurant.pos' },
     { to: '/retail-pos', label: 'نقطة بيع التجزئة (هايبرماركت)', icon: ShoppingCart, color: 'text-rose-400', module: 'retail', permission: 'sales.view' },
-    { to: '/kds', label: 'شاشة المطبخ', icon: ChefHat, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.kitchen' },
-    { to: '/kitchen-end-day', label: 'جرد نهاية اليوم', icon: ClipboardCheck, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/kds', label: 'شاشة المطبخ (KDS)', icon: ChefHat, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.kitchen' },
+    { to: '/restaurant/expo', label: 'شاشة التجميع (Master Expo)', icon: Layers, color: 'text-indigo-400', module: 'restaurant', permission: 'restaurant.kitchen' },
+    { to: '/restaurant/stations', label: 'محطات المطبخ (Kitchen Stations)', icon: Flame, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/printers', label: 'طابعات المطبخ والإيصالات (ESC/POS)', icon: Printer, color: 'text-indigo-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/aggregators', label: 'منصات التوصيل الخارجية (Hub)', icon: ShoppingBag, color: 'text-orange-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/loyalty', label: 'برنامج الولاء والمحفظة الرقمية', icon: Gift, color: 'text-purple-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/channel-pricing', label: 'التسعير المتعدد حسب قنوات البيع', icon: Sliders, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/driver-dispatch', label: 'كباتن التوصيل والعهد (COD)', icon: Truck, color: 'text-amber-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/tips-pool', label: 'مجمع وتوزيع التبس والإكراميات', icon: Coins, color: 'text-yellow-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/win-back', label: 'استعادة العملاء الغائبين (CRM)', icon: Gift, color: 'text-pink-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/auto-reorder', label: 'أوامر الشراء التلقائية (حد الأمان)', icon: Zap, color: 'text-emerald-400', module: 'restaurant', permission: 'purchases.create' },
+    { to: '/restaurant/happy-hours', label: 'الساعات السعيدة والتسعير', icon: Clock, color: 'text-pink-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/kitchen-end-day', label: 'جرد نهاية اليوم للمطبخ', icon: ClipboardCheck, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/restaurant/butchering-yield', label: 'تشفية وتفكيك الذبائح والدواجن', icon: Scale, color: 'text-amber-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/restaurant-analytics', label: 'مركز ذكاء المطاعم (BI)', icon: Sparkles, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/restaurant-sales', label: 'تقارير مبيعات المطعم', icon: BarChart3, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/sales-by-user', label: 'تقرير مبيعات الكاشير والمستخدمين', icon: Users, color: 'text-rose-400', module: 'restaurant', permission: 'sales.view' },

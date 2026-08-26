@@ -8,6 +8,7 @@ interface Ingredient {
   raw_material_id: string;
   name: string;
   quantity_required: number;
+  shrinkage_pct?: number; // نسبة الفاقد والانكماش في الطهي (مثلاً 15% فاقد شوي)
   unit?: string;
   cost?: number;
 }
@@ -43,6 +44,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
         .select(`
           raw_material_id,
           quantity_required,
+          shrinkage_pct,
           raw_material:products!raw_material_id(name, unit, purchase_price, cost)
         `)
         .eq('product_id', productId);
@@ -54,6 +56,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
           raw_material_id: item.raw_material_id,
           name: item.raw_material.name,
           quantity_required: item.quantity_required,
+          shrinkage_pct: item.shrinkage_pct || 0,
           unit: item.raw_material.unit,
           cost: item.raw_material.cost || item.raw_material.purchase_price || 0
         }));
@@ -75,35 +78,58 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
       raw_material_id: product.id,
       name: product.name,
       quantity_required: 1,
+      shrinkage_pct: 0,
       unit: product.unit,
       cost: product.cost || product.purchase_price || 0
     }]);
     setSearchTerm('');
   };
 
-  const handleRemoveIngredient = (id: string) => {
-    setIngredients(ingredients.filter(i => i.raw_material_id !== id));
+  const handleRemoveIngredient = (rawMaterialId: string) => {
+    setIngredients(ingredients.filter(i => i.raw_material_id !== rawMaterialId));
   };
 
-  const handleUpdateQuantity = (id: string, qty: number) => {
+  const handleUpdateQuantity = (rawMaterialId: string, quantity: number) => {
+    if (isNaN(quantity) || quantity <= 0) return;
     setIngredients(ingredients.map(i => 
-      i.raw_material_id === id ? { ...i, quantity_required: qty } : i
+      i.raw_material_id === rawMaterialId ? { ...i, quantity_required: quantity } : i
     ));
   };
 
-  const handleSave = async () => {
+  const handleUpdateShrinkage = (rawMaterialId: string, shrinkagePct: number) => {
+    const val = isNaN(shrinkagePct) ? 0 : Math.min(99, Math.max(0, shrinkagePct));
+    setIngredients(ingredients.map(i => 
+      i.raw_material_id === rawMaterialId ? { ...i, shrinkage_pct: val } : i
+    ));
+  };
+
+  const totalRecipeCost = useMemo(() => {
+    const materialsCost = ingredients.reduce((sum, ing) => {
+      const shrinkage = ing.shrinkage_pct || 0;
+      const effectiveQty = shrinkage > 0 && shrinkage < 100 
+        ? ing.quantity_required / (1 - (shrinkage / 100))
+        : ing.quantity_required;
+      return sum + (effectiveQty * (ing.cost || 0));
+    }, 0);
+
+    const overheadAmount = additionalCosts.isOverheadPercentage 
+        ? materialsCost * (additionalCosts.overhead / 100) 
+        : additionalCosts.overhead;
+    return materialsCost + additionalCosts.labor + overheadAmount;
+  }, [ingredients, additionalCosts]);
+
+  const handleSaveRecipe = async () => {
     setSaving(true);
     try {
-      // 0. تحديث تكاليف العمالة والمصاريف في بطاقة الصنف أولاً
-      const { error: prodError } = await supabase.from('products').update({
+      // 1. تحديث التكاليف في جدول products
+      await updateProduct(productId, {
           labor_cost: additionalCosts.labor,
           overhead_cost: additionalCosts.overhead,
-          is_overhead_percentage: additionalCosts.isOverheadPercentage
-      }).eq('id', productId);
+          is_overhead_percentage: additionalCosts.isOverheadPercentage,
+          cost: totalRecipeCost // تحديث تكلفة المنتج الإجمالية
+      });
 
-      if (prodError) throw prodError;
-
-      // 1. مسح المكونات القديمة لضمان نظافة البيانات
+      // 2. حذف المكونات القديمة
       const { error: deleteError } = await supabase
         .from('bill_of_materials')
         .delete()
@@ -111,26 +137,26 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
 
       if (deleteError) throw deleteError;
 
-      // 2. إضافة المكونات الجديدة
+      // 3. إضافة المكونات الجديدة
       if (ingredients.length > 0) {
-        const toInsert = ingredients.map(i => ({
+        const rowsToInsert = ingredients.map(i => ({
           product_id: productId,
           raw_material_id: i.raw_material_id,
           quantity_required: i.quantity_required,
-          organization_id: currentUser?.organization_id
+          shrinkage_pct: i.shrinkage_pct || 0
         }));
 
         const { error: insertError } = await supabase
           .from('bill_of_materials')
-          .insert(toInsert);
+          .insert(rowsToInsert);
 
         if (insertError) throw insertError;
       }
 
-      showToast('تم حفظ الوصفة بنجاح ✅', 'success');
+      showToast('تم حفظ مكونات الوصفة وتحديث التكلفة بنجاح', 'success');
       onClose();
     } catch (err: any) {
-      showToast('خطأ في الحفظ: ' + err.message, 'error');
+      showToast('خطأ في حفظ الوصفة: ' + err.message, 'error');
     } finally {
       setSaving(false);
     }
@@ -142,14 +168,6 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
       p.id !== productId &&
       !ingredients.some(i => i.raw_material_id === p.id)
     ).slice(0, 5), [products, searchTerm, ingredients, productId]);
-
-  const totalRecipeCost = useMemo(() => {
-    const materialsCost = ingredients.reduce((sum, ing) => sum + (ing.quantity_required * (ing.cost || 0)), 0);
-    const overheadAmount = additionalCosts.isOverheadPercentage 
-        ? materialsCost * (additionalCosts.overhead / 100) 
-        : additionalCosts.overhead;
-    return materialsCost + additionalCosts.labor + overheadAmount;
-  }, [ingredients, additionalCosts]);
 
   return (
     <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
@@ -214,39 +232,68 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
                   <thead className="text-xs text-slate-500 font-bold border-b sticky top-0 bg-slate-50">
                     <tr>
                       <th className="p-3">المكون</th>
-                      <th className="p-3 text-center">الكمية المطلوبة</th>
-                      <th className="p-3 text-center w-16">حذف</th>
+                      <th className="p-3 text-center">الكمية الصافية</th>
+                      <th className="p-3 text-center">فاقد/انكماش الطهي %</th>
+                      <th className="p-3 text-center">الخام المطلوب</th>
+                      <th className="p-3 text-center w-12">حذف</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {ingredients.map(ing => (
-                      <tr key={ing.raw_material_id} className="hover:bg-white transition-colors">
-                        <td className="p-3">
-                          <div className="font-bold text-slate-800 text-sm">{ing.name}</div>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex items-center justify-center gap-2">
-                            <input 
-                              type="number" 
-                              value={ing.quantity_required}
-                              onChange={e => handleUpdateQuantity(ing.raw_material_id, parseFloat(e.target.value))}
-                              className="w-20 border rounded-lg p-1 text-center font-bold text-blue-600 outline-none focus:ring-1 focus:ring-blue-500"
-                              min="0.001"
-                              step="0.001"
-                            />
-                            <span className="text-xs text-slate-400">{ing.unit || 'وحدة'}</span>
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <button 
-                            onClick={() => handleRemoveIngredient(ing.raw_material_id)}
-                            className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all mx-auto block"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                    {ingredients.map(ing => {
+                      const shrinkage = ing.shrinkage_pct || 0;
+                      const effectiveRaw = shrinkage > 0 && shrinkage < 100
+                        ? ing.quantity_required / (1 - (shrinkage / 100))
+                        : ing.quantity_required;
+
+                      return (
+                        <tr key={ing.raw_material_id} className="hover:bg-white transition-colors">
+                          <td className="p-3">
+                            <div className="font-bold text-slate-800 text-sm">{ing.name}</div>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <input 
+                                type="number" 
+                                value={ing.quantity_required}
+                                onChange={e => handleUpdateQuantity(ing.raw_material_id, parseFloat(e.target.value))}
+                                className="w-16 border rounded-lg p-1 text-center font-bold text-blue-600 outline-none focus:ring-1 focus:ring-blue-500"
+                                min="0.001"
+                                step="0.001"
+                              />
+                              <span className="text-xs text-slate-400">{ing.unit || 'وحدة'}</span>
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <input 
+                                type="number" 
+                                value={ing.shrinkage_pct || 0}
+                                onChange={e => handleUpdateShrinkage(ing.raw_material_id, parseFloat(e.target.value))}
+                                className="w-14 border rounded-lg p-1 text-center font-bold text-amber-600 outline-none focus:ring-1 focus:ring-amber-500 text-xs"
+                                min="0"
+                                max="99"
+                                step="1"
+                                placeholder="0"
+                              />
+                              <span className="text-xs text-slate-400">%</span>
+                            </div>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className="font-mono font-bold text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded-md">
+                              {effectiveRaw.toFixed(3)} {ing.unit || 'وحدة'}
+                            </span>
+                          </td>
+                          <td className="p-3">
+                            <button 
+                              onClick={() => handleRemoveIngredient(ing.raw_material_id)}
+                              className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all mx-auto block"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -318,7 +365,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
 
           <div className="flex gap-3 pt-4 border-t">
             <button 
-              onClick={handleSave}
+              onClick={handleSaveRecipe}
               disabled={saving || loading}
               className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 shadow-lg shadow-blue-100 flex items-center justify-center gap-2"
             >

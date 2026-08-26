@@ -156,6 +156,16 @@ import PosScreen from './modules/restaurant/components/POS/PosScreen';
 import RetailPosScreen from './modules/retail/components/POS/RetailPosScreen';
 import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
 import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
+import ButcheringYieldManager from './modules/restaurant/components/Management/ButcheringYieldManager';
+import ExpoScreen from './modules/restaurant/components/KDS/ExpoScreen';
+import KitchenStationManager from './modules/restaurant/components/Management/KitchenStationManager';
+import DriverDispatchManager from './modules/restaurant/components/Management/DriverDispatchManager';
+import HappyHourManager from './modules/restaurant/components/Management/HappyHourManager';
+import DeliveryAggregatorManager from './modules/restaurant/components/Management/DeliveryAggregatorManager';
+import TipsPoolManager from './modules/restaurant/components/Management/TipsPoolManager';
+import MultiChannelPricingManager from './modules/restaurant/components/Management/MultiChannelPricingManager';
+import CustomerWinBackManager from './modules/restaurant/components/Management/CustomerWinBackManager';
+import AutoReorderManager from './modules/restaurant/components/Management/AutoReorderManager';
 import RestaurantSalesReport from './modules/restaurant/reports/RestaurantSalesReport';
 import SalesByUserReport from './modules/restaurant/reports/SalesByUserReport';
 import WastageAnalysisReport from './modules/restaurant/reports/WastageAnalysisReport';
@@ -163,6 +173,10 @@ import RestaurantProfitReport from './modules/restaurant/reports/RestaurantProfi
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 import CustomerDisplay from './modules/restaurant/components/POS/CustomerDisplay';
 import RestaurantAnalytics from './services/RestaurantAnalytics';
+import MobileWaiterScreen from './modules/restaurant/components/POS/MobileWaiterScreen';
+import ThermalPrintersManager from './modules/restaurant/components/Management/ThermalPrintersManager';
+import LoyaltyProgramManager from './modules/restaurant/components/Management/LoyaltyProgramManager';
+import SelfOrderingKiosk from './modules/restaurant/components/Kiosk/SelfOrderingKiosk';
 
 // 🏥 HIMS Module Imports - Pages
 import PatientManager from './modules/hims/pages/PatientManager';
@@ -352,7 +366,7 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     if (isLoading && !currentUser) return null;
 
     const role = currentUser?.role || '';
-    const isPrivileged = role === 'super_admin' || role === 'admin' || role === 'owner' || role === 'demo';
+    const isPrivileged = role === 'super_admin' || role === 'admin' || role === 'owner' || role === 'manager' || role === 'demo';
     const allowedModules = (organization as any)?.allowed_modules || [];
     
     const expiryDate = (organization as any)?.subscription_expiry;
@@ -364,11 +378,23 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     }
 
     const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
+    const isRestaurant = module === 'restaurant' || module === 'pos' || module === 'kitchen';
+
+    const isAllowedRestaurant = isRestaurant && (
+      allowedModules.includes('restaurant') ||
+      allowedModules.includes('pos') ||
+      allowedModules.includes('retail') ||
+      allowedModules.includes('sales') ||
+      allowedModules.includes('inventory') ||
+      (can && (can('restaurant', 'view') || can('restaurant', 'manage') || can('restaurant', 'pos') || can('restaurant', 'kitchen') || can('sales', 'view') || can('pos', 'view')))
+    );
+
     const isAllowed = isPrivileged || 
       allowedModules.length === 0 || 
       allowedModules.includes(module) || 
       allowedModules.includes(normalizedModule) ||
-      (can && (can(module, 'view') || can(normalizedModule, 'view') || can(module, '*') || can(normalizedModule, '*')));
+      isAllowedRestaurant ||
+      (can && (can(module, 'view') || can(normalizedModule, 'view') || can(module, 'manage') || can(module, '*') || can(normalizedModule, '*')));
 
     if (!isAllowed) {
         return <Navigate to="/" replace />;
@@ -664,7 +690,35 @@ const MainLayout = () => {
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
                 <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
                 <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> 
+                <Route path="/restaurant/expo" element={<ModuleGuard module="restaurant"><ExpoScreen /></ModuleGuard>} /> 
+                <Route path="/expo" element={<Navigate to="/restaurant/expo" replace />} /> 
+                <Route path="/restaurant/stations" element={<ModuleGuard module="restaurant"><KitchenStationManager /></ModuleGuard>} /> 
+                <Route path="/kitchen-stations" element={<Navigate to="/restaurant/stations" replace />} /> 
+                <Route path="/restaurant/aggregators" element={<ModuleGuard module="restaurant"><DeliveryAggregatorManager /></ModuleGuard>} /> 
+                <Route path="/aggregators" element={<Navigate to="/restaurant/aggregators" replace />} /> 
+                <Route path="/restaurant/channel-pricing" element={<ModuleGuard module="restaurant"><MultiChannelPricingManager /></ModuleGuard>} /> 
+                <Route path="/channel-pricing" element={<Navigate to="/restaurant/channel-pricing" replace />} /> 
+                <Route path="/restaurant/driver-dispatch" element={<ModuleGuard module="restaurant"><DriverDispatchManager /></ModuleGuard>} /> 
+                <Route path="/driver-dispatch" element={<Navigate to="/restaurant/driver-dispatch" replace />} /> 
+                <Route path="/restaurant/tips-pool" element={<ModuleGuard module="restaurant"><TipsPoolManager /></ModuleGuard>} /> 
+                <Route path="/tips-pool" element={<Navigate to="/restaurant/tips-pool" replace />} /> 
+                <Route path="/restaurant/win-back" element={<ModuleGuard module="restaurant"><CustomerWinBackManager /></ModuleGuard>} /> 
+                <Route path="/win-back" element={<Navigate to="/restaurant/win-back" replace />} /> 
+                <Route path="/restaurant/auto-reorder" element={<ModuleGuard module="restaurant"><AutoReorderManager /></ModuleGuard>} /> 
+                <Route path="/auto-reorder" element={<Navigate to="/restaurant/auto-reorder" replace />} /> 
+                <Route path="/restaurant/happy-hours" element={<ModuleGuard module="restaurant"><HappyHourManager /></ModuleGuard>} /> 
+                <Route path="/happy-hours" element={<Navigate to="/restaurant/happy-hours" replace />} /> 
                 <Route path="/kitchen-end-day" element={<ModuleGuard module="restaurant"><KitchenEndDayCount /></ModuleGuard>} /> 
+                <Route path="/restaurant/butchering-yield" element={<ModuleGuard module="restaurant"><ButcheringYieldManager /></ModuleGuard>} /> 
+                <Route path="/butchering-yield" element={<Navigate to="/restaurant/butchering-yield" replace />} /> 
+                <Route path="/restaurant/waiter" element={<ModuleGuard module="restaurant"><MobileWaiterScreen /></ModuleGuard>} /> 
+                <Route path="/waiter" element={<Navigate to="/restaurant/waiter" replace />} /> 
+                <Route path="/restaurant/printers" element={<ModuleGuard module="restaurant"><ThermalPrintersManager /></ModuleGuard>} /> 
+                <Route path="/printers" element={<Navigate to="/restaurant/printers" replace />} /> 
+                <Route path="/restaurant/loyalty" element={<ModuleGuard module="restaurant"><LoyaltyProgramManager /></ModuleGuard>} /> 
+                <Route path="/loyalty" element={<Navigate to="/restaurant/loyalty" replace />} /> 
+                <Route path="/restaurant/kiosk" element={<SelfOrderingKiosk />} /> 
+                <Route path="/kiosk" element={<Navigate to="/restaurant/kiosk" replace />} /> 
 
                 {/* 🔗 مسارات التوجيه السريع والتوافق */}
                 <Route path="/sales" element={<Navigate to="/invoices-list" replace />} />
@@ -730,6 +784,8 @@ const AppContent = () => {
         <Route path="/customer-display" element={<CustomerDisplay />} />
         <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
         <Route path="/menu" element={<GuestMenuLayout />} />
+        <Route path="/restaurant/kiosk" element={<SelfOrderingKiosk />} />
+        <Route path="/kiosk" element={<SelfOrderingKiosk />} />
         <Route path="/public/hims/visit/:visitId" element={<PatientPortal />} />
 
         {/* 2. المسارات المحمية (تتطلب حساب موظف) */}

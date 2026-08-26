@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
-import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star, Percent, Layers, CreditCard, Lock, CheckCircle } from 'lucide-react';
+import { Utensils, ShoppingCart, X, Plus, Minus, Send, Loader2, ImageIcon, Star, Percent, Layers, CreditCard, Lock, CheckCircle, Bell, Receipt, Calculator, Users } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { ModifierSelectionModal } from './Modals/ModifierSelectionModal';
 import type { SelectedModifier } from '../../../types';
 import { getCurrencySymbol } from '../../../utils/constants';
+import { itemAvailabilityGuard } from '../../../services/itemAvailabilityGuard';
+import { happyHourService } from '../../../services/happyHourService';
+import { waiterPagingService } from '../../../services/waiterPagingService';
 
 // --- Types ---
 type Product = {
@@ -135,11 +138,21 @@ const GuestMenuLayout = () => {
   }, [products, selectedCategory, searchQuery]);
 
   const addToCart = (product: Product) => {
+    const is86 = (product as any).is_86 || itemAvailabilityGuard.getManual86List().includes(product.id);
+    if (is86) {
+      showToast('عذراً، هذا الصنف غير متوفر حالياً', 'warning');
+      return;
+    }
+
+    const offer = isOfferActive(product);
+    const rawPrice = offer ? product.offer_price! : product.sales_price;
+    const hh = happyHourService.evaluateProductPrice(product.id, rawPrice, product.category_id);
+    const price = hh.isHappyHour ? hh.finalPrice : rawPrice;
+
     if (product.has_modifiers) {
       setProductForModifiers(product);
       setIsModifierModalOpen(true);
     } else {
-      const price = isOfferActive(product) ? product.offer_price! : product.sales_price;
       const newItem: CartItem = {
         localId: `cart-item-${Date.now()}`,
         id: product.id,
@@ -274,6 +287,29 @@ const GuestMenuLayout = () => {
         <div className="text-center">
           {restaurantName && <h2 className="text-xs font-bold text-slate-400 mb-0.5">{restaurantName}</h2>}
           <h1 className="text-xl font-black text-slate-800">{tableName || 'قائمة الطعام'}</h1>
+          
+          {/* Quick Table Service Action Buttons */}
+          <div className="flex justify-center gap-2 mt-2">
+            <button
+              onClick={() => {
+                waiterPagingService.sendCall(tableName || 'طاولة', 'CALL_WAITER');
+                showToast('تم إرسال إشعار لطاقم الخدمة للحضور إلى طاولتكم فوراً 🛎️', 'success');
+              }}
+              className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+            >
+              <Bell className="w-3.5 h-3.5 text-amber-600" /> استدعاء الويتر 🛎️
+            </button>
+
+            <button
+              onClick={() => {
+                waiterPagingService.sendCall(tableName || 'طاولة', 'REQUEST_BILL');
+                showToast('تم إرسال طلب الفاتورة للكاشير والويتر 🧾', 'success');
+              }}
+              className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition"
+            >
+              <Receipt className="w-3.5 h-3.5 text-indigo-600" /> طلب الفاتورة 💳
+            </button>
+          </div>
         </div>
 
         {/* 🔍 Search Input Bar */}
@@ -354,37 +390,61 @@ const GuestMenuLayout = () => {
 
 const MenuItemCard = ({ item, onAddToCart }: { item: Product, onAddToCart: () => void }) => {
   const offer = isOfferActive(item);
-  const price = offer ? item.offer_price! : item.sales_price;
+  const rawPrice = offer ? item.offer_price! : item.sales_price;
+  const hh = happyHourService.evaluateProductPrice(item.id, rawPrice, item.category_id);
+  const price = hh.isHappyHour ? hh.finalPrice : rawPrice;
+  const is86 = (item as any).is_86 || itemAvailabilityGuard.getManual86List().includes(item.id);
 
   return (
-    <div className="bg-white rounded-2xl shadow-md overflow-hidden flex flex-col group transition-all hover:shadow-xl hover:-translate-y-1">
+    <div
+      className={`bg-white rounded-2xl shadow-md overflow-hidden flex flex-col group transition-all relative ${
+        is86 ? 'opacity-50 grayscale' : 'hover:shadow-xl hover:-translate-y-1'
+      }`}
+    >
       <div className="relative">
         {item.image_url ? (
           <img src={item.image_url} alt={item.name} className="w-full h-32 object-cover" />
         ) : (
           <div className="w-full h-32 bg-slate-100 flex items-center justify-center text-slate-300"><ImageIcon size={40} /></div>
         )}
-        {offer && (
-          <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 animate-pulse">
+
+        {is86 ? (
+          <div className="absolute top-2 right-2 bg-slate-900 text-white text-xs font-bold px-2.5 py-1 rounded-full shadow">
+            غير متوفر (Sold Out)
+          </div>
+        ) : hh.isHappyHour ? (
+          <div className="absolute top-2 right-2 bg-rose-600 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 animate-pulse shadow">
+            <Percent size={12} /> عرض {hh.discountPct}%
+          </div>
+        ) : offer ? (
+          <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 animate-pulse shadow">
             <Percent size={12} /> عرض
           </div>
-        )}
+        ) : null}
+
         {item.has_modifiers && (
           <div className="absolute bottom-2 right-2 bg-slate-800/70 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 backdrop-blur-sm">
             <Layers size={10} /> تخصيص
           </div>
         )}
       </div>
+
       <div className="p-3 flex-1 flex flex-col">
         <h3 className="font-bold text-slate-800 text-sm flex-1 line-clamp-2">{item.name}</h3>
         <div className="flex justify-between items-center mt-3">
           <div className="font-black text-blue-600">
             {price.toFixed(2)}
-            {offer && <span className="text-xs text-slate-400 line-through ml-1">{item.sales_price.toFixed(2)}</span>}
+            {(offer || hh.isHappyHour) && (
+              <span className="text-xs text-slate-400 line-through ml-1">{item.sales_price.toFixed(2)}</span>
+            )}
           </div>
-          <button onClick={onAddToCart} className="bg-blue-50 text-blue-600 p-2 rounded-full hover:bg-blue-100 transition-colors">
-            <Plus size={16} />
-          </button>
+          {!is86 ? (
+            <button onClick={onAddToCart} className="bg-blue-50 text-blue-600 p-2 rounded-full hover:bg-blue-100 transition-colors shadow-sm">
+              <Plus size={16} />
+            </button>
+          ) : (
+            <span className="text-[11px] text-slate-400 font-bold">نفد</span>
+          )}
         </div>
       </div>
     </div>
@@ -451,6 +511,39 @@ const CartModal: React.FC<CartModalProps> = ({ isOpen, onClose, cart, onUpdate, 
                 </div>
 
                 <div className="p-4 border-t bg-slate-50 space-y-4">
+                    {/* Split Bill at Table Section */}
+                    <div className="bg-white p-3 rounded-2xl border border-slate-200 text-xs space-y-2">
+                      <div className="flex justify-between items-center font-bold text-slate-700">
+                        <span className="flex items-center gap-1.5 text-indigo-700">
+                          <Users size={14} /> تقسيم الحساب بين المرافقين:
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-slate-500 font-normal">عدد الأشخاص:</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="20"
+                            defaultValue="1"
+                            id="guestSplitCountInput"
+                            onChange={(e) => {
+                              const count = parseInt(e.target.value) || 1;
+                              const perPersonEl = document.getElementById('perPersonShareText');
+                              if (perPersonEl) {
+                                perPersonEl.innerText = `${(total / count).toFixed(2)} ${getCurrencySymbol(currencyCode)}`;
+                              }
+                            }}
+                            className="w-12 border rounded-lg p-1 text-center font-bold text-indigo-600 outline-none"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center font-bold text-slate-800 pt-1 border-t border-slate-100">
+                        <span className="text-slate-500">نصيب الفرد:</span>
+                        <span id="perPersonShareText" className="font-mono text-indigo-600 font-black text-sm">
+                          {total.toFixed(2)} {getCurrencySymbol(currencyCode)}
+                        </span>
+                      </div>
+                    </div>
+
                     <div className="flex justify-between items-center text-lg font-bold mb-2">
                         <span>الإجمالي</span>
                         <span>{total.toFixed(2)} {getCurrencySymbol(currencyCode)}</span>

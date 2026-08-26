@@ -4,7 +4,7 @@ import {
   Shield, Save, Check, AlertTriangle, Loader2, CheckSquare, Square, 
   Info, Search, Plus, Trash2, Sliders, ShieldAlert, Sparkles, 
   RotateCcw, Eye, Filter, CheckCircle2, Lock, FileSpreadsheet,
-  Layers, ChevronDown, ChevronUp, Copy
+  Layers, ChevronDown, ChevronUp, Copy, Utensils
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -68,8 +68,80 @@ const filterGroups = [
 
 // قوالب الأدوار الجاهزة (Role Presets)
 const rolePresets: Record<string, { name: string; description: string; matchActions: (p: Permission) => boolean }> = {
+  // 🍽️ 1. مدير المطعم والصالة (Restaurant General Manager)
+  restaurant_manager: {
+    name: 'مدير المطعم والصالة (General Manager)',
+    description: 'تحكم تشغيلي ورقابي ومالي كامل: الصالة، المطبخ، التسعير، العروض، والتقارير التحليلية',
+    matchActions: (p) =>
+      p.module === 'restaurant' ||
+      p.module === 'pos' ||
+      (p.module === 'sales' && ['view', 'create', 'return', 'quotation', 'apply_discount', 'view_cost_profit', 'export'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create', 'update', 'manage_balance'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'create', 'update', 'edit_pricing'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'transfer', 'adjustment', 'wastage'].includes(p.action)) ||
+      (p.module === 'purchases' && ['view', 'create', 'po_manage'].includes(p.action)) ||
+      (p.module === 'manufacturing' && ['view', 'bom_manage', 'scrap_record'].includes(p.action)) ||
+      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action)) ||
+      (p.module === 'reports' && ['general_view', 'financial_statements', 'profit_margins', 'export_data'].includes(p.action))
+  },
+
+  // 🍽️ 2. كاشير المطعم ونقاط البيع (Restaurant POS Cashier)
+  restaurant_cashier: {
+    name: 'كاشير المطعم (POS Cashier)',
+    description: 'فتح وإغلاق الشفت، الجرد الأعمى، تسجيل الفواتير، تقسيم الشيكات، سندات القبض واستبدال نقاط الولاء',
+    matchActions: (p) =>
+      (p.module === 'pos' && ['open_shift', 'close_shift'].includes(p.action)) ||
+      (p.module === 'restaurant' && ['pos', 'manage', 'split_bill', 'transfer_table', 'discount_comp', 'loyalty'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'create', 'return'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view') ||
+      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
+  },
+
+  // 🍽️ 3. كابتن الصالة والويتر المحمول (Floor Captain & Waiter)
+  restaurant_waiter: {
+    name: 'كابتن الصالة والويتر (Waiter & Captain)',
+    description: 'استخدام واجهة الويتر المحمولة للهاتف، فتح الطاولات، تسجيل الطلبات بملاحظات الطهي وإرسالها للمطبخ',
+    matchActions: (p) =>
+      (p.module === 'restaurant' && ['pos', 'waiter', 'manage', 'split_bill', 'transfer_table'].includes(p.action)) ||
+      (p.module === 'pos' && p.action === 'open_shift') ||
+      (p.module === 'products' && p.action === 'view') ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action))
+  },
+
+  // 🍽️ 4. شيف المطبخ التنفيذي ومسؤول التشغيل (Executive Chef)
+  restaurant_chef: {
+    name: 'شيف المطبخ التنفيذي (Executive Chef)',
+    description: 'إدارة شاشات KDS و Expo، المحطات، المقادير والوصفات BOM، تفكيك اللحوم، وجرد نهاية اليوم للمطبخ',
+    matchActions: (p) =>
+      (p.module === 'restaurant' && ['kitchen', 'kitchen_view', 'manage', 'butchering_yield', 'auto_reorder'].includes(p.action)) ||
+      (p.module === 'manufacturing' && ['view', 'bom_manage', 'order_create', 'material_issue', 'production_finish', 'scrap_record'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'transfer', 'adjustment', 'wastage', 'uom_manage'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'create', 'update'].includes(p.action)) ||
+      (p.module === 'purchases' && ['view', 'create', 'po_manage'].includes(p.action))
+  },
+
+  // 🍽️ 5. طاهي المحطة ومساعد المطبخ (Station Cook / Line Cook)
+  restaurant_cook: {
+    name: 'طاهي المحطة (Line Cook / Station KDS)',
+    description: 'عرض وتجهيز طلبات محطة الطهي المحددة (شواية، مقبلات، بيتزا) على شاشة KDS وإتمامها',
+    matchActions: (p) =>
+      (p.module === 'restaurant' && ['kitchen', 'kitchen_view'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view')
+  },
+
+  // 🍽️ 6. كابتن التوصيل والديليفري (Delivery Driver)
+  restaurant_driver: {
+    name: 'كابتن التوصيل (Delivery Driver & COD)',
+    description: 'استلام طلبات التوصيل، متابعة عناوين وأرقام العملاء، وتوريد التحصيلات النقدية COD',
+    matchActions: (p) =>
+      (p.module === 'restaurant' && ['manage', 'pos', 'driver_dispatch'].includes(p.action)) ||
+      (p.module === 'sales' && p.action === 'view') ||
+      (p.module === 'customers' && p.action === 'view')
+  },
+
   cashier: {
-    name: 'كاشير نقطة بيع',
+    name: 'كاشير نقطة بيع (عام)',
     description: 'صلاحيات فتح الشفت، إصدار الفواتير، سندات القبض، واستعراض الأصناف دون تعديل الأسعار',
     matchActions: (p) => 
       (p.module === 'pos' && p.action === 'open_shift') ||
@@ -152,6 +224,7 @@ const PermissionsManager = () => {
   const [creatingRole, setCreatingRole] = useState(false);
   
   const [showPresetModal, setShowPresetModal] = useState(false);
+  const [installingRestaurantRoles, setInstallingRestaurantRoles] = useState(false);
 
   // Fetch initial roles and permissions
   useEffect(() => {
@@ -377,6 +450,85 @@ const PermissionsManager = () => {
     }
   };
 
+  // 🍽️ One-Click Restaurant Roles & Permissions Provisioner
+  const handleInstallRestaurantRoles = async () => {
+    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) {
+      showToast('لم يتم العثور على معرّف المنظمة', 'error');
+      return;
+    }
+
+    if (!window.confirm('هل تريد تثبيت حزمة أدوار المطعم المتكاملة؟\nسيتم إنشاء وتحديث 6 أدوار تخصصية مع ربط صلاحياتها الدقيقة تلقائياً للمنظمة.')) {
+      return;
+    }
+
+    setInstallingRestaurantRoles(true);
+    try {
+      // 1. Fetch fresh permissions from DB
+      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      const allPerms: Permission[] = freshPerms || permissions;
+      if (freshPerms) setPermissions(freshPerms);
+
+      // 2. Provision each of the 6 roles
+      const targetRoles = [
+        { key: 'restaurant_manager', name: 'restaurant_manager', desc: 'مدير المطعم والصالة - تحكم تشغيلي ورقابي ومالي كامل' },
+        { key: 'restaurant_cashier', name: 'restaurant_cashier', desc: 'كاشير المطعم - فتح الشفت، الجرد الأعمى، الفواتير والسندات' },
+        { key: 'restaurant_waiter', name: 'restaurant_waiter', desc: 'كابتن الصالة والويتر - واجهة الويتر المحمولة، طاولات، وإرسال للمطبخ' },
+        { key: 'restaurant_chef', name: 'restaurant_chef', desc: 'شيف المطبخ التنفيذي - شاشات KDS، المحطات، المقادير، وتفكيك اللحوم' },
+        { key: 'restaurant_cook', name: 'restaurant_cook', desc: 'طاهي المحطة - عرض وتجهيز طلبات محطة الطهي KDS' },
+        { key: 'restaurant_driver', name: 'restaurant_driver', desc: 'كابتن التوصيل - استلام الطلبات، تفاصيل العملاء، وتوريد النقدية COD' }
+      ];
+
+      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const rolesList = existingRoles || [];
+
+      for (const rDef of targetRoles) {
+        let roleObj = rolesList.find(r => r.name === rDef.key);
+
+        if (!roleObj) {
+          const { data: newRole, error: crtErr } = await supabase.from('roles').insert({
+            name: rDef.key,
+            description: rDef.desc,
+            organization_id: orgId
+          }).select().single();
+
+          if (crtErr) {
+            console.warn('Role creation notice:', crtErr);
+            continue;
+          }
+          roleObj = newRole;
+        }
+
+        const preset = rolePresets[rDef.key];
+        if (preset && roleObj) {
+          const matchedIds = allPerms.filter(preset.matchActions).map(p => p.id.toString());
+          await supabase.rpc('sync_role_permissions', {
+            p_role_id: roleObj.id,
+            p_permission_ids: matchedIds
+          });
+        }
+      }
+
+      // Reload updated roles list
+      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      if (updatedRoles && updatedRoles.length > 0) {
+        setRoles(updatedRoles);
+        const mgr = updatedRoles.find(r => r.name === 'restaurant_manager');
+        if (mgr) {
+          setSelectedRoleId(mgr.id);
+        }
+      }
+
+      showToast('تم بنجاح تثبيت وتفعيل حزمة أدوار المطعم الستة الجاهزة بصلاحياتها! 🍽️👑', 'success');
+      await refreshPermissions();
+    } catch (err: any) {
+      console.error('Error installing restaurant roles:', err);
+      showToast('فشل تثبيت الأدوار: ' + (err.message || 'خطأ غير متوقع'), 'error');
+    } finally {
+      setInstallingRestaurantRoles(false);
+    }
+  };
+
   // Save Permissions via Atomic RPC
   const handleSave = async () => {
     if (!selectedRoleId) return;
@@ -498,6 +650,20 @@ const PermissionsManager = () => {
 
         {/* أزرار الإجراءات السريعة */}
         <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={handleInstallRestaurantRoles}
+            disabled={installingRestaurantRoles}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500 to-rose-500 hover:from-amber-600 hover:to-rose-600 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-amber-500/20 disabled:opacity-50 active:scale-95"
+            title="تثبيت وتهيئة الأدوار الستة المتخصصة للمطعم تلقائياً مع كافة الصلاحيات"
+          >
+            {installingRestaurantRoles ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <Utensils size={16} />
+            )}
+            <span>🍽️ حزمة أدوار المطعم (6 أدوار)</span>
+          </button>
+
           <button
             onClick={() => setShowPresetModal(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl font-bold text-sm transition-all shadow-sm"
