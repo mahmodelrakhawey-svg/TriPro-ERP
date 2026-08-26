@@ -75,13 +75,8 @@ const CustomerManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
-        // ⚖️ جلب كافة حركات الأستاذ العام لحساب العملاء لهذه المنظمة
-        const customerAcc = getSystemAccount('CUSTOMERS');
-        if (!customerAcc) {
-            console.error("Customer A/R account not found for balance calculation.");
-            setStatsLoading(false);
-            return;
-        }
+        // ⚖️ جلب حساب العملاء لهذه المنظمة
+        const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.name?.includes('العملاء') || a.name?.includes('عملاء') || a.code === '1221' || a.code === '1103' || a.code === '121');
 
         // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + مستخلصات المشاريع + القيود اليدوية التي تذكر اسمه
         const [
@@ -156,7 +151,7 @@ const CustomerManager = () => {
           }; 
         });
 
-        if (allEntryIds.size > 0) {
+        if (customerAcc && allEntryIds.size > 0) {
             const { data: ledgerLines } = await supabase.from('journal_lines')
               .select('journal_entry_id, debit, credit')
               .in('journal_entry_id', Array.from(allEntryIds))

@@ -29,7 +29,9 @@ import {
   Download,
   Database as DatabaseIcon,
   PlusCircle,
-  Upload
+  Upload,
+  GitFork,
+  Sparkles
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { secureStorage } from '../../utils/securityMiddleware';
@@ -131,11 +133,37 @@ const StatCard = ({ title, value, icon: Icon, color, suffix = '', growth = null 
   </div>
 );
 
-const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClose: () => void, onSuccess: () => void }) => {
+const AddClientModal = ({ 
+  isOpen, 
+  onClose, 
+  onSuccess,
+  existingOrgs = []
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onSuccess: () => void,
+  existingOrgs?: Organization[]
+}) => {
   const [loading, setLoading] = useState(false);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [createdData, setCreatedData] = useState<any | null>(null);
   const { showToast } = useToast();
+
+  // خيارات وضع التأسيس
+  const [setupSource, setSetupSource] = useState<'template' | 'clone'>('template');
+  const [sourceOrgId, setSourceOrgId] = useState<string>('');
+  const [cloneOptions, setCloneOptions] = useState({
+    includeAccounts: true,
+    includeSettings: true,
+    includeWarehouses: true,
+    includeCostCenters: true,
+    includeUoms: true,
+    includeCategories: true,
+    includeProducts: true,
+    includeCustomers: true,
+    includeSuppliers: true,
+    includeRestaurant: true
+  });
 
   // دالة مساعدة لحساب تاريخ انتهاء الفترة التجريبية (14 يوم)
   const getTrialExpiryDate = () => {
@@ -161,7 +189,11 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
 
   // إعادة تعيين البيانات عند فتح/إغلاق المودال
   useEffect(() => {
-    if (!isOpen) setCreatedData(null);
+    if (!isOpen) {
+      setCreatedData(null);
+      setSetupSource('template');
+      setSourceOrgId('');
+    }
   }, [isOpen]);
 
   const handlePlanChange = (planKey: string) => {
@@ -225,10 +257,13 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (setupSource === 'clone' && !sourceOrgId) {
+      return showToast('يرجى اختيار الشركة المصدر المراد الاستنساخ منها', 'error');
+    }
+
     setLoading(true);
     try {
       // 1. استدعاء دالة قاعدة البيانات لإنشاء الشركة وتأسيس الدليل المحاسبي
-      // نمرر p_admin_id كـ null مؤقتاً لحين إنشاء المستخدم في الخطوة التالية
       const { data: newOrgId, error: rpcError } = await supabase.rpc('create_new_client_v2', {
         p_name: formData.companyName,
         p_email: formData.email,
@@ -244,12 +279,37 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
           throw new Error('فشل استلام معرف المنظمة من الخادم');
       }
 
-      // 2. تحديث بيانات الباقة والاشتراك (لأن الدالة الأساسية تستخدم القيم الافتراضية)
+      // 1.5 إذا تم اختيار استنساخ من شركة سابقة، نقوم بتشغيل محرك الاستنساخ الذكي
+      if (setupSource === 'clone' && sourceOrgId) {
+        const { data: cloneRes, error: cloneError } = await supabase.rpc('clone_organization_template', {
+          p_source_org_id: sourceOrgId,
+          p_target_org_id: newOrgId,
+          p_options: {
+            include_accounts: cloneOptions.includeAccounts,
+            include_settings: cloneOptions.includeSettings,
+            include_warehouses: cloneOptions.includeWarehouses,
+            include_cost_centers: cloneOptions.includeCostCenters,
+            include_uoms: cloneOptions.includeUoms,
+            include_categories: cloneOptions.includeCategories,
+            include_products: cloneOptions.includeProducts,
+            include_customers: cloneOptions.includeCustomers,
+            include_suppliers: cloneOptions.includeSuppliers,
+            include_restaurant: cloneOptions.includeRestaurant
+          }
+        });
+
+        if (cloneError) {
+          console.error('Cloning warning:', cloneError);
+          showToast('تحذير أثناء الاستنساخ: ' + cloneError.message, 'warning');
+        }
+      }
+
+      // 2. تحديث بيانات الباقة والاشتراك
       await supabase.from('organizations').update({
           max_users: formData.maxUsers,
           allowed_modules: formData.modules,
           subscription_expiry: formData.subscriptionExpiry,
-          logo_url: formData.logoUrl // 👈 تم إضافة حفظ رابط الشعار في قاعدة البيانات
+          logo_url: formData.logoUrl
       }).eq('id', newOrgId);
 
       // 3. إنشاء حساب المستخدم في نظام Auth وربطه بالمنظمة الجديدة عبر الـ Metadata
@@ -445,24 +505,108 @@ const AddClientModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean, onClo
               </div>
             </div>
             <div className="col-span-2">
-              <label className="block text-sm font-bold text-slate-700 mb-1">قالب دليل الحسابات</label>
-              <select 
-                required
-                className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white font-bold" 
-                value={formData.coaTemplate} 
-                onChange={e => setFormData({...formData, coaTemplate: e.target.value})}
-              >
-                <option value="commercial">🏢 نشاط تجاري عام</option>
-                <option value="stadium">🏟️ الأندية الرياضية والاستادات والمراكز الشبابية</option>
-                <option value="restaurant">🍽️ مديول المطاعم والكافيهات</option>
-                <option value="construction">🏗️ نشاط المقاولات والإنشاءات</option>
-                <option value="manufacturing">🏭 نشاط المصانع والتصنيع</option>
-                <option value="clinic">⚕️ العيادات الطبية والخدمات الصحية</option>
-                <option value="legal">⚖️ مكاتب المحاماة والاستشارات</option>
-                <option value="transport">🚚 شركات النقل والخدمات اللوجستية</option>
-                <option value="charity">🤝 الجمعيات الخيرية والمؤسسات غير الهادفة للربح</option>
-                <option value="hospital">🏥 المستشفيات والمراكز الطبية</option>
-              </select>
+              <label className="block text-sm font-bold text-slate-700 mb-1.5">طريقة تأسيس الدليل المحاسبي والإعدادات</label>
+              <div className="grid grid-cols-2 gap-2 bg-slate-100 p-1 rounded-xl mb-3">
+                <button
+                  type="button"
+                  onClick={() => setSetupSource('template')}
+                  className={`py-2 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 ${setupSource === 'template' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <Building2 size={14} /> قالب نشاط قياسي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSetupSource('clone')}
+                  className={`py-2 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 ${setupSource === 'clone' ? 'bg-purple-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  <GitFork size={14} /> استنساخ من شركة سابقة ⚡
+                </button>
+              </div>
+
+              {setupSource === 'template' ? (
+                <div>
+                  <select 
+                    required
+                    className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white font-bold" 
+                    value={formData.coaTemplate} 
+                    onChange={e => setFormData({...formData, coaTemplate: e.target.value})}
+                  >
+                    <option value="commercial">🏢 نشاط تجاري عام</option>
+                    <option value="stadium">🏟️ الأندية الرياضية والاستادات والمراكز الشبابية</option>
+                    <option value="restaurant">🍽️ مديول المطاعم والكافيهات</option>
+                    <option value="construction">🏗️ نشاط المقاولات والإنشاءات</option>
+                    <option value="manufacturing">🏭 نشاط المصانع والتصنيع</option>
+                    <option value="clinic">⚕️ العيادات الطبية والخدمات الصحية</option>
+                    <option value="legal">⚖️ مكاتب المحاماة والاستشارات</option>
+                    <option value="transport">🚚 شركات النقل والخدمات اللوجستية</option>
+                    <option value="charity">🤝 الجمعيات الخيرية والمؤسسات غير الهادفة للربح</option>
+                    <option value="hospital">🏥 المستشفيات والمراكز الطبية</option>
+                  </select>
+                </div>
+              ) : (
+                <div className="bg-purple-50 border border-purple-200 rounded-2xl p-3 space-y-3">
+                  <div>
+                    <label className="block text-xs font-black text-purple-900 mb-1">اختر الشركة المصدر للنسخ منها:</label>
+                    <select 
+                      required
+                      value={sourceOrgId}
+                      onChange={e => setSourceOrgId(e.target.value)}
+                      className="w-full border-2 border-purple-200 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white focus:border-purple-500 outline-none"
+                    >
+                      <option value="">-- اختر شركة مصدر --</option>
+                      {existingOrgs.map(org => (
+                        <option key={org.id} value={org.id}>{org.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-black text-purple-900 mb-1.5">عناصر الاستنساخ المحددة:</label>
+                    <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeAccounts} onChange={e => setCloneOptions({...cloneOptions, includeAccounts: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        شجرة الحسابات
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeSettings} onChange={e => setCloneOptions({...cloneOptions, includeSettings: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        إعدادات وربط القيود
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeWarehouses} onChange={e => setCloneOptions({...cloneOptions, includeWarehouses: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        المخازن
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeCostCenters} onChange={e => setCloneOptions({...cloneOptions, includeCostCenters: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        مراكز التكلفة
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeUoms} onChange={e => setCloneOptions({...cloneOptions, includeUoms: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        وحدات القياس
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeCategories} onChange={e => setCloneOptions({...cloneOptions, includeCategories: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        🏷️ تصنيفات الأصناف
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeProducts} onChange={e => setCloneOptions({...cloneOptions, includeProducts: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        الأصناف (بدون أرصدة)
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeCustomers} onChange={e => setCloneOptions({...cloneOptions, includeCustomers: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        العملاء (بدون ديون)
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeSuppliers} onChange={e => setCloneOptions({...cloneOptions, includeSuppliers: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        الموردين (بدون التزامات)
+                      </label>
+                      <label className="flex items-center gap-1.5 p-1.5 bg-white rounded-lg border border-purple-100 cursor-pointer font-bold text-slate-700">
+                        <input type="checkbox" checked={cloneOptions.includeRestaurant} onChange={e => setCloneOptions({...cloneOptions, includeRestaurant: e.target.checked})} className="w-3.5 h-3.5 text-purple-600 rounded" />
+                        🍽️ طاولات وإضافات المطعم
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="col-span-2">
@@ -917,6 +1061,232 @@ const OrphanedFilesModal = ({ isOpen, onClose, files, onDelete, loading }: any) 
   );
 };
 
+const CloneCompanyModal = ({ 
+  isOpen, 
+  onClose, 
+  onSuccess, 
+  organizations, 
+  initialSourceOrg 
+}: { 
+  isOpen: boolean, 
+  onClose: () => void, 
+  onSuccess: () => void, 
+  organizations: Organization[], 
+  initialSourceOrg?: Organization | null 
+}) => {
+  const [sourceOrgId, setSourceOrgId] = useState(initialSourceOrg?.id || '');
+  const [targetOrgId, setTargetOrgId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [cloneResult, setCloneResult] = useState<any | null>(null);
+  const { showToast } = useToast();
+
+  const [options, setOptions] = useState({
+    includeAccounts: true,
+    includeSettings: true,
+    includeWarehouses: true,
+    includeCostCenters: true,
+    includeUoms: true,
+    includeCategories: true,
+    includeProducts: true,
+    includeCustomers: true,
+    includeSuppliers: true,
+    includeRestaurant: true
+  });
+
+  useEffect(() => {
+    if (initialSourceOrg) {
+      setSourceOrgId(initialSourceOrg.id);
+    }
+  }, [initialSourceOrg, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setCloneResult(null);
+      setTargetOrgId('');
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleClone = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sourceOrgId || !targetOrgId) {
+      return showToast('يرجى اختيار الشركة المصدر والشركة الهدف', 'error');
+    }
+    if (sourceOrgId === targetOrgId) {
+      return showToast('لا يمكن استنساخ الشركة إلى نفسها', 'error');
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('clone_organization_template', {
+        p_source_org_id: sourceOrgId,
+        p_target_org_id: targetOrgId,
+        p_options: {
+          include_accounts: options.includeAccounts,
+          include_settings: options.includeSettings,
+          include_warehouses: options.includeWarehouses,
+          include_cost_centers: options.includeCostCenters,
+          include_uoms: options.includeUoms,
+          include_categories: options.includeCategories,
+          include_products: options.includeProducts,
+          include_customers: options.includeCustomers,
+          include_suppliers: options.includeSuppliers,
+          include_restaurant: options.includeRestaurant
+        }
+      });
+
+      if (error) throw error;
+      setCloneResult(data);
+      showToast('تم استنساخ القالب والدليل بنجاح تام! 🎉', 'success');
+      onSuccess();
+    } catch (err: any) {
+      showToast('فشل الاستنساخ: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[120] flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+        <div className="p-4 border-b flex justify-between items-center bg-slate-50 shrink-0">
+          <h3 className="font-black text-xl text-slate-800 flex items-center gap-2">
+            <GitFork className="text-purple-600" /> استنساخ قالب وإعدادات شركة
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-red-500 transition-colors"><X size={24} /></button>
+        </div>
+
+        {cloneResult ? (
+          <div className="p-6 space-y-6 text-center">
+            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-600">
+              <CheckCircle size={40} />
+            </div>
+            <div>
+              <h4 className="text-xl font-black text-slate-800">اكتمل الاستنساخ بنجاح!</h4>
+              <p className="text-sm text-slate-500 mt-1">تم نقل الهيكل والدليل من <span className="font-bold text-slate-700">{cloneResult.source_org}</span> إلى <span className="font-bold text-slate-700">{cloneResult.target_org}</span></p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-right bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs font-bold text-slate-700">
+              <div className="flex justify-between p-2 bg-white rounded-lg"><span>الحسابات المنسوخة:</span><span className="text-purple-600">{cloneResult.accounts_cloned}</span></div>
+              <div className="flex justify-between p-2 bg-white rounded-lg"><span>المخازن المنسوخة:</span><span className="text-purple-600">{cloneResult.warehouses_cloned}</span></div>
+              <div className="flex justify-between p-2 bg-white rounded-lg"><span>مراكز التكلفة:</span><span className="text-purple-600">{cloneResult.cost_centers_cloned}</span></div>
+              <div className="flex justify-between p-2 bg-white rounded-lg"><span>وحدات القياس:</span><span className="text-purple-600">{cloneResult.uoms_cloned}</span></div>
+              {cloneResult.products_cloned > 0 && <div className="flex justify-between p-2 bg-white rounded-lg"><span>الأصناف:</span><span className="text-purple-600">{cloneResult.products_cloned}</span></div>}
+              {cloneResult.customers_cloned > 0 && <div className="flex justify-between p-2 bg-white rounded-lg"><span>العملاء:</span><span className="text-purple-600">{cloneResult.customers_cloned}</span></div>}
+            </div>
+
+            <button 
+              onClick={() => { setCloneResult(null); onClose(); }} 
+              className="w-full bg-blue-600 text-white font-black py-3.5 rounded-xl hover:bg-blue-700 transition-all shadow-lg"
+            >
+              تم
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleClone} className="flex flex-col flex-1 min-h-0">
+            <div className="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+              <div className="bg-purple-50 border border-purple-100 rounded-2xl p-3.5 text-xs font-medium text-purple-900 leading-relaxed">
+                💡 يقوم المحرك بنسخ شجرة الحسابات، الإعدادات، ومراكز التكلفة بدقة تامة وبمعرفات جديدة دون نسخ الفواتير أو الحركات المالية السابقة لحماية الاستقلال المالي للشركة.
+              </div>
+
+              <div>
+                <label className="block text-sm font-black text-slate-700 mb-1.5">الشركة المصدر (المراد النسخ منها)</label>
+                <select 
+                  required 
+                  value={sourceOrgId} 
+                  onChange={e => setSourceOrgId(e.target.value)}
+                  className="w-full border-2 border-slate-200 rounded-xl p-2.5 font-bold text-slate-700 bg-slate-50 focus:border-purple-500 outline-none"
+                >
+                  <option value="">-- اختر الشركة المصدر --</option>
+                  {organizations.map(org => (
+                    <option key={org.id} value={org.id} disabled={org.id === targetOrgId}>{org.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-black text-slate-700 mb-1.5">الشركة الهدف (المراد الاستنساخ إليها)</label>
+                <select 
+                  required 
+                  value={targetOrgId} 
+                  onChange={e => setTargetOrgId(e.target.value)}
+                  className="w-full border-2 border-slate-200 rounded-xl p-2.5 font-bold text-slate-700 bg-slate-50 focus:border-purple-500 outline-none"
+                >
+                  <option value="">-- اختر الشركة الهدف --</option>
+                  {organizations.map(org => (
+                    <option key={org.id} value={org.id} disabled={org.id === sourceOrgId}>{org.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-black text-slate-700 mb-2">عناصر الاستنساخ</label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeAccounts} onChange={e => setOptions({...options, includeAccounts: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    دليل الحسابات
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeSettings} onChange={e => setOptions({...options, includeSettings: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    إعدادات وتوجيه القيود
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeWarehouses} onChange={e => setOptions({...options, includeWarehouses: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    المخازن
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeCostCenters} onChange={e => setOptions({...options, includeCostCenters: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    مراكز التكلفة
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeUoms} onChange={e => setOptions({...options, includeUoms: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    وحدات القياس
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeCategories} onChange={e => setOptions({...options, includeCategories: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    🏷️ تصنيفات الأصناف
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeProducts} onChange={e => setOptions({...options, includeProducts: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    الأصناف (بدون أرصدة)
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeCustomers} onChange={e => setOptions({...options, includeCustomers: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    العملاء (بدون ديون)
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeSuppliers} onChange={e => setOptions({...options, includeSuppliers: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    الموردين (بدون التزامات)
+                  </label>
+                  <label className="flex items-center gap-2 p-2 bg-white rounded-xl border border-slate-200 cursor-pointer font-bold text-xs text-slate-700">
+                    <input type="checkbox" checked={options.includeRestaurant} onChange={e => setOptions({...options, includeRestaurant: e.target.checked})} className="w-4 h-4 text-purple-600 rounded" />
+                    🍽️ طاولات وإضافات المطعم
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t flex gap-3 bg-slate-50 shrink-0">
+              <button 
+                type="submit" 
+                disabled={loading || !sourceOrgId || !targetOrgId}
+                className="flex-1 bg-purple-600 text-white font-black py-3 rounded-xl hover:bg-purple-700 disabled:opacity-50 shadow-lg shadow-purple-100 flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="animate-spin" /> : <GitFork size={18} />}
+                تنفيذ الاستنساخ
+              </button>
+              <button type="button" onClick={onClose} className="px-6 py-3 bg-slate-100 text-slate-600 font-bold rounded-xl hover:bg-slate-200 transition-colors">
+                إلغاء
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const SaaSAdmin: React.FC = () => {
   const { currentUser, isLoading } = useAccounting(); // جلب المستخدم الحالي وحالة التحميل
   const [stats, setStats] = useState<PlatformStats | null>(null);
@@ -926,6 +1296,8 @@ const SaaSAdmin: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
+  const [isCloneModalOpen, setIsCloneModalOpen] = useState(false);
+  const [cloningSourceOrg, setCloningSourceOrg] = useState<Organization | null>(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deletingOrg, setDeletingOrg] = useState<Organization | null>(null);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
@@ -1486,13 +1858,23 @@ const SaaSAdmin: React.FC = () => {
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
           <h2 className="text-xl font-bold text-slate-800">إدارة الشركات والاشتراكات</h2>
-          <button 
-            onClick={() => setIsAddModalOpen(true)}
-            className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
-          >
-            <UserPlus size={18} />
-            إضافة شركة جديدة
-          </button>
+          <div className="flex gap-2">
+            <button 
+              onClick={() => { setCloningSourceOrg(null); setIsCloneModalOpen(true); }}
+              className="bg-purple-50 text-purple-700 border border-purple-200 px-4 py-2.5 rounded-xl font-bold hover:bg-purple-100 transition-all flex items-center gap-2 shadow-sm"
+              title="استنساخ شجرة الحسابات والإعدادات بين شركتين"
+            >
+              <GitFork size={18} />
+              استنساخ قالب شركة
+            </button>
+            <button 
+              onClick={() => setIsAddModalOpen(true)}
+              className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-100 flex items-center gap-2"
+            >
+              <UserPlus size={18} />
+              إضافة شركة جديدة
+            </button>
+          </div>
         </div>
         {/* Search and Filter */}
         <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row gap-4">
@@ -1646,6 +2028,13 @@ const SaaSAdmin: React.FC = () => {
                       <td className="p-4">
                         <div className="flex items-center justify-center gap-2">
                           <button 
+                            onClick={() => { setCloningSourceOrg(org); setIsCloneModalOpen(true); }}
+                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all flex items-center gap-1 font-bold text-xs border border-transparent hover:border-purple-200"
+                            title="استنساخ قالب وإعدادات هذه الشركة"
+                          >
+                            <GitFork size={16} /> استنساخ
+                          </button>
+                          <button 
                             onClick={() => { setEditingOrg(org); setIsEditModalOpen(true); }}
                             className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg transition-all flex items-center gap-1 font-bold text-xs border border-transparent hover:border-slate-200"
                             title="تعديل الإعدادات والباقة"
@@ -1792,6 +2181,14 @@ const SaaSAdmin: React.FC = () => {
         isOpen={isAddModalOpen} 
         onClose={() => setIsAddModalOpen(false)} 
         onSuccess={loadData} 
+        existingOrgs={orgs}
+      />
+      <CloneCompanyModal 
+        isOpen={isCloneModalOpen} 
+        onClose={() => { setIsCloneModalOpen(false); setCloningSourceOrg(null); }} 
+        onSuccess={loadData} 
+        organizations={orgs} 
+        initialSourceOrg={cloningSourceOrg} 
       />
       <EditClientModal 
         isOpen={isEditModalOpen} 

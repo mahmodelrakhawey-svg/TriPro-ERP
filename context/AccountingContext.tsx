@@ -497,6 +497,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (matchByPrefix) return matchByPrefix;
     }
     // Fallback by name and alternate standard codes
+    if (key === 'CUSTOMERS' || key === 'AR' || key === 'CUSTOMER') {
+      return accounts.find(a => a.name?.includes('العملاء') || a.name?.includes('عملاء') || a.name?.toLowerCase().includes('customer') || a.name?.toLowerCase().includes('receivable') || a.code === '1221' || a.code === '1103' || a.code === '121' || a.code?.startsWith('122') || a.code?.startsWith('1103'));
+    }
+    if (key === 'SUPPLIERS' || key === 'AP' || key === 'SUPPLIER') {
+      return accounts.find(a => a.name?.includes('الموردين') || a.name?.includes('موردين') || a.name?.toLowerCase().includes('supplier') || a.name?.toLowerCase().includes('payable') || a.code === '201' || a.code === '2101' || a.code === '221' || a.code?.startsWith('201') || a.code?.startsWith('2101'));
+    }
+    if (key === 'CASH' || key === 'TREASURY') {
+      return accounts.find(a => a.name?.includes('الخزينة') || a.name?.includes('النقدية') || a.name?.includes('الصندوق') || a.name?.toLowerCase().includes('cash') || a.code === '1231' || a.code === '10101' || a.code === '123' || a.code?.startsWith('1231') || a.code?.startsWith('10101'));
+    }
+    if (key === 'VAT' || key === 'VAT_OUTPUT') {
+      return accounts.find(a => (a.name?.includes('القيمة المضافة') || a.name?.includes('ضريبة المبيعات') || a.code === '2231' || a.code === '2105' || a.code?.startsWith('2231')) && !a.name?.includes('مدخلات') && !a.name?.includes('مشتريات'));
+    }
+    if (key === 'VAT_INPUT') {
+      return accounts.find(a => a.name?.includes('مدخلات') || a.name?.includes('مشتريات') || a.code === '1241' || a.code === '1105');
+    }
     if (key === 'OPENING_BALANCES') {
       return accounts.find(a => a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي') || a.name?.includes('افتتاحية') || a.name?.toLowerCase().includes('opening') || a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300'));
     }
