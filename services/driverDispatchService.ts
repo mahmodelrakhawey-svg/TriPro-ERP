@@ -14,6 +14,7 @@ export interface DriverDelivery {
   organization_id?: string | null;
   order_id: string;
   order_number: string;
+  order_status?: string;
   customer_name?: string;
   customer_phone?: string;
   customer_address?: string;
@@ -22,7 +23,9 @@ export interface DriverDelivery {
   driver_phone?: string;
   status: 'ASSIGNED' | 'DISPATCHED' | 'DELIVERED' | 'RETURNED' | 'CANCELLED';
   cod_amount: number; // المبلغ المطلوب تحصيله نقداً
+  original_cod_amount?: number;
   is_settled: boolean;
+  is_prepaid?: boolean; // هل الطلب مسدد مسبقاً لدى الكاشير؟
   settlement_id?: string | null;
   dispatched_at?: string | null;
   delivered_at?: string | null;
@@ -59,7 +62,7 @@ class DriverDispatchService {
         .from('driver_deliveries')
         .select(`
           *,
-          order:orders(id, order_number, grand_total, customer_id, customers(name, phone, address))
+          order:orders(id, order_number, grand_total, status, customer_id, customers(name, phone, address))
         `)
         .order('created_at', { ascending: false });
 
@@ -70,13 +73,24 @@ class DriverDispatchService {
         return this.getLocalDeliveries();
       }
 
-      const formatted = data.map((d: any) => ({
-        ...d,
-        order_number: d.order?.order_number || 'طلب توصيل',
-        customer_name: d.order?.customers?.name || 'عميل',
-        customer_phone: d.order?.customers?.phone || '',
-        customer_address: d.order?.customers?.address || ''
-      }));
+      const formatted: DriverDelivery[] = data.map((d: any) => {
+        const orderStatus = d.order?.status || 'CONFIRMED';
+        const isOrderPaid = orderStatus === 'PAID' || orderStatus === 'COMPLETED';
+        const isSettled = Boolean(d.is_settled || isOrderPaid);
+
+        return {
+          ...d,
+          order_number: d.order?.order_number || 'طلب توصيل',
+          order_status: orderStatus,
+          customer_name: d.order?.customers?.name || 'عميل',
+          customer_phone: d.order?.customers?.phone || '',
+          customer_address: d.order?.customers?.address || '',
+          is_settled: isSettled,
+          is_prepaid: isOrderPaid,
+          cod_amount: isSettled ? 0 : Number(d.cod_amount || 0),
+          original_cod_amount: Number(d.cod_amount || 0)
+        };
+      });
 
       return formatted;
     } catch {
@@ -99,8 +113,13 @@ class DriverDispatchService {
     driverName: string;
     driverPhone?: string;
     codAmount: number;
+    isPrepaid?: boolean;
     organizationId?: string;
   }): Promise<DriverDelivery> {
+    const isPrepaid = Boolean(params.isPrepaid);
+    const finalCod = isPrepaid ? 0 : Number(params.codAmount || 0);
+    const isSettled = isPrepaid;
+
     const deliveryRecord: DriverDelivery = {
       id: `delv_${Date.now()}`,
       organization_id: params.organizationId || null,
@@ -113,8 +132,11 @@ class DriverDispatchService {
       driver_name: params.driverName,
       driver_phone: params.driverPhone,
       status: 'ASSIGNED',
-      cod_amount: params.codAmount,
-      is_settled: false,
+      cod_amount: finalCod,
+      original_cod_amount: Number(params.codAmount || 0),
+      is_settled: isSettled,
+      is_prepaid: isPrepaid,
+      notes: isPrepaid ? 'طلب مسدد مسبقاً لدى الكاشير' : undefined,
       dispatched_at: new Date().toISOString(),
       created_at: new Date().toISOString()
     };
@@ -128,7 +150,7 @@ class DriverDispatchService {
         driver_phone: deliveryRecord.driver_phone,
         status: 'ASSIGNED',
         cod_amount: deliveryRecord.cod_amount,
-        is_settled: false,
+        is_settled: deliveryRecord.is_settled,
         dispatched_at: deliveryRecord.dispatched_at
       });
     } catch (e) {
@@ -261,6 +283,20 @@ class DriverDispatchService {
         .from('driver_deliveries')
         .update({ is_settled: true, settlement_id: settlementRecord.id })
         .in('id', params.deliveryIds);
+
+      // تحديث الفواتير المرتبطة إلى مسددة لمنع ازدواجية المطالبة أو التحصيل في نقطة البيع
+      try {
+        const targetDeliveries = this.getLocalDeliveries().filter(d => params.deliveryIds.includes(d.id));
+        const orderIds = targetDeliveries.map(d => d.order_id).filter(Boolean);
+        if (orderIds.length > 0) {
+          await supabase
+            .from('orders')
+            .update({ status: 'PAID' })
+            .in('id', orderIds);
+        }
+      } catch (ordSyncErr) {
+        console.warn('Orders sync in driver settlement notice:', ordSyncErr);
+      }
     } catch (e) {
       console.warn('DB settlement insert notice:', e);
     }
@@ -268,7 +304,9 @@ class DriverDispatchService {
     // Update local storage
     const currentDeliveries = this.getLocalDeliveries();
     const updatedDeliveries = currentDeliveries.map(d =>
-      params.deliveryIds.includes(d.id) ? { ...d, is_settled: true, settlement_id: settlementRecord.id } : d
+      params.deliveryIds.includes(d.id)
+        ? { ...d, is_settled: true, settlement_id: settlementRecord.id, cod_amount: 0 }
+        : d
     );
     secureStorage.setItem(LOCAL_DELIVERIES_KEY, updatedDeliveries);
 
@@ -304,7 +342,41 @@ class DriverDispatchService {
     const currentDeliveries = this.getLocalDeliveries();
     const updated = currentDeliveries.map(d =>
       d.order_id === orderId
-        ? { ...d, is_settled: true, status: 'DELIVERED' as const, delivered_at: now }
+        ? { ...d, is_settled: true, status: 'DELIVERED' as const, delivered_at: now, cod_amount: 0, is_prepaid: true }
+        : d
+    );
+    secureStorage.setItem(LOCAL_DELIVERIES_KEY, updated);
+  }
+
+  /**
+   * تسوية طلب ديلفري فردي مباشرة من جدول التوصيلات واستلام النقدية
+   */
+  public async settleDeliveryDirectly(deliveryId: string, orderId?: string): Promise<void> {
+    const now = new Date().toISOString();
+    try {
+      await supabase
+        .from('driver_deliveries')
+        .update({
+          is_settled: true,
+          status: 'DELIVERED',
+          delivered_at: now
+        })
+        .eq('id', deliveryId);
+
+      if (orderId) {
+        await supabase
+          .from('orders')
+          .update({ status: 'PAID' })
+          .eq('id', orderId);
+      }
+    } catch (e) {
+      console.warn('DB settleDeliveryDirectly notice:', e);
+    }
+
+    const currentDeliveries = this.getLocalDeliveries();
+    const updated = currentDeliveries.map(d =>
+      d.id === deliveryId
+        ? { ...d, is_settled: true, status: 'DELIVERED' as const, delivered_at: now, cod_amount: 0 }
         : d
     );
     secureStorage.setItem(LOCAL_DELIVERIES_KEY, updated);

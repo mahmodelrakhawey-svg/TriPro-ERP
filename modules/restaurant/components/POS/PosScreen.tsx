@@ -1555,6 +1555,11 @@ const PosScreen = () => {
         activeOrder.warehouseId
       );
 
+      // 🛵 تصفير عهدة السائق تلقائياً لأن الفاتورة قُيدت كذمة على العميل ولا يوجد نقدية مع السائق
+      if (activeOrder.type === 'delivery' && activeOrder.orderId) {
+        await driverDispatchService.settleDeliveryByOrderId(activeOrder.orderId);
+      }
+
       showToast('تم تسجيل الفاتورة كذمة على العميل بنجاح ✅', 'success');
       setActiveOrder(null);
       

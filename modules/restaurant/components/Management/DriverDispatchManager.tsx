@@ -92,12 +92,12 @@ export const DriverDispatchManager: React.FC = () => {
     }
   }, [accounts]);
 
-  // Group deliveries by driver
+  // Group deliveries by driver (استبعاد الطلبات المسددة مسبقاً أو التي تمت تسويتها لمنع ازدواجية العهدة)
   const driverBalances = useMemo(() => {
     const map: Record<string, { driverName: string; pendingDeliveries: DriverDelivery[]; totalCodPending: number }> = {};
 
     deliveries
-      .filter(d => !d.is_settled && d.status !== 'CANCELLED')
+      .filter(d => !d.is_settled && d.order_status !== 'PAID' && d.order_status !== 'COMPLETED' && !d.is_prepaid && Number(d.cod_amount) > 0 && d.status !== 'CANCELLED')
       .forEach(d => {
         const name = d.driver_name || 'سائق غير محدد';
         if (!map[name]) {
@@ -114,6 +114,16 @@ export const DriverDispatchManager: React.FC = () => {
     await driverDispatchService.updateDeliveryStatus(id, status);
     showToast('تم تحديث حالة طلب التوصيل ✅', 'success');
     fetchDispatchData();
+  };
+
+  const handleQuickSettleDelivery = async (deliveryId: string, orderId?: string) => {
+    try {
+      await driverDispatchService.settleDeliveryDirectly(deliveryId, orderId);
+      showToast('تمت تسوية عهدة هذا الطلب واعتباره مسدداً بنجاح ✅', 'success');
+      fetchDispatchData();
+    } catch (e: any) {
+      showToast('خطأ أثناء التسوية: ' + e.message, 'error');
+    }
   };
 
   const handleOpenSettlement = (driverName: string, expectedCod: number) => {
@@ -162,6 +172,8 @@ export const DriverDispatchManager: React.FC = () => {
     const ord = pendingOrders.find(o => o.id === selectedOrderId);
     if (!ord) return;
 
+    const isOrderAlreadyPaid = ord.status === 'PAID' || ord.status === 'COMPLETED';
+
     try {
       await driverDispatchService.assignDriver({
         orderId: ord.id,
@@ -171,11 +183,17 @@ export const DriverDispatchManager: React.FC = () => {
         customerAddress: ord.customers?.address,
         driverName: driverNameInput.trim(),
         driverPhone: driverPhoneInput.trim(),
-        codAmount: Number(ord.grand_total || 0),
+        codAmount: isOrderAlreadyPaid ? 0 : Number(ord.grand_total || 0),
+        isPrepaid: isOrderAlreadyPaid,
         organizationId: currentUser?.organization_id || undefined
       });
 
-      showToast('تم تعيين وإرسال الطلب مع السائق بنجاح 🛵', 'success');
+      showToast(
+        isOrderAlreadyPaid
+          ? 'تم تعيين الطلب مع السائق كطلب مسدد مسبقاً (عهدة 0 ج) 🛵✅'
+          : 'تم تعيين وإرسال الطلب مع السائق بنجاح 🛵',
+        'success'
+      );
       setIsAssignModalOpen(false);
       setSelectedOrderId('');
       setDriverNameInput('');
@@ -325,6 +343,9 @@ export const DriverDispatchManager: React.FC = () => {
                     </td>
                     <td className="p-3.5 text-center font-extrabold text-slate-900 font-mono">
                       {Number(d.cod_amount).toFixed(2)} ج
+                      {d.is_prepaid && (
+                        <span className="block text-[10px] text-emerald-600 font-normal">مدفوع مسبقاً</span>
+                      )}
                     </td>
                     <td className="p-3.5 text-center">
                       <span
@@ -348,9 +369,9 @@ export const DriverDispatchManager: React.FC = () => {
                       </span>
                     </td>
                     <td className="p-3.5 text-center">
-                      {d.is_settled ? (
+                      {d.is_settled || d.order_status === 'PAID' || d.is_prepaid ? (
                         <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-                          تمت التسوية
+                          تمت التسوية (مسدد)
                         </span>
                       ) : (
                         <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
@@ -366,6 +387,15 @@ export const DriverDispatchManager: React.FC = () => {
                             className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-[11px] font-bold"
                           >
                             تم التسليم
+                          </button>
+                        )}
+                        {!d.is_settled && d.order_status !== 'PAID' && !d.is_prepaid && Number(d.cod_amount) > 0 && (
+                          <button
+                            onClick={() => handleQuickSettleDelivery(d.id, d.order_id)}
+                            className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-[11px] font-bold"
+                            title="تسوية عهدة هذا الطلب مباشرة"
+                          >
+                            تسوية العهدة
                           </button>
                         )}
                         {d.status !== 'RETURNED' && (
@@ -556,7 +586,14 @@ export const DriverDispatchManager: React.FC = () => {
                     .filter(o => !deliveries.some(d => d.order_id === o.id && d.status !== 'CANCELLED'))
                     .map(o => {
                       const custName = o.customers?.name || o.delivery_orders?.[0]?.customer_name || (o.notes?.includes('منصة') ? o.notes.replace('طلب منصة توصيل:', '').trim() : 'عميل توصيل');
-                      const statusBadge = o.status === 'SERVED' ? '🍽️ جاهز ومسلّم' : o.status === 'READY' ? '🍳 جاهز بالمطبخ' : '⏳ جاري التحضير';
+                      const isPaid = o.status === 'PAID' || o.status === 'COMPLETED';
+                      const statusBadge = isPaid
+                        ? '💵 مسدد مسبقاً (COD: 0 ج)'
+                        : o.status === 'SERVED'
+                        ? '🍽️ جاهز ومسلّم'
+                        : o.status === 'READY'
+                        ? '🍳 جاهز بالمطبخ'
+                        : '⏳ جاري التحضير';
                       return (
                         <option key={o.id} value={o.id}>
                           #{o.order_number || o.id.slice(0, 5)} - {custName} ({Number(o.grand_total || 0).toFixed(2)} ج) [{statusBadge}]
@@ -564,6 +601,21 @@ export const DriverDispatchManager: React.FC = () => {
                       );
                     })}
                 </select>
+                {(() => {
+                  const selectedOrder = pendingOrders.find(o => o.id === selectedOrderId);
+                  const isSelectedPaid = selectedOrder?.status === 'PAID' || selectedOrder?.status === 'COMPLETED';
+                  if (isSelectedPaid) {
+                    return (
+                      <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[11px] text-emerald-800 flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                        <span>
+                          <strong>تنبيه مالي:</strong> هذا الطلب مسدد مسبقاً لدى الكاشير. لن يتم تسجيل أي عهدة نقدية على الكابتن (مبلغ التحصيل 0.00 ج)، فقط توصيل الطلب للعميل.
+                        </span>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               <div>

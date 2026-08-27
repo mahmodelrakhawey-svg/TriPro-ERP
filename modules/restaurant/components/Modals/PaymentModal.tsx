@@ -4,6 +4,7 @@ import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import { X, CreditCard, Banknote, Wallet, CheckCircle2, Loader2, Receipt, Minus, Plus } from 'lucide-react';
 import { getCurrencySymbol } from '../../../../utils/constants';
+import { driverDispatchService } from '../../../../services/driverDispatchService';
 
 interface Props {
   orderId: string;
@@ -130,6 +131,11 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
           paymentAccount.id,
           order.warehouse_id
         );
+
+        // 🛵 تصفير عهدة السائق تلقائياً لمنع أي ازدواجية في التحصيل أو القيود
+        if (order.order_type === 'DELIVERY' || order.type === 'delivery') {
+          await driverDispatchService.settleDeliveryByOrderId(orderId);
+        }
 
         showToast('تمت عملية الدفع وترحيل القيد بنجاح', 'success');
         onSuccess();
