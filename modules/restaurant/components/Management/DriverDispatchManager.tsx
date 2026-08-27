@@ -59,9 +59,9 @@ export const DriverDispatchManager: React.FC = () => {
         driverDispatchService.getSettlements(currentUser?.organization_id || undefined),
         supabase
           .from('orders')
-          .select('id, order_number, grand_total, customer_id, customers(name, phone, address)')
+          .select('id, order_number, grand_total, customer_id, notes, status, delivery_orders(*), customers(name, phone, address)')
           .eq('order_type', 'DELIVERY')
-          .in('status', ['PAID', 'PENDING_PAYMENT', 'PREPARING', 'READY'])
+          .in('status', ['PAID', 'PENDING_PAYMENT', 'PREPARING', 'READY', 'SERVED', 'CONFIRMED'])
           .order('created_at', { ascending: false })
       ]);
 
@@ -551,12 +551,18 @@ export const DriverDispatchManager: React.FC = () => {
                   onChange={e => setSelectedOrderId(e.target.value)}
                   className="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold outline-none focus:ring-2 focus:ring-amber-500"
                 >
-                  <option value="">-- اختر من الطلبات الجاهزة --</option>
-                  {pendingOrders.map(o => (
-                    <option key={o.id} value={o.id}>
-                      #{o.order_number || o.id.slice(0, 5)} - {o.customers?.name || 'عميل'} ({o.grand_total} ج)
-                    </option>
-                  ))}
+                  <option value="">-- اختر من الطلبات الجاهزة للتوصيل --</option>
+                  {pendingOrders
+                    .filter(o => !deliveries.some(d => d.order_id === o.id && d.status !== 'CANCELLED'))
+                    .map(o => {
+                      const custName = o.customers?.name || o.delivery_orders?.[0]?.customer_name || (o.notes?.includes('منصة') ? o.notes.replace('طلب منصة توصيل:', '').trim() : 'عميل توصيل');
+                      const statusBadge = o.status === 'SERVED' ? '🍽️ جاهز ومسلّم' : o.status === 'READY' ? '🍳 جاهز بالمطبخ' : '⏳ جاري التحضير';
+                      return (
+                        <option key={o.id} value={o.id}>
+                          #{o.order_number || o.id.slice(0, 5)} - {custName} ({Number(o.grand_total || 0).toFixed(2)} ج) [{statusBadge}]
+                        </option>
+                      );
+                    })}
                 </select>
               </div>
 

@@ -30,7 +30,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
   onClose,
   onSuccess
 }) => {
-  const { accounts, currentUser } = useAccounting();
+  const { accounts, currentUser, currentShift, getCurrentShiftSummary, closeCurrentShift, refreshData } = useAccounting();
   const { showToast } = useToast();
 
   const [step, setStep] = useState<'COUNT' | 'RESULT'>('COUNT');
@@ -46,10 +46,24 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
   const [coins, setCoins] = useState<number>(0);
   const [directTotal, setDirectTotal] = useState<number>(0);
   const [closingNotes, setClosingNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Result state
-  const [resultShift, setResultShift] = useState<CashierShift | null>(null);
+  const [shiftSummary, setShiftSummary] = useState<any>(null);
   const [difference, setDifference] = useState<number>(0);
+
+  // Fetch real database shift summary on mount
+  React.useEffect(() => {
+    const fetchSummary = async () => {
+      try {
+        const sum = await getCurrentShiftSummary();
+        if (sum) setShiftSummary(sum);
+      } catch (err) {
+        console.warn('Failed to load shift summary:', err);
+      }
+    };
+    fetchSummary();
+  }, [currentShift]);
 
   const calculatedTotal = breakdownMode
     ? b200 * 200 + b100 * 100 + b50 * 50 + b20 * 20 + b10 * 10 + b5 * 5 + coins
@@ -60,38 +74,68 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
       if (!confirm('المبلغ المدخل 0 ج. هل أنت متأكد من المتابعة بالجرد؟')) return;
     }
 
-    const cashAcc = accounts.find(a => a.name.includes('صندوق') || a.name.includes('نقدية') || a.code === '1101');
-    const shortAcc = accounts.find(a => a.name.includes('عجز') || a.name.includes('فروقات') || a.code === '5209');
-
+    setIsSubmitting(true);
     try {
-      const res = await cashShiftService.submitBlindClose({
-        shiftId: shift.id,
-        actualCountedAmount: calculatedTotal,
-        breakdown: breakdownMode
-          ? {
-              bill200: b200,
-              bill100: b100,
-              bill50: b50,
-              bill20: b20,
-              bill10: b10,
-              bill5: b5,
-              coins
-            }
-          : undefined,
-        closingNotes,
-        organizationId: currentUser?.organization_id || undefined,
-        cashAccountId: cashAcc?.id,
-        shortageOverAccountId: shortAcc?.id
-      });
+      let summary = shiftSummary;
+      if (!summary) {
+        try {
+          summary = await getCurrentShiftSummary();
+          if (summary) setShiftSummary(summary);
+        } catch (e) {
+          console.warn('Shift summary fetch notice:', e);
+        }
+      }
 
-      setResultShift(res.shift);
-      setDifference(res.difference);
+      const openingFloat = Number(summary?.opening_balance ?? shift?.opening_float ?? (currentShift?.opening_balance || 0));
+      const cashSales = Number(summary?.cash_sales ?? shift?.total_cash_sales ?? 0);
+      const pettyCash = Number(summary?.petty_cash ?? shift?.total_petty_cash_payouts ?? 0);
+      const expected = Number((openingFloat + cashSales - pettyCash).toFixed(2));
+
+      const diff = Number((calculatedTotal - expected).toFixed(2));
+      setDifference(diff);
+
+      // 1. Close REAL database shift in PostgreSQL
+      if (currentShift) {
+        await closeCurrentShift(calculatedTotal, closingNotes || 'إقفال الوردية (الجرد الأعمى)');
+      }
+
+      // 2. Also close local cashier shift for records
+      if (shift?.id) {
+        try {
+          await cashShiftService.submitBlindClose({
+            shiftId: shift.id,
+            actualCountedAmount: calculatedTotal,
+            breakdown: breakdownMode
+              ? {
+                  bill200: b200,
+                  bill100: b100,
+                  bill50: b50,
+                  bill20: b20,
+                  bill10: b10,
+                  bill5: b5,
+                  coins
+                }
+              : undefined,
+            closingNotes,
+            organizationId: currentUser?.organization_id || undefined
+            // Note: Journal entries are generated officially and automatically by PostgreSQL close_shift
+          });
+        } catch (localErr) {
+          console.warn('Local shift sync notice:', localErr);
+        }
+      }
+
       setStep('RESULT');
-      showToast('تم اعتماد الجرد الأعمى وإقفال الوردية بنجاح 🔒', 'success');
+      showToast('تم اعتماد الجرد وإقفال الوردية بنجاح 🔒', 'success');
     } catch (e: any) {
-      showToast('خطأ: ' + e.message, 'error');
+      showToast('خطأ أثناء إقفال الوردية: ' + (e.message || 'خطأ غير متوقع'), 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  const cashierName = shift?.cashier_name || (currentUser as any)?.full_name || (currentUser as any)?.name || 'الكاشير';
+  const shiftStartTime = shift?.opened_at || currentShift?.start_time || new Date().toISOString();
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
@@ -107,8 +151,8 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
                 {step === 'COUNT' ? 'الجرد الأعمى وإقفال الوردية (Blind Close)' : 'تقرير مطابقة الوردية'}
               </h3>
               <p className="text-xs text-slate-400">
-                الكاشير: <span className="font-bold text-slate-700">{shift.cashier_name}</span> | البداية:{' '}
-                {new Date(shift.opened_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                الكاشير: <span className="font-bold text-slate-700">{cashierName}</span> | البداية:{' '}
+                {new Date(shiftStartTime).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
               </p>
             </div>
           </div>
@@ -305,40 +349,52 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
             </div>
 
             {/* Reconciliation Numbers */}
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
-              <div className="flex justify-between text-slate-600">
-                <span>رصيد عهدة البداية (Float):</span>
-                <span className="font-mono font-bold">{shift.opening_float.toFixed(2)} ج</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>إجمالي المبيعات النقدية:</span>
-                <span className="font-mono font-bold text-emerald-600">+{shift.total_cash_sales.toFixed(2)} ج</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>المبيعات الإلكترونية (فيزا / بطاقات):</span>
-                <span className="font-mono font-bold text-indigo-600">{shift.total_card_sales.toFixed(2)} ج</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>المصروفات النثرية المسحوبة من الدرج:</span>
-                <span className="font-mono font-bold text-rose-600">-{shift.total_petty_cash_payouts.toFixed(2)} ج</span>
-              </div>
-              <div className="border-t border-slate-200 pt-2 flex justify-between font-bold text-slate-800 text-sm">
-                <span>النقدية المتوقعة في الدرج (System Expected):</span>
-                <span className="font-mono">{shift.expected_cash_in_drawer.toFixed(2)} ج</span>
-              </div>
-              <div className="flex justify-between font-bold text-slate-800 text-sm">
-                <span>النقدية الفعلية بالجرد (Actual Counted):</span>
-                <span className="font-mono text-rose-600">{calculatedTotal.toFixed(2)} ج</span>
-              </div>
-              <div
-                className={`border-t border-slate-200 pt-2 flex justify-between font-black text-base ${
-                  Math.abs(difference) <= 0.01 ? 'text-emerald-700' : difference < 0 ? 'text-red-600' : 'text-blue-600'
-                }`}
-              >
-                <span>الفارق الصافي (Difference):</span>
-                <span className="font-mono">{difference >= 0 ? `+${difference.toFixed(2)}` : difference.toFixed(2)} ج</span>
-              </div>
-            </div>
+            {(() => {
+              const openingFloat = Number(shiftSummary?.opening_balance ?? shift?.opening_float ?? (currentShift?.opening_balance || 0));
+              const cashSales = Number(shiftSummary?.cash_sales ?? shift?.total_cash_sales ?? 0);
+              const cardSales = Number(shiftSummary?.card_sales ?? shift?.total_card_sales ?? 0);
+              const pettyPayouts = Number(shiftSummary?.petty_cash ?? shift?.total_petty_cash_payouts ?? 0);
+              const expectedCash = Number((openingFloat + cashSales - pettyPayouts).toFixed(2));
+
+              return (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
+                  <div className="flex justify-between text-slate-600">
+                    <span>رصيد عهدة البداية (Float):</span>
+                    <span className="font-mono font-bold">{openingFloat.toFixed(2)} ج</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>إجمالي المبيعات النقدية:</span>
+                    <span className="font-mono font-bold text-emerald-600">+{cashSales.toFixed(2)} ج</span>
+                  </div>
+                  <div className="flex justify-between text-slate-600">
+                    <span>المبيعات الإلكترونية (فيزا / بطاقات):</span>
+                    <span className="font-mono font-bold text-indigo-600">{cardSales.toFixed(2)} ج</span>
+                  </div>
+                  {pettyPayouts > 0 && (
+                    <div className="flex justify-between text-slate-600">
+                      <span>المصروفات النثرية المسحوبة من الدرج:</span>
+                      <span className="font-mono font-bold text-rose-600">-{pettyPayouts.toFixed(2)} ج</span>
+                    </div>
+                  )}
+                  <div className="border-t border-slate-200 pt-2 flex justify-between font-bold text-slate-800 text-sm">
+                    <span>النقدية المتوقعة في الدرج (System Expected):</span>
+                    <span className="font-mono">{expectedCash.toFixed(2)} ج</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-slate-800 text-sm">
+                    <span>النقدية الفعلية بالجرد (Actual Counted):</span>
+                    <span className="font-mono text-rose-600">{calculatedTotal.toFixed(2)} ج</span>
+                  </div>
+                  <div
+                    className={`border-t border-slate-200 pt-2 flex justify-between font-black text-base ${
+                      Math.abs(difference) <= 0.01 ? 'text-emerald-700' : difference < 0 ? 'text-red-600' : 'text-blue-600'
+                    }`}
+                  >
+                    <span>الفارق الصافي (Difference):</span>
+                    <span className="font-mono">{difference >= 0 ? `+${difference.toFixed(2)}` : difference.toFixed(2)} ج</span>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Done Action */}
             <div className="flex justify-end pt-2">

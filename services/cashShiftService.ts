@@ -8,6 +8,7 @@
 import { supabase } from '../supabaseClient';
 import { AccountingEngine } from './accountingEngine';
 import { secureStorage } from '../utils/securityMiddleware';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface CashDenominationBreakdown {
   bill200: number;
@@ -90,8 +91,9 @@ class CashShiftService {
     cashierName: string;
     openingFloat: number;
   }): CashierShift {
+    const shiftId = uuidv4();
     const newShift: CashierShift = {
-      id: `shift_${Date.now()}`,
+      id: shiftId,
       organization_id: params.organizationId || null,
       cashier_id: params.cashierId,
       cashier_name: params.cashierName,
@@ -111,15 +113,30 @@ class CashShiftService {
     secureStorage.setItem(LOCAL_SHIFTS_KEY, updated);
     secureStorage.setItem(ACTIVE_SHIFT_KEY, newShift.id);
 
-    // Sync to Supabase
-    supabase.from('cashier_shifts').insert({
-      id: newShift.id,
-      organization_id: newShift.organization_id,
-      cashier_id: newShift.cashier_id,
-      cashier_name: newShift.cashier_name,
-      opening_float: newShift.opening_float,
-      status: 'OPEN'
-    }).then();
+    const isValidUUID = (str?: string | null) =>
+      Boolean(str && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str));
+
+    // Sync to Supabase safely
+    supabase
+      .from('cashier_shifts')
+      .insert({
+        id: newShift.id,
+        organization_id: isValidUUID(newShift.organization_id) ? newShift.organization_id : null,
+        cashier_id: isValidUUID(newShift.cashier_id) ? newShift.cashier_id : null,
+        cashier_name: newShift.cashier_name,
+        opening_float: newShift.opening_float,
+        status: 'OPEN'
+      })
+      .then(
+        ({ error }) => {
+          if (error) {
+            console.warn('cashier_shifts sync notice:', error.message);
+          }
+        },
+        err => {
+          console.warn('cashier_shifts sync network notice:', err);
+        }
+      );
 
     return newShift;
   }

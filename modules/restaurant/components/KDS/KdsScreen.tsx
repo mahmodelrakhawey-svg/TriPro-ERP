@@ -11,7 +11,8 @@ import { cookPacingService } from '../../../../services/cookPacingService';
 
 // --- أنواع البيانات ---
 type KitchenOrderItem = {
-  id: string; // kitchen_order id
+  id: string; // item id
+  kitchen_order_id?: string | null;
   status: 'NEW' | 'PREPARING' | 'READY' | 'SERVED';
   quantity: number;
   notes: string | null; // Changed to unit_price
@@ -79,11 +80,23 @@ const OrderTicket = React.memo(({ ticket, onUpdateStatus, borderColor }: { ticke
           return (
             <div key={item.id} className={`p-2 rounded-md border ${getStatusColor(item.status)}`}>
               <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-bold text-lg text-slate-900">
-                    <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white font-mono text-sm mr-2">{item.quantity}x</span>
-                    {item.product_name}
-                  </p>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-bold text-lg text-slate-900">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-600 text-white font-mono text-sm mr-2">{item.quantity}x</span>
+                      {item.product_name}
+                    </p>
+
+                    {item.station_name && (
+                      <span
+                        className="text-[11px] px-2.5 py-0.5 rounded-md text-white font-bold shadow-sm inline-flex items-center gap-1.5"
+                        style={{ backgroundColor: item.station_color || '#e11d48' }}
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                        {item.station_name.split('(')[0].trim()}
+                      </span>
+                    )}
+                  </div>
 
                   {/* Cook Pacing Indicators */}
                   {isHold && (
@@ -150,14 +163,31 @@ const OrderTicket = React.memo(({ ticket, onUpdateStatus, borderColor }: { ticke
 const KdsScreen = () => {
   const [tickets, setTickets] = useState<KitchenOrderTicket[]>([]);
   const [stations, setStations] = useState<KitchenStation[]>([]);
-  const [selectedStationId, setSelectedStationId] = useState<string>('ALL');
+  const [selectedStationId, setSelectedStationId] = useState<string>(() => {
+    return localStorage.getItem('kds_selected_station_filter') || 'ALL';
+  });
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
-  const { updateKitchenOrderStatus } = useAccounting();
+  const { updateKitchenOrderStatus, currentUser } = useAccounting();
   const [audioEnabled, setAudioEnabled] = useState(false);
+
+  const handleSelectStation = useCallback((stId: string) => {
+    setSelectedStationId(stId);
+    localStorage.setItem('kds_selected_station_filter', stId);
+  }, []);
+
+  const stationsMap = useMemo(() => {
+    const map: Record<string, KitchenStation> = {};
+    stations.forEach(s => {
+      map[s.id] = s;
+      if (s.code) map[s.code] = s;
+    });
+    return map;
+  }, [stations]);
   
   // جلب معرف المنظمة لضمان دقة البيانات في بيئة SaaS
   const getOrgId = useCallback(async () => {
+    if (currentUser?.organization_id) return currentUser.organization_id;
     const { data: { session } } = await supabase.auth.getSession();
     const metadataOrgId = session?.user?.user_metadata?.org_id || session?.user?.app_metadata?.org_id;
     if (metadataOrgId) return metadataOrgId;
@@ -167,14 +197,16 @@ const KdsScreen = () => {
       .from('profiles')
       .select('organization_id')
       .eq('id', session?.user?.id)
-      .single();
+      .maybeSingle();
     
     return profile?.organization_id;
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     getOrgId().then(orgId => {
-      kitchenStationService.getStations(orgId).then(res => setStations(res));
+      if (orgId) {
+        kitchenStationService.getStations(orgId).then(res => setStations(res));
+      }
     });
   }, [getOrgId]);
 
@@ -186,61 +218,80 @@ const KdsScreen = () => {
         return;
       }
 
+      // جلب الطلبات النشطة مباشرة من orders و order_items لضمان ظهور التذاكر فورياً
       const { data, error } = await supabase
-        .from('kitchen_orders')
+        .from('orders')
         .select(`
           id, 
+          order_number, 
           status, 
-          created_at,
-          order_items!inner (
+          created_at, 
+          order_type,
+          table_sessions!left (
+            table_id,
+            restaurant_tables (name)
+          ),
+          order_items (
             id, quantity, notes, modifiers,
-            products!inner (name),
-            orders!inner (
-              id, order_number, status, created_at, order_type,
-              table_sessions!left (restaurant_tables (name))
-            )
+            products (id, name, station_id),
+            kitchen_orders (id, status)
           )
         `)
         .eq('organization_id', orgId)
-        .neq('status', 'SERVED')
+        .in('status', ['CONFIRMED', 'IN_PROGRESS', 'PAID', 'NEW', 'PREPARING', 'READY', 'draft', 'open', 'PENDING_PAYMENT', 'SERVED'])
         .order('created_at', { ascending: true });
 
       if (error) throw error;
 
-      const groupedByOrder: { [key: string]: KitchenOrderTicket } = {};
-      (data || []).forEach((ko: any) => {
-        // Handle flexible data return from Supabase joins (array vs object)
-        const orderItem = Array.isArray(ko.order_items) ? ko.order_items[0] : ko.order_items;
-
-        if (!orderItem) return;
-        const order = Array.isArray(orderItem.orders) ? orderItem.orders[0] : orderItem.orders;
-        if (!order) return;
-
-        const orderId = order.id;
-        const currentStatus = (ko.status || '').toUpperCase();
-
-        if (!groupedByOrder[orderId]) {
-          groupedByOrder[orderId] = {
-            order_id: orderId,
-            order_number: order.order_number || 'N/A',
-            table_name: order.table_sessions?.restaurant_tables?.name || (order.order_type === 'TAKEAWAY' ? 'سفري' : order.order_type === 'DELIVERY' ? 'توصيل' : 'غير محدد'),
-            created_at: order.created_at || ko.created_at,
-            items: [],
-          };
-        }
-        // ✅ لا نقوم بتجميع الأصناف هنا، كل kitchen_order_item هو سطر منفصل
-        groupedByOrder[orderId].items.push({
-          id: ko.id, // معرف kitchen_order الفريد
-          status: currentStatus as any,
-          quantity: orderItem.quantity,
-          notes: orderItem.notes,
-          selectedModifiers: orderItem.modifiers,
-          product_name: orderItem.products.name,
-        });
+      const currentStations = stations.length > 0 ? stations : await kitchenStationService.getStations(orgId);
+      const currentMap: Record<string, KitchenStation> = {};
+      currentStations.forEach(s => {
+        currentMap[s.id] = s;
+        if (s.code) currentMap[s.code] = s;
       });
 
-      Object.values(groupedByOrder).forEach(ticket => {
-        ticket.items.sort((a, b) => a.product_name.localeCompare(b.product_name));
+      const groupedByOrder: { [key: string]: KitchenOrderTicket } = {};
+
+      (data || []).forEach((order: any) => {
+        const orderId = order.id;
+        const sessionObj = Array.isArray(order.table_sessions) ? order.table_sessions[0] : order.table_sessions;
+        const tableName = sessionObj?.restaurant_tables?.name || (order.order_type === 'TAKEAWAY' ? 'سفري' : order.order_type === 'DELIVERY' ? 'توصيل' : 'طاولة صالة');
+
+        const activeItems: KitchenOrderItem[] = [];
+
+        (order.order_items || []).forEach((oi: any) => {
+          const koStatus = (oi.kitchen_orders?.[0]?.status || kitchenStationService.getSavedStatus(oi.id) || 'NEW').toUpperCase();
+          // الأطباق التي تم تسليمها للطاولة (SERVED) تخرج من شاشة تحضير المطبخ
+          if (koStatus === 'SERVED') return;
+
+          const prod = Array.isArray(oi.products) ? oi.products[0] : oi.products;
+          const prodStationId = prod?.station_id || null;
+          const st = prodStationId ? currentMap[prodStationId] : null;
+
+          activeItems.push({
+            id: oi.id,
+            kitchen_order_id: oi.kitchen_orders?.[0]?.id || null,
+            status: koStatus as any,
+            quantity: oi.quantity,
+            notes: oi.notes,
+            selectedModifiers: oi.modifiers,
+            product_name: prod?.name || 'صنف',
+            station_id: prodStationId,
+            station_name: st?.name,
+            station_color: st?.color,
+          });
+        });
+
+        if (activeItems.length > 0) {
+          activeItems.sort((a, b) => a.product_name.localeCompare(b.product_name));
+          groupedByOrder[orderId] = {
+            order_id: orderId,
+            order_number: order.order_number || `ORD-${orderId.slice(0, 5)}`,
+            table_name: tableName,
+            created_at: order.created_at,
+            items: activeItems,
+          };
+        }
       });
 
       const sortedTickets = Object.values(groupedByOrder).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -253,7 +304,7 @@ const KdsScreen = () => {
     }
   };
 
-  const memoizedFetchKitchenOrders = useCallback(fetchKitchenOrders, [showToast, setTickets, setLoading]);
+  const memoizedFetchKitchenOrders = useCallback(fetchKitchenOrders, [showToast, setTickets, setLoading, stations, getOrgId]);
 
   // 🚀 تحسين الأداء: منع تكرار جلب البيانات في وقت قصير جداً (Throttling) لتخفيف الضغط
   const lastFetchTime = useRef(0);
@@ -270,48 +321,93 @@ const KdsScreen = () => {
     let subscription: any;
     
     getOrgId().then(orgId => {
+      if (!orgId) return;
       subscription = supabase.channel(`kds-changes-${orgId}`)
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'orders',
+          filter: `organization_id=eq.${orgId}` 
+        }, payload => {
+          throttledFetch();
+          if (payload.eventType === 'INSERT') {
+            try {
+              const audio = new Audio('/notification.mp3');
+              audio.play().catch(e => console.warn("Audio play notice:", e));
+            } catch (e) { console.error(e); }
+          }
+        })
+        .on('postgres_changes', { 
+          event: '*', 
+          schema: 'public', 
+          table: 'order_items',
+          filter: `organization_id=eq.${orgId}` 
+        }, () => {
+          throttledFetch();
+        })
         .on('postgres_changes', { 
           event: '*', 
           schema: 'public', 
           table: 'kitchen_orders',
           filter: `organization_id=eq.${orgId}` 
-        }, payload => {
-        throttledFetch();
-        if (payload.eventType === 'INSERT') {
-            try {
-                const audio = new Audio('/notification.mp3');
-                audio.play().catch(e => console.warn("Audio play failed, user interaction might be needed.", e));
-            } catch (e) { console.error(e) }
-        }
-      }).subscribe();
+        }, () => {
+          throttledFetch();
+        })
+        .subscribe();
     });
 
-    return () => { if(subscription) supabase.removeChannel(subscription); };
+    return () => { if (subscription) supabase.removeChannel(subscription); };
   }, [throttledFetch, getOrgId]);
 
-  const handleUpdateStatus = useCallback(async (kitchenOrderItemId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => {
+  const handleUpdateStatus = useCallback(async (itemId: string, newStatus: 'PREPARING' | 'READY' | 'SERVED') => {
     // ⚡ تحديث تفاؤلي (Optimistic UI): نقوم بنقل الطلب في الواجهة فوراً ليشعر الشيف بسرعة النظام
     setTickets(prev => prev.map(ticket => ({
       ...ticket,
       items: ticket.items.map(item => 
-        item.id === kitchenOrderItemId ? { ...item, status: newStatus } : item
+        item.id === itemId ? { ...item, status: newStatus } : item
       )
     })).filter(ticket => {
       // إذا تم تسليم الطلب، نخفي التذكرة من الشاشة إذا كانت جميع أصنافها اكتملت
       if (newStatus === 'SERVED') {
-        return ticket.items.some(i => i.id !== kitchenOrderItemId && i.status !== 'SERVED');
+        return ticket.items.some(i => i.id !== itemId && i.status !== 'SERVED');
       }
       return true;
     }));
 
+    // حفظ الحالة في الذاكرة اللحظية
+    kitchenStationService.updateTicketItemStatus(itemId, newStatus);
+
     try {
-      await updateKitchenOrderStatus(kitchenOrderItemId, newStatus);
+      // البحث عن kitchen_order_id لتحديثه في قاعدة البيانات إن وجد
+      const ticket = tickets.find(t => t.items.some(i => i.id === itemId));
+      const targetItem = ticket?.items.find(i => i.id === itemId);
+      if (targetItem?.kitchen_order_id) {
+        await updateKitchenOrderStatus(targetItem.kitchen_order_id, newStatus);
+      } else {
+        await supabase.from('kitchen_orders').update({ status: newStatus }).eq('order_item_id', itemId);
+      }
     } catch (err) {
-      // في حالة فشل الاتصال، نعيد جلب البيانات الأصلية لضمان الدقة
-      memoizedFetchKitchenOrders();
+      console.warn('Kitchen status update notice:', err);
     }
-  }, [updateKitchenOrderStatus, setTickets, memoizedFetchKitchenOrders]);
+  }, [tickets, updateKitchenOrderStatus, setTickets]);
+
+  // إحصائيات عدد الأطباق الجارية في كل محطة
+  const stationItemCounts = useMemo(() => {
+    const counts: Record<string, number> = { ALL: 0, UNASSIGNED: 0 };
+    tickets.forEach(t => {
+      t.items.forEach(i => {
+        counts.ALL = (counts.ALL || 0) + 1;
+        if (i.station_id) {
+          counts[i.station_id] = (counts[i.station_id] || 0) + 1;
+          const st = stationsMap[i.station_id];
+          if (st && st.code) counts[st.code] = (counts[st.code] || 0) + 1;
+        } else {
+          counts.UNASSIGNED = (counts.UNASSIGNED || 0) + 1;
+        }
+      });
+    });
+    return counts;
+  }, [tickets, stationsMap]);
 
   // تصفية التذاكر والأصناف بحسب محطة المطبخ المختارة (شواية، بارد، مشروبات، مقليات...)
   const filteredTickets = useMemo(() => {
@@ -321,12 +417,17 @@ const KdsScreen = () => {
       .map(ticket => ({
         ...ticket,
         items: ticket.items.filter(item => {
-          if (!item.station_id) return true; // إذا لم يحدد، يعرض في المحطة
-          return item.station_id === selectedStationId;
+          if (!item.station_id) {
+            return selectedStationId === 'UNASSIGNED';
+          }
+          return (
+            item.station_id === selectedStationId ||
+            stationsMap[item.station_id]?.code === selectedStationId
+          );
         })
       }))
       .filter(ticket => ticket.items.length > 0);
-  }, [tickets, selectedStationId]);
+  }, [tickets, selectedStationId, stationsMap]);
 
   const newTickets = useMemo(() => filteredTickets.filter(t => t.items.some(i => i.status === 'NEW')), [filteredTickets]);
   const preparingTickets = useMemo(() => filteredTickets.filter(t => !t.items.some(i => i.status === 'NEW') && t.items.some(i => i.status === 'PREPARING')), [filteredTickets]);
@@ -349,27 +450,41 @@ const KdsScreen = () => {
         </div>
 
         {/* Station Filter Chips */}
-        <div className="flex flex-wrap items-center gap-1.5 bg-slate-900/80 p-1 rounded-xl border border-slate-700 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 bg-slate-900/80 p-1.5 rounded-xl border border-slate-700 text-xs">
           <button
-            onClick={() => setSelectedStationId('ALL')}
-            className={`px-3 py-1.5 rounded-lg font-bold transition ${
+            onClick={() => handleSelectStation('ALL')}
+            className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
               selectedStationId === 'ALL' ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
             }`}
           >
-            كل المحطات
+            <span>كل المحطات</span>
+            {stationItemCounts['ALL'] > 0 && (
+              <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px] font-mono">
+                {stationItemCounts['ALL']}
+              </span>
+            )}
           </button>
-          {stations.map(st => (
-            <button
-              key={st.id}
-              onClick={() => setSelectedStationId(st.id)}
-              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
-                selectedStationId === st.id ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: st.color }} />
-              {st.name.split('(')[0].trim()}
-            </button>
-          ))}
+          {stations.map(st => {
+            const count = stationItemCounts[st.id] || stationItemCounts[st.code] || 0;
+            const isSelected = selectedStationId === st.id || selectedStationId === st.code;
+            return (
+              <button
+                key={st.id}
+                onClick={() => handleSelectStation(st.id)}
+                className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+                  isSelected ? 'bg-rose-600 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: st.color }} />
+                <span>{st.name.split('(')[0].trim()}</span>
+                {count > 0 && (
+                  <span className="bg-white/20 px-1.5 py-0.5 rounded-full text-[10px] font-mono">
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Quick link to Expo */}

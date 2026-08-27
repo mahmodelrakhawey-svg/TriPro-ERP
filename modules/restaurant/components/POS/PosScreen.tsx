@@ -28,7 +28,8 @@ import { thermalPrinterService } from '../../../../services/thermalPrinterServic
 import { loyaltyService } from '../../../../services/loyaltyService';
 import { etaService } from '../../../../services/etaService';
 import { whatsappService } from '../../../../services/whatsappService';
-import { Bell, AlertCircle, Smartphone, Gift } from 'lucide-react';
+import { driverDispatchService } from '../../../../services/driverDispatchService';
+import { Bell, AlertCircle, Smartphone, Gift, Zap, CheckCircle2 } from 'lucide-react';
 
 
 const DELIVERY_FEE = 15; // قيمة افتراضية لرسوم التوصيل
@@ -676,18 +677,22 @@ const PosScreen = () => {
   }, [menuCategories, activeCategory]);
 
   useEffect(() => {
-    const shift = cashShiftService.getActiveShift(currentUser?.id);
-    if (!shift && currentUser) {
-      // Auto open shift if none active
-      const newS = cashShiftService.openShift({
-        organizationId: currentUser.organization_id || undefined,
-        cashierId: currentUser.id,
-        cashierName: (currentUser as any)?.full_name || (currentUser as any)?.name || (currentUser as any)?.username || 'الكاشير',
-        openingFloat: 200
-      });
-      setActiveCashShift(newS);
+    if (currentShift && currentUser) {
+      const shift = cashShiftService.getActiveShift(currentUser?.id);
+      const openingBalance = Number(currentShift.opening_balance || 0);
+      if (!shift) {
+        const newS = cashShiftService.openShift({
+          organizationId: currentUser.organization_id || undefined,
+          cashierId: currentUser.id,
+          cashierName: (currentUser as any)?.full_name || (currentUser as any)?.name || (currentUser as any)?.username || 'الكاشير',
+          openingFloat: openingBalance
+        });
+        setActiveCashShift(newS);
+      } else {
+        setActiveCashShift(shift);
+      }
     } else {
-      setActiveCashShift(shift);
+      setActiveCashShift(null);
     }
 
     const loadCalls = () => {
@@ -696,9 +701,9 @@ const PosScreen = () => {
     loadCalls();
     const interval = setInterval(loadCalls, 5000);
     return () => clearInterval(interval);
-  }, [currentUser]);
+  }, [currentUser, currentShift]);
 
-  // New useEffect to fetch external orders
+  // New useEffect to fetch external orders (Takeaway & Delivery)
   useEffect(() => {
     const fetchOpenExternalOrders = async () => {
         if (isDemo) {
@@ -707,10 +712,10 @@ const PosScreen = () => {
         try {
             const { data, error } = await supabase
                 .from('orders')
-                .select('id, order_number, order_type, customers(name)')
+                .select('id, order_number, order_type, status, grand_total, notes, created_at, delivery_orders(*), customers(id, name, phone, address)')
                 .in('order_type', ['TAKEAWAY', 'DELIVERY'])
-                .eq('status', 'CONFIRMED')
-                .order('created_at', { ascending: true });
+                .not('status', 'in', '("PAID","COMPLETED","CANCELLED")')
+                .order('created_at', { ascending: false });
             
             if (error) throw error;
             setOpenExternalOrders(data || []);
@@ -935,7 +940,7 @@ const PosScreen = () => {
     try {
         const { data: order, error } = await supabase
             .from('orders')
-            .select('*, order_items(*, products(name, sales_price)), customers(id, name, phone, address)')
+            .select('*, order_items(*, products(name, sales_price)), customers(id, name, phone, address), delivery_orders(*)')
             .eq('id', orderId)
             .single();
 
@@ -948,27 +953,48 @@ const PosScreen = () => {
         const items: OrderItem[] = (order.order_items || []).map((item: any) => ({
             id: item.id,
             productId: item.product_id,
-            name: item.products?.name,
+            name: item.products?.name || 'صنف',
             quantity: item.quantity,
-            unitPrice: item.unit_price || item.price || 0, // ✅ الاعتماد على unit_price أولاً
+            unitPrice: item.unit_price || item.price || 0,
             notes: item.notes,
             selectedModifiers: item.modifiers,
             savedQuantity: item.quantity
         }));
 
+        const delInfo = Array.isArray(order.delivery_orders) ? order.delivery_orders[0] : order.delivery_orders;
+        const platformName = order.notes?.includes('طلب منصة توصيل')
+          ? order.notes.replace('طلب منصة توصيل:', '').trim()
+          : (order.order_type === 'TAKEAWAY' ? 'سفري' : 'توصيل');
+
         setActiveOrder({
             tableId: order.order_type === 'TAKEAWAY' ? `takeaway-${order.id}` : `delivery-${order.id}`,
-            sessionId: order.session_id,
+            sessionId: order.session_id || `session-${order.id}`,
             orderId: order.id,
             warehouseId: order.warehouse_id,
-            tableName: order.order_type === 'TAKEAWAY' ? 'سفري' : 'توصيل',
+            tableName: platformName,
             items: items,
             type: order.order_type.toLowerCase() as 'takeaway' | 'delivery',
-            customer: order.customers ? { id: order.customers.id, name: order.customers.name, phone: order.customers.phone, address: order.customers.address } : undefined,
-            deliveryFee: order.order_type === 'DELIVERY' ? (order.delivery_fee || DELIVERY_FEE) : undefined,
+            customer: order.customers 
+              ? { id: order.customers.id, name: order.customers.name, phone: order.customers.phone, address: order.customers.address } 
+              : delInfo 
+                ? { id: 'temp_cust', name: delInfo.customer_name || 'عميل توصيل', phone: delInfo.customer_phone || '', address: delInfo.delivery_address || '' }
+                : undefined,
+            deliveryFee: order.order_type === 'DELIVERY' ? (order.delivery_fee || delInfo?.delivery_fee || 0) : undefined,
         });
     } catch (err: any) {
         showToast('فشل تحميل الطلب: ' + err.message, 'error');
+    }
+  };
+
+  const handleArchivePlatformOrder = async (e: React.MouseEvent, orderId: string) => {
+    e.stopPropagation();
+    try {
+      await supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId);
+      showToast('تم إغلاق وأرشفة طلب المنصة بنجاح (مسدد آجل) ✓', 'success');
+      setOpenExternalOrders(prev => prev.filter(o => o.id !== orderId));
+      if (activeOrder?.orderId === orderId) setActiveOrder(null);
+    } catch (err: any) {
+      showToast('خطأ في إغلاق الطلب: ' + err.message, 'error');
     }
   };
 
@@ -1256,6 +1282,22 @@ const PosScreen = () => {
           // التزام بـ 4 معاملات كما يتوقع الـ Context: طلب، طريقة، مبلغ، خزينة
           await completeRestaurantOrder(activeOrder.orderId, method, total, cashAccount.id);
 
+          // 🛵 تصفير عهدة السائق تلقائياً في شاشة الكباتن لمنع بقاء المبلغ في ذمته
+          if (activeOrder.type === 'delivery' && activeOrder.orderId) {
+            await driverDispatchService.settleDeliveryByOrderId(activeOrder.orderId);
+          }
+
+          // 💵 تسجيل المبيعات النقدية والإلكترونية بالوردية لمطابقة الجرد
+          const currentCashShift = activeCashShift || cashShiftService.getActiveShift(currentUser?.id);
+          if (currentCashShift) {
+            cashShiftService.recordSaleToShift({
+              shiftId: currentCashShift.id,
+              cashAmount: method === 'CASH' ? total : 0,
+              cardAmount: method === 'CARD' ? total : 0
+            });
+            setActiveCashShift(cashShiftService.getActiveShift(currentUser?.id));
+          }
+
           // تصفير حالة طلب الحساب عند إتمام الدفع
           if (activeOrder.type === 'dine-in' && activeOrder.tableId) {
               await supabase.from('restaurant_tables').update({ bill_requested: false }).eq('id', activeOrder.tableId);
@@ -1367,6 +1409,15 @@ const PosScreen = () => {
     const handleStartShift = async (amount: number) => {
       try {
         await startShift(amount);
+        if (currentUser) {
+          const newS = cashShiftService.openShift({
+            organizationId: currentUser.organization_id || undefined,
+            cashierId: currentUser.id,
+            cashierName: (currentUser as any)?.full_name || (currentUser as any)?.name || (currentUser as any)?.username || 'الكاشير',
+            openingFloat: Number(amount) || 0
+          });
+          setActiveCashShift(newS);
+        }
         showToast('تم بدء الوردية بنجاح ✅', 'success');
       } catch (err: any) {
         showToast(err.message || 'حدث خطأ أثناء بدء الوردية', 'error');
@@ -1586,10 +1637,17 @@ const PosScreen = () => {
 
           {/* Blind Shift Close */}
           <button
-            onClick={() => setIsBlindCloseOpen(true)}
+            onClick={() => {
+              if (!currentShift) {
+                showToast('لا توجد وردية نشطة حالياً ليتم إغلاقها', 'warning');
+                return;
+              }
+              setIsBlindCloseOpen(true);
+            }}
             className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-rose-700 bg-rose-50 hover:bg-rose-100 mr-1 border border-rose-200"
+            title="إجراء الجرد وإقفال الوردية الحالية"
           >
-            <Lock size={14} /> الجرد الأعمى
+            <Lock size={14} /> إقفال الوردية
           </button>
 
           {/* Mobile Waiter Shortcut */}
@@ -1638,21 +1696,90 @@ const PosScreen = () => {
               </button>
             </div>
 
+            {/* Open External Orders List */}
             {openExternalOrders.length > 0 && (
-                <div className="mt-6">
-                    <h4 className="font-semibold text-slate-500 border-b pb-2 mb-3">طلبات خارجية مفتوحة</h4>
+                <div className="mt-4 mb-4">
+                    <div className="flex justify-between items-center border-b pb-2 mb-3">
+                      <h4 className="font-bold text-slate-700 flex items-center gap-1.5 text-xs">
+                        <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                        <span>طلبات التوصيل والسفري الجارية ({openExternalOrders.length})</span>
+                      </h4>
+                      <span className="text-[10px] text-slate-400 font-bold">انقر للتحصيل والدفع 💳</span>
+                    </div>
                     <div className="space-y-2">
-                        {openExternalOrders.map(order => (
-                            <div key={order.id} onClick={() => handleExternalOrderClick(order.id)} className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${activeOrder?.orderId === order.id ? 'ring-4 ring-blue-400' : ''} ${order.order_type === 'TAKEAWAY' ? 'bg-amber-50 border-amber-200 hover:bg-amber-100' : 'bg-sky-50 border-sky-200 hover:bg-sky-100'}`}>
-                                <div className="flex justify-between items-center"><span className="font-bold text-slate-800">{(order.order_type === 'TAKEAWAY' ? 'سفري' : 'توصيل')} - {order.order_number}</span>{order.order_type === 'TAKEAWAY' ? <Coffee size={16} className="text-amber-700" /> : <HardHat size={16} className="text-sky-700" />}</div>
-                                {order.customers && <p className="text-xs text-slate-500 mt-1">{order.customers.name}</p>}
-                            </div>
-                        ))}
+                        {openExternalOrders
+                          .filter(order => {
+                            if (activeTab === 'delivery') return order.order_type === 'DELIVERY';
+                            if (activeTab === 'takeaway') return order.order_type === 'TAKEAWAY';
+                            return true; // في تبويب dine-in تظهر جميع الطلبات المعلقة لعدم إغفالها
+                          })
+                          .map(order => {
+                            const isSelected = activeOrder?.orderId === order.id;
+                            const isDelivery = order.order_type === 'DELIVERY';
+                            const isReady = order.status === 'READY' || order.status === 'SERVED' || order.status === 'READY_FOR_PICKUP';
+                            const statusBadge = order.status === 'SERVED' 
+                              ? { text: 'جاهز ومسلّم 🍽️', bg: 'bg-emerald-100 text-emerald-800' }
+                              : order.status === 'READY'
+                                ? { text: 'جاهز بالمطبخ 🍳', bg: 'bg-emerald-100 text-emerald-800' }
+                                : order.status === 'PREPARING'
+                                  ? { text: 'جاري التحضير ⏳', bg: 'bg-amber-100 text-amber-800' }
+                                  : { text: 'معتمد 🔔', bg: 'bg-blue-100 text-blue-800' };
+
+                            const title = order.notes?.includes('طلب منصة توصيل')
+                              ? order.notes.replace('طلب منصة توصيل:', '').trim()
+                              : (isDelivery ? 'توصيل' : 'سفري') + ` - ${order.order_number || ''}`;
+
+                            const customerName = order.customers?.name || order.delivery_orders?.[0]?.customer_name || 'عميل منصة توصيل';
+
+                            return (
+                              <div 
+                                key={order.id} 
+                                onClick={() => handleExternalOrderClick(order.id)} 
+                                className={`p-3 rounded-2xl border-2 cursor-pointer transition-all ${
+                                  isSelected 
+                                    ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/70 shadow-sm' 
+                                    : isDelivery 
+                                      ? 'bg-sky-50/70 border-sky-200 hover:bg-sky-100 hover:border-sky-300' 
+                                      : 'bg-amber-50/70 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                                }`}
+                              >
+                                <div className="flex justify-between items-center gap-2">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <div className={`p-1.5 rounded-lg ${isDelivery ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>
+                                      {isDelivery ? <HardHat size={16} /> : <Coffee size={16} />}
+                                    </div>
+                                    <div className="truncate">
+                                      <span className="font-black text-xs text-slate-800 block truncate">{title}</span>
+                                      <span className="text-[11px] text-slate-400 block truncate">{customerName}</span>
+                                    </div>
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${statusBadge.bg}`}>
+                                    {statusBadge.text}
+                                  </span>
+                                </div>
+                                {order.grand_total && (
+                                  <div className="flex justify-between items-center mt-2 pt-1.5 border-t border-slate-200/60 text-xs">
+                                    <span className="text-slate-400 text-[10px]">إجمالي الحساب:</span>
+                                    <span className="font-mono font-bold text-slate-900">{Number(order.grand_total).toFixed(2)} ج</span>
+                                  </div>
+                                )}
+                                {order.notes?.includes('منصة توصيل') && (
+                                  <button
+                                    onClick={(e) => handleArchivePlatformOrder(e, order.id)}
+                                    className="mt-2 w-full py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[11px] font-bold flex items-center justify-center gap-1.5 transition shadow-sm"
+                                  >
+                                    <CheckCircle2 size={13} /> إغلاق كطلب منصة مسدد (آجل)
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
                     </div>
                 </div>
             )}
 
-            {sections.map((section: string) => (
+            {/* Tables Section (Shown on dine-in tab or default) */}
+            {activeTab !== 'delivery' && activeTab !== 'takeaway' && sections.map((section: string) => (
               <div key={section as Key} className="mb-6 mt-6">
                 <h4 className="font-semibold text-slate-500 border-b pb-2 mb-3">{section}</h4>
 
@@ -1671,7 +1798,9 @@ const PosScreen = () => {
                 </div>
               </div>
             ))}
-            {restaurantTables.length === 0 && <div className="text-center py-10 text-slate-500">لا توجد طاولات مُعرَّفة</div>}
+            {activeTab !== 'delivery' && activeTab !== 'takeaway' && restaurantTables.length === 0 && (
+              <div className="text-center py-10 text-slate-500">لا توجد طاولات مُعرَّفة</div>
+            )}
           </div>
         </section>
 
@@ -1808,7 +1937,7 @@ const PosScreen = () => {
       )}
       
       <StartShiftModal 
-        isOpen={!currentShift} 
+        isOpen={!currentShift && !isBlindCloseOpen && !isCloseShiftModalOpen} 
         onConfirm={handleStartShift} 
       />
       <CloseShiftModal 
@@ -1826,22 +1955,23 @@ const PosScreen = () => {
       />
 
       {/* Blind Shift Close Modal */}
-      {isBlindCloseOpen && activeCashShift && (
+      {isBlindCloseOpen && (
         <BlindShiftCloseModal
           shift={activeCashShift}
           onClose={() => setIsBlindCloseOpen(false)}
-          onSuccess={() => {
+          onSuccess={async () => {
             setIsBlindCloseOpen(false);
             setActiveCashShift(null);
+            await refreshData();
             showToast('تم إقفال الوردية بنجاح 🔒', 'success');
           }}
         />
       )}
 
       {/* Petty Cash Modal */}
-      {isPettyCashOpen && activeCashShift && (
+      {isPettyCashOpen && (
         <PettyCashModal
-          shift={activeCashShift}
+          shift={activeCashShift || cashShiftService.getActiveShift(currentUser?.id)}
           onClose={() => setIsPettyCashOpen(false)}
           onSuccess={() => {
             setIsPettyCashOpen(false);

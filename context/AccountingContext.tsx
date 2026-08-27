@@ -1427,8 +1427,70 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const getOpenTableOrder = async (tableId: string) => {
-    const { data } = await supabase.rpc('get_open_table_order', { p_table_id: tableId });
-    return data;
+    try {
+      const { data } = await supabase.rpc('get_open_table_order', { p_table_id: tableId });
+      if (data?.orderId && data?.items && data.items.length > 0) {
+        return data;
+      }
+    } catch (rpcErr) {
+      console.warn('RPC get_open_table_order notice:', rpcErr);
+    }
+
+    // 🛡️ Fallback: إذا أعادت الدالة طلباً فارغاً (مثلاً تم تغيير الحالة إلى SERVED/COMPLETED قبل السداد)،
+    // نبحث عن أحدث طلب غير مسدد مرتبط بجلسة الطاولة المفتوحة الحالية
+    try {
+      const { data: session } = await supabase
+        .from('table_sessions')
+        .select('id, organization_id')
+        .eq('table_id', tableId)
+        .eq('status', 'OPEN')
+        .is('end_time', null)
+        .maybeSingle();
+
+      if (session?.id) {
+        const { data: order } = await supabase
+          .from('orders')
+          .select(`
+            id, warehouse_id, status,
+            order_items (
+              id, product_id, quantity, unit_price, unit_cost, notes, modifiers,
+              products (name)
+            )
+          `)
+          .eq('session_id', session.id)
+          .neq('status', 'PAID')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (order?.id && order.order_items && order.order_items.length > 0) {
+          const formattedItems = order.order_items.map((oi: any) => ({
+            id: oi.id,
+            productId: oi.product_id,
+            name: oi.products?.name || 'صنف',
+            quantity: Number(oi.quantity),
+            unitPrice: Number(oi.unit_price),
+            unitCost: Number(oi.unit_cost),
+            notes: oi.notes,
+            selectedModifiers: oi.modifiers || [],
+            savedQuantity: Number(oi.quantity)
+          }));
+
+          return {
+            sessionId: session.id,
+            orderId: order.id,
+            warehouseId: order.warehouse_id,
+            items: formattedItems
+          };
+        }
+
+        return { sessionId: session.id, orderId: null, items: [] };
+      }
+    } catch (fbErr) {
+      console.warn('Fallback getOpenTableOrder notice:', fbErr);
+    }
+
+    return null;
   };
 
   const completeRestaurantOrder = async (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => {
@@ -1490,7 +1552,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: currentSelectedOrgId || currentUser?.organization_id
     }); 
     if (error) throw error;
-    await refreshData(); 
   };
   const getCurrentShiftSummary = async () => { 
     const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;

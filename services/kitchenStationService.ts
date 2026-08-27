@@ -85,7 +85,10 @@ class KitchenStationService {
   }
 
   public async saveStation(station: Partial<KitchenStation>, organizationId?: string): Promise<KitchenStation> {
+    let stationId = station.id || `st_${Date.now()}`;
+
     const payload = {
+      id: stationId,
       organization_id: organizationId || null,
       name: (station.name || '').trim(),
       code: (station.code || 'custom').trim(),
@@ -96,14 +99,12 @@ class KitchenStationService {
       updated_at: new Date().toISOString()
     };
 
-    let stationId = station.id || `st_${Date.now()}`;
-
     try {
-      if (station.id && !station.id.startsWith('st_')) {
-        await supabase.from('kitchen_stations').update(payload).eq('id', stationId);
-      } else {
-        const { data } = await supabase.from('kitchen_stations').insert(payload).select().single();
-        if (data) stationId = data.id;
+      const { data, error } = await supabase.from('kitchen_stations').upsert(payload).select().single();
+      if (!error && data) {
+        stationId = data.id;
+      } else if (error) {
+        console.warn('Database station save notice:', error);
       }
     } catch (e) {
       console.warn('Database station save notice:', e);

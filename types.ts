@@ -307,6 +307,9 @@ export interface Product {
   offer_start_date?: string;
   offer_end_date?: string;
   offer_max_qty?: number;
+  station_id?: string | null;
+  prep_time_minutes?: number;
+  is_86?: boolean;
 }
 
 export interface InvoiceItem {

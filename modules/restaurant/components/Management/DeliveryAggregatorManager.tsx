@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useAccounting } from '../../../../context/AccountingContext';
+import { useAccounting, SYSTEM_ACCOUNTS } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import {
   AggregatorOrder,
@@ -31,6 +31,9 @@ import {
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { secureStorage } from '../../../../utils/securityMiddleware';
+
+const LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY = 'tripro_aggregator_accounts_map_v1';
 
 export const DeliveryAggregatorManager: React.FC = () => {
   const { currentUser, products, accounts } = useAccounting();
@@ -54,23 +57,81 @@ export const DeliveryAggregatorManager: React.FC = () => {
   }, [accounts]);
 
   // Accounts
-  const [receivableAccountId, setReceivableAccountId] = useState<string>('');
-  const [salesAccountId, setSalesAccountId] = useState<string>('');
-  const [commissionExpenseAccountId, setCommissionExpenseAccountId] = useState<string>('');
+  const [receivableAccountId, setReceivableAccountId] = useState<string>(() => {
+    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY);
+    return saved?.receivableAccountId || '';
+  });
+  const [salesAccountId, setSalesAccountId] = useState<string>(() => {
+    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY);
+    return saved?.salesAccountId || '';
+  });
+  const [commissionExpenseAccountId, setCommissionExpenseAccountId] = useState<string>(() => {
+    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY);
+    return saved?.commissionExpenseAccountId || '';
+  });
+
+  const updateReceivableAccount = (id: string) => {
+    setReceivableAccountId(id);
+    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY) || {};
+    secureStorage.setItem(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY, { ...saved, receivableAccountId: id });
+  };
+
+  const updateSalesAccount = (id: string) => {
+    setSalesAccountId(id);
+    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY) || {};
+    secureStorage.setItem(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY, { ...saved, salesAccountId: id });
+  };
+
+  const updateCommissionAccount = (id: string) => {
+    setCommissionExpenseAccountId(id);
+    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY) || {};
+    secureStorage.setItem(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY, { ...saved, commissionExpenseAccountId: id });
+  };
 
   useEffect(() => {
     setChannels(deliveryAggregatorService.getChannels());
     setOrders(deliveryAggregatorService.getOrders(currentUser?.organization_id || undefined));
 
     if (leafAccounts.length > 0) {
-      const recAcc = leafAccounts.find(a => a.name.includes('مدين') || a.name.includes('عملاء') || a.name.includes('توصيل') || a.code?.startsWith('1103') || a.type === 'asset');
-      if (recAcc && !receivableAccountId) setReceivableAccountId(recAcc.id);
+      // 1. حساب المدينين (مستحقات منصة التوصيل)
+      if (!receivableAccountId) {
+        const recAcc = leafAccounts.find(a => 
+          a.code === SYSTEM_ACCOUNTS.CUSTOMERS || 
+          a.code === '1221' || 
+          a.name.includes('منصات') || 
+          a.name.includes('توصيل')
+        ) || leafAccounts.find(a => a.type === 'ASSET' || a.code?.startsWith('1'));
+        if (recAcc) updateReceivableAccount(recAcc.id);
+      }
 
-      const salesAcc = leafAccounts.find(a => a.name.includes('مبيعات') || a.name.includes('إيراد') || a.code?.startsWith('4101') || a.type === 'revenue');
-      if (salesAcc && !salesAccountId) setSalesAccountId(salesAcc.id);
+      // 2. حساب إيرادات المبيعات (الدائن) - إيرادات مبيعات النشاط (411 أو 4101)
+      if (!salesAccountId) {
+        const salesAcc = leafAccounts.find(a => 
+          (a.code === SYSTEM_ACCOUNTS.SALES_REVENUE || a.code === '411' || a.code === '4101') &&
+          (a.type === 'REVENUE' || (a.type as any) === 'revenue' || a.code?.startsWith('4'))
+        ) || leafAccounts.find(a => 
+          (a.type === 'REVENUE' || (a.type as any) === 'revenue' || a.code?.startsWith('4')) && 
+          a.name.includes('مبيعات')
+        ) || leafAccounts.find(a => a.type === 'REVENUE' || a.code?.startsWith('4'));
+        if (salesAcc) updateSalesAccount(salesAcc.id);
+      }
 
-      const expAcc = leafAccounts.find(a => a.name.includes('تسويق') || a.name.includes('عمولة') || a.name.includes('مصاريف') || a.code?.startsWith('52') || a.type === 'expense');
-      if (expAcc && !commissionExpenseAccountId) setCommissionExpenseAccountId(expAcc.id);
+      // 3. حساب مصروف عمولة المنصة (المدين) - عمولات بيع وتوصيل (522) واستبعاد الدعاية والإعلان (521)
+      if (!commissionExpenseAccountId) {
+        const expAcc = leafAccounts.find(a => 
+          (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) &&
+          (a.code === '522' || a.code === '5221' || a.code === '5204' || a.name.includes('عمول')) &&
+          !a.name.includes('دعاية') && !a.name.includes('إعلان')
+        ) || leafAccounts.find(a => 
+          (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) &&
+          a.name.includes('بيع') &&
+          !a.name.includes('دعاية') && !a.name.includes('إعلان')
+        ) || leafAccounts.find(a => 
+          (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
+          !a.name.includes('تأسيس') && !a.name.includes('دعاية') && !a.name.includes('إعلان')
+        );
+        if (expAcc) updateCommissionAccount(expAcc.id);
+      }
     }
   }, [leafAccounts, currentUser]);
 
@@ -235,7 +296,7 @@ export const DeliveryAggregatorManager: React.FC = () => {
               <label className="block text-slate-600 font-bold mb-1">حساب مستحقات المنصة (المدينون):</label>
               <select
                 value={receivableAccountId}
-                onChange={e => setReceivableAccountId(e.target.value)}
+                onChange={e => updateReceivableAccount(e.target.value)}
                 className="w-full border rounded-xl p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-orange-500 bg-white"
               >
                 {leafAccounts.map(a => (
@@ -250,7 +311,7 @@ export const DeliveryAggregatorManager: React.FC = () => {
               <label className="block text-slate-600 font-bold mb-1">حساب إيرادات المبيعات (الدائن):</label>
               <select
                 value={salesAccountId}
-                onChange={e => setSalesAccountId(e.target.value)}
+                onChange={e => updateSalesAccount(e.target.value)}
                 className="w-full border rounded-xl p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-orange-500 bg-white"
               >
                 {leafAccounts.map(a => (
@@ -265,7 +326,7 @@ export const DeliveryAggregatorManager: React.FC = () => {
               <label className="block text-slate-600 font-bold mb-1">حساب مصروف عمولة المنصة (المدين):</label>
               <select
                 value={commissionExpenseAccountId}
-                onChange={e => setCommissionExpenseAccountId(e.target.value)}
+                onChange={e => updateCommissionAccount(e.target.value)}
                 className="w-full border rounded-xl p-2 text-xs font-mono outline-none focus:ring-1 focus:ring-orange-500 bg-white"
               >
                 {leafAccounts.map(a => (

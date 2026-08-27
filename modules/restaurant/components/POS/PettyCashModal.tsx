@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useAccounting } from '../../../../context/AccountingContext';
+import React, { useState, useMemo, useEffect } from 'react';
+import { useAccounting, SYSTEM_ACCOUNTS } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import { cashShiftService, CashierShift } from '../../../../services/cashShiftService';
 import {
@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 
 interface PettyCashModalProps {
-  shift: CashierShift;
+  shift?: CashierShift | null;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -25,6 +25,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
   const [amount, setAmount] = useState<number>(0);
   const [reason, setReason] = useState<string>('');
   const [expenseAccountId, setExpenseAccountId] = useState<string>('');
+  const [cashAccountId, setCashAccountId] = useState<string>('');
   const [costCenterId, setCostCenterId] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -37,9 +38,42 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
     'دفعة مورد نقدي فوري'
   ];
 
-  // Expense accounts
-  const expenseAccounts = accounts.filter(a => a.type === 'expense' || a.code?.startsWith('5'));
-  const cashAccounts = accounts.filter(a => a.name.includes('صندوق') || a.name.includes('نقدية') || a.code === '1101');
+  // 🛡️ تصفية حسابات المصروفات الفرعية فقط (استبعاد الحسابات الرئيسية/المجموعات لمنع الخطأ المحاسبي)
+  const expenseAccounts = useMemo(() => {
+    return accounts.filter(a => 
+      !a.is_group && (
+        a.type === 'EXPENSE' || 
+        (a.type as any) === 'expense' || 
+        a.code?.startsWith('5')
+      )
+    );
+  }, [accounts]);
+
+  // 🛡️ تصفية حسابات الصندوق والدرج الفرعية فقط
+  const cashAccounts = useMemo(() => {
+    return accounts.filter(a => 
+      !a.is_group && (
+        a.code === SYSTEM_ACCOUNTS.CASH ||
+        a.code?.startsWith('1231') ||
+        a.code?.startsWith('1101') ||
+        a.name?.includes('صندوق') || 
+        a.name?.includes('درج') || 
+        a.name?.includes('نقدية')
+      )
+    );
+  }, [accounts]);
+
+  useEffect(() => {
+    if (!expenseAccountId && expenseAccounts.length > 0) {
+      setExpenseAccountId(expenseAccounts[0].id);
+    }
+  }, [expenseAccounts, expenseAccountId]);
+
+  useEffect(() => {
+    if (!cashAccountId && cashAccounts.length > 0) {
+      setCashAccountId(cashAccounts[0].id);
+    }
+  }, [cashAccounts, cashAccountId]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,23 +86,36 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
       return;
     }
 
+    const selectedExpenseAcc = expenseAccountId || expenseAccounts[0]?.id;
+    const selectedCashAcc = cashAccountId || cashAccounts[0]?.id;
+
+    if (!selectedExpenseAcc) {
+      showToast('⚠️ لا يوجد حساب مصروف فرعي متاح في شجرة الحسابات. يرجى إضافة حساب مصروف فرعي أولاً.', 'error');
+      return;
+    }
+
+    if (!selectedCashAcc) {
+      showToast('⚠️ لا يوجد حساب صندوق فرعي متاح في شجرة الحسابات. يرجى إضافة حساب فرعي للنقدية بالدرج أولاً.', 'error');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      const selectedCashAcc = cashAccounts[0]?.id;
+      const activeShift = shift || cashShiftService.getActiveShift(currentUser?.id);
       const res = await cashShiftService.recordPettyCashPayout({
-        shiftId: shift.id,
-        cashierId: shift.cashier_id,
-        cashierName: shift.cashier_name,
+        shiftId: activeShift?.id || `shift_${Date.now()}`,
+        cashierId: activeShift?.cashier_id || currentUser?.id || '',
+        cashierName: activeShift?.cashier_name || (currentUser as any)?.full_name || 'الكاشير',
         organizationId: currentUser?.organization_id || '',
         amount,
         reason,
-        expenseAccountId: expenseAccountId || expenseAccounts[0]?.id,
+        expenseAccountId: selectedExpenseAcc,
         cashAccountId: selectedCashAcc,
         costCenterId: costCenterId || undefined
       });
 
       if (res.success) {
-        showToast(`تم تسجيل صرف ${amount} ج من الدرج بنجاح 💸`, 'success');
+        showToast(`تم تسجيل صرف ${amount} ج من الدرج وإثبات القيد المحاسبي بنجاح 💸`, 'success');
         onSuccess();
       } else {
         showToast('خطأ: ' + res.error, 'error');
@@ -145,13 +192,31 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
             />
           </div>
 
+          {/* Cash Account */}
+          {cashAccounts.length > 1 && (
+            <div>
+              <label className="block text-slate-700 font-bold mb-1">صندوق الدرج المنصرف منه (الدائن):</label>
+              <select
+                value={cashAccountId}
+                onChange={e => setCashAccountId(e.target.value)}
+                className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-amber-500 bg-white text-sm"
+              >
+                {cashAccounts.map(acc => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.code} - {acc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Expense Account */}
           <div>
-            <label className="block text-slate-700 font-bold mb-1">حساب المصروف المدين:</label>
+            <label className="block text-slate-700 font-bold mb-1">حساب المصروف المدين (فرعي):</label>
             <select
               value={expenseAccountId}
               onChange={e => setExpenseAccountId(e.target.value)}
-              className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-amber-500 bg-white"
+              className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-amber-500 bg-white text-sm"
             >
               {expenseAccounts.map(acc => (
                 <option key={acc.id} value={acc.id}>

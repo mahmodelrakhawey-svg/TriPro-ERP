@@ -31,7 +31,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
 export const ExpoScreen: React.FC = () => {
-  const { currentUser, products } = useAccounting();
+  const { currentUser, products, restaurantTables } = useAccounting();
   const { showToast } = useToast();
 
   const [orders, setOrders] = useState<any[]>([]);
@@ -43,31 +43,42 @@ export const ExpoScreen: React.FC = () => {
   const fetchExpoData = async () => {
     setLoading(true);
     try {
+      let query = supabase
+        .from('orders')
+        .select(`
+          id,
+          order_number,
+          order_type,
+          status,
+          notes,
+          created_at,
+          session_id,
+          table_sessions (
+            id,
+            table_id,
+            restaurant_tables (name)
+          ),
+          order_items (
+            id,
+            product_id,
+            quantity,
+            unit_price,
+            notes,
+            modifiers,
+            products (name, category_id, station_id),
+            kitchen_orders (id, status)
+          )
+        `)
+        .in('status', ['CONFIRMED', 'NEW', 'PREPARING', 'READY', 'draft', 'open', 'PENDING_PAYMENT', 'PAID', 'IN_PROGRESS'])
+        .order('created_at', { ascending: true });
+
+      if (currentUser?.organization_id) {
+        query = query.eq('organization_id', currentUser.organization_id);
+      }
+
       const [fetchedStations, ordersRes] = await Promise.all([
         kitchenStationService.getStations(currentUser?.organization_id || undefined),
-        supabase
-          .from('orders')
-          .select(`
-            id,
-            order_number,
-            order_type,
-            status,
-            created_at,
-            table_sessions (
-              restaurant_tables (name)
-            ),
-            order_items (
-              id,
-              product_id,
-              quantity,
-              unit_price,
-              notes,
-              modifiers,
-              products (name, category_id)
-            )
-          `)
-          .in('status', ['NEW', 'PREPARING', 'READY', 'draft', 'open', 'PENDING_PAYMENT'])
-          .order('created_at', { ascending: true })
+        query
       ]);
 
       setStations(fetchedStations);
@@ -90,6 +101,9 @@ export const ExpoScreen: React.FC = () => {
     const channel = supabase
       .channel(`expo-orders-${orgId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+        fetchExpoData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kitchen_orders' }, () => {
         fetchExpoData();
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'kitchen_ticket_items' }, () => {
@@ -119,9 +133,17 @@ export const ExpoScreen: React.FC = () => {
       .map(o => {
         const items: KitchenTicketItemDetail[] = (o.order_items || []).map((oi: any) => {
           const matchingProduct = products.find(p => p.id === oi.product_id);
-          const prodStationId = (matchingProduct as any)?.station_id || (oi.products as any)?.station_id;
+          const prodStationId = oi.products?.station_id || (matchingProduct as any)?.station_id;
           const st = prodStationId ? stationsMap[prodStationId] : null;
+
+          const ko = Array.isArray(oi.kitchen_orders) ? oi.kitchen_orders[0] : oi.kitchen_orders;
+          const koStatus = ko?.status?.toUpperCase();
           const savedStatus = kitchenStationService.getSavedStatus(oi.id);
+
+          const finalStatus: 'NEW' | 'PREPARING' | 'READY' | 'SERVED' =
+            koStatus ||
+            (savedStatus as any) ||
+            (o.status === 'READY' ? 'READY' : o.status === 'PREPARING' ? 'PREPARING' : 'NEW');
 
           return {
             id: oi.id,
@@ -130,10 +152,10 @@ export const ExpoScreen: React.FC = () => {
             product_id: oi.product_id,
             product_name: oi.products?.name || matchingProduct?.name || 'صنف',
             station_id: prodStationId,
-            station_name: st?.name || 'محطة عامة',
+            station_name: st?.name || (prodStationId ? 'محطة مخصصة' : 'محطة عامة'),
             station_color: st?.color || '#64748b',
             quantity: oi.quantity,
-            status: (savedStatus as any) || (o.status === 'READY' ? 'READY' : o.status === 'PREPARING' ? 'PREPARING' : 'NEW'),
+            status: finalStatus,
             notes: oi.notes,
             selectedModifiers: oi.modifiers
           };
@@ -145,9 +167,11 @@ export const ExpoScreen: React.FC = () => {
         const completionPct = totalItems > 0 ? (readyItems / totalItems) * 100 : 0;
 
         const sessionObj = Array.isArray(o.table_sessions) ? o.table_sessions[0] : o.table_sessions;
+        const matchedTable = restaurantTables?.find((t: any) => t.id === sessionObj?.table_id);
         const resolvedTableName =
           sessionObj?.restaurant_tables?.name ||
-          (o.order_type === 'DELIVERY' ? 'توصيل' : o.order_type === 'TAKEAWAY' ? 'سفري' : 'صالة / طاولة');
+          matchedTable?.name ||
+          (o.order_type === 'DELIVERY' ? 'توصيل' : o.order_type === 'TAKEAWAY' ? 'سفري' : 'طاولة صالة');
 
         return {
           order_id: o.id,
@@ -162,13 +186,29 @@ export const ExpoScreen: React.FC = () => {
           completion_pct: Number(completionPct.toFixed(0))
         };
       });
-  }, [orders, filterType, stationsMap, products]);
+  }, [orders, filterType, stationsMap, products, restaurantTables]);
 
   // Serve all items of order
   const handleServeAll = async (orderId: string) => {
     try {
-      await supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId);
-      showToast('تم تسليم وخروج كامل الطلب للعميل بنجاح 🍽️', 'success');
+      const targetOrder = orders.find(o => o.id === orderId);
+      if (targetOrder && targetOrder.order_items) {
+        const itemIds = targetOrder.order_items.map((oi: any) => oi.id);
+        await supabase.from('kitchen_orders').update({ status: 'SERVED' }).in('order_item_id', itemIds);
+        itemIds.forEach((id: string) => {
+          kitchenStationService.updateTicketItemStatus(id, 'SERVED');
+        });
+      }
+
+      // إذا كان الطلب سفري أو توصيل وتم سداده مسبقاً، أو كان طلب منصة توصيل (مدفوع آجل للمنصة ومقيد محاسبياً)، ننهيه بالكامل
+      const isPlatformOrder = targetOrder?.notes?.includes('منصة توصيل');
+      if ((targetOrder?.order_type !== 'DINE_IN' && targetOrder?.status === 'PAID') || isPlatformOrder) {
+        await supabase.from('orders').update({ status: 'COMPLETED' }).eq('id', orderId);
+        showToast('تم تسليم الطلب لسائق المنصة وإنهاء دورة الطلب بنجاح 🛵', 'success');
+      } else {
+        await supabase.from('orders').update({ status: 'SERVED' }).eq('id', orderId);
+        showToast('تم تسليم وخروج كامل الطلب للعميل بنجاح 🍽️ (بانتظار سداد الحساب لدى الكاشير)', 'success');
+      }
       setOrders(prev => prev.filter(o => o.id !== orderId));
     } catch (e: any) {
       showToast('خطأ: ' + e.message, 'error');
@@ -176,6 +216,11 @@ export const ExpoScreen: React.FC = () => {
   };
 
   const handleUpdateItemStatus = async (itemId: string, newStatus: 'NEW' | 'PREPARING' | 'READY' | 'SERVED') => {
+    try {
+      await supabase.from('kitchen_orders').update({ status: newStatus }).eq('order_item_id', itemId);
+    } catch (e) {
+      console.warn('kitchen_orders update notice:', e);
+    }
     await kitchenStationService.updateTicketItemStatus(itemId, newStatus);
     fetchExpoData();
   };

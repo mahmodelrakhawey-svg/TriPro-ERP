@@ -219,7 +219,7 @@ class DeliveryAggregatorService {
               accountId: params.receivableAccountId, // مدين: مستحق على شركة التوصيل (الصافي)
               debit: aggOrder.net_payout,
               credit: 0,
-              description: `صافي مستحق على منصة ${aggOrder.channel_name}`
+              description: `صافي مستحق على منصة ${aggOrder.channel_name} (${aggOrder.customer_name})`
             },
             {
               accountId: params.commissionExpenseAccountId, // مدين: مصروف عمولة منصة التوصيل

@@ -281,6 +281,34 @@ class DriverDispatchService {
       journalEntryId
     };
   }
+
+  /**
+   * تسوية عهدة السائق تلقائياً عند سداد الطلب واستلام النقدية لدى الكاشير في POS
+   * يضمن تصفير ما بذمة السائق فورياً ومنع ازدواجية المطالبة أو القيود
+   */
+  public async settleDeliveryByOrderId(orderId: string): Promise<void> {
+    const now = new Date().toISOString();
+    try {
+      await supabase
+        .from('driver_deliveries')
+        .update({
+          is_settled: true,
+          status: 'DELIVERED',
+          delivered_at: now
+        })
+        .eq('order_id', orderId);
+    } catch (e) {
+      console.warn('DB settleDeliveryByOrderId notice:', e);
+    }
+
+    const currentDeliveries = this.getLocalDeliveries();
+    const updated = currentDeliveries.map(d =>
+      d.order_id === orderId
+        ? { ...d, is_settled: true, status: 'DELIVERED' as const, delivered_at: now }
+        : d
+    );
+    secureStorage.setItem(LOCAL_DELIVERIES_KEY, updated);
+  }
 }
 
 export const driverDispatchService = new DriverDispatchService();
