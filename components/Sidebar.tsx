@@ -361,6 +361,36 @@ const Sidebar: React.FC = () => {
     if (item.superAdminOnly && !isSuperAdmin) return false;
     if (item.adminOnly && !isSuperAdmin && (userRole as string) !== 'admin' && (userRole as string) !== 'manager') return false;
     
+    // 🍽️ إحكام عزل شاشات كاشير المطعم ونقاط البيع (Restaurant POS Cashier Lockdown)
+    if (userRole === 'restaurant_cashier' || userRole === 'cashier') {
+      const allowedCashierPaths = ['/pos', '/retail-pos'];
+      if (!item.to || !allowedCashierPaths.includes(item.to)) {
+        return false;
+      }
+      return true;
+    }
+
+    // 🍽️ كابتن الصالة والويتر المحمول
+    if (userRole === 'restaurant_waiter') {
+      return item.to === '/restaurant/waiter';
+    }
+
+    // 🍽️ طاهي المحطة والمطبخ
+    if (userRole === 'restaurant_cook' || (userRole as string) === 'chef') {
+      return item.to === '/kds';
+    }
+
+    // 🍽️ شيف المطبخ التنفيذي ومسؤول التشغيل
+    if (userRole === 'restaurant_chef') {
+      const allowedChefPaths = ['/kds', '/restaurant/expo', '/restaurant/stations', '/kitchen-end-day', '/restaurant/butchering-yield'];
+      return Boolean(item.to && allowedChefPaths.includes(item.to));
+    }
+
+    // 🍽️ كابتن التوصيل والديليفري
+    if (userRole === 'restaurant_driver') {
+      return item.to === '/restaurant/driver-dispatch';
+    }
+
     // 🏟️ تصفية ذكية للأدوار التخصصية لقطاع الاستاد
     if (userRole && typeof userRole === 'string' && userRole.startsWith('stadium_')) {
       if (!item.to || !item.to.startsWith('/stadium')) {

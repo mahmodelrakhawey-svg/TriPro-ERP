@@ -471,8 +471,20 @@ const MainLayout = () => {
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
                         <Routes>
                 {/* المسارات الأساسية */}
-                <Route path="/login" element={<Navigate to="/" replace />} />
-                <Route path="/" element={(currentUser?.role as string) === 'chef' ? <Navigate to="/kds" replace /> : <Dashboard />} />
+                <Route
+                  path="/"
+                  element={
+                    (currentUser?.role as string) === 'chef' || (currentUser?.role as string) === 'restaurant_cook'
+                      ? <Navigate to="/kds" replace />
+                      : (currentUser?.role as string) === 'restaurant_cashier' || (currentUser?.role as string) === 'cashier'
+                      ? <Navigate to="/pos" replace />
+                      : (currentUser?.role as string) === 'restaurant_waiter'
+                      ? <Navigate to="/restaurant/waiter" replace />
+                      : (currentUser?.role as string) === 'restaurant_driver'
+                      ? <Navigate to="/restaurant/driver-dispatch" replace />
+                      : <Dashboard />
+                  }
+                />
 
                 {/* 2. مديول التصنيع (Manufacturing) */}
                 {/* 🏥 مديول المستشفيات (HIMS) */}
