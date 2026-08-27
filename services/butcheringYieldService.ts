@@ -303,6 +303,11 @@ DO $$ BEGIN
     CREATE POLICY allow_all_order_items ON butchering_order_items FOR ALL USING (true) WITH CHECK (true);
   END IF;
 END $$;
+
+GRANT ALL ON TABLE butchering_templates TO authenticated, anon;
+GRANT ALL ON TABLE butchering_template_items TO authenticated, anon;
+GRANT ALL ON TABLE butchering_orders TO authenticated, anon;
+GRANT ALL ON TABLE butchering_order_items TO authenticated, anon;
 `;
 
 const LOCAL_STORAGE_ORDERS_KEY = 'tripro_butchering_orders_v1';
@@ -701,7 +706,16 @@ class ButcheringYieldService {
     rawMaterialAccountId?: string;
     finishedGoodsAccountId?: string;
     laborPayableAccountId?: string;
-  }): Promise<{ success: boolean; orderId: string; journalEntryId?: string; error?: string }> {
+  }): Promise<{
+    success: boolean;
+    orderId: string;
+    journalEntryId?: string;
+    journalError?: string;
+    stockAdjusted?: boolean;
+    deductedWeight?: number;
+    addedItemsCount?: number;
+    error?: string;
+  }> {
     const {
       order,
       items,
@@ -717,13 +731,16 @@ class ButcheringYieldService {
       const orderNumber = order.order_number || `BUT-${Date.now().toString().slice(-6)}`;
       let orderId = `local_ord_${Date.now()}`;
       let journalEntryId: string | undefined;
+      let journalError: string | undefined;
+      let stockAdjusted = false;
+      let addedItemsCount = 0;
 
       // 1. محاولة إدخال رأس الأمر في جدول butchering_orders في Supabase
       try {
         const { data: createdOrder, error: orderErr } = await supabase
           .from('butchering_orders')
           .insert({
-            organization_id: organizationId,
+            organization_id: organizationId || null,
             order_number: orderNumber,
             template_id: (order.template_id && !order.template_id.startsWith('local_')) ? order.template_id : null,
             source_product_id: order.source_product_id,
@@ -771,10 +788,10 @@ class ButcheringYieldService {
           await supabase.from('butchering_order_items').insert(itemsToInsert);
         }
       } catch (dbErr) {
-        console.warn('Database butchering_orders insert skipped (using local storage fallback):', dbErr);
+        console.warn('Database butchering_orders insert notice (falling back to local storage):', dbErr);
       }
 
-      // 2. حفظ في التخزين الآمن لضمان وجود السجل فوراً
+      // 2. حفظ في التخزين الآمن لضمان وجود السجل فوراً حتى بدون سوبابايز
       const fullOrderRecord: ButcheringOrder = {
         ...order,
         id: orderId,
@@ -789,84 +806,324 @@ class ButcheringYieldService {
         console.error('Error saving order to secureStorage:', e);
       }
 
-      // 3. تحديث تكلفة الأصناف الناتجة في جدول products في Supabase (هذا الجدول موجود دائماً)
-      for (const it of items) {
-        if (it.output_product_id && it.allocated_cost_per_kg > 0) {
-          try {
+      // 3. التأثير المخزني الفعلي (تحديث الأرصدة وإدراج تسويات المخزون الرسمية)
+      const primaryWarehouseId = order.warehouse_id || order.destination_warehouse_id || null;
+      const destinationWhId = order.destination_warehouse_id || order.warehouse_id || null;
+
+      // أ) تسجيل حركة تسوية مخزنية رسمية (Stock Adjustment) ليظهر الأثر في كارت الصنف وتقارير المخزون
+      try {
+        const isSeparateWarehouses = Boolean(primaryWarehouseId && destinationWhId && primaryWarehouseId !== destinationWhId);
+
+        if (isSeparateWarehouses) {
+          // 1. إذن صرف خام من مستودع المصدر
+          if (order.source_product_id && Number(order.input_weight) > 0) {
+            const adjOutNumber = `ADJ-OUT-${orderNumber}`;
+            const { data: docOut } = await supabase
+              .from('stock_adjustments')
+              .insert({
+                warehouse_id: primaryWarehouseId,
+                adjustment_date: order.order_date || new Date().toISOString().split('T')[0],
+                reason: `صرف خامات لجلسة تشفية #${orderNumber} (${order.butcher_name || 'الشيف'})`,
+                adjustment_number: adjOutNumber,
+                status: 'posted',
+                created_by: userId || null,
+                organization_id: organizationId || null
+              })
+              .select('id')
+              .single();
+
+            if (docOut) {
+              await supabase.from('stock_adjustment_items').insert([{
+                stock_adjustment_id: docOut.id,
+                product_id: order.source_product_id,
+                quantity: -Math.abs(Number(order.input_weight)),
+                type: 'out',
+                organization_id: organizationId || null
+              }]);
+              stockAdjusted = true;
+            }
+          }
+
+          // 2. إذن إضافة قطعيات مشفاة إلى مستودع المطبخ / المقصد
+          const inItems = items.filter(it => it.output_product_id && Number(it.actual_weight) > 0);
+          if (inItems.length > 0) {
+            const adjInNumber = `ADJ-IN-${orderNumber}`;
+            const { data: docIn } = await supabase
+              .from('stock_adjustments')
+              .insert({
+                warehouse_id: destinationWhId,
+                adjustment_date: order.order_date || new Date().toISOString().split('T')[0],
+                reason: `توريد قطعيات ناتجة من تشفية #${orderNumber} (${order.butcher_name || 'الشيف'})`,
+                adjustment_number: adjInNumber,
+                status: 'posted',
+                created_by: userId || null,
+                organization_id: organizationId || null
+              })
+              .select('id')
+              .single();
+
+            if (docIn) {
+              const adjInPayload = inItems.map(it => ({
+                stock_adjustment_id: docIn.id,
+                product_id: it.output_product_id,
+                quantity: Math.abs(Number(it.actual_weight)),
+                type: 'in',
+                organization_id: organizationId || null
+              }));
+              await supabase.from('stock_adjustment_items').insert(adjInPayload);
+              addedItemsCount = inItems.length;
+              stockAdjusted = true;
+            }
+          }
+        } else {
+          // مستودع واحد للسحب والتوريد
+          const adjNumber = `ADJ-${orderNumber}`;
+          const { data: adjDoc, error: adjErr } = await supabase
+            .from('stock_adjustments')
+            .insert({
+              warehouse_id: primaryWarehouseId,
+              adjustment_date: order.order_date || new Date().toISOString().split('T')[0],
+              reason: `جلسة تشفية وتفكيك #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
+              adjustment_number: adjNumber,
+              status: 'posted',
+              created_by: userId || null,
+              organization_id: organizationId || null
+            })
+            .select('id')
+            .single();
+
+          if (!adjErr && adjDoc) {
+            const adjItems: any[] = [];
+
+            // بند صرف الخام (خروج - out)
+            if (order.source_product_id && Number(order.input_weight) > 0) {
+              adjItems.push({
+                stock_adjustment_id: adjDoc.id,
+                product_id: order.source_product_id,
+                quantity: -Math.abs(Number(order.input_weight)),
+                type: 'out',
+                organization_id: organizationId || null
+              });
+            }
+
+            // بنود إضافة القطعيات الناتجة (دخول + in)
+            for (const it of items) {
+              if (it.output_product_id && Number(it.actual_weight) > 0) {
+                adjItems.push({
+                  stock_adjustment_id: adjDoc.id,
+                  product_id: it.output_product_id,
+                  quantity: Math.abs(Number(it.actual_weight)),
+                  type: 'in',
+                  organization_id: organizationId || null
+                });
+                addedItemsCount++;
+              }
+            }
+
+            if (adjItems.length > 0) {
+              await supabase.from('stock_adjustment_items').insert(adjItems);
+              stockAdjusted = true;
+            }
+          }
+        }
+      } catch (adjExc) {
+        console.warn('Stock adjustment creation notice:', adjExc);
+      }
+
+      // ب) التحديث المباشر لأرصدة جدول products لضمان انعكاس الكميات فوراً
+      try {
+        // 1. خصم المادة الخام من المستودع ومن إجمالي الرصيد
+        if (order.source_product_id && Number(order.input_weight) > 0) {
+          const { data: rawProd } = await supabase
+            .from('products')
+            .select('id, stock, warehouse_stock')
+            .eq('id', order.source_product_id)
+            .single();
+
+          if (rawProd) {
+            const curStock = Number(rawProd.stock || 0);
+            const inputWeightNum = Number(order.input_weight);
+            const newStock = curStock - inputWeightNum;
+            const whStock = { ...(rawProd.warehouse_stock || {}) };
+            if (primaryWarehouseId) {
+              const curWh = Number(whStock[primaryWarehouseId] || 0);
+              whStock[primaryWarehouseId] = curWh - inputWeightNum;
+            }
+
             await supabase
               .from('products')
               .update({
-                cost: Number(it.allocated_cost_per_kg),
-                purchase_price: Number(it.allocated_cost_per_kg),
+                stock: newStock,
+                warehouse_stock: whStock,
                 updated_at: new Date().toISOString()
               })
-              .eq('id', it.output_product_id);
-          } catch (pErr) {
-            console.warn('Product cost update error:', pErr);
+              .eq('id', order.source_product_id);
+
+            stockAdjusted = true;
           }
         }
-      }
 
-      // 4. إنشاء قيد اليومية المحاسبي التلقائي (Accounting Journal Entry)
-      if (autoPostAccounting && rawMaterialAccountId && finishedGoodsAccountId) {
-        const totalNetCost = Number(order.total_net_cost);
-        const totalInputCost = Number(order.total_input_cost);
-        const additionalLabor = Number(order.additional_labor_cost || 0) + Number(order.additional_overhead_cost || 0);
+        // 2. إضافة كميات القطعيات الناتجة وتحديث تكلفة الكيلو
+        for (const it of items) {
+          if (it.output_product_id) {
+            const { data: outProd } = await supabase
+              .from('products')
+              .select('id, stock, warehouse_stock')
+              .eq('id', it.output_product_id)
+              .single();
 
-        const journalLines = [
-          {
-            accountId: finishedGoodsAccountId,
-            debit: totalNetCost,
-            credit: 0,
-            description: `إثبات إنتاج لحوم مشفاة - أمر تشفية رقم ${orderNumber}`
-          },
-          {
-            accountId: rawMaterialAccountId,
-            debit: 0,
-            credit: totalInputCost,
-            description: `صرف ذبائح ولحوم خام للتشفية - أمر تشفية رقم ${orderNumber}`
-          }
-        ];
+            const unitCost = Number(it.allocated_cost_per_kg || 0);
+            const addedWeight = Number(it.actual_weight || 0);
 
-        if (additionalLabor > 0 && laborPayableAccountId) {
-          journalLines.push({
-            accountId: laborPayableAccountId,
-            debit: 0,
-            credit: additionalLabor,
-            description: `أجور ومصاريف جزارة وتشفية - أمر رقم ${orderNumber}`
-          });
-        }
+            if (outProd) {
+              const curStock = Number(outProd.stock || 0);
+              const newStock = curStock + addedWeight;
+              const whStock = { ...(outProd.warehouse_stock || {}) };
+              if (destinationWhId) {
+                const curWh = Number(whStock[destinationWhId] || 0);
+                whStock[destinationWhId] = curWh + addedWeight;
+              }
 
-        try {
-          const journalResult = await AccountingEngine.createJournalEntry({
-            organizationId,
-            transactionDate: order.order_date,
-            reference: `JE-${orderNumber}`,
-            description: `قيد تشفية وتفكيك ذبائح - أمر تشفية #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
-            lines: journalLines,
-            relatedDocumentId: orderId.startsWith('local_') ? null : orderId,
-            relatedDocumentType: 'butchering_order',
-            status: 'posted'
-          });
-
-          if (journalResult.success && journalResult.journalEntryId) {
-            journalEntryId = journalResult.journalEntryId;
-            if (!orderId.startsWith('local_')) {
               await supabase
-                .from('butchering_orders')
-                .update({ journal_entry_id: journalEntryId })
-                .eq('id', orderId);
+                .from('products')
+                .update({
+                  stock: newStock,
+                  warehouse_stock: whStock,
+                  cost: unitCost > 0 ? unitCost : undefined,
+                  purchase_price: unitCost > 0 ? unitCost : undefined,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', it.output_product_id);
+            } else if (unitCost > 0) {
+              await supabase
+                .from('products')
+                .update({
+                  cost: unitCost,
+                  purchase_price: unitCost,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', it.output_product_id);
             }
           }
-        } catch (jErr) {
-          console.warn('Journal entry auto creation notice:', jErr);
+        }
+      } catch (pUpdateErr) {
+        console.warn('Direct product quantities update notice:', pUpdateErr);
+      }
+
+      // 4. إنشاء وترحيل قيد اليومية المحاسبي التلقائي (Balanced Journal Entry)
+      if (autoPostAccounting) {
+        if (!rawMaterialAccountId || !finishedGoodsAccountId) {
+          journalError = 'لم يتم إنشاء القيد المحاسبي لعدم تحديد حسابات المخزون (الخام أو التام).';
+        } else {
+          const totalNetCost = Number(order.total_net_cost);
+          const totalInputCost = Number(order.total_input_cost);
+          const additionalLabor = Number(order.additional_labor_cost || 0) + Number(order.additional_overhead_cost || 0);
+
+          const journalLines: Array<{
+            accountId: string;
+            debit: number;
+            credit: number;
+            description: string;
+          }> = [
+            {
+              accountId: finishedGoodsAccountId,
+              debit: totalNetCost,
+              credit: 0,
+              description: `إثبات إنتاج لحوم مشفاة ومجهزة - أمر تشفية رقم ${orderNumber}`
+            },
+            {
+              accountId: rawMaterialAccountId,
+              debit: 0,
+              credit: totalInputCost,
+              description: `صرف ذبائح ولحوم خام للتشفية - أمر تشفية رقم ${orderNumber}`
+            }
+          ];
+
+          if (additionalLabor > 0) {
+            if (laborPayableAccountId) {
+              journalLines.push({
+                accountId: laborPayableAccountId,
+                debit: 0,
+                credit: additionalLabor,
+                description: `أجور ومصاريف جزارة وتشفية - أمر رقم ${orderNumber}`
+              });
+            } else {
+              // ضمان توازن القيد بدمج مصاريف التشغيل مع المادة الخام في الطرف الدائن إذا لم يُحدد حساب أجور
+              journalLines[1].credit = totalNetCost;
+            }
+          }
+
+          // التحقق الصارم من التوازن قبل الترحيل
+          const sumDebit = journalLines.reduce((acc, l) => acc + Number(l.debit || 0), 0);
+          const sumCredit = journalLines.reduce((acc, l) => acc + Number(l.credit || 0), 0);
+          const diff = Math.abs(sumDebit - sumCredit);
+
+          if (diff > 0.01) {
+            journalError = `تعذر ترحيل القيد: القيد غير متوازن (المدين: ${sumDebit.toFixed(2)}، الدائن: ${sumCredit.toFixed(2)}).`;
+          } else {
+            try {
+              // محاولة 1: استدعاء add_journal_entry RPC المعتمدة في النظام
+              const rpcLines = journalLines.map(l => ({
+                account_id: l.accountId,
+                accountId: l.accountId,
+                debit: l.debit,
+                credit: l.credit,
+                description: l.description
+              }));
+
+              const { data: rpcId, error: rpcErr } = await supabase.rpc('add_journal_entry', {
+                date: order.order_date,
+                reference: `JE-${orderNumber}`,
+                description: `قيد تشفية وتفكيك ذبائح - أمر تشفية #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
+                status: 'posted',
+                lines: rpcLines,
+                p_org_id: organizationId || null
+              });
+
+              if (!rpcErr && rpcId) {
+                journalEntryId = rpcId;
+              } else {
+                // محاولة 2: استخدام Central AccountingEngine
+                const journalResult = await AccountingEngine.createJournalEntry({
+                  organizationId: organizationId || '',
+                  transactionDate: order.order_date,
+                  reference: `JE-${orderNumber}`,
+                  description: `قيد تشفية وتفكيك ذبائح - أمر تشفية #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
+                  lines: journalLines,
+                  relatedDocumentId: orderId.startsWith('local_') ? null : orderId,
+                  relatedDocumentType: 'butchering_order',
+                  status: 'posted'
+                });
+
+                if (journalResult.success && journalResult.journalEntryId) {
+                  journalEntryId = journalResult.journalEntryId;
+                } else if (journalResult.error) {
+                  journalError = journalResult.error;
+                }
+              }
+
+              if (journalEntryId && !orderId.startsWith('local_')) {
+                await supabase
+                  .from('butchering_orders')
+                  .update({ journal_entry_id: journalEntryId })
+                  .eq('id', orderId);
+              }
+            } catch (jErr: any) {
+              console.warn('Journal entry creation notice:', jErr);
+              journalError = jErr.message || 'خطأ أثناء ترحيل قيد اليومية';
+            }
+          }
         }
       }
 
       return {
         success: true,
         orderId,
-        journalEntryId
+        journalEntryId,
+        journalError,
+        stockAdjusted,
+        deductedWeight: Number(order.input_weight),
+        addedItemsCount
       };
     } catch (err: any) {
       console.error('Error creating butchering order:', err);

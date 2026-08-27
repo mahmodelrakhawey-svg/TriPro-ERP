@@ -38,7 +38,7 @@ import {
 } from 'lucide-react';
 
 export const ButcheringYieldManager: React.FC = () => {
-  const { currentUser, warehouses } = useAccounting();
+  const { currentUser, currentSelectedOrgId, warehouses, refreshData } = useAccounting();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'orders' | 'analytics' | 'templates'>('orders');
@@ -61,9 +61,10 @@ export const ButcheringYieldManager: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const activeOrgId = currentSelectedOrgId || currentUser?.organization_id || undefined;
       const [fetchedOrders, fetchedTemplates] = await Promise.all([
-        butcheringYieldService.getOrders(currentUser?.organization_id || undefined),
-        butcheringYieldService.getTemplates(currentUser?.organization_id || undefined)
+        butcheringYieldService.getOrders(activeOrgId),
+        butcheringYieldService.getTemplates(activeOrgId)
       ]);
       setOrders(fetchedOrders || []);
       setTemplates(fetchedTemplates || DEFAULT_BUTCHERING_TEMPLATES);
@@ -125,6 +126,7 @@ export const ButcheringYieldManager: React.FC = () => {
       await butcheringYieldService.deleteOrder(orderId);
       showToast('تم حذف أمر التشفية بنجاح', 'success');
       fetchData();
+      if (refreshData) refreshData();
     } catch (err: any) {
       showToast('حدث خطأ أثناء الحذف: ' + err.message, 'error');
     }
@@ -441,7 +443,10 @@ export const ButcheringYieldManager: React.FC = () => {
         isOpen={isNewOrderModalOpen}
         onClose={() => setIsNewOrderModalOpen(false)}
         templates={templates}
-        onOrderCreated={fetchData}
+        onOrderCreated={() => {
+          fetchData();
+          if (refreshData) refreshData();
+        }}
       />
 
       <YieldTemplatesModal

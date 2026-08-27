@@ -6,6 +6,7 @@ import {
   butcheringYieldService,
   DEFAULT_BUTCHERING_TEMPLATES
 } from '../../../../services/butcheringYieldService';
+import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import {
@@ -40,7 +41,17 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
   templates,
   onOrderCreated
 }) => {
-  const { products, warehouses, accounts, currentUser } = useAccounting();
+  const {
+    products,
+    warehouses,
+    accounts,
+    currentUser,
+    currentSelectedOrgId,
+    organization,
+    getSystemAccount,
+    recalculateStock,
+    refreshData
+  } = useAccounting();
   const { showToast } = useToast();
 
   // 1. البيانات العامة للأمر
@@ -54,8 +65,8 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
   const [notes, setNotes] = useState<string>('');
 
   // 2. مدخلات الوزن والتكلفة
-  const [inputWeight, setInputWeight] = useState<number>(200); // كجم
-  const [inputCostPerKg, setInputCostPerKg] = useState<number>(350); // ج/كجم
+  const [inputWeight, setInputWeight] = useState<number>(15); // القيمة الافتراضية 15 كجم
+  const [inputCostPerKg, setInputCostPerKg] = useState<number>(200); // ج/كجم
   const [additionalLaborCost, setAdditionalLaborCost] = useState<number>(0); // مصاريف جزارة
   const [additionalOverheadCost, setAdditionalOverheadCost] = useState<number>(0); // مصاريف نقل وتبريد
   const [costMethod, setCostMethod] = useState<'relative_value' | 'by_product_deduction' | 'weight_equal'>('relative_value');
@@ -80,6 +91,59 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
   const [laborPayableAccountId, setLaborPayableAccountId] = useState<string>('');
 
   const [submitting, setSubmitting] = useState(false);
+  const [isAutoFetchedFromStock, setIsAutoFetchedFromStock] = useState<boolean>(false);
+  const [isPriceAutoFetched, setIsPriceAutoFetched] = useState<boolean>(false);
+
+  // حساب الرصيد المتوفر للصنف الخام في المستودع المحدد
+  const selectedProductStock = useMemo(() => {
+    if (!sourceProductId) return null;
+    const prod = products.find(p => p.id === sourceProductId);
+    if (!prod) return null;
+    const totalStock = Number(prod.stock || 0);
+    const whStock =
+      warehouseId && prod.warehouse_stock
+        ? Number(prod.warehouse_stock[warehouseId] ?? prod.stock ?? 0)
+        : totalStock;
+    return {
+      name: prod.name,
+      unit: prod.unit || 'كجم',
+      totalStock,
+      whStock
+    };
+  }, [sourceProductId, warehouseId, products]);
+
+  // دالة تغيير الوزن المدخل مع إعادة احتساب أوزان القطعيات الناتجة تلقائياً
+  const handleInputWeightChange = (newWeight: number, isAuto: boolean = false) => {
+    setInputWeight(newWeight);
+    setIsAutoFetchedFromStock(isAuto);
+    if (newWeight > 0) {
+      setOutputItems(prev =>
+        prev.map(it => {
+          if (it.expected_pct && it.expected_pct > 0) {
+            const scaled = Number(((newWeight * it.expected_pct) / 100).toFixed(2));
+            return { ...it, actual_weight: scaled };
+          }
+          return it;
+        })
+      );
+    }
+  };
+
+  // دالة إعادة ضبط الأوزان يدوياً وفق نسب القالب المعياري
+  const handleRecalculateWeights = (targetWeight?: number) => {
+    const weightToUse = targetWeight !== undefined ? targetWeight : inputWeight;
+    if (weightToUse <= 0) return;
+    setOutputItems(prev =>
+      prev.map(it => {
+        if (it.expected_pct && it.expected_pct > 0) {
+          const scaled = Number(((weightToUse * it.expected_pct) / 100).toFixed(2));
+          return { ...it, actual_weight: scaled };
+        }
+        return it;
+      })
+    );
+    showToast(`تمت إعادة احتساب الأوزان وفق نسب القالب المعياري (${weightToUse} كجم) ✅`, 'info');
+  };
 
   // إعداد المستودعات الافتراضية
   useEffect(() => {
@@ -94,40 +158,112 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
     }
   }, [warehouses]);
 
-  // إعداد الحسابات المالية الافتراضية للقيود
+  // إعداد الحسابات المالية الافتراضية للقيود بنظام البحث الذكي المتعدد (Smart Account Discovery)
   useEffect(() => {
     if (accounts.length > 0) {
-      // مخزون خامات / ذبائح خام
-      const rawAcc = accounts.find(a => a.name.includes('خام') || a.name.includes('لحوم') || a.code === '1104' || a.name.includes('مخزون'));
+      // 1. مخزون خامات / ذبائح خام
+      const rawAcc =
+        (getSystemAccount && getSystemAccount('INVENTORY_RAW_MATERIALS')) ||
+        (getSystemAccount && getSystemAccount('INVENTORY')) ||
+        accounts.find(a =>
+          a.code === '10301' || a.code === '1104' || a.code === '103' || a.code === '121' || a.code === '122' ||
+          a.name?.includes('خام') || a.name?.includes('لحوم') || a.name?.includes('دواجن') || a.name?.includes('مخزون')
+        );
       if (rawAcc && !rawMaterialAccountId) setRawMaterialAccountId(rawAcc.id);
 
-      // مخزون منتجات تامة / مجهزة
-      const finAcc = accounts.find(a => a.name.includes('مطبخ') || a.name.includes('تام') || a.name.includes('جاهز') || a.code === '1105' || a.name.includes('مخزون'));
+      // 2. مخزون منتجات تامة / مجهزة
+      const finAcc =
+        (getSystemAccount && getSystemAccount('INVENTORY_FINISHED_GOODS')) ||
+        (getSystemAccount && getSystemAccount('INVENTORY')) ||
+        accounts.find(a =>
+          a.code === '10302' || a.code === '1105' || a.code === '1213' ||
+          a.name?.includes('تام') || a.name?.includes('مطبخ') || a.name?.includes('مجهز') || a.name?.includes('جاهز') ||
+          (a.name?.includes('مخزون') && a.id !== rawAcc?.id)
+        );
       if (finAcc && !finishedGoodsAccountId) setFinishedGoodsAccountId(finAcc.id || rawAcc?.id || '');
 
-      // حساب أجور أو جزارة
-      const labAcc = accounts.find(a => a.name.includes('أجور') || a.name.includes('تشغيل') || a.name.includes('مصروفات') || a.code?.startsWith('5'));
+      // 3. حساب أجور أو جزارة ومصروفات تشغيل
+      const labAcc =
+        (getSystemAccount && getSystemAccount('WAGES_EXPENSE')) ||
+        (getSystemAccount && getSystemAccount('OPERATING_EXPENSE')) ||
+        accounts.find(a =>
+          a.code?.startsWith('5') || a.name?.includes('أجور') || a.name?.includes('تشغيل') || a.name?.includes('جزارة') || a.name?.includes('مصروفات')
+        );
       if (labAcc && !laborPayableAccountId) setLaborPayableAccountId(labAcc.id);
     }
-  }, [accounts]);
+  }, [accounts, getSystemAccount]);
 
-  // عند اختيار صنف الذبيحة من المخزن -> جلب تكلفة الكيلو تلقائياً
+  // دالة جلب سعر شراء الكيلو آلياً (من بطاقة الصنف أو من أحدث فاتورة مشتريات)
+  const fetchProductCost = async (productId: string, prodObj?: any) => {
+    const prod = prodObj || products.find(p => p.id === productId);
+    let resolvedPrice = Number(prod?.purchase_price || prod?.cost || 0);
+
+    // إذا لم يكن سعر الشراء مسجلاً في بطاقة الصنف، نبحث في آخر فاتورة مشتريات مرحلة في النظام
+    if (resolvedPrice <= 0) {
+      try {
+        const { data: lastInvoiceItem } = await supabase
+          .from('purchase_invoice_items')
+          .select('unit_price')
+          .eq('product_id', productId)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (lastInvoiceItem && Number(lastInvoiceItem.unit_price) > 0) {
+          resolvedPrice = Number(lastInvoiceItem.unit_price);
+        }
+      } catch (err) {
+        console.warn('Notice fetching latest purchase invoice price:', err);
+      }
+    }
+
+    if (resolvedPrice > 0) {
+      setInputCostPerKg(resolvedPrice);
+      setIsPriceAutoFetched(true);
+    } else {
+      setIsPriceAutoFetched(false);
+    }
+  };
+
+  // عند اختيار صنف الذبيحة أو تغيير المخزن -> جلب تكلفة الكيلو ورصيده المتاح آلياً وضبط الوزن الإجمالي
   useEffect(() => {
     if (sourceProductId && products.length > 0) {
       const prod = products.find(p => p.id === sourceProductId);
       if (prod) {
-        const prodCost = prod.cost || prod.purchase_price || 0;
-        if (prodCost > 0) {
-          setInputCostPerKg(prodCost);
+        // 1. جلب سعر الكيلو الخام آلياً
+        fetchProductCost(sourceProductId, prod);
+
+        // 2. جلب الرصيد المتوفر في هذا المخزن آلياً وتطبيقه مباشرة على الوزن المدخل (لأي كمية كانت مثل 350 كجم لعجل أو 15 كجم لدواجن)
+        const availableInWh =
+          warehouseId && prod.warehouse_stock
+            ? Number(prod.warehouse_stock[warehouseId] ?? prod.stock ?? 0)
+            : Number(prod.stock || 0);
+
+        if (availableInWh > 0) {
+          handleInputWeightChange(availableInWh, true);
         }
       }
     }
-  }, [sourceProductId, products]);
+  }, [sourceProductId, warehouseId, products]);
 
-  // عند اختيار قالب تشفية -> تعبئة بنود القطعيات تلقائياً
+  // عند اختيار قالب تشفية -> تعبئة بنود القطعيات تلقائياً بالاعتماد على رصيد المخزن الفعلي
   const handleApplyTemplate = (template: ButcheringTemplate) => {
     setSelectedTemplateId(template.id || template.name);
     setCostMethod(template.cost_allocation_method || 'relative_value');
+
+    // أولوية الوزن: رصيد المخزن المتاح أولاً، ثم الوزن المدخل الحالي
+    let targetWeight = inputWeight;
+    if (selectedProductStock && selectedProductStock.whStock > 0) {
+      targetWeight = selectedProductStock.whStock;
+      setInputWeight(targetWeight);
+      setIsAutoFetchedFromStock(true);
+    } else if (template.category === 'poultry' && (targetWeight > 50 || targetWeight === 200)) {
+      targetWeight = 15;
+      setInputWeight(15);
+    } else if (template.category === 'beef' && targetWeight < 100) {
+      targetWeight = 350;
+      setInputWeight(350);
+    }
 
     if (template.items && template.items.length > 0) {
       const generated = template.items.map(it => {
@@ -136,7 +272,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
           p => p.name.toLowerCase().includes(it.output_name.toLowerCase()) || it.output_name.toLowerCase().includes(p.name.toLowerCase())
         );
 
-        const initialWeight = Number(((inputWeight * it.expected_yield_pct) / 100).toFixed(2));
+        const initialWeight = Number(((targetWeight * it.expected_yield_pct) / 100).toFixed(2));
 
         return {
           output_product_id: matchedProduct?.id || null,
@@ -231,8 +367,34 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
       return;
     }
 
+    if (calculationResult.total_output_weight > inputWeight) {
+      showToast(
+        `خطأ في الحساب: مجموع أوزان القطعيات (${calculationResult.total_output_weight.toFixed(2)} كجم) يتجاوز وزن الخام المدخل (${inputWeight} كجم)! يرجى الضغط على زر "إعادة توزيع الأوزان" لتصحيحها.`,
+        'error'
+      );
+      return;
+    }
+
+    // التحقق من ربط القطعيات ببطاقات الأصناف
+    const linkedItems = outputItems.filter(it => Boolean(it.output_product_id));
+    if (linkedItems.length === 0) {
+      const confirmProceed = window.confirm(
+        '⚠️ تنبيه: لم يتم ربط أي قطعية ناتجة ببطاقة صنف في المخزن!\n\n' +
+        'لن تتأثر كميات المخزون إلا للقطعيات التي يتم تحديد صنفها المخزني في عمود "الربط ببطاقة الصنف".\n\n' +
+        'هل تريد المتابعة وترحيل الأمر على أية حال؟'
+      );
+      if (!confirmProceed) return;
+    }
+
     setSubmitting(true);
     try {
+      const activeOrgId =
+        currentSelectedOrgId ||
+        currentUser?.organization_id ||
+        organization?.id ||
+        (currentUser as any)?.user_metadata?.org_id ||
+        '';
+
       const orderPayload: ButcheringOrder = {
         order_number: orderNumber,
         template_id: selectedTemplateId || null,
@@ -278,7 +440,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
       const res = await butcheringYieldService.createAndPostOrder({
         order: orderPayload,
         items: itemsPayload,
-        organizationId: currentUser?.organization_id || '',
+        organizationId: activeOrgId,
         userId: currentUser?.id,
         autoPostAccounting,
         rawMaterialAccountId,
@@ -287,7 +449,24 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
       });
 
       if (res.success) {
-        showToast('تم ترحيل جلسة التشفية وتحديث المخزون والقيود بنجاح ✅', 'success');
+        // تحديث محرك المخزون ودفتر الأستاذ العام في الـ Context فوراً
+        try {
+          if (recalculateStock) await recalculateStock();
+          if (refreshData) await refreshData();
+        } catch (rErr) {
+          console.warn('Recalculate or refresh data notice:', rErr);
+        }
+
+        const rawProdName = products.find(p => p.id === sourceProductId)?.name || 'الخام';
+        let successMsg = `تم ترحيل جلسة التشفية: خصم (${inputWeight} كجم ${rawProdName}) وإضافة (${res.addedItemsCount || linkedItems.length}) صنف للمخزن ✅`;
+
+        if (res.journalEntryId) {
+          successMsg += ' وتم إنشاء قيد اليومية بنجاح.';
+        } else if (res.journalError) {
+          successMsg += ` (تنبيه القيد: ${res.journalError})`;
+        }
+
+        showToast(successMsg, res.journalError ? 'info' : 'success');
         onOrderCreated();
         onClose();
       } else {
@@ -382,6 +561,16 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
                       </option>
                     ))}
                 </select>
+                {selectedProductStock && (
+                  <div className="mt-1.5 flex items-center justify-between text-[11px] bg-slate-50 px-2 py-1 rounded-lg border border-slate-200">
+                    <span className="text-slate-500 font-bold">الرصيد المتاح:</span>
+                    <span className={`font-black ${
+                      selectedProductStock.whStock > 0 ? 'text-emerald-700' : 'text-red-600'
+                    }`}>
+                      {selectedProductStock.whStock} {selectedProductStock.unit}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -399,6 +588,11 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
                     </option>
                   ))}
                 </select>
+                {selectedProductStock && warehouseId && (
+                  <div className="mt-1.5 text-[11px] text-slate-500 font-medium">
+                    رصيد المخزن: <span className="font-bold text-slate-800">{selectedProductStock.whStock} {selectedProductStock.unit}</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -470,38 +664,82 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
           {/* Section 2: Weight & Cost Inputs Bar */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <label className="block text-xs font-bold text-slate-500 mb-1">
-                الوزن الإجمالي المدخل (كجم)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-500">
+                  الوزن الإجمالي المدخل (كجم)
+                </label>
+                {selectedProductStock && selectedProductStock.whStock > 0 && selectedProductStock.whStock !== inputWeight && (
+                  <button
+                    type="button"
+                    onClick={() => handleInputWeightChange(selectedProductStock.whStock, true)}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded border border-indigo-100 transition"
+                    title="استرجاع رصيد المخزن الفعلي كوزن مدخل"
+                  >
+                    جلب رصيد المخزن ({selectedProductStock.whStock})
+                  </button>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
                   step="0.1"
                   value={inputWeight}
-                  onChange={e => setInputWeight(parseFloat(e.target.value) || 0)}
+                  onChange={e => handleInputWeightChange(parseFloat(e.target.value) || 0, false)}
                   className="w-full text-2xl font-extrabold text-slate-800 outline-none border-b-2 border-rose-500 py-1"
                 />
                 <span className="text-xs font-bold text-slate-400">كجم</span>
               </div>
+              {selectedProductStock && selectedProductStock.whStock > 0 && selectedProductStock.whStock === inputWeight && (
+                <span className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-500" /> تم جلب الكمية آلياً من رصيد المخزن ({selectedProductStock.whStock} {selectedProductStock.unit})
+                </span>
+              )}
+              {selectedProductStock && selectedProductStock.whStock < inputWeight && (
+                <span className="text-[10px] text-amber-600 font-bold block mt-1">
+                  ⚠️ المطلوب أكبر من رصيد المخزن ({selectedProductStock.whStock})
+                </span>
+              )}
             </div>
 
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-              <label className="block text-xs font-bold text-slate-500 mb-1">
-                سعر شراء الكيلو الخام (ج/كجم)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-500">
+                  سعر شراء الكيلو الخام (ج/كجم)
+                </label>
+                {isPriceAutoFetched && inputCostPerKg > 0 && (
+                  <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-600" /> تم الجلب آلياً
+                  </span>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
                   step="0.5"
                   value={inputCostPerKg}
-                  onChange={e => setInputCostPerKg(parseFloat(e.target.value) || 0)}
+                  onChange={e => {
+                    setInputCostPerKg(parseFloat(e.target.value) || 0);
+                    setIsPriceAutoFetched(false);
+                  }}
                   className="w-full text-2xl font-extrabold text-slate-800 outline-none border-b-2 border-amber-500 py-1"
                 />
                 <span className="text-xs font-bold text-slate-400">ج.م</span>
               </div>
-              <span className="text-[11px] text-slate-400 block mt-1">
-                إجمالي الشراء: {totalInputCost.toLocaleString()} ج
-              </span>
+              <div className="flex items-center justify-between mt-1 text-[11px]">
+                <span className="text-slate-400">
+                  إجمالي الشراء: {totalInputCost.toLocaleString()} ج
+                </span>
+                {sourceProductId && (
+                  <button
+                    type="button"
+                    onClick={() => fetchProductCost(sourceProductId)}
+                    className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold underline transition"
+                    title="إعادة جلب سعر الشراء من بطاقة الصنف أو أحدث فاتورة مشتريات"
+                  >
+                    تحديث السعر
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -592,26 +830,66 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
                 </p>
               </div>
 
-              <button
-                onClick={handleAddItem}
-                className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition"
-              >
-                <Plus className="w-4 h-4" /> إضافة صنف ناتج
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleRecalculateWeights(inputWeight)}
+                  className="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition"
+                  title="إعادة احتساب أوزان المخرجات تلقائياً بناءً على الوزن المدخل ونسب القالب"
+                >
+                  <Calculator className="w-3.5 h-3.5" /> إعادة ضبط الأوزان ({inputWeight} كجم)
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleAddItem}
+                  className="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition"
+                >
+                  <Plus className="w-4 h-4" /> إضافة صنف ناتج
+                </button>
+              </div>
             </div>
+
+            {calculationResult.total_output_weight > inputWeight && (
+              <div className="m-3 p-3 bg-red-50 border-2 border-red-200 rounded-xl flex items-center justify-between gap-3 text-red-900 animate-pulse">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                  <div>
+                    <span className="font-extrabold text-xs">
+                      تنبيه هام: مجموع أوزان المخرجات ({calculationResult.total_output_weight.toFixed(2)} كجم) أكبر من الوزن المدخل ({inputWeight} كجم)!
+                    </span>
+                    <span className="text-[11px] text-red-700 block mt-0.5">
+                      نسبة الاستخراج الحالية ({calculationResult.useful_yield_pct}%) غير منطقية. اضغط الزر المجاور لتعديل الأوزان فوراً وتوزيع الـ {inputWeight} كجم على الأصناف.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRecalculateWeights(inputWeight)}
+                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg flex items-center gap-1.5 shadow flex-shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5" /> ضبط الأوزان الآن
+                </button>
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full text-right text-xs">
                 <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
                   <tr>
                     <th className="p-3">اسم القطعية / الصنف الناتج</th>
-                    <th className="p-3">الربط ببطاقة الصنف (المخزن)</th>
+                    <th className="p-3 min-w-[200px]">الربط ببطاقة الصنف (المخزن)</th>
                     <th className="p-3 w-28 text-center bg-rose-50 text-rose-900">الوزن الفعلي (كجم)</th>
                     <th className="p-3 w-24 text-center">نسبة الاستخراج</th>
                     <th className="p-3 w-24 text-center">معامل القيمة</th>
                     <th className="p-3 w-32 text-center bg-indigo-50 text-indigo-900">تكلفة الكيلو الناتجة</th>
                     <th className="p-3 w-32 text-center">إجمالي التكلفة</th>
-                    <th className="p-3 w-20 text-center">منتج ثانوي؟</th>
+                    <th className="p-3 w-28 text-center" title="اختياري: حدد هذا الخيار فقط إذا كانت هذه القطعية عظام أو دهون لطرح قيمتها من تكلفة القطعيات الرئيسية. تركها بدون تحديد يعني أنها لحم رئيسي ممتاز.">
+                      <div className="flex flex-col items-center leading-tight">
+                        <span className="font-bold">منتج ثانوي؟</span>
+                        <span className="text-[10px] font-normal text-slate-500">(عظم / دهن)</span>
+                      </div>
+                    </th>
                     <th className="p-3 w-12 text-center">حذف</th>
                   </tr>
                 </thead>
@@ -633,15 +911,28 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
                           <select
                             value={item.output_product_id || ''}
                             onChange={e => handleUpdateItem(idx, 'output_product_id', e.target.value || null)}
-                            className="w-full border border-slate-200 rounded-lg px-2 py-1 text-slate-600 outline-none text-[11px]"
+                            className={`w-full border rounded-lg px-2 py-1 text-slate-700 outline-none text-[11px] font-medium transition ${
+                              item.output_product_id
+                                ? 'border-emerald-400 bg-emerald-50/50 text-emerald-900 font-bold'
+                                : 'border-amber-300 bg-amber-50/40 text-amber-800'
+                            }`}
                           >
-                            <option value="">-- بدون ربط مخزني --</option>
+                            <option value="">-- بدون ربط مخزني (لن يضاف للرصيد) --</option>
                             {products.map(p => (
                               <option key={p.id} value={p.id}>
-                                {p.name}
+                                {p.name} {p.sku ? `(${p.sku})` : ''}
                               </option>
                             ))}
                           </select>
+                          {item.output_product_id ? (
+                            <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1 mt-0.5">
+                              <CheckCircle2 className="w-3 h-3" /> مربوط بالمخزن (ستتم زيادة رصيده)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-600 font-medium flex items-center gap-1 mt-0.5">
+                              <AlertTriangle className="w-3 h-3" /> غير مربوط (لن تزيد كميته)
+                            </span>
+                          )}
                         </td>
                         <td className="p-2.5 bg-rose-50/40">
                           <input
@@ -680,12 +971,20 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
                           {calc ? calc.total_allocated_cost.toLocaleString() : '0'} ج
                         </td>
                         <td className="p-2.5 text-center">
-                          <input
-                            type="checkbox"
-                            checked={item.is_by_product}
-                            onChange={e => handleUpdateItem(idx, 'is_by_product', e.target.checked)}
-                            className="w-4 h-4 text-rose-600 rounded border-slate-300 cursor-pointer"
-                          />
+                          <div className="flex flex-col items-center justify-center gap-1">
+                            <input
+                              type="checkbox"
+                              checked={item.is_by_product}
+                              onChange={e => handleUpdateItem(idx, 'is_by_product', e.target.checked)}
+                              title="ضع علامة صح فقط إذا كان هذا الصنف عظم أو دهن مستبعد من تكلفة اللحم الرئيسي"
+                              className="w-4 h-4 text-rose-600 rounded border-slate-300 cursor-pointer focus:ring-rose-500"
+                            />
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              item.is_by_product ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {item.is_by_product ? 'عظم/دهن' : 'لحم رئيسي'}
+                            </span>
+                          </div>
                         </td>
                         <td className="p-2.5 text-center">
                           <button
@@ -743,7 +1042,22 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
             </div>
 
             {autoPostAccounting && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <>
+                <div className="flex items-center gap-2 text-xs font-semibold">
+                  {rawMaterialAccountId && finishedGoodsAccountId ? (
+                    <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      الحسابات مكتملة وجاهزة لإنشاء القيد المحاسبي المتوازن فوراً في دفتر الأستاذ العام
+                    </span>
+                  ) : (
+                    <span className="text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      يرجى التأكد من اختيار حساب المخزون الخام وحساب اللحوم المجهزة ليتمكن النظام من توليد القيد المحاسبي
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">
                     حساب مخزون الذبائح واللحوم الخام (طرف دائن)
@@ -798,7 +1112,8 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
                   </select>
                 </div>
               </div>
-            )}
+            </>
+          )}
           </div>
         </div>
 
@@ -814,11 +1129,19 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
           <div className="flex items-center gap-3">
             <button
               onClick={handleSubmit}
-              disabled={submitting}
-              className="px-6 py-2.5 bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-700 hover:to-amber-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-rose-600/20 flex items-center gap-2 transition disabled:opacity-50"
+              disabled={submitting || calculationResult.total_output_weight > inputWeight}
+              className={`px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg flex items-center gap-2 transition disabled:opacity-50 ${
+                calculationResult.total_output_weight > inputWeight
+                  ? 'bg-slate-400 text-white cursor-not-allowed'
+                  : 'bg-gradient-to-r from-rose-600 to-amber-600 hover:from-rose-700 hover:to-amber-700 text-white shadow-rose-600/20'
+              }`}
             >
               <CheckCircle2 className="w-4 h-4" />
-              {submitting ? 'جاري الترحيل والحفظ...' : 'تنفيذ وترحيل أمر التشفية والمخزون'}
+              {calculationResult.total_output_weight > inputWeight
+                ? `المخرجات (${calculationResult.total_output_weight.toFixed(1)} كجم) تتجاوز المدخل (${inputWeight} كجم)`
+                : submitting
+                ? 'جاري الترحيل والحفظ...'
+                : 'تنفيذ وترحيل أمر التشفية والمخزون'}
             </button>
           </div>
         </div>
