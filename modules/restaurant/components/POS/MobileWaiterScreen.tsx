@@ -12,7 +12,6 @@ import { supabase } from '../../../../supabaseClient';
 import { RestaurantTable } from '../../../../types';
 import { waiterPagingService, WaiterCallRequest } from '../../../../services/waiterPagingService';
 import { thermalPrinterService } from '../../../../services/thermalPrinterService';
-import { loyaltyService } from '../../../../services/loyaltyService';
 import {
   Utensils,
   Bell,
@@ -34,7 +33,11 @@ import {
   Phone,
   Gift,
   Printer,
-  RotateCcw
+  RotateCcw,
+  Receipt,
+  FileText,
+  Layers,
+  Check
 } from 'lucide-react';
 
 interface WaiterCartItem {
@@ -62,10 +65,16 @@ export const MobileWaiterScreen: React.FC = () => {
 
   // Navigation State
   const [selectedTable, setSelectedTable] = useState<RestaurantTable | null>(null);
+  const [selectedSection, setSelectedSection] = useState<string>('all');
   const [cart, setCart] = useState<WaiterCartItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Existing Table Orders State
+  const [existingOrders, setExistingOrders] = useState<any[]>([]);
+  const [existingOrdersLoading, setExistingOrdersLoading] = useState(false);
+  const [isExistingOrdersModalOpen, setIsExistingOrdersModalOpen] = useState(false);
 
   // Modifier Modal
   const [itemForModifiers, setItemForModifiers] = useState<any | null>(null);
@@ -74,9 +83,6 @@ export const MobileWaiterScreen: React.FC = () => {
 
   // Waiter Calls (Paging)
   const [pendingCalls, setPendingCalls] = useState<WaiterCallRequest[]>([]);
-
-  // Sound chime ref
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Poll for waiter calls
   useEffect(() => {
@@ -96,6 +102,77 @@ export const MobileWaiterScreen: React.FC = () => {
     return () => clearInterval(interval);
   }, [pendingCalls.length]);
 
+  // Load existing orders when a table is selected
+  useEffect(() => {
+    const fetchExistingOrders = async () => {
+      if (!selectedTable) {
+        setExistingOrders([]);
+        return;
+      }
+      setExistingOrdersLoading(true);
+      try {
+        const { data: openSession } = await supabase
+          .from('table_sessions')
+          .select('id')
+          .eq('table_id', selectedTable.id)
+          .eq('status', 'OPEN')
+          .order('start_time', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (openSession?.id) {
+          const { data: orders } = await supabase
+            .from('orders')
+            .select(`
+              id,
+              order_number,
+              grand_total,
+              status,
+              created_at,
+              order_items (
+                id,
+                quantity,
+                unit_price,
+                notes,
+                modifiers,
+                products (name)
+              )
+            `)
+            .eq('session_id', openSession.id)
+            .not('status', 'in', '("CANCELLED")')
+            .order('created_at', { ascending: true });
+
+          setExistingOrders(orders || []);
+        } else {
+          setExistingOrders([]);
+        }
+      } catch (err) {
+        console.warn('Existing orders load error:', err);
+      } finally {
+        setExistingOrdersLoading(false);
+      }
+    };
+
+    fetchExistingOrders();
+  }, [selectedTable]);
+
+  // Distinct Table Sections
+  const tableSections = useMemo(() => {
+    const sections = new Set<string>();
+    restaurantTables.forEach(t => {
+      if (t.section) sections.add(t.section);
+    });
+    return Array.from(sections);
+  }, [restaurantTables]);
+
+  // Filtered Tables
+  const filteredTables = useMemo(() => {
+    return restaurantTables.filter(t => {
+      if (selectedSection === 'all') return true;
+      return t.section === selectedSection;
+    });
+  }, [restaurantTables, selectedSection]);
+
   // Filter sellable products
   const sellableProducts = useMemo(() => {
     return (allProducts || []).filter(p => {
@@ -111,6 +188,7 @@ export const MobileWaiterScreen: React.FC = () => {
 
   // Add Item to cart
   const handleAddItem = (product: any) => {
+    if (navigator.vibrate) navigator.vibrate(30);
     const existing = cart.find(c => c.productId === product.id && !c.notes && (!c.selectedModifiers || c.selectedModifiers.length === 0));
     if (existing) {
       setCart(cart.map(c => (c === existing ? { ...c, quantity: c.quantity + 1 } : c)));
@@ -152,6 +230,7 @@ export const MobileWaiterScreen: React.FC = () => {
   };
 
   const updateQuantity = (index: number, delta: number) => {
+    if (navigator.vibrate) navigator.vibrate(20);
     const updated = [...cart];
     updated[index].quantity += delta;
     if (updated[index].quantity <= 0) {
@@ -161,6 +240,36 @@ export const MobileWaiterScreen: React.FC = () => {
   };
 
   const cartTotal = cart.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
+
+  // Existing table total
+  const existingOrdersTotal = useMemo(() => {
+    return existingOrders.reduce((sum, o) => sum + Number(o.grand_total || 0), 0);
+  }, [existingOrders]);
+
+  // Request Bill / Print Check for table
+  const handleRequestBill = async () => {
+    if (!selectedTable) return;
+    try {
+      const payload = {
+        orderNumber: `CHK-${selectedTable.name}`,
+        tableName: selectedTable.name,
+        orderType: 'صالة (طلب حساب)',
+        serverName: currentUser?.full_name || 'الويتر',
+        items: existingOrders.flatMap(o => (o.order_items || []).map((it: any) => ({
+          name: it.products?.name || 'صنف',
+          quantity: it.quantity,
+          unitPrice: it.unit_price,
+          notes: it.notes
+        }))),
+        grandTotal: existingOrdersTotal
+      };
+
+      await thermalPrinterService.routeOrderToPrinters(payload);
+      showToast(`تم إرسال أمر طباعة شيك حساب طاولة ${selectedTable.name} للكاشير بنجاح 🧾`, 'success');
+    } catch (e: any) {
+      showToast('خطأ أثناء طلب الحساب: ' + e.message, 'error');
+    }
+  };
 
   // Send Order to Kitchen & Thermal Printers
   const handleSendOrder = async () => {
@@ -178,7 +287,6 @@ export const MobileWaiterScreen: React.FC = () => {
       // 1. Get or create active session UUID for this table
       let resolvedSessionId: string | null = null;
 
-      // Check if there is an existing OPEN session in table_sessions
       const { data: openSession } = await supabase
         .from('table_sessions')
         .select('id')
@@ -191,7 +299,6 @@ export const MobileWaiterScreen: React.FC = () => {
       if (openSession?.id) {
         resolvedSessionId = openSession.id;
       } else {
-        // Open a new table session
         const sessionResult = await openTableSession(selectedTable.id);
         if (typeof sessionResult === 'object' && sessionResult !== null) {
           resolvedSessionId = (sessionResult as any).id || null;
@@ -225,7 +332,7 @@ export const MobileWaiterScreen: React.FC = () => {
       }));
 
       // 3. Create Restaurant Order
-      const newOrderId = await createRestaurantOrder({
+      await createRestaurantOrder({
         p_session_id: resolvedSessionId,
         p_items: rpcItems,
         p_order_type: 'DINE_IN',
@@ -251,14 +358,12 @@ export const MobileWaiterScreen: React.FC = () => {
         grandTotal: cartTotal
       };
 
-      // Route to thermal printers in background
       thermalPrinterService.routeOrderToPrinters(printTicketPayload).catch(pErr => {
         console.warn('Printer routing notice:', pErr);
       });
 
       showToast(`تم إرسال طلب طاولة ${selectedTable.name} للمطبخ بنجاح! 👨‍🍳🚀`, 'success');
 
-      // Clear cart & selection
       setCart([]);
       setSelectedTable(null);
     } catch (err: any) {
@@ -310,7 +415,7 @@ export const MobileWaiterScreen: React.FC = () => {
         {selectedTable && (
           <button
             onClick={() => setSelectedTable(null)}
-            className="px-3 py-1 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95"
+            className="px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95"
           >
             تغيير الطاولة
           </button>
@@ -325,8 +430,38 @@ export const MobileWaiterScreen: React.FC = () => {
             <span className="text-xs text-slate-400 font-mono">{restaurantTables.length} طاولة</span>
           </div>
 
+          {/* Section Filter Pills */}
+          {tableSections.length > 0 && (
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+              <button
+                onClick={() => setSelectedSection('all')}
+                className={`px-3 py-1 rounded-xl font-bold whitespace-nowrap transition active:scale-95 ${
+                  selectedSection === 'all'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'bg-white border text-slate-600'
+                }`}
+              >
+                جميع الأقسام
+              </button>
+              {tableSections.map(sec => (
+                <button
+                  key={sec}
+                  onClick={() => setSelectedSection(sec)}
+                  className={`px-3 py-1 rounded-xl font-bold whitespace-nowrap transition active:scale-95 ${
+                    selectedSection === sec
+                      ? 'bg-slate-900 text-white shadow-sm'
+                      : 'bg-white border text-slate-600'
+                  }`}
+                >
+                  {sec}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Table Grid */}
           <div className="grid grid-cols-3 gap-3">
-            {restaurantTables.map(t => {
+            {filteredTables.map(t => {
               const isOccupied = t.status === 'OCCUPIED';
               const hasPaging = pendingCalls.some(c => c.table_id === t.id);
               return (
@@ -367,9 +502,20 @@ export const MobileWaiterScreen: React.FC = () => {
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
               <span className="font-black text-sm">تسجيل طلب: {selectedTable.name}</span>
             </div>
-            <span className="text-xs font-mono font-bold text-amber-400">
-              السلة: {cart.length} أصناف
-            </span>
+            <div className="flex items-center gap-2">
+              {existingOrders.length > 0 && (
+                <button
+                  onClick={() => setIsExistingOrdersModalOpen(true)}
+                  className="px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/40 rounded-lg text-xs font-bold flex items-center gap-1 active:scale-95"
+                >
+                  <Receipt className="w-3.5 h-3.5" />
+                  الحساب الحالي ({existingOrdersTotal.toFixed(0)} ج)
+                </button>
+              )}
+              <span className="text-xs font-mono font-bold text-emerald-400">
+                السلة: {cart.length}
+              </span>
+            </div>
           </div>
 
           {/* Search bar */}
@@ -483,13 +629,13 @@ export const MobileWaiterScreen: React.FC = () => {
                   <div className="flex items-center gap-0.5 mr-1">
                     <button
                       onClick={() => updateQuantity(idx, -1)}
-                      className="w-4 h-4 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold"
+                      className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold"
                     >
                       -
                     </button>
                     <button
                       onClick={() => updateQuantity(idx, 1)}
-                      className="w-4 h-4 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-[10px] font-bold"
+                      className="w-5 h-5 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold"
                     >
                       +
                     </button>
@@ -501,7 +647,7 @@ export const MobileWaiterScreen: React.FC = () => {
             {/* Main Action Send Button */}
             <div className="flex items-center gap-3">
               <div className="text-right">
-                <span className="text-[10px] text-slate-400 block">الإجمالي المطلوب:</span>
+                <span className="text-[10px] text-slate-400 block">الإجمالي الجديد:</span>
                 <span className="text-lg font-black text-slate-900 font-mono">
                   {cartTotal.toFixed(2)} ج
                 </span>
@@ -571,7 +717,7 @@ export const MobileWaiterScreen: React.FC = () => {
               <label className="block text-xs font-bold text-slate-600 mb-1">ملاحظة خاصة للطلب:</label>
               <textarea
                 rows={2}
-                placeholder="اكتب أي تعليمات خاصة للشف..."
+                placeholder="اكتب أي تعليمات خاصة للشف (مثال: بدون بصل، صوص خارجي)..."
                 value={itemNotes}
                 onChange={e => setItemNotes(e.target.value)}
                 className="w-full border border-slate-200 rounded-xl p-2.5 text-xs outline-none focus:ring-1 focus:ring-amber-500"
@@ -592,6 +738,75 @@ export const MobileWaiterScreen: React.FC = () => {
                 className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs rounded-xl shadow active:scale-95"
               >
                 تأكيد الإضافة للسلة ✓
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Existing Orders / Bill History Modal */}
+      {isExistingOrdersModalOpen && selectedTable && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end justify-center animate-in fade-in">
+          <div className="bg-white rounded-t-3xl p-5 w-full max-w-lg space-y-4 shadow-2xl animate-in slide-in-from-bottom duration-200 max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b pb-2">
+              <div className="flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-amber-500" />
+                <div>
+                  <h3 className="font-black text-sm text-slate-800">حساب وطلبات طاولة: {selectedTable.name}</h3>
+                  <span className="text-[11px] text-slate-400">كشف الحساب الجاري</span>
+                </div>
+              </div>
+              <button onClick={() => setIsExistingOrdersModalOpen(false)} className="p-1 text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {existingOrders.map((ord, oIdx) => (
+                <div key={ord.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                  <div className="flex justify-between text-xs font-bold text-slate-600">
+                    <span>طلب #{ord.order_number || ord.id.slice(0, 5)}</span>
+                    <span className="font-mono text-emerald-600">{Number(ord.grand_total).toFixed(2)} ج</span>
+                  </div>
+                  <div className="divide-y divide-slate-100 text-xs">
+                    {(ord.order_items || []).map((it: any) => (
+                      <div key={it.id} className="py-1 flex justify-between items-center text-[11px]">
+                        <div>
+                          <span className="font-semibold text-slate-800">{it.products?.name}</span>
+                          {it.notes && <span className="text-[10px] text-red-500 block">⚠️ {it.notes}</span>}
+                        </div>
+                        <div className="font-mono font-bold text-slate-600">
+                          {it.quantity} x {Number(it.unit_price).toFixed(2)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+
+              {existingOrders.length === 0 && (
+                <p className="text-center text-xs text-slate-400 py-6">لا توجد طلبات سابقة مسجلة لهذه الطاولة</p>
+              )}
+            </div>
+
+            {/* Total summary */}
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex justify-between items-center">
+              <span className="font-bold text-xs text-amber-900">إجمالي الحساب الجاري:</span>
+              <span className="font-black text-base font-mono text-amber-900">{existingOrdersTotal.toFixed(2)} ج</span>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleRequestBill}
+                className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow active:scale-95"
+              >
+                <Printer className="w-4 h-4" /> طباعة شيك الحساب للزبون
+              </button>
+              <button
+                onClick={() => setIsExistingOrdersModalOpen(false)}
+                className="px-5 py-3 border border-slate-300 rounded-xl text-xs font-bold text-slate-600"
+              >
+                إغلاق
               </button>
             </div>
           </div>
