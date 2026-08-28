@@ -9,6 +9,16 @@ import { supabase } from '../supabaseClient';
 import { AccountingEngine } from './accountingEngine';
 import { secureStorage } from '../utils/securityMiddleware';
 
+export interface DeliveryDriver {
+  id: string;
+  organization_id?: string | null;
+  name: string;
+  phone: string;
+  vehicle_type?: string; // 'موتوسيكل' | 'سيارة' | 'سكوتر' | 'عجلة'
+  is_active: boolean;
+  created_at: string;
+}
+
 export interface DriverDelivery {
   id: string;
   organization_id?: string | null;
@@ -52,6 +62,7 @@ export interface DriverSettlement {
   created_at: string;
 }
 
+const LOCAL_DRIVERS_KEY = 'tripro_delivery_drivers_v1';
 const LOCAL_DELIVERIES_KEY = 'tripro_driver_deliveries_v1';
 const LOCAL_SETTLEMENTS_KEY = 'tripro_driver_settlements_v1';
 
@@ -373,13 +384,90 @@ class DriverDispatchService {
       console.warn('DB settleDeliveryDirectly notice:', e);
     }
 
-    const currentDeliveries = this.getLocalDeliveries();
-    const updated = currentDeliveries.map(d =>
-      d.id === deliveryId
-        ? { ...d, is_settled: true, status: 'DELIVERED' as const, delivered_at: now, cod_amount: 0 }
-        : d
-    );
-    secureStorage.setItem(LOCAL_DELIVERIES_KEY, updated);
+  }
+
+  // ============================================================================
+  // DRIVER DIRECTORY (دليل كباتن وسائقي التوصيل)
+  // ============================================================================
+
+  public async getDrivers(organizationId?: string): Promise<DeliveryDriver[]> {
+    try {
+      let query = supabase
+        .from('delivery_drivers')
+        .select('*')
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+
+      if (organizationId) query = query.eq('organization_id', organizationId);
+
+      const { data, error } = await query;
+      if (error || !data || data.length === 0) {
+        return this.getLocalDrivers();
+      }
+      return data as DeliveryDriver[];
+    } catch {
+      return this.getLocalDrivers();
+    }
+  }
+
+  private getLocalDrivers(): DeliveryDriver[] {
+    const list = secureStorage.getItem<DeliveryDriver[]>(LOCAL_DRIVERS_KEY);
+    return Array.isArray(list) ? list : [];
+  }
+
+  public async saveDriver(
+    driver: Partial<DeliveryDriver>,
+    organizationId?: string
+  ): Promise<DeliveryDriver> {
+    const payload = {
+      organization_id: organizationId || null,
+      name: (driver.name || '').trim(),
+      phone: (driver.phone || '').trim(),
+      vehicle_type: driver.vehicle_type || 'موتوسيكل',
+      is_active: driver.is_active !== undefined ? driver.is_active : true,
+      updated_at: new Date().toISOString()
+    };
+
+    let driverId = driver.id || `drv_${Date.now()}`;
+
+    try {
+      if (driver.id && !driver.id.startsWith('drv_')) {
+        await supabase.from('delivery_drivers').update(payload).eq('id', driverId);
+      } else {
+        const { data } = await supabase.from('delivery_drivers').insert(payload).select().single();
+        if (data) driverId = data.id;
+      }
+    } catch (e) {
+      console.warn('DB driver save notice:', e);
+    }
+
+    const savedRecord: DeliveryDriver = {
+      ...driver,
+      ...payload,
+      id: driverId,
+      created_at: driver.created_at || new Date().toISOString()
+    } as DeliveryDriver;
+
+    const current = this.getLocalDrivers();
+    const filtered = current.filter(d => d.id !== driverId);
+    secureStorage.setItem(LOCAL_DRIVERS_KEY, [savedRecord, ...filtered]);
+    return savedRecord;
+  }
+
+  public async deleteDriver(driverId: string, organizationId?: string): Promise<boolean> {
+    try {
+      if (!driverId.startsWith('drv_')) {
+        // نضع السائق غير نشط أو نحذفه
+        await supabase.from('delivery_drivers').update({ is_active: false }).eq('id', driverId);
+      }
+    } catch (e) {
+      console.warn('DB driver delete notice:', e);
+    }
+
+    const current = this.getLocalDrivers();
+    const filtered = current.filter(d => d.id !== driverId);
+    secureStorage.setItem(LOCAL_DRIVERS_KEY, filtered);
+    return true;
   }
 }
 

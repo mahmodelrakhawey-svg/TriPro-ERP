@@ -39,7 +39,11 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
           });
       }
 
-      const { data, error } = await supabase
+      // محاولة جلب البيانات مع shrinkage_pct أولاً
+      let data: any[] | null = null;
+      let usedShrinkage = true;
+
+      const { data: dataWithShrinkage, error: errorWithShrinkage } = await supabase
         .from('bill_of_materials')
         .select(`
           raw_material_id,
@@ -49,18 +53,39 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
         `)
         .eq('product_id', productId);
 
-      if (error) throw error;
+      if (errorWithShrinkage && errorWithShrinkage.message?.includes('shrinkage_pct')) {
+        // العمود غير موجود في DB — جلب بدونه
+        usedShrinkage = false;
+        const { data: dataWithout, error: errorWithout } = await supabase
+          .from('bill_of_materials')
+          .select(`
+            raw_material_id,
+            quantity_required,
+            raw_material:products!raw_material_id(name, unit, purchase_price, cost)
+          `)
+          .eq('product_id', productId);
+        if (errorWithout) throw errorWithout;
+        data = dataWithout;
+      } else if (errorWithShrinkage) {
+        throw errorWithShrinkage;
+      } else {
+        data = dataWithShrinkage;
+      }
 
       if (data) {
         const formatted = data.map((item: any) => ({
           raw_material_id: item.raw_material_id,
           name: item.raw_material.name,
           quantity_required: item.quantity_required,
-          shrinkage_pct: item.shrinkage_pct || 0,
+          shrinkage_pct: usedShrinkage ? (item.shrinkage_pct || 0) : 0,
           unit: item.raw_material.unit,
           cost: item.raw_material.cost || item.raw_material.purchase_price || 0
         }));
         setIngredients(formatted);
+
+        if (!usedShrinkage) {
+          showToast('تنبيه: عمود shrinkage_pct غير موجود في قاعدة البيانات. يرجى تشغيل migration الإضافة.', 'warning');
+        }
       }
     } catch (err: any) {
       showToast('خطأ في جلب المكونات: ' + err.message, 'error');

@@ -1,4 +1,6 @@
 import { tafqeet } from '../../utils/tafqeet';
+import { QRCodeSVG } from 'qrcode.react';
+import { generateZatcaTlvQrString } from '../../utils/zatcaQrHelper';
 
 interface SalesInvoicePrintProps {
   invoice: any;
@@ -145,10 +147,27 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
         </div>
       </div>
 
-      {/* Footer */}
-      <div className="mt-auto pt-4 border-t border-slate-200 text-center text-xs text-slate-500">
-        <p className="font-bold text-slate-800 mb-0.5">{companySettings?.footer_text || 'شكراً لتعاملكم معنا'}</p>
-        <p className="text-[10px] text-slate-400">{new Date().toLocaleString('ar-EG')}</p>
+      {/* Footer & Tax QR Code */}
+      <div className="mt-auto pt-4 border-t border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-slate-500">
+        <div className="text-right">
+          <p className="font-bold text-slate-800 mb-0.5">{companySettings?.footer_text || 'شكراً لتعاملكم معنا'}</p>
+          <p className="text-[10px] text-slate-400">{new Date().toLocaleString('ar-EG')}</p>
+          <p className="text-[10px] text-slate-400">فاتورة ضريبية متوافقة مع متطلبات الفاتورة الإلكترونية</p>
+        </div>
+        <div className="p-1.5 bg-white border border-slate-300 rounded-lg flex flex-col items-center">
+          <QRCodeSVG 
+            value={generateZatcaTlvQrString({
+              sellerName: companySettings?.company_name || 'المنشأة',
+              taxNumber: companySettings?.tax_number || '300000000000003',
+              invoiceDate: invoice.date || invoice.invoice_date || new Date().toISOString(),
+              totalAmount: totalAmount,
+              taxAmount: taxAmount
+            })} 
+            size={76} 
+            level="M" 
+          />
+          <span className="text-[8px] text-slate-400 mt-1 font-bold">ZATCA / ETA QR</span>
+        </div>
       </div>
     </div>
   );

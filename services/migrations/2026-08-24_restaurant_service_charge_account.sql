@@ -146,7 +146,7 @@ BEGIN
 
         INSERT INTO public.order_items (
             order_id, product_id, quantity, unit_price, unit_cost,
-            organization_id, modifiers, uom_id
+            notes, organization_id, modifiers, uom_id
         )
         VALUES (
             v_order_id,
@@ -154,6 +154,7 @@ BEGIN
             (v_item->>'quantity')::numeric,
             (v_item->>'unit_price')::numeric,
             v_item_cost,
+            NULLIF(TRIM(COALESCE(v_item->>'notes', '')), ''),
             v_org_id,
             COALESCE(v_item->'modifiers', '[]'::jsonb),
             (v_item->>'uom_id')::uuid

@@ -5,6 +5,7 @@ import { useToast } from '../../../../context/ToastContext';
 import {
   DriverDelivery,
   DriverSettlement,
+  DeliveryDriver,
   driverDispatchService
 } from '../../../../services/driverDispatchService';
 import {
@@ -23,6 +24,9 @@ import {
   Calendar,
   Layers,
   Banknote,
+  Users,
+  Trash2,
+  UserPlus,
   X
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -34,6 +38,7 @@ export const DriverDispatchManager: React.FC = () => {
 
   const [deliveries, setDeliveries] = useState<DriverDelivery[]>([]);
   const [settlements, setSettlements] = useState<DriverSettlement[]>([]);
+  const [drivers, setDrivers] = useState<DeliveryDriver[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'deliveries' | 'settlements'>('deliveries');
 
@@ -48,15 +53,27 @@ export const DriverDispatchManager: React.FC = () => {
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [pendingOrders, setPendingOrders] = useState<any[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState('');
+  const [selectedDriverId, setSelectedDriverId] = useState('');
   const [driverNameInput, setDriverNameInput] = useState('');
   const [driverPhoneInput, setDriverPhoneInput] = useState('');
+  const [saveNewDriverCheck, setSaveNewDriverCheck] = useState(true);
+
+  // Drivers Directory Modal
+  const [isDriversModalOpen, setIsDriversModalOpen] = useState(false);
+  const [newDriverForm, setNewDriverForm] = useState({
+    name: '',
+    phone: '',
+    vehicle_type: 'موتوسيكل'
+  });
+  const [savingDriver, setSavingDriver] = useState(false);
 
   const fetchDispatchData = async () => {
     setLoading(true);
     try {
-      const [delvs, sets, ordersRes] = await Promise.all([
+      const [delvs, sets, drvs, ordersRes] = await Promise.all([
         driverDispatchService.getDeliveries(currentUser?.organization_id || undefined),
         driverDispatchService.getSettlements(currentUser?.organization_id || undefined),
+        driverDispatchService.getDrivers(currentUser?.organization_id || undefined),
         supabase
           .from('orders')
           .select('id, order_number, grand_total, customer_id, notes, status, delivery_orders(*), customers(name, phone, address)')
@@ -67,6 +84,7 @@ export const DriverDispatchManager: React.FC = () => {
 
       setDeliveries(delvs);
       setSettlements(sets);
+      setDrivers(drvs);
       if (ordersRes.data) {
         setPendingOrders(ordersRes.data);
       }
@@ -92,7 +110,7 @@ export const DriverDispatchManager: React.FC = () => {
     }
   }, [accounts]);
 
-  // Group deliveries by driver (استبعاد الطلبات المسددة مسبقاً أو التي تمت تسويتها لمنع ازدواجية العهدة)
+  // Group deliveries by driver
   const driverBalances = useMemo(() => {
     const map: Record<string, { driverName: string; pendingDeliveries: DriverDelivery[]; totalCodPending: number }> = {};
 
@@ -163,6 +181,20 @@ export const DriverDispatchManager: React.FC = () => {
     }
   };
 
+  const handleSelectSavedDriver = (drvId: string) => {
+    setSelectedDriverId(drvId);
+    if (drvId) {
+      const found = drivers.find(d => d.id === drvId);
+      if (found) {
+        setDriverNameInput(found.name);
+        setDriverPhoneInput(found.phone || '');
+      }
+    } else {
+      setDriverNameInput('');
+      setDriverPhoneInput('');
+    }
+  };
+
   const handleAssignOrder = async () => {
     if (!selectedOrderId || !driverNameInput.trim()) {
       showToast('يرجى اختيار الطلب وإدخال اسم السائق', 'warning');
@@ -175,12 +207,28 @@ export const DriverDispatchManager: React.FC = () => {
     const isOrderAlreadyPaid = ord.status === 'PAID' || ord.status === 'COMPLETED';
 
     try {
+      // حفظ السائق في الدليل إذا كان جديداً وتم تفعيل خيار الحفظ
+      if (saveNewDriverCheck && !selectedDriverId && driverNameInput.trim()) {
+        const isExisting = drivers.some(d => d.name.trim().toLowerCase() === driverNameInput.trim().toLowerCase());
+        if (!isExisting) {
+          await driverDispatchService.saveDriver(
+            {
+              name: driverNameInput.trim(),
+              phone: driverPhoneInput.trim(),
+              vehicle_type: 'موتوسيكل'
+            },
+            currentUser?.organization_id || undefined
+          );
+        }
+      }
+
       await driverDispatchService.assignDriver({
         orderId: ord.id,
         orderNumber: ord.order_number || `ORD-${ord.id.slice(0, 5)}`,
         customerName: ord.customers?.name,
         customerPhone: ord.customers?.phone,
         customerAddress: ord.customers?.address,
+        driverId: selectedDriverId || undefined,
         driverName: driverNameInput.trim(),
         driverPhone: driverPhoneInput.trim(),
         codAmount: isOrderAlreadyPaid ? 0 : Number(ord.grand_total || 0),
@@ -196,10 +244,57 @@ export const DriverDispatchManager: React.FC = () => {
       );
       setIsAssignModalOpen(false);
       setSelectedOrderId('');
+      setSelectedDriverId('');
       setDriverNameInput('');
+      setDriverPhoneInput('');
       fetchDispatchData();
     } catch (e: any) {
       showToast('خطأ: ' + e.message, 'error');
+    }
+  };
+
+  const handleSaveDriver = async () => {
+    if (!newDriverForm.name.trim()) {
+      showToast('يرجى إدخال اسم السائق / الكابتن', 'warning');
+      return;
+    }
+    setSavingDriver(true);
+    try {
+      await driverDispatchService.saveDriver(
+        {
+          name: newDriverForm.name.trim(),
+          phone: newDriverForm.phone.trim(),
+          vehicle_type: newDriverForm.vehicle_type
+        },
+        currentUser?.organization_id || undefined
+      );
+      showToast('تمت إضافة السائق إلى الدليل بنجاح 🛵', 'success');
+      setNewDriverForm({ name: '', phone: '', vehicle_type: 'موتوسيكل' });
+      const updatedDrivers = await driverDispatchService.getDrivers(currentUser?.organization_id || undefined);
+      setDrivers(updatedDrivers);
+    } catch (e: any) {
+      showToast('خطأ أثناء حفظ السائق: ' + e.message, 'error');
+    } finally {
+      setSavingDriver(false);
+    }
+  };
+
+  const handleDeleteDriver = async (driverId: string, driverName: string) => {
+    if (!window.confirm(`هل أنت متأكد من حذف السائق "${driverName}" من دليل الكباتن؟`)) {
+      return;
+    }
+    try {
+      await driverDispatchService.deleteDriver(driverId, currentUser?.organization_id || undefined);
+      showToast('تم حذف السائق بنجاح 🗑️', 'success');
+      const updatedDrivers = await driverDispatchService.getDrivers(currentUser?.organization_id || undefined);
+      setDrivers(updatedDrivers);
+      if (selectedDriverId === driverId) {
+        setSelectedDriverId('');
+        setDriverNameInput('');
+        setDriverPhoneInput('');
+      }
+    } catch (e: any) {
+      showToast('خطأ أثناء الحذف: ' + e.message, 'error');
     }
   };
 
@@ -221,7 +316,13 @@ export const DriverDispatchManager: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsDriversModalOpen(true)}
+            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+          >
+            <Users className="w-4 h-4 text-slate-600" /> دليل كباتن التوصيل ({drivers.length})
+          </button>
           <button
             onClick={() => setIsAssignModalOpen(true)}
             className="px-5 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-amber-600/20 transition"
@@ -250,44 +351,48 @@ export const DriverDispatchManager: React.FC = () => {
                     <User className="w-5 h-5" />
                   </div>
                   <div>
-                    <h4 className="font-extrabold text-slate-800">{drv.driverName}</h4>
-                    <span className="text-xs text-slate-400">
-                      {drv.pendingDeliveries.length} طلبات في العهدة
+                    <h4 className="font-bold text-sm text-slate-800">{drv.driverName}</h4>
+                    <span className="text-xs text-slate-400 font-medium">
+                      {drv.pendingDeliveries.length} طلبات قيد التوصيل
                     </span>
                   </div>
                 </div>
 
-                <div className="text-left">
-                  <span className="text-xs text-slate-500 block">المبلغ المعلق</span>
-                  <span className="text-xl font-black text-amber-600 font-mono">
-                    {drv.totalCodPending.toLocaleString()} ج
+                <div className="text-left font-mono">
+                  <span className="text-[10px] text-slate-400 block">إجمالي العهدة (COD)</span>
+                  <span className="text-lg font-black text-rose-600">
+                    {drv.totalCodPending.toFixed(2)} ج
                   </span>
                 </div>
               </div>
 
-              <button
-                onClick={() => handleOpenSettlement(drv.driverName, drv.totalCodPending)}
-                className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition shadow-sm"
-              >
-                <Banknote className="w-4 h-4 text-amber-400" />
-                إقفال وتسوية العهدة واستلام النقدية
-              </button>
+              <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
+                <span className="text-xs text-slate-500">بانتظار توريد النقدية</span>
+                <button
+                  onClick={() => handleOpenSettlement(drv.driverName, drv.totalCodPending)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition"
+                >
+                  <Banknote className="w-3.5 h-3.5" /> تسوية الوردية
+                </button>
+              </div>
             </div>
           ))}
 
           {driverBalances.length === 0 && (
-            <div className="col-span-3 p-8 text-center text-slate-400 bg-white rounded-2xl border border-slate-200 text-xs">
-              لا توجد عهد نقدية معلقة مع السائقين حالياً ✅
+            <div className="col-span-full bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-400">
+              <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+              <p className="text-xs font-bold text-slate-600">لا توجد عهد نقدية معلقة مع الكباتن حالياً</p>
+              <p className="text-[11px] text-slate-400">كافة الطلبات إما مسددة مسبقاً أو تم إقفال وتسوية عهدتها</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Tabs: Deliveries vs Settlements */}
-      <div className="flex items-center gap-2 border-b border-slate-200">
+      {/* Tabs */}
+      <div className="flex border-b border-slate-200 gap-4">
         <button
           onClick={() => setActiveTab('deliveries')}
-          className={`px-5 py-3 text-xs md:text-sm font-bold flex items-center gap-2 border-b-2 transition ${
+          className={`pb-3 text-xs font-bold flex items-center gap-2 border-b-2 transition ${
             activeTab === 'deliveries'
               ? 'border-amber-600 text-amber-600'
               : 'border-transparent text-slate-500 hover:text-slate-700'
@@ -295,262 +400,299 @@ export const DriverDispatchManager: React.FC = () => {
         >
           <Truck className="w-4 h-4" /> طلبات التوصيل الجارية ({deliveries.length})
         </button>
-
         <button
           onClick={() => setActiveTab('settlements')}
-          className={`px-5 py-3 text-xs md:text-sm font-bold flex items-center gap-2 border-b-2 transition ${
+          className={`pb-3 text-xs font-bold flex items-center gap-2 border-b-2 transition ${
             activeTab === 'settlements'
               ? 'border-amber-600 text-amber-600'
               : 'border-transparent text-slate-500 hover:text-slate-700'
           }`}
         >
-          <CheckCheck className="w-4 h-4" /> سجل التسويات المقفلة ({settlements.length})
+          <Calendar className="w-4 h-4" /> سجل التسويات والإقفالات المحاسبية ({settlements.length})
         </button>
       </div>
 
-      {/* Deliveries Table */}
+      {/* Tab: Deliveries */}
       {activeTab === 'deliveries' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-right text-xs">
-              <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
                 <tr>
                   <th className="p-3.5">رقم الطلب</th>
-                  <th className="p-3.5">العميل والعنوان</th>
-                  <th className="p-3.5">الكابتن / السائق</th>
+                  <th className="p-3.5">بيانات العميل</th>
+                  <th className="p-3.5">السائق / الكابتن</th>
                   <th className="p-3.5 text-center">المبلغ المطلوب (COD)</th>
                   <th className="p-3.5 text-center">حالة التوصيل</th>
-                  <th className="p-3.5 text-center">حالة العهدة</th>
-                  <th className="p-3.5 text-center">تحديث الحالة</th>
+                  <th className="p-3.5 text-center">وقت الخروج</th>
+                  <th className="p-3.5 text-center">إجراءات</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {deliveries.map(d => (
-                  <tr key={d.id} className="hover:bg-slate-50 transition">
-                    <td className="p-3.5 font-bold font-mono text-amber-700">#{d.order_number}</td>
+                {deliveries.map(delv => (
+                  <tr key={delv.id} className="hover:bg-slate-50 transition">
                     <td className="p-3.5">
-                      <span className="font-bold text-slate-800 block">{d.customer_name || 'عميل'}</span>
-                      <span className="text-slate-400 text-[11px] flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-slate-400" />
-                        {d.customer_address || 'توصيل خارجي'}
-                      </span>
+                      <span className="font-bold text-slate-800 block">#{delv.order_number}</span>
+                      <span className="text-[10px] text-slate-400 font-mono">{delv.id.slice(0, 8)}</span>
                     </td>
-                    <td className="p-3.5 font-bold text-slate-700">
-                      {d.driver_name}
-                      {d.driver_phone && (
-                        <span className="text-[11px] text-slate-400 block font-normal">{d.driver_phone}</span>
+
+                    <td className="p-3.5">
+                      <span className="font-bold text-slate-700 block">{delv.customer_name || 'عميل توصيل'}</span>
+                      {delv.customer_phone && (
+                        <span className="text-[11px] text-slate-500 block font-mono">📞 {delv.customer_phone}</span>
+                      )}
+                      {delv.customer_address && (
+                        <span className="text-[10px] text-slate-400 block truncate max-w-xs">📍 {delv.customer_address}</span>
                       )}
                     </td>
-                    <td className="p-3.5 text-center font-extrabold text-slate-900 font-mono">
-                      {Number(d.cod_amount).toFixed(2)} ج
-                      {d.is_prepaid && (
-                        <span className="block text-[10px] text-emerald-600 font-normal">مدفوع مسبقاً</span>
-                      )}
+
+                    <td className="p-3.5">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600">
+                          {delv.driver_name?.charAt(0) || 'س'}
+                        </div>
+                        <div>
+                          <span className="font-bold text-slate-800 block">{delv.driver_name}</span>
+                          {delv.driver_phone && (
+                            <span className="text-[10px] text-slate-400 block font-mono">{delv.driver_phone}</span>
+                          )}
+                        </div>
+                      </div>
                     </td>
+
                     <td className="p-3.5 text-center">
-                      <span
-                        className={`px-2.5 py-1 rounded-full font-bold text-[10px] ${
-                          d.status === 'DELIVERED'
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : d.status === 'DISPATCHED'
-                            ? 'bg-blue-100 text-blue-800'
-                            : d.status === 'RETURNED'
-                            ? 'bg-red-100 text-red-800'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {d.status === 'DELIVERED'
-                          ? 'تم التسليم للعميل'
-                          : d.status === 'DISPATCHED'
-                          ? 'في الطريق مع السائق'
-                          : d.status === 'RETURNED'
-                          ? 'مرتجع / ملغي'
-                          : 'تم التعيين'}
-                      </span>
-                    </td>
-                    <td className="p-3.5 text-center">
-                      {d.is_settled || d.order_status === 'PAID' || d.is_prepaid ? (
-                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
-                          تمت التسوية (مسدد)
+                      {delv.is_prepaid || delv.order_status === 'PAID' || delv.is_settled ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          مسدد مسبقاً (0 ج)
                         </span>
                       ) : (
-                        <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-bold">
-                          معلق بالعهدة
+                        <span className="font-black text-rose-600 font-mono text-sm">
+                          {Number(delv.cod_amount || 0).toFixed(2)} ج
                         </span>
                       )}
                     </td>
+
+                    <td className="p-3.5 text-center">
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                          delv.status === 'DELIVERED'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : delv.status === 'DISPATCHED'
+                            ? 'bg-sky-100 text-sky-800'
+                            : delv.status === 'RETURNED'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {delv.status === 'DELIVERED'
+                          ? 'تم التسليم للعميل 🏠'
+                          : delv.status === 'DISPATCHED'
+                          ? 'في الطريق 🛵'
+                          : delv.status === 'RETURNED'
+                          ? 'مرتجع / ملغي ❌'
+                          : 'تم التعيين 📋'}
+                      </span>
+                    </td>
+
+                    <td className="p-3.5 text-center text-slate-400 text-[11px] font-mono">
+                      {delv.dispatched_at
+                        ? formatDistanceToNow(new Date(delv.dispatched_at), { addSuffix: true, locale: ar })
+                        : '-'}
+                    </td>
+
                     <td className="p-3.5 text-center">
                       <div className="flex items-center justify-center gap-1.5">
-                        {d.status !== 'DELIVERED' && (
+                        {delv.status !== 'DELIVERED' && (
                           <button
-                            onClick={() => handleUpdateDeliveryStatus(d.id, 'DELIVERED')}
-                            className="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg text-[11px] font-bold"
+                            onClick={() => handleUpdateDeliveryStatus(delv.id, 'DELIVERED')}
+                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-[10px] font-bold transition"
+                            title="تأكيد تسليم الطلب للعميل"
                           >
-                            تم التسليم
+                            تسليم
                           </button>
                         )}
-                        {!d.is_settled && d.order_status !== 'PAID' && !d.is_prepaid && Number(d.cod_amount) > 0 && (
+                        {!delv.is_settled && (
                           <button
-                            onClick={() => handleQuickSettleDelivery(d.id, d.order_id)}
-                            className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg text-[11px] font-bold"
-                            title="تسوية عهدة هذا الطلب مباشرة"
+                            onClick={() => handleQuickSettleDelivery(delv.id, delv.order_id)}
+                            className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-[10px] font-bold transition"
+                            title="تحصيل وتسوية عهدة هذا الطلب"
                           >
-                            تسوية العهدة
-                          </button>
-                        )}
-                        {d.status !== 'RETURNED' && (
-                          <button
-                            onClick={() => handleUpdateDeliveryStatus(d.id, 'RETURNED')}
-                            className="px-2 py-1 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg text-[11px] font-bold"
-                          >
-                            مرتجع
+                            تحصيل
                           </button>
                         )}
                       </div>
                     </td>
                   </tr>
                 ))}
+                {deliveries.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-400">
+                      لا توجد طلبات توصيل مسجلة
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Settlements Table */}
+      {/* Tab: Settlements */}
       {activeTab === 'settlements' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-right text-xs">
-              <thead className="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+              <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-100">
                 <tr>
                   <th className="p-3.5">رقم التسوية</th>
-                  <th className="p-3.5">التاريخ</th>
                   <th className="p-3.5">اسم السائق</th>
+                  <th className="p-3.5 text-center">تاريخ الإقفال</th>
                   <th className="p-3.5 text-center">عدد الطلبات</th>
-                  <th className="p-3.5 text-center">المبلغ المستحق</th>
-                  <th className="p-3.5 text-center">المبلغ المستلم فعلياً</th>
-                  <th className="p-3.5 text-center">الفارق</th>
-                  <th className="p-3.5 text-center">الحالة</th>
+                  <th className="p-3.5 text-center">العهدة المتوقعة</th>
+                  <th className="p-3.5 text-center">النقدية المستلمة</th>
+                  <th className="p-3.5 text-center">الفارق / العجز</th>
+                  <th className="p-3.5 text-center">القيد المحاسبي</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {settlements.map(s => (
                   <tr key={s.id} className="hover:bg-slate-50 transition">
-                    <td className="p-3.5 font-bold font-mono text-indigo-700">{s.settlement_number}</td>
-                    <td className="p-3.5 text-slate-600">{s.settlement_date}</td>
-                    <td className="p-3.5 font-bold text-slate-800">{s.driver_name}</td>
-                    <td className="p-3.5 text-center font-bold">{s.total_orders_count} طلب</td>
-                    <td className="p-3.5 text-center font-bold text-slate-700">
-                      {Number(s.total_cod_expected).toFixed(2)} ج
-                    </td>
-                    <td className="p-3.5 text-center font-black text-emerald-700">
-                      {Number(s.total_cash_received).toFixed(2)} ج
-                    </td>
-                    <td className="p-3.5 text-center font-bold">
-                      {Number(s.difference_amount) === 0 ? (
-                        <span className="text-slate-400">0.00</span>
+                    <td className="p-3.5 font-bold font-mono text-slate-800">{s.settlement_number}</td>
+                    <td className="p-3.5 font-bold text-slate-700">{s.driver_name}</td>
+                    <td className="p-3.5 text-center font-mono text-slate-500">{s.settlement_date}</td>
+                    <td className="p-3.5 text-center font-bold">{s.total_orders_count}</td>
+                    <td className="p-3.5 text-center font-mono text-slate-600 font-bold">{Number(s.total_cod_expected || 0).toFixed(2)} ج</td>
+                    <td className="p-3.5 text-center font-mono text-emerald-600 font-bold">{Number(s.total_cash_received || 0).toFixed(2)} ج</td>
+                    <td className="p-3.5 text-center font-mono">
+                      {Number(s.difference_amount || 0) === 0 ? (
+                        <span className="text-slate-400">0.00 ج</span>
+                      ) : Number(s.difference_amount) < 0 ? (
+                        <span className="text-rose-600 font-bold">{Number(s.difference_amount).toFixed(2)} ج (عجز)</span>
                       ) : (
-                        <span className="text-red-600">{Number(s.difference_amount).toFixed(2)} ج</span>
+                        <span className="text-emerald-600 font-bold">+{Number(s.difference_amount).toFixed(2)} ج (زيادة)</span>
                       )}
                     </td>
                     <td className="p-3.5 text-center">
-                      <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full font-bold text-[10px]">
-                        مكتملة ومرحلة
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-700">
+                        {s.journal_entry_id ? 'قيد مرحل ✅' : 'مسجل'}
                       </span>
                     </td>
                   </tr>
                 ))}
+                {settlements.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="p-8 text-center text-slate-400">
+                      لا توجد تسويات سابقة مسجلة
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* Driver Settlement Modal */}
-      {selectedDriverForSettlement && (
+      {/* Drivers Directory Modal */}
+      {isDriversModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden space-y-4 p-6">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden space-y-4 p-6">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                <Banknote className="w-5 h-5 text-amber-600" />
-                إقفال وتسوية وردية الكابتن: {selectedDriverForSettlement}
+                <Users className="w-5 h-5 text-amber-600" />
+                دليل كباتن وسائقي التوصيل ({drivers.length})
               </h3>
-              <button onClick={() => setSelectedDriverForSettlement(null)} className="text-slate-400">
+              <button onClick={() => setIsDriversModalOpen(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-4 text-xs">
-              <div className="bg-amber-50 p-4 rounded-xl border border-amber-200">
-                <span className="text-slate-600 block">إجمالي المبالغ النقدية المتوقعة من الطلبات:</span>
-                <span className="text-2xl font-black text-amber-700">
-                  {driverBalances
-                    .find(d => d.driverName === selectedDriverForSettlement)
-                    ?.totalCodPending.toLocaleString()}{' '}
-                  ج.م
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  المبلغ المستلم نقداً في الخزينة <span className="text-red-500">*</span>
-                </label>
+            {/* Add New Driver Form */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-3">
+              <h4 className="font-bold text-xs text-slate-700 flex items-center gap-1.5">
+                <UserPlus className="w-4 h-4 text-amber-600" /> إضافة كابتن / سائق جديد
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <input
-                  type="number"
-                  step="1"
-                  value={settlementCashReceived}
-                  onChange={e => setSettlementCashReceived(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xl font-bold border border-slate-300 rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-amber-500"
+                  type="text"
+                  placeholder="اسم السائق (مثال: كابتن محمود)"
+                  value={newDriverForm.name}
+                  onChange={e => setNewDriverForm({ ...newDriverForm, name: e.target.value })}
+                  className="border border-slate-300 rounded-lg p-2 text-xs outline-none bg-white"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة (مدين)</label>
+                <input
+                  type="tel"
+                  placeholder="رقم الموبايل (010xxxxxxxx)"
+                  value={newDriverForm.phone}
+                  onChange={e => setNewDriverForm({ ...newDriverForm, phone: e.target.value })}
+                  className="border border-slate-300 rounded-lg p-2 text-xs outline-none bg-white"
+                />
+                <div className="flex gap-2">
                   <select
-                    value={cashAccountId}
-                    onChange={e => setCashAccountId(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
+                    value={newDriverForm.vehicle_type}
+                    onChange={e => setNewDriverForm({ ...newDriverForm, vehicle_type: e.target.value })}
+                    className="border border-slate-300 rounded-lg p-2 text-xs outline-none bg-white flex-1"
                   >
-                    {accounts.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
+                    <option value="موتوسيكل">موتوسيكل 🛵</option>
+                    <option value="سكوتر">سكوتر 🛴</option>
+                    <option value="سيارة">سيارة 🚗</option>
+                    <option value="عجلة">عجلة 🚲</option>
                   </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">حساب مبيعات التوصيل (دائن)</label>
-                  <select
-                    value={clearingAccountId}
-                    onChange={e => setClearingAccountId(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
+                  <button
+                    onClick={handleSaveDriver}
+                    disabled={savingDriver}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shadow transition"
                   >
-                    {accounts.map(a => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </select>
+                    {savingDriver ? '...' : 'حفظ'}
+                  </button>
                 </div>
               </div>
             </div>
 
-            <div className="border-t pt-4 flex justify-end gap-2">
+            {/* Drivers List Table */}
+            <div className="max-h-64 overflow-y-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-100 text-slate-600 font-bold sticky top-0">
+                  <tr>
+                    <th className="p-3">اسم الكابتن</th>
+                    <th className="p-3">رقم الهاتف</th>
+                    <th className="p-3 text-center">المركبة</th>
+                    <th className="p-3 text-center w-12">حذف</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {drivers.map(drv => (
+                    <tr key={drv.id} className="hover:bg-slate-50">
+                      <td className="p-3 font-bold text-slate-800">{drv.name}</td>
+                      <td className="p-3 font-mono text-slate-600">{drv.phone || '-'}</td>
+                      <td className="p-3 text-center text-slate-500">{drv.vehicle_type || 'موتوسيكل'}</td>
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() => handleDeleteDriver(drv.id, drv.name)}
+                          className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition"
+                          title="حذف السائق"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {drivers.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="p-6 text-center text-slate-400">
+                        لا يوجد كباتن مسجلون حالياً. استخدم النموذج أعلاه لإضافة أول سائق.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border-t pt-3 flex justify-end">
               <button
-                onClick={() => setSelectedDriverForSettlement(null)}
-                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-600"
+                onClick={() => setIsDriversModalOpen(false)}
+                className="px-5 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold"
               >
-                إلغاء
-              </button>
-              <button
-                onClick={handleExecuteSettlement}
-                disabled={settling}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow"
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {settling ? 'جاري التسوية...' : 'تأكيد استلام النقدية وإقفال الوردية'}
+                إغلاق
               </button>
             </div>
           </div>
@@ -618,29 +760,67 @@ export const DriverDispatchManager: React.FC = () => {
                 })()}
               </div>
 
+              {/* Driver Selection */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
-                  اسم السائق / الكابتن <span className="text-red-500">*</span>
+                  اختر الكابتن من الدليل المسجل
                 </label>
-                <input
-                  type="text"
-                  value={driverNameInput}
-                  onChange={e => setDriverNameInput(e.target.value)}
-                  placeholder="مثال: الكابتن محمود"
-                  className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
-                />
+                <select
+                  value={selectedDriverId}
+                  onChange={e => handleSelectSavedDriver(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold outline-none bg-white text-slate-800 mb-2 focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="">-- اختر كابتن مسجل مسبقاً (أو اكتب اسماً يدوياً بالأسفل) --</option>
+                  {drivers.map(d => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} {d.phone ? `(${d.phone})` : ''} - {d.vehicle_type || 'موتوسيكل'}
+                    </option>
+                  ))}
+                </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">رقم هاتف السائق</label>
-                <input
-                  type="tel"
-                  value={driverPhoneInput}
-                  onChange={e => setDriverPhoneInput(e.target.value)}
-                  placeholder="010xxxxxxxx"
-                  className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    اسم السائق <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={driverNameInput}
+                    onChange={e => {
+                      setDriverNameInput(e.target.value);
+                      if (selectedDriverId) setSelectedDriverId('');
+                    }}
+                    placeholder="مثال: الكابتن محمود"
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">رقم هاتف السائق</label>
+                  <input
+                    type="tel"
+                    value={driverPhoneInput}
+                    onChange={e => setDriverPhoneInput(e.target.value)}
+                    placeholder="010xxxxxxxx"
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
+                  />
+                </div>
               </div>
+
+              {!selectedDriverId && (
+                <div className="pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={saveNewDriverCheck}
+                      onChange={e => setSaveNewDriverCheck(e.target.checked)}
+                      className="w-4 h-4 text-amber-600 rounded border-slate-300"
+                    />
+                    <span className="font-bold text-[11px]">حفظ هذا السائق تلقائياً في الدليل لاختياره بسهولة المرات القادمة</span>
+                  </label>
+                </div>
+              )}
             </div>
 
             <div className="border-t pt-4 flex justify-end gap-2">
@@ -655,6 +835,87 @@ export const DriverDispatchManager: React.FC = () => {
                 className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow"
               >
                 <Truck className="w-4 h-4" /> إرسال الطلب مع السائق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Settlement Modal */}
+      {selectedDriverForSettlement && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden space-y-4 p-6">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
+                <Banknote className="w-5 h-5 text-emerald-600" />
+                إقفال وتسوية عهدة السائق
+              </h3>
+              <button onClick={() => setSelectedDriverForSettlement(null)} className="text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <span className="text-slate-400 block text-[10px]">اسم الكابتن</span>
+                <span className="font-bold text-sm text-slate-800">{selectedDriverForSettlement}</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  المبلغ النقدي المستلم فعلياً من الكابتن (ج.م)
+                </label>
+                <input
+                  type="number"
+                  step="1"
+                  value={settlementCashReceived}
+                  onChange={e => setSettlementCashReceived(parseFloat(e.target.value) || 0)}
+                  className="w-full text-xl font-bold font-mono text-emerald-600 border rounded-xl p-2.5 text-center outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">حساب الخزينة (المدين)</label>
+                  <select
+                    value={cashAccountId}
+                    onChange={e => setCashAccountId(e.target.value)}
+                    className="w-full border rounded-lg p-1.5 text-xs outline-none bg-white"
+                  >
+                    {accounts.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">حساب التوصيل (الدائن)</label>
+                  <select
+                    value={clearingAccountId}
+                    onChange={e => setClearingAccountId(e.target.value)}
+                    className="w-full border rounded-lg p-1.5 text-xs outline-none bg-white"
+                  >
+                    {accounts.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setSelectedDriverForSettlement(null)}
+                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-600"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleExecuteSettlement}
+                disabled={settling}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                {settling ? 'جاري التسوية...' : 'تأكيد استلام النقدية وإقفال الوردية'}
               </button>
             </div>
           </div>

@@ -740,7 +740,7 @@ const StockCard = () => {
               sales_price: item.sales_price || 0,
               purchase_price: item.purchase_price || 0,
               unit: item.unit || 'قطعة',
-              product_type: (item as any).item_type || (item as any).product_type || ((item as any).mfg_type ? 'MANUFACTURED' : 'STOCK'),
+              product_type: (item as any).product_type || (item as any).item_type || ((item as any).mfg_type ? 'MANUFACTURED' : 'STOCK'),
               inventory_account_id: inventoryAccId || '',
               cogs_account_id: cogsAccId || '',
               sales_account_id: salesAccId || '',

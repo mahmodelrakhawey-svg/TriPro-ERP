@@ -41,6 +41,9 @@ const UserManager = () => {
   const [resetPasswordData, setResetPasswordData] = useState({ userId: '', newPassword: '' });
   const [resetting, setResetting] = useState(false);
 
+  // الأدوار المجلوبة ديناميكياً من قاعدة البيانات
+  const [dynamicRoles, setDynamicRoles] = useState<{ name: string; description: string }[]>([]);
+
   const currentUserRole = currentUser?.role || '';
 
   // جلب البيانات
@@ -107,7 +110,32 @@ const UserManager = () => {
 
   useEffect(() => {
     fetchUsers();
+    fetchRoles();
   }, []);
+
+  // جلب الأدوار ديناميكياً من قاعدة البيانات
+  const fetchRoles = async () => {
+    if (currentUserRole === 'demo') return; // وضع الديمو لا يحتاج جلب أدوار حقيقية
+
+    const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('name, description')
+        .eq('organization_id', orgId)
+        .neq('name', 'super_admin')
+        .order('name');
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setDynamicRoles(data);
+      }
+    } catch (err: any) {
+      console.warn('تعذّر جلب الأدوار من قاعدة البيانات، سيتم استخدام القائمة الافتراضية:', err.message);
+    }
+  };
 
   // تحديث دور المستخدم
   const updateUserRole = async (userId: string, newRole: string) => {
@@ -468,27 +496,28 @@ const UserManager = () => {
                         user.role === 'admin' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' :
                         'border-slate-200 bg-white text-slate-700'}`}
                   >
-                    {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">Super Admin (مدير النظام)</option>}
-                    <optgroup label="── الإدارة والحسابات العامة ──">
-                      <option value="admin">Admin (مسؤول)</option>
-                      <option value="manager">Manager (مدير)</option>
-                      <option value="accountant">Accountant (محاسب)</option>
-                      <option value="viewer">Viewer (مشاهدة فقط)</option>
-                      <option value="owner">Owner (مالك منشأة)</option>
-                      <option value="demo">Demo (تجريبي)</option>
+                    {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">⚡ Super Admin (مدير النظام)</option>}
+                    <optgroup label="── الأدوار الأساسية للنظام ──">
+                      <option value="admin">🛡️ Admin (مسؤول)</option>
+                      <option value="manager">👔 Manager (مدير)</option>
+                      <option value="accountant">📊 Accountant (محاسب)</option>
+                      <option value="viewer">👁️ Viewer (مشاهدة فقط)</option>
+                      <option value="owner">🏢 Owner (مالك منشأة)</option>
                     </optgroup>
-                    <optgroup label="── قطاع الاستاد والمنشآت الرياضية ──">
-                      <option value="stadium_director">مدير عام الاستاد والنشاط (Stadium Director)</option>
-                      <option value="stadium_receptionist">موظف الاستقبال والعضويات (Stadium Receptionist)</option>
-                      <option value="stadium_booking_officer">مسؤول حجز الملاعب (Booking Officer)</option>
-                      <option value="stadium_gate_security">ضابط أمن البوابات وفحص الدخول (Gate Security)</option>
-                      <option value="stadium_maintenance_lead">مسؤول صيانة المنشآت (Maintenance Lead)</option>
-                      <option value="stadium_sports_supervisor">المشرف الرياضي والأكاديميات (Sports Supervisor)</option>
-                    </optgroup>
-                    <optgroup label="── قطاعات أخرى ──">
-                      <option value="medical_director">مدير طبي (Medical Director)</option>
-                      <option value="chef">Chef (شيف مطبخ)</option>
-                    </optgroup>
+                    {dynamicRoles.length > 0 && (() => {
+                      const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo'];
+                      const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
+                      if (customRoles.length === 0) return null;
+                      return (
+                        <optgroup label="── الأدوار المخصصة (من صفحة الأدوار والصلاحيات) ──">
+                          {customRoles.map(role => (
+                            <option key={role.name} value={role.name}>
+                              🎯 {role.description || role.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })()}
                   </select>
 
                 </td>
@@ -610,27 +639,33 @@ const UserManager = () => {
                             onChange={(e) => setNewUserData({...newUserData, role: e.target.value as any})}
                             className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500 bg-white font-medium text-sm"
                         >
-                            {(currentUserRole === 'super_admin') && <option value="super_admin">Super Admin (مدير النظام)</option>}
-                            <optgroup label="── الإدارة والحسابات العامة ──">
-                                <option value="admin">Admin (مسؤول عام)</option>
-                                <option value="manager">Manager (مدير فرع)</option>
-                                <option value="accountant">Accountant (محاسب مالي)</option>
-                                <option value="viewer">Viewer (مشاهدة وتقارير فقط)</option>
-                                <option value="owner">Owner (مالك منشأة)</option>
-                                <option value="demo">Demo (تجريبي)</option>
+                            {(currentUserRole === 'super_admin') && <option value="super_admin">⚡ Super Admin (مدير النظام)</option>}
+
+                            {/* الأدوار الأساسية دائماً ظاهرة */}
+                            <optgroup label="── الأدوار الأساسية للنظام ──">
+                                <option value="admin">🛡️ Admin (مسؤول عام)</option>
+                                <option value="manager">👔 Manager (مدير فرع)</option>
+                                <option value="accountant">📊 Accountant (محاسب مالي)</option>
+                                <option value="viewer">👁️ Viewer (مشاهدة وتقارير فقط)</option>
+                                <option value="owner">🏢 Owner (مالك منشأة)</option>
                             </optgroup>
-                            <optgroup label="── قطاع الاستاد والمنشآت الرياضية ──">
-                                <option value="stadium_director">🏟️ مدير عام الاستاد والنشاط (Stadium Director)</option>
-                                <option value="stadium_receptionist">🎫 موظف الاستقبال والعضويات (Stadium Receptionist)</option>
-                                <option value="stadium_booking_officer">⚽ مسؤول حجز الملاعب (Booking Officer)</option>
-                                <option value="stadium_gate_security">🛡️ ضابط أمن البوابات وفحص الدخول (Gate Security)</option>
-                                <option value="stadium_maintenance_lead">🔧 مسؤول صيانة المنشآت (Maintenance Lead)</option>
-                                <option value="stadium_sports_supervisor">🏆 المشرف الرياضي والأكاديميات (Sports Supervisor)</option>
-                            </optgroup>
-                            <optgroup label="── قطاعات تخصصية أخرى ──">
-                                <option value="medical_director">🏥 مدير طبي (Medical Director)</option>
-                                <option value="chef">👨‍🍳 Chef (شيف مطبخ)</option>
-                            </optgroup>
+
+                            {/* الأدوار المخصصة المُنشأة من صفحة الأدوار والصلاحيات */}
+                            {dynamicRoles.length > 0 && (() => {
+                              // فلترة الأدوار المخصصة (غير الأساسية المعروضة سلفاً)
+                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo'];
+                              const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
+                              if (customRoles.length === 0) return null;
+                              return (
+                                <optgroup label="── الأدوار المخصصة (من صفحة الأدوار والصلاحيات) ──">
+                                  {customRoles.map(role => (
+                                    <option key={role.name} value={role.name}>
+                                      🎯 {role.description || role.name} ({role.name})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })()}
                         </select>
 
                     </div>

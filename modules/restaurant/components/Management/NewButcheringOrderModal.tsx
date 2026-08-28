@@ -4,7 +4,8 @@ import {
   ButcheringOrder,
   ButcheringOrderItem,
   butcheringYieldService,
-  DEFAULT_BUTCHERING_TEMPLATES
+  DEFAULT_BUTCHERING_TEMPLATES,
+  isValidUUID
 } from '../../../../services/butcheringYieldService';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
@@ -397,7 +398,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
 
       const orderPayload: ButcheringOrder = {
         order_number: orderNumber,
-        template_id: selectedTemplateId || null,
+        template_id: isValidUUID(selectedTemplateId) ? selectedTemplateId : null,
         source_product_id: sourceProductId,
         warehouse_id: warehouseId || null,
         destination_warehouse_id: destinationWarehouseId || warehouseId || null,

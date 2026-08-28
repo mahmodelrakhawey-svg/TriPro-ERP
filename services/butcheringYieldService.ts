@@ -313,6 +313,11 @@ GRANT ALL ON TABLE butchering_order_items TO authenticated, anon;
 const LOCAL_STORAGE_ORDERS_KEY = 'tripro_butchering_orders_v1';
 const LOCAL_STORAGE_TEMPLATES_KEY = 'tripro_butchering_templates_v1';
 
+export const isValidUUID = (str?: string | null): boolean => {
+  if (!str || typeof str !== 'string') return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
+};
+
 // ---------------------------------------------------------------------------
 // فئة الخدمة المركزية مع طبقة التوافق التلقائي (Local Fallback Resilience)
 // ---------------------------------------------------------------------------
@@ -508,7 +513,7 @@ class ButcheringYieldService {
         .eq('is_active', true)
         .order('created_at', { ascending: false });
 
-      if (organizationId) {
+      if (isValidUUID(organizationId)) {
         query = query.or(`organization_id.eq.${organizationId},organization_id.is.null`);
       }
 
@@ -548,11 +553,11 @@ class ButcheringYieldService {
    */
   public async saveTemplate(template: ButcheringTemplate, organizationId?: string): Promise<ButcheringTemplate> {
     const templatePayload = {
-      organization_id: organizationId || null,
+      organization_id: isValidUUID(organizationId) ? organizationId : null,
       name: template.name.trim(),
       description: template.description || null,
       category: template.category || 'beef',
-      source_product_id: template.source_product_id || null,
+      source_product_id: isValidUUID(template.source_product_id) ? template.source_product_id : null,
       default_expected_yield_pct: template.default_expected_yield_pct || 95.0,
       default_max_shrinkage_pct: template.default_max_shrinkage_pct || 5.0,
       cost_allocation_method: template.cost_allocation_method || 'relative_value',
@@ -563,7 +568,7 @@ class ButcheringYieldService {
     let templateId = template.id || `local_tmpl_${Date.now()}`;
 
     try {
-      if (template.id && !template.id.startsWith('local_')) {
+      if (isValidUUID(template.id)) {
         const { error } = await supabase
           .from('butchering_templates')
           .update(templatePayload)
@@ -580,12 +585,12 @@ class ButcheringYieldService {
       }
 
       // حفظ البنود إذا كان الجدول موجوداً
-      if (template.items && template.items.length > 0 && !templateId.startsWith('local_')) {
+      if (template.items && template.items.length > 0 && isValidUUID(templateId)) {
         await supabase.from('butchering_template_items').delete().eq('template_id', templateId);
 
         const itemsToInsert = template.items.map((it, idx) => ({
           template_id: templateId,
-          output_product_id: it.output_product_id || null,
+          output_product_id: isValidUUID(it.output_product_id) ? it.output_product_id : null,
           output_name: it.output_name.trim(),
           expected_yield_pct: Number(it.expected_yield_pct || 0),
           relative_value_weight: Number(it.relative_value_weight || 1.0),
@@ -630,7 +635,7 @@ class ButcheringYieldService {
         .order('created_at', { ascending: false })
         .limit(limit);
 
-      if (organizationId) {
+      if (isValidUUID(organizationId)) {
         query = query.eq('organization_id', organizationId);
       }
 
@@ -740,12 +745,14 @@ class ButcheringYieldService {
         const { data: createdOrder, error: orderErr } = await supabase
           .from('butchering_orders')
           .insert({
-            organization_id: organizationId || null,
+            organization_id: isValidUUID(organizationId) ? organizationId : null,
             order_number: orderNumber,
-            template_id: (order.template_id && !order.template_id.startsWith('local_')) ? order.template_id : null,
-            source_product_id: order.source_product_id,
-            warehouse_id: order.warehouse_id || null,
-            destination_warehouse_id: order.destination_warehouse_id || order.warehouse_id || null,
+            template_id: isValidUUID(order.template_id) ? order.template_id : null,
+            source_product_id: isValidUUID(order.source_product_id) ? order.source_product_id : null,
+            warehouse_id: isValidUUID(order.warehouse_id) ? order.warehouse_id : null,
+            destination_warehouse_id: isValidUUID(order.destination_warehouse_id)
+              ? order.destination_warehouse_id
+              : (isValidUUID(order.warehouse_id) ? order.warehouse_id : null),
             order_date: order.order_date || new Date().toISOString().split('T')[0],
             input_weight: Number(order.input_weight),
             input_cost_per_kg: Number(order.input_cost_per_kg),
@@ -761,7 +768,7 @@ class ButcheringYieldService {
             status: 'completed',
             butcher_name: order.butcher_name || null,
             notes: order.notes || null,
-            created_by: userId || null
+            created_by: isValidUUID(userId) ? userId : null
           })
           .select('id')
           .single();
@@ -772,7 +779,7 @@ class ButcheringYieldService {
           // إدخال البنود
           const itemsToInsert = items.map(it => ({
             order_id: orderId,
-            output_product_id: it.output_product_id || null,
+            output_product_id: isValidUUID(it.output_product_id) ? it.output_product_id : null,
             output_name: it.output_name,
             actual_weight: Number(it.actual_weight),
             yield_pct: Number(it.yield_pct || 0),
@@ -785,10 +792,17 @@ class ButcheringYieldService {
             notes: it.notes || null
           }));
 
-          await supabase.from('butchering_order_items').insert(itemsToInsert);
+          const { error: itemsErr } = await supabase.from('butchering_order_items').insert(itemsToInsert);
+          if (itemsErr) console.error('❌ butchering_order_items insert error:', itemsErr.message, itemsErr.details, itemsErr.hint);
+
+        } else if (orderErr) {
+          console.error('❌ butchering_orders POST 400 — message:', orderErr.message);
+          console.error('❌ butchering_orders POST 400 — details:', orderErr.details);
+          console.error('❌ butchering_orders POST 400 — hint:', orderErr.hint);
+          console.error('❌ butchering_orders POST 400 — code:', orderErr.code);
         }
-      } catch (dbErr) {
-        console.warn('Database butchering_orders insert notice (falling back to local storage):', dbErr);
+      } catch (dbErr: any) {
+        console.error('❌ butchering_orders insert error — details:', dbErr?.message, dbErr?.details, dbErr?.hint, dbErr);
       }
 
       // 2. حفظ في التخزين الآمن لضمان وجود السجل فوراً حتى بدون سوبابايز
@@ -807,8 +821,8 @@ class ButcheringYieldService {
       }
 
       // 3. التأثير المخزني الفعلي (تحديث الأرصدة وإدراج تسويات المخزون الرسمية)
-      const primaryWarehouseId = order.warehouse_id || order.destination_warehouse_id || null;
-      const destinationWhId = order.destination_warehouse_id || order.warehouse_id || null;
+      const primaryWarehouseId = isValidUUID(order.warehouse_id) ? order.warehouse_id : (isValidUUID(order.destination_warehouse_id) ? order.destination_warehouse_id : null);
+      const destinationWhId = isValidUUID(order.destination_warehouse_id) ? order.destination_warehouse_id : (isValidUUID(order.warehouse_id) ? order.warehouse_id : null);
 
       // أ) تسجيل حركة تسوية مخزنية رسمية (Stock Adjustment) ليظهر الأثر في كارت الصنف وتقارير المخزون
       try {
@@ -816,7 +830,7 @@ class ButcheringYieldService {
 
         if (isSeparateWarehouses) {
           // 1. إذن صرف خام من مستودع المصدر
-          if (order.source_product_id && Number(order.input_weight) > 0) {
+          if (isValidUUID(order.source_product_id) && Number(order.input_weight) > 0) {
             const adjOutNumber = `ADJ-OUT-${orderNumber}`;
             const { data: docOut } = await supabase
               .from('stock_adjustments')
@@ -826,8 +840,8 @@ class ButcheringYieldService {
                 reason: `صرف خامات لجلسة تشفية #${orderNumber} (${order.butcher_name || 'الشيف'})`,
                 adjustment_number: adjOutNumber,
                 status: 'posted',
-                created_by: userId || null,
-                organization_id: organizationId || null
+                created_by: isValidUUID(userId) ? userId : null,
+                organization_id: isValidUUID(organizationId) ? organizationId : null
               })
               .select('id')
               .single();
@@ -838,14 +852,14 @@ class ButcheringYieldService {
                 product_id: order.source_product_id,
                 quantity: -Math.abs(Number(order.input_weight)),
                 type: 'out',
-                organization_id: organizationId || null
+                organization_id: isValidUUID(organizationId) ? organizationId : null
               }]);
               stockAdjusted = true;
             }
           }
 
           // 2. إذن إضافة قطعيات مشفاة إلى مستودع المطبخ / المقصد
-          const inItems = items.filter(it => it.output_product_id && Number(it.actual_weight) > 0);
+          const inItems = items.filter(it => isValidUUID(it.output_product_id) && Number(it.actual_weight) > 0);
           if (inItems.length > 0) {
             const adjInNumber = `ADJ-IN-${orderNumber}`;
             const { data: docIn } = await supabase
@@ -856,8 +870,8 @@ class ButcheringYieldService {
                 reason: `توريد قطعيات ناتجة من تشفية #${orderNumber} (${order.butcher_name || 'الشيف'})`,
                 adjustment_number: adjInNumber,
                 status: 'posted',
-                created_by: userId || null,
-                organization_id: organizationId || null
+                created_by: isValidUUID(userId) ? userId : null,
+                organization_id: isValidUUID(organizationId) ? organizationId : null
               })
               .select('id')
               .single();
@@ -867,8 +881,10 @@ class ButcheringYieldService {
                 stock_adjustment_id: docIn.id,
                 product_id: it.output_product_id,
                 quantity: Math.abs(Number(it.actual_weight)),
+                unit_cost: Number(it.allocated_cost_per_kg || 0),
+                total_cost: Number(it.total_allocated_cost || 0),
                 type: 'in',
-                organization_id: organizationId || null
+                organization_id: isValidUUID(organizationId) ? organizationId : null
               }));
               await supabase.from('stock_adjustment_items').insert(adjInPayload);
               addedItemsCount = inItems.length;
@@ -886,8 +902,8 @@ class ButcheringYieldService {
               reason: `جلسة تشفية وتفكيك #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
               adjustment_number: adjNumber,
               status: 'posted',
-              created_by: userId || null,
-              organization_id: organizationId || null
+              created_by: isValidUUID(userId) ? userId : null,
+              organization_id: isValidUUID(organizationId) ? organizationId : null
             })
             .select('id')
             .single();
@@ -895,26 +911,30 @@ class ButcheringYieldService {
           if (!adjErr && adjDoc) {
             const adjItems: any[] = [];
 
-            // بند صرف الخام (خروج - out)
-            if (order.source_product_id && Number(order.input_weight) > 0) {
+            // بند صرف الخام (خروج - out) مع تكلفة الكيلو الخام
+            if (isValidUUID(order.source_product_id) && Number(order.input_weight) > 0) {
               adjItems.push({
                 stock_adjustment_id: adjDoc.id,
                 product_id: order.source_product_id,
                 quantity: -Math.abs(Number(order.input_weight)),
+                unit_cost: Number(order.input_cost_per_kg || 0),
+                total_cost: Number(order.total_input_cost || 0),
                 type: 'out',
-                organization_id: organizationId || null
+                organization_id: isValidUUID(organizationId) ? organizationId : null
               });
             }
 
-            // بنود إضافة القطعيات الناتجة (دخول + in)
+            // بنود إضافة القطعيات الناتجة (دخول + in) مع تكلفة كل قطعة
             for (const it of items) {
-              if (it.output_product_id && Number(it.actual_weight) > 0) {
+              if (isValidUUID(it.output_product_id) && Number(it.actual_weight) > 0) {
                 adjItems.push({
                   stock_adjustment_id: adjDoc.id,
                   product_id: it.output_product_id,
                   quantity: Math.abs(Number(it.actual_weight)),
+                  unit_cost: Number(it.allocated_cost_per_kg || 0),
+                  total_cost: Number(it.total_allocated_cost || 0),
                   type: 'in',
-                  organization_id: organizationId || null
+                  organization_id: isValidUUID(organizationId) ? organizationId : null
                 });
                 addedItemsCount++;
               }
@@ -954,8 +974,7 @@ class ButcheringYieldService {
               .from('products')
               .update({
                 stock: newStock,
-                warehouse_stock: whStock,
-                updated_at: new Date().toISOString()
+                warehouse_stock: whStock
               })
               .eq('id', order.source_product_id);
 
@@ -963,12 +982,12 @@ class ButcheringYieldService {
           }
         }
 
-        // 2. إضافة كميات القطعيات الناتجة وتحديث تكلفة الكيلو
+        // 2. إضافة كميات القطعيات الناتجة وتحديث تكلفة الكيلو بالمتوسط المرجح
         for (const it of items) {
           if (it.output_product_id) {
             const { data: outProd } = await supabase
               .from('products')
-              .select('id, stock, warehouse_stock')
+              .select('id, stock, warehouse_stock, cost, purchase_price')
               .eq('id', it.output_product_id)
               .single();
 
@@ -984,23 +1003,42 @@ class ButcheringYieldService {
                 whStock[destinationWhId] = curWh + addedWeight;
               }
 
+              // ✅ احتساب المتوسط المرجح للتكلفة (WAC - Weighted Average Cost)
+              // إذا كان الصنف له رصيد سابق، نحسب متوسط التكلفة المرجح بين الرصيد القديم والوارد الجديد
+              const oldCost = Number(outProd.cost || outProd.purchase_price || 0);
+              let newCost: number;
+              if (unitCost > 0) {
+                if (curStock > 0 && oldCost > 0) {
+                  // متوسط مرجح: (رصيد قديم × تكلفة قديمة + كمية جديدة × تكلفة جديدة) / (رصيد قديم + كمية جديدة)
+                  newCost = Number(
+                    ((curStock * oldCost + addedWeight * unitCost) / (curStock + addedWeight)).toFixed(4)
+                  );
+                } else {
+                  // لا يوجد رصيد سابق أو لا تكلفة قديمة — تكلفة التشفية هي التكلفة الجديدة
+                  newCost = unitCost;
+                }
+              } else {
+                // التكلفة المحسوبة صفر — أبقِ القديمة أو سجّل صفر إن لم توجد
+                newCost = oldCost;
+              }
+
               await supabase
                 .from('products')
                 .update({
                   stock: newStock,
                   warehouse_stock: whStock,
-                  cost: unitCost > 0 ? unitCost : undefined,
-                  purchase_price: unitCost > 0 ? unitCost : undefined,
-                  updated_at: new Date().toISOString()
+                  cost: newCost,
+                  purchase_price: newCost
                 })
                 .eq('id', it.output_product_id);
+
             } else if (unitCost > 0) {
+              // الصنف موجود لكن الاستعلام فشل — تحديث التكلفة فقط
               await supabase
                 .from('products')
                 .update({
                   cost: unitCost,
-                  purchase_price: unitCost,
-                  updated_at: new Date().toISOString()
+                  purchase_price: unitCost
                 })
                 .eq('id', it.output_product_id);
             }
@@ -1009,6 +1047,7 @@ class ButcheringYieldService {
       } catch (pUpdateErr) {
         console.warn('Direct product quantities update notice:', pUpdateErr);
       }
+
 
       // 4. إنشاء وترحيل قيد اليومية المحاسبي التلقائي (Balanced Journal Entry)
       if (autoPostAccounting) {
@@ -1140,7 +1179,7 @@ class ButcheringYieldService {
    */
   public async deleteOrder(orderId: string): Promise<void> {
     try {
-      if (!orderId.startsWith('local_')) {
+      if (isValidUUID(orderId)) {
         await supabase.from('butchering_orders').delete().eq('id', orderId);
       }
     } catch (e) {

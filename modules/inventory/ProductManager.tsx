@@ -95,6 +95,7 @@ const ProductManager = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showOffersOnly, setShowOffersOnly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [recipeCost, setRecipeCost] = useState(0); 
 
   // تأخير البحث
@@ -115,8 +116,19 @@ const ProductManager = () => {
     if (categoryFilter !== 'all') {
       query = query.eq('category_id', categoryFilter);
     }
+    if (typeFilter !== 'all') {
+      if (typeFilter === 'RAW_MATERIAL') {
+        query = query.or('product_type.eq.RAW_MATERIAL,mfg_type.eq.raw,item_type.eq.RAW_MATERIAL');
+      } else if (typeFilter === 'MANUFACTURED') {
+        query = query.or('product_type.eq.MANUFACTURED,mfg_type.eq.standard,item_type.eq.MANUFACTURED');
+      } else if (typeFilter === 'SERVICE') {
+        query = query.or('product_type.eq.SERVICE,item_type.eq.SERVICE');
+      } else if (typeFilter === 'STOCK') {
+        query = query.or('product_type.eq.STOCK,and(product_type.is.null,mfg_type.is.null)');
+      }
+    }
     return query;
-  }, [debouncedSearch, showOffersOnly, categoryFilter]);
+  }, [debouncedSearch, showOffersOnly, categoryFilter, typeFilter]);
 
   // استخدام Hook التصفح
   const { data: serverItems, loading: serverLoading, page, setPage, totalPages, totalCount, refresh } = usePagination<Item>('products', { select: '*', pageSize: 20, orderBy: 'name', ascending: true }, queryModifier);
@@ -144,11 +156,15 @@ const ProductManager = () => {
 
   // في وضع الديمو، نستخدم المنتجات من السياق (الوهمية)
   const items = currentUser?.role === 'demo' 
-    ? contextProducts.filter(i => 
-        i.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-        (i.sku && i.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        ((i as any).description && (i as any).description.toLowerCase().includes(searchTerm.toLowerCase()))
-      ) 
+    ? contextProducts.filter(i => {
+        const matchesSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+          (i.sku && i.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
+          ((i as any).description && (i as any).description.toLowerCase().includes(searchTerm.toLowerCase()));
+        const matchesCategory = categoryFilter === 'all' || i.category_id === categoryFilter;
+        const effectiveType = i.product_type || (i as any).item_type || 'STOCK';
+        const matchesType = typeFilter === 'all' || effectiveType === typeFilter;
+        return matchesSearch && matchesCategory && matchesType;
+      }) 
     : serverItems;
     
   const loading = currentUser?.role === 'demo' ? false : serverLoading;
@@ -180,6 +196,8 @@ const ProductManager = () => {
   const [isBulkPriceUpdateModalOpen, setIsBulkPriceUpdateModalOpen] = useState(false);
   const [bulkPricePercentage, setBulkPricePercentage] = useState(0);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [initialOpeningStock, setInitialOpeningStock] = useState<number>(0);
+  const [initialOpeningWarehouseId, setInitialOpeningWarehouseId] = useState<string>('');
 
   useEffect(() => {
     if (warehouses.length > 0 && !importWarehouseId) {
@@ -337,6 +355,25 @@ const ProductManager = () => {
       const cogsAccId = accounts.expenses.find(a => a.id === item.cogs_account_id) ? item.cogs_account_id : defaultCogs;
       const salesAccId = accounts.revenue.find(a => a.id === item.sales_account_id) ? item.sales_account_id : defaultSales;
 
+      // جلب الرصيد الافتتاحي الحقيقي المسجل في opening_inventories بدلاً من stock الجاري
+      let actualOpeningStock = 0;
+      let actualOpeningWarehouseId = warehouses[0]?.id || '';
+      try {
+        const { data: opData } = await supabase
+          .from('opening_inventories')
+          .select('quantity, warehouse_id')
+          .eq('product_id', item.id);
+        if (opData && opData.length > 0) {
+          actualOpeningStock = opData.reduce((acc, curr) => acc + Number(curr.quantity || 0), 0);
+          actualOpeningWarehouseId = opData[0].warehouse_id || warehouses[0]?.id || '';
+        }
+      } catch (e) {
+        console.warn('Could not fetch existing opening stock:', e);
+      }
+
+      setInitialOpeningStock(actualOpeningStock);
+      setInitialOpeningWarehouseId(actualOpeningWarehouseId);
+
       setEditingId(item.id);
       const productDataToSet: ProductFormData = { // Explicitly type the object literal
         name: item.name,
@@ -349,13 +386,13 @@ const ProductManager = () => {
         base_uom_id: item.base_uom_id || '',
         purchase_uom_id: item.purchase_uom_id || '',
         sale_uom_id: item.sale_uom_id || '',
-        product_type: (item.item_type || item.product_type) as any, 
+        product_type: (item.product_type || item.item_type || 'STOCK') as any, 
         inventory_account_id: inventoryAccId || '',
         cogs_account_id: cogsAccId || '',
         sales_account_id: salesAccId || '',
         image_url: item.image_url || '',
-        opening_stock: (Number(item.stock) || Number((item as any).opening_balance) || 0),
-        opening_warehouse_id: warehouses[0]?.id || '',
+        opening_stock: actualOpeningStock,
+        opening_warehouse_id: actualOpeningWarehouseId,
         category_id: item.category_id || null,
         min_stock_level: item.min_stock_level || 0,
         requires_serial: item.requires_serial, // Now it's guaranteed to be boolean
@@ -371,10 +408,11 @@ const ProductManager = () => {
       };
       setFormData(productDataToSet);
     } else {
+      setInitialOpeningStock(0);
+      setInitialOpeningWarehouseId(warehouses[0]?.id || '');
       setRecipeCost(0);
       setEditingId(null);
       // تعيين قيم افتراضية للحسابات إذا وجدت لتسهيل الإدخال
-
 
       setFormData({ // This is the initial state, which is already correctly typed
         name: '', 
@@ -1229,9 +1267,10 @@ const ProductManager = () => {
         await updateProduct(editingId, itemData);
 
         const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED';
+        const hasOpeningChanged = Number(formData.opening_stock || 0) !== initialOpeningStock || (formData.opening_warehouse_id && formData.opening_warehouse_id !== initialOpeningWarehouseId);
 
-        // إنشاء / تحديث الرصيد الافتتاحي والقيد للصنف المعدل
-        if (isPhysicalStock && formData.opening_stock !== undefined) {
+        // إنشاء / تحديث الرصيد الافتتاحي والقيد للصنف المعدل فقط إذا قام المستخدم بتعديل الرصيد الافتتاحي فعلياً
+        if (isPhysicalStock && hasOpeningChanged && formData.opening_stock !== undefined) {
             // حذف أي رصيد افتتاحي سابق أو قيد مرتبط بهذا الصنف لتجنب التكرار
             await supabase.from('opening_inventories').delete().eq('product_id', editingId);
             await supabase.from('journal_entries').delete().eq('organization_id', orgId).like('reference', `OP-PROD-%${editingId.slice(0, 8)}%`);
@@ -2004,16 +2043,32 @@ const ProductManager = () => {
                 </>
             )}
         </div>
-        <div className="md:col-span-2">
-            <label className="block text-sm font-bold text-slate-700 mb-1">فلترة حسب التصنيف</label>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 pt-3 border-t">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">فلترة حسب نوع الصنف</label>
+            <select 
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
+                className="w-full border rounded-lg p-2.5 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+                <option value="all">-- كل أنواع الأصناف --</option>
+                <option value="RAW_MATERIAL">🥩 مواد خام وأولية (RAW_MATERIAL)</option>
+                <option value="MANUFACTURED">🍲 منتجات مصنعة / وجبات (MANUFACTURED)</option>
+                <option value="STOCK">📦 بضاعة مخزنية جاهزة (STOCK)</option>
+                <option value="SERVICE">⚙️ خدمات (SERVICE)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">فلترة حسب التصنيف</label>
             <select 
                 value={categoryFilter}
                 onChange={e => setCategoryFilter(e.target.value)}
-                className="w-full border rounded-lg p-2.5 bg-white"
+                className="w-full border rounded-lg p-2.5 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
             >
                 <option value="all">-- كل التصنيفات --</option>
                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
             </select>
+          </div>
         </div>
       </div>
 
@@ -2039,7 +2094,9 @@ const ProductManager = () => {
             </tr>
           </thead>
           <tbody className="divide-y">
-            {items.map(item => (
+            {items.map(item => {
+              const effectiveType = item.product_type || (item as any).item_type || 'STOCK';
+              return (
               <tr key={item.id} className="hover:bg-slate-50">
                 <td className="p-4">
                     <button onClick={() => toggleSelection(item.id)} className={selectedIds.has(item.id) ? "text-blue-600" : "text-slate-300"}>
@@ -2068,12 +2125,23 @@ const ProductManager = () => {
                   )}
                 </td>
                 <td className="p-4">
-                  <span className={`px-2 py-1 rounded text-xs font-bold ${item.item_type === 'STOCK' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
-                    {item.item_type === 'STOCK' ? 'مخزوني' :
-                     item.item_type === 'SERVICE' ? 'خدمي' :
-                     item.item_type === 'MANUFACTURED' ? 'منتج مصنع / وجبة' :
-                     item.item_type}
-                  </span>
+                  {effectiveType === 'RAW_MATERIAL' ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
+                      🥩 مادة خام
+                    </span>
+                  ) : effectiveType === 'MANUFACTURED' ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                      🍲 منتج مصنع
+                    </span>
+                  ) : effectiveType === 'SERVICE' ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      ⚙️ خدمي
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
+                      📦 مخزوني
+                    </span>
+                  )}
                 </td>
                 <td className="p-4 text-center font-bold text-slate-700">
                     {item.stock}
@@ -2135,9 +2203,9 @@ const ProductManager = () => {
                   <button onClick={() => handleDelete(item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded"><Trash2 size={18}/></button>
                 </td>
               </tr>
-            ))}
+            ); })}
             {items.length === 0 && (
-              <tr><td colSpan={6} className="p-8 text-center text-slate-400">لا توجد أصناف مسجلة</td></tr>
+              <tr><td colSpan={11} className="p-8 text-center text-slate-400">لا توجد أصناف مسجلة</td></tr>
             )}
           </tbody>
         </table>

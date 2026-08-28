@@ -130,6 +130,7 @@ export const ExpoScreen: React.FC = () => {
   const expoTickets: ExpoTicketDetail[] = useMemo(() => {
     return orders
       .filter(o => filterType === 'ALL' || o.order_type === filterType)
+      .filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED')
       .map(o => {
         const items: KitchenTicketItemDetail[] = (o.order_items || []).map((oi: any) => {
           const matchingProduct = products.find(p => p.id === oi.product_id);
@@ -163,7 +164,9 @@ export const ExpoScreen: React.FC = () => {
 
         const totalItems = items.length;
         const readyItems = items.filter(i => i.status === 'READY' || i.status === 'SERVED').length;
+        const servedItems = items.filter(i => i.status === 'SERVED').length;
         const isAllReady = totalItems > 0 && readyItems === totalItems;
+        const isAllServed = totalItems > 0 && servedItems === totalItems;
         const completionPct = totalItems > 0 ? (readyItems / totalItems) * 100 : 0;
 
         const sessionObj = Array.isArray(o.table_sessions) ? o.table_sessions[0] : o.table_sessions;
@@ -183,9 +186,11 @@ export const ExpoScreen: React.FC = () => {
           total_items_count: totalItems,
           ready_items_count: readyItems,
           is_all_ready: isAllReady,
+          is_all_served: isAllServed,
           completion_pct: Number(completionPct.toFixed(0))
         };
-      });
+      })
+      .filter(ticket => !ticket.is_all_served && ticket.total_items_count > 0);
   }, [orders, filterType, stationsMap, products, restaurantTables]);
 
   // Serve all items of order

@@ -35,15 +35,16 @@ interface OrderSummaryProps {
   onSelectCustomer: () => void;
   onAddDiscount: () => void;
   onPayLater: () => void;
-  onRedeemPoints: () => void;
   onToggleServiceCharge?: () => void;
   onToggleTax?: () => void;
+  onUpdateItemNotes?: (itemId: string, notes: string) => void;
 }
 
 const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({ 
   order, onUpdateItem, onClearOrder, onAcceptOrder, onPayment, 
   onPrintProforma, onTransfer, onMerge, isSubmitting, onSelectCustomer, 
-  onAddDiscount, onPayLater, onRedeemPoints, onToggleServiceCharge, onToggleTax 
+  onAddDiscount, onPayLater, onRedeemPoints, onToggleServiceCharge, onToggleTax,
+  onUpdateItemNotes
 }) => {
   const { settings, customers } = useAccounting();
 
@@ -145,27 +146,59 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({
       </div>
 
       <div className="flex-1 p-2 overflow-y-auto space-y-2 min-h-0">
-        {order.items?.map(item => (
-          <div key={(item as any).localId || (item as any).id} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
+        {order.items?.map(item => {
+          const itemId = (item as any).localId || (item as any).id;
+          return (
+          <div key={itemId} className="flex justify-between items-center bg-slate-50 p-2 rounded-lg">
             <div className="flex-1">
-              <div className="font-semibold text-sm">{item.name}</div>
+              <div className="font-semibold text-sm flex items-center gap-1.5">
+                <span>{item.name}</span>
+                {onUpdateItemNotes && !item.savedQuantity && (
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      const newNote = window.prompt('أدخل أو عدل ملاحظة الصنف للمطبخ (مثال: بدون بصل، صوص خارجي):', item.notes || '');
+                      if (newNote !== null) {
+                        onUpdateItemNotes(itemId, newNote.trim());
+                      }
+                    }}
+                    className="text-slate-400 hover:text-blue-600 transition-colors p-0.5"
+                    title="تعديل ملاحظة الصنف للمطبخ"
+                  >
+                    ✏️
+                  </button>
+                )}
+              </div>
               {item.selectedModifiers && item.selectedModifiers.length > 0 && (
                 <div className="text-[10px] text-blue-600 font-medium">
                   {item.selectedModifiers.map(m => m.name).join(', ')}
                 </div>
               )}
-              {item.notes && <div className="text-[10px] text-red-500 italic">{item.notes}</div>}
+              {item.notes && (
+                <div 
+                  onClick={() => {
+                    if (onUpdateItemNotes && !item.savedQuantity) {
+                      const newNote = window.prompt('تعديل ملاحظة الصنف للمطبخ:', item.notes || '');
+                      if (newNote !== null) onUpdateItemNotes(itemId, newNote.trim());
+                    }
+                  }}
+                  className="text-xs text-rose-600 font-bold bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200 mt-0.5 inline-block cursor-pointer hover:bg-rose-100"
+                  title="اضغط لتعديل الملاحظة"
+                >
+                  📝 {item.notes}
+                </div>
+              )}
               <div className="text-xs text-slate-500">{(Number(item.unitPrice) || 0).toFixed(2)}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => onUpdateItem((item as any).localId || (item as any).id, -1)} className={`p-1 rounded-full ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-100 text-red-600'}`} disabled={item.savedQuantity ? item.quantity <= item.savedQuantity : false}><Minus size={12} /></button>
+              <button onClick={() => onUpdateItem(itemId, -1)} className={`p-1 rounded-full ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-100 text-red-600'}`} disabled={item.savedQuantity ? item.quantity <= item.savedQuantity : false}><Minus size={12} /></button>
               <span className="font-bold w-6 text-center">{item.quantity}</span>
               {item.savedQuantity && item.savedQuantity > 0 && <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded" title="تم طلبه مسبقاً">+{item.savedQuantity}</span>}
-              <button onClick={() => onUpdateItem((item as any).localId || (item as any).id, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full hover:bg-emerald-200"><Plus size={12} /></button>
+              <button onClick={() => onUpdateItem(itemId, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full hover:bg-emerald-200"><Plus size={12} /></button>
             </div>
             <div className="font-bold w-20 text-left">{((Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)).toFixed(2)}</div>
           </div>
-        ))}
+        ); })}
       </div>
       <div className="p-4 border-t space-y-2">
         <div className="flex justify-between text-sm"><span className="text-slate-500">المجموع الفرعي</span><span className="font-semibold">{finalTotals.subtotal.toFixed(2)}</span></div>

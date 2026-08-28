@@ -41,9 +41,11 @@ export function usePagination<T>(
     ascending = false
   } = options;
 
-  // تحديث المرجع عند تغيير الدالة دون التسبب في إعادة الطلب
+  // تحديث المرجع عند تغيير الدالة وإعادة جلب البيانات مع ضبط الصفحة على الأولى
   useEffect(() => {
     queryModifierRef.current = queryModifier;
+    setPage(1);
+    setRefreshTrigger(prev => prev + 1);
   }, [queryModifier]);
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {

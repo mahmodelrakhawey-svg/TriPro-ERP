@@ -18,18 +18,21 @@ import {
   PieChart,
   FileSpreadsheet,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  Plus,
+  Trash2,
+  UserPlus,
+  X
 } from 'lucide-react';
 
 export const TipsPoolManager: React.FC = () => {
   const { employees, currentUser } = useAccounting();
   const { showToast } = useToast();
 
-  const [totalTipsInput, setTotalTipsInput] = useState<number>(1500);
+  const [totalTipsInput, setTotalTipsInput] = useState<number>(1000);
   const [floorPct, setFloorPct] = useState<number>(60);
   const [kitchenPct, setKitchenPct] = useState<number>(40);
 
-  // Sample staff list based on system employees or default
   const [staff, setStaff] = useState<Array<{
     id: string;
     name: string;
@@ -41,15 +44,24 @@ export const TipsPoolManager: React.FC = () => {
 
   const [calculatedShares, setCalculatedShares] = useState<StaffTipShare[]>([]);
   const [historyRecords, setHistoryRecords] = useState<TipsDistributionRecord[]>([]);
+  const [isAddStaffModalOpen, setIsAddStaffModalOpen] = useState(false);
+  const [newStaffForm, setNewStaffForm] = useState({
+    name: '',
+    role: 'WAITER' as 'WAITER' | 'RUNNER' | 'CHEF' | 'BARISTA' | 'HOST',
+    category: 'FLOOR' as 'FLOOR' | 'KITCHEN',
+    hoursWorked: 8,
+    pointsWeight: 1
+  });
 
   useEffect(() => {
-    // Populate staff from employees
+    // جلب موظفي المنظمة الحقيقيين فقط
     if (employees && employees.length > 0) {
-      const mapped = employees.slice(0, 10).map((emp, i) => {
-        const isKitchen = i % 2 === 0;
+      const mapped = employees.map((emp, i) => {
+        const role = emp.role || emp.job_title || emp.position || '';
+        const isKitchen = role.toLowerCase().includes('chef') || role.toLowerCase().includes('طاه') || role.toLowerCase().includes('مطبخ') || role.toLowerCase().includes('cook') || (i % 2 === 0);
         return {
           id: emp.id,
-          name: emp.name || `موظف ${i + 1}`,
+          name: emp.full_name || emp.name || `موظف ${i + 1}`,
           role: isKitchen ? ('CHEF' as const) : ('WAITER' as const),
           category: isKitchen ? ('KITCHEN' as const) : ('FLOOR' as const),
           hoursWorked: 8,
@@ -58,15 +70,7 @@ export const TipsPoolManager: React.FC = () => {
       });
       setStaff(mapped);
     } else {
-      // Default demo staff
-      setStaff([
-        { id: 'st1', name: 'أحمد محمود (كابتن صالة)', role: 'WAITER', category: 'FLOOR', hoursWorked: 8, pointsWeight: 1.2 },
-        { id: 'st2', name: 'مصطفى علي (ويتر)', role: 'WAITER', category: 'FLOOR', hoursWorked: 8, pointsWeight: 1 },
-        { id: 'st3', name: 'كريم حسن (مساعد صالة Runner)', role: 'RUNNER', category: 'FLOOR', hoursWorked: 6, pointsWeight: 0.8 },
-        { id: 'st4', name: 'شيف طارق (رئيس المطبخ)', role: 'CHEF', category: 'KITCHEN', hoursWorked: 8, pointsWeight: 1.5 },
-        { id: 'st5', name: 'شيف سامح (مساعد طاهي)', role: 'CHEF', category: 'KITCHEN', hoursWorked: 8, pointsWeight: 1 },
-        { id: 'st6', name: 'عمر خالد (باريستا)', role: 'BARISTA', category: 'KITCHEN', hoursWorked: 7, pointsWeight: 1 }
-      ]);
+      setStaff([]);
     }
 
     setHistoryRecords(tipsPoolService.getRecords(currentUser?.organization_id || undefined));
@@ -81,6 +85,8 @@ export const TipsPoolManager: React.FC = () => {
         staffList: staff
       });
       setCalculatedShares(shares);
+    } else {
+      setCalculatedShares([]);
     }
   }, [totalTipsInput, floorPct, kitchenPct, staff]);
 
@@ -92,9 +98,64 @@ export const TipsPoolManager: React.FC = () => {
     setStaff(prev => prev.map(s => (s.id === staffId ? { ...s, pointsWeight: Math.max(0.1, points) } : s)));
   };
 
+  const handleRemoveStaff = (staffId: string) => {
+    setStaff(prev => prev.filter(s => s.id !== staffId));
+    showToast('تم حذف الموظف من كشف التوزيع 🗑️', 'info');
+  };
+
+  const handleAddStaff = () => {
+    if (!newStaffForm.name.trim()) {
+      showToast('يرجى كتابة اسم الموظف', 'warning');
+      return;
+    }
+    const newEntry = {
+      id: `staff_${Date.now()}`,
+      name: newStaffForm.name.trim(),
+      role: newStaffForm.role,
+      category: newStaffForm.category,
+      hoursWorked: Number(newStaffForm.hoursWorked) || 8,
+      pointsWeight: Number(newStaffForm.pointsWeight) || 1
+    };
+    setStaff(prev => [...prev, newEntry]);
+    setNewStaffForm({
+      name: '',
+      role: 'WAITER',
+      category: 'FLOOR',
+      hoursWorked: 8,
+      pointsWeight: 1
+    });
+    setIsAddStaffModalOpen(false);
+    showToast('تمت إضافة الموظف لكشف توزيع التبس بنجاح ✅', 'success');
+  };
+
+  const handleImportAllEmployees = () => {
+    if (!employees || employees.length === 0) {
+      showToast('لا يوجد موظفون مسجلون في شاشة شؤون الموظفين (HR)', 'warning');
+      return;
+    }
+    const mapped = employees.map((emp, i) => {
+      const role = emp.role || emp.job_title || emp.position || '';
+      const isKitchen = role.toLowerCase().includes('chef') || role.toLowerCase().includes('طاه') || role.toLowerCase().includes('مطبخ') || (i % 2 === 0);
+      return {
+        id: emp.id,
+        name: emp.full_name || emp.name || `موظف ${i + 1}`,
+        role: isKitchen ? ('CHEF' as const) : ('WAITER' as const),
+        category: isKitchen ? ('KITCHEN' as const) : ('FLOOR' as const),
+        hoursWorked: 8,
+        pointsWeight: 1
+      };
+    });
+    setStaff(mapped);
+    showToast(`تم استيراد ${mapped.length} موظف بنجاح ✅`, 'success');
+  };
+
   const handleSaveDistribution = () => {
     if (totalTipsInput <= 0) {
       showToast('يرجى تحديد إجمالي مبلغ التبس', 'warning');
+      return;
+    }
+    if (staff.length === 0) {
+      showToast('يرجى إضافة موظفين أولاً لتوزيع التبس عليهم', 'warning');
       return;
     }
 
@@ -131,12 +192,21 @@ export const TipsPoolManager: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={handleSaveDistribution}
-          className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-amber-600/20 transition"
-        >
-          <Save className="w-4 h-4" /> اعتماد وتوزيع التبس
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsAddStaffModalOpen(true)}
+            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 transition"
+          >
+            <UserPlus className="w-4 h-4 text-slate-600" /> إضافة موظف للكشف
+          </button>
+          <button
+            onClick={handleSaveDistribution}
+            disabled={staff.length === 0}
+            className="px-6 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-amber-600/20 transition"
+          >
+            <Save className="w-4 h-4" /> اعتماد وتوزيع التبس
+          </button>
+        </div>
       </div>
 
       {/* Control Configuration Bar */}
@@ -214,11 +284,23 @@ export const TipsPoolManager: React.FC = () => {
 
       {/* Staff Breakdown Table */}
       <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+        <div className="p-4 border-b border-slate-100 bg-slate-50 flex flex-wrap justify-between items-center gap-2">
           <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
             <Users className="w-4 h-4 text-slate-600" /> جدول استحقاق أفراد الطاقم ({calculatedShares.length} موظف)
           </h3>
-          <span className="text-xs text-slate-400 font-medium">يتم الحساب تلقائياً بناءً على ساعات العمل وأوزان النقاط</span>
+          <div className="flex items-center gap-2">
+            {employees && employees.length > 0 && staff.length === 0 && (
+              <button
+                onClick={handleImportAllEmployees}
+                className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-bold px-3 py-1.5 rounded-lg border border-indigo-200 transition"
+              >
+                استيراد موظفي المنشأة ({employees.length})
+              </button>
+            )}
+            <span className="text-xs text-slate-400 font-medium hidden sm:inline">
+              يتم الحساب تلقائياً بناءً على ساعات العمل وأوزان النقاط
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -231,6 +313,7 @@ export const TipsPoolManager: React.FC = () => {
                 <th className="p-3.5 text-center">ساعات العمل</th>
                 <th className="p-3.5 text-center">وزن النقاط</th>
                 <th className="p-3.5 text-left font-black text-amber-700">المبلغ المستحق من التبس</th>
+                <th className="p-3.5 text-center w-12">حذف</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -270,12 +353,163 @@ export const TipsPoolManager: React.FC = () => {
                   <td className="p-3.5 text-left font-black text-sm font-mono text-emerald-600">
                     {share.tip_amount_earned.toFixed(2)} ج
                   </td>
+                  <td className="p-3.5 text-center">
+                    <button
+                      onClick={() => handleRemoveStaff(share.employee_id)}
+                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
+                      title="حذف من الكشف"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
                 </tr>
               ))}
+              {calculatedShares.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-12 text-center text-slate-400 space-y-3">
+                    <Users className="w-12 h-12 text-slate-300 mx-auto" />
+                    <p className="font-bold text-slate-600">لا يوجد موظفون في كشف التوزيع حالياً</p>
+                    <p className="text-xs">اضغط على زر "إضافة موظف للكشف" لإضافة موظفي الوردية وحساب نصيبهم</p>
+                    <button
+                      onClick={() => setIsAddStaffModalOpen(true)}
+                      className="mt-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition shadow"
+                    >
+                      <UserPlus className="w-4 h-4" /> إضافة موظف جديد
+                    </button>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* Add Staff Modal */}
+      {isAddStaffModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden space-y-4 p-6">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
+                <UserPlus className="w-5 h-5 text-amber-600" />
+                إضافة فرد طاقم لكشف التبس
+              </h3>
+              <button onClick={() => setIsAddStaffModalOpen(false)} className="text-slate-400">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">اسم الموظف</label>
+                {employees && employees.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <select
+                      onChange={e => {
+                        const selectedEmp = employees.find(emp => emp.id === e.target.value);
+                        if (selectedEmp) {
+                          setNewStaffForm({
+                            ...newStaffForm,
+                            name: selectedEmp.full_name || selectedEmp.name
+                          });
+                        }
+                      }}
+                      className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none bg-white mb-1.5"
+                    >
+                      <option value="">-- اختر من موظفي المنشأة --</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>{emp.full_name || emp.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="أو اكتب اسماً يدوياً..."
+                      value={newStaffForm.name}
+                      onChange={e => setNewStaffForm({ ...newStaffForm, name: e.target.value })}
+                      className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
+                    />
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    placeholder="اسم الموظف (مثال: محمد علي)"
+                    value={newStaffForm.name}
+                    onChange={e => setNewStaffForm({ ...newStaffForm, name: e.target.value })}
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none"
+                  />
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">القسم</label>
+                  <select
+                    value={newStaffForm.category}
+                    onChange={e => setNewStaffForm({ ...newStaffForm, category: e.target.value as any })}
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none bg-white"
+                  >
+                    <option value="FLOOR">طاقم الصالة (Floor)</option>
+                    <option value="KITCHEN">طاقم المطبخ (Kitchen)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">المسمى الوظيفي</label>
+                  <select
+                    value={newStaffForm.role}
+                    onChange={e => setNewStaffForm({ ...newStaffForm, role: e.target.value as any })}
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none bg-white"
+                  >
+                    <option value="WAITER">ويتر (Waiter)</option>
+                    <option value="CHEF">طاهي / شيف (Chef)</option>
+                    <option value="BARISTA">باريستا (Barista)</option>
+                    <option value="RUNNER">مساعد صالة (Runner)</option>
+                    <option value="HOST">مضيف (Host)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">ساعات العمل بالوردية</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="24"
+                    value={newStaffForm.hoursWorked}
+                    onChange={e => setNewStaffForm({ ...newStaffForm, hoursWorked: parseFloat(e.target.value) || 8 })}
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none text-center font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">وزن النقاط (Points)</label>
+                  <input
+                    type="number"
+                    min="0.1"
+                    step="0.1"
+                    value={newStaffForm.pointsWeight}
+                    onChange={e => setNewStaffForm({ ...newStaffForm, pointsWeight: parseFloat(e.target.value) || 1 })}
+                    className="w-full border border-slate-300 rounded-lg p-2 text-xs outline-none text-center font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t pt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setIsAddStaffModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-600"
+              >
+                إلغاء
+              </button>
+              <button
+                onClick={handleAddStaff}
+                className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow"
+              >
+                <Plus className="w-4 h-4" /> إضافة للكشف
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

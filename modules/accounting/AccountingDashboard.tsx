@@ -382,7 +382,7 @@ export default function AccountingDashboard() {
       try {
           // 1. حذف التفاصيل (Lines)
           const tablesLines = [
-              'journal_lines', 'invoice_items', 'purchase_invoice_items',
+              'butchering_order_items', 'invoice_items', 'purchase_invoice_items',
               'quotation_items', 'purchase_order_items', 'sales_return_items',
               'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items',
               'inventory_count_items', 'payroll_items', 'inventory_transactions',
@@ -408,7 +408,7 @@ export default function AccountingDashboard() {
               await supabase.from(table).delete().eq('organization_id', orgId);
           } catch (e: any) {
               // Log specific error for debugging, but continue with other tables
-              console.warn(`Table ${table} could not be cleared or does not exist: ${e.message}`);
+              console.warn(`Table ${table} could not be cleared or does not exist: ${e?.message || e}`);
           }
        }
 
@@ -418,7 +418,7 @@ export default function AccountingDashboard() {
 
           // 2. حذف المستندات (Documents)
           const tablesDocs = [
-              'invoices', 'purchase_invoices', 'quotations', 'purchase_orders',
+              'butchering_orders', 'invoices', 'purchase_invoices', 'quotations', 'purchase_orders',
               'sales_returns', 'purchase_returns', 'credit_notes', 'debit_notes',
               'receipt_vouchers', 'payment_vouchers', 'cheques',
               'stock_transfers', 'stock_adjustments', 'inventory_counts',

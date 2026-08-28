@@ -78,6 +78,19 @@ export const HappyHourManager: React.FC = () => {
     setIsEditing(true);
   };
 
+  const handleDeleteSchedule = async (id: string, name: string) => {
+    if (!window.confirm(`هل أنت متأكد من رغبتك في حذف عرض الساعات السعيدة "${name}"؟`)) {
+      return;
+    }
+    try {
+      await happyHourService.deleteSchedule(id, currentUser?.organization_id || undefined);
+      showToast('تم حذف جدول الساعات السعيدة بنجاح 🗑️', 'success');
+      fetchSchedules();
+    } catch (e: any) {
+      showToast('خطأ أثناء الحذف: ' + e.message, 'error');
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.name?.trim()) {
       showToast('يرجى إدخال اسم العرض', 'warning');
@@ -152,12 +165,22 @@ export const HappyHourManager: React.FC = () => {
                   </span>
                 </div>
 
-                <button
-                  onClick={() => handleStartEdit(sch)}
-                  className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleStartEdit(sch)}
+                    className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
+                    title="تعديل الجدول"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSchedule(sch.id, sch.name)}
+                    className="p-2 text-rose-400 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition"
+                    title="حذف الجدول"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
 
               {/* Days Badges */}
@@ -186,6 +209,19 @@ export const HappyHourManager: React.FC = () => {
             </div>
           );
         })}
+        {schedules.length === 0 && !loading && (
+          <div className="col-span-full bg-white p-12 text-center rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <Clock className="w-12 h-12 text-slate-300 mx-auto" />
+            <h4 className="font-bold text-slate-700">لا توجد جداول ساعات سعيدة مسجلة حالياً</h4>
+            <p className="text-xs text-slate-400">يمكنك إنشاء عروض أسعار ديناميكية حسب الساعات وأيام الأسبوع بضغطة زر</p>
+            <button
+              onClick={handleStartNew}
+              className="mt-2 px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold inline-flex items-center gap-2 hover:bg-rose-700 transition"
+            >
+              <Plus className="w-4 h-4" /> إضافة جدول جديد
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Edit Modal */}

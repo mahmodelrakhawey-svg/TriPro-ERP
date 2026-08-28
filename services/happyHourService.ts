@@ -22,27 +22,14 @@ export interface HappyHourSchedule {
   is_active: boolean;
 }
 
-export const DEFAULT_HAPPY_HOURS: HappyHourSchedule[] = [
-  {
-    id: 'hh_daily_afternoon',
-    name: 'ساعات الترويقة المسائية (Daily Afternoon Happy Hour)',
-    discount_pct: 20,
-    days_of_week: [0, 1, 2, 3, 4, 5, 6],
-    start_time: '16:00',
-    end_time: '19:00',
-    applies_to_all_products: false,
-    target_category_ids: [],
-    target_product_ids: [],
-    is_active: true
-  }
-];
+export const DEFAULT_HAPPY_HOURS: HappyHourSchedule[] = [];
 
 const LOCAL_HAPPY_HOURS_KEY = 'tripro_happy_hours_v1';
 
 class HappyHourService {
   public async getSchedules(organizationId?: string): Promise<HappyHourSchedule[]> {
     try {
-      let query = supabase.from('happy_hour_schedules').select('*').eq('is_active', true);
+      let query = supabase.from('happy_hour_schedules').select('*');
       if (organizationId) query = query.eq('organization_id', organizationId);
       const { data, error } = await query;
       if (error || !data || data.length === 0) return this.getLocalSchedules();
@@ -54,8 +41,22 @@ class HappyHourService {
 
   private getLocalSchedules(): HappyHourSchedule[] {
     const list = secureStorage.getItem<HappyHourSchedule[]>(LOCAL_HAPPY_HOURS_KEY);
-    if (list && Array.isArray(list) && list.length > 0) return list;
-    return DEFAULT_HAPPY_HOURS;
+    if (list && Array.isArray(list)) return list;
+    return [];
+  }
+
+  public async deleteSchedule(id: string, organizationId?: string): Promise<boolean> {
+    try {
+      if (!id.startsWith('hh_')) {
+        await supabase.from('happy_hour_schedules').delete().eq('id', id);
+      }
+    } catch (e) {
+      console.warn('DB happy hour delete notice:', e);
+    }
+    const current = this.getLocalSchedules();
+    const filtered = current.filter(s => s.id !== id);
+    secureStorage.setItem(LOCAL_HAPPY_HOURS_KEY, filtered);
+    return true;
   }
 
   public async saveSchedule(schedule: Partial<HappyHourSchedule>, organizationId?: string): Promise<HappyHourSchedule> {

@@ -1078,6 +1078,19 @@ const PosScreen = () => {
     });
   };
 
+  const handleUpdateItemNotes = (itemId: string, notes: string) => {
+    setActiveOrder(prevOrder => {
+      if (!prevOrder) return null;
+      const newItems = prevOrder.items.map((item: any) => {
+        if (item.localId === itemId || item.id === itemId) {
+          return { ...item, notes: notes };
+        }
+        return item;
+      });
+      return { ...prevOrder, items: newItems };
+    });
+  };
+
   const handleAcceptOrder = async () => {
     if (!activeOrder || !activeOrder.items) {
       return;
@@ -1866,6 +1879,7 @@ const PosScreen = () => {
             onRedeemPoints={handleRedeemPoints}
             onToggleServiceCharge={handleToggleServiceCharge}
             onToggleTax={handleToggleTax}
+            onUpdateItemNotes={handleUpdateItemNotes}
           />
         </section>
 

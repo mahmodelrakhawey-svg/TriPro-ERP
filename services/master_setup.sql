@@ -779,7 +779,8 @@ min_stock numeric DEFAULT 5,
     deleted_at timestamptz,
     deletion_reason text,
     is_active boolean DEFAULT true,
-    created_at timestamptz DEFAULT now() NOT NULL
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS public.opening_inventories (
@@ -1373,6 +1374,31 @@ CREATE TABLE IF NOT EXISTS public.notification_audit_log (
   organization_id UUID REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ================================================================
+-- جدول وصفات الإنتاج (BOM - Bill of Materials)
+-- يُستخدم لتحديد مكونات كل منتج مصنّع أو وصفة مطعم
+-- ================================================================
+CREATE TABLE IF NOT EXISTS public.bill_of_materials (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    product_id      uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    raw_material_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity_required numeric(12, 4) NOT NULL DEFAULT 1,
+    shrinkage_pct   numeric(6, 2)   NOT NULL DEFAULT 0.00,
+    -- shrinkage_pct: نسبة الفاقد/الانكماش أثناء الطهي أو التحضير (0-99%)
+    -- مثال: 15 تعني أن 15% من الكمية تُهدر أثناء الطهي
+    uom_id          uuid REFERENCES public.uoms(id) ON DELETE SET NULL,
+    notes           text,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at      timestamptz DEFAULT now(),
+    updated_at      timestamptz DEFAULT now(),
+    UNIQUE (product_id, raw_material_id)
+);
+
+COMMENT ON TABLE public.bill_of_materials IS 'وصفات الإنتاج والمكونات: تحدد المواد الخام لكل منتج مصنّع أو وجبة مطعم مع نسبة الفاقد';
+COMMENT ON COLUMN public.bill_of_materials.shrinkage_pct IS 'نسبة الفاقد/الانكماش أثناء الطهي أو التحضير (0-99%). مثال: 15 = 15% فاقد';
+COMMENT ON COLUMN public.bill_of_materials.quantity_required IS 'الكمية المطلوبة من المادة الخام لإنتاج وحدة واحدة من المنتج النهائي';
+
 -- ================================================================
 -- 2.5 التقارير واللوحات البرمجية (Views)
 -- ================================================================
