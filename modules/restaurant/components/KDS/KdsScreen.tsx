@@ -8,6 +8,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { KitchenStation, kitchenStationService } from '../../../../services/kitchenStationService';
 import { cookPacingService } from '../../../../services/cookPacingService';
+import { secureStorage } from '../../../../utils/securityMiddleware';
 
 // --- أنواع البيانات ---
 type KitchenOrderItem = {
@@ -164,7 +165,7 @@ const KdsScreen = () => {
   const [tickets, setTickets] = useState<KitchenOrderTicket[]>([]);
   const [stations, setStations] = useState<KitchenStation[]>([]);
   const [selectedStationId, setSelectedStationId] = useState<string>(() => {
-    return localStorage.getItem('kds_selected_station_filter') || 'ALL';
+    return secureStorage.getItem<string>('kds_selected_station_filter') || 'ALL';
   });
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
@@ -173,7 +174,7 @@ const KdsScreen = () => {
 
   const handleSelectStation = useCallback((stId: string) => {
     setSelectedStationId(stId);
-    localStorage.setItem('kds_selected_station_filter', stId);
+    secureStorage.setItem('kds_selected_station_filter', stId);
   }, []);
 
   const stationsMap = useMemo(() => {

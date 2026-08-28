@@ -10,6 +10,7 @@ export interface ActiveOrder {
   tableId: string;
   sessionId: string | null;
   orderId?: string;
+  orderNumber?: string;
   warehouseId?: string;
   tableName: string;
   items: OrderItem[];
@@ -35,6 +36,7 @@ interface OrderSummaryProps {
   onSelectCustomer: () => void;
   onAddDiscount: () => void;
   onPayLater: () => void;
+  onRedeemPoints?: () => void;
   onToggleServiceCharge?: () => void;
   onToggleTax?: () => void;
   onUpdateItemNotes?: (itemId: string, notes: string) => void;
