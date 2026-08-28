@@ -76,12 +76,12 @@ const PatientManager = () => {
     phone: ''
   });
 
-  const queryModifier = (query: any) => {
+  const queryModifier = React.useCallback((query: any) => {
     if (searchTerm) {
       query = query.or(`full_name.ilike.%${searchTerm}%,national_id.ilike.%${searchTerm}%`);
     }
     return query;
-  };
+  }, [searchTerm]);
 
   const { data: patients, loading, refresh } = usePagination<Patient>('hims_patients', {
     select: '*',
