@@ -642,7 +642,7 @@ const UserManager = () => {
                             {(currentUserRole === 'super_admin') && <option value="super_admin">⚡ Super Admin (مدير النظام)</option>}
 
                             {/* الأدوار الأساسية دائماً ظاهرة */}
-                            <optgroup label="── الأدوار الأساسية للنظام ──">
+                            <optgroup label="── الإدارة والمحاسبة ──">
                                 <option value="admin">🛡️ Admin (مسؤول عام)</option>
                                 <option value="manager">👔 Manager (مدير فرع)</option>
                                 <option value="accountant">📊 Accountant (محاسب مالي)</option>
@@ -650,10 +650,19 @@ const UserManager = () => {
                                 <option value="owner">🏢 Owner (مالك منشأة)</option>
                             </optgroup>
 
+                            <optgroup label="── نقاط البيع والمطاعم والتشغيل ──">
+                                <option value="cashier">💵 كاشير نقطة البيع (Cashier)</option>
+                                <option value="restaurant_waiter">🍽️ كابتن صالة / ويتر (Waiter)</option>
+                                <option value="chef">🍳 شيف / طاهي مطبخ (Chef)</option>
+                                <option value="restaurant_driver">🛵 كابتن توصيل / ديلفري (Driver)</option>
+                                <option value="storekeeper">📦 أمين مخزن (Storekeeper)</option>
+                                <option value="sales">💼 مندوب مبيعات (Sales)</option>
+                            </optgroup>
+
                             {/* الأدوار المخصصة المُنشأة من صفحة الأدوار والصلاحيات */}
                             {dynamicRoles.length > 0 && (() => {
                               // فلترة الأدوار المخصصة (غير الأساسية المعروضة سلفاً)
-                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo'];
+                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'cashier', 'restaurant_waiter', 'chef', 'restaurant_driver', 'storekeeper', 'sales'];
                               const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
                               if (customRoles.length === 0) return null;
                               return (
