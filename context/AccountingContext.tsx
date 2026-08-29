@@ -487,7 +487,39 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     return { data: data || [], count: count || 0 };
   }, [currentSelectedOrgId, currentUser?.organization_id]); 
-  const addEntry = async (entry: any) => { const { error } = await supabase.rpc('add_journal_entry', entry); if (error) throw error; refreshData(); };
+  const addEntry = async (entry: any) => {
+    const targetOrgId = entry.p_org_id || entry.organization_id || currentSelectedOrgId || currentUser?.organization_id;
+    const sanitizedLines = (entry.lines || [])
+      .filter((l: any) => {
+        const accId = l.accountId || l.account_id;
+        return accId && typeof accId === 'string' && accId.trim() !== '' && (Number(l.debit) > 0 || Number(l.credit) > 0);
+      })
+      .map((l: any) => ({
+        accountId: l.accountId || l.account_id,
+        account_id: l.accountId || l.account_id,
+        debit: Number(l.debit || 0),
+        credit: Number(l.credit || 0),
+        description: l.description || entry.description || ''
+      }));
+
+    if (sanitizedLines.length === 0) {
+      console.warn('addEntry: No valid lines to post journal entry');
+      return;
+    }
+
+    const payload: any = {
+      date: entry.date || new Date().toISOString().split('T')[0],
+      description: entry.description || null,
+      reference: entry.reference || null,
+      status: entry.status || 'posted',
+      lines: sanitizedLines,
+      p_org_id: targetOrgId
+    };
+
+    const { error } = await supabase.rpc('add_journal_entry', payload);
+    if (error) throw error;
+    refreshData();
+  };
   const getSystemAccount = (key: string) => {
     const mappingId = settings.account_mappings?.[key];
     if (mappingId) return accounts.find(a => a.id === mappingId);

@@ -180,9 +180,13 @@ export default function LettersOfCreditPage() {
       const { data: projectsData } = await supabase.from('projects').select('id, name').eq('organization_id', userOrgId);
       setProjects(projectsData || []);
 
-      // Fetch Items (Materials/Inventory items)
-      const { data: itemsData } = await supabase.from('items').select('id, name, current_cost').eq('organization_id', userOrgId);
-      setItems(itemsData || []);
+      // Fetch Products (Materials/Inventory items)
+      const { data: productsData } = await supabase
+        .from('products')
+        .select('id, name, cost')
+        .eq('organization_id', userOrgId)
+        .is('deleted_at', null);
+      setItems((productsData || []).map(p => ({ id: p.id, name: p.name, current_cost: p.cost || 0 })));
 
       // Fetch Chart of Accounts
       const { data: accountsData } = await supabase.from('accounts').select('id, name, code, type').eq('organization_id', userOrgId);
