@@ -5,6 +5,7 @@ import {
   ButcheringOrderItem,
   butcheringYieldService,
   DEFAULT_BUTCHERING_TEMPLATES,
+  generateButcheringOrderNumber,
   isValidUUID
 } from '../../../../services/butcheringYieldService';
 import { supabase } from '../../../../supabaseClient';
@@ -56,7 +57,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
   const { showToast } = useToast();
 
   // 1. البيانات العامة للأمر
-  const [orderNumber, setOrderNumber] = useState(`BUT-${Date.now().toString().slice(-6)}`);
+  const [orderNumber, setOrderNumber] = useState<string>(() => generateButcheringOrderNumber());
   const [orderDate, setOrderDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [sourceProductId, setSourceProductId] = useState<string>('');
@@ -290,12 +291,15 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
     }
   };
 
-  // تطبيق القالب الافتراضي الأول عند الفتح لأول مرة
+  // إعادة توليد رقم أمر فريد وتطبيق القالب الافتراضي عند فتح النافذة
   useEffect(() => {
-    if (isOpen && outputItems.length === 0) {
-      const availableTemplates = templates.length > 0 ? templates : DEFAULT_BUTCHERING_TEMPLATES;
-      if (availableTemplates.length > 0) {
-        handleApplyTemplate(availableTemplates[0]);
+    if (isOpen) {
+      setOrderNumber(generateButcheringOrderNumber());
+      if (outputItems.length === 0) {
+        const availableTemplates = templates.length > 0 ? templates : DEFAULT_BUTCHERING_TEMPLATES;
+        if (availableTemplates.length > 0) {
+          handleApplyTemplate(availableTemplates[0]);
+        }
       }
     }
   }, [isOpen, templates]);

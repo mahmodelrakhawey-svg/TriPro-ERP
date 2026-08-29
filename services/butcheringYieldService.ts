@@ -125,6 +125,17 @@ export interface CostCalculationResult {
   items: CostCalculationOutputItem[];
 }
 
+/**
+ * دالة لتوليد رقم أمر تشفية فريد ومضمون عدم التكرار
+ */
+export const generateButcheringOrderNumber = (): string => {
+  const now = new Date();
+  const datePart = now.toISOString().slice(2, 10).replace(/-/g, ''); // YYMMDD
+  const timePart = now.toTimeString().slice(0, 8).replace(/:/g, ''); // HHMMSS
+  const rand = Math.floor(1000 + Math.random() * 9000); // 4 random digits
+  return `BUT-${datePart}-${timePart}-${rand}`;
+};
+
 // ---------------------------------------------------------------------------
 // القوالب المعيارية الافتراضية الجاهزة للاستخدام في المطاعم
 // ---------------------------------------------------------------------------
@@ -734,83 +745,104 @@ class ButcheringYieldService {
     } = params;
 
     try {
-      const orderNumber = order.order_number || `BUT-${Date.now().toString().slice(-6)}`;
+      let activeOrderNumber = order.order_number || generateButcheringOrderNumber();
       let orderId = `local_ord_${Date.now()}`;
       let journalEntryId: string | undefined;
       let journalError: string | undefined;
       let stockAdjusted = false;
       let addedItemsCount = 0;
 
-      // 1. محاولة إدخال رأس الأمر في جدول butchering_orders في Supabase
-      try {
-        const { data: createdOrder, error: orderErr } = await supabase
-          .from('butchering_orders')
-          .insert({
-            organization_id: isValidUUID(organizationId) ? organizationId : null,
-            order_number: orderNumber,
-            template_id: isValidUUID(order.template_id) ? order.template_id : null,
-            source_product_id: isValidUUID(order.source_product_id) ? order.source_product_id : null,
-            warehouse_id: isValidUUID(order.warehouse_id) ? order.warehouse_id : null,
-            destination_warehouse_id: isValidUUID(order.destination_warehouse_id)
-              ? order.destination_warehouse_id
-              : (isValidUUID(order.warehouse_id) ? order.warehouse_id : null),
-            order_date: order.order_date || new Date().toISOString().split('T')[0],
-            input_weight: Number(order.input_weight),
-            input_cost_per_kg: Number(order.input_cost_per_kg),
-            total_input_cost: Number(order.total_input_cost),
-            additional_labor_cost: Number(order.additional_labor_cost || 0),
-            additional_overhead_cost: Number(order.additional_overhead_cost || 0),
-            total_net_cost: Number(order.total_net_cost),
-            total_output_weight: Number(order.total_output_weight),
-            shrinkage_weight: Number(order.shrinkage_weight),
-            shrinkage_pct: Number(order.shrinkage_pct),
-            useful_yield_pct: Number(order.useful_yield_pct),
-            cost_allocation_method: order.cost_allocation_method || 'relative_value',
-            status: 'completed',
-            butcher_name: order.butcher_name || null,
-            notes: order.notes || null,
-            created_by: isValidUUID(userId) ? userId : null
-          })
-          .select('id')
-          .single();
+      // 1. محاولة إدخال رأس الأمر في جدول butchering_orders في Supabase مع إعادة المحاولة عند وجود تكرار
+      let createdOrder: any = null;
+      let orderErr: any = null;
 
-        if (!orderErr && createdOrder) {
-          orderId = createdOrder.id;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const res = await supabase
+            .from('butchering_orders')
+            .insert({
+              organization_id: isValidUUID(organizationId) ? organizationId : null,
+              order_number: activeOrderNumber,
+              template_id: isValidUUID(order.template_id) ? order.template_id : null,
+              source_product_id: isValidUUID(order.source_product_id) ? order.source_product_id : null,
+              warehouse_id: isValidUUID(order.warehouse_id) ? order.warehouse_id : null,
+              destination_warehouse_id: isValidUUID(order.destination_warehouse_id)
+                ? order.destination_warehouse_id
+                : (isValidUUID(order.warehouse_id) ? order.warehouse_id : null),
+              order_date: order.order_date || new Date().toISOString().split('T')[0],
+              input_weight: Number(order.input_weight),
+              input_cost_per_kg: Number(order.input_cost_per_kg),
+              total_input_cost: Number(order.total_input_cost),
+              additional_labor_cost: Number(order.additional_labor_cost || 0),
+              additional_overhead_cost: Number(order.additional_overhead_cost || 0),
+              total_net_cost: Number(order.total_net_cost),
+              total_output_weight: Number(order.total_output_weight),
+              shrinkage_weight: Number(order.shrinkage_weight),
+              shrinkage_pct: Number(order.shrinkage_pct),
+              useful_yield_pct: Number(order.useful_yield_pct),
+              cost_allocation_method: order.cost_allocation_method || 'relative_value',
+              status: 'completed',
+              butcher_name: order.butcher_name || null,
+              notes: order.notes || null,
+              created_by: isValidUUID(userId) ? userId : null
+            })
+            .select('id')
+            .single();
 
-          // إدخال البنود
-          const itemsToInsert = items.map(it => ({
-            order_id: orderId,
-            output_product_id: isValidUUID(it.output_product_id) ? it.output_product_id : null,
-            output_name: it.output_name,
-            actual_weight: Number(it.actual_weight),
-            yield_pct: Number(it.yield_pct || 0),
-            relative_value_weight: Number(it.relative_value_weight || 1.0),
-            allocated_cost_per_kg: Number(it.allocated_cost_per_kg),
-            total_allocated_cost: Number(it.total_allocated_cost),
-            is_by_product: Boolean(it.is_by_product),
-            standard_expected_weight: Number(it.standard_expected_weight || 0),
-            variance_weight: Number(it.variance_weight || 0),
-            notes: it.notes || null
-          }));
+          if (!res.error && res.data) {
+            createdOrder = res.data;
+            orderErr = null;
+            break;
+          }
 
-          const { error: itemsErr } = await supabase.from('butchering_order_items').insert(itemsToInsert);
-          if (itemsErr) console.error('❌ butchering_order_items insert error:', itemsErr.message, itemsErr.details, itemsErr.hint);
-
-        } else if (orderErr) {
-          console.error('❌ butchering_orders POST 400 — message:', orderErr.message);
-          console.error('❌ butchering_orders POST 400 — details:', orderErr.details);
-          console.error('❌ butchering_orders POST 400 — hint:', orderErr.hint);
-          console.error('❌ butchering_orders POST 400 — code:', orderErr.code);
+          orderErr = res.error;
+          // إذا كان الخطأ بسبب تكرار رقم الأمر (unique violation code 23505) نولد رقماً جديداً ونحاول مجدداً
+          if (res.error?.code === '23505' || res.error?.message?.includes('duplicate key') || res.error?.message?.includes('violates unique constraint')) {
+            console.warn(`⚠️ تكرار في رقم أمر التشفية (${activeOrderNumber})، جاري توليد رقم فريد جديد وإعادة المحاولة...`);
+            activeOrderNumber = generateButcheringOrderNumber();
+            continue;
+          } else {
+            break;
+          }
+        } catch (dbErr: any) {
+          console.error('❌ butchering_orders insert exception:', dbErr);
+          break;
         }
-      } catch (dbErr: any) {
-        console.error('❌ butchering_orders insert error — details:', dbErr?.message, dbErr?.details, dbErr?.hint, dbErr);
+      }
+
+      if (!orderErr && createdOrder) {
+        orderId = createdOrder.id;
+
+        // إدخال البنود
+        const itemsToInsert = items.map(it => ({
+          order_id: orderId,
+          output_product_id: isValidUUID(it.output_product_id) ? it.output_product_id : null,
+          output_name: it.output_name,
+          actual_weight: Number(it.actual_weight),
+          yield_pct: Number(it.yield_pct || 0),
+          relative_value_weight: Number(it.relative_value_weight || 1.0),
+          allocated_cost_per_kg: Number(it.allocated_cost_per_kg),
+          total_allocated_cost: Number(it.total_allocated_cost),
+          is_by_product: Boolean(it.is_by_product),
+          standard_expected_weight: Number(it.standard_expected_weight || 0),
+          variance_weight: Number(it.variance_weight || 0),
+          notes: it.notes || null
+        }));
+
+        const { error: itemsErr } = await supabase.from('butchering_order_items').insert(itemsToInsert);
+        if (itemsErr) console.error('❌ butchering_order_items insert error:', itemsErr.message, itemsErr.details, itemsErr.hint);
+
+      } else if (orderErr) {
+        console.error('❌ butchering_orders POST error — message:', orderErr.message);
+        console.error('❌ butchering_orders POST error — details:', orderErr.details);
+        console.error('❌ butchering_orders POST error — code:', orderErr.code);
       }
 
       // 2. حفظ في التخزين الآمن لضمان وجود السجل فوراً حتى بدون سوبابايز
       const fullOrderRecord: ButcheringOrder = {
         ...order,
         id: orderId,
-        order_number: orderNumber,
+        order_number: activeOrderNumber,
         items: items.map(it => ({ ...it, order_id: orderId }))
       };
 
@@ -832,13 +864,13 @@ class ButcheringYieldService {
         if (isSeparateWarehouses) {
           // 1. إذن صرف خام من مستودع المصدر
           if (isValidUUID(order.source_product_id) && Number(order.input_weight) > 0) {
-            const adjOutNumber = `ADJ-OUT-${orderNumber}`;
+            const adjOutNumber = `ADJ-OUT-${activeOrderNumber}`;
             const { data: docOut } = await supabase
               .from('stock_adjustments')
               .insert({
                 warehouse_id: primaryWarehouseId,
                 adjustment_date: order.order_date || new Date().toISOString().split('T')[0],
-                reason: `صرف خامات لجلسة تشفية #${orderNumber} (${order.butcher_name || 'الشيف'})`,
+                reason: `صرف خامات لجلسة تشفية #${activeOrderNumber} (${order.butcher_name || 'الشيف'})`,
                 adjustment_number: adjOutNumber,
                 status: 'posted',
                 created_by: isValidUUID(userId) ? userId : null,
@@ -862,13 +894,13 @@ class ButcheringYieldService {
           // 2. إذن إضافة قطعيات مشفاة إلى مستودع المطبخ / المقصد
           const inItems = items.filter(it => isValidUUID(it.output_product_id) && Number(it.actual_weight) > 0);
           if (inItems.length > 0) {
-            const adjInNumber = `ADJ-IN-${orderNumber}`;
+            const adjInNumber = `ADJ-IN-${activeOrderNumber}`;
             const { data: docIn } = await supabase
               .from('stock_adjustments')
               .insert({
                 warehouse_id: destinationWhId,
                 adjustment_date: order.order_date || new Date().toISOString().split('T')[0],
-                reason: `توريد قطعيات ناتجة من تشفية #${orderNumber} (${order.butcher_name || 'الشيف'})`,
+                reason: `توريد قطعيات ناتجة من تشفية #${activeOrderNumber} (${order.butcher_name || 'الشيف'})`,
                 adjustment_number: adjInNumber,
                 status: 'posted',
                 created_by: isValidUUID(userId) ? userId : null,
@@ -894,13 +926,13 @@ class ButcheringYieldService {
           }
         } else {
           // مستودع واحد للسحب والتوريد
-          const adjNumber = `ADJ-${orderNumber}`;
+          const adjNumber = `ADJ-${activeOrderNumber}`;
           const { data: adjDoc, error: adjErr } = await supabase
             .from('stock_adjustments')
             .insert({
               warehouse_id: primaryWarehouseId,
               adjustment_date: order.order_date || new Date().toISOString().split('T')[0],
-              reason: `جلسة تشفية وتفكيك #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
+              reason: `جلسة تشفية وتفكيك #${activeOrderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
               adjustment_number: adjNumber,
               status: 'posted',
               created_by: isValidUUID(userId) ? userId : null,
@@ -1069,13 +1101,13 @@ class ButcheringYieldService {
               accountId: finishedGoodsAccountId,
               debit: totalNetCost,
               credit: 0,
-              description: `إثبات إنتاج لحوم مشفاة ومجهزة - أمر تشفية رقم ${orderNumber}`
+              description: `إثبات إنتاج لحوم مشفاة ومجهزة - أمر تشفية رقم ${activeOrderNumber}`
             },
             {
               accountId: rawMaterialAccountId,
               debit: 0,
               credit: totalInputCost,
-              description: `صرف ذبائح ولحوم خام للتشفية - أمر تشفية رقم ${orderNumber}`
+              description: `صرف ذبائح ولحوم خام للتشفية - أمر تشفية رقم ${activeOrderNumber}`
             }
           ];
 
@@ -1085,7 +1117,7 @@ class ButcheringYieldService {
                 accountId: laborPayableAccountId,
                 debit: 0,
                 credit: additionalLabor,
-                description: `أجور ومصاريف جزارة وتشفية - أمر رقم ${orderNumber}`
+                description: `أجور ومصاريف جزارة وتشفية - أمر رقم ${activeOrderNumber}`
               });
             } else {
               // ضمان توازن القيد بدمج مصاريف التشغيل مع المادة الخام في الطرف الدائن إذا لم يُحدد حساب أجور
@@ -1113,8 +1145,8 @@ class ButcheringYieldService {
 
               const { data: rpcId, error: rpcErr } = await supabase.rpc('add_journal_entry', {
                 date: order.order_date,
-                reference: `JE-${orderNumber}`,
-                description: `قيد تشفية وتفكيك ذبائح - أمر تشفية #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
+                reference: `JE-${activeOrderNumber}`,
+                description: `قيد تشفية وتفكيك ذبائح - أمر تشفية #${activeOrderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
                 status: 'posted',
                 lines: rpcLines,
                 p_org_id: organizationId || null
@@ -1127,8 +1159,8 @@ class ButcheringYieldService {
                 const journalResult = await AccountingEngine.createJournalEntry({
                   organizationId: organizationId || '',
                   transactionDate: order.order_date,
-                  reference: `JE-${orderNumber}`,
-                  description: `قيد تشفية وتفكيك ذبائح - أمر تشفية #${orderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
+                  reference: `JE-${activeOrderNumber}`,
+                  description: `قيد تشفية وتفكيك ذبائح - أمر تشفية #${activeOrderNumber} (${order.butcher_name || 'الشيف المسؤول'})`,
                   lines: journalLines,
                   relatedDocumentId: orderId.startsWith('local_') ? null : orderId,
                   relatedDocumentType: 'butchering_order',
