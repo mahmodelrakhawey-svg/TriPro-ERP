@@ -1178,7 +1178,7 @@ const StockCard = () => {
                 <div className="bg-white px-6 py-2 rounded-lg border border-slate-200 shadow-sm">
                     <p className="text-xs text-slate-500 font-bold uppercase">إجمالي الرصيد (الكل)</p>
                     <p className="text-2xl font-black text-blue-600" dir="ltr">
-                        {selectedProduct?.stock || 0} <span className="text-sm font-normal text-slate-500">{selectedProduct?.unit || ''}</span>
+                        {transactions.length > 0 && !selectedWarehouseId ? transactions[0].balance : (selectedProduct?.stock || 0)} <span className="text-sm font-normal text-slate-500">{selectedProduct?.unit || ''}</span>
                     </p>
                 </div>
                 

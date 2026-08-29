@@ -616,10 +616,13 @@ BEGIN
             
             UNION ALL
             -- وارد اعتمادات مستندية (+)
-            SELECT lcri.product_id, lcri.warehouse_id, COALESCE(lcri.quantity, 0)
+            SELECT lcri.product_id, 
+                   COALESCE(lcri.warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = lcri.organization_id LIMIT 1)) as warehouse_id, 
+                   COALESCE(lcri.quantity, 0) as qty
             FROM public.lc_receipt_items lcri
-            JOIN public.letters_of_credit lc ON lcri.lc_id = lc.id
-            WHERE lc.status = 'closed' AND lcri.warehouse_id IS NOT NULL AND lcri.product_id IS NOT NULL
+            LEFT JOIN public.letters_of_credit lc ON lcri.lc_id = lc.id
+            WHERE (lc.id IS NULL OR UPPER(lc.status) != 'CANCELLED') 
+              AND lcri.product_id IS NOT NULL
               AND (v_final_org IS NULL OR lcri.organization_id = v_final_org)
             
             UNION ALL

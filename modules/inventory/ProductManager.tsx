@@ -1076,6 +1076,23 @@ const ProductManager = () => {
     }
   };
 
+  const [isRecalculatingAll, setIsRecalculatingAll] = useState(false);
+
+  const handleRecalculateStockAll = async () => {
+    if (!window.confirm('هل تريد إعادة احتساب ومزامنة أرصدة وتكاليف المخزون لجميع الأصناف بناءً على كافة الحركات والمستندات (بما في ذلك اعتمادات الاستيراد)؟')) return;
+    setIsRecalculatingAll(true);
+    try {
+      await recalculateStock();
+      await refreshData();
+      refresh();
+      showToast('تمت إعادة احتساب وتحديث أرصدة وتكاليف جميع الأصناف بنجاح ✅', 'success');
+    } catch (err: any) {
+      showToast('فشل إعادة الاحتساب: ' + err.message, 'error');
+    } finally {
+      setIsRecalculatingAll(false);
+    }
+  };
+
   const handleAddCategory = () => {
     setCategoryFormData({ id: '', name: '', image_url: '', description: '' });
     setIsCategoryModalOpen(true);
@@ -1947,6 +1964,15 @@ const ProductManager = () => {
             >
                 {isSyncingOpenings ? <Loader2 size={16} className="animate-spin text-amber-600" /> : <RefreshCw size={16} className="text-amber-600" />}
                 <span>توليد القيود الافتتاحية</span>
+            </button>
+            <button 
+                onClick={handleRecalculateStockAll} 
+                disabled={isRecalculatingAll}
+                className="bg-teal-50 border border-teal-300 text-teal-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-teal-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50" 
+                title="إعادة احتساب ومزامنة أرصدة المخزون وتكاليف جميع الأصناف من الحركات الفعلية"
+            >
+                {isRecalculatingAll ? <Loader2 size={16} className="animate-spin text-teal-600" /> : <RefreshCw size={16} className="text-teal-600" />}
+                <span>إعادة احتساب الأرصدة</span>
             </button>
             <button onClick={handleExportExcel} className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-100 text-sm font-bold" title="تصدير القائمة الحالية إلى Excel">
                 <FileSpreadsheet size={16} /> تصدير
