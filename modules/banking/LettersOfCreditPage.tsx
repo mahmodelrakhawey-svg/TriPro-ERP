@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 
 export default function LettersOfCreditPage() {
-  const { addEntry, currentUser, selectedFiscalYear, getSystemAccount, settings } = useAccounting();
+  const { addEntry, currentUser, selectedFiscalYear, getSystemAccount, settings, warehouses } = useAccounting();
   const { showToast } = useToast();
   
   const currencySymbol = settings?.currency || 'ج.م';
@@ -23,6 +23,7 @@ export default function LettersOfCreditPage() {
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [allAccounts, setAllAccounts] = useState<any[]>([]);
   const [items, setItems] = useState<any[]>([]); // Raw materials/goods for Landed Cost
+  const [receivingWarehouseId, setReceivingWarehouseId] = useState<string>('');
 
   // Selected LC for detail view / expenses
   const [selectedLc, setSelectedLc] = useState<any>(null);
@@ -431,14 +432,65 @@ export default function LettersOfCreditPage() {
         .eq('id', selectedLc.id);
       if (lcError) throw lcError;
 
+      const targetWarehouse = receivingWarehouseId || (warehouses && warehouses[0]?.id) || null;
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = selectedLc.organization_id || session?.user?.user_metadata?.org_id || currentUser?.organization_id;
+
       // 2. Loop through items and update their cost and inventory
       for (const item of closingItems) {
         if (!item.item_id) continue;
-        const { error: itemError } = await supabase.rpc('update_item_cost_and_qty', {
-          p_item_id: item.item_id,
-          p_qty: Number(item.qty),
-          p_unit_cost: Number(item.final_unit_cost)
-        });
+        const addQty = Number(item.qty) || 0;
+        const addCost = Number(item.final_unit_cost) || 0;
+
+        // Fetch current product stock and cost
+        const { data: prod } = await supabase
+          .from('products')
+          .select('id, stock, cost, weighted_average_cost, purchase_price, warehouse_stock')
+          .eq('id', item.item_id)
+          .single();
+
+        if (prod) {
+          const currentStock = Number(prod.stock) || 0;
+          const currentCost = Number(prod.weighted_average_cost || prod.cost || prod.purchase_price || 0);
+          const newStock = currentStock + addQty;
+          
+          let newWac = addCost;
+          if (currentStock > 0 && newStock > 0) {
+            newWac = ((currentStock * currentCost) + (addQty * addCost)) / newStock;
+          }
+
+          let newWStock = prod.warehouse_stock || {};
+          if (typeof newWStock !== 'object' || Array.isArray(newWStock)) newWStock = {};
+          if (targetWarehouse) {
+            newWStock[targetWarehouse] = (Number(newWStock[targetWarehouse]) || 0) + addQty;
+          }
+
+          await supabase
+            .from('products')
+            .update({
+              stock: newStock,
+              warehouse_stock: newWStock,
+              cost: parseFloat(newWac.toFixed(4)),
+              weighted_average_cost: parseFloat(newWac.toFixed(4)),
+              purchase_price: addCost > 0 ? addCost : prod.purchase_price,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', item.item_id);
+
+          // تسجيل حركة استلام وتوريد بضاعة الاعتماد المستندي
+          await supabase.from('lc_receipt_items').insert({
+            organization_id: userOrgId,
+            lc_id: selectedLc.id,
+            product_id: item.item_id,
+            warehouse_id: targetWarehouse,
+            quantity: addQty,
+            unit_price: Number(item.original_price) || 0,
+            allocated_expense: Number(item.allocated_cost) || 0,
+            final_unit_cost: addCost,
+            receipt_date: new Date().toISOString().split('T')[0],
+            notes: `استلام بضاعة شحنة الاعتماد المستندي رقم ${selectedLc.lc_number}`
+          });
+        }
       }
 
       // 3. Post Journal Entry to Close LC and receive to Inventory Raw Materials (10301)
@@ -1356,7 +1408,7 @@ export default function LettersOfCreditPage() {
             </div>
 
             <form onSubmit={handleCloseAndAllocate} className="p-6 space-y-6 text-sm">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-6 shadow-inner">
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-4 gap-4 shadow-inner">
                 <div>
                   <span className="font-bold text-slate-500 block mb-1">رقم الاعتماد المستندي</span>
                   <span className="font-mono font-black text-slate-800 text-lg">{selectedLc.lc_number}</span>
@@ -1370,6 +1422,20 @@ export default function LettersOfCreditPage() {
                   <span className="font-black text-rose-600 text-lg">
                     {expenses.reduce((acc, curr) => acc + Number(curr.amount), 0).toLocaleString()} <span className="text-xs text-rose-500">{currencySymbol}</span>
                   </span>
+                </div>
+                <div>
+                  <label className="font-bold text-slate-700 block mb-1">المستودع المستلم للبضاعة <span className="text-rose-500">*</span></label>
+                  <select
+                    required
+                    value={receivingWarehouseId || (warehouses && warehouses[0]?.id) || ''}
+                    onChange={(e) => setReceivingWarehouseId(e.target.value)}
+                    className="w-full p-2 border border-emerald-300 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-bold"
+                  >
+                    <option value="">اختر المستودع...</option>
+                    {warehouses.map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 

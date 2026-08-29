@@ -250,13 +250,25 @@ const StockCard = () => {
 
       if (selectedWarehouseId) queryConstruction = queryConstruction.eq('project_material_issues.warehouse_id', selectedWarehouseId);
 
+      // جلب حركات وارد الاستيراد من الاعتمادات المستندية (Letters of Credit Receipts)
+      let queryLc = supabase
+        .from('lc_receipt_items')
+        .select(`
+          id, quantity, unit_price, final_unit_cost, warehouse_id, receipt_date, notes, created_at,
+          letters_of_credit!inner(id, lc_number, status)
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId);
+
+      if (selectedWarehouseId) queryLc = queryLc.eq('warehouse_id', selectedWarehouseId);
+
       // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual, hims, construction] = await Promise.all([
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual, hims, construction, lcReceipts] = await Promise.all([
         querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
         queryRestDirect,
         queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
         queryMfgFinished, queryMfgRaw, queryMfgScrap, queryMfgActual,
-        queryHims, queryConstruction
+        queryHims, queryConstruction, queryLc
       ]);
 
       const allTxns: Transaction[] = [];
@@ -307,6 +319,22 @@ const StockCard = () => {
           warehouseName: getWName(item.purchase_invoices.warehouse_id),
           createdAt: item.purchase_invoices.created_at,
           notes: item.purchase_invoices.notes
+        });
+      });
+
+      // معالجة استلام بضائع الاعتمادات المستندية (وارد)
+      lcReceipts.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `LC-${item.id}`,
+          date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          type: 'IN',
+          quantity: Number(item.quantity) || 0,
+          uomId: null,
+          documentType: 'توريد اعتماد مستندي',
+          documentNumber: item.letters_of_credit?.lc_number || '-',
+          warehouseName: getWName(item.warehouse_id),
+          createdAt: item.created_at,
+          notes: item.notes || `استلام بضاعة شحنة اعتماد مستندي رقم ${item.letters_of_credit?.lc_number || ''}`
         });
       });
 

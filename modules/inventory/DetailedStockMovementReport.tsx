@@ -127,6 +127,35 @@ const DetailedStockMovementReport = () => {
         });
       });
 
+      // 2.1 وارد اعتمادات مستندية (Letters of Credit Receipts) - إدخال (IN)
+      let lcQuery = supabase
+        .from('lc_receipt_items')
+        .select('quantity, product_id, receipt_date, notes, products(name, base_uom_id, unit), warehouses(name), letters_of_credit!inner(id, lc_number, status)')
+        .eq('organization_id', userOrgId)
+        .gte('receipt_date', startDate)
+        .lte('receipt_date', endDate);
+
+      if (selectedProduct) lcQuery = lcQuery.eq('product_id', selectedProduct);
+      if (selectedWarehouse) lcQuery = lcQuery.eq('warehouse_id', selectedWarehouse);
+
+      const { data: lcReceipts } = await lcQuery;
+      lcReceipts?.forEach((item: any) => {
+        allMovements.push({
+          id: `LC-${item.letters_of_credit?.lc_number}-${item.product_id}`,
+          date: item.receipt_date,
+          type: 'IN',
+          docType: 'توريد اعتماد مستندي',
+          docNumber: item.letters_of_credit?.lc_number || '-',
+          productName: item.products?.name,
+          quantity: item.quantity,
+          uomId: null,
+          baseUomId: item.products?.base_uom_id,
+          baseUnitName: item.products?.unit,
+          warehouseName: item.warehouses?.name || 'المستودع الرئيسي',
+          notes: item.notes || 'استلام بضاعة شحنة اعتماد مستندي'
+        });
+      });
+
       // 3. مرتجع مبيعات (Sales Return) - إدخال (IN)
       let salesRetQuery = supabase
         .from('sales_return_items')

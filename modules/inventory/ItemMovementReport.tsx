@@ -91,6 +91,16 @@ const ItemMovementReport = () => {
       if (selectedWarehouseId) purchaseQuery = purchaseQuery.eq('purchase_invoices.warehouse_id', selectedWarehouseId);
       const { data: purchaseItems } = await purchaseQuery;
 
+      // 2.1 جلب حركات توريد الاعتمادات المستندية (LC Receipts) - وارد
+      let lcQuery = supabase
+        .from('lc_receipt_items')
+        .select('quantity, receipt_date, notes, created_at, warehouse_id, letters_of_credit!inner(id, lc_number, status)')
+        .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId);
+
+      if (selectedWarehouseId) lcQuery = lcQuery.eq('warehouse_id', selectedWarehouseId);
+      const { data: lcReceipts } = await lcQuery;
+
       // 3. جلب مرتجعات المبيعات (Sales Returns) - وارد
       let salesReturnsQuery = supabase
         .from('sales_return_items')
@@ -320,6 +330,18 @@ const ItemMovementReport = () => {
               documentType: 'فاتورة مشتريات',
               documentNumber: item.purchase_invoices.invoice_number,
               userName: getUserName(item.purchase_invoices.created_by)
+          });
+      });
+
+      lcReceipts?.forEach((item: any) => {
+          allMovements.push({
+              date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+              type: 'in',
+              quantity: Number(item.quantity) || 0,
+              documentType: 'توريد اعتماد مستندي',
+              documentNumber: item.letters_of_credit?.lc_number || '-',
+              description: item.notes || `استلام بضاعة شحنة اعتماد مستندي رقم ${item.letters_of_credit?.lc_number || ''}`,
+              userName: 'النظام المحاسبي'
           });
       });
 

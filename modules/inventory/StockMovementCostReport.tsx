@@ -192,10 +192,17 @@ const StockMovementCostReport = () => {
         .eq('project_material_issues.status', 'approved')
         .eq('organization_id', userOrgId);
 
+      // 12. وارد اعتمادات مستندية (Letters of Credit Receipts) - وارد (in)
+      let queryLc = supabase
+        .from('lc_receipt_items')
+        .select('id, quantity, unit_price, final_unit_cost, warehouse_id, receipt_date, notes, created_at, letters_of_credit!inner(id, lc_number, status)')
+        .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId);
+
       // تنفيذ الاستعلامات بالتوازي وجلب البيانات الفعلية بشكل منضبط
-      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption, hims, construction] = await Promise.all([
+      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption, hims, construction, lcReceipts] = await Promise.all([
         querySales, queryPurchases, queryAdjustments, querySalesReturns, queryPurchaseReturns, mfgInQuery, mfgOutQuery, mfgScrapQuery, queryOpening, queryTransfers, queryRestDirect, queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
-        queryHims, queryConstruction
+        queryHims, queryConstruction, queryLc
       ]);
 
       // تجميع الحركات
@@ -234,6 +241,18 @@ const StockMovementCostReport = () => {
               unitCost: Number(item.unit_price || 0),
               documentType: 'فاتورة مشتريات',
               documentNumber: item.purchase_invoices.invoice_number
+          });
+      });
+
+      lcReceipts.data?.forEach((item: any) => {
+          allMovements.push({
+              date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+              type: 'in',
+              quantity: Number(item.quantity) || 0,
+              unitCost: Number(item.final_unit_cost || item.unit_price || 0),
+              documentType: 'توريد اعتماد مستندي',
+              documentNumber: item.letters_of_credit?.lc_number || '-',
+              warehouseName: getWName(item.warehouse_id)
           });
       });
 

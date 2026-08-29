@@ -615,6 +615,14 @@ BEGIN
             WHERE UPPER(pi.status) NOT IN ('DRAFT', 'CANCELLED') AND pi.warehouse_id IS NOT NULL AND pii.product_id IS NOT NULL AND (v_final_org IS NULL OR pi.organization_id = v_final_org)
             
             UNION ALL
+            -- وارد اعتمادات مستندية (+)
+            SELECT lcri.product_id, lcri.warehouse_id, COALESCE(lcri.quantity, 0)
+            FROM public.lc_receipt_items lcri
+            JOIN public.letters_of_credit lc ON lcri.lc_id = lc.id
+            WHERE lc.status = 'closed' AND lcri.warehouse_id IS NOT NULL AND lcri.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR lcri.organization_id = v_final_org)
+            
+            UNION ALL
             -- مبيعات (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
             SELECT ii.product_id, i.warehouse_id, -public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id)
             FROM public.invoice_items ii
