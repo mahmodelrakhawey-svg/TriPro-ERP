@@ -57,6 +57,7 @@ export const SYSTEM_ACCOUNTS = {
   SERVICE_CHARGE_REVENUE: '41104', // إيرادات رسوم الخدمة (المطاعم)
   HIMS_BILLING_REVENUE: '41101', // إيرادات الخدمات الطبية
   HIMS_INSURANCE_RECEIVABLE: '122101', // ذمم التأمين
+  LETTER_OF_GUARANTEE_MARGIN: '1248', // غطاء خطابات ضمان لدى البنوك
 };
 
 interface AccountingContextType {

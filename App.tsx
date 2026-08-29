@@ -76,6 +76,7 @@ import Login from './components/Login';
 import UserManager from './components/UserManager';
 import Settings from './components/Settings';
 import { ChequesPage } from './modules/banking/ChequesPage';
+import LettersOfGuaranteePage from './modules/banking/LettersOfGuaranteePage';
 import AssetManager from './modules/assets/AssetManager';
 import EmployeeManager from './modules/hr/components/EmployeeManager';
 import PayrollRun from './modules/hr/components/PayrollRun';
@@ -587,6 +588,7 @@ const MainLayout = () => {
                 <Route path="/transfer" element={<ModuleGuard module="accounting"><TransferForm /></ModuleGuard>} />
                 <Route path="/customer-deposit" element={<ModuleGuard module="accounting"><CustomerDepositForm /></ModuleGuard>} />
                 <Route path="/cheques" element={<ModuleGuard module="accounting"><ChequesPage /></ModuleGuard>} />
+                <Route path="/letters-of-guarantee" element={<ModuleGuard module="accounting"><LettersOfGuaranteePage /></ModuleGuard>} />
                 <Route path="/cheque-movement-report" element={<ModuleGuard module="accounting"><ChequeMovementReport /></ModuleGuard>} />
                 <Route path="/returned-cheques-report" element={<ModuleGuard module="accounting"><ReturnedChequesReport /></ModuleGuard>} />
                 <Route path="/bank-reconciliation" element={<ModuleGuard module="accounting"><BankReconciliationForm /></ModuleGuard>} />

@@ -50,6 +50,7 @@ const ACCOUNT_LABELS: Record<string, string> = {
   EQUIPMENT_INTERNAL_REVENUE: 'إيراد تشغيل معدات داخلي (425)',
   CONSTRUCTION_REVENUE: 'إيراد عقود ومشاريع / مستخلصات (41103)',
   SERVICE_CHARGE_REVENUE: 'إيرادات رسوم الخدمة (المطاعم) (41104)',
+  LETTER_OF_GUARANTEE_MARGIN: 'غطاء خطابات ضمان لدى البنوك (1248)',
 };
 
 interface CloudBackup {
