@@ -925,9 +925,65 @@ const Settings = () => {
           }
       }
 
+      // إنشاء حساب غطاء خطابات الضمان 1248 تلقائياً إذا لم يكن موجوداً
+      if (orgId && !currentAccs.some(acc => acc.code === '1248' || acc.code?.startsWith('1248'))) {
+          try {
+              const parent124 = currentAccs.find(acc => acc.code === '124') || currentAccs.find(acc => acc.code === '12') || currentAccs.find(acc => acc.code === '1');
+              const { data: createdAcc, error: createErr } = await supabase.from('accounts').insert({
+                  organization_id: orgId,
+                  code: '1248',
+                  name: 'غطاء خطابات الضمان لدى البنوك',
+                  type: 'ASSET',
+                  is_group: false,
+                  is_active: true,
+                  parent_id: parent124?.id || null
+              }).select().maybeSingle();
+              if (!createErr && createdAcc) {
+                  currentAccs.push(createdAcc);
+              }
+          } catch (e) {
+              console.error('Failed to auto-create 1248 account:', e);
+          }
+      }
+
+      // إنشاء حساب اعتمادات مستندية 1246 تلقائياً إذا لم يكن موجوداً
+      if (orgId && !currentAccs.some(acc => acc.code === '1246' || acc.code?.startsWith('1246'))) {
+          try {
+              const parent124 = currentAccs.find(acc => acc.code === '124') || currentAccs.find(acc => acc.code === '12') || currentAccs.find(acc => acc.code === '1');
+              const { data: createdAcc, error: createErr } = await supabase.from('accounts').insert({
+                  organization_id: orgId,
+                  code: '1246',
+                  name: 'اعتمادات مستندية لشراء بضائع',
+                  type: 'ASSET',
+                  is_group: false,
+                  is_active: true,
+                  parent_id: parent124?.id || null
+              }).select().maybeSingle();
+              if (!createErr && createdAcc) {
+                  currentAccs.push(createdAcc);
+              }
+          } catch (e) {
+              console.error('Failed to auto-create 1246 account:', e);
+          }
+      }
+
+      // بحث اسمي (fallback) لحسابات بنكية محددة
+      const nameFallbacks: Record<string, (acc: any) => boolean> = {
+          LETTER_OF_GUARANTEE_MARGIN: (acc) =>
+              acc.code === '1248' || acc.code?.startsWith('1248') ||
+              acc.name?.includes('غطاء خطابات ضمان') || acc.name?.includes('غطاء خطابات الضمان') || acc.name?.includes('غطاء الضمان'),
+          LETTER_OF_CREDIT_GOODS: (acc) =>
+              acc.code === '1246' || acc.code?.startsWith('1246') ||
+              acc.name?.includes('اعتمادات مستندية') || acc.name?.includes('اعتماد مستندي') || acc.name?.includes('خطابات اعتماد'),
+      };
+
       Object.entries(mappingSource).forEach(([key, defaultCode]) => {
           // البحث عن الحساب بالكود الافتراضي بشرط ألا يكون حساباً تجميعياً
-          const matchedAccount = currentAccs.find(acc => acc.code === defaultCode && !acc.isGroup);
+          let matchedAccount = currentAccs.find(acc => acc.code === defaultCode && !acc.isGroup);
+          // fallback بالاسم للحسابات التي لا تجد كوداً مطابقاً تماماً
+          if (!matchedAccount && nameFallbacks[key]) {
+              matchedAccount = currentAccs.find(acc => !acc.isGroup && nameFallbacks[key](acc));
+          }
           if (matchedAccount) {
               newMappings[key] = matchedAccount.id;
               linkedCount++;

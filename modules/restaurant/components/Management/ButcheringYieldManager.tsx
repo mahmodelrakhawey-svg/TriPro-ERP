@@ -77,7 +77,7 @@ export const ButcheringYieldManager: React.FC = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentSelectedOrgId, currentUser?.organization_id]);
 
   // Filtered Orders
   const filteredOrders = useMemo(() => {

@@ -5,7 +5,8 @@ import { useToast } from '../../context/ToastContext';
 import { 
   Landmark, Plus, Edit, Trash2, Calendar, Search, Filter, 
   ArrowUpRight, RefreshCw, AlertTriangle, FileText, CheckCircle, Ban, 
-  Percent, Coins, ClipboardList, HelpCircle
+  Percent, Coins, ClipboardList, HelpCircle,
+  Shield, TrendingUp, Activity, Printer, History, Building2, X
 } from 'lucide-react';
 
 export default function LettersOfGuaranteePage() {
@@ -28,11 +29,17 @@ export default function LettersOfGuaranteePage() {
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [showLiquidateModal, setShowLiquidateModal] = useState(false);
   const [selectedLg, setSelectedLg] = useState<any>(null);
+  
+  // Detail Panel State
+  const [selectedLgDetail, setSelectedLgDetail] = useState<any>(null);
 
   // Filter States
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [bankFilter, setBankFilter] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
 
   // Main Form Data
   const [formData, setFormData] = useState({
@@ -93,7 +100,7 @@ export default function LettersOfGuaranteePage() {
     try {
       if (currentUser?.role === 'demo') {
         // Demo Data
-        setLgs([
+        const demoLgs = [
           {
             id: 'demo-lg-1',
             lg_number: 'LG-2026-001',
@@ -136,7 +143,8 @@ export default function LettersOfGuaranteePage() {
             margin_account: { name: 'حساب غطاء خطابات الضمان' },
             project: { name: 'مشروع الفلل السكنية - المرحلة الأولى' }
           }
-        ]);
+        ];
+        setLgs(demoLgs);
         setProjects([{ id: 'demo-p1', name: 'مشروع الفلل السكنية - المرحلة الأولى' }]);
         setBanks([{ id: 'demo-b1', name: 'بنك الرياض', code: '101021' }]);
         setAllAccounts([
@@ -144,6 +152,13 @@ export default function LettersOfGuaranteePage() {
           { id: 'demo-acc-margin', name: 'حساب غطاء خطابات الضمان', code: '124801', type: 'asset' },
           { id: 'demo-acc-exp', name: 'مصاريف وعمولات بنكية', code: '3901', type: 'expense' }
         ]);
+        
+        // Update selected detailing if one is selected
+        if (selectedLgDetail) {
+           const updated = demoLgs.find(l => l.id === selectedLgDetail.id);
+           setSelectedLgDetail(updated || null);
+        }
+
         setLoading(false);
         return;
       }
@@ -173,6 +188,11 @@ export default function LettersOfGuaranteePage() {
       const { data: lgsData, error: lgsError } = await query;
       if (lgsError) throw lgsError;
       setLgs(lgsData || []);
+      
+      if (selectedLgDetail && lgsData) {
+        const updated = lgsData.find((l: any) => l.id === selectedLgDetail.id);
+        setSelectedLgDetail(updated || null);
+      }
 
       // Fetch Projects
       const { data: projectsData } = await supabase.from('projects').select('id, name').eq('organization_id', userOrgId);
@@ -237,6 +257,7 @@ export default function LettersOfGuaranteePage() {
       if (currentUser?.role === 'demo') {
         showToast('تم حفظ خطاب الضمان (نسخة تجريبية) ✅', 'success');
         setShowAddModal(false);
+        fetchData();
         return;
       }
 
@@ -320,6 +341,7 @@ export default function LettersOfGuaranteePage() {
     try {
       if (currentUser?.role === 'demo') {
         setLgs(prev => prev.filter(lg => lg.id !== id));
+        if (selectedLgDetail?.id === id) setSelectedLgDetail(null);
         showToast('تم حذف خطاب الضمان (نسخة تجريبية) 🗑️', 'success');
         return;
       }
@@ -327,6 +349,7 @@ export default function LettersOfGuaranteePage() {
       const { error } = await supabase.from('letters_of_guarantee').delete().eq('id', id);
       if (error) throw error;
       showToast('تم حذف خطاب الضمان بنجاح 🗑️', 'success');
+      if (selectedLgDetail?.id === id) setSelectedLgDetail(null);
       fetchData();
     } catch (err: any) {
       showToast('فشل حذف خطاب الضمان: ' + err.message, 'error');
@@ -345,6 +368,7 @@ export default function LettersOfGuaranteePage() {
       if (currentUser?.role === 'demo') {
         showToast('تم تمديد خطاب الضمان بنجاح (نسخة تجريبية)', 'success');
         setShowExtendModal(false);
+        fetchData();
         return;
       }
 
@@ -401,6 +425,7 @@ export default function LettersOfGuaranteePage() {
       if (currentUser?.role === 'demo') {
         showToast('تم إلغاء واسترداد خطاب الضمان (نسخة تجريبية)', 'success');
         setShowReturnModal(false);
+        fetchData();
         return;
       }
 
@@ -459,6 +484,7 @@ export default function LettersOfGuaranteePage() {
       if (currentUser?.role === 'demo') {
         showToast('تم تسييل ومصادرة خطاب الضمان (نسخة تجريبية)', 'success');
         setShowLiquidateModal(false);
+        fetchData();
         return;
       }
 
@@ -519,6 +545,98 @@ export default function LettersOfGuaranteePage() {
     }
   };
 
+  const printLg = (lg: any) => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    
+    const html = `
+      <html dir="rtl">
+        <head>
+          <title>طباعة خطاب ضمان - ${lg.lg_number}</title>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; color: #333; line-height: 1.6; direction: rtl; text-align: right; }
+            .header { text-align: center; margin-bottom: 40px; border-bottom: 2px solid #ddd; padding-bottom: 20px; }
+            .title { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
+            .subtitle { font-size: 16px; color: #666; }
+            .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 30px; }
+            .label { font-size: 12px; color: #777; margin-bottom: 4px; font-weight: bold; }
+            .value { font-size: 16px; font-weight: bold; }
+            .section-title { font-size: 18px; font-weight: bold; margin: 30px 0 15px 0; border-bottom: 1px solid #eee; padding-bottom: 5px; color: #444; }
+            .box { border: 1px solid #ddd; padding: 15px; border-radius: 8px; background: #fafafa; }
+            @media print { body { -webkit-print-color-adjust: exact; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">خطاب ضمان بنكي</div>
+            <div class="subtitle">رقم: ${lg.lg_number}</div>
+          </div>
+          
+          <div class="grid">
+            <div>
+              <div class="label">تاريخ الإصدار</div>
+              <div class="value">${lg.issue_date}</div>
+            </div>
+            <div>
+              <div class="label">تاريخ الانتهاء</div>
+              <div class="value">${lg.expiry_date}</div>
+            </div>
+            <div>
+              <div class="label">المستفيد</div>
+              <div class="value">${lg.beneficiary}</div>
+            </div>
+            <div>
+              <div class="label">البنك المصدر</div>
+              <div class="value">${lg.issuing_bank?.name || 'غير محدد'}</div>
+            </div>
+          </div>
+  
+          <div class="section-title">التفاصيل المالية</div>
+          <div class="grid box">
+            <div>
+              <div class="label">القيمة الإجمالية</div>
+              <div class="value">${lg.amount.toLocaleString()}</div>
+            </div>
+            <div>
+              <div class="label">نسبة الغطاء</div>
+              <div class="value">${lg.margin_percentage}%</div>
+            </div>
+            <div>
+              <div class="label">قيمة الغطاء</div>
+              <div class="value">${lg.margin_amount.toLocaleString()}</div>
+            </div>
+            <div>
+              <div class="label">العمولات البنكية</div>
+              <div class="value">${lg.commission_amount.toLocaleString()}</div>
+            </div>
+          </div>
+          
+          <div class="section-title">معلومات إضافية</div>
+          <div class="grid">
+            <div>
+              <div class="label">نوع الخطاب</div>
+              <div class="value">${getTypeText(lg.type)}</div>
+            </div>
+            <div>
+              <div class="label">المشروع</div>
+              <div class="value">${lg.project?.name || '-'}</div>
+            </div>
+            <div style="grid-column: span 2">
+              <div class="label">الملاحظات</div>
+              <div class="value" style="white-space: pre-line">${lg.notes || 'لا يوجد'}</div>
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+    
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.onload = () => {
+      printWindow.print();
+    };
+  };
+
   // Helper functions
   const getStatusText = (status: string) => {
     switch (status) {
@@ -555,37 +673,75 @@ export default function LettersOfGuaranteePage() {
     }
   };
 
+  const getActionHistory = (notes: string) => {
+    if (!notes) return [];
+    const lines = notes.split('\n');
+    return lines.filter(line => line.startsWith('[تمديد') || line.startsWith('[استرداد') || line.startsWith('[تسييل'));
+  };
+
+  const getProgress = (issue: string, expiry: string) => {
+    const start = new Date(issue).getTime();
+    const end = new Date(expiry).getTime();
+    const now = new Date().getTime();
+    if (now >= end) return 100;
+    if (now <= start) return 0;
+    return ((now - start) / (end - start)) * 100;
+  };
+
+  const getStatusColor = (status: string) => {
+    if (status === 'active') return 'border-r-emerald-500';
+    if (status === 'extended') return 'border-r-blue-500';
+    if (status === 'returned') return 'border-r-slate-400';
+    if (status === 'liquidated') return 'border-r-rose-500';
+    return 'border-r-transparent';
+  };
+
   // Filter logic
   const filteredLgs = lgs.filter(lg => {
     const matchesStatus = statusFilter === 'all' || lg.status === statusFilter;
     const matchesType = typeFilter === 'all' || lg.type === typeFilter;
+    const matchesBank = bankFilter === 'all' || lg.issuing_bank_id === bankFilter;
+    
+    let matchesDate = true;
+    if (dateFrom) matchesDate = matchesDate && new Date(lg.issue_date) >= new Date(dateFrom);
+    if (dateTo) matchesDate = matchesDate && new Date(lg.issue_date) <= new Date(dateTo);
+
     const matchesSearch = 
       lg.lg_number.toLowerCase().includes(searchTerm.toLowerCase()) || 
       lg.beneficiary.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (lg.project?.name && lg.project.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesStatus && matchesType && matchesSearch;
+    return matchesStatus && matchesType && matchesBank && matchesDate && matchesSearch;
   });
 
   // Calculate statistics
   const activeLgs = lgs.filter(lg => lg.status === 'active' || lg.status === 'extended');
   const totalAmount = activeLgs.reduce((acc, curr) => acc + Number(curr.amount), 0);
   const totalMargin = activeLgs.reduce((acc, curr) => acc + Number(curr.margin_amount), 0);
+  const totalCommissions = lgs.reduce((acc, curr) => acc + Number(curr.commission_amount || 0), 0);
   
-  const soonToExpireCount = activeLgs.filter(lg => {
+  const soonToExpire30Count = activeLgs.filter(lg => {
     const daysLeft = Math.ceil((new Date(lg.expiry_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-    return daysLeft >= 0 && daysLeft <= 15;
+    return daysLeft >= 0 && daysLeft <= 30;
   }).length;
+
+  const urgentExpiringLgs = activeLgs.filter(lg => {
+    const daysLeft = Math.ceil((new Date(lg.expiry_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+    return daysLeft >= 0 && daysLeft <= 7;
+  });
 
   return (
     <div className="p-6 space-y-6 text-slate-800" dir="rtl">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
-            <Landmark className="text-amber-500" size={28} />
-            إدارة خطابات الضمان البنكية (Letters of Guarantee)
+      {/* Enhanced Header */}
+      <div className="bg-gradient-to-l from-indigo-900 to-slate-800 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-6 shadow-lg relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-8 opacity-10 pointer-events-none">
+          <Shield size={120} />
+        </div>
+        <div className="relative z-10">
+          <h1 className="text-2xl md:text-3xl font-black text-white flex items-center gap-3">
+            <Landmark className="text-amber-400" size={32} />
+            إدارة خطابات الضمان البنكية
           </h1>
-          <p className="text-slate-500 text-sm mt-1">تتبع خطابات الضمان الصادرة، الأغطية النقدية والعمولات، والتسويات والقيود المحاسبية التلقائية.</p>
+          <p className="text-indigo-100 text-sm md:text-base mt-2">تتبع ومراقبة خطابات الضمان، الأغطية النقدية، والقيود المحاسبية الآلية بدقة.</p>
         </div>
         <button 
           onClick={() => {
@@ -612,79 +768,147 @@ export default function LettersOfGuaranteePage() {
             });
             setShowAddModal(true);
           }}
-          className="bg-indigo-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-indigo-700 transition shadow-sm"
+          className="relative z-10 bg-amber-500 text-amber-950 px-5 py-3 rounded-xl flex items-center gap-2 font-black hover:bg-amber-400 transition shadow-lg shrink-0"
         >
-          <Plus size={18} /> إصدار خطاب ضمان جديد
+          <Plus size={20} /> إصدار خطاب ضمان
         </button>
       </div>
 
-      {/* Stats Board */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-slate-500">إجمالي الضمانات النشطة</p>
-            <p className="text-2xl font-black text-slate-900 mt-1">{totalAmount.toLocaleString()} <span className="text-xs font-semibold text-slate-400">{currencySymbol}</span></p>
+      {/* 5 KPIs Board */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-indigo-300 transition">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-xs font-bold text-slate-500">إجمالي الضمانات النشطة</p>
+            <div className="p-2 bg-gradient-to-br from-indigo-100 to-indigo-50 text-indigo-600 rounded-lg group-hover:scale-110 transition">
+              <Landmark size={18} />
+            </div>
           </div>
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-lg">
-            <Landmark size={24} />
-          </div>
+          <p className="text-xl font-black text-slate-900">{totalAmount.toLocaleString()} <span className="text-[10px] font-semibold text-slate-400">{currencySymbol}</span></p>
         </div>
 
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-slate-500">إجمالي غطاء الضمان المحجوز</p>
-            <p className="text-2xl font-black text-emerald-700 mt-1">{totalMargin.toLocaleString()} <span className="text-xs font-semibold text-slate-400">{currencySymbol}</span></p>
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-emerald-300 transition">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-xs font-bold text-slate-500">إجمالي الغطاء المحجوز</p>
+            <div className="p-2 bg-gradient-to-br from-emerald-100 to-emerald-50 text-emerald-600 rounded-lg group-hover:scale-110 transition">
+              <Shield size={18} />
+            </div>
           </div>
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-lg">
-            <Coins size={24} />
-          </div>
+          <p className="text-xl font-black text-emerald-700">{totalMargin.toLocaleString()} <span className="text-[10px] font-semibold text-slate-400">{currencySymbol}</span></p>
         </div>
 
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-slate-500">عدد الخطابات النشطة</p>
-            <p className="text-2xl font-black text-indigo-900 mt-1">{activeLgs.length} <span className="text-xs font-semibold text-slate-400">خطاب</span></p>
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-amber-300 transition">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-xs font-bold text-slate-500">الخطابات النشطة</p>
+            <div className="p-2 bg-gradient-to-br from-amber-100 to-amber-50 text-amber-600 rounded-lg group-hover:scale-110 transition">
+              <Activity size={18} />
+            </div>
           </div>
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-lg">
-            <ClipboardList size={24} />
-          </div>
+          <p className="text-xl font-black text-indigo-900">{activeLgs.length} <span className="text-[10px] font-semibold text-slate-400">خطاب</span></p>
         </div>
 
-        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-slate-500">خطابات تنتهي قريباً (≤١٥ يوم)</p>
-            <p className={`text-2xl font-black mt-1 ${soonToExpireCount > 0 ? 'text-rose-600' : 'text-slate-900'}`}>{soonToExpireCount} <span className="text-xs font-semibold text-slate-400">خطاب</span></p>
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-rose-300 transition relative overflow-hidden">
+          {soonToExpire30Count > 0 && <div className="absolute top-0 right-0 w-2 h-2 bg-rose-500 rounded-full m-3 animate-ping"></div>}
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-xs font-bold text-slate-500">تنتهي قريباً (≤٣٠ يوم)</p>
+            <div className={`p-2 rounded-lg transition ${soonToExpire30Count > 0 ? 'bg-gradient-to-br from-rose-100 to-rose-50 text-rose-600 group-hover:scale-110' : 'bg-slate-50 text-slate-400'}`}>
+              <AlertTriangle size={18} />
+            </div>
           </div>
-          <div className={`p-3 rounded-lg ${soonToExpireCount > 0 ? 'bg-rose-50 text-rose-600 animate-pulse' : 'bg-slate-50 text-slate-600'}`}>
-            <AlertTriangle size={24} />
+          <p className={`text-xl font-black ${soonToExpire30Count > 0 ? 'text-rose-600' : 'text-slate-900'}`}>{soonToExpire30Count} <span className="text-[10px] font-semibold text-slate-400">خطاب</span></p>
+        </div>
+
+        <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex flex-col justify-between group hover:border-purple-300 transition">
+          <div className="flex justify-between items-start mb-2">
+            <p className="text-xs font-bold text-slate-500">إجمالي العمولات البنكية</p>
+            <div className="p-2 bg-gradient-to-br from-purple-100 to-purple-50 text-purple-600 rounded-lg group-hover:scale-110 transition">
+              <TrendingUp size={18} />
+            </div>
           </div>
+          <p className="text-xl font-black text-purple-700">{totalCommissions.toLocaleString()} <span className="text-[10px] font-semibold text-slate-400">{currencySymbol}</span></p>
         </div>
       </div>
 
+      {/* Expiry Alert Banner */}
+      {urgentExpiringLgs.length > 0 && (
+        <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start gap-4">
+          <div className="bg-rose-100 p-2 rounded-full text-rose-600 shrink-0">
+            <AlertTriangle size={24} />
+          </div>
+          <div>
+            <h4 className="font-bold text-rose-800 text-sm md:text-base">تنبيه هام! يوجد خطابات ضمان تنتهي خلال أسبوع (أو أقل)</h4>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {urgentExpiringLgs.map(lg => {
+                const daysLeft = Math.ceil((new Date(lg.expiry_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+                return (
+                  <button 
+                    key={lg.id}
+                    onClick={() => setSelectedLgDetail(lg)}
+                    className="bg-white border border-rose-200 text-rose-700 text-xs px-3 py-1.5 rounded-full font-bold hover:bg-rose-100 transition shadow-sm"
+                  >
+                    {lg.lg_number} (باقي {daysLeft} أيام)
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Filters bar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
-        {/* Search */}
-        <div className="relative w-full md:w-80">
+        <div className="relative w-full md:w-64 shrink-0">
           <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
             <Search size={16} />
           </span>
           <input
             type="text"
-            placeholder="البحث برقم الخطاب أو المستفيد..."
+            placeholder="البحث برقم، مستفيد، مشروع..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pr-10 pl-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="w-full pr-10 pl-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:bg-white transition"
           />
         </div>
 
-        {/* Dropdowns */}
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 w-full sm:w-auto">
+            <Calendar size={14} className="text-slate-500" />
+            <input 
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="bg-transparent text-xs text-slate-600 outline-none w-full"
+              title="من تاريخ إصدار"
+            />
+            <span className="text-slate-400 text-xs">-</span>
+            <input 
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="bg-transparent text-xs text-slate-600 outline-none w-full"
+              title="إلى تاريخ إصدار"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 w-full sm:w-auto">
+            <Building2 size={14} className="text-slate-500" />
+            <select
+              value={bankFilter}
+              onChange={(e) => setBankFilter(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-700 outline-none w-full cursor-pointer"
+            >
+              <option value="all">كل البنوك</option>
+              {banks.map(b => (
+                <option key={b.id} value={b.id}>{b.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 w-full sm:w-auto">
             <Filter size={14} className="text-slate-500" />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-700 outline-none w-full cursor-pointer"
             >
               <option value="all">كل الحالات</option>
               <option value="active">نشط</option>
@@ -699,171 +923,284 @@ export default function LettersOfGuaranteePage() {
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className="bg-transparent text-sm font-bold text-slate-700 outline-none w-full cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-700 outline-none w-full cursor-pointer"
             >
               <option value="all">كل الأنواع</option>
-              <option value="bid_bond">ابتدائي (Bid Bond)</option>
-              <option value="performance_bond">نهائي (Performance)</option>
-              <option value="advance_payment">دفعة مقدمة (Advance)</option>
+              <option value="bid_bond">ابتدائي</option>
+              <option value="performance_bond">نهائي</option>
+              <option value="advance_payment">دفعة مقدمة</option>
               <option value="other">أخرى</option>
             </select>
           </div>
         </div>
       </div>
 
-      {/* Main Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {loading ? (
-          <div className="p-12 text-center text-slate-400 flex flex-col items-center gap-2">
-            <RefreshCw className="animate-spin text-indigo-600" size={28} />
-            <p className="font-bold">جاري تحميل بيانات خطابات الضمان...</p>
-          </div>
-        ) : filteredLgs.length === 0 ? (
-          <div className="p-12 text-center text-slate-400">
-            <HelpCircle className="mx-auto mb-2 text-slate-300" size={32} />
-            <p className="font-bold">لا توجد خطابات ضمان مطابقة للبحث حالياً.</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse">
-              <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-sm font-bold">
-                <tr>
-                  <th className="p-4">رقم الخطاب</th>
-                  <th className="p-4">النوع</th>
-                  <th className="p-4">المستفيد</th>
-                  <th className="p-4">المبلغ</th>
-                  <th className="p-4">الغطاء النقدي</th>
-                  <th className="p-4">البنك المصدر</th>
-                  <th className="p-4">المشروع</th>
-                  <th className="p-4">تاريخ الانتهاء</th>
-                  <th className="p-4">الحالة</th>
-                  <th className="p-4 text-center">إجراءات ودورات العمل</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredLgs.map(lg => {
-                  const daysLeft = Math.ceil((new Date(lg.expiry_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
-                  const isExpiring = (lg.status === 'active' || lg.status === 'extended') && daysLeft >= 0 && daysLeft <= 15;
-                  
-                  return (
-                    <tr key={lg.id} className={`hover:bg-slate-50 ${isExpiring ? 'bg-rose-50/30' : ''}`}>
-                      <td className="p-4 font-mono font-bold text-indigo-600">{lg.lg_number}</td>
-                      <td className="p-4 font-semibold">{getTypeText(lg.type)}</td>
-                      <td className="p-4 font-medium text-slate-700">{lg.beneficiary}</td>
-                      <td className="p-4 font-black">{lg.amount.toLocaleString()} {currencySymbol}</td>
-                      <td className="p-4 font-semibold text-emerald-700">
-                        {lg.margin_amount.toLocaleString()} {currencySymbol} ({lg.margin_percentage}%)
-                      </td>
-                      <td className="p-4 text-slate-600">{lg.issuing_bank?.name || 'غير محدد'}</td>
-                      <td className="p-4 text-slate-600">{lg.project?.name || '-'}</td>
-                      <td className="p-4">
-                        <div className="flex flex-col">
-                          <span>{lg.expiry_date}</span>
-                          {isExpiring && (
-                            <span className="text-[10px] text-rose-600 font-bold mt-0.5 flex items-center gap-0.5">
-                              (ينتهي خلال {daysLeft} أيام!)
-                            </span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="p-4">{getStatusBadge(lg.status)}</td>
-                      <td className="p-4">
-                        <div className="flex justify-center items-center gap-2">
-                          {(lg.status === 'active' || lg.status === 'extended') && (
-                            <>
-                              <button 
-                                onClick={() => {
-                                  setSelectedLg(lg);
-                                  setExtendData({
-                                    new_expiry_date: lg.expiry_date,
-                                    additional_commission: 0,
-                                    notes: '',
-                                    auto_post_journal: true
-                                  });
-                                  setShowExtendModal(true);
-                                }}
-                                className="bg-blue-50 text-blue-600 hover:bg-blue-100 px-2 py-1 rounded text-xs font-bold border border-blue-200 flex items-center gap-1 transition"
-                                title="تمديد صلاحية خطاب الضمان"
-                              >
-                                <RefreshCw size={12} /> تمديد
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  setSelectedLg(lg);
-                                  setReturnData({
-                                    return_date: new Date().toISOString().split('T')[0],
-                                    target_bank_id: lg.issuing_bank_id,
-                                    notes: '',
-                                    auto_post_journal: true
-                                  });
-                                  setShowReturnModal(true);
-                                }}
-                                className="bg-slate-50 text-slate-700 hover:bg-slate-100 px-2 py-1 rounded text-xs font-bold border border-slate-200 flex items-center gap-1 transition"
-                                title="استرداد وإلغاء خطاب الضمان"
-                              >
-                                <Ban size={12} /> استرداد
-                              </button>
-                              <button 
-                                onClick={() => {
-                                  setSelectedLg(lg);
-                                  setLiquidateData({
-                                    liquidation_date: new Date().toISOString().split('T')[0],
-                                    expense_account_id: lg.expense_account_id || '',
-                                    notes: '',
-                                    auto_post_journal: true
-                                  });
-                                  setShowLiquidateModal(true);
-                                }}
-                                className="bg-rose-50 text-rose-600 hover:bg-rose-100 px-2 py-1 rounded text-xs font-bold border border-rose-200 flex items-center gap-1 transition"
-                                title="تسييل خطاب الضمان"
-                              >
-                                <AlertTriangle size={12} /> تسييل
-                              </button>
-                            </>
-                          )}
+      {/* Master-Detail Layout */}
+      <div className="flex flex-col lg:flex-row gap-6">
+        
+        {/* Main Table */}
+        <div className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden ${selectedLgDetail ? 'lg:w-2/3' : 'w-full'} transition-all duration-300`}>
+          {loading ? (
+            <div className="p-12 text-center text-slate-400 flex flex-col items-center gap-2">
+              <RefreshCw className="animate-spin text-indigo-600" size={28} />
+              <p className="font-bold">جاري تحميل بيانات خطابات الضمان...</p>
+            </div>
+          ) : filteredLgs.length === 0 ? (
+            <div className="p-12 text-center text-slate-400">
+              <HelpCircle className="mx-auto mb-2 text-slate-300" size={32} />
+              <p className="font-bold">لا توجد خطابات ضمان مطابقة للبحث حالياً.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-right border-collapse">
+                <thead className="bg-slate-50 text-slate-600 border-b border-slate-200 text-xs uppercase tracking-wider font-black">
+                  <tr>
+                    <th className="p-4 pr-6">رقم الخطاب / النوع</th>
+                    <th className="p-4">المستفيد / البنك</th>
+                    <th className="p-4">المبلغ والغطاء</th>
+                    <th className="p-4">تاريخ الانتهاء</th>
+                    <th className="p-4">الحالة</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-sm">
+                  {filteredLgs.map(lg => {
+                    const daysLeft = Math.ceil((new Date(lg.expiry_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+                    const isExpiring30 = (lg.status === 'active' || lg.status === 'extended') && daysLeft >= 0 && daysLeft <= 30;
+                    const rowBg = isExpiring30 ? 'bg-amber-50/50' : 'hover:bg-slate-50';
+                    const isSelected = selectedLgDetail?.id === lg.id;
+                    const progress = getProgress(lg.issue_date, lg.expiry_date);
+                    
+                    return (
+                      <tr 
+                        key={lg.id} 
+                        onClick={() => setSelectedLgDetail(lg)}
+                        className={`cursor-pointer transition-colors border-r-4 ${getStatusColor(lg.status)} ${rowBg} ${isSelected ? 'bg-indigo-50 border-indigo-200' : ''}`}
+                      >
+                        <td className="p-4 pr-6">
+                          <div className="font-mono font-bold text-indigo-700 text-base">{lg.lg_number}</div>
+                          <div className="text-xs text-slate-500 font-semibold mt-1">{getTypeText(lg.type)}</div>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-bold text-slate-800">{lg.beneficiary}</div>
+                          <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                            <Building2 size={12} /> {lg.issuing_bank?.name || '-'}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="font-black text-slate-900">{lg.amount.toLocaleString()} {currencySymbol}</div>
+                          <div className="text-xs text-emerald-700 font-bold mt-1 bg-emerald-50 px-2 py-0.5 rounded inline-block">
+                            غطاء: {lg.margin_amount.toLocaleString()} ({lg.margin_percentage}%)
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          <div className="flex flex-col gap-1.5 w-32">
+                            <span className="font-medium text-slate-700">{lg.expiry_date}</span>
+                            <div className="w-full bg-slate-200 h-1.5 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all ${progress > 90 ? 'bg-rose-500' : progress > 70 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${progress}%` }}></div>
+                            </div>
+                            {isExpiring30 && (
+                              <span className="text-[10px] text-amber-600 font-bold">باقي {daysLeft} أيام</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-4">
+                          {getStatusBadge(lg.status)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
-                          <button
-                            onClick={() => {
-                              setEditingLgId(lg.id);
-                              setFormData({
-                                lg_number: lg.lg_number,
-                                type: lg.type,
-                                issuing_bank_id: lg.issuing_bank_id,
-                                margin_account_id: lg.margin_account_id,
-                                expense_account_id: lg.expense_account_id || '',
-                                project_id: lg.project_id || '',
-                                beneficiary: lg.beneficiary,
-                                amount: lg.amount,
-                                margin_percentage: lg.margin_percentage,
-                                margin_amount: lg.margin_amount,
-                                commission_amount: lg.commission_amount,
-                                issue_date: lg.issue_date,
-                                expiry_date: lg.expiry_date,
-                                notes: lg.notes || '',
-                                auto_post_journal: false
-                              });
-                              setShowAddModal(true);
-                            }}
-                            className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-slate-100 rounded transition"
-                            title="تعديل تفاصيل خطاب الضمان"
-                          >
-                            <Edit size={14} />
-                          </button>
-                          
-                          <button
-                            onClick={() => handleDeleteLg(lg.id)}
-                            className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded transition"
-                            title="حذف خطاب الضمان"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        {/* Detail Panel */}
+        {selectedLgDetail && (
+          <div className="w-full lg:w-1/3 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col max-h-[80vh] sticky top-6">
+            <div className="bg-slate-50 p-4 border-b border-slate-200 flex justify-between items-start">
+              <div>
+                <h3 className="font-mono font-black text-xl text-indigo-900">{selectedLgDetail.lg_number}</h3>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className="bg-white border border-slate-200 text-slate-600 px-2 py-0.5 rounded text-[10px] font-bold">
+                    {getTypeText(selectedLgDetail.type)}
+                  </span>
+                  {getStatusBadge(selectedLgDetail.status)}
+                </div>
+              </div>
+              <button onClick={() => setSelectedLgDetail(null)} className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded transition">
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="p-5 flex-1 overflow-y-auto space-y-6 text-sm">
+              {/* Financials */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                  <span className="text-[10px] font-bold text-slate-500 block mb-1">القيمة الإجمالية</span>
+                  <span className="font-black text-base text-slate-800">{selectedLgDetail.amount.toLocaleString()} <span className="text-xs font-semibold text-slate-400">{currencySymbol}</span></span>
+                </div>
+                <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+                  <span className="text-[10px] font-bold text-emerald-600 block mb-1">الغطاء النقدي ({selectedLgDetail.margin_percentage}%)</span>
+                  <span className="font-black text-base text-emerald-800">{selectedLgDetail.margin_amount.toLocaleString()} <span className="text-xs font-semibold text-emerald-600/60">{currencySymbol}</span></span>
+                </div>
+                <div className="bg-purple-50 p-3 rounded-lg border border-purple-100 col-span-2">
+                  <span className="text-[10px] font-bold text-purple-600 block mb-1">إجمالي العمولات البنكية المدفوعة</span>
+                  <span className="font-black text-base text-purple-800">{selectedLgDetail.commission_amount.toLocaleString()} <span className="text-xs font-semibold text-purple-600/60">{currencySymbol}</span></span>
+                </div>
+              </div>
+
+              {/* Entities */}
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 text-slate-400"><Building2 size={16} /></div>
+                  <div>
+                    <span className="text-xs text-slate-500 block">المستفيد / المالك</span>
+                    <span className="font-bold text-slate-800">{selectedLgDetail.beneficiary}</span>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 text-slate-400"><Landmark size={16} /></div>
+                  <div>
+                    <span className="text-xs text-slate-500 block">البنك المصدر</span>
+                    <span className="font-bold text-slate-800">{selectedLgDetail.issuing_bank?.name || '-'}</span>
+                  </div>
+                </div>
+                {selectedLgDetail.project && (
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 text-slate-400"><Activity size={16} /></div>
+                    <div>
+                      <span className="text-xs text-slate-500 block">المشروع المرتبط</span>
+                      <span className="font-bold text-slate-800">{selectedLgDetail.project.name}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Dates & Lifetime */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div className="flex justify-between items-center mb-3">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block font-bold">تاريخ الإصدار</span>
+                    <span className="font-bold text-slate-700 text-xs">{selectedLgDetail.issue_date}</span>
+                  </div>
+                  <div className="text-left">
+                    <span className="text-[10px] text-slate-500 block font-bold">تاريخ الانتهاء</span>
+                    <span className="font-bold text-slate-700 text-xs">{selectedLgDetail.expiry_date}</span>
+                  </div>
+                </div>
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden mb-1">
+                  <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${getProgress(selectedLgDetail.issue_date, selectedLgDetail.expiry_date)}%` }}></div>
+                </div>
+                <div className="text-center text-[10px] font-bold text-slate-500">
+                  {Math.ceil((new Date(selectedLgDetail.expiry_date).getTime() - new Date().getTime()) / (1000 * 3600 * 24))} يوم متبقي
+                </div>
+              </div>
+
+              {/* Notes & History */}
+              {selectedLgDetail.notes && (
+                <div>
+                  <h4 className="font-bold text-xs text-slate-500 flex items-center gap-1.5 mb-2"><History size={14} /> ملاحظات وسجل الحركات</h4>
+                  <div className="bg-yellow-50/50 p-3 rounded-lg border border-yellow-100 text-xs text-slate-700 leading-relaxed whitespace-pre-line">
+                    {selectedLgDetail.notes}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Action Buttons Panel */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex flex-wrap gap-2 justify-center">
+              {(selectedLgDetail.status === 'active' || selectedLgDetail.status === 'extended') && (
+                <>
+                  <button 
+                    onClick={() => {
+                      setSelectedLg(selectedLgDetail);
+                      setExtendData({
+                        new_expiry_date: selectedLgDetail.expiry_date,
+                        additional_commission: 0,
+                        notes: '',
+                        auto_post_journal: true
+                      });
+                      setShowExtendModal(true);
+                    }}
+                    className="flex-1 min-w-[30%] bg-blue-100 text-blue-700 hover:bg-blue-200 py-2 rounded-lg text-xs font-bold border border-blue-200 flex flex-col items-center gap-1 transition"
+                  >
+                    <RefreshCw size={14} /> تمديد
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setSelectedLg(selectedLgDetail);
+                      setReturnData({
+                        return_date: new Date().toISOString().split('T')[0],
+                        target_bank_id: selectedLgDetail.issuing_bank_id,
+                        notes: '',
+                        auto_post_journal: true
+                      });
+                      setShowReturnModal(true);
+                    }}
+                    className="flex-1 min-w-[30%] bg-slate-200 text-slate-700 hover:bg-slate-300 py-2 rounded-lg text-xs font-bold border border-slate-300 flex flex-col items-center gap-1 transition"
+                  >
+                    <Ban size={14} /> استرداد
+                  </button>
+                  <button 
+                    onClick={() => {
+                      setSelectedLg(selectedLgDetail);
+                      setLiquidateData({
+                        liquidation_date: new Date().toISOString().split('T')[0],
+                        expense_account_id: selectedLgDetail.expense_account_id || '',
+                        notes: '',
+                        auto_post_journal: true
+                      });
+                      setShowLiquidateModal(true);
+                    }}
+                    className="flex-1 min-w-[30%] bg-rose-100 text-rose-700 hover:bg-rose-200 py-2 rounded-lg text-xs font-bold border border-rose-200 flex flex-col items-center gap-1 transition"
+                  >
+                    <AlertTriangle size={14} /> تسييل
+                  </button>
+                </>
+              )}
+              
+              <div className="w-full flex gap-2 mt-2">
+                <button
+                  onClick={() => printLg(selectedLgDetail)}
+                  className="flex-1 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1.5 transition"
+                >
+                  <Printer size={14} /> طباعة
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingLgId(selectedLgDetail.id);
+                    setFormData({
+                      lg_number: selectedLgDetail.lg_number,
+                      type: selectedLgDetail.type,
+                      issuing_bank_id: selectedLgDetail.issuing_bank_id,
+                      margin_account_id: selectedLgDetail.margin_account_id,
+                      expense_account_id: selectedLgDetail.expense_account_id || '',
+                      project_id: selectedLgDetail.project_id || '',
+                      beneficiary: selectedLgDetail.beneficiary,
+                      amount: selectedLgDetail.amount,
+                      margin_percentage: selectedLgDetail.margin_percentage,
+                      margin_amount: selectedLgDetail.margin_amount,
+                      commission_amount: selectedLgDetail.commission_amount,
+                      issue_date: selectedLgDetail.issue_date,
+                      expiry_date: selectedLgDetail.expiry_date,
+                      notes: selectedLgDetail.notes || '',
+                      auto_post_journal: false
+                    });
+                    setShowAddModal(true);
+                  }}
+                  className="flex-1 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1.5 transition"
+                >
+                  <Edit size={14} /> تعديل
+                </button>
+                <button
+                  onClick={() => handleDeleteLg(selectedLgDetail.id)}
+                  className="flex-1 bg-white border border-rose-100 text-rose-600 hover:bg-rose-50 py-2 rounded-lg text-xs font-bold flex justify-center items-center gap-1.5 transition"
+                >
+                  <Trash2 size={14} /> حذف
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

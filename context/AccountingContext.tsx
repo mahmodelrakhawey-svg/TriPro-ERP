@@ -547,6 +547,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (key === 'REVENUE_OTHER' || key === 'OTHER_REVENUE') {
       return accounts.find(a => (a.code === '421' || a.code === '441' || a.name?.includes('إيرادات متنوعة') || a.name?.includes('إيرادات أخرى')) && !a.name?.includes('ضريب'));
     }
+    if (key === 'LETTER_OF_GUARANTEE_MARGIN') {
+      return accounts.find(a =>
+        a.code === '1248' ||
+        a.code?.startsWith('1248') ||
+        a.name?.includes('غطاء خطابات ضمان') ||
+        a.name?.includes('غطاء خطابات الضمان') ||
+        a.name?.includes('غطاء الضمان')
+      );
+    }
+    if (key === 'LETTER_OF_CREDIT_GOODS') {
+      return accounts.find(a =>
+        a.code === '1246' ||
+        a.code?.startsWith('1246') ||
+        a.name?.includes('اعتمادات مستندية') ||
+        a.name?.includes('اعتماد مستندي') ||
+        a.name?.includes('خطابات اعتماد')
+      );
+    }
     return undefined;
   };
   const updateVoucher = async (id: string, updates: any) => { const { error } = await supabase.from('vouchers').update(updates).eq('id', id); refreshData(); return !error; };

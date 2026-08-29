@@ -58,14 +58,19 @@ const ConstructionDashboard = () => {
   const [materialVariances, setMaterialVariances] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportingProject, setExportingProject] = useState<ProjectPerformance | null>(null);
-  const { settings, currentUser } = useAccounting();
+  const { settings, currentUser, currentSelectedOrgId, organization } = useAccounting();
   const { showToast } = useToast();
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const orgId = currentUser?.organization_id;
-      if (!orgId) return;
+      const orgId = currentSelectedOrgId || organization?.id || currentUser?.organization_id;
+      if (!orgId) {
+        setProjects([]);
+        setMaterialVariances([]);
+        setLoading(false);
+        return;
+      }
 
       // جلب المشاريع مع مؤشرات الأداء من الرؤية التي أنشأناها
       const { data, error } = await supabase
@@ -106,8 +111,11 @@ const ConstructionDashboard = () => {
 
       setProjects(projectsWithForecasts);
 
-      // جلب انحرافات المواد لكافة المشاريع
-      const { data: varianceData } = await supabase.from('v_project_quantity_variance').select('*');
+      // جلب انحرافات المواد لكافة المشاريع التابعة لهذه المنشأة فقط
+      const { data: varianceData } = await supabase
+        .from('v_project_quantity_variance')
+        .select('*')
+        .eq('organization_id', orgId);
       setMaterialVariances(varianceData || []);
 
     } catch (err: any) {
@@ -117,7 +125,9 @@ const ConstructionDashboard = () => {
     }
   };
 
-  useEffect(() => { fetchDashboardData(); }, []);
+  useEffect(() => { 
+    fetchDashboardData(); 
+  }, [currentSelectedOrgId, organization?.id, currentUser?.organization_id]);
 
   // التأكد من فتح المشروع المطلوب عند الانتقال من قائمة المشاريع
   useEffect(() => {

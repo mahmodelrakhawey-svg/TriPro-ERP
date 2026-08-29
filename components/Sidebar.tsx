@@ -104,13 +104,22 @@ const Sidebar: React.FC = () => {
     // 🛡️ عزل موديولات المنشأة بناءً على اشتراكها في SaaS
     if (Array.isArray(allowedModules) && allowedModules.length > 0) {
       if (module === 'restaurant') {
-        return (
-          allowedModules.includes('restaurant') ||
-          allowedModules.includes('pos') ||
-          allowedModules.includes('retail') ||
-          allowedModules.includes('sales') ||
-          allowedModules.includes('inventory')
-        );
+        return allowedModules.includes('restaurant') || allowedModules.includes('pos');
+      }
+      if (module === 'retail') {
+        return allowedModules.includes('retail') || allowedModules.includes('sales');
+      }
+      if (module === 'construction') {
+        return allowedModules.includes('construction');
+      }
+      if (module === 'hims') {
+        return allowedModules.includes('hims');
+      }
+      if (module === 'stadium') {
+        return allowedModules.includes('stadium');
+      }
+      if (module === 'manufacturing' || module === 'mfg') {
+        return allowedModules.includes('manufacturing') || allowedModules.includes('mfg');
       }
       return allowedModules.includes(module) || allowedModules.includes(normalizedModule);
     }
@@ -453,7 +462,7 @@ const Sidebar: React.FC = () => {
         groups.push(item);
       }
     });
-    return groups;
+    return groups.filter(g => g.type !== 'section' || (Array.isArray(g.children) && g.children.length > 0));
   }, [visibleItems]);
 
   const toggleSection = (label: string) => {

@@ -310,8 +310,10 @@ GRANT ALL ON TABLE butchering_orders TO authenticated, anon;
 GRANT ALL ON TABLE butchering_order_items TO authenticated, anon;
 `;
 
-const LOCAL_STORAGE_ORDERS_KEY = 'tripro_butchering_orders_v1';
-const LOCAL_STORAGE_TEMPLATES_KEY = 'tripro_butchering_templates_v1';
+const LOCAL_STORAGE_ORDERS_KEY = (orgId?: string) =>
+  orgId ? `tripro_butchering_orders_v2_${orgId}` : 'tripro_butchering_orders_v2_global';
+const LOCAL_STORAGE_TEMPLATES_KEY = (orgId?: string) =>
+  orgId ? `tripro_butchering_templates_v2_${orgId}` : 'tripro_butchering_templates_v2_global';
 
 export const isValidUUID = (str?: string | null): boolean => {
   if (!str || typeof str !== 'string') return false;
@@ -520,25 +522,24 @@ class ButcheringYieldService {
       const { data, error } = await query;
       if (error) {
         if (this.isTableMissingError(error)) {
-          // جلب من التخزين المحلي
-          return this.getLocalTemplates();
+          return this.getLocalTemplates(organizationId);
         }
-        return this.getLocalTemplates();
+        return this.getLocalTemplates(organizationId);
       }
 
       if (!data || data.length === 0) {
-        return this.getLocalTemplates();
+        return this.getLocalTemplates(organizationId);
       }
 
       return data as ButcheringTemplate[];
     } catch (err) {
-      return this.getLocalTemplates();
+      return this.getLocalTemplates(organizationId);
     }
   }
 
-  private getLocalTemplates(): ButcheringTemplate[] {
+  private getLocalTemplates(orgId?: string): ButcheringTemplate[] {
     try {
-      const stored = secureStorage.getItem<ButcheringTemplate[]>(LOCAL_STORAGE_TEMPLATES_KEY);
+      const stored = secureStorage.getItem<ButcheringTemplate[]>(LOCAL_STORAGE_TEMPLATES_KEY(orgId));
       if (stored && Array.isArray(stored) && stored.length > 0) {
         return stored;
       }
@@ -610,9 +611,9 @@ class ButcheringYieldService {
     // حفظ في التخزين المحلي دائماً لضمان عدم الضياع
     const savedTemplate: ButcheringTemplate = { ...template, id: templateId };
     try {
-      const local = this.getLocalTemplates();
+      const local = this.getLocalTemplates(organizationId);
       const filtered = local.filter(t => t.id !== templateId && t.name !== savedTemplate.name);
-      secureStorage.setItem(LOCAL_STORAGE_TEMPLATES_KEY, [savedTemplate, ...filtered]);
+      secureStorage.setItem(LOCAL_STORAGE_TEMPLATES_KEY(organizationId), [savedTemplate, ...filtered]);
     } catch (e) {
       console.error('Failed to save template to secureStorage:', e);
     }
@@ -642,7 +643,7 @@ class ButcheringYieldService {
       const { data, error } = await query;
       if (error) {
         console.warn('Notice loading orders from database, using fallback:', error.message);
-        return this.getLocalOrders();
+        return this.getLocalOrders(organizationId);
       }
 
       // جلب أسماء الأصناف الخام لتجنب أخطاء PostgREST
@@ -672,8 +673,8 @@ class ButcheringYieldService {
         source_product_name: productMap[row.source_product_id] || row.source_product_name || 'صنف ذبيحة خام'
       })) as ButcheringOrder[];
 
-      // دمج الأوامر المحلية إن وجدت
-      const localOrders = this.getLocalOrders();
+      // دمج الأوامر المحلية الخاصة بهذه المنظمة إن وجدت
+      const localOrders = this.getLocalOrders(organizationId);
       const combined = [...dbOrders];
       localOrders.forEach(loc => {
         if (!combined.some(o => o.order_number === loc.order_number)) {
@@ -683,13 +684,13 @@ class ButcheringYieldService {
 
       return combined;
     } catch (err) {
-      return this.getLocalOrders();
+      return this.getLocalOrders(organizationId);
     }
   }
 
-  private getLocalOrders(): ButcheringOrder[] {
+  private getLocalOrders(orgId?: string): ButcheringOrder[] {
     try {
-      const stored = secureStorage.getItem<ButcheringOrder[]>(LOCAL_STORAGE_ORDERS_KEY);
+      const stored = secureStorage.getItem<ButcheringOrder[]>(LOCAL_STORAGE_ORDERS_KEY(orgId));
       if (stored && Array.isArray(stored)) {
         return stored;
       }
@@ -814,8 +815,8 @@ class ButcheringYieldService {
       };
 
       try {
-        const localOrders = this.getLocalOrders();
-        secureStorage.setItem(LOCAL_STORAGE_ORDERS_KEY, [fullOrderRecord, ...localOrders]);
+        const localOrders = this.getLocalOrders(params.organizationId);
+        secureStorage.setItem(LOCAL_STORAGE_ORDERS_KEY(params.organizationId), [fullOrderRecord, ...localOrders]);
       } catch (e) {
         console.error('Error saving order to secureStorage:', e);
       }
@@ -1177,7 +1178,7 @@ class ButcheringYieldService {
   /**
    * حذف أمر تشفية
    */
-  public async deleteOrder(orderId: string): Promise<void> {
+  public async deleteOrder(orderId: string, organizationId?: string): Promise<void> {
     try {
       if (isValidUUID(orderId)) {
         await supabase.from('butchering_orders').delete().eq('id', orderId);
@@ -1187,8 +1188,8 @@ class ButcheringYieldService {
     }
 
     try {
-      const local = this.getLocalOrders().filter(o => o.id !== orderId);
-      secureStorage.setItem(LOCAL_STORAGE_ORDERS_KEY, local);
+      const local = this.getLocalOrders(organizationId).filter(o => o.id !== orderId);
+      secureStorage.setItem(LOCAL_STORAGE_ORDERS_KEY(organizationId), local);
     } catch (e) {
       console.error('Error deleting from secureStorage:', e);
     }

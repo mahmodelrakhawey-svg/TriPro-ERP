@@ -368,6 +368,7 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     if (isLoading && !currentUser) return null;
 
     const role = currentUser?.role || '';
+    const isSuperAdminUser = role === 'super_admin' || role === 'demo';
     const isPrivileged = role === 'super_admin' || role === 'admin' || role === 'owner' || role === 'manager' || role === 'demo';
     const allowedModules = (organization as any)?.allowed_modules || [];
     
@@ -380,23 +381,38 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
     }
 
     const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
-    const isRestaurant = module === 'restaurant' || module === 'pos' || module === 'kitchen';
+    
+    // 🛡️ فحص دقيق لاشتراك المنشأة في الموديول
+    let isAllowedByOrg = true;
+    if (Array.isArray(allowedModules) && allowedModules.length > 0) {
+      if (module === 'restaurant' || module === 'pos' || module === 'kitchen') {
+        isAllowedByOrg = allowedModules.includes('restaurant') || allowedModules.includes('pos');
+      } else if (module === 'retail') {
+        isAllowedByOrg = allowedModules.includes('retail') || allowedModules.includes('sales');
+      } else if (module === 'construction') {
+        isAllowedByOrg = allowedModules.includes('construction');
+      } else if (module === 'hims') {
+        isAllowedByOrg = allowedModules.includes('hims');
+      } else if (module === 'stadium') {
+        isAllowedByOrg = allowedModules.includes('stadium');
+      } else if (module === 'manufacturing' || module === 'mfg') {
+        isAllowedByOrg = allowedModules.includes('manufacturing') || allowedModules.includes('mfg');
+      } else {
+        isAllowedByOrg = allowedModules.includes(module) || allowedModules.includes(normalizedModule);
+      }
+    }
 
-    const isAllowedRestaurant = isRestaurant && (
-      allowedModules.includes('restaurant') ||
-      allowedModules.includes('pos') ||
-      allowedModules.includes('retail') ||
-      allowedModules.includes('sales') ||
-      allowedModules.includes('inventory') ||
-      (can && (can('restaurant', 'view') || can('restaurant', 'manage') || can('restaurant', 'pos') || can('restaurant', 'kitchen') || can('sales', 'view') || can('pos', 'view')))
-    );
+    const hasPermission = can ? (
+      can(module, 'view') || 
+      can(normalizedModule, 'view') || 
+      can(module, 'manage') || 
+      can(module, '*') || 
+      can(normalizedModule, '*') ||
+      can(module, 'pos') ||
+      can(module, 'kitchen')
+    ) : true;
 
-    const isAllowed = isPrivileged || 
-      allowedModules.length === 0 || 
-      allowedModules.includes(module) || 
-      allowedModules.includes(normalizedModule) ||
-      isAllowedRestaurant ||
-      (can && (can(module, 'view') || can(normalizedModule, 'view') || can(module, 'manage') || can(module, '*') || can(normalizedModule, '*')));
+    const isAllowed = isSuperAdminUser || (isAllowedByOrg && hasPermission);
 
     if (!isAllowed) {
         return <Navigate to="/" replace />;
