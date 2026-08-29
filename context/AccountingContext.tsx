@@ -58,6 +58,7 @@ export const SYSTEM_ACCOUNTS = {
   HIMS_BILLING_REVENUE: '41101', // إيرادات الخدمات الطبية
   HIMS_INSURANCE_RECEIVABLE: '122101', // ذمم التأمين
   LETTER_OF_GUARANTEE_MARGIN: '1248', // غطاء خطابات ضمان لدى البنوك
+  LETTER_OF_CREDIT_GOODS: '1246', // اعتمادات مستندية لشراء بضائع
 };
 
 interface AccountingContextType {

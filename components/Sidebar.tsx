@@ -227,6 +227,7 @@ const Sidebar: React.FC = () => {
     { to: '/customer-deposit', label: 'سجل تأمينات العملاء', icon: Landmark, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/cheques', label: 'إدارة الشيكات والبنوك', icon: Landmark, color: 'text-amber-400', module: 'accounting', permission: 'treasury.cheques' },
     { to: '/letters-of-guarantee', label: 'خطابات الضمان البنكية', icon: ScrollText, color: 'text-amber-400', module: 'accounting', permission: 'treasury.cheques' },
+    { to: '/letters-of-credit', label: 'الاعتمادات المستندية', icon: ArrowLeftRight, color: 'text-amber-400', module: 'accounting', permission: 'treasury.cheques' },
     { to: '/cheque-movement-report', label: 'تقرير حركة الشيكات', icon: History, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/returned-cheques-report', label: 'الشيكات المرتجعة', icon: RotateCcw, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/bank-reconciliation', label: 'تسوية المذكرة البنكية', icon: ShieldCheck, color: 'text-amber-400', module: 'accounting', permission: 'accounting.reconcile' },

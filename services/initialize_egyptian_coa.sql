@@ -20,7 +20,7 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_raw_id uuid; v_wip_id uuid; v_labor_mfg_id uuid; v_wastage_id uuid;
     v_cash_surplus_id uuid;
     v_notes_rec_id uuid; v_notes_pay_id uuid; v_cash_deficit_id uuid; v_overhead_mfg_id uuid; v_wip_variance_id uuid;
-    v_ret_cust_id uuid; v_ret_sub_id uuid; v_adv_sub_id uuid; v_lg_margin_id uuid;
+    v_ret_cust_id uuid; v_ret_sub_id uuid; v_adv_sub_id uuid; v_lg_margin_id uuid; v_lc_goods_id uuid;
     v_dep_exp_id uuid; v_acc_dep_id uuid; v_fixed_assets_id uuid; v_opening_bal_id uuid; v_equip_rev_id uuid;
     v_prepaid_exp_id uuid; v_accrued_exp_id uuid;
     v_social_ins_id uuid; v_bank_main_id uuid; v_rev_other_id uuid; v_exp_gen_id uuid; v_security_deposit_id uuid;
@@ -137,6 +137,7 @@ BEGIN
     ('1249', 'محتجز ضمان لدى الغير (عملاء)', 'asset', false, '124'),
     ('1245', 'دفعات مقدمة للمقاولين والموردين', 'asset', false, '124'),
     ('1248', 'غطاء خطابات ضمان لدى البنوك', 'asset', false, '124'),
+    ('1246', 'اعتمادات مستندية لشراء بضائع', 'asset', false, '124'),
     ('1243', 'مصروفات مدفوعة مقدماً', 'asset', true, '124'),
     ('124301', 'إيجار مقدم', 'asset', false, '1243'),
     ('124302', 'تأمين طبي مقدم', 'asset', false, '1243'),
@@ -317,6 +318,7 @@ BEGIN
     v_ret_sub_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '2229' LIMIT 1);
     v_adv_sub_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1245' LIMIT 1);
     v_lg_margin_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1248' LIMIT 1);
+    v_lc_goods_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1246' LIMIT 1);
     v_notes_rec_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '1222' LIMIT 1);
     v_notes_pay_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '222' LIMIT 1);
     v_cash_deficit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '541' LIMIT 1);
@@ -366,6 +368,7 @@ BEGIN
             'RETENTION_SUBCONTRACTOR', v_ret_sub_id,
             'ADVANCE_PAYMENT_SUBCONTRACTOR', v_adv_sub_id,
             'LETTER_OF_GUARANTEE_MARGIN', v_lg_margin_id,
+            'LETTER_OF_CREDIT_GOODS', v_lc_goods_id,
             'DEPRECIATION_EXPENSE', v_dep_exp_id,
             'ACCUMULATED_DEPRECIATION', v_acc_dep_id,
             'ASSETS_FIXED', v_fixed_assets_id,
