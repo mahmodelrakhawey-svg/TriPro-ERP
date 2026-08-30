@@ -449,14 +449,18 @@ export default function RetailPosScreen() {
     }
   };
 
-  // Weight Barcode Parser
+  // Weight Barcode Parser (GS1 Standard: 20-29 & 99)
   const parseWeightBarcode = (barcode: string) => {
-    // 22PPPPPWWWWWX
-    if ((barcode.startsWith('22') || barcode.startsWith('27')) && barcode.length === 13) {
-      const productCode = barcode.substring(2, 7);
-      const weightString = barcode.substring(7, 12);
-      const weight = Number(weightString) / 1000; // e.g. 01250 -> 1.250 kg
-      return { productCode, weight };
+    // Structure: PP CCCCC WWWWW X (Prefix 2 digits, Product Code 5 digits, Weight/Price 5 digits, Checksum 1 digit)
+    if (barcode.length === 13) {
+      const prefix = barcode.substring(0, 2);
+      const validPrefixes = ['20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '99'];
+      if (validPrefixes.includes(prefix)) {
+        const productCode = barcode.substring(2, 7);
+        const weightString = barcode.substring(7, 12);
+        const weight = Number(weightString) / 1000; // e.g. 01250 -> 1.250 kg
+        return { productCode, weight };
+      }
     }
     return null;
   };
