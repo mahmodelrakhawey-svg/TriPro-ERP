@@ -19,6 +19,7 @@ import {
   Plus,
   RotateCcw,
   RotateCw,
+  Barcode,
   ClipboardList,
   ArrowLeftRight,
   ClipboardCheck,
@@ -199,6 +200,7 @@ const Sidebar: React.FC = () => {
     { to: '/item-movement', label: 'تقرير حركة صنف', icon: ArrowLeftRight, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/top-selling', label: 'الأصناف الأكثر مبيعاً', icon: TrendingUp, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/item-profit', label: 'ربحية الأصناف', icon: DollarSign, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
+    { to: '/inventory/expiry-radar', label: 'رادار الصلاحية وتصفية العروض', icon: Flame, color: 'text-orange-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/detailed-stock-movement', label: 'حركة المخزون التفصيلية', icon: List, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
 
     // التصنيع والإنتاج
@@ -290,6 +292,7 @@ const Sidebar: React.FC = () => {
     { to: '/restaurant/waiter', label: 'ويتر الصالة المتنقل (Handheld)', icon: Smartphone, color: 'text-amber-400', module: 'restaurant', permission: 'restaurant.pos' },
     { to: '/restaurant/kiosk', label: 'كشك الخدمة الذاتية (Kiosk)', icon: Monitor, color: 'text-cyan-400', module: 'restaurant', permission: 'restaurant.pos' },
     { to: '/retail-pos', label: 'نقطة بيع التجزئة (هايبرماركت)', icon: ShoppingCart, color: 'text-rose-400', module: 'retail', permission: 'sales.view' },
+    { to: '/retail/price-checker', label: 'كاشف الأسعار الذاتي للمتسوقين', icon: Barcode, color: 'text-cyan-400', module: 'retail', permission: 'sales.view' },
     { to: '/kds', label: 'شاشة المطبخ (KDS)', icon: ChefHat, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/restaurant/expo', label: 'شاشة التجميع (Master Expo)', icon: Layers, color: 'text-indigo-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/restaurant/stations', label: 'محطات المطبخ (Kitchen Stations)', icon: Flame, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },

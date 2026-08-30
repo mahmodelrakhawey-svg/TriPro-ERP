@@ -21,7 +21,12 @@ import {
   Printer, 
   Scale, 
   Volume2, 
-  Loader2 
+  Loader2,
+  Pause,
+  Play,
+  Clock,
+  Tag,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface CartItem {
@@ -72,6 +77,81 @@ export default function RetailPosScreen() {
   // Printing Receipt State
   const [receiptOrder, setReceiptOrder] = useState<any>(null);
   const [isPrinting, setIsPrinting] = useState(false);
+
+  // ⏸️ Held / Parked Invoices State (تعليق واسترجاع الفواتير - F6)
+  interface HeldOrder {
+    id: string;
+    heldAt: string;
+    customer: any;
+    cart: CartItem[];
+    subtotal: number;
+    tax: number;
+    total: number;
+    notes?: string;
+  }
+
+  const [heldOrders, setHeldOrders] = useState<HeldOrder[]>(() => {
+    try {
+      return secureStorage.getItem('tripro_retail_held_orders') || [];
+    } catch {
+      return [];
+    }
+  });
+  const [isHeldModalOpen, setIsHeldModalOpen] = useState(false);
+
+  // تعليق الفاتورة الحالية (Hold / Park)
+  const handleHoldOrder = () => {
+    if (cart.length === 0) {
+      showToast('سلة المشتريات فارغة، لا يوجد ما يمكن تعليقه', 'warning');
+      return;
+    }
+    const newHeld: HeldOrder = {
+      id: `HOLD-${Date.now().toString().slice(-4)}`,
+      heldAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      customer: selectedCustomer,
+      cart: [...cart],
+      subtotal,
+      tax,
+      total
+    };
+    const updated = [newHeld, ...heldOrders];
+    setHeldOrders(updated);
+    secureStorage.setItem('tripro_retail_held_orders', updated);
+    
+    // إفراغ السلة لخدمة العميل التالي فوراً
+    setCart([]);
+    setAmountPaid(0);
+    setSelectedCustomer(null);
+    setCustomerSearch('');
+    showToast(`تم تعليق الفاتورة (${newHeld.id}) بنجاح، يمكنك خدمة العميل التالي`, 'info');
+  };
+
+  // استرجاع فاتورة معلقة (Resume)
+  const handleResumeOrder = (held: HeldOrder) => {
+    if (cart.length > 0) {
+      if (!window.confirm('توجد أصناف بالسلة الحالية! هل تريد استبدالها بالفاتورة المعلقة المسترجعة؟')) {
+        return;
+      }
+    }
+    setCart(held.cart);
+    setSelectedCustomer(held.customer);
+    setAmountPaid(0);
+    
+    // حذفها من قائمة المعلق
+    const updated = heldOrders.filter(h => h.id !== held.id);
+    setHeldOrders(updated);
+    secureStorage.setItem('tripro_retail_held_orders', updated);
+    setIsHeldModalOpen(false);
+    showToast(`تم استرجاع الفاتورة (${held.id}) بنجاح ✅`, 'success');
+  };
+
+  // حذف فاتورة معلقة
+  const handleDeleteHeld = (id: string) => {
+    const updated = heldOrders.filter(h => h.id !== id);
+    setHeldOrders(updated);
+    secureStorage.setItem('tripro_retail_held_orders', updated);
+    showToast('تم حذف الفاتورة المعلقة', 'info');
+  };
 
   // Audio for Scan confirmation
   const playBeep = () => {
@@ -231,6 +311,16 @@ export default function RetailPosScreen() {
           setCart([]);
           setAmountPaid(0);
         }
+      }
+      // F6: Hold / Park Order (تعليق الفاتورة)
+      if (e.key === 'F6') {
+        e.preventDefault();
+        handleHoldOrder();
+      }
+      // F7: Open Held Orders Modal (عرض الفواتير المعلقة)
+      if (e.key === 'F7') {
+        e.preventDefault();
+        setIsHeldModalOpen(prev => !prev);
       }
       // F4: Focus Search input
       if (e.key === 'F4') {
@@ -757,16 +847,28 @@ export default function RetailPosScreen() {
               <span className="h-4 w-px bg-slate-800" />
               <span className="text-indigo-400 font-black">{selectedTerminal?.name}</span>
               <button 
+                onClick={() => setIsHeldModalOpen(true)}
+                className="mr-2 text-xs bg-amber-950/80 border border-amber-900/50 hover:bg-amber-900 text-amber-300 px-3 py-1 rounded-lg flex items-center gap-1.5 font-bold transition-all"
+              >
+                <Pause size={12} /> 
+                <span>المعلقة (F7)</span>
+                {heldOrders.length > 0 && (
+                  <span className="bg-amber-500 text-slate-950 text-[10px] px-1.5 py-0.2 rounded-full font-black">
+                    {heldOrders.length}
+                  </span>
+                )}
+              </button>
+              <button 
                 onClick={handleSyncProducts} 
                 disabled={isSyncingProducts}
-                className="mr-2 text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-300 px-3 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                className="mr-1 text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-300 px-3 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
               >
                 <RefreshCw size={12} className={isSyncingProducts ? 'animate-spin' : ''} /> 
                 {isSyncingProducts ? 'جاري التحديث...' : 'تحديث المنتجات'}
               </button>
               <button 
                 onClick={handleOpenCloseShiftModal} 
-                className="mr-2 text-xs bg-red-950/80 border border-red-900/50 hover:bg-red-900 text-red-400 px-3 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                className="mr-1 text-xs bg-red-950/80 border border-red-900/50 hover:bg-red-900 text-red-400 px-3 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
               >
                 <Lock size={12} /> إغلاق الوردية
               </button>
@@ -1148,19 +1250,101 @@ export default function RetailPosScreen() {
                 دفع وطباعة الفاتورة (F8)
               </button>
 
-              <button 
-                onClick={() => {
-                  setCart([]);
-                  setAmountPaid(0);
-                }}
-                className="w-full bg-slate-900 hover:bg-slate-850 text-slate-400 hover:text-white text-sm font-bold py-3.5 rounded-xl border border-slate-800 transition-all"
-              >
-                إلغاء وإفراغ السلة
-              </button>
+              <div className="grid grid-cols-2 gap-3">
+                <button 
+                  onClick={handleHoldOrder}
+                  disabled={cart.length === 0}
+                  className="bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 disabled:opacity-40 text-sm font-black py-3.5 rounded-xl border border-amber-500/30 transition-all flex items-center justify-center gap-2"
+                >
+                  <Pause size={16} /> تعليق الفاتورة (F6)
+                </button>
+                <button 
+                  onClick={() => {
+                    if (cart.length > 0 && window.confirm('هل أنت متأكد من رغبتك في إفراغ سلة التسوق؟')) {
+                      setCart([]);
+                      setAmountPaid(0);
+                    }
+                  }}
+                  className="bg-slate-900 hover:bg-slate-850 text-slate-400 hover:text-white text-sm font-bold py-3.5 rounded-xl border border-slate-800 transition-all"
+                >
+                  إفراغ السلة (F2)
+                </button>
+              </div>
             </div>
 
           </div>
 
+        </div>
+      )}
+
+      {/* ⏸️ Held / Parked Orders Modal */}
+      {isHeldModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
+            <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950/50">
+              <h3 className="font-black text-lg text-white flex items-center gap-2">
+                <Pause size={20} className="text-amber-400" /> الفواتير المعلقة في الوردية ({heldOrders.length})
+              </h3>
+              <button 
+                onClick={() => setIsHeldModalOpen(false)}
+                className="text-slate-400 hover:text-white text-sm px-3 py-1 rounded-lg bg-slate-800"
+              >
+                إغلاق
+              </button>
+            </div>
+
+            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3">
+              {heldOrders.length === 0 ? (
+                <div className="text-center py-12 text-slate-500 space-y-2">
+                  <Clock size={40} className="mx-auto text-slate-600" />
+                  <p className="font-bold">لا توجد فواتير معلقة حالياً</p>
+                  <p className="text-xs">يمكنك تعليق أي فاتورة جارية بالضغط على F6 لخدمة العميل التالي فوراً.</p>
+                </div>
+              ) : (
+                heldOrders.map((held) => (
+                  <div key={held.id} className="bg-slate-950 border border-slate-800 hover:border-indigo-500/50 p-4 rounded-xl flex justify-between items-center transition-all">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-black text-amber-400 bg-amber-950/50 px-2 py-0.5 rounded text-xs border border-amber-900/50">
+                          {held.id}
+                        </span>
+                        <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
+                          <Clock size={12} /> {held.heldAt}
+                        </span>
+                        {held.customer && (
+                          <span className="text-xs bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded-full font-bold">
+                            👤 {held.customer.name}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {held.cart.length} أصناف: {held.cart.map(c => c.product.name).slice(0, 3).join('، ')} {held.cart.length > 3 ? '...' : ''}
+                      </div>
+                      <div className="text-sm font-black font-mono text-white">
+                        الإجمالي: <span className="text-emerald-400">{held.total.toFixed(2)} {currencySymbol}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => handleResumeOrder(held)}
+                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-lg shadow-indigo-600/20 transition-all"
+                      >
+                        <Play size={14} /> استرجاع للسلة
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteHeld(held.id)}
+                        className="bg-slate-900 hover:bg-red-950/80 text-slate-500 hover:text-red-400 p-2 rounded-xl border border-slate-800 transition-all"
+                        title="حذف الفاتورة"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1335,9 +1519,11 @@ export default function RetailPosScreen() {
           <div className="flex items-center gap-4">
             <span>⌨️ أزرار التحكم السريع:</span>
             <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F8</kbd> الدفع والطباعة</span>
-            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F9</kbd> تحديد المبلغ المستلم</span>
-            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F4</kbd> بحث بالاسم</span>
-            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F2</kbd> تفريغ السلة</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-amber-400">F6</kbd> تعليق الفاتورة</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-amber-400">F7</kbd> المعلقة ({heldOrders.length})</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F9</kbd> تحديد المستلم</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F4</kbd> بحث</span>
+            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F2</kbd> تفريغ</span>
             <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">Esc</kbd> مسح والرجوع للباركود</span>
           </div>
           <div>

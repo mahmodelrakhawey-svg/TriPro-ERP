@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen } from 'lucide-react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Scale, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -486,6 +486,51 @@ const ProductManager = () => {
         XLSX.writeFile(wb, `Products_List_${new Date().toISOString().split('T')[0]}.xlsx`);
     } catch (err: any) {
         showToast('فشل التصدير: ' + err.message, 'error');
+    }
+  };
+
+  // ⚖️ تصدير ملف الموازين الإلكترونية (Scale PLU Exporter)
+  const handleExportScalePLU = async () => {
+    showToast('جاري تجهيز ملف أصناف الموازين (PLU Export)...', 'info');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) return;
+
+      const { data: scaleItems, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('organization_id', userOrgId)
+        .eq('is_active', true)
+        .order('name');
+
+      if (error) throw error;
+
+      const pluData = (scaleItems || []).map((item, idx) => {
+        const rawCode = (item.sku || '').replace(/\D/g, '');
+        const pluNumber = rawCode ? parseInt(rawCode, 10) : (idx + 1);
+        const paddedPlu = String(pluNumber).padStart(5, '0');
+
+        return {
+          'رقم الميزان (PLU)': pluNumber,
+          'كود الصنف (Item Code)': paddedPlu,
+          'اسم الصنف (Name)': item.name,
+          'سعر الكيلو (Price/KG)': item.sales_price,
+          'وحدة الوزن (Unit)': item.unit || 'كجم',
+          'بادئة الباركود (Prefix)': '22',
+          'الباركود الكامل (Sample Barcode)': `22${paddedPlu}010000`,
+          'القسم (Department)': item.category || 'أجبان / لحوم / خضار',
+          'نوع الصنف بالميزان (Scale Type)': 'وزن (Weight)',
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(pluData);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Scale_PLU_List");
+      XLSX.writeFile(wb, `Scale_PLU_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+      showToast('تم تصدير ملف الموازين (PLU) بنجاح ✅ جاهز للرفع على برامج الموازين', 'success');
+    } catch (err: any) {
+      showToast('فشل تصدير ملف الموازين: ' + err.message, 'error');
     }
   };
 
@@ -1976,6 +2021,9 @@ const ProductManager = () => {
             </button>
             <button onClick={handleExportExcel} className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-100 text-sm font-bold" title="تصدير القائمة الحالية إلى Excel">
                 <FileSpreadsheet size={16} /> تصدير
+            </button>
+            <button onClick={handleExportScalePLU} className="bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-100 text-sm font-bold shadow-sm transition-all" title="تصدير ملف أكواد وأسعار الموازين الإلكترونية (PLU) لبرامج موازين الباركود">
+                <Scale size={16} /> ملف الموازين (PLU)
             </button>
             <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
                 <Download size={16} /> نموذج
