@@ -4,7 +4,7 @@ import {
   Shield, Save, Check, AlertTriangle, Loader2, CheckSquare, Square, 
   Info, Search, Plus, Trash2, Sliders, ShieldAlert, Sparkles, 
   RotateCcw, Eye, Filter, CheckCircle2, Lock, FileSpreadsheet,
-  Layers, ChevronDown, ChevronUp, Copy, Utensils
+  Layers, ChevronDown, ChevronUp, Copy, Utensils, ShoppingCart
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -165,6 +165,22 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action)) ||
       (p.module === 'restaurant' && ['manage', 'split_bill', 'transfer_table'].includes(p.action))
   },
+  storekeeper: {
+    name: 'أمين مخزن ومستودعات',
+    description: 'صلاحيات إدارة المخزون، التحويلات، الجرد، وإثبات الهالك، ورادار الصلاحيات مع منع التعديل المالي',
+    matchActions: (p) =>
+      (p.module === 'products' && ['view', 'create', 'update'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'transfer', 'adjustment', 'wastage', 'uom_manage'].includes(p.action)) ||
+      (p.module === 'purchases' && ['view', 'create'].includes(p.action))
+  },
+  sales: {
+    name: 'مسؤول ومندوب مبيعات',
+    description: 'صلاحيات إصدار فواتير المبيعات، عروض الأسعار، متابعة العملاء، وكشف الحساب',
+    matchActions: (p) =>
+      (p.module === 'sales' && ['view', 'create', 'return', 'quotation'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create', 'update'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view')
+  },
   warehouse: {
     name: 'أمين مستودع',
     description: 'صلاحيات إدارة المخزون، التحويلات، الجرد، وإثبات الهالك مع منع التعديل المالي',
@@ -239,6 +255,7 @@ const PermissionsManager = () => {
   
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [installingRestaurantRoles, setInstallingRestaurantRoles] = useState(false);
+  const [installingRetailRoles, setInstallingRetailRoles] = useState(false);
 
   // Fetch initial roles and permissions
   useEffect(() => {
@@ -543,6 +560,82 @@ const PermissionsManager = () => {
     }
   };
 
+  // 🛒 One-Click Retail & Supermarket Roles Provisioner
+  const handleInstallRetailRoles = async () => {
+    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) {
+      showToast('لم يتم العثور على معرّف المنظمة', 'error');
+      return;
+    }
+
+    if (!window.confirm('هل تريد تثبيت حزمة أدوار السوبر ماركت والتجزئة؟\nسيتم إنشاء وتحديث أدوار (رئيس الكاشيرية، أمين المخزن، مندوب المبيعات) مع ربط صلاحياتها التلقائية.')) {
+      return;
+    }
+
+    setInstallingRetailRoles(true);
+    try {
+      // 1. Fetch fresh permissions from DB
+      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      const allPerms: Permission[] = freshPerms || permissions;
+      if (freshPerms) setPermissions(freshPerms);
+
+      // 2. Target retail roles
+      const targetRoles = [
+        { key: 'pos_supervisor', name: 'pos_supervisor', desc: 'رئيس الكاشيرية ومشرف نقطة البيع - اعتماد المرتجعات، كارت المشرف، إلغاء الأصناف، وإدارة الورديات' },
+        { key: 'storekeeper', name: 'storekeeper', desc: 'أمين المخازن والمستودعات - الجرد، التحويلات، وتتبع الصلاحيات' },
+        { key: 'sales', name: 'sales', desc: 'مسؤول ومندوب المبيعات - الفواتير، عروض الأسعار، وكشوف الحسابات' }
+      ];
+
+      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const rolesList = existingRoles || [];
+
+      for (const rDef of targetRoles) {
+        let roleObj = rolesList.find(r => r.name === rDef.key);
+
+        if (!roleObj) {
+          const { data: newRole, error: crtErr } = await supabase.from('roles').insert({
+            name: rDef.key,
+            description: rDef.desc,
+            organization_id: orgId
+          }).select().single();
+
+          if (crtErr) {
+            console.warn('Role creation notice:', crtErr);
+            continue;
+          }
+          roleObj = newRole;
+        }
+
+        const preset = rolePresets[rDef.key];
+        if (preset && roleObj) {
+          const matchedIds = allPerms.filter(preset.matchActions).map(p => p.id.toString());
+          await supabase.rpc('sync_role_permissions', {
+            p_role_id: roleObj.id,
+            p_permission_ids: matchedIds
+          });
+        }
+      }
+
+      // Reload updated roles list
+      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      if (updatedRoles && updatedRoles.length > 0) {
+        setRoles(updatedRoles);
+        const sup = updatedRoles.find(r => r.name === 'pos_supervisor');
+        if (sup) {
+          setSelectedRoleId(sup.id);
+        }
+      }
+
+      showToast('تم بنجاح تثبيت وتفعيل حزمة أدوار السوبر ماركت والتجزئة بصلاحياتها! 🛒👑', 'success');
+      await refreshPermissions();
+    } catch (err: any) {
+      console.error('Error installing retail roles:', err);
+      showToast('فشل تثبيت الأدوار: ' + (err.message || 'خطأ غير متوقع'), 'error');
+    } finally {
+      setInstallingRetailRoles(false);
+    }
+  };
+
   // Save Permissions via Atomic RPC
   const handleSave = async () => {
     if (!selectedRoleId) return;
@@ -676,6 +769,21 @@ const PermissionsManager = () => {
               <Utensils size={16} />
             )}
             <span>🍽️ حزمة أدوار المطعم (6 أدوار)</span>
+          </button>
+
+          {/* 🛒 زر تثبيت أدوار السوبرماركت والتجزئة */}
+          <button
+            onClick={handleInstallRetailRoles}
+            disabled={installingRetailRoles}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 active:scale-95"
+            title="تثبيت وتهيئة أدوار السوبر ماركت والتجزئة (رئيس الكاشيرية، أمين المخزن، المبيعات)"
+          >
+            {installingRetailRoles ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <ShoppingCart size={16} />
+            )}
+            <span>🛒 أدوار السوبر ماركت (المشرف والمخزن)</span>
           </button>
 
           <button
