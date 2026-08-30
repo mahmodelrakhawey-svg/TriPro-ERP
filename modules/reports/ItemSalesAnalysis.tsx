@@ -46,15 +46,15 @@ const ItemSalesAnalysis = () => {
 
       if (!userOrgId) return;
 
-      // جلب بنود الفواتير (غير المسودة) مع تفاصيل المنتج
-      const { data, error } = await supabase
+      // 1. جلب بنود الفواتير (غير المسودة) مع تفاصيل المنتج
+      const { data: invItems, error: invError } = await supabase
         .from('invoice_items')
         .select(`
           quantity,
           total,
           cost,
           product_id,
-          products (name, sku),
+          products (name, sku, purchase_price, weighted_average_cost),
           invoices!inner (invoice_date, status, invoice_number)
         `)
         .eq('invoices.organization_id', userOrgId) // 🔒 فلترة المبيعات حسب المنظمة
@@ -62,32 +62,80 @@ const ItemSalesAnalysis = () => {
         .lte('invoices.invoice_date', endDate)
         .neq('invoices.status', 'draft');
 
-      if (error) throw error;
+      if (invError) console.error('Error fetching invoice items:', invError);
 
-      // تجميع البيانات حسب الصنف
+      // 2. جلب مبيعات نقاط البيع والكاشير والتجزئة والهايبر ماركت والمطاعم (POS Orders)
+      const { data: posItems, error: posError } = await supabase
+        .from('order_items')
+        .select(`
+          quantity,
+          total_price,
+          unit_cost,
+          product_id,
+          products (name, sku, purchase_price, weighted_average_cost),
+          orders!inner (created_at, status)
+        `)
+        .eq('orders.organization_id', userOrgId)
+        .in('orders.status', ['COMPLETED', 'PAID'])
+        .gte('orders.created_at', `${startDate}T00:00:00`)
+        .lte('orders.created_at', `${endDate}T23:59:59`);
+
+      if (posError) console.error('Error fetching POS order items:', posError);
+
+      // 3. جلب مبيعات وصرف الصيدليات والعيادات (إن وجدت)
+      let himsItems: any[] = [];
+      try {
+        const { data: himsData } = await supabase
+          .from('hims_billing_items')
+          .select('quantity, total_price, product_id, products(name, sku, purchase_price, weighted_average_cost), hims_billing!inner(created_at, organization_id)')
+          .eq('hims_billing.organization_id', userOrgId)
+          .not('product_id', 'is', null)
+          .gte('hims_billing.created_at', `${startDate}T00:00:00`)
+          .lte('hims_billing.created_at', `${endDate}T23:59:59`);
+        if (himsData) himsItems = himsData;
+      } catch (himsErr) {
+        // Safe ignore if hims module not installed
+      }
+
+      // تجميع البيانات من جميع القنوات حسب الصنف
       const productStats: Record<string, any> = {};
 
-      data?.forEach((item: any) => {
-        const pid = item.product_id;
+      const processItem = (pid: string, prodInfo: any, qty: number, revenue: number, unitCost: number) => {
+        if (!pid) return;
         if (!productStats[pid]) {
           productStats[pid] = {
             id: pid,
-            name: item.products?.name || 'صنف محذوف',
-            sku: item.products?.sku || '-',
+            name: prodInfo?.name || 'صنف غير محدد',
+            sku: prodInfo?.sku || '-',
             quantity: 0,
             revenue: 0,
             cost: 0
           };
         }
 
-        const qty = Number(item.quantity);
-        const revenue = Number(item.total);
-        // التكلفة المسجلة في الفاتورة (للوحدة) * الكمية
-        const cost = (Number(item.cost) || 0) * qty;
-        
-        productStats[pid].quantity += qty;
-        productStats[pid].revenue += revenue;
-        productStats[pid].cost += cost;
+        const validQty = Number(qty) || 0;
+        const validRev = Number(revenue) || 0;
+        const fallbackCost = Number(unitCost || prodInfo?.weighted_average_cost || prodInfo?.purchase_price || 0);
+        const validCost = fallbackCost * validQty;
+
+        productStats[pid].quantity += validQty;
+        productStats[pid].revenue += validRev;
+        productStats[pid].cost += validCost;
+      };
+
+      // معالجة فواتير المبيعات
+      invItems?.forEach((item: any) => {
+        processItem(item.product_id, item.products, item.quantity, item.total, item.cost);
+      });
+
+      // معالجة مبيعات الكاشير والهايبر ماركت
+      posItems?.forEach((item: any) => {
+        processItem(item.product_id, item.products, item.quantity, item.total_price, item.unit_cost);
+      });
+
+      // معالجة مبيعات الصيدلية والخدمات الطبية
+      himsItems?.forEach((item: any) => {
+        processItem(item.product_id, item.products, item.quantity, item.total_price, item.products?.weighted_average_cost);
       });
 
       let reportData = Object.values(productStats).map(p => ({
