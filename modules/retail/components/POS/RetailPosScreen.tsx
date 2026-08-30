@@ -5,6 +5,11 @@ import { useAccounting } from '../../../../context/AccountingContext';
 import { db, offlineService } from '../../../../services/offlineService';
 import type { CachedProduct } from '../../../../services/offlineService';
 import { secureStorage } from '../../../../utils/securityMiddleware';
+import SupervisorPinModal from './SupervisorPinModal';
+import CashDropModal from './CashDropModal';
+import PosReturnModal from './PosReturnModal';
+import { evaluatePromotions } from '../../services/promotionEngine';
+import type { PromotionRule } from '../../services/promotionEngine';
 import { 
   Barcode, 
   Trash2, 
@@ -26,7 +31,13 @@ import {
   Play,
   Clock,
   Tag,
-  FileSpreadsheet
+  FileSpreadsheet,
+  RotateCcw,
+  Banknote,
+  Monitor,
+  Sparkles,
+  ShieldAlert,
+  Percent
 } from 'lucide-react';
 
 interface CartItem {
@@ -77,6 +88,47 @@ export default function RetailPosScreen() {
   // Printing Receipt State
   const [receiptOrder, setReceiptOrder] = useState<any>(null);
   const [isPrinting, setIsPrinting] = useState(false);
+
+  // 🛡️ Supervisor PIN Security State
+  const [supervisorModalState, setSupervisorModalState] = useState<{
+    isOpen: boolean;
+    actionTitle: string;
+    actionDescription?: string;
+    onSuccess: () => void;
+  }>({
+    isOpen: false,
+    actionTitle: '',
+    onSuccess: () => {}
+  });
+
+  // 💵 Cash Drop State (سحب النقدية أثناء الوردية)
+  const [isCashDropOpen, setIsCashDropOpen] = useState(false);
+  const [cashDrops, setCashDrops] = useState<Array<{ amount: number; reason: string; receiverName: string; time: string }>>([]);
+
+  // 🔄 POS Returns State (مرتجعات الكاشير بالباركود)
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+
+  // 🎁 Promotions Engine State (محرك العروض الترويجية)
+  const [promotions, setPromotions] = useState<PromotionRule[]>([]);
+
+  useEffect(() => {
+    const loadPromos = async () => {
+      const orgId = currentUser?.organization_id;
+      if (!orgId) return;
+      try {
+        const { data } = await supabase.from('retail_promotions').select('*').eq('organization_id', orgId).eq('is_active', true);
+        if (data && data.length > 0) {
+          setPromotions(data);
+          return;
+        }
+      } catch (e) {}
+      const local = secureStorage.getItem(`tripro_promos_${orgId}`) as PromotionRule[];
+      if (local && Array.isArray(local)) {
+        setPromotions(local);
+      }
+    };
+    loadPromos();
+  }, [currentUser]);
 
   // ⏸️ Held / Parked Invoices State (تعليق واسترجاع الفواتير - F6)
   interface HeldOrder {
@@ -175,7 +227,7 @@ export default function RetailPosScreen() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
-  // Calculations
+  // Calculations & Promotions Evaluation
   const isTaxEnabled = settings?.enable_tax !== false;
   const vatRate = isTaxEnabled ? (settings?.vat_rate !== undefined ? Number(settings.vat_rate) : 0.14) : 0;
 
@@ -185,8 +237,53 @@ export default function RetailPosScreen() {
     return sum + (price * qty);
   }, 0);
 
-  const tax = subtotal * vatRate;
-  const total = subtotal + tax;
+  const { totalPromoDiscount, appliedPromotions } = evaluatePromotions(
+    cart.map(it => ({
+      product: {
+        id: it.product.id,
+        name: it.product.name,
+        sales_price: it.product.sales_price,
+        category_id: it.product.category_id
+      },
+      quantity: it.weight !== undefined ? it.weight : it.quantity,
+      price: it.product.sales_price
+    })),
+    promotions
+  );
+
+  const subtotalAfterPromo = Math.max(0, subtotal - totalPromoDiscount);
+  const tax = subtotalAfterPromo * vatRate;
+  const total = subtotalAfterPromo + tax;
+
+  // 📺 Broadcast to Dual-Screen Customer Display (/retail/customer-display)
+  useEffect(() => {
+    const payload = {
+      cart: cart.map(it => ({
+        id: it.product.id,
+        name: it.product.name,
+        quantity: it.quantity,
+        price: it.product.sales_price,
+        weight: it.weight,
+        total: it.product.sales_price * (it.weight !== undefined ? it.weight : it.quantity),
+        image_url: it.product.image_url
+      })),
+      subtotal,
+      discount: totalPromoDiscount,
+      tax,
+      total,
+      cashierName: currentUser?.full_name || 'الكاشير',
+      storeName: organization?.name || 'TriPro Hypermarket',
+      customerName: selectedCustomer?.name,
+      status: cart.length > 0 ? 'scanning' : 'idle'
+    };
+
+    try {
+      secureStorage.setItem('tripro_customer_display_state', payload);
+      const channel = new BroadcastChannel('tripro_pos_customer_display');
+      channel.postMessage(payload);
+      channel.close();
+    } catch (e) {}
+  }, [cart, subtotal, totalPromoDiscount, tax, total, currentUser, organization, selectedCustomer]);
 
   // Customer Search effect (Loyalty)
   useEffect(() => {
@@ -883,16 +980,47 @@ export default function RetailPosScreen() {
           </div>
 
           {activeShift && (
-            <div className="flex items-center gap-3 bg-slate-900 border border-slate-800 px-4 py-1.5 rounded-xl text-sm">
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-xl text-sm">
               <span className="flex items-center gap-1.5 font-bold text-slate-300">
                 <User size={14} className="text-slate-400" />
                 {currentUser?.full_name || 'الكاشير'}
               </span>
               <span className="h-4 w-px bg-slate-800" />
               <span className="text-indigo-400 font-black">{selectedTerminal?.name}</span>
+
+              {/* 🔄 POS Returns */}
+              <button 
+                onClick={() => setIsReturnModalOpen(true)}
+                className="text-xs bg-blue-950/80 border border-blue-900/50 hover:bg-blue-900 text-blue-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                title="مرتجع مبيعات بمسح باركود الفاتورة"
+              >
+                <RotateCcw size={12} />
+                <span>مرتجع (F3)</span>
+              </button>
+
+              {/* 💵 Cash Drop */}
+              <button 
+                onClick={() => setIsCashDropOpen(true)}
+                className="text-xs bg-amber-950/80 border border-amber-900/50 hover:bg-amber-900 text-amber-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                title="سحب وتفريغ نقدية من الدرج إلى الإدارة"
+              >
+                <Banknote size={12} />
+                <span>سحب نقدية</span>
+              </button>
+
+              {/* 📺 Dual-Screen Customer Display */}
+              <button 
+                onClick={() => window.open('#/retail/customer-display', 'TriProCustomerDisplay', 'width=1200,height=800')}
+                className="text-xs bg-purple-950/80 border border-purple-900/50 hover:bg-purple-900 text-purple-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                title="فتح شاشة العميل الخلفية (Dual Screen)"
+              >
+                <Monitor size={12} />
+                <span>شاشة العميل</span>
+              </button>
+
               <button 
                 onClick={() => setIsHeldModalOpen(true)}
-                className="mr-2 text-xs bg-amber-950/80 border border-amber-900/50 hover:bg-amber-900 text-amber-300 px-3 py-1 rounded-lg flex items-center gap-1.5 font-bold transition-all"
+                className="text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
               >
                 <Pause size={12} /> 
                 <span>المعلقة (F7)</span>
@@ -902,19 +1030,21 @@ export default function RetailPosScreen() {
                   </span>
                 )}
               </button>
+
               <button 
                 onClick={handleSyncProducts} 
                 disabled={isSyncingProducts}
-                className="mr-1 text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-300 px-3 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                className="text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 text-slate-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
               >
                 <RefreshCw size={12} className={isSyncingProducts ? 'animate-spin' : ''} /> 
-                {isSyncingProducts ? 'جاري التحديث...' : 'تحديث المنتجات'}
+                {isSyncingProducts ? 'جاري التحديث...' : 'تحديث'}
               </button>
+
               <button 
                 onClick={handleOpenCloseShiftModal} 
-                className="mr-1 text-xs bg-red-950/80 border border-red-900/50 hover:bg-red-900 text-red-400 px-3 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                className="text-xs bg-red-950/80 border border-red-900/50 hover:bg-red-900 text-red-400 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
               >
-                <Lock size={12} /> إغلاق الوردية
+                <Lock size={12} /> إغلاق
               </button>
             </div>
           )}
@@ -1097,8 +1227,20 @@ export default function RetailPosScreen() {
                             <td className="p-3 text-left font-black font-mono text-indigo-400">{rowTotal.toFixed(2)}</td>
                             <td className="p-3 text-center">
                               <button 
-                                onClick={() => setCart(prev => prev.filter(i => i.product.id !== item.product.id))}
+                                onClick={() => {
+                                  setSupervisorModalState({
+                                    isOpen: true,
+                                    actionTitle: `إلغاء صنف: ${item.product.name}`,
+                                    actionDescription: 'حذف صنف مسجل في الفاتورة يتطلب تصريح المشرف (Void Line)',
+                                    onSuccess: () => {
+                                      setCart(prev => prev.filter(i => i.product.id !== item.product.id));
+                                      setSupervisorModalState(prev => ({ ...prev, isOpen: false }));
+                                      showToast(`تم حذف الصنف (${item.product.name}) بتصريح المشرف`, 'info');
+                                    }
+                                  });
+                                }}
                                 className="text-red-500 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-950/30 transition-all"
+                                title="حذف الصنف (يتطلب تصريح المشرف)"
                               >
                                 <Trash2 size={16} />
                               </button>
@@ -1113,15 +1255,33 @@ export default function RetailPosScreen() {
             </div>
 
             {/* Cart Calculations Summary Footer */}
-            <div className="p-6 bg-slate-950 border-t border-slate-800 space-y-4">
-              <div className="grid grid-cols-3 gap-6 text-sm text-slate-400">
+            <div className="p-6 bg-slate-950 border-t border-slate-800 space-y-3">
+              {appliedPromotions.length > 0 && (
+                <div className="space-y-1 bg-purple-950/40 border border-purple-900/50 p-2.5 rounded-xl text-xs">
+                  <span className="font-bold text-amber-300 flex items-center gap-1">
+                    <Sparkles size={13} /> العروض والخصومات المطبقة:
+                  </span>
+                  {appliedPromotions.map((p, i) => (
+                    <div key={i} className="flex justify-between text-purple-200">
+                      <span>{p.promoName}</span>
+                      <span className="font-bold font-mono text-emerald-400">-{p.discountAmount.toFixed(2)} {currencySymbol}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="grid grid-cols-4 gap-4 text-sm text-slate-400">
                 <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800/40">
                   <span className="block text-xs text-slate-500 mb-1">المجموع الفرعي</span>
                   <span className="text-lg font-bold font-mono text-slate-300">{subtotal.toFixed(2)} {currencySymbol}</span>
                 </div>
                 <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800/40">
+                  <span className="block text-xs text-amber-400 mb-1">العروض والخصم</span>
+                  <span className="text-lg font-bold font-mono text-amber-400">-{totalPromoDiscount.toFixed(2)} {currencySymbol}</span>
+                </div>
+                <div className="bg-slate-900/50 p-3 rounded-xl border border-slate-800/40">
                   <span className="block text-xs text-slate-500 mb-1">
-                    {isTaxEnabled ? `ضريبة القيمة المضافة (${(vatRate * 100).toFixed(0)}%)` : 'الضريبة (معطلة)'}
+                    {isTaxEnabled ? `الضريبة (${(vatRate * 100).toFixed(0)}%)` : 'الضريبة (معطلة)'}
                   </span>
                   <span className="text-lg font-bold font-mono text-slate-300">
                     {isTaxEnabled ? `${tax.toFixed(2)} ${currencySymbol}` : `0.00 ${currencySymbol}`}
@@ -1567,14 +1727,50 @@ export default function RetailPosScreen() {
             <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-amber-400">F7</kbd> المعلقة ({heldOrders.length})</span>
             <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F9</kbd> تحديد المستلم</span>
             <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F4</kbd> بحث</span>
-            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F2</kbd> تفريغ</span>
-            <span className="flex items-center gap-1"><kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">Esc</kbd> مسح والرجوع للباركود</span>
           </div>
           <div>
             <span>💡 نصيحة للكاشير: يمكنك إدخال الكمية متبوعة بنجمة ثم الباركود للضرب السريع (مثال: <span className="font-mono text-indigo-400">5*barcode</span>)</span>
           </div>
         </footer>
       )}
+
+      {/* 🛡️ Supervisor PIN Modal */}
+      <SupervisorPinModal
+        isOpen={supervisorModalState.isOpen}
+        onClose={() => setSupervisorModalState(prev => ({ ...prev, isOpen: false }))}
+        onSuccess={supervisorModalState.onSuccess}
+        actionTitle={supervisorModalState.actionTitle}
+        actionDescription={supervisorModalState.actionDescription}
+      />
+
+      {/* 💵 Cash Drop Modal */}
+      <CashDropModal
+        isOpen={isCashDropOpen}
+        onClose={() => setIsCashDropOpen(false)}
+        onConfirm={(amt, reason, receiver) => {
+          const newDrop = {
+            amount: amt,
+            reason,
+            receiverName: receiver,
+            time: new Date().toLocaleTimeString('ar-EG')
+          };
+          setCashDrops(prev => [newDrop, ...prev]);
+        }}
+        currentDrawerTotal={activeShift ? Number(openingBalance) + subtotal : 0}
+        cashierName={currentUser?.full_name || 'الكاشير'}
+      />
+
+      {/* 🔄 POS Returns Modal */}
+      <PosReturnModal
+        isOpen={isReturnModalOpen}
+        onClose={() => setIsReturnModalOpen(false)}
+        onSuccess={(returnSummary) => {
+          showToast(`تم تسجيل المرتجع (${returnSummary.returnNumber}) بنجاح`, 'success');
+        }}
+        orgId={currentUser?.organization_id || ''}
+        cashierId={currentUser?.id || ''}
+        cashierName={currentUser?.full_name || 'الكاشير'}
+      />
 
     </div>
   );

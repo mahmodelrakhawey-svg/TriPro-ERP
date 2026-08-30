@@ -10,6 +10,8 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import * as XLSX from 'xlsx';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
+import SupplierInvoiceExcelImporter from './SupplierInvoiceExcelImporter';
+import { FileSpreadsheet } from 'lucide-react';
 
 export const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
@@ -32,6 +34,7 @@ export const PurchaseInvoiceList = () => {
   const [invoiceToPrint, setInvoiceToPrint] = useState<any | null>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isImporterOpen, setIsImporterOpen] = useState(false);
 
   // Payment Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -319,6 +322,14 @@ export const PurchaseInvoiceList = () => {
             title="تصدير إلى إكسيل"
           >
             <Download size={16} /> تصدير Excel
+          </button>
+
+          <button 
+            onClick={() => setIsImporterOpen(true)}
+            className="bg-emerald-600 text-white hover:bg-emerald-700 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+            title="استيراد فواتير الموردين من ملف إكسيل"
+          >
+            <FileSpreadsheet size={16} /> استيراد إكسيل المورد
           </button>
 
           <button 
@@ -743,6 +754,16 @@ export const PurchaseInvoiceList = () => {
       {invoiceToPrint && (
         <PurchaseInvoicePrint invoiceData={invoiceToPrint} companySettings={companySettings} />
       )}
+
+      {/* Supplier Invoice Excel Importer Modal */}
+      <SupplierInvoiceExcelImporter
+        isOpen={isImporterOpen}
+        onClose={() => setIsImporterOpen(false)}
+        onSuccess={() => {
+          fetchInvoices();
+          setIsImporterOpen(false);
+        }}
+      />
     </div>
   );
 };

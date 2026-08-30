@@ -85,6 +85,7 @@ import {
   Gift,
   Zap,
   MapPin,
+  PackageCheck,
 } from 'lucide-react';
 import { Wrench } from 'lucide-react'; // Import Wrench icon
 
@@ -203,6 +204,7 @@ const Sidebar: React.FC = () => {
     { to: '/item-profit', label: 'ربحية الأصناف', icon: DollarSign, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/expiry-radar', label: 'رادار الصلاحية وتصفية العروض', icon: Flame, color: 'text-orange-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/shelf-restock', label: 'تقرير إعادة التخزين بالرفوف', icon: MapPin, color: 'text-indigo-400', module: 'inventory', permission: 'inventory.view' },
+    { to: '/inventory/pda-stocktaking', label: 'الجرد السريع بالهاند هيلد (PDA)', icon: PackageCheck, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
     { to: '/detailed-stock-movement', label: 'حركة المخزون التفصيلية', icon: List, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
 
     // التصنيع والإنتاج
@@ -295,6 +297,8 @@ const Sidebar: React.FC = () => {
     { to: '/restaurant/kiosk', label: 'كشك الخدمة الذاتية (Kiosk)', icon: Monitor, color: 'text-cyan-400', module: 'restaurant', permission: 'restaurant.pos' },
     { to: '/retail-pos', label: 'نقطة بيع التجزئة (هايبرماركت)', icon: ShoppingCart, color: 'text-rose-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/price-checker', label: 'كاشف الأسعار الذاتي للمتسوقين', icon: Barcode, color: 'text-cyan-400', module: 'retail', permission: 'sales.view' },
+    { to: '/retail/promotions', label: 'العروض الترويجية والخصومات (BOGO)', icon: Sparkles, color: 'text-amber-400', module: 'retail', permission: 'sales.view' },
+    { to: '/retail/customer-display', label: 'شاشة العميل المزدوجة (Dual Screen)', icon: Monitor, color: 'text-purple-400', module: 'retail', permission: 'sales.view' },
     { to: '/kds', label: 'شاشة المطبخ (KDS)', icon: ChefHat, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/restaurant/expo', label: 'شاشة التجميع (Master Expo)', icon: Layers, color: 'text-indigo-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/restaurant/stations', label: 'محطات المطبخ (Kitchen Stations)', icon: Flame, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },

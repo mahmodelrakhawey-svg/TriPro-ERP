@@ -159,6 +159,9 @@ import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
 import PosScreen from './modules/restaurant/components/POS/PosScreen';
 import RetailPosScreen from './modules/retail/components/POS/RetailPosScreen';
 import PriceCheckerKiosk from './modules/retail/components/PriceCheckerKiosk';
+import CustomerFacingScreen from './modules/retail/components/CustomerDisplay/CustomerFacingScreen';
+import PromotionsManager from './modules/retail/components/Promotions/PromotionsManager';
+import MobilePdaStocktaking from './modules/inventory/MobilePdaStocktaking';
 import ExpiryClearanceRadar from './modules/inventory/ExpiryClearanceRadar';
 import ShelfRestockReport from './modules/inventory/ShelfRestockReport';
 import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
@@ -730,6 +733,11 @@ const MainLayout = () => {
                 <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
                 <Route path="/retail/price-checker" element={<ModuleGuard module="retail"><PriceCheckerKiosk /></ModuleGuard>} /> 
                 <Route path="/price-checker" element={<Navigate to="/retail/price-checker" replace />} /> 
+                <Route path="/retail/customer-display" element={<CustomerFacingScreen />} />
+                <Route path="/retail/promotions" element={<ModuleGuard module="retail"><PromotionsManager /></ModuleGuard>} />
+                <Route path="/promotions" element={<Navigate to="/retail/promotions" replace />} />
+                <Route path="/inventory/pda-stocktaking" element={<ModuleGuard module="inventory"><MobilePdaStocktaking /></ModuleGuard>} />
+                <Route path="/pda-stocktaking" element={<Navigate to="/inventory/pda-stocktaking" replace />} />
                 <Route path="/inventory/expiry-radar" element={<ModuleGuard module="inventory"><ExpiryClearanceRadar /></ModuleGuard>} /> 
                 <Route path="/expiry-radar" element={<Navigate to="/inventory/expiry-radar" replace />} /> 
                 <Route path="/inventory/shelf-restock" element={<ModuleGuard module="inventory"><ShelfRestockReport /></ModuleGuard>} /> 
