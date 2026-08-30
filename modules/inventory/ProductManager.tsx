@@ -1196,19 +1196,19 @@ const ProductManager = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // 1. التحقق باستخدام Zod
+    // 1. التحقق باستخدام Zod مع تنظيف القيم الرقمية
     const validationData = {
         name: formData.name,
         sku: formData.sku || undefined,
         unit: formData.unit,
         product_type: formData.product_type,
-        purchase_price: formData.purchase_price,
-        sales_price: formData.sales_price,
+        purchase_price: Number(formData.purchase_price) || 0,
+        sales_price: Number(formData.sales_price) || 0,
         inventory_account_id: formData.inventory_account_id || undefined,
         cogs_account_id: formData.cogs_account_id || undefined,
         sales_account_id: formData.sales_account_id || undefined,
-        labor_cost: formData.labor_cost,
-        overhead_cost: formData.overhead_cost,
+        labor_cost: Number(formData.labor_cost) || 0,
+        overhead_cost: Number(formData.overhead_cost) || 0,
     };
 
     const validationResult = createProductSchema.safeParse(validationData);
@@ -2492,11 +2492,28 @@ const ProductManager = () => {
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                       <h4 className="font-bold text-slate-800 mb-3 text-sm">تكاليف التصنيع الإضافية (للوحدة الواحدة)</h4>
                       <div className="grid grid-cols-2 gap-4">
-                          <div><label className="block text-xs font-bold text-slate-600 mb-1">تكلفة عمالة مباشرة</label><input type="number" min="0" step="0.01" value={formData.labor_cost} onChange={e => setFormData({...formData, labor_cost: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2 text-sm" /></div>
+                          <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">تكلفة عمالة مباشرة</label>
+                            <input 
+                              type="number" 
+                              min="0" 
+                              step="0.01" 
+                              value={formData.labor_cost || 0} 
+                              onChange={e => setFormData({...formData, labor_cost: parseFloat(e.target.value) || 0})} 
+                              className="w-full border rounded-lg p-2 text-sm" 
+                            />
+                          </div>
                           <div>
                             <label className="block text-xs font-bold text-slate-600 mb-1">مصاريف غير مباشرة</label>
                             <div className="flex gap-2">
-                              <input type="number" min="0" step="0.01" value={formData.overhead_cost} onChange={e => setFormData({...formData, overhead_cost: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2 text-sm" />
+                              <input 
+                                type="number" 
+                                min="0" 
+                                step="0.01" 
+                                value={formData.overhead_cost || 0} 
+                                onChange={e => setFormData({...formData, overhead_cost: parseFloat(e.target.value) || 0})} 
+                                className="w-full border rounded-lg p-2 text-sm" 
+                              />
                               <label className="flex items-center gap-1 cursor-pointer bg-slate-100 px-2 rounded border border-slate-200 text-xs font-bold">
                                 <input type="checkbox" checked={formData.is_overhead_percentage} onChange={e => setFormData({...formData, is_overhead_percentage: e.target.checked})} className="rounded text-blue-600" />
                                 <span>%</span>
@@ -2511,15 +2528,15 @@ const ProductManager = () => {
                           <div className="space-y-1 text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-100 shadow-sm">
                               <div className="flex justify-between">
                                   <span>تكلفة المكونات (من الوصفة):</span>
-                                  <span className="font-mono font-bold text-indigo-600">{recipeCost.toFixed(2)}</span>
+                                  <span className="font-mono font-bold text-indigo-600">{(Number(recipeCost) || 0).toFixed(2)}</span>
                               </div>
                               <div className="flex justify-between">
                                   <span>تكلفة العمالة والمصاريف:</span>
-                                  <span className="font-mono font-bold">{(formData.purchase_price - recipeCost).toFixed(2)}</span>
+                                  <span className="font-mono font-bold">{Math.max(0, (Number(formData.purchase_price) || 0) - (Number(recipeCost) || 0)).toFixed(2)}</span>
                               </div>
                               <div className="flex justify-between font-black text-slate-800 border-t border-slate-200 pt-2 mt-2">
                                   <span>إجمالي التكلفة النهائية:</span>
-                                  <span className="font-mono text-lg text-emerald-600">{formData.purchase_price.toFixed(2)}</span>
+                                  <span className="font-mono text-lg text-emerald-600">{(Number(formData.purchase_price) || 0).toFixed(2)}</span>
                               </div>
                           </div>
                       </div>
@@ -2538,7 +2555,7 @@ const ProductManager = () => {
                               <input 
                                   type="number" 
                                   min="0" 
-                                  value={formData.opening_stock} 
+                                  value={formData.opening_stock || 0} 
                                   onChange={e => setFormData({...formData, opening_stock: Math.max(0, parseFloat(e.target.value) || 0)})} 
                                   className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none text-left font-bold text-emerald-700 bg-white" 
                                   placeholder="0" 
@@ -2602,11 +2619,11 @@ const ProductManager = () => {
               <div className="grid grid-cols-2 gap-4 border-t pt-4">
                 <div>
                     <label className="block text-sm font-bold mb-1 text-slate-700">سعر التكلفة (تقديري)</label>
-                    <input type="number" value={formData.purchase_price} onChange={e => setFormData({...formData, purchase_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" />
+                    <input type="number" step="0.0001" value={formData.purchase_price ?? 0} onChange={e => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2" />
                 </div>
                 <div>
                     <label className="block text-sm font-bold mb-1 text-slate-700">سعر البيع</label>
-                    <input type="number" value={formData.sales_price} onChange={e => setFormData({...formData, sales_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" />
+                    <input type="number" step="0.0001" value={formData.sales_price ?? 0} onChange={e => setFormData({...formData, sales_price: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2" />
                 </div>
               </div>
 

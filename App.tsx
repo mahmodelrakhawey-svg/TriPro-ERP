@@ -149,6 +149,8 @@ import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
 import UnitsOfMeasureManager from './components/UnitsOfMeasureManager';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
+import FreeReturnsReport from './modules/sales/FreeReturnsReport';
+import WastageReport from './modules/inventory/WastageReport';
 import GuestMenuLayout from './modules/restaurant/components/GuestMenuLayout';
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
@@ -623,6 +625,7 @@ const MainLayout = () => {
                 <Route path="/sales-orders" element={<ModuleGuard module="sales"><SalesOrders /></ModuleGuard>} />
                 <Route path="/sales-return" element={<ModuleGuard module="sales"><SalesReturnForm /></ModuleGuard>} />
                 <Route path="/sales-returns-list" element={<ModuleGuard module="sales"><SalesReturnsList /></ModuleGuard>} />
+                <Route path="/free-returns-report" element={<ModuleGuard module="sales"><FreeReturnsReport /></ModuleGuard>} />
                 <Route path="/credit-note" element={<ModuleGuard module="sales"><CreditNoteForm /></ModuleGuard>} />
                 <Route path="/credit-notes-list" element={<ModuleGuard module="sales"><CreditNoteList /></ModuleGuard>} />
                 <Route path="/offer-beneficiaries" element={<ModuleGuard module="sales"><OfferBeneficiariesReport /></ModuleGuard>} />
@@ -663,6 +666,7 @@ const MainLayout = () => {
                 <Route path="/inventory-history" element={<ModuleGuard module="inventory"><InventoryCountList /></ModuleGuard>} />
                 <Route path="/stock-adjustment" element={<ModuleGuard module="inventory"><StockAdjustmentForm /></ModuleGuard>} />
                 <Route path="/wastage" element={<ModuleGuard module="inventory"><WastageManager /></ModuleGuard>} />
+                <Route path="/wastage-report" element={<ModuleGuard module="inventory"><WastageReport /></ModuleGuard>} />
                 <Route path="/inventory-revaluation" element={<ModuleGuard module="inventory"><InventoryRevaluation /></ModuleGuard>} />
                 <Route path="/stock-movement-cost" element={<ModuleGuard module="inventory"><StockMovementCostReport /></ModuleGuard>} />
                 <Route path="/slow-moving" element={<ModuleGuard module="inventory"><SlowMovingReport /></ModuleGuard>} />

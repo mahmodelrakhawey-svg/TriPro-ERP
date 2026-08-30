@@ -56,13 +56,13 @@ const baseProductSchema = z.object({
   sku: z.string().max(50).optional(),
   unit: z.string().max(50).optional().default('piece'), // إضافة وحدة القياس
   product_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL', 'MANUFACTURED']),
-  purchase_price: amountSchema,
-  sales_price: amountSchema,
+  purchase_price: z.coerce.number().min(0, 'سعر الشراء يجب أن يكون أكبر من أو يساوي صفر').default(0),
+  sales_price: z.coerce.number().min(0, 'سعر البيع يجب أن يكون أكبر من أو يساوي صفر').default(0),
   inventory_account_id: idSchema.optional(),
   cogs_account_id: idSchema.optional(),
   sales_account_id: idSchema.optional(),
-  labor_cost: amountSchema.optional().default(0),
-  overhead_cost: amountSchema.optional().default(0),
+  labor_cost: z.coerce.number().min(0, 'تكلفة العمالة يجب أن تكون أكبر من أو تساوي صفر').optional().default(0),
+  overhead_cost: z.coerce.number().min(0, 'المصاريف يجب أن تكون أكبر من أو تساوي صفر').optional().default(0),
   requires_serial: z.boolean().optional().default(false),
   available_modifiers: z.array(z.any()).optional().default([]),
 });

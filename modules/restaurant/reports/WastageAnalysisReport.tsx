@@ -15,7 +15,7 @@ type WastageReasonAnalysis = {
 
 const WastageAnalysisReport = () => {
   const { showToast } = useToast();
-  const { settings, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { settings, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const [loading, setLoading] = useState(false);
   const [reportData, setReportData] = useState<WastageReasonAnalysis[]>([]);
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
@@ -34,27 +34,90 @@ const WastageAnalysisReport = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
-      const userRole = session?.user?.user_metadata?.role;
+      const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const userRole = session?.user?.user_metadata?.role || currentUser?.role;
 
-      if (!userOrgId && userRole !== 'super_admin') {
-        showToast('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.', 'error');
+      if (currentUser?.role === 'demo') {
+        setReportData([
+          { reason: 'تالف أثناء التحضير والتجهيز', occurrence_count: 8, total_wasted_quantity: 14.5, total_wasted_cost: 450 },
+          { reason: 'انتهاء فترة الصلاحية', occurrence_count: 3, total_wasted_quantity: 6, total_wasted_cost: 320 },
+          { reason: 'هالك تخزين وسوء تبريد', occurrence_count: 2, total_wasted_quantity: 5, total_wasted_cost: 210 },
+          { reason: 'أخطاء تشغيل وطلبات ملغاة', occurrence_count: 5, total_wasted_quantity: 7, total_wasted_cost: 180 }
+        ]);
+        setLoading(false);
         return;
       }
 
-      const { data, error } = await supabase.rpc('analyze_wastage_reasons', {
-        p_start_date: startDate,
-        p_end_date: endDate,
-        p_org_id: userOrgId // تمرير معرف المنظمة لضمان فصل البيانات داخل الدالة
-      });
+      // 1. محاولة استدعاء الدالة المخزنة (RPC) أولاً
+      try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('analyze_wastage_reasons', {
+          p_start_date: startDate,
+          p_end_date: endDate,
+          p_org_id: userOrgId
+        });
 
-      if (error) throw error;
+        if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
+          setReportData(rpcData as WastageReasonAnalysis[]);
+          setLoading(false);
+          return;
+        }
+      } catch (rpcErr) {
+        // Fallback to direct calculation if RPC is missing
+      }
 
-      setReportData(data as WastageReasonAnalysis[]);
-      if (!data || data.length === 0) {
-        showToast('لا توجد بيانات هدر في الفترة المحددة.', 'info');
+      // 2. الحساب الديناميكي المباشر من جداول حركات الهالك والتسويات المخزنية الرسمية
+      let adjustmentsQuery = supabase
+        .from('stock_adjustments')
+        .select(`
+          id, reason, notes, adjustment_date,
+          stock_adjustment_items (
+            product_id, quantity,
+            products (id, name, purchase_price, weighted_average_cost, cost)
+          )
+        `)
+        .gte('adjustment_date', startDate)
+        .lte('adjustment_date', endDate);
+
+      if (userOrgId && userRole !== 'super_admin') {
+        adjustmentsQuery = adjustmentsQuery.eq('organization_id', userOrgId);
+      }
+
+      const { data: adjData, error: adjError } = await adjustmentsQuery;
+
+      const reasonMap: Record<string, { count: number; qty: number; cost: number }> = {};
+
+      if (adjData && !adjError) {
+        adjData.forEach((adj: any) => {
+          const reasonKey = (adj.reason || adj.notes || 'هالك عام').trim();
+          if (!reasonMap[reasonKey]) {
+            reasonMap[reasonKey] = { count: 0, qty: 0, cost: 0 };
+          }
+          reasonMap[reasonKey].count += 1;
+
+          const items = adj.stock_adjustment_items || [];
+          items.forEach((it: any) => {
+            const qty = Math.abs(Number(it.quantity) || 0);
+            const unitCost = Number(it.products?.purchase_price || it.products?.weighted_average_cost || it.products?.cost || 0);
+            reasonMap[reasonKey].qty += qty;
+            reasonMap[reasonKey].cost += (qty * unitCost);
+          });
+        });
+      }
+
+      const formattedData: WastageReasonAnalysis[] = Object.entries(reasonMap).map(([reason, stats]) => ({
+        reason,
+        occurrence_count: stats.count,
+        total_wasted_quantity: stats.qty,
+        total_wasted_cost: stats.cost
+      })).sort((a, b) => b.total_wasted_cost - a.total_wasted_cost);
+
+      setReportData(formattedData);
+
+      if (formattedData.length === 0) {
+        showToast('لا توجد بيانات هدر مسجلة في الفترة المحددة.', 'info');
       }
     } catch (error: any) {
+      console.error('Error generating wastage report:', error);
       showToast('حدث خطأ أثناء جلب التقرير: ' + error.message, 'error');
     } finally {
       setLoading(false);

@@ -146,6 +146,7 @@ const Sidebar: React.FC = () => {
     { to: '/sales-orders', label: 'أوامر البيع والتعميد', icon: Layers, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/sales-return', label: 'مرتجع مبيعات', icon: RotateCcw, color: 'text-emerald-400', module: 'sales', permission: 'sales.return' },
     { to: '/sales-returns-list', label: 'سجل مرتجعات المبيعات', icon: List, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
+    { to: '/free-returns-report', label: 'مرتجعات بدون فاتورة أصلية', icon: RotateCcw, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/credit-note', label: 'إشعار دائن جديد', icon: FilePlus, color: 'text-emerald-400', module: 'sales', permission: 'sales.create' },
     { to: '/credit-notes-list', label: 'سجل الإشعارات الدائنة', icon: List, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/offer-beneficiaries', label: 'المستفيدين من العروض', icon: Users, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
@@ -189,6 +190,7 @@ const Sidebar: React.FC = () => {
     { to: '/inventory-history', label: 'سجل عمليات الجرد', icon: History, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/stock-adjustment', label: 'تسوية كميات (يدوي)', icon: Sliders, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
     { to: '/wastage', label: 'إدارة الهالك والفاقد', icon: Trash2, color: 'text-purple-400', module: 'inventory', permission: 'inventory.wastage' },
+    { to: '/wastage-report', label: 'تقرير انحراف تكلفة الهالك', icon: AlertTriangle, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory-revaluation', label: 'إعادة تقييم المخزون', icon: RefreshCw, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
     { to: '/stock-movement-cost', label: 'تكلفة حركات المخزون', icon: DollarSign, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/slow-moving', label: 'الأصناف الراكدة', icon: Clock, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
@@ -220,6 +222,7 @@ const Sidebar: React.FC = () => {
 
     // موديول المقاولات والمشاريع
     { type: 'section', label: 'المقاولات والمشاريع' },
+    { to: '/construction/analytics', label: 'لوحة تحليلات المشاريع الإنشائية', icon: Activity, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/construction', label: 'إدارة المشاريع الإنشائية', icon: Building2, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/construction/labor-reports', label: 'تقارير تكاليف العمالة', icon: UserCheck, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/construction/subcontractor-analytics', label: 'تحليل أداء مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
@@ -240,6 +243,7 @@ const Sidebar: React.FC = () => {
     { to: '/cheque-movement-report', label: 'تقرير حركة الشيكات', icon: History, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/returned-cheques-report', label: 'الشيكات المرتجعة', icon: RotateCcw, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/bank-reconciliation', label: 'تسوية المذكرة البنكية', icon: ShieldCheck, color: 'text-amber-400', module: 'accounting', permission: 'accounting.reconcile' },
+    { to: '/cash-closing', label: 'إقفال الخزينة والصندوق', icon: Lock, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/deficit-report', label: 'تقرير العجز والزيادة', icon: AlertTriangle, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
     { to: '/payment-gateways', label: 'بوابات الدفع الإلكتروني', icon: CreditCard, color: 'text-amber-400', module: 'accounting', permission: 'treasury.manage' },
     
@@ -264,6 +268,8 @@ const Sidebar: React.FC = () => {
     { to: '/financial-ratios', label: 'النسب المالية والأداء', icon: TrendingUp, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/expense-analysis', label: 'تحليل وتوزيع المصروفات', icon: PieChart, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/budget-setup', label: 'الموازنات التقديرية', icon: Target, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
+    { to: '/budget-variance', label: 'مقارنة وانحراف الموازنة التقديرية', icon: BarChart3, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
+    { to: '/fiscal-periods', label: 'الفترات المحاسبية والإقفال الشهري', icon: CalendarRange, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/fiscal-year-closing', label: 'إقفال السنة المالية', icon: Lock, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.post' },
     { to: '/accounts', label: 'شجرة الحسابات (COA)', icon: List, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.coa' },
     { to: '/assets', label: 'إدارة الأصول الثابتة', icon: Box, color: 'text-cyan-400', module: 'accounting', permission: 'assets.manage' },
@@ -301,6 +307,8 @@ const Sidebar: React.FC = () => {
     { to: '/restaurant-analytics', label: 'مركز ذكاء المطاعم (BI)', icon: Sparkles, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/restaurant-sales', label: 'تقارير مبيعات المطعم', icon: BarChart3, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/sales-by-user', label: 'تقرير مبيعات الكاشير والمستخدمين', icon: Users, color: 'text-rose-400', module: 'restaurant', permission: 'sales.view' },
+    { to: '/reports/wastage-analysis', label: 'تحليل هالك وتوالف المطعم', icon: Trash2, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/reports/restaurant-profit', label: 'تقرير أرباح وقوائم دخل المطعم', icon: TrendingUp, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     
     // موديول المستشفيات (HIMS)
     { type: 'section', label: 'إدارة المستشفيات (HIMS)' },
@@ -359,6 +367,7 @@ const Sidebar: React.FC = () => {
     { to: '/permissions', label: 'الأدوار والصلاحيات', icon: ShieldCheck, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
     { to: '/saas-admin', label: 'إدارة المنصة (SaaS)', icon: ShieldAlert, color: 'text-indigo-500', superAdminOnly: true },
     { to: '/admin/test-dashboard', label: 'مراقبة صحة النظام', icon: Activity, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.logs' },
+    { to: '/stress-test', label: 'اختبار كفاءة وتحمل النظام (Stress Test)', icon: Zap, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.manage' },
     { to: '/security-logs', label: 'سجلات الأمان', icon: ScrollText, color: 'text-slate-400', adminOnly: true, permission: 'admin.logs' },
     { to: '/recycle-bin', label: 'سلة المحذوفات', icon: Trash2, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
     { to: '/data-migration', label: 'مركز ترحيل البيانات', icon: Database, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },

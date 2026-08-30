@@ -31,7 +31,7 @@ interface CartItem {
 }
 
 export default function RetailPosScreen() {
-  const { currentUser, organization, settings, refreshData } = useAccounting();
+  const { currentUser, organization, settings, warehouses, refreshData } = useAccounting();
   const { showToast } = useToast();
 
   const currencySymbol = settings?.currency || 'ج.م';
@@ -320,8 +320,11 @@ export default function RetailPosScreen() {
       }
       if (activeShiftDb) {
         setActiveShift(activeShiftDb);
-        setSelectedTerminal(activeShiftDb.pos_terminals || null);
+        const resolvedTerm = activeShiftDb.pos_terminals || (termData && termData.find((t: any) => t.id === activeShiftDb.terminal_id)) || (termData && termData.length > 0 ? termData[0] : null);
+        setSelectedTerminal(resolvedTerm);
         secureStorage.setItem(`tripro_shift_${currentUser.id}`, activeShiftDb);
+      } else if (termData && termData.length > 0) {
+        setSelectedTerminal(termData[0]);
       }
     } catch (err) {
       console.error('Error in setup:', err);
@@ -332,21 +335,24 @@ export default function RetailPosScreen() {
 
   // Open Shift
   const handleOpenShift = async () => {
-    if (!selectedTerminal) {
+    if (!selectedTerminal && terminals.length > 0) {
       showToast('الرجاء اختيار نقطة البيع/الكاشير أولاً', 'error');
       return;
     }
     setIsOpeningShift(true);
     try {
       // Resolve treasury account linked to terminal or fetch default
-      let treasuryId = selectedTerminal.cash_account_id;
+      let treasuryId = selectedTerminal?.cash_account_id;
       if (!treasuryId) {
-        const { data: mappings } = await supabase
-          .from('company_settings')
-          .select('account_mappings')
-          .eq('organization_id', currentUser.organization_id)
-          .maybeSingle();
-        treasuryId = mappings?.account_mappings?.CASH || null;
+        treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
+        if (!treasuryId) {
+          const { data: mappings } = await supabase
+            .from('company_settings')
+            .select('account_mappings')
+            .eq('organization_id', currentUser.organization_id)
+            .maybeSingle();
+          treasuryId = mappings?.account_mappings?.CASH || null;
+        }
       }
 
       // Call start shift rpc
@@ -356,7 +362,7 @@ export default function RetailPosScreen() {
         p_treasury_account_id: treasuryId,
         p_user_id: currentUser.id,
         p_org_id: currentUser.organization_id,
-        p_terminal_id: selectedTerminal.id
+        p_terminal_id: selectedTerminal?.id || null
       });
 
       if (error) throw error;
@@ -586,13 +592,15 @@ export default function RetailPosScreen() {
         uom_id: null // Base Unit
       }));
 
+      const effectiveWarehouseId = selectedTerminal?.warehouse_id || settings?.defaultWarehouseId || settings?.default_warehouse_id || (warehouses && warehouses[0]?.id) || '00000000-0000-0000-0000-000000000000';
+
       const orderData = {
         sessionId: null,
         userId: currentUser.id,
         orderType: 'TAKEAWAY',
         notes: 'مبيعات كاشير تجزئة سريعة',
         items: itemsPayload,
-        warehouseId: selectedTerminal.warehouse_id || '00000000-0000-0000-0000-000000000000',
+        warehouseId: effectiveWarehouseId,
         orgId: currentUser.organization_id,
         customerId: selectedCustomer?.id || null,
         paymentMethod: paymentMethod,
@@ -610,7 +618,7 @@ export default function RetailPosScreen() {
           p_notes: 'مبيعات كاشير تجزئة سريعة',
           p_items: itemsPayload,
           p_customer_id: selectedCustomer?.id || null,
-          p_warehouse_id: selectedTerminal.warehouse_id || null,
+          p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null,
           p_delivery_info: null,
           p_org_id: currentUser.organization_id
         });
@@ -620,23 +628,28 @@ export default function RetailPosScreen() {
 
         if (orderId) {
           // Update order with shift_id and terminal_id
+          const updatePayload: any = { shift_id: activeShift?.id || null };
+          if (selectedTerminal?.id) {
+            updatePayload.terminal_id = selectedTerminal.id;
+          }
+
           await supabase
             .from('orders')
-            .update({
-              shift_id: activeShift.id,
-              terminal_id: selectedTerminal.id
-            })
+            .update(updatePayload)
             .eq('id', orderId);
 
           // 2. Complete order (process payment & stock)
-          let treasuryId = selectedTerminal.cash_account_id;
+          let treasuryId = selectedTerminal?.cash_account_id;
           if (!treasuryId) {
-            const { data: mappings } = await supabase
-              .from('company_settings')
-              .select('account_mappings')
-              .eq('organization_id', currentUser.organization_id)
-              .maybeSingle();
-            treasuryId = mappings?.account_mappings?.CASH || null;
+            treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
+            if (!treasuryId) {
+              const { data: mappings } = await supabase
+                .from('company_settings')
+                .select('account_mappings')
+                .eq('organization_id', currentUser.organization_id)
+                .maybeSingle();
+              treasuryId = mappings?.account_mappings?.CASH || null;
+            }
           }
 
           const { error: payErr } = await supabase.rpc('complete_restaurant_order', {
@@ -645,7 +658,7 @@ export default function RetailPosScreen() {
             p_amount: total,
             p_cash_account_id: treasuryId,
             p_org_id: currentUser.organization_id,
-            p_warehouse_id: selectedTerminal.warehouse_id || null
+            p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null
           });
 
           if (payErr) throw payErr;
@@ -654,8 +667,8 @@ export default function RetailPosScreen() {
         // Queue order for offline sync
         const offlinePayload = {
           ...orderData,
-          shift_id: activeShift.id,
-          terminal_id: selectedTerminal.id,
+          shift_id: activeShift?.id || null,
+          terminal_id: selectedTerminal?.id || null,
           is_offline: true
         };
         await offlineService.queueOrder(offlinePayload);
