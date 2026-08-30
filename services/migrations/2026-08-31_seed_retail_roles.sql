@@ -47,8 +47,8 @@ BEGIN
                   (module = 'customers' AND action IN ('view', 'create')) OR
                   (module = 'treasury' AND action IN ('receipt_create', 'view')))
         LOOP
-            INSERT INTO public.role_permissions (role_id, permission_id)
-            VALUES (v_sup_id, v_perm_id)
+            INSERT INTO public.role_permissions (role_id, permission_id, organization_id)
+            VALUES (v_sup_id, v_perm_id, org.id)
             ON CONFLICT DO NOTHING;
         END LOOP;
 
