@@ -42,14 +42,61 @@ const RestaurantSalesReport = () => {
         return;
       }
 
-      const { data, error } = await supabase.rpc('get_restaurant_sales_report', {
-        p_org_id: userOrgId, // المعامل الجديد الضروري للعزل
-        p_start_date: startDate,
-        p_end_date: endDate
+      try {
+        const { data, error } = await supabase.rpc('get_restaurant_sales_report', {
+          p_org_id: userOrgId,
+          p_start_date: startDate,
+          p_end_date: endDate
+        });
+
+        if (!error && data) {
+          setReportData(data);
+          return;
+        }
+      } catch (rpcErr) {
+        console.warn('RPC get_restaurant_sales_report not available, falling back to direct query:', rpcErr);
+      }
+
+      // Dynamic Fallback: Direct query on order_items
+      const { data: orderItems, error: itemsErr } = await supabase
+        .from('order_items')
+        .select(`
+          quantity,
+          total_price,
+          products (
+            name,
+            category_id,
+            item_categories (name)
+          ),
+          orders!inner (created_at, status, organization_id)
+        `)
+        .eq('orders.organization_id', userOrgId)
+        .in('orders.status', ['COMPLETED', 'PAID'])
+        .gte('orders.created_at', `${startDate}T00:00:00`)
+        .lte('orders.created_at', `${endDate}T23:59:59`);
+
+      if (itemsErr) throw itemsErr;
+
+      const salesMap: Record<string, ReportItem> = {};
+      orderItems?.forEach((item: any) => {
+        const name = item.products?.name || 'صنف غير محدد';
+        const category = item.products?.item_categories?.name || 'عام';
+        const key = `${name}_${category}`;
+
+        if (!salesMap[key]) {
+          salesMap[key] = {
+            item_name: name,
+            category_name: category,
+            quantity: 0,
+            total_sales: 0
+          };
+        }
+
+        salesMap[key].quantity += Number(item.quantity) || 0;
+        salesMap[key].total_sales += Number(item.total_price) || 0;
       });
 
-      if (error) throw error;
-      setReportData(data || []);
+      setReportData(Object.values(salesMap));
     } catch (error: any) {
       console.error('Error fetching report:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');

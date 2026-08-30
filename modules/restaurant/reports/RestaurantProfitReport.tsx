@@ -61,12 +61,12 @@ const RestaurantProfitReport = () => {
 
       if (!userOrgId) return;
 
-      // 1. جلب المنتجات المصنعة (وجبات المطعم)
+      // 1. جلب المنتجات (وجبات المطعم والأصناف الجاهزة)
       const { data: products, error: prodError } = await supabase
         .from('products')
         .select('id, name, sku, sales_price, cost, category_id, product_type, item_categories(name)')
         .eq('organization_id', userOrgId)
-        .eq('product_type', 'MANUFACTURED') 
+        .in('product_type', ['MANUFACTURED', 'STOCK']) 
         .eq('is_active', true);
 
       if (prodError) throw prodError;
