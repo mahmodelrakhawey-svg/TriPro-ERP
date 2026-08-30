@@ -21,6 +21,12 @@ export interface CachedProduct {
   category_id: string | null;
   stock: number;
   image_url?: string | null;
+  is_scale_item?: boolean;
+  plu_number?: number | null;
+  scale_prefix?: string | null;
+  barcode2?: string | null;
+  age_restricted?: boolean;
+  tax_rate_override?: number | null;
 }
 
 export interface QueuedMedicalItem {
@@ -46,9 +52,9 @@ class OfflineDB extends Dexie {
 
   constructor() {
     super('TriProOfflineDB');
-    this.version(5).stores({
+    this.version(6).stores({
       queuedOrders: '++id, status, createdAt',
-      products: 'id, barcode, sku, name',
+      products: 'id, barcode, sku, name, plu_number, is_scale_item, barcode2',
       himsPatients: 'id, national_id, full_name, phone',
       queuedPatients: '++id, status, createdAt',
       queuedVisits: '++id, status, createdAt',
@@ -89,7 +95,7 @@ export const offlineService = {
     try {
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, barcode, sku, sales_price, cost, category_id, stock, image_url')
+        .select('id, name, barcode, sku, sales_price, cost, category_id, stock, image_url, is_scale_item, plu_number, scale_prefix, barcode2, age_restricted, tax_rate_override')
         .eq('organization_id', orgId);
       
       if (error) throw error;
@@ -105,7 +111,13 @@ export const offlineService = {
           cost: Number(p.cost || 0),
           category_id: p.category_id || null,
           stock: Number(p.stock || 0),
-          image_url: p.image_url || null
+          image_url: p.image_url || null,
+          is_scale_item: p.is_scale_item || false,
+          plu_number: p.plu_number ? Number(p.plu_number) : null,
+          scale_prefix: p.scale_prefix || '22',
+          barcode2: p.barcode2 || null,
+          age_restricted: p.age_restricted || false,
+          tax_rate_override: p.tax_rate_override ? Number(p.tax_rate_override) : null,
         }));
         await db.products.bulkAdd(productsToCache);
         console.log(`Synced ${productsToCache.length} products locally.`);

@@ -44,7 +44,7 @@ export default function ShelfRestockReport() {
     try {
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, sku, barcode, stock, min_stock_level, shelf_location, brand, image_url, sales_price, purchase_price, categories(name)')
+        .select('id, name, sku, barcode, stock, min_stock_level, shelf_location, brand, image_url, sales_price, purchase_price, item_categories(name)')
         .eq('organization_id', orgId)
         .eq('is_active', true)
         .in('product_type', ['STOCK', 'MANUFACTURED'])
@@ -55,7 +55,7 @@ export default function ShelfRestockReport() {
         id: p.id, name: p.name, sku: p.sku, barcode: p.barcode,
         stock: Number(p.stock || 0), min_stock_level: Number(p.min_stock_level || 0),
         shelf_location: p.shelf_location, brand: p.brand,
-        category_name: p.categories?.name || null, image_url: p.image_url,
+        category_name: p.item_categories?.name || null, image_url: p.image_url,
         sales_price: Number(p.sales_price || 0), purchase_price: Number(p.purchase_price || 0),
         shortage: Math.max(0, Number(p.min_stock_level || 0) - Number(p.stock || 0)),
       }));

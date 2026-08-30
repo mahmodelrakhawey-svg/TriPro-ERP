@@ -588,17 +588,50 @@ export default function RetailPosScreen() {
       const weightParse = parseWeightBarcode(code);
       if (weightParse) {
         const { productCode, weight: parsedWeight } = weightParse;
-        // Search by Barcode or SKU fallback
-        matchedProduct = await db.products.where('barcode').equals(productCode).first();
-        if (!matchedProduct) {
-          matchedProduct = await db.products.where('sku').equals(productCode).first();
+        const numericPlu = parseInt(productCode, 10);
+
+        // Search local Dexie cache by PLU number, SKU, barcode, or barcode2
+        const allCached = await db.products.toArray();
+        matchedProduct = allCached.find(p => 
+          (p.plu_number && p.plu_number === numericPlu) ||
+          p.barcode === productCode || 
+          p.sku === productCode || 
+          p.sku === String(numericPlu) ||
+          p.barcode2 === productCode
+        );
+
+        // Fallback to online Supabase if product was newly added and not yet synced
+        if (!matchedProduct && currentUser?.organization_id) {
+          const { data: onlineList } = await supabase
+            .from('products')
+            .select('*')
+            .eq('organization_id', currentUser.organization_id)
+            .eq('is_active', true)
+            .or(`plu_number.eq.${numericPlu},barcode.eq.${productCode},sku.eq.${productCode},sku.eq.${numericPlu},barcode2.eq.${productCode}`);
+          if (onlineList && onlineList.length > 0) {
+            matchedProduct = onlineList[0] as any;
+            try { await db.products.put(matchedProduct as any); } catch (e) {}
+          }
         }
         weight = parsedWeight;
       } else {
-        // 2. Search by normal barcode or SKU fallback
+        // 2. Search by normal barcode, SKU, or barcode2
         matchedProduct = await db.products.where('barcode').equals(code).first();
-        if (!matchedProduct) {
-          matchedProduct = await db.products.where('sku').equals(code).first();
+        if (!matchedProduct) matchedProduct = await db.products.where('sku').equals(code).first();
+        if (!matchedProduct) matchedProduct = await db.products.where('barcode2').equals(code).first();
+
+        // Fallback online search
+        if (!matchedProduct && currentUser?.organization_id) {
+          const { data: onlineList } = await supabase
+            .from('products')
+            .select('*')
+            .eq('organization_id', currentUser.organization_id)
+            .eq('is_active', true)
+            .or(`barcode.eq.${code},sku.eq.${code},barcode2.eq.${code}`);
+          if (onlineList && onlineList.length > 0) {
+            matchedProduct = onlineList[0] as any;
+            try { await db.products.put(matchedProduct as any); } catch (e) {}
+          }
         }
       }
 

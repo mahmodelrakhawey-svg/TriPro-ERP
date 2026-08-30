@@ -547,19 +547,27 @@ const ProductManager = () => {
       const userOrgId = session?.user?.user_metadata?.org_id;
       if (!userOrgId) return;
 
+      // جلب فقط الأصناف المحددة كأصناف ميزان
       const { data: scaleItems, error } = await supabase
         .from('products')
-        .select('*')
+        .select('*, item_categories(name)')
         .eq('organization_id', userOrgId)
         .eq('is_active', true)
+        .eq('is_scale_item', true)
         .order('name');
 
       if (error) throw error;
 
-      const pluData = (scaleItems || []).map((item, idx) => {
+      if (!scaleItems || scaleItems.length === 0) {
+        showToast('لم يتم العثور على أي صنف ميزان! قم بتعديل كارت الصنف (مثل الأجبان واللحوم والخضار) وتفعيل خيار "صنف ميزان (Scale Item)" أولاً.', 'info');
+        return;
+      }
+
+      const pluData = (scaleItems || []).map((item: any, idx: number) => {
         const rawCode = (item.sku || '').replace(/\D/g, '');
-        const pluNumber = rawCode ? parseInt(rawCode, 10) : (idx + 1);
+        const pluNumber = item.plu_number || (rawCode ? parseInt(rawCode, 10) : (idx + 1));
         const paddedPlu = String(pluNumber).padStart(5, '0');
+        const prefix = item.scale_prefix || '22';
 
         return {
           'رقم الميزان (PLU)': pluNumber,
@@ -567,9 +575,9 @@ const ProductManager = () => {
           'اسم الصنف (Name)': item.name,
           'سعر الكيلو (Price/KG)': item.sales_price,
           'وحدة الوزن (Unit)': item.unit || 'كجم',
-          'بادئة الباركود (Prefix)': '22',
-          'الباركود الكامل (Sample Barcode)': `22${paddedPlu}010000`,
-          'القسم (Department)': item.category || 'أجبان / لحوم / خضار',
+          'بادئة الباركود (Prefix)': prefix,
+          'الباركود الكامل (Sample Barcode)': `${prefix}${paddedPlu}010000`,
+          'القسم (Department)': item.item_categories?.name || item.category || 'أجبان / لحوم / خضار',
           'نوع الصنف بالميزان (Scale Type)': 'وزن (Weight)',
         };
       });
@@ -578,7 +586,7 @@ const ProductManager = () => {
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Scale_PLU_List");
       XLSX.writeFile(wb, `Scale_PLU_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
-      showToast('تم تصدير ملف الموازين (PLU) بنجاح ✅ جاهز للرفع على برامج الموازين', 'success');
+      showToast(`تم تصدير ${pluData.length} صنف ميزان بنجاح ✅ جاهز للرفع على برامج الموازين`, 'success');
     } catch (err: any) {
       showToast('فشل تصدير ملف الموازين: ' + err.message, 'error');
     }

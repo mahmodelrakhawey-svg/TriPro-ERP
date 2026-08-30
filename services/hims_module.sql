@@ -2235,15 +2235,11 @@ BEGIN
     RETURN v_result;
 END; $$;
 
--- 🛡️ منع صرف الأدوية منتهية الصلاحية (Double-Check Trigger)
--- هذا المشغل يعمل كخط دفاع أخير قبل خروج الدواء من الصيدلية
--- (موجود بالفعل داخل دالة hims_dispense_prescription ولكننا نعززه هنا كقاعدة بيانات عامة)
-DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_hims_prevent_expired_dispensing') THEN
-        ALTER TABLE public.products ADD CONSTRAINT chk_hims_prevent_expired_dispensing 
-        CHECK (NOT (item_type = 'STOCK' AND expiry_date < CURRENT_DATE AND stock > 0));
-    END IF;
-END $$;
+-- 🛡️ منع صرف الأدوية منتهية الصلاحية
+-- تنبيه: تم إلغاء الـ CHECK Constraint على جدول products لأن وجود رصيد مع تاريخ سابق يمنع تعديل بيانات الصنف نفسه في كارت الصنف
+-- التحقق من الصلاحية يتم برمجياً عند الصرف والبيع (داخل hims_dispense_prescription وفواتير المبيعات)
+ALTER TABLE public.products DROP CONSTRAINT IF EXISTS chk_hims_prevent_expired_dispensing;
+
 
 -- 🧪 نظام تتبع عينات المختبر (Lab Specimen Tracking System)
 -- الغرض: منع فقدان العينات وضمان تتبع سلسلة الحيازة (Chain of Custody)
