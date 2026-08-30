@@ -48,12 +48,21 @@ const DeficitReport = () => {
     }
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('rejected_cash_closings') // Make sure the foreign key to profiles is set up correctly
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+
+      let query = supabase
+        .from('rejected_cash_closings')
         .select('*, rejected_by_profile:profiles(full_name), treasury_account:accounts(name)')
         .gte('rejection_date', startDate)
         .lte('rejection_date', `${endDate}T23:59:59`)
         .order('rejection_date', { ascending: false });
+
+      if (userOrgId) {
+        query = query.eq('organization_id', userOrgId);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
       setLogs(data || []);

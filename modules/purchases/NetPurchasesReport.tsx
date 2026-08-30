@@ -48,12 +48,12 @@ const NetPurchasesReport = () => {
       
       if (suppError) throw suppError;
 
-      // 2. جلب فواتير المشتريات المرحلة
+      // 2. جلب فواتير المشتريات المرحلة والمدفوعة
       const { data: invoices, error: invError } = await supabase
         .from('purchase_invoices')
         .select('supplier_id, total_amount, tax_amount')
         .eq('organization_id', userOrgId)
-        .eq('status', 'posted')
+        .in('status', ['posted', 'paid'])
         .gte('invoice_date', startDate)
         .lte('invoice_date', endDate);
 
@@ -63,7 +63,8 @@ const NetPurchasesReport = () => {
       const { data: returns, error: retError } = await supabase
         .from('purchase_returns')
         .select('supplier_id, total_amount, tax_amount')
-        .eq('status', 'posted')
+        .eq('organization_id', userOrgId)
+        .in('status', ['posted', 'paid'])
         .gte('return_date', startDate)
         .lte('return_date', endDate);
 

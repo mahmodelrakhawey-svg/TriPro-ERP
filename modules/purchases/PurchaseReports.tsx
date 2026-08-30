@@ -48,11 +48,12 @@ const PurchaseReports = () => {
 
       if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
 
-      // Fetch Purchase Invoices
+      // Fetch Purchase Invoices (Exclude draft and cancelled)
       const { data: invData, error: invError } = await supabase
         .from('purchase_invoices')
         .select('*, suppliers(name)')
         .eq('organization_id', userOrgId)
+        .not('status', 'in', '("draft","cancelled")')
         .gte('invoice_date', startDate)
         .lte('invoice_date', endDate);
 

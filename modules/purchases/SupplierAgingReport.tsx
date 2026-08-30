@@ -35,12 +35,12 @@ const SupplierAgingReport = () => {
       // 1. جلب الموردين
       const { data: suppliers } = await supabase.from('suppliers').select('id, name').match(filter).is('deleted_at', null);
       
-      // 2. جلب الفواتير المرحلة (مرتبة من الأحدث للأقدم لتطبيق FIFO)
+      // 2. جلب الفواتير المرحلة والمدفوعة (مرتبة من الأحدث للأقدم لتطبيق FIFO)
       const { data: invoices } = await supabase
         .from('purchase_invoices')
         .select('id, supplier_id, invoice_number, invoice_date, total_amount')
         .eq('organization_id', userOrgId)
-        .eq('status', 'posted')
+        .in('status', ['posted', 'paid'])
         .order('invoice_date', { ascending: false });
 
       // 3. جلب كافة المدفوعات والخصومات لحساب الرصيد الفعلي

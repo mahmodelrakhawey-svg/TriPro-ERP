@@ -17,19 +17,84 @@ const MultiUomStockReport = () => {
   const fetchReport = async () => {
     setLoading(true);
     try {
-      let query = supabase.from('v_inventory_multi_uom').select('*');
-      
-      if (selectedWarehouse !== 'all') {
-        query = query.eq('warehouse_id', selectedWarehouse);
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id;
+      if (!userOrgId) {
+        setLoading(false);
+        return;
       }
 
-      if (searchTerm) {
-        query = query.ilike('product_name', `%${searchTerm}%`);
+      // Try fetching from database view first
+      try {
+        let query = supabase.from('v_inventory_multi_uom').select('*').eq('organization_id', userOrgId);
+        
+        if (selectedWarehouse !== 'all') {
+          query = query.eq('warehouse_id', selectedWarehouse);
+        }
+
+        if (searchTerm) {
+          query = query.ilike('product_name', `%${searchTerm}%`);
+        }
+
+        const { data: res, error } = await query;
+        if (!error && res) {
+          setData(res);
+          return;
+        }
+      } catch (viewErr) {
+        console.warn('View v_inventory_multi_uom query error, using dynamic calculation:', viewErr);
       }
 
-      const { data: res, error } = await query;
-      if (error) throw error;
-      setData(res || []);
+      // Fallback calculation directly from products and conversions
+      const { data: prods, error: prodErr } = await supabase
+        .from('products')
+        .select(`
+          id, name, sku, stock, unit, base_uom_id,
+          uoms:base_uom_id(id, name, symbol),
+          product_uom_conversions(
+            ratio,
+            uoms:to_uom_id(id, name, symbol)
+          )
+        `)
+        .eq('organization_id', userOrgId)
+        .eq('is_active', true);
+
+      if (prodErr) throw prodErr;
+
+      const computed: any[] = [];
+      prods?.forEach((p: any) => {
+        const baseQty = Number(p.stock || 0);
+        const baseUomName = p.uoms?.name || p.unit || 'قطعة';
+
+        if (p.product_uom_conversions && p.product_uom_conversions.length > 0) {
+          p.product_uom_conversions.forEach((conv: any) => {
+            const ratio = Number(conv.ratio) || 1;
+            computed.push({
+              warehouse_name: 'المخزن العام',
+              product_name: p.name,
+              sku: p.sku || '-',
+              base_quantity: baseQty,
+              base_uom_name: baseUomName,
+              converted_quantity: ratio > 0 ? (baseQty / ratio).toFixed(2) : baseQty,
+              uom_name: conv.uoms?.name || 'وحدة بديلة',
+              ratio: ratio
+            });
+          });
+        } else {
+          computed.push({
+            warehouse_name: 'المخزن العام',
+            product_name: p.name,
+            sku: p.sku || '-',
+            base_quantity: baseQty,
+            base_uom_name: baseUomName,
+            converted_quantity: baseQty,
+            uom_name: baseUomName,
+            ratio: 1
+          });
+        }
+      });
+
+      setData(computed);
     } catch (err: any) {
       showToast('فشل جلب تقرير الوحدات المتعددة: ' + err.message, 'error');
     } finally {

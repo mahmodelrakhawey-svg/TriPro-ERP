@@ -82,7 +82,7 @@ export default function PurchaseAnalysisReport() {
         .eq('purchase_invoices.organization_id', userOrgId)
         .gte('purchase_invoices.invoice_date', startDate)
         .lte('purchase_invoices.invoice_date', endDate)
-        .eq('purchase_invoices.status', 'posted');
+        .in('purchase_invoices.status', ['posted', 'paid']);
 
       if (error) throw error;
 

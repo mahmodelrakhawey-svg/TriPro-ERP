@@ -116,10 +116,14 @@ vi.mock('../../../../supabaseClient', () => {
           eq: vi.fn().mockReturnThis(),
           update: vi.fn().mockReturnThis(),
           single: vi.fn().mockReturnThis(),
-          then: vi.fn((onfulfilled) => Promise.resolve({ data: [], error: null }).then(onfulfilled)),
+          maybeSingle: vi.fn().mockReturnThis(),
+          then: vi.fn((onfulfilled) => Promise.resolve({ data: { account_mappings: { CASH: 'cash-acc' } }, error: null }).then(onfulfilled)),
         };
       }),
-      rpc: vi.fn(),
+      rpc: vi.fn().mockImplementation((fnName) => {
+        if (fnName === 'create_restaurant_order') return Promise.resolve({ data: 'order-123', error: null });
+        return Promise.resolve({ data: true, error: null });
+      }),
     },
   };
 });
