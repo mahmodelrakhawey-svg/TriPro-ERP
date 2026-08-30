@@ -47,6 +47,16 @@ type Item = {
   overhead_cost?: number;
   is_overhead_percentage?: boolean;
   available_modifiers?: any[]; // Added this line to Item type
+  // ========== حقول الهايبر ماركت ==========
+  barcode2?: string | null;
+  is_scale_item?: boolean;
+  plu_number?: number | null;
+  scale_prefix?: string | null;
+  shelf_location?: string | null;
+  brand?: string | null;
+  country_of_origin?: string | null;
+  age_restricted?: boolean;
+  tax_rate_override?: number | null;
 };
 
 // Define a type for the formData state to ensure consistency
@@ -80,6 +90,16 @@ type ProductFormData = {
   labor_cost: number;
   overhead_cost: number;
   is_overhead_percentage: boolean;
+  // ========== حقول الهايبر ماركت ==========
+  barcode2: string;
+  is_scale_item: boolean;
+  plu_number: number;
+  scale_prefix: string;
+  shelf_location: string;
+  brand: string;
+  country_of_origin: string;
+  age_restricted: boolean;
+  tax_rate_override: number;
 };
 
 const ProductManager = () => {
@@ -291,7 +311,17 @@ const ProductManager = () => {
     // إضافة الحقول المفقودة لحل خطأ TS2345
     base_uom_id: '',
     purchase_uom_id: '',
-    sale_uom_id: ''
+    sale_uom_id: '',
+    // حقول الهايبر ماركت
+    barcode2: '',
+    is_scale_item: false,
+    plu_number: 0,
+    scale_prefix: '22',
+    shelf_location: '',
+    brand: '',
+    country_of_origin: '',
+    age_restricted: false,
+    tax_rate_override: 0,
   });
 
   // 🚀 تحديث تلقائي لسعر التكلفة التقديري بناءً على العمالة والمصاريف (للوجبات)
@@ -405,6 +435,16 @@ const ProductManager = () => {
         labor_cost: item.labor_cost || 0,
         overhead_cost: item.overhead_cost || 0,
         is_overhead_percentage: item.is_overhead_percentage || false,
+        // حقول الهايبر ماركت
+        barcode2: (item as any).barcode2 || '',
+        is_scale_item: (item as any).is_scale_item || false,
+        plu_number: (item as any).plu_number || 0,
+        scale_prefix: (item as any).scale_prefix || '22',
+        shelf_location: (item as any).shelf_location || '',
+        brand: (item as any).brand || '',
+        country_of_origin: (item as any).country_of_origin || '',
+        age_restricted: (item as any).age_restricted || false,
+        tax_rate_override: (item as any).tax_rate_override || 0,
       };
       setFormData(productDataToSet);
     } else {
@@ -443,7 +483,17 @@ const ProductManager = () => {
         available_modifiers: [],
         labor_cost: 0,
         overhead_cost: 0,
-        is_overhead_percentage: false
+        is_overhead_percentage: false,
+        // حقول الهايبر ماركت
+        barcode2: '',
+        is_scale_item: false,
+        plu_number: 0,
+        scale_prefix: '22',
+        shelf_location: '',
+        brand: '',
+        country_of_origin: '',
+        age_restricted: false,
+        tax_rate_override: 0,
       });
     }
     setIsModalOpen(true);
@@ -1324,7 +1374,17 @@ const ProductManager = () => {
                       formData.product_type === 'MANUFACTURED' ? 'standard' : null,
             labor_cost: formData.labor_cost || 0,
             overhead_cost: formData.overhead_cost || 0,
-            is_overhead_percentage: formData.is_overhead_percentage || false
+            is_overhead_percentage: formData.is_overhead_percentage || false,
+            // حقول الهايبر ماركت
+            barcode2: formData.barcode2 || null,
+            is_scale_item: formData.is_scale_item || false,
+            plu_number: formData.plu_number || null,
+            scale_prefix: formData.scale_prefix || null,
+            shelf_location: formData.shelf_location || null,
+            brand: formData.brand || null,
+            country_of_origin: formData.country_of_origin || null,
+            age_restricted: formData.age_restricted || false,
+            tax_rate_override: formData.tax_rate_override || null,
         };
         await updateProduct(editingId, itemData);
 
@@ -1445,7 +1505,17 @@ const ProductManager = () => {
           organization_id: orgId,
           // إضافة نوع التصنيع ليتوافق مع مديول التصنيع تلقائياً
           mfg_type: formData.product_type === 'RAW_MATERIAL' ? 'raw' : 
-                    formData.product_type === 'MANUFACTURED' ? 'standard' : null
+                    formData.product_type === 'MANUFACTURED' ? 'standard' : null,
+          // حقول الهايبر ماركت
+          barcode2: formData.barcode2 || null,
+          is_scale_item: formData.is_scale_item || false,
+          plu_number: formData.plu_number || null,
+          scale_prefix: formData.scale_prefix || null,
+          shelf_location: formData.shelf_location || null,
+          brand: formData.brand || null,
+          country_of_origin: formData.country_of_origin || null,
+          age_restricted: formData.age_restricted || false,
+          tax_rate_override: formData.tax_rate_override || null,
         };
 
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
@@ -1648,7 +1718,17 @@ const ProductManager = () => {
         available_modifiers: (item as any).available_modifiers || [],
         labor_cost: item.labor_cost || 0,
         overhead_cost: item.overhead_cost || 0,
-        is_overhead_percentage: item.is_overhead_percentage || false
+        is_overhead_percentage: item.is_overhead_percentage || false,
+        // حقول الهايبر ماركت
+        barcode2: (item as any).barcode2 || '',
+        is_scale_item: (item as any).is_scale_item || false,
+        plu_number: (item as any).plu_number || 0,
+        scale_prefix: (item as any).scale_prefix || '22',
+        shelf_location: (item as any).shelf_location || '',
+        brand: (item as any).brand || '',
+        country_of_origin: (item as any).country_of_origin || '',
+        age_restricted: (item as any).age_restricted || false,
+        tax_rate_override: (item as any).tax_rate_override || 0,
       });
       setIsModalOpen(true);
   };
@@ -2497,6 +2577,162 @@ const ProductManager = () => {
                     <label className="block text-xs font-bold text-slate-600 mb-1">الحد الأقصى (للعميل)</label>
                     <input type="number" min="0" value={formData.offer_max_qty} onChange={e => setFormData({...formData, offer_max_qty: parseFloat(e.target.value)})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" placeholder="0 (بلا حد)" />
                   </div>
+                </div>
+              </div>
+
+              {/* ========== قسم إعدادات الهايبر ماركت ========== */}
+              <div className="bg-gradient-to-br from-sky-50 to-indigo-50 p-4 rounded-xl border border-sky-200">
+                <h4 className="font-bold text-sky-800 mb-4 flex items-center gap-2 text-sm">
+                  <Scale size={16} className="text-sky-600" />
+                  إعدادات الهايبر ماركت والسوبر ماركت
+                </h4>
+
+                {/* الصف الأول: العلامة التجارية + بلد المنشأ + موقع الرف */}
+                <div className="grid grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-bold text-sky-700 mb-1">العلامة التجارية (Brand)</label>
+                    <input
+                      type="text"
+                      value={formData.brand}
+                      onChange={e => setFormData({...formData, brand: e.target.value})}
+                      className="w-full border border-sky-200 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-sky-400 outline-none"
+                      placeholder="مثال: Nestlé، Unilever"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-sky-700 mb-1">بلد المنشأ</label>
+                    <select
+                      value={formData.country_of_origin}
+                      onChange={e => setFormData({...formData, country_of_origin: e.target.value})}
+                      className="w-full border border-sky-200 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-sky-400 outline-none"
+                    >
+                      <option value="">-- اختر --</option>
+                      <option value="SA">🇸🇦 المملكة العربية السعودية</option>
+                      <option value="EG">🇪🇬 مصر</option>
+                      <option value="AE">🇦🇪 الإمارات</option>
+                      <option value="TR">🇹🇷 تركيا</option>
+                      <option value="CN">🇨🇳 الصين</option>
+                      <option value="IN">🇮🇳 الهند</option>
+                      <option value="US">🇺🇸 الولايات المتحدة</option>
+                      <option value="DE">🇩🇪 ألمانيا</option>
+                      <option value="FR">🇫🇷 فرنسا</option>
+                      <option value="IT">🇮🇹 إيطاليا</option>
+                      <option value="GB">🇬🇧 المملكة المتحدة</option>
+                      <option value="BR">🇧🇷 البرازيل</option>
+                      <option value="NL">🇳🇱 هولندا</option>
+                      <option value="OTHER">🌍 دولة أخرى</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-sky-700 mb-1">موقع الرف (Aisle-Shelf)</label>
+                    <input
+                      type="text"
+                      value={formData.shelf_location}
+                      onChange={e => setFormData({...formData, shelf_location: e.target.value})}
+                      className="w-full border border-sky-200 rounded-lg p-2 text-sm bg-white font-mono focus:ring-2 focus:ring-sky-400 outline-none"
+                      placeholder="مثال: A-03-R2"
+                    />
+                  </div>
+                </div>
+
+                {/* الصف الثاني: الباركود الثاني + نسبة الضريبة الخاصة */}
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className="block text-xs font-bold text-sky-700 mb-1">باركود ثانٍ (EAN المصنع / Supplier Barcode)</label>
+                    <input
+                      type="text"
+                      value={formData.barcode2}
+                      onChange={e => setFormData({...formData, barcode2: e.target.value})}
+                      onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
+                      className="w-full border border-sky-200 rounded-lg p-2 text-sm bg-white font-mono focus:ring-2 focus:ring-sky-400 outline-none"
+                      placeholder="Scan Supplier EAN..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-sky-700 mb-1">نسبة ضريبة خاصة % (تتجاوز الإعداد العام — اتركها 0 لاستخدام الإعداد العام)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      value={formData.tax_rate_override}
+                      onChange={e => setFormData({...formData, tax_rate_override: parseFloat(e.target.value) || 0})}
+                      className="w-full border border-sky-200 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-sky-400 outline-none"
+                      placeholder="0 = استخدام الإعداد العام"
+                    />
+                  </div>
+                </div>
+
+                {/* الصف الثالث: إعدادات الميزان */}
+                <div className="bg-white rounded-xl border border-sky-100 p-3">
+                  <div className="flex items-center gap-3 mb-3">
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formData.is_scale_item}
+                        onChange={e => setFormData({...formData, is_scale_item: e.target.checked})}
+                        className="sr-only peer"
+                      />
+                      <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-sky-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
+                      <span className="mr-2 text-xs font-bold text-sky-800">⚖️ صنف يُوزن بالميزان (Scale Item)</span>
+                    </label>
+                  </div>
+                  {formData.is_scale_item && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-sky-700 mb-1">رقم PLU للميزان</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="99999"
+                          value={formData.plu_number || ''}
+                          onChange={e => setFormData({...formData, plu_number: parseInt(e.target.value) || 0})}
+                          className="w-full border border-sky-300 rounded-lg p-2 text-sm bg-sky-50 font-mono focus:ring-2 focus:ring-sky-500 outline-none font-bold"
+                          placeholder="مثال: 125"
+                        />
+                        <p className="text-[10px] text-sky-500 mt-1">الكود ذو 5 أرقام في باركود الميزان</p>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-sky-700 mb-1">بادئة الباركود (Scale Prefix)</label>
+                        <select
+                          value={formData.scale_prefix}
+                          onChange={e => setFormData({...formData, scale_prefix: e.target.value})}
+                          className="w-full border border-sky-300 rounded-lg p-2 text-sm bg-sky-50 focus:ring-2 focus:ring-sky-500 outline-none font-mono font-bold"
+                        >
+                          <option value="20">20 — وزن مباشر عام</option>
+                          <option value="21">21 — وزن + سعر</option>
+                          <option value="22">22 — CAS / Dibal Standard</option>
+                          <option value="23">23 — Toledo Standard</option>
+                          <option value="24">24 — Rongta Standard</option>
+                          <option value="25">25 — وزن + تاريخ صلاحية</option>
+                          <option value="29">29 — وزن + رقم دفعة</option>
+                          <option value="99">99 — مخصص / Custom</option>
+                        </select>
+                        <p className="text-[10px] text-sky-500 mt-1">
+                          باركود الميزان سيكون: <span className="font-mono font-bold text-sky-700">{formData.scale_prefix}{String(formData.plu_number || 0).padStart(5, '0')}WWWWWX</span>
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* الصف الرابع: تقييد العمر */}
+                <div className="mt-3 flex items-center gap-3">
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formData.age_restricted}
+                      onChange={e => setFormData({...formData, age_restricted: e.target.checked})}
+                      className="sr-only peer"
+                    />
+                    <div className="w-10 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-red-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-500"></div>
+                    <span className="mr-2 text-xs font-bold text-red-700">🔞 يتطلب التحقق من السن (Age Restricted +18)</span>
+                  </label>
+                  {formData.age_restricted && (
+                    <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded-lg font-bold border border-red-200 animate-pulse">
+                      ⚠️ سيظهر تنبيه للكاشير عند بيع هذا الصنف
+                    </span>
+                  )}
                 </div>
               </div>
 

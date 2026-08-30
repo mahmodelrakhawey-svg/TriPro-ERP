@@ -614,6 +614,17 @@ export default function RetailPosScreen() {
 
   // Add Product to Cart
   const addToCart = (product: CachedProduct, weight?: number, multiplier: number = 1) => {
+    // 🔞 تحقق من تقييد العمر قبل إضافة الصنف للسلة
+    if ((product as any).age_restricted) {
+      const confirmed = window.confirm(
+        `⚠️ تنبيه: هذا الصنف مقيد بالعمر (+18)\n\n` +
+        `الصنف: ${product.name}\n\n` +
+        `هل تأكدت من أن عمر العميل 18 سنة فأكبر؟\n` +
+        `اضغط "موافق" للمتابعة أو "إلغاء" لإلغاء العملية.`
+      );
+      if (!confirmed) return;
+    }
+
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {

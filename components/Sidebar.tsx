@@ -84,6 +84,7 @@ import {
   ShoppingBag,
   Gift,
   Zap,
+  MapPin,
 } from 'lucide-react';
 import { Wrench } from 'lucide-react'; // Import Wrench icon
 
@@ -201,6 +202,7 @@ const Sidebar: React.FC = () => {
     { to: '/top-selling', label: 'الأصناف الأكثر مبيعاً', icon: TrendingUp, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/item-profit', label: 'ربحية الأصناف', icon: DollarSign, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/expiry-radar', label: 'رادار الصلاحية وتصفية العروض', icon: Flame, color: 'text-orange-400', module: 'inventory', permission: 'inventory.view' },
+    { to: '/inventory/shelf-restock', label: 'تقرير إعادة التخزين بالرفوف', icon: MapPin, color: 'text-indigo-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/detailed-stock-movement', label: 'حركة المخزون التفصيلية', icon: List, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
 
     // التصنيع والإنتاج

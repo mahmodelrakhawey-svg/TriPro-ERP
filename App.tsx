@@ -160,6 +160,7 @@ import PosScreen from './modules/restaurant/components/POS/PosScreen';
 import RetailPosScreen from './modules/retail/components/POS/RetailPosScreen';
 import PriceCheckerKiosk from './modules/retail/components/PriceCheckerKiosk';
 import ExpiryClearanceRadar from './modules/inventory/ExpiryClearanceRadar';
+import ShelfRestockReport from './modules/inventory/ShelfRestockReport';
 import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
 import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
 import ButcheringYieldManager from './modules/restaurant/components/Management/ButcheringYieldManager';
@@ -731,6 +732,8 @@ const MainLayout = () => {
                 <Route path="/price-checker" element={<Navigate to="/retail/price-checker" replace />} /> 
                 <Route path="/inventory/expiry-radar" element={<ModuleGuard module="inventory"><ExpiryClearanceRadar /></ModuleGuard>} /> 
                 <Route path="/expiry-radar" element={<Navigate to="/inventory/expiry-radar" replace />} /> 
+                <Route path="/inventory/shelf-restock" element={<ModuleGuard module="inventory"><ShelfRestockReport /></ModuleGuard>} /> 
+                <Route path="/shelf-restock" element={<Navigate to="/inventory/shelf-restock" replace />} /> 
                 <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> 
                 <Route path="/restaurant/expo" element={<ModuleGuard module="restaurant"><ExpoScreen /></ModuleGuard>} /> 
                 <Route path="/expo" element={<Navigate to="/restaurant/expo" replace />} /> 
