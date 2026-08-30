@@ -642,28 +642,32 @@ const UserManager = () => {
                             {(currentUserRole === 'super_admin') && <option value="super_admin">⚡ Super Admin (مدير النظام)</option>}
 
                             {/* الأدوار الأساسية دائماً ظاهرة */}
-                            <optgroup label="── الإدارة والمحاسبة ──">
+                            <optgroup label="── 🏢 الإدارة العامة والمحاسبة ──">
                                 <option value="admin">🛡️ Admin (مسؤول عام)</option>
-                                <option value="manager">👔 Manager (مدير فرع)</option>
-                                <option value="accountant">📊 Accountant (محاسب مالي)</option>
+                                <option value="manager">👔 Manager (مدير فرع / تشغيل)</option>
+                                <option value="accountant">📊 Accountant (محاسب مالي عام)</option>
                                 <option value="viewer">👁️ Viewer (مشاهدة وتقارير فقط)</option>
                                 <option value="owner">🏢 Owner (مالك منشأة)</option>
                             </optgroup>
 
-                            <optgroup label="── نقاط البيع والمطاعم والتشغيل ──">
+                            <optgroup label="── 🛒 التجزئة، السوبر ماركت والمخازن ──">
                                 <option value="pos_supervisor">🪪 رئيس الكاشيرية / مشرف نقطة البيع (Head Cashier & Supervisor)</option>
-                                <option value="cashier">💵 كاشير نقطة البيع (Cashier)</option>
+                                <option value="cashier">💵 كاشير نقطة البيع (POS Cashier)</option>
+                                <option value="storekeeper">📦 أمين مخزن ومستودعات (Storekeeper)</option>
+                                <option value="sales">💼 مسؤول ومندوب مبيعات (Sales Rep)</option>
+                            </optgroup>
+
+                            <optgroup label="── 🍽️ المطاعم والضيافة (F&B) ──">
                                 <option value="restaurant_waiter">🍽️ كابتن صالة / ويتر (Waiter)</option>
-                                <option value="chef">🍳 شيف / طاهي مطبخ (Chef)</option>
+                                <option value="chef">🍳 شيف المطبخ التنفيذي (Executive Chef)</option>
+                                <option value="restaurant_cook">🔥 طاهي محطة مطبخ (Line Cook)</option>
                                 <option value="restaurant_driver">🛵 كابتن توصيل / ديلفري (Driver)</option>
-                                <option value="storekeeper">📦 أمين مخزن (Storekeeper)</option>
-                                <option value="sales">💼 مندوب مبيعات (Sales)</option>
                             </optgroup>
 
                             {/* الأدوار المخصصة المُنشأة من صفحة الأدوار والصلاحيات */}
                             {dynamicRoles.length > 0 && (() => {
                               // فلترة الأدوار المخصصة (غير الأساسية المعروضة سلفاً)
-                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'pos_supervisor', 'cashier', 'restaurant_waiter', 'chef', 'restaurant_driver', 'storekeeper', 'sales'];
+                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'pos_supervisor', 'cashier', 'storekeeper', 'sales', 'restaurant_waiter', 'chef', 'restaurant_chef', 'restaurant_cook', 'restaurant_driver'];
                               const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
                               if (customRoles.length === 0) return null;
                               return (

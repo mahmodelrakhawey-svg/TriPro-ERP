@@ -68,9 +68,114 @@ const filterGroups = [
 
 // قوالب الأدوار الجاهزة (Role Presets)
 const rolePresets: Record<string, { name: string; description: string; matchActions: (p: Permission) => boolean }> = {
-  // 🍽️ 1. مدير المطعم والصالة (Restaurant General Manager)
+  // 🛡️ 1. مسؤول عام ومدير النظام (Admin / General Manager)
+  admin: {
+    name: 'مسؤول عام ومدير النظام (Admin)',
+    description: 'صلاحيات كاملة وغير مقيدة على كافة موديولات النظام المالية، التشغيلية، والإدارية',
+    matchActions: () => true
+  },
+
+  // 📊 2. محاسب مالي عام (Accountant)
+  accountant: {
+    name: 'محاسب مالي عام (Accountant)',
+    description: 'القيود اليومية، السندات، الحسابات، الخزينة والبنوك، الشيكات، التسويات البنكية، والتقارير المالية وقوائم الدخل',
+    matchActions: (p) =>
+      p.module === 'accounting' ||
+      p.module === 'treasury' ||
+      p.module === 'assets' ||
+      (p.module === 'reports' && ['general_view', 'financial_statements', 'aging_reports', 'export_data'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'approve'].includes(p.action)) ||
+      (p.module === 'purchases' && ['view', 'approve'].includes(p.action))
+  },
+
+  // 👁️ 3. مشاهدة وتقارير فقط (Viewer / Auditor)
+  viewer: {
+    name: 'مشاهدة وتقارير فقط (Viewer)',
+    description: 'استعراض لوحات التحكم والتقارير المالية والمخزنية وكشوف الحسابات دون أي صلاحية للتعديل أو الإضافة',
+    matchActions: (p) => p.action.includes('view') || p.action.includes('report')
+  },
+
+  // 🛒 4. رئيس الكاشيرية ومشرف نقطة البيع (Head Cashier & POS Supervisor)
+  pos_supervisor: {
+    name: 'رئيس الكاشيرية ومشرف نقطة البيع (Head Cashier)',
+    description: 'اعتماد المرتجعات بمسح كارت المشرف، إلغاء الأصناف (Void Line/Sale)، سحب النقدية، إدارة الورديات، وطباعة الشارات',
+    matchActions: (p) =>
+      (p.module === 'retail' && ['pos', 'returns', 'void', 'cash_drop', 'promotions', 'supervisor_badge', 'price_checker', 'shifts_manage', 'view'].includes(p.action)) ||
+      (p.module === 'pos' && ['open_shift', 'close_shift', 'view'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'create', 'return', 'credit_note', 'customer_statement'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'stock_card', 'expiry_radar', 'shelf_restock', 'pda_stocktaking'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'pricing', 'update'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
+  },
+
+  // 💵 5. كاشير نقطة بيع (POS Cashier)
+  cashier: {
+    name: 'كاشير نقطة بيع (POS Cashier)',
+    description: 'فتح الشفت، مسح الباركود، إصدار الفواتير، سندات القبض، تعليق الفواتير (بدون صلاحية الحذف أو المرتجع إلا بالمشرف)',
+    matchActions: (p) => 
+      (p.module === 'pos' && ['open_shift', 'view'].includes(p.action)) ||
+      (p.module === 'retail' && ['pos', 'price_checker', 'view'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view') ||
+      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
+  },
+
+  // 📦 6. أمين المخازن والمستودعات (Storekeeper)
+  storekeeper: {
+    name: 'أمين مخازن ومستودعات (Storekeeper)',
+    description: 'إدارة المخزون، التحويلات بين الفروع، الجرد بالـ PDA، إثبات الهالك، ورادار الصلاحيات وإعادة التخزين بالرفوف',
+    matchActions: (p) =>
+      (p.module === 'products' && ['view', 'create', 'update'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'transfer', 'adjustment', 'wastage', 'uom_manage', 'count', 'manage'].includes(p.action)) ||
+      (p.module === 'purchases' && ['view', 'create'].includes(p.action))
+  },
+
+  // 💼 7. مسؤول ومندوب مبيعات (Sales Executive)
+  sales: {
+    name: 'مسؤول ومندوب مبيعات (Sales Rep)',
+    description: 'فواتير المبيعات، عروض الأسعار، أوامر البيع، مرتجعات المبيعات، بطاقة العميل وكشف الحساب',
+    matchActions: (p) =>
+      (p.module === 'sales' && ['view', 'create', 'return', 'quotation'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create', 'update'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view')
+  },
+
+  // 📈 8. مدير مبيعات (Sales Manager)
+  sales_manager: {
+    name: 'مدير مبيعات (Sales Manager)',
+    description: 'صلاحيات كاملة على المبيعات، عروض الأسعار، منح الخصومات، والاطلاع على الأرباح والعملاء',
+    matchActions: (p) =>
+      p.module === 'sales' ||
+      p.module === 'customers' ||
+      (p.module === 'products' && p.action === 'view') ||
+      (p.module === 'reports' && ['general_view', 'profit_margins', 'aging_reports', 'export_data'].includes(p.action))
+  },
+
+  // 🚚 9. مسؤول مشتريات وموردين (Purchasing Officer)
+  purchasing_officer: {
+    name: 'مسؤول مشتريات وموردين (Purchasing Officer)',
+    description: 'أوامر الشراء، فواتير المشتريات، استيراد إكسيل الموردين، حسابات الموردين، ومقارنة الأسعار',
+    matchActions: (p) =>
+      p.module === 'purchases' ||
+      p.module === 'suppliers' ||
+      (p.module === 'products' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'reports' && ['general_view', 'export_data'].includes(p.action))
+  },
+
+  // 👥 10. مسؤول موارد بشرية ورواتب (HR Specialist)
+  hr_officer: {
+    name: 'مسؤول موارد بشرية (HR Specialist)',
+    description: 'إدارة الموظفين، مسير الرواتب، السلف والقروض، كشف حساب الموظف، وتقارير الحضور والغياب',
+    matchActions: (p) =>
+      p.module === 'hr' ||
+      (p.module === 'reports' && ['general_view', 'export_data'].includes(p.action))
+  },
+
+  // 🍽️ 11. مدير المطعم والصالة (Restaurant General Manager)
   restaurant_manager: {
-    name: 'مدير المطعم والصالة (General Manager)',
+    name: 'مدير المطعم والصالة (Restaurant Manager)',
     description: 'تحكم تشغيلي ورقابي ومالي كامل: الصالة، المطبخ، التسعير، العروض، والتقارير التحليلية',
     matchActions: (p) =>
       p.module === 'restaurant' ||
@@ -85,23 +190,10 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'reports' && ['general_view', 'financial_statements', 'profit_margins', 'export_data'].includes(p.action))
   },
 
-  // 🍽️ 2. كاشير المطعم ونقاط البيع (Restaurant POS Cashier)
-  restaurant_cashier: {
-    name: 'كاشير المطعم (POS Cashier)',
-    description: 'فتح وإغلاق الشفت، الجرد الأعمى، تسجيل الفواتير، تقسيم الشيكات، سندات القبض واستبدال نقاط الولاء',
-    matchActions: (p) =>
-      (p.module === 'pos' && ['open_shift', 'close_shift'].includes(p.action)) ||
-      (p.module === 'restaurant' && ['pos', 'manage', 'split_bill', 'transfer_table', 'discount_comp', 'loyalty'].includes(p.action)) ||
-      (p.module === 'sales' && ['view', 'create', 'return'].includes(p.action)) ||
-      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
-      (p.module === 'products' && p.action === 'view') ||
-      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
-  },
-
-  // 🍽️ 3. كابتن الصالة والويتر المحمول (Floor Captain & Waiter)
+  // 🍽️ 12. كابتن الصالة والويتر المحمول (Floor Captain & Waiter)
   restaurant_waiter: {
     name: 'كابتن الصالة والويتر (Waiter & Captain)',
-    description: 'استخدام واجهة الويتر المحمولة للهاتف، فتح الطاولات، تسجيل الطلبات بملاحظات الطهي وإرسالها للمطبخ',
+    description: 'واجهة الويتر المحمولة للهاتف، فتح الطاولات، تسجيل الطلبات بملاحظات الطهي وإرسالها للمطبخ',
     matchActions: (p) =>
       (p.module === 'restaurant' && ['pos', 'waiter', 'manage', 'split_bill', 'transfer_table'].includes(p.action)) ||
       (p.module === 'pos' && p.action === 'open_shift') ||
@@ -109,7 +201,7 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'customers' && ['view', 'create'].includes(p.action))
   },
 
-  // 🍽️ 4. شيف المطبخ التنفيذي ومسؤول التشغيل (Executive Chef)
+  // 🍽️ 13. شيف المطبخ التنفيذي ومسؤول التشغيل (Executive Chef)
   restaurant_chef: {
     name: 'شيف المطبخ التنفيذي (Executive Chef)',
     description: 'إدارة شاشات KDS و Expo، المحطات، المقادير والوصفات BOM، تفكيك اللحوم، وجرد نهاية اليوم للمطبخ',
@@ -121,7 +213,7 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'purchases' && ['view', 'create', 'po_manage'].includes(p.action))
   },
 
-  // 🍽️ 5. طاهي المحطة ومساعد المطبخ (Station Cook / Line Cook)
+  // 🍽️ 14. طاهي المحطة ومساعد المطبخ (Station Cook / Line Cook)
   restaurant_cook: {
     name: 'طاهي المحطة (Line Cook / Station KDS)',
     description: 'عرض وتجهيز طلبات محطة الطهي المحددة (شواية، مقبلات، بيتزا) على شاشة KDS وإتمامها',
@@ -130,7 +222,7 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'products' && p.action === 'view')
   },
 
-  // 🍽️ 6. كابتن التوصيل والديليفري (Delivery Driver)
+  // 🍽️ 15. كابتن التوصيل والديليفري (Delivery Driver)
   restaurant_driver: {
     name: 'كابتن التوصيل (Delivery Driver & COD)',
     description: 'استلام طلبات التوصيل، متابعة عناوين وأرقام العملاء، وتوريد التحصيلات النقدية COD',
@@ -138,92 +230,6 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'restaurant' && ['manage', 'pos', 'driver_dispatch'].includes(p.action)) ||
       (p.module === 'sales' && p.action === 'view') ||
       (p.module === 'customers' && p.action === 'view')
-  },
-
-  // 🛒 7. رئيس الكاشيرية ومشرف نقطة البيع (Head Cashier & POS Supervisor)
-  pos_supervisor: {
-    name: 'رئيس الكاشيرية ومشرف نقطة البيع (Head Cashier & POS Supervisor)',
-    description: 'اعتماد المرتجعات بمسح كارت المشرف، إلغاء الأصناف (Void Line/Sale)، سحب النقدية، إدارة الورديات، وطباعة الشارات',
-    matchActions: (p) =>
-      (p.module === 'retail' && ['pos', 'returns', 'void', 'cash_drop', 'promotions', 'supervisor_badge', 'price_checker', 'shifts_manage', 'view'].includes(p.action)) ||
-      (p.module === 'pos' && ['open_shift', 'close_shift', 'view'].includes(p.action)) ||
-      (p.module === 'sales' && ['view', 'create', 'return', 'credit_note', 'customer_statement'].includes(p.action)) ||
-      (p.module === 'inventory' && ['view', 'stock_card', 'expiry_radar', 'shelf_restock', 'pda_stocktaking'].includes(p.action)) ||
-      (p.module === 'products' && ['view', 'pricing', 'update'].includes(p.action)) ||
-      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
-      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
-  },
-
-  cashier: {
-    name: 'كاشير نقطة بيع (عام)',
-    description: 'صلاحيات فتح الشفت، إصدار الفواتير، سندات القبض، واستعراض الأصناف دون تعديل الأسعار',
-    matchActions: (p) => 
-      (p.module === 'pos' && p.action === 'open_shift') ||
-      (p.module === 'sales' && ['view', 'create', 'return', 'quotation'].includes(p.action)) ||
-      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
-      (p.module === 'products' && p.action === 'view') ||
-      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action)) ||
-      (p.module === 'restaurant' && ['manage', 'split_bill', 'transfer_table'].includes(p.action))
-  },
-  storekeeper: {
-    name: 'أمين مخزن ومستودعات',
-    description: 'صلاحيات إدارة المخزون، التحويلات، الجرد، وإثبات الهالك، ورادار الصلاحيات مع منع التعديل المالي',
-    matchActions: (p) =>
-      (p.module === 'products' && ['view', 'create', 'update'].includes(p.action)) ||
-      (p.module === 'inventory' && ['view', 'transfer', 'adjustment', 'wastage', 'uom_manage'].includes(p.action)) ||
-      (p.module === 'purchases' && ['view', 'create'].includes(p.action))
-  },
-  sales: {
-    name: 'مسؤول ومندوب مبيعات',
-    description: 'صلاحيات إصدار فواتير المبيعات، عروض الأسعار، متابعة العملاء، وكشف الحساب',
-    matchActions: (p) =>
-      (p.module === 'sales' && ['view', 'create', 'return', 'quotation'].includes(p.action)) ||
-      (p.module === 'customers' && ['view', 'create', 'update'].includes(p.action)) ||
-      (p.module === 'products' && p.action === 'view')
-  },
-  warehouse: {
-    name: 'أمين مستودع',
-    description: 'صلاحيات إدارة المخزون، التحويلات، الجرد، وإثبات الهالك مع منع التعديل المالي',
-    matchActions: (p) =>
-      p.module === 'products' && ['view', 'create', 'update'].includes(p.action) ||
-      p.module === 'inventory' && ['view', 'transfer', 'adjustment', 'wastage', 'uom_manage'].includes(p.action) ||
-      p.module === 'purchases' && ['view', 'create'].includes(p.action)
-  },
-  accountant: {
-    name: 'محاسب عام',
-    description: 'صلاحيات القيود اليومية، السندات، الحسابات، التسويات البنكية، والتقارير المالية',
-    matchActions: (p) =>
-      p.module === 'accounting' ||
-      p.module === 'treasury' ||
-      p.module === 'assets' ||
-      (p.module === 'reports' && ['general_view', 'financial_statements', 'aging_reports', 'export_data'].includes(p.action)) ||
-      (p.module === 'sales' && ['view', 'approve'].includes(p.action)) ||
-      (p.module === 'purchases' && ['view', 'approve'].includes(p.action))
-  },
-  sales_manager: {
-    name: 'مدير مبيعات',
-    description: 'صلاحيات كاملة على المبيعات، عروض الأسعار، منح الخصومات، والاطلاع على الأرباح',
-    matchActions: (p) =>
-      p.module === 'sales' ||
-      p.module === 'customers' ||
-      (p.module === 'products' && p.action === 'view') ||
-      (p.module === 'reports' && ['general_view', 'profit_margins', 'aging_reports', 'export_data'].includes(p.action))
-  },
-  purchasing_officer: {
-    name: 'مسؤول مشتريات',
-    description: 'صلاحيات أوامر الشراء، فواتير المشتريات، الموردين، ومقارنة سجل الأسعار',
-    matchActions: (p) =>
-      p.module === 'purchases' ||
-      p.module === 'suppliers' ||
-      (p.module === 'products' && ['view', 'create'].includes(p.action)) ||
-      (p.module === 'reports' && ['general_view', 'export_data'].includes(p.action))
-  },
-  hr_officer: {
-    name: 'مسؤول موارد بشرية',
-    description: 'صلاحيات إدارة الموظفين، السلف، مسير الرواتب، والعقود',
-    matchActions: (p) =>
-      p.module === 'hr' ||
-      (p.module === 'reports' && ['general_view', 'export_data'].includes(p.action))
   }
 };
 
