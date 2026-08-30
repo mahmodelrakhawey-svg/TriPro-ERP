@@ -8,6 +8,7 @@ import { secureStorage } from '../../../../utils/securityMiddleware';
 import SupervisorPinModal from './SupervisorPinModal';
 import CashDropModal from './CashDropModal';
 import PosReturnModal from './PosReturnModal';
+import SupervisorBadgePrintModal from './SupervisorBadgePrintModal';
 import { evaluatePromotions } from '../../services/promotionEngine';
 import type { PromotionRule } from '../../services/promotionEngine';
 import { 
@@ -37,6 +38,7 @@ import {
   Monitor,
   Sparkles,
   ShieldAlert,
+  ShieldCheck,
   Percent
 } from 'lucide-react';
 
@@ -107,6 +109,22 @@ export default function RetailPosScreen() {
 
   // 🔄 POS Returns State (مرتجعات الكاشير بالباركود)
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+
+  // 🪪 Supervisor Badge Print State (طباعة شارة باركود المشرف)
+  const [isBadgePrintOpen, setIsBadgePrintOpen] = useState(false);
+
+  // فتح شاشة المرتجعات بتصريح كارت المشرف
+  const handleOpenReturnModalWithSupervisorCheck = () => {
+    setSupervisorModalState({
+      isOpen: true,
+      actionTitle: 'تصريح مرتجع مبيعات (Return Approval)',
+      actionDescription: 'قم بتمرير كارت باركود المشرف بمسدس الليزر أو إدخال الرمز السري لفتح المرتجعات',
+      onSuccess: () => {
+        setSupervisorModalState(prev => ({ ...prev, isOpen: false }));
+        setIsReturnModalOpen(true);
+      }
+    });
+  };
 
   // 🎁 Promotions Engine State (محرك العروض الترويجية)
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
@@ -988,14 +1006,24 @@ export default function RetailPosScreen() {
               <span className="h-4 w-px bg-slate-800" />
               <span className="text-indigo-400 font-black">{selectedTerminal?.name}</span>
 
-              {/* 🔄 POS Returns */}
+              {/* 🔄 POS Returns (يتطلب تصريح المشرف بالليزر أو PIN) */}
               <button 
-                onClick={() => setIsReturnModalOpen(true)}
+                onClick={handleOpenReturnModalWithSupervisorCheck}
                 className="text-xs bg-blue-950/80 border border-blue-900/50 hover:bg-blue-900 text-blue-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
-                title="مرتجع مبيعات بمسح باركود الفاتورة"
+                title="مرتجع مبيعات (يتطلب تمرير كارت باركود المشرف أو إدخال الرمز)"
               >
                 <RotateCcw size={12} />
                 <span>مرتجع (F3)</span>
+              </button>
+
+              {/* 🪪 Supervisor Badge Print Button */}
+              <button 
+                onClick={() => setIsBadgePrintOpen(true)}
+                className="text-xs bg-indigo-950/80 border border-indigo-900/50 hover:bg-indigo-900 text-indigo-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                title="طباعة شارة باركود المشرف / الهيد كاشير"
+              >
+                <ShieldCheck size={12} />
+                <span>كارت المشرف</span>
               </button>
 
               {/* 💵 Cash Drop */}
@@ -1770,6 +1798,14 @@ export default function RetailPosScreen() {
         orgId={currentUser?.organization_id || ''}
         cashierId={currentUser?.id || ''}
         cashierName={currentUser?.full_name || 'الكاشير'}
+      />
+
+      {/* 🪪 Supervisor Badge Print Modal */}
+      <SupervisorBadgePrintModal
+        isOpen={isBadgePrintOpen}
+        onClose={() => setIsBadgePrintOpen(false)}
+        orgName={organization?.name || 'TriPro Hypermarket'}
+        supervisorName={currentUser?.full_name || 'مشرف الوردية'}
       />
 
     </div>
