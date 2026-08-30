@@ -140,6 +140,20 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'customers' && p.action === 'view')
   },
 
+  // 🛒 7. رئيس الكاشيرية ومشرف نقطة البيع (Head Cashier & POS Supervisor)
+  pos_supervisor: {
+    name: 'رئيس الكاشيرية ومشرف نقطة البيع (Head Cashier & POS Supervisor)',
+    description: 'اعتماد المرتجعات بمسح كارت المشرف، إلغاء الأصناف (Void Line/Sale)، سحب النقدية، إدارة الورديات، وطباعة الشارات',
+    matchActions: (p) =>
+      (p.module === 'retail' && ['pos', 'returns', 'void', 'cash_drop', 'promotions', 'supervisor_badge', 'price_checker', 'shifts_manage', 'view'].includes(p.action)) ||
+      (p.module === 'pos' && ['open_shift', 'close_shift', 'view'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'create', 'return', 'credit_note', 'customer_statement'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'stock_card', 'expiry_radar', 'shelf_restock', 'pda_stocktaking'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'pricing', 'update'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
+  },
+
   cashier: {
     name: 'كاشير نقطة بيع (عام)',
     description: 'صلاحيات فتح الشفت، إصدار الفواتير، سندات القبض، واستعراض الأصناف دون تعديل الأسعار',

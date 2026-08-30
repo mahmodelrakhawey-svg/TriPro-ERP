@@ -399,6 +399,28 @@ const Sidebar: React.FC = () => {
       return true;
     }
 
+    // 🛒 مشرف ورئيس الكاشيرية (POS & Retail Supervisor)
+    if (userRole === 'pos_supervisor' || userRole === 'retail_supervisor') {
+      const allowedSupervisorPaths = [
+        '/retail-pos', 
+        '/pos', 
+        '/retail/price-checker', 
+        '/retail/promotions', 
+        '/retail/customer-display', 
+        '/inventory/expiry-radar', 
+        '/inventory/shelf-restock', 
+        '/inventory/pda-stocktaking',
+        '/invoices-list', 
+        '/sales-returns-list', 
+        '/reports/sales-by-user',
+        '/sales-reports'
+      ];
+      if (!item.to || !allowedSupervisorPaths.includes(item.to)) {
+        return false;
+      }
+      return true;
+    }
+
     // 🍽️ كابتن الصالة والويتر المحمول
     if (userRole === 'restaurant_waiter') {
       return item.to === '/restaurant/waiter';

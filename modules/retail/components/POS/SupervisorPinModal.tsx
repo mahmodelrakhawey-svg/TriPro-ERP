@@ -10,6 +10,7 @@ interface SupervisorPinModalProps {
   actionDescription?: string;
   expectedPin?: string;
   orgName?: string;
+  showPrintButton?: boolean;
 }
 
 export default function SupervisorPinModal({
@@ -19,7 +20,8 @@ export default function SupervisorPinModal({
   actionTitle,
   actionDescription,
   expectedPin = '1234',
-  orgName = 'TriPro Hypermarket'
+  orgName = 'TriPro Hypermarket',
+  showPrintButton = false
 }: SupervisorPinModalProps) {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
@@ -230,17 +232,19 @@ export default function SupervisorPinModal({
             </button>
           </div>
 
-          {/* Quick Print Supervisor Badge Button */}
-          <div className="pt-2 border-t border-slate-100 text-center">
-            <button
-              type="button"
-              onClick={() => setIsPrintModalOpen(true)}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center justify-center gap-1.5 mx-auto py-1 hover:underline"
-            >
-              <Printer size={13} />
-              <span>طباعة كارت باركود المشرف (Supervisor Badge)</span>
-            </button>
-          </div>
+          {/* Quick Print Supervisor Badge Button (فقط للمشرف/المدير) */}
+          {showPrintButton && (
+            <div className="pt-2 border-t border-slate-100 text-center">
+              <button
+                type="button"
+                onClick={() => setIsPrintModalOpen(true)}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center justify-center gap-1.5 mx-auto py-1 hover:underline"
+              >
+                <Printer size={13} />
+                <span>طباعة كارت باركود المشرف (Supervisor Badge)</span>
+              </button>
+            </div>
+          )}
 
         </div>
       </div>

@@ -651,6 +651,7 @@ const UserManager = () => {
                             </optgroup>
 
                             <optgroup label="── نقاط البيع والمطاعم والتشغيل ──">
+                                <option value="pos_supervisor">🪪 رئيس الكاشيرية / مشرف نقطة البيع (Head Cashier & Supervisor)</option>
                                 <option value="cashier">💵 كاشير نقطة البيع (Cashier)</option>
                                 <option value="restaurant_waiter">🍽️ كابتن صالة / ويتر (Waiter)</option>
                                 <option value="chef">🍳 شيف / طاهي مطبخ (Chef)</option>
@@ -662,7 +663,7 @@ const UserManager = () => {
                             {/* الأدوار المخصصة المُنشأة من صفحة الأدوار والصلاحيات */}
                             {dynamicRoles.length > 0 && (() => {
                               // فلترة الأدوار المخصصة (غير الأساسية المعروضة سلفاً)
-                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'cashier', 'restaurant_waiter', 'chef', 'restaurant_driver', 'storekeeper', 'sales'];
+                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'pos_supervisor', 'cashier', 'restaurant_waiter', 'chef', 'restaurant_driver', 'storekeeper', 'sales'];
                               const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
                               if (customRoles.length === 0) return null;
                               return (

@@ -1016,15 +1016,17 @@ export default function RetailPosScreen() {
                 <span>مرتجع (F3)</span>
               </button>
 
-              {/* 🪪 Supervisor Badge Print Button */}
-              <button 
-                onClick={() => setIsBadgePrintOpen(true)}
-                className="text-xs bg-indigo-950/80 border border-indigo-900/50 hover:bg-indigo-900 text-indigo-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
-                title="طباعة شارة باركود المشرف / الهيد كاشير"
-              >
-                <ShieldCheck size={12} />
-                <span>كارت المشرف</span>
-              </button>
+              {/* 🪪 Supervisor Badge Print Button (يظهر للمشرف، المدير، أو الأدمن) */}
+              {['admin', 'manager', 'owner', 'super_admin', 'pos_supervisor', 'retail_supervisor'].includes(currentUser?.role || '') && (
+                <button 
+                  onClick={() => setIsBadgePrintOpen(true)}
+                  className="text-xs bg-indigo-950/80 border border-indigo-900/50 hover:bg-indigo-900 text-indigo-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                  title="طباعة شارة باركود المشرف / الهيد كاشير"
+                >
+                  <ShieldCheck size={12} />
+                  <span>كارت المشرف</span>
+                </button>
+              )}
 
               {/* 💵 Cash Drop */}
               <button 
@@ -1769,6 +1771,8 @@ export default function RetailPosScreen() {
         onSuccess={supervisorModalState.onSuccess}
         actionTitle={supervisorModalState.actionTitle}
         actionDescription={supervisorModalState.actionDescription}
+        showPrintButton={['admin', 'manager', 'owner', 'super_admin', 'pos_supervisor', 'retail_supervisor'].includes(currentUser?.role || '')}
+        orgName={organization?.name || 'TriPro Hypermarket'}
       />
 
       {/* 💵 Cash Drop Modal */}
