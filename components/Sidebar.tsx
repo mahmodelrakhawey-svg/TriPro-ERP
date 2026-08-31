@@ -38,6 +38,11 @@ import {
   Ruler,
   ChefHat,
   ScrollText,
+  HardHat,
+  Compass,
+  Gauge,
+  Wrench,
+  Cpu,
   LayoutGrid,
   Star,
   Layers,
@@ -87,7 +92,6 @@ import {
   MapPin,
   PackageCheck,
 } from 'lucide-react';
-import { Wrench } from 'lucide-react'; // Import Wrench icon
 
 
  
@@ -226,6 +230,9 @@ const Sidebar: React.FC = () => {
     { to: '/mfg/wip-monthly-summary', label: 'ملخص الإنتاج تحت التشغيل', icon: PieChart, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/production-cost-analysis', label: 'تحليل تكاليف الإنتاج', icon: Calculator, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/unit-cost-drilldown', label: 'تشريح تكلفة الوحدة', icon: Layers, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
+    { to: '/mfg/oee-tracker', label: 'مؤشر كفاءة المعدات (OEE)', icon: Gauge, color: 'text-amber-400', module: 'manufacturing', permission: 'manufacturing.view' },
+    { to: '/mfg/maintenance', label: 'صيانة الماكينات الوقائية', icon: Wrench, color: 'text-orange-400', module: 'manufacturing', permission: 'manufacturing.view' },
+    { to: '/mfg/capacity-planning', label: 'تخطيط السعة وعنق الزجاجة', icon: Cpu, color: 'text-cyan-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/alerts-log', label: 'سجل التنبيهات الصناعية', icon: AlertTriangle, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/closing', label: 'إغلاق الفترة المالي', icon: Calculator, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
 
@@ -233,6 +240,11 @@ const Sidebar: React.FC = () => {
     { type: 'section', label: 'المقاولات والمشاريع' },
     { to: '/construction/analytics', label: 'لوحة تحليلات المشاريع الإنشائية', icon: Activity, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/construction', label: 'إدارة المشاريع الإنشائية', icon: Building2, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
+    { to: '/construction/site-logs', label: 'يوميات وسجلات الموقع الميدانية', icon: HardHat, color: 'text-amber-400', module: 'construction', permission: 'accounting.view' },
+    { to: '/construction/rfis-submittals', label: 'طلبات المعلومات والاعتمادات (RFIs)', icon: Compass, color: 'text-indigo-400', module: 'construction', permission: 'accounting.view' },
+    { to: '/construction/inspections', label: 'استلام وفحص الأعمال الميدانية (WIR)', icon: ClipboardCheck, color: 'text-emerald-400', module: 'construction', permission: 'accounting.view' },
+    { to: '/construction/waste-analytics', label: 'مراقبة الهدر المعياري للخامات', icon: Scale, color: 'text-rose-400', module: 'construction', permission: 'accounting.view' },
+    { to: '/construction/price-escalation', label: 'حاسبة مطالبات فروق الأسعار', icon: Calculator, color: 'text-cyan-400', module: 'construction', permission: 'accounting.view' },
     { to: '/construction/labor-reports', label: 'تقارير تكاليف العمالة', icon: UserCheck, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/construction/subcontractor-analytics', label: 'تحليل أداء مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/subcontractors', label: 'مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
@@ -287,8 +299,11 @@ const Sidebar: React.FC = () => {
     // الموارد البشرية
     { type: 'section', label: 'الموارد البشرية' },
     { to: '/employees', label: 'بيانات الموظفين', icon: Users, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/hr/attendance', label: 'سجل الحضور والبصمة', icon: Clock, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/hr/leaves', label: 'إدارة وأرصدة الإجازات', icon: Calendar, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/payroll-run', label: 'تنفيذ مسير الرواتب', icon: Play, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
     { to: '/employee-advances', label: 'السلف والقروض', icon: Coins, color: 'text-pink-400', module: 'hr', permission: 'hr.advances' },
+    { to: '/hr/end-of-service', label: 'مخالصة ومكافأة نهاية الخدمة', icon: Scale, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
     { to: '/payroll-report', label: 'مسيرات الرواتب', icon: Banknote, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/employee-statement', label: 'كشف حساب موظف', icon: BookOpen, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/employee-reports', label: 'تقارير الموارد البشرية', icon: PieChart, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },

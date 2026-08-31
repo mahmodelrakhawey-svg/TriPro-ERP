@@ -111,6 +111,9 @@ import ProductionCostAnalysis from './modules/manufacturing/reports/ProductionCo
 import UnitCostDrillDown from './modules/manufacturing/reports/UnitCostDrillDown';
 import ManufacturingAlertsLog from './modules/manufacturing/reports/ManufacturingAlertsLog';
 import CostClosingDashboard from './modules/manufacturing/components/CostClosingDashboard';
+import MachineOeeTracker from './modules/manufacturing/components/MachineOeeTracker';
+import MachineryMaintenanceManager from './modules/manufacturing/components/MachineryMaintenanceManager';
+import CapacityPlanningDashboard from './modules/manufacturing/components/CapacityPlanningDashboard';
 import SecurityLogs from './components/SecurityLogs';
 import ProjectManager from './modules/construction/components/ProjectManager';
 import ConstructionDashboard from './modules/construction/components/ConstructionDashboard';
@@ -120,6 +123,14 @@ import SubcontractorContractsManager from './modules/construction/components/Sub
 import SubcontractorBillingManager from './modules/construction/components/SubcontractorBillingManager';
 import SubcontractorAnalytics from './modules/construction/reports/SubcontractorAnalytics';
 import SubcontractorStatement from './modules/construction/components/SubcontractorStatement';
+import SiteDailyLogsManager from './modules/construction/components/SiteDailyLogsManager';
+import RfiSubmittalManager from './modules/construction/components/RfiSubmittalManager';
+import WorkInspectionManager from './modules/construction/components/WorkInspectionManager';
+import MaterialWasteAnalytics from './modules/construction/components/MaterialWasteAnalytics';
+import PriceEscalationCalculator from './modules/construction/components/PriceEscalationCalculator';
+import LeaveManager from './modules/hr/components/LeaveManager';
+import EndOfServiceCalculator from './modules/hr/components/EndOfServiceCalculator';
+import AttendanceManager from './modules/hr/components/AttendanceManager';
 import PermissionsManager from './modules/admin/PermissionsManager';
 import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
@@ -375,8 +386,17 @@ const SuspendedScreen = ({ message }: { message?: string }) => (
 const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
     const { organization, currentUser, isLoading, can } = useAccounting();
     
-    // إذا كان هناك مستخدم مسجل بالفعل، لا نغلق الشاشة أثناء تحديث البيانات في الخلفية
-    if (isLoading && !currentUser) return null;
+    // إذا كان هناك تحميل، لا نترك الشاشة بيضاء بل نعرض مؤشر التحميل
+    if (isLoading && !currentUser) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <div className="flex flex-col items-center gap-3">
+                    <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+                    <span className="text-sm font-bold text-slate-500">جاري تحميل البيانات...</span>
+                </div>
+            </div>
+        );
+    }
 
     const role = currentUser?.role || '';
     const isSuperAdminUser = role === 'super_admin' || role === 'demo';
@@ -420,10 +440,11 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
       can(module, '*') || 
       can(normalizedModule, '*') ||
       can(module, 'pos') ||
-      can(module, 'kitchen')
+      can(module, 'kitchen') ||
+      can('accounting', 'view')
     ) : true;
 
-    const isAllowed = isSuperAdminUser || (isAllowedByOrg && hasPermission);
+    const isAllowed = isPrivileged || (isAllowedByOrg && hasPermission);
 
     if (!isAllowed) {
         return <Navigate to="/" replace />;
@@ -591,6 +612,9 @@ const MainLayout = () => {
                       <Route path="material-requests" element={<MaterialRequestsList />} />
                       <Route path="production-cost-analysis" element={<ProductionCostAnalysis />} />
                       <Route path="unit-cost-drilldown" element={<UnitCostDrillDown />} />
+                      <Route path="oee-tracker" element={<MachineOeeTracker />} />
+                      <Route path="maintenance" element={<MachineryMaintenanceManager />} />
+                      <Route path="capacity-planning" element={<CapacityPlanningDashboard />} />
                       <Route path="alerts-log" element={<ManufacturingAlertsLog />} />
                       <Route path="closing" element={<CostClosingDashboard />} />
                       <Route path="raw-materials-turnover" element={<RawMaterialsTurnover />} />
@@ -692,11 +716,19 @@ const MainLayout = () => {
                 <Route path="/construction/analytics" element={<ModuleGuard module="construction"><ConstructionDashboard /></ModuleGuard>} />
                 <Route path="/construction/labor-reports" element={<ModuleGuard module="construction"><LaborCostReport /></ModuleGuard>} />
                 <Route path="/construction" element={<ModuleGuard module="construction"><ProjectManager /></ModuleGuard>} />
+                <Route path="/construction/site-logs" element={<ModuleGuard module="construction"><SiteDailyLogsManager /></ModuleGuard>} />
+                <Route path="/construction/rfis-submittals" element={<ModuleGuard module="construction"><RfiSubmittalManager /></ModuleGuard>} />
+                <Route path="/construction/inspections" element={<ModuleGuard module="construction"><WorkInspectionManager /></ModuleGuard>} />
+                <Route path="/construction/waste-analytics" element={<ModuleGuard module="construction"><MaterialWasteAnalytics /></ModuleGuard>} />
+                <Route path="/construction/price-escalation" element={<ModuleGuard module="construction"><PriceEscalationCalculator /></ModuleGuard>} />
                 <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorStandalone /></ModuleGuard>} />
                 <Route path="/construction/subcontractor-analytics" element={<ModuleGuard module="construction"><SubcontractorAnalytics /></ModuleGuard>} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
+                <Route path="/hr/attendance" element={<ModuleGuard module="hr"><AttendanceManager /></ModuleGuard>} />
+                <Route path="/hr/leaves" element={<ModuleGuard module="hr"><LeaveManager /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />
+                <Route path="/hr/end-of-service" element={<ModuleGuard module="hr"><EndOfServiceCalculator /></ModuleGuard>} />
                 <Route path="/payroll-report" element={<ModuleGuard module="hr"><PayrollReport /></ModuleGuard>} />
                 <Route path="/employee-statement" element={<ModuleGuard module="hr"><EmployeeStatement /></ModuleGuard>} />
                 <Route path="/employee-reports" element={<ModuleGuard module="hr"><EmployeeReports /></ModuleGuard>} />
