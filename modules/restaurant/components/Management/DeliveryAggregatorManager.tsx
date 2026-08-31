@@ -56,36 +56,30 @@ export const DeliveryAggregatorManager: React.FC = () => {
     return list.length > 0 ? list : accounts;
   }, [accounts]);
 
-  // Accounts
-  const [receivableAccountId, setReceivableAccountId] = useState<string>(() => {
-    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY);
-    return saved?.receivableAccountId || '';
-  });
-  const [salesAccountId, setSalesAccountId] = useState<string>(() => {
-    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY);
-    return saved?.salesAccountId || '';
-  });
-  const [commissionExpenseAccountId, setCommissionExpenseAccountId] = useState<string>(() => {
-    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY);
-    return saved?.commissionExpenseAccountId || '';
-  });
+  const orgKey = currentUser?.organization_id || 'default';
+  const storageKey = `tripro_aggregator_accounts_map_${orgKey}`;
+
+  // Accounts with active validation
+  const [receivableAccountId, setReceivableAccountId] = useState<string>('');
+  const [salesAccountId, setSalesAccountId] = useState<string>('');
+  const [commissionExpenseAccountId, setCommissionExpenseAccountId] = useState<string>('');
 
   const updateReceivableAccount = (id: string) => {
     setReceivableAccountId(id);
-    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY) || {};
-    secureStorage.setItem(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY, { ...saved, receivableAccountId: id });
+    const saved = secureStorage.getItem<any>(storageKey) || {};
+    secureStorage.setItem(storageKey, { ...saved, receivableAccountId: id });
   };
 
   const updateSalesAccount = (id: string) => {
     setSalesAccountId(id);
-    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY) || {};
-    secureStorage.setItem(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY, { ...saved, salesAccountId: id });
+    const saved = secureStorage.getItem<any>(storageKey) || {};
+    secureStorage.setItem(storageKey, { ...saved, salesAccountId: id });
   };
 
   const updateCommissionAccount = (id: string) => {
     setCommissionExpenseAccountId(id);
-    const saved = secureStorage.getItem<any>(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY) || {};
-    secureStorage.setItem(LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY, { ...saved, commissionExpenseAccountId: id });
+    const saved = secureStorage.getItem<any>(storageKey) || {};
+    secureStorage.setItem(storageKey, { ...saved, commissionExpenseAccountId: id });
   };
 
   useEffect(() => {
@@ -93,19 +87,29 @@ export const DeliveryAggregatorManager: React.FC = () => {
     setOrders(deliveryAggregatorService.getOrders(currentUser?.organization_id || undefined));
 
     if (leafAccounts.length > 0) {
+      const saved = secureStorage.getItem<any>(storageKey) || {};
+
       // 1. حساب المدينين (مستحقات منصة التوصيل)
-      if (!receivableAccountId) {
+      let curRecId = saved.receivableAccountId;
+      if (!curRecId || !leafAccounts.some(a => a.id === curRecId)) {
         const recAcc = leafAccounts.find(a => 
           a.code === SYSTEM_ACCOUNTS.CUSTOMERS || 
           a.code === '1221' || 
           a.name.includes('منصات') || 
-          a.name.includes('توصيل')
+          a.name.includes('توصيل') ||
+          a.name.includes('عملاء')
         ) || leafAccounts.find(a => a.type === 'ASSET' || a.code?.startsWith('1'));
-        if (recAcc) updateReceivableAccount(recAcc.id);
+        if (recAcc) {
+          curRecId = recAcc.id;
+          updateReceivableAccount(recAcc.id);
+        }
+      } else {
+        setReceivableAccountId(curRecId);
       }
 
-      // 2. حساب إيرادات المبيعات (الدائن) - إيرادات مبيعات النشاط (411 أو 4101)
-      if (!salesAccountId) {
+      // 2. حساب إيرادات المبيعات (الدائن)
+      let curSalesId = saved.salesAccountId;
+      if (!curSalesId || !leafAccounts.some(a => a.id === curSalesId)) {
         const salesAcc = leafAccounts.find(a => 
           (a.code === SYSTEM_ACCOUNTS.SALES_REVENUE || a.code === '411' || a.code === '4101') &&
           (a.type === 'REVENUE' || (a.type as any) === 'revenue' || a.code?.startsWith('4'))
@@ -113,11 +117,17 @@ export const DeliveryAggregatorManager: React.FC = () => {
           (a.type === 'REVENUE' || (a.type as any) === 'revenue' || a.code?.startsWith('4')) && 
           a.name.includes('مبيعات')
         ) || leafAccounts.find(a => a.type === 'REVENUE' || a.code?.startsWith('4'));
-        if (salesAcc) updateSalesAccount(salesAcc.id);
+        if (salesAcc) {
+          curSalesId = salesAcc.id;
+          updateSalesAccount(salesAcc.id);
+        }
+      } else {
+        setSalesAccountId(curSalesId);
       }
 
-      // 3. حساب مصروف عمولة المنصة (المدين) - عمولات بيع وتوصيل (522) واستبعاد الدعاية والإعلان (521)
-      if (!commissionExpenseAccountId) {
+      // 3. حساب مصروف عمولة المنصة (المدين)
+      let curCommId = saved.commissionExpenseAccountId;
+      if (!curCommId || !leafAccounts.some(a => a.id === curCommId)) {
         const expAcc = leafAccounts.find(a => 
           (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) &&
           (a.code === '522' || a.code === '5221' || a.code === '5204' || a.name.includes('عمول')) &&
@@ -129,8 +139,13 @@ export const DeliveryAggregatorManager: React.FC = () => {
         ) || leafAccounts.find(a => 
           (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
           !a.name.includes('تأسيس') && !a.name.includes('دعاية') && !a.name.includes('إعلان')
-        );
-        if (expAcc) updateCommissionAccount(expAcc.id);
+        ) || leafAccounts.find(a => a.type === 'EXPENSE' || a.code?.startsWith('5'));
+        if (expAcc) {
+          curCommId = expAcc.id;
+          updateCommissionAccount(expAcc.id);
+        }
+      } else {
+        setCommissionExpenseAccountId(curCommId);
       }
     }
   }, [leafAccounts, currentUser]);

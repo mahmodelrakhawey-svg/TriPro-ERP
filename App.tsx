@@ -161,9 +161,12 @@ import RetailPosScreen from './modules/retail/components/POS/RetailPosScreen';
 import PriceCheckerKiosk from './modules/retail/components/PriceCheckerKiosk';
 import CustomerFacingScreen from './modules/retail/components/CustomerDisplay/CustomerFacingScreen';
 import PromotionsManager from './modules/retail/components/Promotions/PromotionsManager';
+import VendorContractsManager from './modules/purchases/VendorContractsManager';
+import GoodsReceiptManager from './modules/inventory/GoodsReceiptManager';
 import MobilePdaStocktaking from './modules/inventory/MobilePdaStocktaking';
 import ExpiryClearanceRadar from './modules/inventory/ExpiryClearanceRadar';
 import ShelfRestockReport from './modules/inventory/ShelfRestockReport';
+import HypermarketReplenishment from './modules/inventory/HypermarketReplenishment';
 import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
 import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
 import ButcheringYieldManager from './modules/restaurant/components/Management/ButcheringYieldManager';
@@ -396,7 +399,7 @@ const ModuleGuard = ({ module, children }: { module: string, children: React.Rea
       if (module === 'restaurant' || module === 'pos' || module === 'kitchen') {
         isAllowedByOrg = allowedModules.includes('restaurant') || allowedModules.includes('pos');
       } else if (module === 'retail') {
-        isAllowedByOrg = allowedModules.includes('retail') || allowedModules.includes('sales');
+        isAllowedByOrg = allowedModules.includes('retail');
       } else if (module === 'construction') {
         isAllowedByOrg = allowedModules.includes('construction');
       } else if (module === 'hims') {
@@ -657,6 +660,7 @@ const MainLayout = () => {
                 <Route path="/suppliers" element={<ModuleGuard module="purchases"><SupplierManager /></ModuleGuard>} />
                 <Route path="/supplier-statement" element={<ModuleGuard module="purchases"><SupplierStatement /></ModuleGuard>} />
                 <Route path="/supplier-aging" element={<ModuleGuard module="purchases"><SupplierAgingReport /></ModuleGuard>} />
+                <Route path="/purchases/vendor-contracts" element={<ModuleGuard module="purchases"><VendorContractsManager /></ModuleGuard>} />
                 <Route path="/purchase-analysis" element={<ModuleGuard module="purchases"><PurchaseAnalysisReport /></ModuleGuard>} />
                 <Route path="/purchase-reports" element={<ModuleGuard module="purchases"><PurchaseReports /></ModuleGuard>} />
                 
@@ -664,6 +668,8 @@ const MainLayout = () => {
                 <Route path="/products" element={<ModuleGuard module="inventory"><ProductManager /></ModuleGuard>} />
                 <Route path="/multi-uom-report" element={<ModuleGuard module="inventory"><MultiUomStockReport /></ModuleGuard>} />
                 <Route path="/units-of-measure" element={<ModuleGuard module="inventory"><UnitsOfMeasureManager /></ModuleGuard>} />
+                <Route path="/inventory/goods-receipt" element={<ModuleGuard module="inventory"><GoodsReceiptManager /></ModuleGuard>} />
+                <Route path="/inventory/replenishment" element={<ModuleGuard module="inventory"><HypermarketReplenishment /></ModuleGuard>} />
                 <Route path="/inventory-dashboard" element={<ModuleGuard module="inventory"><InventoryDashboard /></ModuleGuard>} />
                 <Route path="/warehouses" element={<ModuleGuard module="inventory"><WarehouseManager /></ModuleGuard>} />
                 <Route path="/stock-transfer" element={<ModuleGuard module="inventory"><StockTransfer /></ModuleGuard>} />
@@ -742,6 +748,9 @@ const MainLayout = () => {
                 <Route path="/expiry-radar" element={<Navigate to="/inventory/expiry-radar" replace />} /> 
                 <Route path="/inventory/shelf-restock" element={<ModuleGuard module="inventory"><ShelfRestockReport /></ModuleGuard>} /> 
                 <Route path="/shelf-restock" element={<Navigate to="/inventory/shelf-restock" replace />} /> 
+                <Route path="/replenishment" element={<Navigate to="/inventory/replenishment" replace />} /> 
+                <Route path="/goods-receipt" element={<Navigate to="/inventory/goods-receipt" replace />} /> 
+                <Route path="/vendor-contracts" element={<Navigate to="/purchases/vendor-contracts" replace />} /> 
                 <Route path="/kds" element={<ModuleGuard module="restaurant"><KdsScreen /></ModuleGuard>} /> 
                 <Route path="/restaurant/expo" element={<ModuleGuard module="restaurant"><ExpoScreen /></ModuleGuard>} /> 
                 <Route path="/expo" element={<Navigate to="/restaurant/expo" replace />} /> 

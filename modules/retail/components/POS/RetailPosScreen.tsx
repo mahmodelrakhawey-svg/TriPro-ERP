@@ -9,8 +9,12 @@ import SupervisorPinModal from './SupervisorPinModal';
 import CashDropModal from './CashDropModal';
 import PosReturnModal from './PosReturnModal';
 import SupervisorBadgePrintModal from './SupervisorBadgePrintModal';
+import SplitPaymentModal, { SplitPaymentDetails } from './SplitPaymentModal';
+import ScaleConnectModal from './ScaleConnectModal';
+import { scaleService, ScaleReading } from '../../services/scaleService';
 import { evaluatePromotions } from '../../services/promotionEngine';
 import type { PromotionRule } from '../../services/promotionEngine';
+import { couponService, RetailCoupon } from '../../services/couponService';
 import { 
   Barcode, 
   Trash2, 
@@ -39,13 +43,19 @@ import {
   Sparkles,
   ShieldAlert,
   ShieldCheck,
-  Percent
+  Percent,
+  Ticket,
+  CreditCard,
+  Gift
 } from 'lucide-react';
 
 interface CartItem {
   product: CachedProduct;
   quantity: number;
   weight?: number; // In case of weight scale product
+  uomName?: string;
+  customPrice?: number;
+  uomId?: string;
 }
 
 export default function RetailPosScreen() {
@@ -129,6 +139,27 @@ export default function RetailPosScreen() {
   // 🎁 Promotions Engine State (محرك العروض الترويجية)
   const [promotions, setPromotions] = useState<PromotionRule[]>([]);
 
+  // 🎟️ Coupons State (كوبونات وقسائم الخصم)
+  const [couponsList, setCouponsList] = useState<RetailCoupon[]>([]);
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<RetailCoupon | null>(null);
+  const [couponDiscount, setCouponDiscount] = useState(0);
+
+  // 🔄 Split Payment State (تعدد طرق الدفع)
+  const [isSplitPaymentOpen, setIsSplitPaymentOpen] = useState(false);
+  const [splitPaymentData, setSplitPaymentData] = useState<SplitPaymentDetails | null>(null);
+
+  // ⚖️ Electronic Scale State (الميزان الإلكتروني المباشر)
+  const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
+  const [scaleReading, setScaleReading] = useState<ScaleReading>(scaleService.currentReading);
+
+  useEffect(() => {
+    const unsubscribe = scaleService.subscribe(reading => {
+      setScaleReading(reading);
+    });
+    return () => unsubscribe();
+  }, []);
+
   useEffect(() => {
     const loadPromos = async () => {
       const orgId = currentUser?.organization_id;
@@ -137,16 +168,43 @@ export default function RetailPosScreen() {
         const { data } = await supabase.from('retail_promotions').select('*').eq('organization_id', orgId).eq('is_active', true);
         if (data && data.length > 0) {
           setPromotions(data);
-          return;
+        } else {
+          const local = secureStorage.getItem(`tripro_promos_${orgId}`) as PromotionRule[];
+          if (local && Array.isArray(local)) setPromotions(local);
         }
       } catch (e) {}
-      const local = secureStorage.getItem(`tripro_promos_${orgId}`) as PromotionRule[];
-      if (local && Array.isArray(local)) {
-        setPromotions(local);
-      }
+
+      // Load coupons
+      try {
+        const couponData = await couponService.getCoupons(orgId);
+        setCouponsList(couponData);
+      } catch (e) {}
     };
     loadPromos();
   }, [currentUser]);
+
+  // Handle apply / remove coupon
+  const handleApplyCoupon = () => {
+    if (!couponInput.trim()) {
+      showToast('يرجى إدخال رمز الكوبون أولاً', 'error');
+      return;
+    }
+    const result = couponService.validateCoupon(couponInput, subtotal, couponsList);
+    if (!result.valid) {
+      showToast(result.message || 'كوبون غير صالح', 'error');
+      return;
+    }
+    setAppliedCoupon(result.coupon || null);
+    setCouponDiscount(result.discountAmount);
+    showToast(result.message || 'تم تطبيق الكوبون بنجاح ✅', 'success');
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponDiscount(0);
+    setCouponInput('');
+    showToast('تم إلغاء الكوبون', 'info');
+  };
 
   // ⏸️ Held / Parked Invoices State (تعليق واسترجاع الفواتير - F6)
   interface HeldOrder {
@@ -250,7 +308,7 @@ export default function RetailPosScreen() {
   const vatRate = isTaxEnabled ? (settings?.vat_rate !== undefined ? Number(settings.vat_rate) : 0.14) : 0;
 
   const subtotal = cart.reduce((sum, item) => {
-    const price = item.product.sales_price;
+    const price = item.customPrice !== undefined ? item.customPrice : item.product.sales_price;
     const qty = item.weight !== undefined ? item.weight : item.quantity;
     return sum + (price * qty);
   }, 0);
@@ -260,33 +318,38 @@ export default function RetailPosScreen() {
       product: {
         id: it.product.id,
         name: it.product.name,
-        sales_price: it.product.sales_price,
+        sales_price: it.customPrice !== undefined ? it.customPrice : it.product.sales_price,
         category_id: it.product.category_id
       },
       quantity: it.weight !== undefined ? it.weight : it.quantity,
-      price: it.product.sales_price
+      price: it.customPrice !== undefined ? it.customPrice : it.product.sales_price
     })),
     promotions
   );
 
-  const subtotalAfterPromo = Math.max(0, subtotal - totalPromoDiscount);
+  const totalDiscount = totalPromoDiscount + couponDiscount;
+  const subtotalAfterPromo = Math.max(0, subtotal - totalDiscount);
   const tax = subtotalAfterPromo * vatRate;
   const total = subtotalAfterPromo + tax;
 
   // 📺 Broadcast to Dual-Screen Customer Display (/retail/customer-display)
   useEffect(() => {
     const payload = {
-      cart: cart.map(it => ({
-        id: it.product.id,
-        name: it.product.name,
-        quantity: it.quantity,
-        price: it.product.sales_price,
-        weight: it.weight,
-        total: it.product.sales_price * (it.weight !== undefined ? it.weight : it.quantity),
-        image_url: it.product.image_url
-      })),
+      cart: cart.map(it => {
+        const itemPrice = it.customPrice !== undefined ? it.customPrice : it.product.sales_price;
+        return {
+          id: it.product.id,
+          name: it.product.name,
+          quantity: it.quantity,
+          price: itemPrice,
+          weight: it.weight,
+          total: itemPrice * (it.weight !== undefined ? it.weight : it.quantity),
+          image_url: it.product.image_url,
+          uomName: it.uomName
+        };
+      }),
       subtotal,
-      discount: totalPromoDiscount,
+      discount: totalDiscount,
       tax,
       total,
       cashierName: currentUser?.full_name || 'الكاشير',
@@ -697,6 +760,7 @@ export default function RetailPosScreen() {
 
     try {
       let matchedProduct: CachedProduct | undefined;
+      let matchedUomInfo: { uom_name?: string; customPrice?: number; uom_id?: string } | undefined;
       let weight: number | undefined;
 
       // 1. Check if it's a weight scale barcode
@@ -735,6 +799,25 @@ export default function RetailPosScreen() {
         if (!matchedProduct) matchedProduct = await db.products.where('sku').equals(code).first();
         if (!matchedProduct) matchedProduct = await db.products.where('barcode2').equals(code).first();
 
+        // 3. Search multi-unit barcodes (unit_barcodes)
+        if (!matchedProduct) {
+          const allCached = await db.products.toArray();
+          for (const p of allCached) {
+            if (Array.isArray((p as any).unit_barcodes)) {
+              const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode === code);
+              if (foundUom) {
+                matchedProduct = p;
+                matchedUomInfo = {
+                  uom_name: foundUom.uom_name,
+                  customPrice: foundUom.price && foundUom.price > 0 ? foundUom.price : p.sales_price,
+                  uom_id: foundUom.uom_id
+                };
+                break;
+              }
+            }
+          }
+        }
+
         // Fallback online search
         if (!matchedProduct && currentUser?.organization_id) {
           const { data: onlineList } = await supabase
@@ -751,7 +834,14 @@ export default function RetailPosScreen() {
       }
 
       if (matchedProduct) {
-        addToCart(matchedProduct, weight, multiplier);
+        addToCart(
+          matchedProduct, 
+          weight, 
+          multiplier, 
+          matchedUomInfo?.uom_name, 
+          matchedUomInfo?.customPrice, 
+          matchedUomInfo?.uom_id
+        );
       } else {
         showToast(`لم يتم العثور على صنف بالرمز: ${code}`, 'error');
       }
@@ -761,7 +851,14 @@ export default function RetailPosScreen() {
   };
 
   // Add Product to Cart
-  const addToCart = (product: CachedProduct, weight?: number, multiplier: number = 1) => {
+  const addToCart = (
+    product: CachedProduct, 
+    weight?: number, 
+    multiplier: number = 1,
+    uomName?: string,
+    customPrice?: number,
+    uomId?: string
+  ) => {
     // 🔞 تحقق من تقييد العمر قبل إضافة الصنف للسلة
     if ((product as any).age_restricted) {
       const confirmed = window.confirm(
@@ -774,23 +871,33 @@ export default function RetailPosScreen() {
     }
 
     setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id);
+      const existing = prev.find(item => item.product.id === product.id && item.uomId === uomId);
       if (existing) {
         if (weight !== undefined) {
           return prev.map(item => 
-            item.product.id === product.id 
+            (item.product.id === product.id && item.uomId === uomId)
               ? { ...item, quantity: item.quantity + multiplier, weight: (item.weight || 0) + (weight * multiplier) }
               : item
           );
         } else {
           return prev.map(item => 
-            item.product.id === product.id 
+            (item.product.id === product.id && item.uomId === uomId)
               ? { ...item, quantity: item.quantity + multiplier }
               : item
           );
         }
       }
-      return [...prev, { product, quantity: multiplier, weight: weight !== undefined ? weight * multiplier : undefined }];
+      return [
+        ...prev, 
+        { 
+          product, 
+          quantity: multiplier, 
+          weight: weight !== undefined ? weight * multiplier : undefined,
+          uomName,
+          customPrice,
+          uomId
+        }
+      ];
     });
   };
 
@@ -823,17 +930,29 @@ export default function RetailPosScreen() {
   }, [searchQuery]);
 
   // Process Checkout
-  const handlePayment = async () => {
+  const handlePayment = async (splitData?: SplitPaymentDetails) => {
     if (cart.length === 0) {
       showToast('سلة التسوق فارغة!', 'error');
       return;
     }
-    if (amountPaid < total) {
+
+    const effectivePaid = splitData 
+      ? (splitData.cashReceived + splitData.card + splitData.credit + splitData.loyalty + (splitData.couponDiscount || 0))
+      : amountPaid;
+
+    if (!splitData && effectivePaid < total) {
       showToast('المبلغ المدفوع أقل من إجمالي الفاتورة', 'error');
       return;
     }
 
-    const change = amountPaid - total;
+    const change = splitData 
+      ? Math.max(0, splitData.cashReceived - splitData.cash)
+      : Math.max(0, amountPaid - total);
+
+    const effectiveMethod = splitData 
+      ? ((splitData.card > 0 && splitData.cash > 0) ? 'SPLIT' : (splitData.card > 0 ? 'CARD' : 'CASH'))
+      : paymentMethod;
+
     setIsPrinting(true);
 
     try {
@@ -841,8 +960,8 @@ export default function RetailPosScreen() {
       const itemsPayload = cart.map(item => ({
         product_id: item.product.id,
         quantity: item.weight !== undefined ? item.weight : item.quantity,
-        unit_price: item.product.sales_price,
-        uom_id: null // Base Unit
+        unit_price: item.customPrice !== undefined ? item.customPrice : item.product.sales_price,
+        uom_id: item.uomId || null
       }));
 
       const effectiveWarehouseId = selectedTerminal?.warehouse_id || settings?.defaultWarehouseId || settings?.default_warehouse_id || (warehouses && warehouses[0]?.id) || '00000000-0000-0000-0000-000000000000';
@@ -851,12 +970,14 @@ export default function RetailPosScreen() {
         sessionId: null,
         userId: currentUser.id,
         orderType: 'TAKEAWAY',
-        notes: 'مبيعات كاشير تجزئة سريعة',
+        notes: splitData 
+          ? `مبيعات كاشير تجزئة سريعة [دفع متعدد: كاش ${splitData.cash}, فيزا ${splitData.card}, آجل ${splitData.credit}, ولاء ${splitData.loyalty}]`
+          : 'مبيعات كاشير تجزئة سريعة',
         items: itemsPayload,
         warehouseId: effectiveWarehouseId,
         orgId: currentUser.organization_id,
         customerId: selectedCustomer?.id || null,
-        paymentMethod: paymentMethod,
+        paymentMethod: effectiveMethod,
         paymentAmount: total
       };
 
@@ -868,7 +989,7 @@ export default function RetailPosScreen() {
           p_session_id: null,
           p_user_id: currentUser.id,
           p_order_type: 'TAKEAWAY',
-          p_notes: 'مبيعات كاشير تجزئة سريعة',
+          p_notes: orderData.notes,
           p_items: itemsPayload,
           p_customer_id: selectedCustomer?.id || null,
           p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null,
@@ -907,7 +1028,7 @@ export default function RetailPosScreen() {
 
           const { error: payErr } = await supabase.rpc('complete_restaurant_order', {
             p_order_id: orderId,
-            p_payment_method: paymentMethod,
+            p_payment_method: effectiveMethod,
             p_amount: total,
             p_cash_account_id: treasuryId,
             p_org_id: currentUser.organization_id,
@@ -915,6 +1036,11 @@ export default function RetailPosScreen() {
           });
 
           if (payErr) throw payErr;
+
+          // 3. Record coupon usage if applied
+          if (appliedCoupon) {
+            await couponService.recordUsage(appliedCoupon.id, currentUser.organization_id);
+          }
         }
       } else {
         // Queue order for offline sync
@@ -935,24 +1061,32 @@ export default function RetailPosScreen() {
         items: cart.map(i => ({
           name: i.product.name,
           quantity: i.weight !== undefined ? i.weight : i.quantity,
-          price: i.product.sales_price,
-          unit: i.weight !== undefined ? 'كجم' : 'حبة'
+          price: i.customPrice !== undefined ? i.customPrice : i.product.sales_price,
+          unit: i.weight !== undefined ? 'كجم' : (i.uomName || 'حبة')
         })),
         subtotal,
         tax,
         total,
-        amountPaid,
-        change
+        amountPaid: effectivePaid,
+        change,
+        appliedCoupon: appliedCoupon ? appliedCoupon.name : undefined,
+        couponDiscount: couponDiscount > 0 ? couponDiscount : undefined,
+        splitDetails: splitData
       });
 
       showToast(`تم إتمام العملية بنجاح. المتبقي للعميل: ${change.toFixed(2)} ${currencySymbol}`, 'success');
       
-      // Clear cart
+      // Clear cart and state
       setCart([]);
       setAmountPaid(0);
       setSearchQuery('');
       setSelectedCustomer(null);
       setPaymentMethod('CASH');
+      setAppliedCoupon(null);
+      setCouponDiscount(0);
+      setCouponInput('');
+      setIsSplitPaymentOpen(false);
+      setSplitPaymentData(null);
 
       // Auto trigger print after render
       setTimeout(() => {
@@ -983,6 +1117,22 @@ export default function RetailPosScreen() {
 
         {/* Network & Active Shift Indicators */}
         <div className="flex items-center gap-4">
+          {/* ⚖️ Live Scale Connection Badge */}
+          <button
+            onClick={() => setIsScaleModalOpen(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all ${
+              scaleReading.connected
+                ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800 animate-pulse'
+                : 'bg-slate-900 text-slate-400 border border-slate-800 hover:border-slate-700'
+            }`}
+            title="ربط الميزان الإلكتروني المباشر (Direct Serial Scale)"
+          >
+            <Scale size={14} className={scaleReading.connected ? 'text-emerald-400' : 'text-slate-500'} />
+            <span>
+              {scaleReading.connected ? `${scaleReading.weight.toFixed(3)} كجم` : 'ربط الميزان'}
+            </span>
+          </button>
+
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-black transition-all ${
             isOnline ? 'bg-emerald-950/80 text-emerald-400 border border-emerald-800' : 'bg-amber-950/80 text-amber-400 border border-amber-800'
           }`}>
@@ -1221,7 +1371,7 @@ export default function RetailPosScreen() {
                     </thead>
                     <tbody>
                       {cart.map((item, idx) => {
-                        const price = item.product.sales_price;
+                        const price = item.customPrice !== undefined ? item.customPrice : item.product.sales_price;
                         const isWeight = item.weight !== undefined;
                         const qty = isWeight ? item.weight! : item.quantity;
                         const rowTotal = price * qty;
@@ -1237,8 +1387,8 @@ export default function RetailPosScreen() {
                                   <Scale size={10} /> ميزان ({item.weight} كجم)
                                 </span>
                               ) : (
-                                <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded text-[10px] font-black">
-                                  حبة
+                                <span className="bg-slate-800 text-slate-300 px-2 py-0.5 rounded text-[10px] font-black">
+                                  {item.uomName || 'حبة'}
                                 </span>
                               )}
                             </td>
@@ -1336,32 +1486,50 @@ export default function RetailPosScreen() {
               </h3>
               <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 space-y-3">
                 {selectedCustomer ? (
-                  <div className="flex justify-between items-center bg-indigo-950/40 p-3 rounded-xl border border-indigo-900/30">
-                    <div>
-                      <div className="font-bold text-white text-sm">{selectedCustomer.name}</div>
-                      <div className="text-xs text-indigo-300 font-mono">{selectedCustomer.phone || 'بدون هاتف'}</div>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center bg-indigo-950/40 p-3 rounded-xl border border-indigo-900/30">
+                      <div>
+                        <div className="font-bold text-white text-sm">{selectedCustomer.name}</div>
+                        <div className="text-xs text-indigo-300 font-mono">{selectedCustomer.phone || 'بدون هاتف'}</div>
+                      </div>
+                      <button 
+                        onClick={() => setSelectedCustomer(null)}
+                        className="text-xs bg-slate-900 hover:bg-slate-800 text-red-400 px-2.5 py-1 rounded-lg border border-slate-800 transition-all font-bold"
+                      >
+                        إلغاء
+                      </button>
                     </div>
-                    <button 
-                      onClick={() => setSelectedCustomer(null)}
-                      className="text-xs bg-slate-900 hover:bg-slate-800 text-red-400 px-2.5 py-1 rounded-lg border border-slate-800 transition-all font-bold"
-                    >
-                      إلغاء
-                    </button>
+
+                    {/* Customer Loyalty Points Badge & Quick Redeem */}
+                    {Number(selectedCustomer.loyalty_points || 0) > 0 && (
+                      <div className="bg-amber-950/30 border border-amber-800/40 p-2.5 rounded-xl flex items-center justify-between text-xs">
+                        <span className="text-amber-300 font-bold flex items-center gap-1">
+                          <Gift size={14} className="text-amber-400" />
+                          رصيد نقاط الولاء: <span className="font-mono font-black text-amber-200">{selectedCustomer.loyalty_points}</span> نقطة
+                        </span>
+                        <button
+                          onClick={() => setIsSplitPaymentOpen(true)}
+                          className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-2 py-0.5 rounded text-[11px] transition-all"
+                        >
+                          استبدال النقاط
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="relative">
                     <input 
-                      type="text"
-                      value={customerSearch}
-                      onChange={e => setCustomerSearch(e.target.value)}
-                      placeholder="ابحث عن العميل بالاسم أو رقم الهاتف..."
-                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-indigo-500 outline-none"
+                      type="text" 
+                      value={customerSearch} 
+                      onChange={e => setCustomerSearch(e.target.value)} 
+                      placeholder="ابحث عن العميل بالاسم أو رقم الهاتف..." 
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-white placeholder:text-slate-600 focus:border-indigo-500 outline-none" 
                     />
                     {customerResults.length > 0 && (
                       <div className="absolute left-0 right-0 mt-1 bg-slate-950 border border-slate-850 rounded-xl shadow-2xl z-50 overflow-hidden max-h-40 overflow-y-auto">
                         {customerResults.map(c => (
                           <div 
-                            key={c.id}
+                            key={c.id} 
                             onClick={() => {
                               setSelectedCustomer(c);
                               setCustomerSearch('');
@@ -1376,6 +1544,46 @@ export default function RetailPosScreen() {
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+            </div>
+
+            {/* 🎟️ Coupon / Promo Code Input Box */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h3 className="font-black text-xs text-slate-400 flex items-center gap-1.5">
+                  <Ticket size={14} className="text-amber-400" /> كود خصم / كوبون
+                </h3>
+                {appliedCoupon && (
+                  <span className="text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-bold">
+                    مفعّل: {appliedCoupon.name} (-{couponDiscount.toFixed(2)} {currencySymbol})
+                  </span>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={couponInput}
+                  onChange={e => setCouponInput(e.target.value.toUpperCase())}
+                  placeholder="أدخل كود الكوبون..."
+                  className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white uppercase font-mono font-bold placeholder:text-slate-600 focus:border-indigo-500 outline-none"
+                />
+                {appliedCoupon ? (
+                  <button
+                    onClick={handleRemoveCoupon}
+                    className="bg-rose-950/80 hover:bg-rose-900 border border-rose-800 text-rose-300 px-3 py-2 rounded-xl text-xs font-bold transition-all"
+                  >
+                    إلغاء
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleApplyCoupon}
+                    disabled={cart.length === 0}
+                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-md"
+                  >
+                    تطبيق
+                  </button>
                 )}
               </div>
             </div>
@@ -1473,7 +1681,7 @@ export default function RetailPosScreen() {
             <div className="space-y-3">
               <button 
                 disabled={isPrinting || cart.length === 0 || amountPaid < total}
-                onClick={handlePayment}
+                onClick={() => handlePayment()}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-600/10 transition-all flex justify-center items-center gap-3 text-xl"
               >
                 {isPrinting ? (
@@ -1704,6 +1912,12 @@ export default function RetailPosScreen() {
               <hr style={{ borderTop: '1px dashed black' }} />
               <div className="space-y-1 text-left" style={{ fontSize: '12px', fontWeight: 'bold' }}>
                 <div className="flex justify-between"><span>المجموع الفرعي:</span><span>{receiptOrder.subtotal.toFixed(2)} {currencySymbol}</span></div>
+                {receiptOrder.couponDiscount > 0 && (
+                  <div className="flex justify-between text-xs" style={{ color: '#000' }}>
+                    <span>خصم الكوبون ({receiptOrder.appliedCoupon}):</span>
+                    <span>-{receiptOrder.couponDiscount.toFixed(2)} {currencySymbol}</span>
+                  </div>
+                )}
                 {receiptOrder.tax > 0 && (
                   <div className="flex justify-between">
                     <span>الضريبة ({(vatRate * 100).toFixed(0)}%):</span>
@@ -1714,7 +1928,27 @@ export default function RetailPosScreen() {
                   <span>الإجمالي الكلي:</span><span>{receiptOrder.total.toFixed(2)} {currencySymbol}</span>
                 </div>
                 <hr style={{ borderTop: '1px dashed black' }} />
-                <div className="flex justify-between text-xs"><span>المدفوع نقداً:</span><span>{receiptOrder.amountPaid.toFixed(2)} {currencySymbol}</span></div>
+                
+                {receiptOrder.splitDetails ? (
+                  <div className="space-y-0.5 text-xs">
+                    <p style={{ fontWeight: 'bold' }}>تفاصيل الدفع المجزأ:</p>
+                    {receiptOrder.splitDetails.cash > 0 && (
+                      <div className="flex justify-between"><span>- كاش:</span><span>{receiptOrder.splitDetails.cash.toFixed(2)} {currencySymbol}</span></div>
+                    )}
+                    {receiptOrder.splitDetails.card > 0 && (
+                      <div className="flex justify-between"><span>- بطاقة فيزا:</span><span>{receiptOrder.splitDetails.card.toFixed(2)} {currencySymbol}</span></div>
+                    )}
+                    {receiptOrder.splitDetails.credit > 0 && (
+                      <div className="flex justify-between"><span>- آجل / ذمة:</span><span>{receiptOrder.splitDetails.credit.toFixed(2)} {currencySymbol}</span></div>
+                    )}
+                    {receiptOrder.splitDetails.loyalty > 0 && (
+                      <div className="flex justify-between"><span>- نقاط ولاء:</span><span>{receiptOrder.splitDetails.loyalty.toFixed(2)} {currencySymbol}</span></div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex justify-between text-xs"><span>المدفوع:</span><span>{receiptOrder.amountPaid.toFixed(2)} {currencySymbol}</span></div>
+                )}
+
                 <div className="flex justify-between text-xs"><span>الفكة (المتبقي):</span><span>{receiptOrder.change.toFixed(2)} {currencySymbol}</span></div>
               </div>
               <hr style={{ borderTop: '1px dashed black' }} />
@@ -1810,6 +2044,27 @@ export default function RetailPosScreen() {
         onClose={() => setIsBadgePrintOpen(false)}
         orgName={organization?.name || 'TriPro Hypermarket'}
         supervisorName={currentUser?.full_name || 'مشرف الوردية'}
+      />
+
+      {/* 🔄 Split Payment Modal (تعدد طرق الدفع) */}
+      <SplitPaymentModal
+        isOpen={isSplitPaymentOpen}
+        onClose={() => setIsSplitPaymentOpen(false)}
+        totalAmount={total}
+        selectedCustomer={selectedCustomer}
+        currencySymbol={currencySymbol}
+        couponDiscount={couponDiscount}
+        couponCode={appliedCoupon?.code}
+        onConfirm={(details) => {
+          setSplitPaymentData(details);
+          handlePayment(details);
+        }}
+      />
+
+      {/* ⚖️ Electronic Scale Modal */}
+      <ScaleConnectModal
+        isOpen={isScaleModalOpen}
+        onClose={() => setIsScaleModalOpen(false)}
       />
 
     </div>

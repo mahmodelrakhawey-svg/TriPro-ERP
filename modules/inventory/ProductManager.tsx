@@ -57,6 +57,7 @@ type Item = {
   country_of_origin?: string | null;
   age_restricted?: boolean;
   tax_rate_override?: number | null;
+  unit_barcodes?: Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>;
 };
 
 // Define a type for the formData state to ensure consistency
@@ -100,6 +101,7 @@ type ProductFormData = {
   country_of_origin: string;
   age_restricted: boolean;
   tax_rate_override: number;
+  unit_barcodes: Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>;
 };
 
 const ProductManager = () => {
@@ -322,6 +324,7 @@ const ProductManager = () => {
     country_of_origin: '',
     age_restricted: false,
     tax_rate_override: 0,
+    unit_barcodes: [],
   });
 
   // 🚀 تحديث تلقائي لسعر التكلفة التقديري بناءً على العمالة والمصاريف (للوجبات)
@@ -445,6 +448,7 @@ const ProductManager = () => {
         country_of_origin: (item as any).country_of_origin || '',
         age_restricted: (item as any).age_restricted || false,
         tax_rate_override: (item as any).tax_rate_override || 0,
+        unit_barcodes: Array.isArray((item as any).unit_barcodes) ? (item as any).unit_barcodes : [],
       };
       setFormData(productDataToSet);
     } else {
@@ -494,6 +498,7 @@ const ProductManager = () => {
         country_of_origin: '',
         age_restricted: false,
         tax_rate_override: 0,
+        unit_barcodes: [],
       });
     }
     setIsModalOpen(true);
@@ -1393,6 +1398,7 @@ const ProductManager = () => {
             country_of_origin: formData.country_of_origin || null,
             age_restricted: formData.age_restricted || false,
             tax_rate_override: formData.tax_rate_override || null,
+            unit_barcodes: formData.unit_barcodes || [],
         };
         await updateProduct(editingId, itemData);
 
@@ -1524,6 +1530,7 @@ const ProductManager = () => {
           country_of_origin: formData.country_of_origin || null,
           age_restricted: formData.age_restricted || false,
           tax_rate_override: formData.tax_rate_override || null,
+          unit_barcodes: formData.unit_barcodes || [],
         };
 
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
@@ -1737,6 +1744,7 @@ const ProductManager = () => {
         country_of_origin: (item as any).country_of_origin || '',
         age_restricted: (item as any).age_restricted || false,
         tax_rate_override: (item as any).tax_rate_override || 0,
+        unit_barcodes: Array.isArray((item as any).unit_barcodes) ? (item as any).unit_barcodes : [],
       });
       setIsModalOpen(true);
   };
@@ -2466,27 +2474,123 @@ const ProductManager = () => {
                         <option value="m">متر (Meter)</option>
                       </select>
                     </div>
-                    <div className="col-span-2 bg-blue-50/50 p-4 rounded-xl border border-blue-100 grid grid-cols-3 gap-4">
-                        <div>
-                            <label className="block text-[10px] font-black text-blue-600 mb-1">الوحدة الأساسية (للمخزن)</label>
-                            <select value={formData.base_uom_id} onChange={e => setFormData({...formData, base_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
-                                <option value="">-- اختر --</option>
-                                {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                            </select>
+                    <div className="col-span-2 bg-blue-50/50 p-4 rounded-xl border border-blue-100 space-y-3">
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-[10px] font-black text-blue-600 mb-1">الوحدة الأساسية (للمخزن)</label>
+                                <select value={formData.base_uom_id} onChange={e => setFormData({...formData, base_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
+                                    <option value="">-- اختر --</option>
+                                    {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-blue-600 mb-1">وحدة المشتريات</label>
+                                <select value={formData.purchase_uom_id} onChange={e => setFormData({...formData, purchase_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
+                                    <option value="">-- اختر --</option>
+                                    {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-blue-600 mb-1">وحدة المبيعات</label>
+                                <select value={formData.sale_uom_id} onChange={e => setFormData({...formData, sale_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
+                                    <option value="">-- اختر --</option>
+                                    {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                </select>
+                            </div>
                         </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-blue-600 mb-1">وحدة المشتريات</label>
-                            <select value={formData.purchase_uom_id} onChange={e => setFormData({...formData, purchase_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
-                                <option value="">-- اختر --</option>
-                                {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label className="block text-[10px] font-black text-blue-600 mb-1">وحدة المبيعات</label>
-                            <select value={formData.sale_uom_id} onChange={e => setFormData({...formData, sale_uom_id: e.target.value})} className="w-full border rounded-lg p-2 text-sm bg-white">
-                                <option value="">-- اختر --</option>
-                                {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                            </select>
+
+                        {/* 🏷️ باركودات الوحدات المتعددة (Barcode per UOM) */}
+                        <div className="pt-3 border-t border-blue-200/60">
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                                    <Barcode size={14} className="text-indigo-600" />
+                                    باركودات الوحدات الأخرى (مثال: باركود للعلبة أو الكرتونة)
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const current = Array.isArray(formData.unit_barcodes) ? formData.unit_barcodes : [];
+                                        setFormData({
+                                          ...formData,
+                                          unit_barcodes: [...current, { uom_id: '', uom_name: '', barcode: '', price: 0 }]
+                                        });
+                                    }}
+                                    className="text-[11px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold px-2.5 py-1 rounded-lg border border-indigo-200 flex items-center gap-1"
+                                >
+                                    <PlusCircle size={12} /> إضافة باركود لوحدة
+                                </button>
+                            </div>
+
+                            {Array.isArray(formData.unit_barcodes) && formData.unit_barcodes.length > 0 && (
+                                <div className="space-y-2">
+                                    {formData.unit_barcodes.map((ub, idx) => (
+                                        <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-white p-2.5 rounded-lg border border-slate-200">
+                                            <div className="col-span-4">
+                                                <label className="text-[10px] text-slate-500 block">الوحدة</label>
+                                                <select
+                                                    value={ub.uom_id || ''}
+                                                    onChange={e => {
+                                                        const selectedUom = uoms.find(u => u.id === e.target.value);
+                                                        const updated = [...formData.unit_barcodes];
+                                                        updated[idx] = {
+                                                            ...updated[idx],
+                                                            uom_id: e.target.value,
+                                                            uom_name: selectedUom?.name || ''
+                                                        };
+                                                        setFormData({ ...formData, unit_barcodes: updated });
+                                                    }}
+                                                    className="w-full border rounded p-1 text-xs"
+                                                >
+                                                    <option value="">-- اختر الوحدة --</option>
+                                                    {uoms.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="col-span-4">
+                                                <label className="text-[10px] text-slate-500 block">الباركود</label>
+                                                <input
+                                                    type="text"
+                                                    value={ub.barcode || ''}
+                                                    onChange={e => {
+                                                        const updated = [...formData.unit_barcodes];
+                                                        updated[idx] = { ...updated[idx], barcode: e.target.value };
+                                                        setFormData({ ...formData, unit_barcodes: updated });
+                                                    }}
+                                                    placeholder="Scan Barcode..."
+                                                    className="w-full border rounded p-1 text-xs font-mono"
+                                                />
+                                            </div>
+                                            <div className="col-span-3">
+                                                <label className="text-[10px] text-slate-500 block">سعر البيع المخصص (اختياري)</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.01"
+                                                    value={ub.price || ''}
+                                                    onChange={e => {
+                                                        const updated = [...formData.unit_barcodes];
+                                                        updated[idx] = { ...updated[idx], price: parseFloat(e.target.value) || 0 };
+                                                        setFormData({ ...formData, unit_barcodes: updated });
+                                                    }}
+                                                    placeholder="0.00"
+                                                    className="w-full border rounded p-1 text-xs font-mono"
+                                                />
+                                            </div>
+                                            <div className="col-span-1 text-center pt-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const updated = formData.unit_barcodes.filter((_, i) => i !== idx);
+                                                        setFormData({ ...formData, unit_barcodes: updated });
+                                                    }}
+                                                    className="text-red-500 hover:text-red-700 p-1"
+                                                    title="حذف"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div className="col-span-2 md:col-span-1">

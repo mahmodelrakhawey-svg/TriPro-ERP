@@ -387,7 +387,43 @@ const GeneralJournal = () => {
           userId: entry.user_id,
           attachments: entry.journal_attachments || [],
           lines: (entry.journal_lines || []).map((line: any) => {
-            const account = accounts.find((a: any) => a.id === line.account_id) || line.accounts;
+            let account = accounts.find((a: any) => a.id === line.account_id) || line.accounts;
+            
+            // 🩺 معالجة ذاتية ذكية في حالة وجود حساب تم إنشاؤه بمعرف قديم أو مفقود
+            if (!account && line.description) {
+              if (line.description.includes('عمولة') || line.description.includes('تسويق') || line.description.includes('عمولات')) {
+                // 1. حساب مصروف عمولة المنصة والتسويق (522 أو 52 أو أي مصروف تسويقي - مع استبعاد تكلفة المبيعات 51)
+                account = accounts.find((a: any) => 
+                  a.code === '522' || a.code === '5221' || a.code === '5204' || a.code === '52' || a.code === '521'
+                ) || accounts.find((a: any) => 
+                  (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
+                  (a.name.includes('عمول') || a.name.includes('تسويق') || a.name.includes('توزيع') || a.name.includes('دعاية')) && 
+                  !a.name.includes('تكلفة') && !a.name.includes('بضاعة')
+                ) || accounts.find((a: any) => 
+                  (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
+                  !a.name.includes('تكلفة')
+                );
+              } else if (line.description.includes('مستحق') || line.description.includes('صافي') || line.description.includes('منصة') || line.description.includes('عميل')) {
+                // 2. حساب العملاء والمدينين / مستحقات المنصة (1221 أو 122)
+                account = accounts.find((a: any) => 
+                  a.code === '1221' || a.code === '122' || a.code === '102'
+                ) || accounts.find((a: any) => 
+                  (a.type === 'ASSET' || (a.type as any) === 'asset' || a.code?.startsWith('1')) && 
+                  (a.name.includes('عملاء') || a.name.includes('منصات') || a.name.includes('مدين')) && 
+                  !a.name.includes('مستحقة') && !a.name.includes('أوراق')
+                );
+              } else if (line.description.includes('إيراد') || line.description.includes('مبيعات') || line.description.includes('إجمالي') || line.credit > 0) {
+                // 3. حساب إيرادات المبيعات (411 أو 4101 أو 41) - مع استبعاد حسابات الأصول مثل إيرادات مستحقة (1244)
+                account = accounts.find((a: any) => 
+                  a.code === '411' || a.code === '4101' || a.code === '41101' || a.code === '41' || a.code === '401'
+                ) || accounts.find((a: any) => 
+                  (a.type === 'REVENUE' || (a.type as any) === 'revenue' || a.code?.startsWith('4')) && 
+                  !a.code?.startsWith('1') && 
+                  (a.name.includes('مبيعات') || a.name.includes('نشاط') || a.name.includes('إيراد'))
+                );
+              }
+            }
+
             return {
               id: line.id,
               accountId: line.account_id,

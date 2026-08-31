@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Tag, Plus, Sparkles, Calendar, Trash2, CheckCircle2, XCircle, Gift, Layers, ShoppingBag, Edit3, X, Percent } from 'lucide-react';
+import { Tag, Plus, Sparkles, Calendar, Trash2, CheckCircle2, XCircle, Gift, Layers, ShoppingBag, Edit3, X, Percent, Ticket } from 'lucide-react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import { PromotionRule } from '../../services/promotionEngine';
 import { secureStorage } from '../../../../utils/securityMiddleware';
+import CouponsManagerTab from './CouponsManagerTab';
 
 export default function PromotionsManager() {
   const { currentUser, currentSelectedOrgId } = useAccounting() as any;
@@ -17,6 +18,7 @@ export default function PromotionsManager() {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'promotions' | 'coupons'>('promotions');
 
   const [formData, setFormData] = useState<Partial<PromotionRule>>({
     name: '',
@@ -172,36 +174,70 @@ export default function PromotionsManager() {
         <div>
           <div className="flex items-center gap-2">
             <Sparkles className="text-amber-300" size={28} />
-            <h1 className="text-2xl font-black">إدارة العروض الترويجية والخصومات (Promotions Engine)</h1>
+            <h1 className="text-2xl font-black">إدارة العروض الترويجية والكوبونات (Promotions & Coupons)</h1>
           </div>
           <p className="text-purple-100 text-sm mt-1">
-            صمم عروض الهايبر ماركت التلقائية (BOGO، عروض الكميات 3 بسعر 100، خصومات الأقسام) لتطبق فورياً في شاشة الكاشير.
+            صمم عروض الهايبر ماركت التلقائية (BOGO، عروض الكميات، خصومات الأقسام) وأكواد قسائم الشراء لتطبق فورياً في شاشة الكاشير.
           </p>
         </div>
+        {activeTab === 'promotions' && (
+          <button
+            onClick={() => {
+              setEditingId(null);
+              setFormData({
+                name: '',
+                type: 'BOGO',
+                is_active: true,
+                start_date: new Date().toISOString().split('T')[0],
+                buy_qty: 2,
+                get_free_qty: 1,
+                tiered_qty: 3,
+                tiered_fixed_price: 100,
+                discount_percentage: 10
+              });
+              setIsModalOpen(true);
+            }}
+            className="bg-amber-400 hover:bg-amber-300 text-slate-900 px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg hover:shadow-amber-400/20 transition-all active:scale-95"
+          >
+            <Plus size={18} />
+            <span>إنشاء عرض ترويجي جديد</span>
+          </button>
+        )}
+      </div>
+
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 pb-2">
         <button
-          onClick={() => {
-            setEditingId(null);
-            setFormData({
-              name: '',
-              type: 'BOGO',
-              is_active: true,
-              start_date: new Date().toISOString().split('T')[0],
-              buy_qty: 2,
-              get_free_qty: 1,
-              tiered_qty: 3,
-              tiered_fixed_price: 100,
-              discount_percentage: 10
-            });
-            setIsModalOpen(true);
-          }}
-          className="bg-amber-400 hover:bg-amber-300 text-slate-900 px-5 py-3 rounded-xl font-bold text-sm flex items-center gap-2 shadow-lg hover:shadow-amber-400/20 transition-all active:scale-95"
+          onClick={() => setActiveTab('promotions')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all ${
+            activeTab === 'promotions'
+              ? 'bg-purple-700 text-white shadow-md shadow-purple-700/20'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
         >
-          <Plus size={18} />
-          <span>إنشاء عرض ترويجي جديد</span>
+          <Sparkles size={16} />
+          العروض الترويجية والخصومات التلقائية ({promotions.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('coupons')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 transition-all ${
+            activeTab === 'coupons'
+              ? 'bg-purple-700 text-white shadow-md shadow-purple-700/20'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+          }`}
+        >
+          <Ticket size={16} />
+          أكواد الخصم وقسائم الشراء (Promo Codes)
         </button>
       </div>
 
-      {/* Promotions Grid */}
+      {/* Tab Content */}
+      {activeTab === 'coupons' ? (
+        <CouponsManagerTab />
+      ) : (
+        <>
+          {/* Promotions Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {promotions.map(promo => {
           const prod = products.find(p => p.id === promo.product_id);
@@ -487,6 +523,8 @@ export default function PromotionsManager() {
             </form>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

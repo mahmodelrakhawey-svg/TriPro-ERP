@@ -110,7 +110,7 @@ const Sidebar: React.FC = () => {
         return allowedModules.includes('restaurant') || allowedModules.includes('pos');
       }
       if (module === 'retail') {
-        return allowedModules.includes('retail') || allowedModules.includes('sales');
+        return allowedModules.includes('retail');
       }
       if (module === 'construction') {
         return allowedModules.includes('construction');
@@ -177,6 +177,7 @@ const Sidebar: React.FC = () => {
     { to: '/suppliers', label: 'إدارة حسابات الموردين', icon: Users, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/supplier-statement', label: 'كشف حساب مورد', icon: BookOpen, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/supplier-aging', label: 'أعمار ديون الموردين', icon: Clock, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
+    { to: '/purchases/vendor-contracts', label: 'عقود الموردين والبوانص (Rebates)', icon: ScrollText, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/purchase-analysis', label: 'تحليل المشتريات', icon: BarChart3, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/purchase-reports', label: 'تقارير المشتريات', icon: BarChart3, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
 
@@ -184,6 +185,7 @@ const Sidebar: React.FC = () => {
     { type: 'section', label: 'المخازن والأصناف' },
     { to: '/products', label: 'الأصناف والخدمات', icon: Package, color: 'text-purple-400', module: 'inventory', permission: 'products.view' },
     { to: '/units-of-measure', label: 'وحدات القياس (UoM)', icon: Ruler, color: 'text-purple-400', module: 'inventory', permission: 'products.view' },
+    { to: '/inventory/goods-receipt', label: 'أذون الاستلام المخزني (GRN)', icon: PackageCheck, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
     { to: '/multi-uom-report', label: 'رصيد المخزون المتعدد', icon: Layers, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory-dashboard', label: 'لوحة تحكم المخزون', icon: Activity, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/warehouses', label: 'إدارة المستودعات', icon: LayoutGrid, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
@@ -204,6 +206,7 @@ const Sidebar: React.FC = () => {
     { to: '/item-profit', label: 'ربحية الأصناف', icon: DollarSign, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/expiry-radar', label: 'رادار الصلاحية وتصفية العروض', icon: Flame, color: 'text-orange-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/shelf-restock', label: 'تقرير إعادة التخزين بالرفوف', icon: MapPin, color: 'text-indigo-400', module: 'inventory', permission: 'inventory.view' },
+    { to: '/inventory/replenishment', label: 'إعادة الطلب والتخزين التنبؤي', icon: TrendingUp, color: 'text-amber-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/pda-stocktaking', label: 'الجرد السريع بالهاند هيلد (PDA)', icon: PackageCheck, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
     { to: '/detailed-stock-movement', label: 'حركة المخزون التفصيلية', icon: List, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
 
@@ -290,15 +293,18 @@ const Sidebar: React.FC = () => {
     { to: '/employee-statement', label: 'كشف حساب موظف', icon: BookOpen, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/employee-reports', label: 'تقارير الموارد البشرية', icon: PieChart, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
 
-    // المطعم ونقاط البيع
-    { type: 'section', label: 'المطعم والبيع' },
-    { to: '/pos', label: 'نقطة البيع', icon: Utensils, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.pos' },
-    { to: '/restaurant/waiter', label: 'ويتر الصالة المتنقل (Handheld)', icon: Smartphone, color: 'text-amber-400', module: 'restaurant', permission: 'restaurant.pos' },
-    { to: '/restaurant/kiosk', label: 'كشك الخدمة الذاتية (Kiosk)', icon: Monitor, color: 'text-cyan-400', module: 'restaurant', permission: 'restaurant.pos' },
+    // نقاط بيع التجزئة (هايبرماركت وسوبرماركت)
+    { type: 'section', label: 'نقاط بيع التجزئة (الهايبرماركت)' },
     { to: '/retail-pos', label: 'نقطة بيع التجزئة (هايبرماركت)', icon: ShoppingCart, color: 'text-rose-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/price-checker', label: 'كاشف الأسعار الذاتي للمتسوقين', icon: Barcode, color: 'text-cyan-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/promotions', label: 'العروض الترويجية والخصومات (BOGO)', icon: Sparkles, color: 'text-amber-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/customer-display', label: 'شاشة العميل المزدوجة (Dual Screen)', icon: Monitor, color: 'text-purple-400', module: 'retail', permission: 'sales.view' },
+
+    // موديول المطاعم والكافيهات
+    { type: 'section', label: 'المطاعم والكافيهات' },
+    { to: '/pos', label: 'نقطة البيع (مطاعم)', icon: Utensils, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.pos' },
+    { to: '/restaurant/waiter', label: 'ويتر الصالة المتنقل (Handheld)', icon: Smartphone, color: 'text-amber-400', module: 'restaurant', permission: 'restaurant.pos' },
+    { to: '/restaurant/kiosk', label: 'كشك الخدمة الذاتية (Kiosk)', icon: Monitor, color: 'text-cyan-400', module: 'restaurant', permission: 'restaurant.pos' },
     { to: '/kds', label: 'شاشة المطبخ (KDS)', icon: ChefHat, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/restaurant/expo', label: 'شاشة التجميع (Master Expo)', icon: Layers, color: 'text-indigo-400', module: 'restaurant', permission: 'restaurant.kitchen' },
     { to: '/restaurant/stations', label: 'محطات المطبخ (Kitchen Stations)', icon: Flame, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
@@ -409,6 +415,7 @@ const Sidebar: React.FC = () => {
         '/retail/customer-display', 
         '/inventory/expiry-radar', 
         '/inventory/shelf-restock', 
+        '/inventory/replenishment',
         '/inventory/pda-stocktaking',
         '/invoices-list', 
         '/sales-returns-list', 
