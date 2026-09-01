@@ -218,6 +218,7 @@ const Sidebar: React.FC = () => {
     { type: 'section', label: 'التصنيع والإنتاج' },
     { to: '/mfg/dashboard', label: 'لوحة التحكم الصناعية', icon: LayoutDashboard, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/orders', label: 'إدارة أوامر الإنتاج', icon: Factory, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.orders' },
+    { to: '/mfg/gantt-schedule', label: 'مخطط جانت لجدولة الإنتاج', icon: Calendar, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/batch-orders', label: 'جدولة ودمج الطلبات', icon: ClipboardList, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.orders' },
     { to: '/mfg/shop-floor', label: 'أرضية المصنع (تتبع لحظي)', icon: Activity, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/quality-control', label: 'مركز رقابة الجودة', icon: ShieldCheck, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.qc' },
@@ -248,6 +249,7 @@ const Sidebar: React.FC = () => {
     { to: '/construction/labor-reports', label: 'تقارير تكاليف العمالة', icon: UserCheck, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/construction/subcontractor-analytics', label: 'تحليل أداء مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
     { to: '/subcontractors', label: 'مقاولي الباطن', icon: Users, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
+    { to: '/assets', label: 'معدات وجرد أصول المشاريع (EAM)', icon: Truck, color: 'text-amber-500', module: 'construction', permission: 'accounting.view' },
 
     // الخزينة والبنوك
     { type: 'section', label: 'الخزينة والبنوك' },
@@ -298,13 +300,17 @@ const Sidebar: React.FC = () => {
     
     // الموارد البشرية
     { type: 'section', label: 'الموارد البشرية' },
-    { to: '/employees', label: 'بيانات الموظفين', icon: Users, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
-    { to: '/hr/attendance', label: 'سجل الحضور والبصمة', icon: Clock, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/hr/dashboard', label: 'لوحة قيادة الموارد البشرية', icon: LayoutDashboard, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/employees', label: 'دليل وبيانات الموظفين', icon: Users, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/hr/biometrics', label: 'ماكينات البصمة (ZKTeco Hub)', icon: Cpu, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/hr/shifts', label: 'الورديات ومواعيد العمل', icon: Clock, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/hr/attendance', label: 'سجل الحضور والغياب', icon: UserCheck, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/hr/leaves', label: 'إدارة وأرصدة الإجازات', icon: Calendar, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
-    { to: '/payroll-run', label: 'تنفيذ مسير الرواتب', icon: Play, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
-    { to: '/employee-advances', label: 'السلف والقروض', icon: Coins, color: 'text-pink-400', module: 'hr', permission: 'hr.advances' },
+    { to: '/hr/penalties', label: 'الجزاءات والمكافآت ولائحة العمل', icon: ShieldAlert, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
+    { to: '/payroll-run', label: 'مسير الرواتب ومفردات المرتب', icon: Play, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
+    { to: '/employee-advances', label: 'السلف والعهد الشخصية', icon: Coins, color: 'text-pink-400', module: 'hr', permission: 'hr.advances' },
     { to: '/hr/end-of-service', label: 'مخالصة ومكافأة نهاية الخدمة', icon: Scale, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
-    { to: '/payroll-report', label: 'مسيرات الرواتب', icon: Banknote, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
+    { to: '/payroll-report', label: 'سجل مسيرات الرواتب', icon: Banknote, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/employee-statement', label: 'كشف حساب موظف', icon: BookOpen, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/employee-reports', label: 'تقارير الموارد البشرية', icon: PieChart, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
 
@@ -314,6 +320,7 @@ const Sidebar: React.FC = () => {
     { to: '/retail/price-checker', label: 'كاشف الأسعار الذاتي للمتسوقين', icon: Barcode, color: 'text-cyan-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/promotions', label: 'العروض الترويجية والخصومات (BOGO)', icon: Sparkles, color: 'text-amber-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/customer-display', label: 'شاشة العميل المزدوجة (Dual Screen)', icon: Monitor, color: 'text-purple-400', module: 'retail', permission: 'sales.view' },
+    { to: '/restaurant/printers', label: 'طابعات وهاردوير الكاشير (WebUSB & ESC/POS)', icon: Printer, color: 'text-indigo-400', module: 'retail', permission: 'sales.view' },
 
     // موديول المطاعم والكافيهات
     { type: 'section', label: 'المطاعم والكافيهات' },
@@ -352,7 +359,8 @@ const Sidebar: React.FC = () => {
     { to: '/hims/admissions', label: 'إدارة القبول والتسكين', icon: Bed, color: 'text-indigo-500', module: 'hims', permission: 'hims_inpatient.view' },
     { to: '/hims/er-triage', label: 'رادار فرز الطوارئ (Triage)', icon: Activity, color: 'text-red-400', module: 'hims', permission: 'hims_clinical.view' },
     { to: '/hims/doctor-desktop', label: 'سطح مكتب الطبيب', icon: Activity, color: 'text-indigo-400', module: 'hims', permission: 'hims_clinical.view' },
-    { to: '/hims/surgeries', label: 'جدول غرف العمليات', icon: Scissors, color: 'text-emerald-400', module: 'hims', permission: 'hims_clinical.view' },
+    { to: '/hims/operating-theater', label: 'جناح واستقبال العمليات الجراحية (OT)', icon: Scissors, color: 'text-emerald-400', module: 'hims', permission: 'hims_clinical.view' },
+    { to: '/hims/surgeries', label: 'جدول غرف العمليات', icon: Calendar, color: 'text-teal-400', module: 'hims', permission: 'hims_clinical.view' },
     { to: '/hims/nurse-station', label: 'محطة التمريض والأسرة', icon: HeartPulse, color: 'text-rose-400', module: 'hims', permission: 'hims_inpatient.view' },
     { to: '/hims/lab', label: 'وحدة المختبر والتحاليل', icon: FlaskConical, color: 'text-cyan-400', module: 'hims', permission: 'hims_ancillary.view' },
     { to: '/hims/lab-tracking', label: 'تتبع عينات المختبر', icon: Search, color: 'text-cyan-400', module: 'hims', permission: 'hims_ancillary.view' },

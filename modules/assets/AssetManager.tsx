@@ -1,13 +1,17 @@
 import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Building, Plus, Activity, Save, Printer, PlayCircle, X, TrendingUp, Pencil, Trash2 } from 'lucide-react';
+import { Building, Plus, Activity, Save, Printer, PlayCircle, X, TrendingUp, Pencil, Trash2, QrCode, Tag, Truck, BookOpen } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { z } from 'zod';
+import { AssetFieldScanner } from './components/AssetFieldScanner';
+import { AssetLabelStudio } from './components/AssetLabelStudio';
+import { AssetTransferManager } from './components/AssetTransferManager';
 
 const AssetManager = () => {
   const { assets, addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, accounts, organization, currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
+  const [activeTab, setActiveTab] = useState<'LIST' | 'SCANNER' | 'LABELS' | 'TRANSFERS'>('LIST');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -211,123 +215,192 @@ const AssetManager = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in">
-      <div className="flex justify-between items-center print:hidden">
+      {/* Header */}
+      <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm print:hidden">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <Building className="text-blue-600" /> الأصول الثابتة
+          <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+            <Building className="text-blue-600 w-7 h-7" /> إدارة الأصول الثابتة والمعدات (Enterprise Asset Suite)
           </h2>
-          <p className="text-slate-500">سجل الأصول، الإهلاك، والقيمة الدفترية</p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            سجل الأصول، الإهلاك المحاسبي، الجرد الميداني بالباركود، استوديو ملصقات QR، ومناقلات مواقع المقاولات
+          </p>
         </div>
+
         <div className="flex gap-2">
-            <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 shadow-sm">
-                <Printer size={18} /> طباعة التقرير
-            </button>
-            <button onClick={() => setIsDepreciationModalOpen(true)} className="bg-amber-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-amber-700 shadow-sm">
-                <PlayCircle size={18} /> تشغيل الإهلاك الشهري
-            </button>
-            <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 shadow-sm">
-                <Plus size={20} /> إضافة أصل
-            </button>
+          {activeTab === 'LIST' && (
+            <>
+              <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-slate-700 shadow-sm transition">
+                <Printer size={16} /> طباعة التقرير
+              </button>
+              <button onClick={() => setIsDepreciationModalOpen(true)} className="bg-amber-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-amber-700 shadow-sm transition">
+                <PlayCircle size={16} /> تشغيل الإهلاك الشهري
+              </button>
+              <button onClick={() => setIsModalOpen(true)} className="bg-blue-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-blue-700 shadow-sm transition">
+                <Plus size={16} /> إضافة أصل
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      <div className="hidden print:block text-center mb-6">
-          <h1 className="text-2xl font-bold">سجل الأصول الثابتة وإهلاكاتها</h1>
-          <p className="text-sm text-slate-500">تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
+      {/* Tabs Switcher */}
+      <div className="flex border-b border-slate-200 gap-4 bg-white px-6 pt-2 rounded-2xl border shadow-sm print:hidden">
+        <button
+          onClick={() => setActiveTab('LIST')}
+          className={`pb-3 text-xs font-bold flex items-center gap-2 transition border-b-2 ${
+            activeTab === 'LIST' ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <BookOpen className="w-4 h-4" /> سجل الأصول والدفاتر والإهلاك ({assets.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('SCANNER')}
+          className={`pb-3 text-xs font-bold flex items-center gap-2 transition border-b-2 ${
+            activeTab === 'SCANNER' ? 'border-amber-600 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <QrCode className="w-4 h-4 text-amber-600" /> ماسح الجرد الميداني السريع (Barcode / QR)
+        </button>
+
+        <button
+          onClick={() => setActiveTab('LABELS')}
+          className={`pb-3 text-xs font-bold flex items-center gap-2 transition border-b-2 ${
+            activeTab === 'LABELS' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Tag className="w-4 h-4 text-indigo-600" /> استوديو طباعة ملصقات QR والباركود
+        </button>
+
+        <button
+          onClick={() => setActiveTab('TRANSFERS')}
+          className={`pb-3 text-xs font-bold flex items-center gap-2 transition border-b-2 ${
+            activeTab === 'TRANSFERS' ? 'border-emerald-600 text-emerald-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Truck className="w-4 h-4 text-emerald-600" /> مناقلات معدات مشاريع المقاولات
+        </button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-right">
-          <thead className="bg-slate-50 text-slate-600 font-bold text-sm border-b">
-            <tr>
-              <th className="p-4">اسم الأصل</th>
-              <th className="p-4">تاريخ الشراء</th>
-              <th className="p-4">التكلفة</th>
-              <th className="p-4">مجمع الإهلاك</th>
-              <th className="p-4">القيمة الحالية</th>
-              <th className="p-4 text-center print:hidden">إجراءات</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {assets.map(asset => (
-              <tr key={asset.id} className="hover:bg-slate-50">
-                <td className="p-4 font-bold">{asset.name}</td>
-                <td className="p-4">{asset.purchaseDate || asset.purchase_date}</td>
-                <td className="p-4">{(asset.purchaseCost || asset.purchase_cost || 0).toLocaleString()}</td>
-                <td className="p-4 text-red-600">{(asset.totalDepreciation || asset.total_depreciation || 0).toLocaleString()}</td>
-                <td className="p-4 font-bold text-emerald-600">{(asset.currentValue || asset.current_value || 0).toLocaleString()}</td>
-                <td className="p-4 text-center print:hidden flex justify-center gap-2">
-                  <button 
-                    disabled={((asset.currentValue || asset.current_value || 0) - (asset.salvageValue || asset.salvage_value || 0)) <= 0.1}
-                    onClick={() => {
-                        if ((!asset.usefulLife && !asset.useful_life_years) || (asset.usefulLife || asset.useful_life_years || 0) <= 0) {
-                            showToast('يرجى تحديد العمر الإنتاجي للأصل أولاً.', 'warning');
-                            return;
-                        }
+      {/* Tab 1: LIST / BOOK VIEW */}
+      {activeTab === 'LIST' && (
+        <>
+          <div className="hidden print:block text-center mb-6">
+              <h1 className="text-2xl font-bold">سجل الأصول الثابتة وإهلاكاتها</h1>
+              <p className="text-sm text-slate-500">تاريخ الطباعة: {new Date().toLocaleDateString('ar-EG')}</p>
+          </div>
 
-                        const depreciableAmount = (asset.purchaseCost || asset.purchase_cost || 0) - (asset.salvageValue || asset.salvage_value || 0);
-                        const monthlyDepreciation = depreciableAmount / ((asset.usefulLife || asset.useful_life_years || 1) * 12);
-                        
-                        // التحقق من القيمة المتبقية لضمان عدم الإهلاك الزائد
-                        const currentVal = (asset.currentValue || asset.current_value) ?? (asset.purchaseCost || asset.purchase_cost || 0);
-                        const remainingValue = currentVal - (asset.salvageValue || asset.salvage_value || 0);
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <table className="w-full text-right text-xs">
+              <thead className="bg-slate-50 text-slate-600 font-bold border-b">
+                <tr>
+                  <th className="p-4">اسم الأصل والباركود</th>
+                  <th className="p-4">المشروع والموقع</th>
+                  <th className="p-4">تاريخ الشراء</th>
+                  <th className="p-4">التكلفة</th>
+                  <th className="p-4">مجمع الإهلاك</th>
+                  <th className="p-4">القيمة الحالية</th>
+                  <th className="p-4 text-center print:hidden">إجراءات</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {assets.map(asset => (
+                  <tr key={asset.id} className="hover:bg-slate-50">
+                    <td className="p-4">
+                      <span className="font-bold text-slate-900 block">{asset.name}</span>
+                      <span className="font-mono text-[10px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 w-fit block mt-0.5">
+                        {asset.asset_tag || `AST-${asset.id.slice(0, 6).toUpperCase()}`}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span className="font-bold text-slate-800 block">{asset.project_name || 'المقر الرئيسي'}</span>
+                      <span className="text-[10px] text-slate-400">{asset.current_location || 'الموقع الرئيسي'}</span>
+                    </td>
+                    <td className="p-4 font-mono text-slate-600">{asset.purchaseDate || asset.purchase_date}</td>
+                    <td className="p-4 font-mono font-bold text-slate-800">{(asset.purchaseCost || asset.purchase_cost || 0).toLocaleString()} ج.م</td>
+                    <td className="p-4 font-mono font-bold text-rose-600">{(asset.totalDepreciation || asset.total_depreciation || 0).toLocaleString()} ج.م</td>
+                    <td className="p-4 font-mono font-black text-emerald-600">{(asset.currentValue || asset.current_value || 0).toLocaleString()} ج.م</td>
+                    <td className="p-4 text-center print:hidden flex justify-center gap-1.5">
+                      <button 
+                        disabled={((asset.currentValue || asset.current_value || 0) - (asset.salvageValue || asset.salvage_value || 0)) <= 0.1}
+                        onClick={() => {
+                            if ((!asset.usefulLife && !asset.useful_life_years) || (asset.usefulLife || asset.useful_life_years || 0) <= 0) {
+                                showToast('يرجى تحديد العمر الإنتاجي للأصل أولاً.', 'warning');
+                                return;
+                            }
 
-                        if (remainingValue <= 0.1) {
-                             showToast('هذا الأصل مهلك بالكامل (وصل لقيمة الخردة).', 'warning');
-                             return;
-                        }
+                            const depreciableAmount = (asset.purchaseCost || asset.purchase_cost || 0) - (asset.salvageValue || asset.salvage_value || 0);
+                            const monthlyDepreciation = depreciableAmount / ((asset.usefulLife || asset.useful_life_years || 1) * 12);
+                            
+                            const currentVal = (asset.currentValue || asset.current_value) ?? (asset.purchaseCost || asset.purchase_cost || 0);
+                            const remainingValue = currentVal - (asset.salvageValue || asset.salvage_value || 0);
 
-                        // إذا كان القسط الشهري أكبر من المتبقي، نأخذ المتبقي فقط (القسط الأخير)
-                        const amountToDepreciate = Math.min(monthlyDepreciation, remainingValue);
+                            if (remainingValue <= 0.1) {
+                                 showToast('هذا الأصل مهلك بالكامل (وصل لقيمة الخردة).', 'warning');
+                                 return;
+                            }
 
-                        if(window.confirm(`تسجيل إهلاك شهري بقيمة ${amountToDepreciate.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}؟`)) {
-                            runDepreciation(asset.id, amountToDepreciate, new Date().toISOString().split('T')[0]);
-                        }
-                    }}
-                    className={`text-xs px-2 py-1 rounded border transition-colors ${
-                        ((asset.currentValue || asset.current_value || 0) - (asset.salvageValue || asset.salvage_value || 0)) <= 0.1
-                        ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed'
-                        : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
-                    }`}
-                  >
-                    {((asset.currentValue || asset.current_value || 0) - (asset.salvageValue || asset.salvage_value || 0)) <= 0.1 ? 'تم الإهلاك' : 'تسجيل إهلاك'}
-                  </button>
-                  <button 
-                    onClick={() => openRevaluationModal(asset)}
-                    className="text-xs px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 flex items-center gap-1"
-                    title="إعادة تقييم"
-                  >
-                    <TrendingUp size={14} />
-                  </button>
-                  <button 
-                    onClick={() => openEditModal(asset)}
-                    className="text-xs px-2 py-1 rounded border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100 flex items-center gap-1"
-                    title="تعديل"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteClick(asset)}
-                    className="text-xs px-2 py-1 rounded border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 flex items-center gap-1"
-                    title="حذف"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
-              <tr>
-                  <td colSpan={2} className="p-4 text-left">الإجمالي:</td>
-                  <td className="p-4">{assets.reduce((sum, a) => sum + (a.purchaseCost || a.purchase_cost || 0), 0).toLocaleString()}</td>
-                  <td className="p-4 text-red-600">{assets.reduce((sum, a) => sum + (a.totalDepreciation || a.total_depreciation || 0), 0).toLocaleString()}</td>
-                  <td className="p-4 text-emerald-600">{assets.reduce((sum, a) => sum + (a.currentValue || a.current_value || 0), 0).toLocaleString()}</td>
-                  <td className="print:hidden"></td>
-              </tr>
-          </tfoot>
-        </table>
-      </div>
+                            const amountToDepreciate = Math.min(monthlyDepreciation, remainingValue);
+
+                            if(window.confirm(`تسجيل إهلاك شهري بقيمة ${amountToDepreciate.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}؟`)) {
+                                runDepreciation(asset.id, amountToDepreciate, new Date().toISOString().split('T')[0]);
+                            }
+                        }}
+                        className={`text-[11px] px-2 py-1 rounded-lg border font-bold transition-colors ${
+                            ((asset.currentValue || asset.current_value || 0) - (asset.salvageValue || asset.salvage_value || 0)) <= 0.1
+                            ? 'bg-slate-50 text-slate-300 border-slate-100 cursor-not-allowed'
+                            : 'bg-slate-100 hover:bg-slate-200 border-slate-300 text-slate-700'
+                        }`}
+                      >
+                        {((asset.currentValue || asset.current_value || 0) - (asset.salvageValue || asset.salvage_value || 0)) <= 0.1 ? 'تم الإهلاك' : 'إهلاك'}
+                      </button>
+                      <button 
+                        onClick={() => openRevaluationModal(asset)}
+                        className="text-xs p-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                        title="إعادة تقييم"
+                      >
+                        <TrendingUp size={14} />
+                      </button>
+                      <button 
+                        onClick={() => openEditModal(asset)}
+                        className="text-xs p-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-600 hover:bg-amber-100"
+                        title="تعديل"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button 
+                        onClick={() => handleDeleteClick(asset)}
+                        className="text-xs p-1.5 rounded-lg border border-red-200 bg-red-50 text-red-600 hover:bg-red-100"
+                        title="حذف"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot className="bg-slate-50 font-bold border-t border-slate-200 font-mono">
+                  <tr>
+                      <td colSpan={3} className="p-4 text-left">الإجمالي:</td>
+                      <td className="p-4">{assets.reduce((sum, a) => sum + (a.purchaseCost || a.purchase_cost || 0), 0).toLocaleString()} ج.م</td>
+                      <td className="p-4 text-rose-600">{assets.reduce((sum, a) => sum + (a.totalDepreciation || a.total_depreciation || 0), 0).toLocaleString()} ج.م</td>
+                      <td className="p-4 text-emerald-600">{assets.reduce((sum, a) => sum + (a.currentValue || a.current_value || 0), 0).toLocaleString()} ج.م</td>
+                      <td className="print:hidden"></td>
+                  </tr>
+              </tfoot>
+            </table>
+          </div>
+        </>
+      )}
+
+      {/* Tab 2: FIELD BARCODE SCANNER */}
+      {activeTab === 'SCANNER' && <AssetFieldScanner />}
+
+      {/* Tab 3: LABEL STUDIO */}
+      {activeTab === 'LABELS' && <AssetLabelStudio />}
+
+      {/* Tab 4: TRANSFERS & CONSTRUCTION SITES */}
+      {activeTab === 'TRANSFERS' && <AssetTransferManager />}
 
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

@@ -2,11 +2,12 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { AccountingEngine } from '../../services/accountingEngine';
 import { 
   ScrollText, Plus, Search, Edit2, Trash2, X, Calendar, 
   Percent, DollarSign, TrendingUp, Store, FileText, CheckCircle, 
   Clock, AlertCircle, Printer, Download, Eye, RefreshCw, Layers,
-  ChevronRight, Building2, Tag, ShieldCheck, ArrowUpRight
+  ChevronRight, Building2, Tag, ShieldCheck, ArrowUpRight, BookOpen
 } from 'lucide-react';
 
 export interface VendorContract {
@@ -49,9 +50,10 @@ export interface RebateSettlement {
 }
 
 export default function VendorContractsManager() {
-  const { currentUser, suppliers, settings } = useAccounting();
+  const { currentUser, suppliers, settings, accounts, getSystemAccount, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const currencySymbol = settings?.currency || 'ج.م';
+  const [autoPostJournal, setAutoPostJournal] = useState(true);
 
   const [activeTab, setActiveTab] = useState<'contracts' | 'settlements' | 'shelf_rentals'>('contracts');
   const [contracts, setContracts] = useState<VendorContract[]>([]);
@@ -287,8 +289,7 @@ export default function VendorContractsManager() {
         .eq('organization_id', orgId)
         .eq('supplier_id', contract.vendor_id)
         .gte('invoice_date', calcPeriodStart)
-        .lte('invoice_date', calcPeriodEnd)
-        .is('deleted_at', null);
+        .lte('invoice_date', calcPeriodEnd);
 
       if (error) throw error;
 
@@ -325,7 +326,7 @@ export default function VendorContractsManager() {
     }
   };
 
-  // 💾 Confirm & Save Settlement Claim
+  // 💾 Confirm & Save Settlement Claim with Automated Accrual Journal Entry
   const handleSaveSettlement = async () => {
     const contract = contracts.find(c => c.id === calculatingContractId);
     if (!contract) return;
@@ -337,18 +338,106 @@ export default function VendorContractsManager() {
     }
 
     try {
+      const settlementNumber = `REB-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
+      let journalEntryId: string | null = null;
+
+      // 🏛️ إنشاء قيد الاستحقاق المحاسبي آلياً في شجرة الحسابات (حسابات فرعية فقط)
+      if (autoPostJournal && orgId) {
+        // فلترة الحسابات الفرعية القابلة للترحيل فقط (ليست رئيسية/تجميعية)
+        const leafAccounts = accounts.filter(a => !a.isGroup && !a.is_group);
+
+        const getLeaf = (acc: any) => {
+          if (!acc) return null;
+          if (!acc.isGroup && !acc.is_group) return acc.id;
+          const child = accounts.find(ch => (ch.parent_id === acc.id || ch.parentId === acc.id) && !ch.isGroup && !ch.is_group);
+          return child ? child.id : null;
+        };
+
+        const supplierAcc =
+          leafAccounts.find(a => a.code === '20101' || a.code === '211' || a.code === '201001' || a.name?.includes('موردين') || a.name?.includes('الموردين'))?.id ||
+          getLeaf(getSystemAccount('SUPPLIERS')) ||
+          leafAccounts.find(a => String(a.type).toLowerCase() === 'liability')?.id;
+
+        // إيرادات إيجار الأرفف: حساب إيرادات فرعي 421 أو إيراد إيجار أرفف (وليس 413 خصم مسموح به)
+        const shelfRentalAcc =
+          leafAccounts.find(a => a.name?.includes('إيجار أرفف') || a.name?.includes('مساحات ترويجية') || a.name?.includes('إيرادات إيجار'))?.id ||
+          leafAccounts.find(a => (a.code === '421' || a.code === '441' || a.code === '4201' || a.name?.includes('إيرادات متنوعة') || a.name?.includes('إيرادات أخرى')) && !a.name?.includes('مسموح') && !a.name?.includes('ضريب'))?.id ||
+          getLeaf(getSystemAccount('REVENUE_OTHER')) ||
+          leafAccounts.find(a => String(a.type).toLowerCase() === 'revenue' && !a.name?.includes('مسموح') && !a.name?.includes('مبيعات'))?.id;
+
+        // الخصم المكتسب من الموردين
+        const rebateAcc =
+          leafAccounts.find(a => (a.name?.includes('خصم مكتسب') || a.name?.includes('بوانص')) && !a.name?.includes('مسموح'))?.id ||
+          getLeaf(getSystemAccount('EARNED_DISCOUNTS')) ||
+          leafAccounts.find(a => (a.code === '512' || a.code === '412' || a.code === '5112' || a.code === '421') && !a.name?.includes('مسموح'))?.id ||
+          shelfRentalAcc;
+
+        if (supplierAcc && (shelfRentalAcc || rebateAcc)) {
+          const lines: any[] = [
+            {
+              accountId: supplierAcc,
+              accountName: `المورد: ${contract.vendor_name || 'مورد'}`,
+              debit: totalClaim,
+              credit: 0,
+              description: `استحقاق مطالبة بونص وإيجار رف (${contract.contract_number})`
+            }
+          ];
+
+          if (calculatedShelfRental > 0 && shelfRentalAcc) {
+            lines.push({
+              accountId: shelfRentalAcc,
+              accountName: 'إيرادات إيجار أرفف ومساحات ترويجية (إيرادات متنوعة)',
+              debit: 0,
+              credit: calculatedShelfRental,
+              description: `استحقاق إيراد إيجار الرف للفترة ${calcPeriodStart} إلى ${calcPeriodEnd}`
+            });
+          }
+
+          if (calculatedRebate > 0 && rebateAcc) {
+            lines.push({
+              accountId: rebateAcc,
+              accountName: 'خصم مكتسب وبوانص مشتريات تجارية',
+              debit: 0,
+              credit: calculatedRebate,
+              description: `استحقاق بونص المشتريات التجاري للفترة ${calcPeriodStart} إلى ${calcPeriodEnd}`
+            });
+          }
+
+          // التحقق من توازن الأطراف
+          const totalDeb = lines.reduce((s, l) => s + (l.debit || 0), 0);
+          const totalCrd = lines.reduce((s, l) => s + (l.credit || 0), 0);
+
+          if (Math.abs(totalDeb - totalCrd) < 0.01) {
+            const jRes = await AccountingEngine.createJournalEntry({
+              organizationId: orgId,
+              transactionDate: new Date().toISOString().split('T')[0],
+              reference: settlementNumber,
+              description: `إثبات استحقاق بونص وإيجار أرفف للمورد ${contract.vendor_name} عن الفترة من ${calcPeriodStart} إلى ${calcPeriodEnd}`,
+              lines,
+              relatedDocumentType: 'VENDOR_REBATE',
+              status: 'posted'
+            });
+
+            if (jRes.success) {
+              journalEntryId = jRes.journalEntryId || null;
+            }
+          }
+        }
+      }
+
       const settlementPayload = {
         organization_id: orgId,
         contract_id: contract.id,
         vendor_id: contract.vendor_id,
-        settlement_number: `REB-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+        settlement_number: settlementNumber,
         period_start: calcPeriodStart,
         period_end: calcPeriodEnd,
         total_actual_purchases: calculatedActualPurchases,
         rebate_earned: calculatedRebate,
         shelf_rental_earned: calculatedShelfRental,
         total_claim_amount: totalClaim,
-        status: 'PENDING',
+        status: journalEntryId ? 'APPROVED' : 'PENDING',
+        journal_entry_id: journalEntryId,
         notes: `مطالبة بوانص وإيجار أرفف عن الفترة من ${calcPeriodStart} إلى ${calcPeriodEnd}`
       };
 
@@ -358,7 +447,12 @@ export default function VendorContractsManager() {
 
       if (error) throw error;
 
-      showToast('تم إصدار وتسجيل مطالبة البونص بنجاح 📋', 'success');
+      showToast(
+        journalEntryId
+          ? 'تم اعتماد المطالبة وإنشاء قيد استحقاق إيجار الرف والبونص المحاسبي بنجاح ✅'
+          : 'تم إصدار وتسجيل مطالبة البونص بنجاح 📋',
+        'success'
+      );
       setIsSettlementModalOpen(false);
       fetchData();
     } catch (err: any) {
@@ -665,13 +759,20 @@ export default function VendorContractsManager() {
                         {Number(s.total_claim_amount).toFixed(2)} {currencySymbol}
                       </td>
                       <td className="p-3.5 text-center">
-                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
-                          s.status === 'APPROVED' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900' :
-                          s.status === 'PENDING' ? 'bg-amber-950 text-amber-400 border border-amber-900' :
-                          'bg-slate-800 text-slate-400'
-                        }`}>
-                          {s.status === 'APPROVED' ? 'معتمد' : s.status === 'PENDING' ? 'قيد المراجعة' : s.status}
-                        </span>
+                        <div className="space-y-1">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black inline-block ${
+                            s.status === 'APPROVED' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900' :
+                            s.status === 'PENDING' ? 'bg-amber-950 text-amber-400 border border-amber-900' :
+                            'bg-slate-800 text-slate-400'
+                          }`}>
+                            {s.status === 'APPROVED' ? 'معتمد ومثبت' : s.status === 'PENDING' ? 'قيد المراجعة' : s.status}
+                          </span>
+                          {s.journal_entry_id && (
+                            <span className="block text-[9px] font-mono text-indigo-400 font-bold">
+                              📖 قيد استحقاق مرحل
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -968,6 +1069,23 @@ export default function VendorContractsManager() {
                     {(calculatedRebate + calculatedShelfRental).toFixed(2)} {currencySymbol}
                   </span>
                 </div>
+              </div>
+
+              {/* Journal Accrual Toggle */}
+              <div className="bg-indigo-950/40 p-3 rounded-xl border border-indigo-900/60 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="text-indigo-400 w-4 h-4 flex-shrink-0" />
+                  <div>
+                    <span className="text-white font-bold block text-xs">إثبات قيد الاستحقاق المحاسبي آلياً</span>
+                    <span className="text-[10px] text-slate-400 block">توجيه إيراد الرف والخصم المكتسب لشجرة الحسابات وتخفيض مديونية المورد</span>
+                  </div>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={autoPostJournal}
+                  onChange={e => setAutoPostJournal(e.target.checked)}
+                  className="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-slate-700 cursor-pointer"
+                />
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">

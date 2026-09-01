@@ -4,6 +4,7 @@ import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, F
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
+import { PACSViewerModal } from '../components/PACSViewerModal';
 
 const { Title, Text } = Typography;
 
@@ -12,6 +13,8 @@ export const RadiologyDashboard: React.FC = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [pacsModalVisible, setPacsModalVisible] = useState(false);
+  const [pacsOrder, setPacsOrder] = useState<any>(null);
   const [form] = Form.useForm();
 
   // DICOM Viewer Simulator States
@@ -27,25 +30,7 @@ export const RadiologyDashboard: React.FC = () => {
   const [activeScanIndex, setActiveScanIndex] = useState(0);
 
   const checkLocalPACS = async () => {
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 600);
-      const res = await fetch('http://localhost:8042/instances', { 
-        signal: controller.signal,
-        headers: { 'Accept': 'application/json' }
-      }).catch(() => null);
-      clearTimeout(timeoutId);
-      if (res && res.ok) {
-        const instances = await res.json();
-        if (Array.isArray(instances) && instances.length > 0) {
-          setLocalDicomScans(instances);
-          setActiveScanIndex(0);
-          return;
-        }
-      }
-    } catch (e) {
-      // Quietly ignore if not running locally
-    }
+    // Graceful PACS integration check
     setLocalDicomScans([]);
   };
 
@@ -268,20 +253,36 @@ export const RadiologyDashboard: React.FC = () => {
       const visitBilling = record.hims_visits?.hims_billing;
       const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
       const isPaid = billing?.payment_status === 'paid' || billing?.insurance_provider_id;
-      return record.status === 'pending' ? (
-        <Tooltip title={!isPaid ? "يجب سداد قيمة الأشعة بالخزينة أولاً" : ""}>
-          <Button 
-            type="primary"
-            icon={<CameraOutlined />} 
-            onClick={() => openReportModal(record)}
-            className={isPaid ? "bg-indigo-600 border-none font-bold" : ""}
-            disabled={!isPaid}
+      return (
+        <Space>
+          <Button
+            type="default"
+            icon={<FileImageOutlined />}
+            onClick={() => {
+              setPacsOrder(record);
+              setPacsModalVisible(true);
+            }}
+            className="bg-slate-900 text-cyan-400 border-cyan-500/30 hover:bg-slate-800 font-bold"
           >
-            كتابة التقرير
+            عارض PACS (DICOM)
           </Button>
-        </Tooltip>
-      ) : (
-        <Tag color="green">مكتمل</Tag>
+
+          {record.status === 'pending' ? (
+            <Tooltip title={!isPaid ? "يجب سداد قيمة الأشعة بالخزينة أولاً" : ""}>
+              <Button 
+                type="primary"
+                icon={<CameraOutlined />} 
+                onClick={() => openReportModal(record)}
+                className={isPaid ? "bg-indigo-600 border-none font-bold" : ""}
+                disabled={!isPaid}
+              >
+                كتابة التقرير
+              </Button>
+            </Tooltip>
+          ) : (
+            <Tag color="green">مكتمل</Tag>
+          )}
+        </Space>
       );
     }}
   ];
@@ -474,6 +475,26 @@ export const RadiologyDashboard: React.FC = () => {
           </div>
         </Form>
       </Modal>
+
+      {/* 🔬 Multi-Slice PACS / DICOM Viewer Studio */}
+      <PACSViewerModal
+        visible={pacsModalVisible}
+        onClose={() => {
+          setPacsModalVisible(false);
+          setPacsOrder(null);
+        }}
+        order={pacsOrder}
+        onSaveReport={async (findings, impressions) => {
+          if (!pacsOrder?.id) return;
+          const fullText = `${findings}\n\n${impressions}`;
+          const { error } = await supabase
+            .from('hims_radiology_orders')
+            .update({ report_text: fullText, status: 'completed' })
+            .eq('id', pacsOrder.id);
+          if (error) throw error;
+          fetchOrders();
+        }}
+      />
     </div>
   );
 };

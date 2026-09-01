@@ -280,7 +280,11 @@ export const payrollItemSchema = z.object({
   other_deductions: amountSchema.default(0),
   net_salary: z.number(), // Calculated field, just ensure it's a number
   advances_ids: z.array(idSchema).optional(),
-});
+  unpaid_leave_days: z.number().optional(),
+  unpaid_leave_deduction: z.number().optional(),
+  absence_days: z.number().optional(),
+  overtime_hours: z.number().optional(),
+}).passthrough();
 
 // ============== INVENTORY SCHEMAS ==============
 

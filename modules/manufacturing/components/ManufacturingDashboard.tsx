@@ -140,13 +140,22 @@ const ManufacturingDashboard = () => {
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen" dir="rtl">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
           <Activity className="text-blue-600" />
           لوحة المؤشرات الصناعية الموحدة
         </h1>
-        <div className="text-sm text-gray-500 bg-white px-4 py-2 rounded-full border border-gray-200">
-          تحديث تلقائي: {new Date().toLocaleTimeString('ar-EG')}
+        <div className="flex items-center gap-2">
+          <a
+            href="#/mfg/gantt-schedule"
+            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-xs shadow-md shadow-indigo-600/20 transition-all flex items-center gap-1.5"
+          >
+            <Factory size={14} />
+            مخطط جانت للجدولة (Gantt)
+          </a>
+          <div className="text-xs text-gray-500 bg-white px-3 py-2 rounded-xl border border-gray-200">
+            تحديث: {new Date().toLocaleTimeString('ar-EG')}
+          </div>
         </div>
       </div>
 

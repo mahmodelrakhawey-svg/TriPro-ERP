@@ -114,6 +114,7 @@ import CostClosingDashboard from './modules/manufacturing/components/CostClosing
 import MachineOeeTracker from './modules/manufacturing/components/MachineOeeTracker';
 import MachineryMaintenanceManager from './modules/manufacturing/components/MachineryMaintenanceManager';
 import CapacityPlanningDashboard from './modules/manufacturing/components/CapacityPlanningDashboard';
+import ProductionGanttScheduler from './modules/manufacturing/components/ProductionGanttScheduler';
 import SecurityLogs from './components/SecurityLogs';
 import ProjectManager from './modules/construction/components/ProjectManager';
 import ConstructionDashboard from './modules/construction/components/ConstructionDashboard';
@@ -131,6 +132,10 @@ import PriceEscalationCalculator from './modules/construction/components/PriceEs
 import LeaveManager from './modules/hr/components/LeaveManager';
 import EndOfServiceCalculator from './modules/hr/components/EndOfServiceCalculator';
 import AttendanceManager from './modules/hr/components/AttendanceManager';
+import HrDashboard from './modules/hr/components/HrDashboard';
+import BiometricDeviceManager from './modules/hr/components/BiometricDeviceManager';
+import ShiftManager from './modules/hr/components/ShiftManager';
+import PenaltiesAndRewards from './modules/hr/components/PenaltiesAndRewards';
 import PermissionsManager from './modules/admin/PermissionsManager';
 import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
@@ -216,6 +221,7 @@ import { PharmacyDashboard } from './modules/hims/pages/PharmacyDashboard';
 import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
 import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
 import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
+import OperatingTheaterManager from './modules/hims/pages/OperatingTheaterManager';
 import StaffRosterManager from './modules/hims/pages/StaffRosterManager';
 import DoctorManager from './modules/hims/pages/DoctorManager';
 import { DoctorKPIs } from './modules/hims/pages/DoctorKPIs';
@@ -556,6 +562,7 @@ const MainLayout = () => {
                       <Route path="admissions" element={<AdmissionManager />} />
                       <Route path="wards-management" element={<WardBedManager />} />
                       <Route path="surgeries" element={<SurgeryScheduler />} />
+                      <Route path="operating-theater" element={<OperatingTheaterManager />} />
                       <Route path="staff-roster" element={<StaffRosterManager />} />
                       <Route path="doctor-kpis" element={<DoctorKPIs />} />
                       <Route path="services" element={<HIMSServicesManager />} />
@@ -615,6 +622,7 @@ const MainLayout = () => {
                       <Route path="oee-tracker" element={<MachineOeeTracker />} />
                       <Route path="maintenance" element={<MachineryMaintenanceManager />} />
                       <Route path="capacity-planning" element={<CapacityPlanningDashboard />} />
+                      <Route path="gantt-schedule" element={<ProductionGanttScheduler />} />
                       <Route path="alerts-log" element={<ManufacturingAlertsLog />} />
                       <Route path="closing" element={<CostClosingDashboard />} />
                       <Route path="raw-materials-turnover" element={<RawMaterialsTurnover />} />
@@ -723,10 +731,16 @@ const MainLayout = () => {
                 <Route path="/construction/price-escalation" element={<ModuleGuard module="construction"><PriceEscalationCalculator /></ModuleGuard>} />
                 <Route path="/subcontractors" element={<ModuleGuard module="construction"><SubcontractorStandalone /></ModuleGuard>} />
                 <Route path="/construction/subcontractor-analytics" element={<ModuleGuard module="construction"><SubcontractorAnalytics /></ModuleGuard>} />
+                <Route path="/hr/dashboard" element={<ModuleGuard module="hr"><HrDashboard /></ModuleGuard>} />
+                <Route path="/hr" element={<Navigate to="/hr/dashboard" replace />} />
                 <Route path="/employees" element={<ModuleGuard module="hr"><EmployeeManager /></ModuleGuard>} />
+                <Route path="/hr/biometrics" element={<ModuleGuard module="hr"><BiometricDeviceManager /></ModuleGuard>} />
+                <Route path="/hr/shifts" element={<ModuleGuard module="hr"><ShiftManager /></ModuleGuard>} />
                 <Route path="/hr/attendance" element={<ModuleGuard module="hr"><AttendanceManager /></ModuleGuard>} />
                 <Route path="/hr/leaves" element={<ModuleGuard module="hr"><LeaveManager /></ModuleGuard>} />
+                <Route path="/hr/penalties" element={<ModuleGuard module="hr"><PenaltiesAndRewards /></ModuleGuard>} />
                 <Route path="/payroll-run" element={<ModuleGuard module="hr"><PayrollRun /></ModuleGuard>} />
+                <Route path="/hr/payroll" element={<Navigate to="/payroll-run" replace />} />
                 <Route path="/employee-advances" element={<ModuleGuard module="hr"><EmployeeAdvances /></ModuleGuard>} />
                 <Route path="/hr/end-of-service" element={<ModuleGuard module="hr"><EndOfServiceCalculator /></ModuleGuard>} />
                 <Route path="/payroll-report" element={<ModuleGuard module="hr"><PayrollReport /></ModuleGuard>} />

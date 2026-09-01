@@ -220,20 +220,14 @@ export default function SupplierInvoiceExcelImporter({
           product_id: productId,
           quantity: row.quantity,
           unit_price: row.purchase_price,
-          total_price: lineTotal
+          total: lineTotal,
+          expiry_date: row.expiry_date || null
         });
 
-        // Increment stock
-        try {
-          await supabase.rpc('adjust_product_stock', {
-            p_product_id: productId,
-            p_quantity: row.quantity
-          });
-        } catch (e) {
-          const { data: p } = await supabase.from('products').select('stock').eq('id', productId).single();
-          if (p) {
-            await supabase.from('products').update({ stock: (Number(p.stock) || 0) + row.quantity }).eq('id', productId);
-          }
+        // Increment stock directly
+        const { data: p } = await supabase.from('products').select('stock').eq('id', productId).single();
+        if (p) {
+          await supabase.from('products').update({ stock: (Number(p.stock) || 0) + row.quantity }).eq('id', productId);
         }
       }
 
@@ -245,7 +239,7 @@ export default function SupplierInvoiceExcelImporter({
           supplier_id: selectedSupplierId,
           warehouse_id: selectedWarehouseId || null,
           invoice_number: invoiceNumber,
-          issue_date: invoiceDate,
+          invoice_date: invoiceDate,
           total_amount: grandTotal,
           subtotal: grandTotal,
           tax_amount: 0,

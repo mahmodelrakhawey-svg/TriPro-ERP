@@ -316,6 +316,14 @@ export default function AttendanceManager() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <a
+              href="#/hr/biometrics"
+              className="flex items-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold transition-all shadow-md shadow-indigo-600/30"
+            >
+              <Zap size={16} />
+              <span>ماكينات ZKTeco Push</span>
+            </a>
+
             <button
               onClick={() => setIsImportModalOpen(true)}
               className="flex items-center gap-2 px-4 py-2.5 bg-indigo-500/30 hover:bg-indigo-500/40 text-indigo-100 rounded-2xl font-bold transition-all border border-indigo-400/30 shadow-sm"

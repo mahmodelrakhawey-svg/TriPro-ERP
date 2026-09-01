@@ -116,8 +116,20 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           return;
         }
 
-        const { error } = await supabase.from('hims_lab_orders').insert(orders);
-        if (error) throw error;
+        // Prevent duplicate 409 conflicts by checking existing pending orders
+        const { data: existingLabs } = await supabase
+          .from('hims_lab_orders')
+          .select('test_id')
+          .eq('visit_id', visitId)
+          .eq('organization_id', orgId);
+
+        const existingTestIds = new Set((existingLabs || []).map(l => l.test_id));
+        const newLabOrders = orders.filter(o => !existingTestIds.has(o.test_id));
+
+        if (newLabOrders.length > 0) {
+          const { error } = await supabase.from('hims_lab_orders').insert(newLabOrders);
+          if (error && error.code !== '23505') throw error;
+        }
       } else if (type === 'radiology') {
         const orders = selectedRads.map(radId => {
           const radType = radTypes.find(rt => rt.id === radId);
@@ -137,8 +149,20 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           return;
         }
 
-        const { error } = await supabase.from('hims_radiology_orders').insert(orders);
-        if (error) throw error;
+        // Prevent duplicate 409 conflicts by checking existing pending orders
+        const { data: existingRads } = await supabase
+          .from('hims_radiology_orders')
+          .select('scan_type')
+          .eq('visit_id', visitId)
+          .eq('organization_id', orgId);
+
+        const existingScanNames = new Set((existingRads || []).map(r => r.scan_type));
+        const newRadOrders = orders.filter(o => !existingScanNames.has(o.scan_type));
+
+        if (newRadOrders.length > 0) {
+          const { error } = await supabase.from('hims_radiology_orders').insert(newRadOrders);
+          if (error && error.code !== '23505') throw error;
+        }
       }
       message.success('تم إرسال الطلبات للأقسام المعنية بنجاح ✅');
       type === 'lab' ? setSelectedTests([]) : setSelectedRads([]);

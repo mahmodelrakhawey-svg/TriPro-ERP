@@ -3,15 +3,17 @@ import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { FileText, Printer, Search, Loader2, Receipt } from 'lucide-react';
+import { PayslipModal, PayslipData } from '../components/PayslipModal';
 
 const PayrollReport = () => {
-  const { settings, currentUser, selectedFiscalYear } = useAccounting();
+  const { settings, currentUser, selectedFiscalYear, organization } = useAccounting();
   const { showToast } = useToast();
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [payrollData, setPayrollData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [payrollSummary, setPayrollSummary] = useState<any>(null);
+  const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
 
   // مزامنة السنة المختارة مع السنة المالية للنظام
   useEffect(() => {
@@ -33,7 +35,6 @@ const PayrollReport = () => {
       }
 
       // 1. جلب بيانات المسير الرئيسي للشهر والسنة المحددين
-      // تعديل: استخدام select بدلاً من single للتعامل مع احتمالية وجود أكثر من سجل
       const { data: payrollsList, error: payrollError } = await supabase
         .from('payrolls')
         .select('*')
@@ -83,38 +84,19 @@ const PayrollReport = () => {
   }, [selectedMonth, selectedYear]);
 
   const handlePrintSlip = (item: any) => {
-    const printWindow = window.open('', '_blank', 'width=600,height=600');
-    if (printWindow) {
-        printWindow.document.write(`
-            <html dir="rtl">
-            <head>
-                <title>قسيمة راتب - ${item.employees?.full_name}</title>
-                <style>
-                    body{font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding:40px; text-align:right;} 
-                    .header{text-align:center; margin-bottom:30px; border-bottom:2px solid #eee; padding-bottom:20px;}
-                    .row{display:flex;justify-content:space-between;border-bottom:1px solid #f0f0f0;padding:12px 0;}
-                    .total{font-weight:bold;font-size:1.2em;background:#f9f9f9;padding:15px;margin-top:20px;border-radius:8px;}
-                </style>
-            </head>
-            <body>
-                <div class="header">
-                    <h2>${settings.companyName}</h2>
-                    <h3>قسيمة راتب شهر ${selectedMonth} / ${selectedYear}</h3>
-                    <p>الموظف: <strong>${item.employees?.full_name}</strong> (${item.employees?.position || '-'})</p>
-                </div>
-                <div class="row"><span>الراتب الأساسي:</span><span>${item.gross_salary.toLocaleString()}</span></div>
-                <div class="row"><span>الإضافي والمكافآت:</span><span>${item.additions.toLocaleString()}</span></div>
-                <div class="row"><span>ضريبة كسب العمل:</span><span>${(item.payroll_tax || 0).toLocaleString()}</span></div>
-                <div class="row"><span>الخصومات والجزاءات:</span><span>${item.other_deductions.toLocaleString()}</span></div>
-                <div class="row"><span>خصم السلف:</span><span>${item.advances_deducted.toLocaleString()}</span></div>
-                <div class="row total"><span>صافي الراتب المستحق:</span><span>${item.net_salary.toLocaleString()}</span></div>
-                <div style="margin-top:50px; text-align:center; font-size:0.8em; color:#666;">تم استخراج هذه القسيمة آلياً من النظام</div>
-                <script>window.onload = function() { window.print(); }</script>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-    }
+    setSelectedPayslip({
+      employee_name: item.employees?.full_name || 'موظف',
+      job_title: item.employees?.position || 'موظف',
+      month: selectedMonth,
+      year: selectedYear,
+      gross_salary: item.gross_salary || 0,
+      additions: item.additions || 0,
+      advances_deducted: item.advances_deducted || 0,
+      payroll_tax: item.payroll_tax || 0,
+      other_deductions: item.other_deductions || 0,
+      net_salary: item.net_salary || 0,
+      company_name: organization?.name || settings?.companyName
+    });
   };
 
   // حماية الصفحة من مستخدم الديمو
@@ -231,6 +213,10 @@ const PayrollReport = () => {
             </div>
         )}
       </div>
+
+      {selectedPayslip && (
+        <PayslipModal data={selectedPayslip} onClose={() => setSelectedPayslip(null)} />
+      )}
     </div>
   );
 };

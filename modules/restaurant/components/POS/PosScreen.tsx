@@ -608,7 +608,7 @@ const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary, isLoading }: { i
 
 
 const PosScreen = () => {
-  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, refreshData } = useAccounting();
+  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, refreshData, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dine-in');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -703,20 +703,26 @@ const PosScreen = () => {
     return () => clearInterval(interval);
   }, [currentUser, currentShift]);
 
-  // New useEffect to fetch external orders (Takeaway & Delivery)
+  // New useEffect to fetch external orders (Takeaway, Delivery & Self-Ordering Kiosk)
   useEffect(() => {
     const fetchOpenExternalOrders = async () => {
         if (isDemo) {
             return;
         }
         try {
-            const { data, error } = await supabase
+            const orgFilter = currentSelectedOrgId || currentUser?.organization_id;
+            let query = supabase
                 .from('orders')
-                .select('id, order_number, order_type, status, grand_total, notes, created_at, delivery_orders(*), customers(id, name, phone, address)')
-                .in('order_type', ['TAKEAWAY', 'DELIVERY'])
+                .select('id, order_number, order_type, session_id, status, grand_total, notes, created_at, delivery_orders(*), customers(id, name, phone, address)')
                 .not('status', 'in', '("PAID","COMPLETED","CANCELLED")')
+                .or('session_id.is.null,order_type.in.(TAKEAWAY,DELIVERY,KIOSK)')
                 .order('created_at', { ascending: false });
+
+            if (orgFilter) {
+              query = query.eq('organization_id', orgFilter);
+            }
             
+            const { data, error } = await query;
             if (error) throw error;
             setOpenExternalOrders(data || []);
         } catch (err) {
@@ -729,7 +735,7 @@ const PosScreen = () => {
       const channel = supabase.channel('public:orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOpenExternalOrders).subscribe();
       return () => { supabase.removeChannel(channel); };
     }
-  }, [isDemo]);
+  }, [isDemo, currentSelectedOrgId, currentUser]);
 
   // الاشتراك في تحديثات الطاولات (لظهور الطلبات الجديدة من رمز QR فوراً كطاولة مشغولة)
   useEffect(() => {
@@ -962,18 +968,21 @@ const PosScreen = () => {
         }));
 
         const delInfo = Array.isArray(order.delivery_orders) ? order.delivery_orders[0] : order.delivery_orders;
+        const isKiosk = order.notes?.includes('Kiosk') || order.notes?.includes('كشك');
         const platformName = order.notes?.includes('طلب منصة توصيل')
           ? order.notes.replace('طلب منصة توصيل:', '').trim()
-          : (order.order_type === 'TAKEAWAY' ? 'سفري' : 'توصيل');
+          : isKiosk
+            ? `كشك (${order.notes?.includes('صالة') ? 'صالة' : 'سفري'}) - ${order.order_number || ''}`
+            : (order.order_type === 'TAKEAWAY' ? 'سفري' : order.order_type === 'DELIVERY' ? 'توصيل' : 'خدمة ذاتية') + ` - ${order.order_number || ''}`;
 
         setActiveOrder({
-            tableId: order.order_type === 'TAKEAWAY' ? `takeaway-${order.id}` : `delivery-${order.id}`,
+            tableId: order.session_id ? `table-${order.session_id}` : `kiosk-${order.id}`,
             sessionId: order.session_id || `session-${order.id}`,
             orderId: order.id,
             warehouseId: order.warehouse_id,
             tableName: platformName,
             items: items,
-            type: order.order_type.toLowerCase() as 'takeaway' | 'delivery',
+            type: (order.order_type === 'DELIVERY' ? 'delivery' : 'takeaway') as any,
             customer: order.customers 
               ? { id: order.customers.id, name: order.customers.name, phone: order.customers.phone, address: order.customers.address } 
               : delInfo 
@@ -1364,6 +1373,10 @@ const PosScreen = () => {
             }
           }
 
+          // 💵 فتح درج النقدية الإلكتروني تلقائياً وعرض الإجمالي على شاشة العميل
+          thermalPrinterService.kickoutCashDrawer().catch(() => {});
+          thermalPrinterService.showTotalAndChangeOnPoleDisplay(total, 0).catch(() => {});
+
           // 🧹 تنظيف الحالة فوراً لضمان تجربة مستخدم سريعة
           setActiveOrder(null);
           setOpenExternalOrders(prev => prev.filter(o => o.id !== activeOrder.orderId));
@@ -1720,7 +1733,7 @@ const PosScreen = () => {
                     <div className="flex justify-between items-center border-b pb-2 mb-3">
                       <h4 className="font-bold text-slate-700 flex items-center gap-1.5 text-xs">
                         <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-                        <span>طلبات التوصيل والسفري الجارية ({openExternalOrders.length})</span>
+                        <span>طلبات الكشك والسفري والتوصيل الجارية ({openExternalOrders.length})</span>
                       </h4>
                       <span className="text-[10px] text-slate-400 font-bold">انقر للتحصيل والدفع 💳</span>
                     </div>
@@ -1728,13 +1741,13 @@ const PosScreen = () => {
                         {openExternalOrders
                           .filter(order => {
                             if (activeTab === 'delivery') return order.order_type === 'DELIVERY';
-                            if (activeTab === 'takeaway') return order.order_type === 'TAKEAWAY';
-                            return true; // في تبويب dine-in تظهر جميع الطلبات المعلقة لعدم إغفالها
+                            if (activeTab === 'takeaway') return order.order_type === 'TAKEAWAY' || order.session_id === null || order.notes?.includes('Kiosk') || order.notes?.includes('كشك');
+                            return true; // في تبويب dine-in أو الكل تظهر جميع الطلبات المعلقة لعدم إغفالها
                           })
                           .map(order => {
                             const isSelected = activeOrder?.orderId === order.id;
                             const isDelivery = order.order_type === 'DELIVERY';
-                            const isReady = order.status === 'READY' || order.status === 'SERVED' || order.status === 'READY_FOR_PICKUP';
+                            const isKiosk = order.notes?.includes('Kiosk') || order.notes?.includes('كشك');
                             const statusBadge = order.status === 'SERVED' 
                               ? { text: 'جاهز ومسلّم 🍽️', bg: 'bg-emerald-100 text-emerald-800' }
                               : order.status === 'READY'
@@ -1745,9 +1758,13 @@ const PosScreen = () => {
 
                             const title = order.notes?.includes('طلب منصة توصيل')
                               ? order.notes.replace('طلب منصة توصيل:', '').trim()
-                              : (isDelivery ? 'توصيل' : 'سفري') + ` - ${order.order_number || ''}`;
+                              : isKiosk
+                                ? `كشك (${order.notes?.includes('صالة') ? 'صالة' : 'سفري'}) - ${order.order_number || ''}`
+                                : (isDelivery ? 'توصيل' : 'سفري') + ` - ${order.order_number || ''}`;
 
-                            const customerName = order.customers?.name || order.delivery_orders?.[0]?.customer_name || 'عميل منصة توصيل';
+                            const customerName = order.notes?.includes('بيجر')
+                              ? order.notes.split('|').find((p: string) => p.includes('بيجر'))?.trim() || 'كشك خدمة ذاتية'
+                              : order.customers?.name || order.delivery_orders?.[0]?.customer_name || (isKiosk ? 'عميل كشك الخدمة الذاتية' : 'عميل خارجي');
 
                             return (
                               <div 
@@ -1756,19 +1773,23 @@ const PosScreen = () => {
                                 className={`p-3 rounded-2xl border-2 cursor-pointer transition-all ${
                                   isSelected 
                                     ? 'ring-2 ring-blue-500 border-blue-500 bg-blue-50/70 shadow-sm' 
-                                    : isDelivery 
-                                      ? 'bg-sky-50/70 border-sky-200 hover:bg-sky-100 hover:border-sky-300' 
-                                      : 'bg-amber-50/70 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
+                                    : isKiosk
+                                      ? 'bg-cyan-50/80 border-cyan-300 hover:bg-cyan-100 hover:border-cyan-400'
+                                      : isDelivery 
+                                        ? 'bg-sky-50/70 border-sky-200 hover:bg-sky-100 hover:border-sky-300' 
+                                        : 'bg-amber-50/70 border-amber-200 hover:bg-amber-100 hover:border-amber-300'
                                 }`}
                               >
                                 <div className="flex justify-between items-center gap-2">
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <div className={`p-1.5 rounded-lg ${isDelivery ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'}`}>
-                                      {isDelivery ? <HardHat size={16} /> : <Coffee size={16} />}
+                                    <div className={`p-1.5 rounded-lg ${
+                                      isKiosk ? 'bg-cyan-100 text-cyan-700' : isDelivery ? 'bg-sky-100 text-sky-700' : 'bg-amber-100 text-amber-700'
+                                    }`}>
+                                      {isKiosk ? <Smartphone size={16} /> : isDelivery ? <HardHat size={16} /> : <Coffee size={16} />}
                                     </div>
                                     <div className="truncate">
                                       <span className="font-black text-xs text-slate-800 block truncate">{title}</span>
-                                      <span className="text-[11px] text-slate-400 block truncate">{customerName}</span>
+                                      <span className="text-[11px] text-slate-500 font-bold block truncate">{customerName}</span>
                                     </div>
                                   </div>
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${statusBadge.bg}`}>
@@ -1778,7 +1799,7 @@ const PosScreen = () => {
                                 {order.grand_total && (
                                   <div className="flex justify-between items-center mt-2 pt-1.5 border-t border-slate-200/60 text-xs">
                                     <span className="text-slate-400 text-[10px]">إجمالي الحساب:</span>
-                                    <span className="font-mono font-bold text-slate-900">{Number(order.grand_total).toFixed(2)} ج</span>
+                                    <span className="font-mono font-bold text-slate-900">{Number(order.grand_total).toFixed(2)} {settings?.currency || 'ج'}</span>
                                   </div>
                                 )}
                                 {order.notes?.includes('منصة توصيل') && (
