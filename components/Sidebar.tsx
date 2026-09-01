@@ -91,6 +91,8 @@ import {
   Zap,
   MapPin,
   PackageCheck,
+  Repeat,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 
@@ -147,6 +149,7 @@ const Sidebar: React.FC = () => {
     { type: 'section', label: 'المبيعات والعملاء' },
     { to: '/sales-invoice', label: 'فاتورة مبيعات جديدة', icon: FilePlus, color: 'text-emerald-400', module: 'sales', permission: 'sales.create' },
     { to: '/invoices-list', label: 'سجل فواتير البيع', icon: ShoppingCart, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
+    { to: '/recurring-invoices', label: 'الفواتير الدورية والاشتراكات', icon: Repeat, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/quotations-new', label: 'عرض سعر جديد', icon: Plus, color: 'text-emerald-400', module: 'sales', permission: 'sales.quotation' },
     { to: '/quotations-list', label: 'سجل عروض الأسعار', icon: FileText, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/sales-order-new', label: 'أمر بيع وتعميد جديد', icon: Plus, color: 'text-emerald-400', module: 'sales', permission: 'sales.create' },
@@ -167,6 +170,7 @@ const Sidebar: React.FC = () => {
 
     // موديول المشتريات
     { type: 'section', label: 'المشتريات والموردين' },
+    { to: '/purchases/rfq', label: 'طلبات عروض الأسعار والمناقصات (RFQ)', icon: FileSpreadsheet, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/purchase-invoice', label: 'فاتورة مشتريات جديدة', icon: FilePlus, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },
     { to: '/purchase-invoices-list', label: 'سجل المشتريات', icon: Truck, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/purchase-order-new', label: 'أمر شراء جديد', icon: Plus, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },
@@ -193,7 +197,9 @@ const Sidebar: React.FC = () => {
     { to: '/multi-uom-report', label: 'رصيد المخزون المتعدد', icon: Layers, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory-dashboard', label: 'لوحة تحكم المخزون', icon: Activity, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/warehouses', label: 'إدارة المستودعات', icon: LayoutGrid, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
+    { to: '/inventory/bins', label: 'المواقع والرفوف التخزينية (WMS)', icon: Layers, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
     { to: '/stock-transfer', label: 'تحويل مخزني جديد', icon: ArrowLeftRight, color: 'text-purple-400', module: 'inventory', permission: 'inventory.transfer' },
+    { to: '/inventory/in-transit-transfers', label: 'بضاعة بالطريق وتحويلات الفروع', icon: Truck, color: 'text-amber-400', module: 'inventory', permission: 'inventory.transfer' },
     { to: '/stock-transfer-list', label: 'سجل التحويلات', icon: FileText, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory-count', label: 'جرد مخزني جديد', icon: ClipboardCheck, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
     { to: '/inventory-history', label: 'سجل عمليات الجرد', icon: History, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },

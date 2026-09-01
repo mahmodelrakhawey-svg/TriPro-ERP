@@ -642,3 +642,272 @@ export interface OrderItem {
   selectedModifiers?: SelectedModifier[];
   savedQuantity?: number;
 }
+
+// 🔁 الفواتير الدورية والاشتراكات (Recurring Invoices & Subscriptions)
+export type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'semi_annual' | 'annual' | 'custom';
+export type RecurringStatus = 'active' | 'paused' | 'completed' | 'cancelled';
+
+export interface RecurringInvoiceItem {
+  id?: string;
+  recurring_invoice_id?: string;
+  product_id?: string;
+  product_name: string;
+  product_sku?: string;
+  quantity: number;
+  uom_id?: string;
+  unit_price: number;
+  discount_percent?: number;
+  tax_percent?: number;
+  total: number;
+}
+
+export interface RecurringInvoice {
+  id: string;
+  organization_id: string;
+  subscription_number: string;
+  customer_id: string;
+  customer_name?: string;
+  customer_phone?: string;
+  warehouse_id?: string;
+  salesperson_id?: string;
+  cost_center_id?: string;
+  
+  title: string;
+  frequency: RecurringFrequency;
+  custom_interval_days?: number | null;
+  
+  start_date: string;
+  end_date?: string | null;
+  next_run_date: string;
+  last_run_date?: string | null;
+  
+  total_cycles?: number | null;
+  completed_cycles: number;
+  
+  auto_post: boolean;
+  send_whatsapp: boolean;
+  send_email: boolean;
+  
+  status: RecurringStatus;
+  
+  subtotal: number;
+  discount_type?: 'fixed' | 'percentage';
+  discount_value?: number;
+  tax_amount: number;
+  total_amount: number;
+  currency: string;
+  
+  notes?: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  
+  items?: RecurringInvoiceItem[];
+  customers?: { id: string; name: string; phone?: string };
+}
+
+export interface RecurringInvoiceLog {
+  id: string;
+  organization_id: string;
+  recurring_invoice_id: string;
+  generated_invoice_id?: string;
+  run_date: string;
+  status: 'success' | 'failed';
+  error_message?: string;
+  notified_whatsapp: boolean;
+  notified_email: boolean;
+  amount: number;
+  created_at: string;
+  invoices?: { id: string; invoice_number: string; total_amount: number };
+}
+
+// 📦 إدارة المواقع التخزينية والرفوف (WMS Bin & Shelf Locations)
+export type BinType = 'storage' | 'cold_storage' | 'fast_moving' | 'receiving' | 'shipping' | 'quarantine';
+
+export interface WarehouseBin {
+  id: string;
+  organization_id: string;
+  warehouse_id: string;
+  warehouse_name?: string;
+  
+  bin_code: string;
+  bin_name: string;
+  barcode?: string;
+  
+  zone_name: string;
+  aisle: string;
+  rack: string;
+  shelf: string;
+  bin_number: string;
+  
+  bin_type: BinType;
+  max_capacity_qty?: number;
+  max_weight_kg?: number;
+  
+  is_active: boolean;
+  notes?: string;
+  created_at?: string;
+  updated_at?: string;
+  
+  allocated_items?: BinStockAllocation[];
+  current_qty?: number;
+  occupancy_pct?: number;
+}
+
+export interface BinStockAllocation {
+  id: string;
+  organization_id: string;
+  warehouse_id: string;
+  bin_id: string;
+  product_id: string;
+  product_name?: string;
+  product_sku?: string;
+  
+  quantity: number;
+  batch_number?: string | null;
+  expiry_date?: string | null;
+  
+  last_putaway_at?: string;
+  last_picked_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  
+  bins?: WarehouseBin;
+  products?: Product;
+}
+
+// 🚚 التحويلات المخزنية والبضاعة بالطريق (In-Transit Inter-Warehouse Transfers)
+export type TransferType = 'direct' | 'in_transit';
+export type InTransitStatus = 'pending_dispatch' | 'in_transit' | 'partially_received' | 'received_full' | 'cancelled';
+
+export interface InTransitTransferItem {
+  id?: string;
+  stock_transfer_id?: string;
+  product_id: string;
+  product_name?: string;
+  product_sku?: string;
+  quantity: number;
+  dispatched_qty?: number;
+  received_qty?: number;
+  variance_qty?: number;
+  unit_cost?: number;
+  from_bin_id?: string | null;
+  to_bin_id?: string | null;
+}
+
+export interface InTransitTransfer {
+  id: string;
+  organization_id: string;
+  transfer_number: string;
+  transfer_date: string;
+  from_warehouse_id: string;
+  to_warehouse_id: string;
+  from_warehouse_name?: string;
+  to_warehouse_name?: string;
+  
+  transfer_type: TransferType;
+  in_transit_status: InTransitStatus;
+  status: 'draft' | 'posted' | 'cancelled';
+  
+  carrier_name?: string | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  vehicle_number?: string | null;
+  tracking_number?: string | null;
+  
+  dispatched_at?: string | null;
+  estimated_arrival?: string | null;
+  received_at?: string | null;
+  received_by?: string | null;
+  receipt_notes?: string | null;
+  
+  notes?: string;
+  created_at?: string;
+  items?: InTransitTransferItem[];
+}
+
+// 📑 طلبات عروض الأسعار ومناقصات الموردين (RFQ & Vendor Bidding)
+export type PurchaseRfqStatus = 'draft' | 'open' | 'under_evaluation' | 'awarded' | 'cancelled';
+
+export interface PurchaseRfqItem {
+  id?: string;
+  rfq_id?: string;
+  product_id?: string | null;
+  product_name: string;
+  product_sku?: string;
+  uom_id?: string | null;
+  quantity: number;
+  target_price?: number | null;
+  specifications?: string;
+}
+
+export interface VendorQuotationBidItem {
+  id?: string;
+  bid_id?: string;
+  rfq_item_id?: string;
+  product_id?: string | null;
+  product_name: string;
+  offered_quantity: number;
+  unit_price: number;
+  discount_percent?: number;
+  tax_percent?: number;
+  total_price: number;
+  brand_or_model?: string;
+  notes?: string;
+}
+
+export interface VendorQuotationBid {
+  id: string;
+  organization_id: string;
+  rfq_id: string;
+  supplier_id: string;
+  supplier_name?: string;
+  supplier_phone?: string;
+  
+  quotation_reference?: string;
+  bid_date: string;
+  valid_until?: string | null;
+  
+  subtotal: number;
+  tax_amount: number;
+  discount_amount: number;
+  shipping_cost: number;
+  total_amount: number;
+  currency: string;
+  
+  lead_time_days: number;
+  payment_terms: string;
+  warranty_terms?: string | null;
+  
+  is_awarded: boolean;
+  score_points?: number;
+  evaluation_notes?: string;
+  
+  created_at?: string;
+  items?: VendorQuotationBidItem[];
+}
+
+export interface PurchaseRfq {
+  id: string;
+  organization_id: string;
+  rfq_number: string;
+  title: string;
+  issue_date: string;
+  deadline_date: string;
+  
+  status: PurchaseRfqStatus;
+  target_warehouse_id?: string | null;
+  target_warehouse_name?: string;
+  
+  notes?: string;
+  created_by?: string;
+  awarded_bid_id?: string | null;
+  generated_po_id?: string | null;
+  
+  created_at?: string;
+  items?: PurchaseRfqItem[];
+  bids?: VendorQuotationBid[];
+}
+
+
+

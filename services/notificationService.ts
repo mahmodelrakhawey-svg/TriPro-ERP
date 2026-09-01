@@ -40,6 +40,15 @@ export interface Notification {
 
 class NotificationService {
   /**
+   * التحقق من صحة صيغة الـ UUID
+   */
+  private static sanitizeUuid(val?: string | null): string | null {
+    if (!val || typeof val !== 'string') return null;
+    const trimmed = val.trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+  }
+
+  /**
    * إنشاء إخطار جديد
    */
   static async createNotification(
@@ -54,17 +63,25 @@ class NotificationService {
     expiresAt?: string
   ): Promise<Notification | null> {
     try {
+      const validUserId = this.sanitizeUuid(userId);
+      const validOrgId = this.sanitizeUuid(orgId);
+      const validRelatedId = this.sanitizeUuid(relatedId);
+
+      if (!validUserId) {
+        return null;
+      }
+
       const { data, error } = await supabase
         .from('notifications')
         .insert({
-          user_id: userId,
-          organization_id: orgId,
+          user_id: validUserId,
+          organization_id: validOrgId,
           title,
           message,
           type,
           priority,
           is_read: false,
-          related_id: relatedId,
+          related_id: validRelatedId,
           action_url: actionUrl,
           created_at: new Date().toISOString(),
           expires_at: expiresAt,
@@ -73,13 +90,13 @@ class NotificationService {
         .single();
 
       if (error) {
-        console.error('Error creating notification:', error);
+        console.warn('Notice creating notification:', error.message);
         return null;
       }
 
       return data;
     } catch (err) {
-      console.error('Notification creation error:', err);
+      console.warn('Notification creation notice:', err);
       return null;
     }
   }
@@ -627,10 +644,23 @@ class NotificationService {
         this.checkUpcomingDueDates(),
         this.checkProjectPerformanceThresholds(), // 🏗️ جديد: إضافة فحص أداء المشاريع
         this.checkUpcomingRetentionReleases(),    // 🏗️ جديد: فحص محتجزات الضمان
+        this.checkDueRecurringInvoices(),         // 🔁 جديد: فحص وإصدار الفواتير الدورية والاشتراكات آلياً
       ]);
       console.log('✅ Notification checks completed');
     } catch (err) {
       console.error('Error running notification checks:', err);
+    }
+  }
+
+  /**
+   * فحص وإصدار الفواتير الدورية المستحقة آلياً
+   */
+  static async checkDueRecurringInvoices(): Promise<void> {
+    try {
+      const { RecurringInvoiceService } = await import('./recurringInvoiceService');
+      await RecurringInvoiceService.processDueRecurringInvoices();
+    } catch (err) {
+      console.error('Error checking and processing due recurring invoices:', err);
     }
   }
 

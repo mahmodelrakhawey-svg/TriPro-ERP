@@ -164,6 +164,7 @@ import UserProfile from './components/UserProfile';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
 import UnitsOfMeasureManager from './components/UnitsOfMeasureManager';
+import RecurringInvoicesManager from './modules/sales/RecurringInvoicesManager';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import FreeReturnsReport from './modules/sales/FreeReturnsReport';
 import WastageReport from './modules/inventory/WastageReport';
@@ -178,11 +179,14 @@ import PriceCheckerKiosk from './modules/retail/components/PriceCheckerKiosk';
 import CustomerFacingScreen from './modules/retail/components/CustomerDisplay/CustomerFacingScreen';
 import PromotionsManager from './modules/retail/components/Promotions/PromotionsManager';
 import VendorContractsManager from './modules/purchases/VendorContractsManager';
+import RfqBiddingManager from './modules/purchases/RfqBiddingManager';
 import GoodsReceiptManager from './modules/inventory/GoodsReceiptManager';
 import MobilePdaStocktaking from './modules/inventory/MobilePdaStocktaking';
 import ExpiryClearanceRadar from './modules/inventory/ExpiryClearanceRadar';
 import ShelfRestockReport from './modules/inventory/ShelfRestockReport';
 import HypermarketReplenishment from './modules/inventory/HypermarketReplenishment';
+import BinLocationManager from './modules/inventory/BinLocationManager';
+import InTransitTransfersManager from './modules/inventory/InTransitTransfersManager';
 import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
 import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
 import ButcheringYieldManager from './modules/restaurant/components/Management/ButcheringYieldManager';
@@ -660,6 +664,7 @@ const MainLayout = () => {
                 {/* 🛒 مديول المبيعات والعملاء */}
                 <Route path="/sales-invoice" element={<ModuleGuard module="sales"><SalesInvoiceForm /></ModuleGuard>} />
                 <Route path="/invoices-list" element={<ModuleGuard module="sales"><InvoiceList /></ModuleGuard>} />
+                <Route path="/recurring-invoices" element={<ModuleGuard module="sales"><RecurringInvoicesManager /></ModuleGuard>} />
                 <Route path="/quotations-new" element={<ModuleGuard module="sales"><QuotationForm /></ModuleGuard>} />
                 <Route path="/quotations-list" element={<ModuleGuard module="sales"><QuotationList /></ModuleGuard>} />
                 <Route path="/sales-order-new" element={<ModuleGuard module="sales"><SalesOrderForm /></ModuleGuard>} />
@@ -678,6 +683,7 @@ const MainLayout = () => {
                 <Route path="/sales-reports" element={<ModuleGuard module="sales"><SalesReports /></ModuleGuard>} />
                 
                 {/* 🚚 مديول المشتريات والموردين */}
+                <Route path="/purchases/rfq" element={<ModuleGuard module="purchases"><RfqBiddingManager /></ModuleGuard>} />
                 <Route path="/purchase-invoice" element={<ModuleGuard module="purchases"><PurchaseInvoiceForm /></ModuleGuard>} />
                 <Route path="/purchase-invoices-list" element={<ModuleGuard module="purchases"><PurchaseInvoiceList /></ModuleGuard>} />
                 <Route path="/purchase-order-new" element={<ModuleGuard module="purchases"><PurchaseOrderForm /></ModuleGuard>} />
@@ -704,7 +710,9 @@ const MainLayout = () => {
                 <Route path="/inventory/replenishment" element={<ModuleGuard module="inventory"><HypermarketReplenishment /></ModuleGuard>} />
                 <Route path="/inventory-dashboard" element={<ModuleGuard module="inventory"><InventoryDashboard /></ModuleGuard>} />
                 <Route path="/warehouses" element={<ModuleGuard module="inventory"><WarehouseManager /></ModuleGuard>} />
+                <Route path="/inventory/bins" element={<ModuleGuard module="inventory"><BinLocationManager /></ModuleGuard>} />
                 <Route path="/stock-transfer" element={<ModuleGuard module="inventory"><StockTransfer /></ModuleGuard>} />
+                <Route path="/inventory/in-transit-transfers" element={<ModuleGuard module="inventory"><InTransitTransfersManager /></ModuleGuard>} />
                 <Route path="/stock-transfer-list" element={<ModuleGuard module="inventory"><StockTransferList /></ModuleGuard>} />
                 <Route path="/inventory-count" element={<ModuleGuard module="inventory"><InventoryCountForm /></ModuleGuard>} />
                 <Route path="/inventory-history" element={<ModuleGuard module="inventory"><InventoryCountList /></ModuleGuard>} />
