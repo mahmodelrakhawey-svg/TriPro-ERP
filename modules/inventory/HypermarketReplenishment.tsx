@@ -65,36 +65,70 @@ export default function HypermarketReplenishment() {
       // 1. Fetch sales order items / invoice items from last 30 days
       const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-      const { data: salesData, error: salesErr } = await supabase
-        .from('invoice_items')
-        .select('product_id, quantity')
-        .gte('created_at', thirtyDaysAgo);
-
       // Map product sales velocity
       const salesMap: Record<string, number> = {};
-      if (!salesErr && salesData) {
-        salesData.forEach(item => {
-          if (item.product_id) {
-            salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
+
+      try {
+        let invQuery = supabase
+          .from('invoice_items')
+          .select('product_id, quantity, invoices!inner(invoice_date, status)')
+          .gte('invoices.invoice_date', thirtyDaysAgo);
+
+        if (orgId) {
+          invQuery = invQuery.eq('organization_id', orgId);
+        }
+
+        const { data: salesData, error: salesErr } = await invQuery;
+
+        if (!salesErr && salesData) {
+          salesData.forEach((item: any) => {
+            if (item.product_id) {
+              salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
+            }
+          });
+        } else if (salesErr) {
+          // Fallback if organization_id isn't directly on invoice_items
+          const { data: fallbackSales } = await supabase
+            .from('invoice_items')
+            .select('product_id, quantity, invoices!inner(invoice_date, status, organization_id)')
+            .eq('invoices.organization_id', orgId)
+            .gte('invoices.invoice_date', thirtyDaysAgo);
+
+          if (fallbackSales) {
+            fallbackSales.forEach((item: any) => {
+              if (item.product_id) {
+                salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
+              }
+            });
           }
-        });
+        }
+      } catch (e) {
+        console.warn('Invoice sales velocity query notice:', e);
       }
 
-      // Also check retail_orders if available
+      // Also check POS / Restaurant / Retail order_items if available
       try {
-        const { data: retailOrderItems } = await supabase
-          .from('retail_order_items')
-          .select('product_id, quantity')
-          .gte('created_at', thirtyDaysAgo);
+        let posQuery = supabase
+          .from('order_items')
+          .select('product_id, quantity, orders!inner(created_at, status)')
+          .gte('orders.created_at', `${thirtyDaysAgo}T00:00:00`);
 
-        if (retailOrderItems) {
-          retailOrderItems.forEach(item => {
+        if (orgId) {
+          posQuery = posQuery.eq('orders.organization_id', orgId);
+        }
+
+        const { data: posItems, error: posErr } = await posQuery;
+
+        if (!posErr && posItems) {
+          posItems.forEach((item: any) => {
             if (item.product_id) {
               salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
             }
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('POS order sales velocity query notice:', e);
+      }
 
       // 2. Build analysis per product
       const analyzed: ReplenishmentItem[] = (products || [])
@@ -243,35 +277,56 @@ export default function HypermarketReplenishment() {
         const poNumber = `PO-AUTO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
         // 1. Insert PO Header
-        const { data: poHeader, error: poErr } = await supabase
+        const poPayload: any = {
+          organization_id: orgId,
+          order_number: poNumber,
+          po_number: poNumber,
+          supplier_id: suppId !== 'unknown' ? suppId : (suppliers[0]?.id || null),
+          warehouse_id: defaultWarehouseId || null,
+          order_date: new Date().toISOString().split('T')[0],
+          status: 'posted',
+          total_amount: totalAmount,
+          notes: 'أمر شراء تلقائي مولد بواسطة محرك التنبؤ وإعادة الطلب الذكي (Predictive Hypermarket Replenishment)'
+        };
+
+        let poHeaderRes = await supabase
           .from('purchase_orders')
-          .insert([{
-            organization_id: orgId,
-            order_number: poNumber,
-            po_number: poNumber,
-            supplier_id: suppId !== 'unknown' ? suppId : suppliers[0]?.id,
-            warehouse_id: defaultWarehouseId || null,
-            order_date: new Date().toISOString().split('T')[0],
-            status: 'posted',
-            total_amount: totalAmount,
-            notes: 'أمر شراء تلقائي مولد بواسطة محرك التنبؤ وإعادة الطلب الذكي (Predictive Hypermarket Replenishment)'
-          }])
+          .insert([poPayload])
           .select()
           .single();
 
-        if (poErr) throw poErr;
+        if (poHeaderRes.error && poHeaderRes.error.message?.includes('po_number')) {
+          delete poPayload.po_number;
+          poHeaderRes = await supabase
+            .from('purchase_orders')
+            .insert([poPayload])
+            .select()
+            .single();
+        }
 
-        // 2. Insert PO Items
+        if (poHeaderRes.error) throw poHeaderRes.error;
+        const poHeader = poHeaderRes.data;
+
+        // 2. Insert PO Items with compatible schema
         const poItemsPayload = groupItems.map(item => ({
+          organization_id: orgId || null,
           purchase_order_id: poHeader.id,
           product_id: item.id,
           quantity: item.suggested_order_qty,
           unit_price: item.purchase_price,
-          total_price: item.estimated_cost,
-          item_name: item.name
+          total: item.estimated_cost
         }));
 
-        await supabase.from('purchase_order_items').insert(poItemsPayload);
+        let insRes = await supabase.from('purchase_order_items').insert(poItemsPayload);
+        if (insRes.error && (insRes.error.message?.includes('purchase_order_id') || insRes.error.message?.includes('order_id'))) {
+          const adjusted = poItemsPayload.map(item => {
+            const { purchase_order_id, ...rest } = item;
+            return { ...rest, order_id: purchase_order_id };
+          });
+          insRes = await supabase.from('purchase_order_items').insert(adjusted);
+        }
+
+        if (insRes.error) throw insRes.error;
         createdPosCount++;
       }
 
