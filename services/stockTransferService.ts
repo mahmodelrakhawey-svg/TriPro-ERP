@@ -127,7 +127,7 @@ export class StockTransferService {
       to_warehouse_id: validToWh,
       transfer_type: transferType,
       in_transit_status: inTransitStatus,
-      status: 'posted',
+      status: 'posted' as const,
       carrier_name: data.carrier_name || null,
       driver_name: data.driver_name || null,
       driver_phone: data.driver_phone || null,
@@ -210,7 +210,7 @@ export class StockTransferService {
           validOrgId,
           `شحنة تحويل جديدة #${transferNumber}`,
           `تم إنشاء شحنة تحويل بضاعة بالطريق من مستودع ${data.from_warehouse_name || ''} إلى ${data.to_warehouse_name || ''}`,
-          'info',
+          'system_alert',
           'medium',
           createdHeader.id,
           `/inventory/in-transit-transfers`
