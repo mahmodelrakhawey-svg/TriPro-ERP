@@ -40,6 +40,21 @@ const ItemMovementReport = () => {
     }
   }, [selectedFiscalYear]);
 
+  // تحديث الرصيد وجلب الحركات تلقائياً وتفاعلياً عند تغيير الصنف أو المستودع
+  useEffect(() => {
+    if (selectedProductId) {
+      const product = products.find(p => p.id === selectedProductId);
+      if (product) {
+        if (selectedWarehouseId && product.warehouse_stock && product.warehouse_stock[selectedWarehouseId] !== undefined) {
+          setCurrentStock(Number(product.warehouse_stock[selectedWarehouseId] || 0));
+        } else {
+          setCurrentStock(Number(product.stock || 0));
+        }
+      }
+      fetchMovement();
+    }
+  }, [selectedProductId, selectedWarehouseId, startDate, endDate, products]);
+
   const fetchMovement = async () => {
     if (!selectedProductId) {
         showToast('الرجاء اختيار الصنف أولاً', 'warning');
@@ -53,7 +68,13 @@ const ItemMovementReport = () => {
         ]);
         setOpeningBalance(0);
         const product = products.find(p => p.id === selectedProductId);
-        if (product) setCurrentStock(product.stock);
+        if (product) {
+          if (selectedWarehouseId && product.warehouse_stock && product.warehouse_stock[selectedWarehouseId] !== undefined) {
+            setCurrentStock(Number(product.warehouse_stock[selectedWarehouseId] || 0));
+          } else {
+            setCurrentStock(Number(product.stock || 0));
+          }
+        }
         setLoading(false);
         return;
     }
@@ -65,7 +86,13 @@ const ItemMovementReport = () => {
       if (!userOrgId) return;
 
       const product = products.find(p => p.id === selectedProductId);
-      if (product) setCurrentStock(product.stock);
+      if (product) {
+        if (selectedWarehouseId && product.warehouse_stock && product.warehouse_stock[selectedWarehouseId] !== undefined) {
+          setCurrentStock(Number(product.warehouse_stock[selectedWarehouseId] || 0));
+        } else {
+          setCurrentStock(Number(product.stock || 0));
+        }
+      }
 
       const getUserName = (id: string) => users.find(u => u.id === id)?.name || 'غير معروف';
 

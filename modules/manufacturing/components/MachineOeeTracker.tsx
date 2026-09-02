@@ -53,17 +53,16 @@ export default function MachineOeeTracker() {
   const [formOperator, setFormOperator] = useState(currentUser?.full_name || 'فني التشغيل');
   const [formNotes, setFormNotes] = useState('');
 
+  const [realWorkCenters, setRealWorkCenters] = useState<{ id: string; name: string }[]>([]);
   const orgId = organization?.id || currentSelectedOrgId || currentUser?.organization_id;
 
-  // Preset Common Factory Machines
-  const presetMachines = [
-    'خط التشكيل والكبس الهيدروليكي 01',
-    'ماكينة حقن البلاستيك المركزية 03',
-    'خط التعبئة والتغليف الآلي 02',
-    'ماكينة الخراطة والـ CNC الدقيقة 04',
-    'فرن الصهر والمعالجة الحرارية 01',
-    'خط التقطيع بالليزر وسيرفو 02'
-  ];
+  // Real Factory Machines from Work Centers
+  const availableMachines = useMemo(() => {
+    if (realWorkCenters.length > 0) {
+      return realWorkCenters.map(wc => `ماكينة / خط (${wc.name})`);
+    }
+    return ['ماكينة الإنتاج الرئيسية 01', 'خط التجميع والتشغيل 01'];
+  }, [realWorkCenters]);
 
   // Dynamic Live Calculation of OEE:
   const computedMetrics = useMemo(() => {
@@ -100,6 +99,14 @@ export default function MachineOeeTracker() {
     if (!orgId) return;
     setIsLoading(true);
     try {
+      // 1. Fetch Real Factory Work Centers
+      const { data: wcData } = await supabase
+        .from('mfg_work_centers')
+        .select('id, name')
+        .eq('organization_id', orgId);
+      if (wcData) setRealWorkCenters(wcData);
+
+      // 2. Fetch OEE Logs
       const { data, error } = await supabase
         .from('mfg_machine_oee_logs')
         .select('*')
@@ -445,16 +452,18 @@ export default function MachineOeeTracker() {
                 </button>
               </div>
 
-              {/* Quick Presets */}
+              {/* Quick Presets from Real Factory Machines */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1.5">ماكينات وخطوط الإنتاج:</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">ماكينات وخطوط الإنتاج المتاحة بالمصنع:</label>
                 <div className="flex flex-wrap gap-1.5">
-                  {presetMachines.map((m, idx) => (
+                  {availableMachines.map((m, idx) => (
                     <button
                       key={idx}
                       type="button"
                       onClick={() => setFormMachine(m)}
-                      className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-xs font-bold text-slate-600"
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        formMachine === m ? 'bg-indigo-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 text-slate-600'
+                      }`}
                     >
                       {m}
                     </button>

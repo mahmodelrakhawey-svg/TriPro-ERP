@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
-import { PackagePlus, DollarSign, X, CheckCircle } from 'lucide-react';
+import { PackagePlus, DollarSign, X, Warehouse } from 'lucide-react';
 
 interface ByProductModalProps {
   isOpen: boolean;
@@ -14,26 +14,45 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [products, setProducts] = useState<any[]>([]);
+  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     productId: '',
+    warehouseId: '',
     quantity: '',
     marketValue: ''
   });
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      const { data, error } = await supabase
+    const fetchData = async () => {
+      // 1. جلب الأصناف
+      const { data: prodData } = await supabase
         .from('products')
         .select('id, name, sku')
         .order('name', { ascending: true });
-      if (!error && data) {
-        setProducts(data);
+      if (prodData) setProducts(prodData);
+
+      // 2. جلب المستودعات
+      const { data: whData } = await supabase
+        .from('warehouses')
+        .select('id, name')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true });
+      if (whData && whData.length > 0) {
+        setWarehouses(whData);
+        // الافتراضي هو مستودع أمر الإنتاج الحالي أو أول مستودع
+        const { data: prog } = await supabase
+          .from('mfg_order_progress')
+          .select('production_order_id, mfg_production_orders(warehouse_id)')
+          .eq('id', progressId)
+          .single();
+        const defaultWh = (prog as any)?.mfg_production_orders?.warehouse_id || whData[0]?.id || '';
+        setFormData(prev => ({ ...prev, warehouseId: prev.warehouseId || defaultWh }));
       }
     };
     if (isOpen) {
-      fetchProducts();
+      fetchData();
     }
-  }, [isOpen]);
+  }, [isOpen, progressId]);
 
   if (!isOpen) return null;
 
@@ -45,12 +64,13 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
         p_progress_id: progressId,
         p_product_id: formData.productId,
         p_qty: parseFloat(formData.quantity) || 0,
-        p_market_value: parseFloat(formData.marketValue) || 0
+        p_market_value: parseFloat(formData.marketValue) || 0,
+        p_warehouse_id: formData.warehouseId || null
       });
 
       if (error) throw error;
 
-      showToast('تم تسجيل المنتج العرضي وتخفيض تكلفة الأمر بنجاح', 'success');
+      showToast('تم تسجيل المنتج العرضي وإيداعه بالمستودع وتخفيض تكلفة الأمر بنجاح ✅', 'success');
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -75,11 +95,11 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <p className="text-xs text-gray-500 bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-            ملاحظة: القيمة الإجمالية لهذا المنتج سيتم خصمها آلياً من تكلفة الإنتاج تحت التشغيل للأمر الحالي.
+            ملاحظة: سيتم إضافة هذا المنتج العرضي للمخزون فوراً، وخصم قيمته السوقية آلياً من تكلفة الإنتاج تحت التشغيل.
           </p>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">المنتج الناتج</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">المنتج الناتج (مثل: قصاقيص)</label>
             <select 
               className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
               value={formData.productId}
@@ -89,6 +109,24 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
               <option value="">-- اختر المنتج العرضي --</option>
               {products.map(p => (
                 <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1.5">
+              <Warehouse className="w-4 h-4 text-amber-500" />
+              مستودع الاستلام والإيداع
+            </label>
+            <select 
+              className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+              value={formData.warehouseId}
+              onChange={e => setFormData({...formData, warehouseId: e.target.value})}
+              required
+            >
+              <option value="">-- اختر المستودع --</option>
+              {warehouses.map(w => (
+                <option key={w.id} value={w.id}>{w.name}</option>
               ))}
             </select>
           </div>
@@ -125,7 +163,7 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
               disabled={loading}
               className="w-full bg-indigo-600 text-white font-bold py-3 rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-all flex items-center justify-center gap-2"
             >
-              {loading ? 'جاري الحفظ...' : 'تأكيد وحقن القيمة التكاليفية'}
+              {loading ? 'جاري الحفظ...' : 'تأكيد وإيداع بالمخزن'}
             </button>
           </div>
         </form>

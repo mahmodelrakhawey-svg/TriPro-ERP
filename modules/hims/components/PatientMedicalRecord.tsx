@@ -46,33 +46,14 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
     if (!patientId || patientId === '') return;
 
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(patientId);
-    if (!isUuid || patientId.startsWith('11111111-1111-4111-a111-') || patientId.startsWith('demo-')) {
-      setHistory([
-        { id: 'h-1', created_at: new Date().toISOString(), chief_complaint: 'صداع حاد وارتفاع بالضغط', diagnosis: 'ارتفاع ضغط دم أولي' },
-        { id: 'h-2', created_at: new Date(Date.now() - 86400000 * 30).toISOString(), chief_complaint: 'فحص دوري', diagnosis: 'حالة مستقرة' }
-      ]);
-      setLabResults([
-        { id: 'l-1', hims_lab_tests: { test_name: 'صورة دم كاملة (CBC)', unit: 'g/dL' }, result_value: '14.2', created_at: new Date().toISOString() },
-        { id: 'l-2', hims_lab_tests: { test_name: 'وظائف كبد (ALT)', unit: 'U/L' }, result_value: '22.0', created_at: new Date().toISOString() }
-      ]);
-      setVitalsHistory([
-        { created_at: new Date().toISOString(), vital_signs: { temp: 37.0, bp: '130/85', pulse: 78, spo2: 99 } },
-        { created_at: new Date(Date.now() - 86400000).toISOString(), vital_signs: { temp: 37.2, bp: '135/88', pulse: 82, spo2: 98 } }
-      ]);
-      setCurrentMedications([
-        { drug_name: 'أملوديبين 5 ملغ (Amlodipine)', qty: 1, dosage: 'قرص واحد يومياً', frequency: 'صباحاً' },
-        { drug_name: 'بانادول أدڤانس 500 ملغ', qty: 2, dosage: 'عند الحاجة', frequency: 'كل 8 ساعات' }
-      ]);
-      setVitalsChartData([
-        { date: '10:00', temp: 37.0, pulse: 78, spo2: 99, systolic_bp: 130, diastolic_bp: 85 },
-        { date: '14:00', temp: 37.2, pulse: 82, spo2: 98, systolic_bp: 135, diastolic_bp: 88 }
-      ]);
-      setClinicalNotes([
-        { id: 'cn-1', created_at: new Date().toISOString(), subjective: 'المريض يشكو من صداع متكرر', assessment: 'تحسن ملحوظ' }
-      ]);
-      setRadiologyReports([
-        { id: 'r-1', scan_type: 'أشعة عادية على الصدر (CXR)', report_text: 'الرئتان سليمتان ولا يوجد أي ارتجاح.', created_at: new Date().toISOString() }
-      ]);
+    if (!isUuid) {
+      setHistory([]);
+      setLabResults([]);
+      setVitalsHistory([]);
+      setCurrentMedications([]);
+      setVitalsChartData([]);
+      setClinicalNotes([]);
+      setRadiologyReports([]);
       setSurgeries([]);
       setLoading(false);
       return;

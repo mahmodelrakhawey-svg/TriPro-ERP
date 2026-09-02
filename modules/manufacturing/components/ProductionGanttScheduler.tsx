@@ -34,13 +34,7 @@ export interface WorkCenterLane {
   color: string;
 }
 
-const DEFAULT_WORK_CENTERS: WorkCenterLane[] = [
-  { id: 'wc-1', name: 'مركز التشكيل والكبس الهيدروليكي', capacity_hours_per_day: 16, efficiency_percent: 90, is_bottleneck: true, color: 'indigo' },
-  { id: 'wc-2', name: 'مركز التشغيل والـ CNC الدقيق', capacity_hours_per_day: 16, efficiency_percent: 88, is_bottleneck: false, color: 'blue' },
-  { id: 'wc-3', name: 'مركز اللحام وتجميع الهياكل', capacity_hours_per_day: 8, efficiency_percent: 85, is_bottleneck: false, color: 'amber' },
-  { id: 'wc-4', name: 'مركز المعالجة السطحية والدهان الإليكتروستاتيك', capacity_hours_per_day: 8, efficiency_percent: 92, is_bottleneck: false, color: 'purple' },
-  { id: 'wc-5', name: 'خط التعبئة والتغليف النهائي', capacity_hours_per_day: 16, efficiency_percent: 95, is_bottleneck: false, color: 'emerald' },
-];
+const LANE_COLORS = ['indigo', 'emerald', 'blue', 'purple', 'amber', 'rose', 'teal', 'cyan'];
 
 export default function ProductionGanttScheduler() {
   const { organization, currentSelectedOrgId, currentUser, products } = useAccounting();
@@ -48,7 +42,7 @@ export default function ProductionGanttScheduler() {
   const orgId = organization?.id || currentSelectedOrgId || currentUser?.organization_id;
 
   const [orders, setOrders] = useState<GanttOrder[]>([]);
-  const [workCenters, setWorkCenters] = useState<WorkCenterLane[]>(DEFAULT_WORK_CENTERS);
+  const [workCenters, setWorkCenters] = useState<WorkCenterLane[]>([]);
   const [maintenanceWindows, setMaintenanceWindows] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -73,7 +67,7 @@ export default function ProductionGanttScheduler() {
     quantity: 100,
     start_date: new Date().toISOString().split('T')[0],
     end_date: new Date(Date.now() + 4 * 86400000).toISOString().split('T')[0],
-    work_center: DEFAULT_WORK_CENTERS[0].name,
+    work_center: '',
     priority: 'HIGH' as 'HIGH' | 'MEDIUM' | 'LOW',
     status: 'released' as 'draft' | 'released' | 'in_progress',
     progress_percent: 0,
@@ -103,21 +97,52 @@ export default function ProductionGanttScheduler() {
     return days;
   }, [timelineStartDate, daysCount]);
 
-  // Fetch Production Orders & Scheduled Maintenance
+  // Fetch Real Production Orders, Work Centers & Scheduled Maintenance
   const fetchData = async () => {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      // 1. Fetch Work Orders
+      // 1. Fetch Real Factory Work Centers
+      const { data: wcData, error: wcErr } = await supabase
+        .from('mfg_work_centers')
+        .select('id, name, hourly_rate, overhead_rate')
+        .eq('organization_id', orgId)
+        .order('name');
+
+      let currentLanes: WorkCenterLane[] = [];
+      if (wcData && wcData.length > 0) {
+        currentLanes = wcData.map((wc: any, idx: number) => ({
+          id: wc.id,
+          name: wc.name,
+          capacity_hours_per_day: 16,
+          efficiency_percent: 90,
+          is_bottleneck: false,
+          color: LANE_COLORS[idx % LANE_COLORS.length]
+        }));
+      } else {
+        // Fallback lane if company has not created any work centers yet
+        currentLanes = [
+          { id: 'default-wc', name: 'مركز العمل الرئيسي', capacity_hours_per_day: 16, efficiency_percent: 90, is_bottleneck: false, color: 'indigo' }
+        ];
+      }
+      setWorkCenters(currentLanes);
+      if (currentLanes.length > 0) {
+        setNewOrderForm(prev => ({
+          ...prev,
+          work_center: prev.work_center && currentLanes.some(c => c.name === prev.work_center) ? prev.work_center : currentLanes[0].name
+        }));
+      }
+
+      // 2. Fetch Real Production Orders
       const { data: mfgData, error: mfgErr } = await supabase
         .from('mfg_production_orders')
-        .select('id, order_number, product_id, quantity_to_produce, start_date, end_date, status, notes, created_at, products(name)')
+        .select('id, order_number, product_id, quantity_to_produce, start_date, end_date, status, notes, work_center_id, priority, progress_percent, created_at, products(name), mfg_work_centers(name)')
         .eq('organization_id', orgId)
         .order('created_at', { ascending: false });
 
       if (mfgErr) throw mfgErr;
 
-      // 2. Fetch Planned Maintenance (Safe Query)
+      // 3. Fetch Real Planned Maintenance
       try {
         const { data: maintData, error: maintErr } = await supabase
           .from('mfg_maintenance_orders')
@@ -128,13 +153,15 @@ export default function ProductionGanttScheduler() {
           setMaintenanceWindows(maintData || []);
         }
       } catch (mErr) {
-        // Table may not exist yet in DB
+        // Table safe check
       }
 
       if (mfgData && mfgData.length > 0) {
         const mapped: GanttOrder[] = mfgData.map((d: any, index: number) => {
-          const assignedCenter = DEFAULT_WORK_CENTERS[index % DEFAULT_WORK_CENTERS.length].name;
-          const progress = d.status === 'completed' ? 100 : d.status === 'in_progress' ? 65 : 15;
+          const assignedCenter = d.mfg_work_centers?.name || 
+                                 currentLanes.find(l => l.id === d.work_center_id)?.name || 
+                                 currentLanes[0]?.name || 'مركز العمل الرئيسي';
+          const progress = Number(d.progress_percent ?? (d.status === 'completed' ? 100 : d.status === 'in_progress' ? 65 : 15));
           const sDate = d.start_date || (d.created_at ? d.created_at.split('T')[0] : new Date().toISOString().split('T')[0]);
           const eDate = d.end_date || (sDate ? new Date(new Date(sDate).getTime() + 4 * 86400000).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]);
 
@@ -149,104 +176,20 @@ export default function ProductionGanttScheduler() {
             status: d.status || 'released',
             work_center: assignedCenter,
             progress_percent: progress,
-            priority: index % 3 === 0 ? 'HIGH' : 'MEDIUM',
+            priority: (d.priority as any) || (index % 3 === 0 ? 'HIGH' : 'MEDIUM'),
             notes: d.notes || ''
           };
         });
         setOrders(mapped);
       } else {
-        // Mock Realistic Factory Dataset if DB is fresh
-        seedDefaultDemoOrders();
+        setOrders([]);
       }
     } catch (err: any) {
       console.warn('Gantt fetch notice:', err.message);
-      seedDefaultDemoOrders();
+      setOrders([]);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const seedDefaultDemoOrders = () => {
-    const now = new Date();
-    const addDays = (offset: number) => {
-      const d = new Date(now);
-      d.setDate(d.getDate() + offset);
-      return d.toISOString().split('T')[0];
-    };
-
-    const demo: GanttOrder[] = [
-      {
-        id: 'ord-1',
-        order_number: 'WO-2026-8801',
-        product_id: 'p1',
-        product_name: 'هيكل معدني مجلفن 200سم',
-        quantity: 250,
-        start_date: addDays(-1),
-        end_date: addDays(3),
-        status: 'in_progress',
-        work_center: 'مركز التشكيل والكبس الهيدروليكي',
-        progress_percent: 70,
-        priority: 'HIGH',
-        notes: 'طلب عاجل لمشروع برج العاصمة'
-      },
-      {
-        id: 'ord-2',
-        order_number: 'WO-2026-8802',
-        product_id: 'p2',
-        product_name: 'تروس نقل حركة برونزية CNC',
-        quantity: 120,
-        start_date: addDays(1),
-        end_date: addDays(5),
-        status: 'in_progress',
-        work_center: 'مركز التشغيل والـ CNC الدقيق',
-        progress_percent: 45,
-        priority: 'MEDIUM',
-        notes: 'دقة تشغيل ±0.01 مم'
-      },
-      {
-        id: 'ord-3',
-        order_number: 'WO-2026-8803',
-        product_id: 'p3',
-        product_name: 'شاسيهات محولات كهربائية ملحومة',
-        quantity: 50,
-        start_date: addDays(2),
-        end_date: addDays(6),
-        status: 'released',
-        work_center: 'مركز اللحام وتجميع الهياكل',
-        progress_percent: 10,
-        priority: 'HIGH',
-        notes: 'فحص جودة الأشعة السينية للحام'
-      },
-      {
-        id: 'ord-4',
-        order_number: 'WO-2026-8804',
-        product_id: 'p4',
-        product_name: 'ألواح صاج مدهونة إلكتروستاتيك',
-        quantity: 500,
-        start_date: addDays(4),
-        end_date: addDays(8),
-        status: 'released',
-        work_center: 'مركز المعالجة السطحية والدهان الإليكتروستاتيك',
-        progress_percent: 0,
-        priority: 'LOW',
-        notes: 'لون رمادي مطفي RAL 7016'
-      },
-      {
-        id: 'ord-5',
-        order_number: 'WO-2026-8805',
-        product_id: 'p5',
-        product_name: 'تغليف وتجهيز شحنات التصدير',
-        quantity: 1000,
-        start_date: addDays(5),
-        end_date: addDays(9),
-        status: 'released',
-        work_center: 'خط التعبئة والتغليف النهائي',
-        progress_percent: 0,
-        priority: 'HIGH',
-        notes: 'تعبئة وتغليف حراري منصات خشبية'
-      }
-    ];
-    setOrders(demo);
   };
 
   useEffect(() => {
@@ -319,12 +262,16 @@ export default function ProductionGanttScheduler() {
 
     try {
       if (selectedOrderForEdit.id && !selectedOrderForEdit.id.startsWith('ord-')) {
+        const targetCenter = workCenters.find(w => w.name === selectedOrderForEdit.work_center);
         await supabase
           .from('mfg_production_orders')
           .update({
             start_date: selectedOrderForEdit.start_date,
             end_date: selectedOrderForEdit.end_date,
             status: selectedOrderForEdit.status,
+            work_center_id: targetCenter?.id && targetCenter.id !== 'default-wc' ? targetCenter.id : null,
+            priority: selectedOrderForEdit.priority,
+            progress_percent: selectedOrderForEdit.progress_percent,
             notes: selectedOrderForEdit.notes
           })
           .eq('id', selectedOrderForEdit.id);
@@ -386,6 +333,8 @@ export default function ProductionGanttScheduler() {
 
     try {
       let createdId = `ord-${Date.now()}`;
+      const targetCenter = workCenters.find(w => w.name === newOrderForm.work_center);
+
       if (orgId) {
         const { data: insData, error: insErr } = await supabase
           .from('mfg_production_orders')
@@ -397,6 +346,9 @@ export default function ProductionGanttScheduler() {
             start_date: newOrderForm.start_date,
             end_date: newOrderForm.end_date,
             status: newOrderForm.status,
+            work_center_id: targetCenter?.id && targetCenter.id !== 'default-wc' ? targetCenter.id : null,
+            priority: newOrderForm.priority,
+            progress_percent: newOrderForm.progress_percent,
             notes: newOrderForm.notes || null
           })
           .select('id')

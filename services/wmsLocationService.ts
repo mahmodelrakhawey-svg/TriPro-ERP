@@ -117,7 +117,7 @@ export class WmsLocationService {
             .in('bin_id', binIds);
 
           if (allocs) {
-            allocs.forEach(a => {
+            allocs.forEach((a: any) => {
               if (!allocationsMap[a.bin_id]) allocationsMap[a.bin_id] = [];
               allocationsMap[a.bin_id].push(a);
             });
@@ -168,9 +168,10 @@ export class WmsLocationService {
     const aisle = data.aisle || 'A1';
     const rack = data.rack || 'R1';
     const shelf = data.shelf || 'S1';
-    const binNum = data.bin_number || 'B1';
+    const binNum = data.bin_number || `B${Math.floor(1 + Math.random() * 999)}`;
     const binCode = data.bin_code || `${zone.replace(/\s+/g, '')}-${aisle}-${rack}-${shelf}-${binNum}`.toUpperCase();
-    const barcode = data.barcode || `BIN-${binCode}`;
+    const randomSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+    const barcode = data.barcode?.trim() || `BIN-${validWhId.slice(0, 4).toUpperCase()}-${binCode}-${randomSuffix}`;
 
     const cleanDbPayload = {
       organization_id: validOrgId,

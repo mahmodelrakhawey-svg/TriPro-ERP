@@ -48,10 +48,11 @@ export default function MachineryMaintenanceManager() {
   const [isCompleteModalOpen, setIsCompleteModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [activeOrder, setActiveOrder] = useState<MaintenanceOrder | null>(null);
+  const [realWorkCenters, setRealWorkCenters] = useState<{ id: string; name: string }[]>([]);
 
   // Form State
   const [formOrderNum, setFormOrderNum] = useState('');
-  const [formMachine, setFormMachine] = useState('خط التشكيل والكبس الهيدروليكي 01');
+  const [formMachine, setFormMachine] = useState('');
   const [formType, setFormType] = useState<'PREVENTIVE' | 'CORRECTIVE' | 'CALIBRATION'>('PREVENTIVE');
   const [formPriority, setFormPriority] = useState<'LOW' | 'NORMAL' | 'HIGH' | 'CRITICAL'>('NORMAL');
   const [formIssue, setFormIssue] = useState('');
@@ -69,21 +70,27 @@ export default function MachineryMaintenanceManager() {
 
   const orgId = organization?.id || currentSelectedOrgId || currentUser?.organization_id;
 
-  // Preset Machines
-  const presetMachines = [
-    'خط التشكيل والكبس الهيدروليكي 01',
-    'ماكينة حقن البلاستيك المركزية 03',
-    'خط التعبئة والتغليف الآلي 02',
-    'ماكينة الخراطة والـ CNC الدقيقة 04',
-    'فرن الصهر والمعالجة الحرارية 01',
-    'خط التقطيع بالليزر وسيرفو 02'
-  ];
+  // Real Dynamic Factory Machines from Work Centers
+  const availableMachines = useMemo(() => {
+    if (realWorkCenters.length > 0) {
+      return realWorkCenters.map(wc => `ماكينة / خط (${wc.name})`);
+    }
+    return ['ماكينة الإنتاج العامة 01', 'خط التشغيل 01'];
+  }, [realWorkCenters]);
 
-  // Fetch Orders
+  // Fetch Orders & Real Centers
   const fetchOrders = async () => {
     if (!orgId) return;
     setIsLoading(true);
     try {
+      // 1. Fetch Real Factory Centers
+      const { data: wcData } = await supabase
+        .from('mfg_work_centers')
+        .select('id, name')
+        .eq('organization_id', orgId);
+      if (wcData) setRealWorkCenters(wcData);
+
+      // 2. Fetch Orders
       const { data, error } = await supabase
         .from('mfg_maintenance_orders')
         .select('*')
@@ -115,10 +122,10 @@ export default function MachineryMaintenanceManager() {
   const handleOpenNew = () => {
     const nextNum = `MAINT-${String(orders.length + 1).padStart(3, '0')}`;
     setFormOrderNum(nextNum);
-    setFormMachine('خط التشكيل والكبس الهيدروليكي 01');
+    setFormMachine(availableMachines[0] || 'ماكينة ورشة العمل');
     setFormType('PREVENTIVE');
     setFormPriority('NORMAL');
-    setFormIssue('صيانة وقائية دورية (تزييت، تشحيم، وفحص ضغط الهيدروليك)');
+    setFormIssue('صيانة وقائية دورية (فحص، تزييت وضبط المعايرة)');
     setFormScheduledDate(new Date().toISOString().split('T')[0]);
     setFormTechnician(currentUser?.full_name || 'مهندس الصيانة');
     setFormInterval(500);
@@ -510,11 +517,24 @@ export default function MachineryMaintenanceManager() {
                 </div>
 
                 <div className="md:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 mb-1">اسم الماكينة / الخط *</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">اسم الماكينة / خط الإنتاج *</label>
+                  {availableMachines.length > 0 && (
+                    <select
+                      value={formMachine}
+                      onChange={(e) => setFormMachine(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold mb-2 outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">-- اختر من ماكينات وورش المصنع --</option>
+                      {availableMachines.map((m, idx) => (
+                        <option key={idx} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  )}
                   <input
                     type="text"
                     value={formMachine}
                     onChange={(e) => setFormMachine(e.target.value)}
+                    placeholder="أو اكتب اسم الماكينة / الخط يدوياً"
                     required
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold"
                   />

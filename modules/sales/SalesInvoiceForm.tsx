@@ -145,13 +145,15 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       if (cashCustomer) setFormData(prev => ({ ...prev, customerId: cashCustomer.id }));
     }
 
-    // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات)
-    if (!formData.warehouseId) {
+    // اختيار المستودع تلقائياً (الوحيد أو المفضل من الإعدادات أو الأول في القائمة)
+    if (!formData.warehouseId && warehouses.length > 0) {
       if (warehouses.length === 1) {
         setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
       } else if (settings.defaultWarehouseId) {
         const preferred = warehouses.find(w => w.id === settings.defaultWarehouseId);
-        if (preferred) setFormData(prev => ({ ...prev, warehouseId: preferred.id }));
+        setFormData(prev => ({ ...prev, warehouseId: preferred ? preferred.id : warehouses[0].id }));
+      } else {
+        setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
       }
     }
 
@@ -1413,11 +1415,13 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   };
 
   const getProductStock = (productId?: string) => {
-      if (!productId || !formData.warehouseId) return 0;
+      if (!productId) return 0;
       const product = products.find(p => p.id === productId);
-      // 🛡️ تصحيح: عرض المخزون الخاص بالمستودع المختار حصراً لمنع تضليل المستخدم
-      const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
-      return Number(warehouseStock?.[formData.warehouseId] || 0);
+      const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock || {};
+      if (formData.warehouseId) {
+        return Number(warehouseStock[formData.warehouseId] || 0);
+      }
+      return Number(product?.stock || 0);
   };
 
   const handleSubmitToETA = async () => {
@@ -2022,8 +2026,13 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                                                 {(price || 0).toLocaleString()} <span className="text-[10px] font-normal">{formData.currency || 'EGP'}</span>
                                                             </p>
                                                         </div>
-                                                        <p className={`text-[10px] font-bold ${stock > 5 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                                        <p className={`text-[10px] font-bold ${stock > 5 ? 'text-emerald-500' : (stock > 0 ? 'text-amber-500' : 'text-red-500')}`}>
                                                             المخزون: {stock}
+                                                            {stock === 0 && Number(p.stock || 0) > 0 && (
+                                                                <span className="block text-[9px] text-blue-600 font-bold">
+                                                                    (متوفر {p.stock} في مستودع آخر)
+                                                                </span>
+                                                            )}
                                                         </p>
                                                     </div>
                                                 </button>
@@ -2084,6 +2093,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isLowStock ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
                                                         مخزون: {stock}
                                                     </span>
+                                                    {stock === 0 && Number(products.find(p => p.id === item.productId)?.stock || 0) > 0 && (
+                                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200" title="المخزون موجود في مستودع آخر، اضغط أيقونة الصندوق لمعرفة المستودع">
+                                                            (متوفر {products.find(p => p.id === item.productId)?.stock} بمستودع آخر)
+                                                        </span>
+                                                    )}
                                                                 </div>
                                                                 {activeStockViewer === item.id && (
                                                                     <ProductStockViewer 

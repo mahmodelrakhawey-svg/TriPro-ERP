@@ -17,10 +17,12 @@ interface PdaCountedItem {
 }
 
 export default function MobilePdaStocktaking() {
-  const { currentUser, currentSelectedOrgId } = useAccounting() as any;
+  const { currentUser, currentSelectedOrgId, warehouses, accounts, addEntry, recalculateStock, getSystemAccount } = useAccounting() as any;
   const { showToast } = useToast();
   const orgId = currentSelectedOrgId || currentUser?.organization_id;
 
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
+  const [autoAdjustStock, setAutoAdjustStock] = useState<boolean>(true);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [countedItems, setCountedItems] = useState<PdaCountedItem[]>([]);
   const [activeItem, setActiveItem] = useState<PdaCountedItem | null>(null);
@@ -30,6 +32,12 @@ export default function MobilePdaStocktaking() {
   const [allProducts, setAllProducts] = useState<any[]>([]);
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (warehouses && warehouses.length > 0 && !selectedWarehouseId) {
+      setSelectedWarehouseId(warehouses[0].id);
+    }
+  }, [warehouses]);
 
   const playBeep = (type: 'success' | 'warn' = 'success') => {
     try {
@@ -51,7 +59,7 @@ export default function MobilePdaStocktaking() {
     const loadProducts = async () => {
       const { data } = await supabase
         .from('products')
-        .select('id, name, barcode, barcode2, sku, stock, sales_price, shelf_location')
+        .select('id, name, barcode, barcode2, sku, stock, purchase_price, sales_price, shelf_location, warehouse_stock')
         .eq('organization_id', orgId)
         .eq('is_active', true);
       if (data) {
@@ -90,6 +98,12 @@ export default function MobilePdaStocktaking() {
 
     playBeep('success');
 
+    // Get system stock for selected warehouse if available, else overall stock
+    let sysStock = Number(matched.stock || 0);
+    if (selectedWarehouseId && matched.warehouse_stock && matched.warehouse_stock[selectedWarehouseId] !== undefined) {
+      sysStock = Number(matched.warehouse_stock[selectedWarehouseId] || 0);
+    }
+
     setCountedItems(prev => {
       const existing = prev.find(it => it.id === matched.id);
       let updated: PdaCountedItem[];
@@ -106,7 +120,7 @@ export default function MobilePdaStocktaking() {
           barcode: matched.barcode || matched.barcode2,
           sku: matched.sku,
           shelf_location: matched.shelf_location,
-          systemStock: Number(matched.stock || 0),
+          systemStock: sysStock,
           countedQty: 1,
           sales_price: Number(matched.sales_price || 0),
           lastScannedAt: new Date()
@@ -136,6 +150,9 @@ export default function MobilePdaStocktaking() {
     setIsSubmitting(true);
     try {
       const countNumber = `PDA-CNT-${Date.now().toString().slice(-6)}`;
+      const targetWhId = selectedWarehouseId || (warehouses && warehouses.length > 0 ? warehouses[0].id : null);
+
+      // 1. تسجيل كشف الجرد الفعلي
       const { data: countHeader, error: headErr } = await supabase
         .from('inventory_counts')
         .insert({
@@ -143,16 +160,118 @@ export default function MobilePdaStocktaking() {
           count_number: countNumber,
           count_date: new Date().toISOString().split('T')[0],
           status: 'completed',
-          notes: `جرد سريع بالأجهزة المحمولة PDA (${countedItems.length} صنف مسجّل) بواسطة ${currentUser?.name || 'موظف الجرد'}`
+          warehouse_id: targetWhId,
+          notes: `جرد سريع بالأجهزة المحمولة PDA (${countedItems.length} صنف مسجّل) بواسطة ${currentUser?.name || currentUser?.full_name || 'موظف الجرد'}`
         })
         .select('id')
         .single();
 
       if (headErr) {
-        console.warn('Fallback inventory count save:', headErr);
+        console.warn('Fallback inventory count save notice:', headErr);
       }
 
-      showToast(`تم حفظ واعتماد كشف الجرد السريع (${countedItems.length} صنف) بنجاح ✅`, 'success');
+      // 2. إذا كان خيار تسوية الفوارق مفعلاً، قم بإنشاء التسوية المخزنية وتعديل الرصيد والقيد
+      const varianceItems = countedItems.filter(it => it.countedQty !== it.systemStock);
+      
+      if (autoAdjustStock && varianceItems.length > 0 && targetWhId) {
+        const adjNumber = `ADJ-PDA-${Date.now().toString().slice(-6)}`;
+        
+        // أ) إنشاء رأس التسوية المخزنية
+        const { data: adjHeader, error: adjErr } = await supabase
+          .from('stock_adjustments')
+          .insert({
+            organization_id: orgId,
+            warehouse_id: targetWhId,
+            adjustment_date: new Date().toISOString().split('T')[0],
+            adjustment_number: adjNumber,
+            reason: `تسوية عجز/زيادة جرد سريع بالهاند هيلد (${countNumber}) - ${varianceItems.length} صنف به فوارق`,
+            status: 'posted',
+            created_by: currentUser?.id
+          })
+          .select('id')
+          .single();
+
+        if (adjErr) throw adjErr;
+
+        // ب) إدراج بنود التسوية (الفرق بين الفعلي ورصيد النظام)
+        const adjItemsPayload = varianceItems.map(it => {
+          const diff = it.countedQty - it.systemStock;
+          return {
+            organization_id: orgId,
+            stock_adjustment_id: adjHeader.id,
+            product_id: it.id,
+            quantity: diff, // سالب في حالة العجز، موجب في حالة الزيادة
+            type: diff < 0 ? 'out' : 'in'
+          };
+        });
+
+        const { error: itemsErr } = await supabase
+          .from('stock_adjustment_items')
+          .insert(adjItemsPayload);
+
+        if (itemsErr) throw itemsErr;
+
+        // ج) تحديث الرصيد الفعلي للمنتجات في كروت الأصناف
+        if (recalculateStock) {
+          for (const it of varianceItems) {
+            try {
+              await recalculateStock(it.id);
+            } catch (e) {}
+          }
+        }
+
+        // د) توليد القيد المحاسبي المتزن تلقائياً
+        let totalDiffValue = 0;
+        varianceItems.forEach(it => {
+          const prod = allProducts.find(p => p.id === it.id);
+          const unitCost = Number(prod?.purchase_price) || Number(it.sales_price) || 0;
+          const diff = it.countedQty - it.systemStock;
+          totalDiffValue += diff * unitCost;
+        });
+
+        if (totalDiffValue !== 0 && addEntry) {
+          const inventoryAcc = (getSystemAccount && (getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY'))) ||
+            accounts?.find((a: any) => a.code === '10302' || a.code === '10301' || a.code === '1213' || (a.name?.includes('مخزون') && !a.name?.includes('ضريب')));
+
+          let adjustmentAcc;
+          if (totalDiffValue > 0) {
+            // زيادة مخزنية (أرباح تسويات)
+            adjustmentAcc = (getSystemAccount && (getSystemAccount('REVENUE_OTHER') || getSystemAccount('OTHER_REVENUE'))) ||
+              accounts?.find((a: any) => a.code === '421' || a.code === '441' || a.name?.includes('أرباح تسوية') || a.name?.includes('زيادة المخزون'));
+          } else {
+            // عجز مخزني (خسائر تسويات الجرد)
+            adjustmentAcc = (getSystemAccount && (getSystemAccount('INVENTORY_ADJUSTMENTS') || getSystemAccount('WASTAGE_EXPENSE'))) ||
+              accounts?.find((a: any) => a.code === '512' || a.code === '5121' || a.name?.includes('عجز المخزون') || a.name?.includes('تسويات الجرد'));
+          }
+
+          if (inventoryAcc && adjustmentAcc) {
+            const lines = [];
+            const absVal = Math.abs(totalDiffValue);
+            if (totalDiffValue > 0) {
+              // زيادة: من ح/ المخزون إلى ح/ أرباح وفروقات تسوية
+              lines.push({ accountId: inventoryAcc.id, debit: absVal, credit: 0, description: `زيادة جرد PDA - ${adjNumber}` });
+              lines.push({ accountId: adjustmentAcc.id, debit: 0, credit: absVal, description: `أرباح فروقات جرد سريع - ${adjNumber}` });
+            } else {
+              // عجز: من ح/ عجز وتسويات الجرد إلى ح/ المخزون
+              lines.push({ accountId: adjustmentAcc.id, debit: absVal, credit: 0, description: `خسائر عجز جرد PDA - ${adjNumber}` });
+              lines.push({ accountId: inventoryAcc.id, debit: 0, credit: absVal, description: `تخفيض المخزون بعجز جرد - ${adjNumber}` });
+            }
+
+            await addEntry({
+              date: new Date().toISOString().split('T')[0],
+              reference: adjNumber,
+              description: `قيد تسوية جرد سريع بالهاند هيلد (${countNumber}) - عجز/زيادة ${absVal.toFixed(2)} ج.م`,
+              status: 'posted',
+              lines
+            });
+          }
+        }
+
+        showToast(`تم اعتماد الجرد وتعديل رصيد (${varianceItems.length}) أصناف وتوليد القيد المحاسبي بنجاح ✅`, 'success');
+      } else {
+        showToast(`تم حفظ محضر الجرد (${countedItems.length} صنف) بنجاح ✅`, 'success');
+      }
+
       setCountedItems([]);
       setActiveItem(null);
     } catch (err: any) {
@@ -186,6 +305,25 @@ export default function MobilePdaStocktaking() {
 
       {/* Main Container */}
       <main className="p-4 max-w-lg mx-auto w-full flex-1 flex flex-col space-y-4">
+        {/* Warehouse Selector */}
+        {warehouses && warehouses.length > 0 && (
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 flex items-center justify-between text-xs">
+            <span className="text-slate-400 font-bold flex items-center gap-1.5">
+              <PackageCheck size={14} className="text-purple-400" />
+              المستودع المجرود:
+            </span>
+            <select
+              value={selectedWarehouseId}
+              onChange={e => setSelectedWarehouseId(e.target.value)}
+              className="bg-slate-800 border border-slate-700 text-purple-200 font-bold rounded-xl px-3 py-1.5 outline-none"
+            >
+              {warehouses.map((w: any) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Barcode Scanner Input */}
         <form onSubmit={handleScanSubmit} className="relative">
           <input
@@ -329,7 +467,17 @@ export default function MobilePdaStocktaking() {
 
       {/* Bottom Sticky Action Bar */}
       {countedItems.length > 0 && (
-        <footer className="p-4 bg-slate-900 border-t border-slate-800 sticky bottom-0 z-30 shadow-2xl">
+        <footer className="p-4 bg-slate-900 border-t border-slate-800 sticky bottom-0 z-30 shadow-2xl space-y-2.5">
+          <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-300 select-none bg-slate-800/80 p-2.5 rounded-xl border border-slate-700">
+            <input
+              type="checkbox"
+              checked={autoAdjustStock}
+              onChange={e => setAutoAdjustStock(e.target.checked)}
+              className="w-4 h-4 rounded text-purple-600 focus:ring-0 focus:ring-offset-0 bg-slate-700 border-slate-600"
+            />
+            <span className="text-emerald-400">تعديل أرصدة الأصناف آلياً وتوليد قيد تسوية العجز/الزيادة</span>
+          </label>
+
           <button
             type="button"
             onClick={handleSaveInventoryCount}
@@ -337,7 +485,7 @@ export default function MobilePdaStocktaking() {
             className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-base rounded-2xl shadow-xl shadow-emerald-600/30 flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
           >
             <Send size={18} />
-            <span>{isSubmitting ? 'جاري الحفظ...' : `اعتماد كشف الجرد (${countedItems.length} صنف)`}</span>
+            <span>{isSubmitting ? 'جاري الحفظ والترحيل...' : `اعتماد كشف الجرد (${countedItems.length} صنف)`}</span>
           </button>
         </footer>
       )}

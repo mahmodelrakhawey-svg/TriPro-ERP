@@ -86,7 +86,7 @@ export default function OperatingTheaterManager() {
 
       if (error) {
         console.warn('hims_surgeries query notice:', error.message);
-        seedDefaultCases();
+        setCases([]);
       } else if (data && data.length > 0) {
         const mapped: SurgeryCase[] = data.map((d: any, idx: number) => ({
           id: d.id,
@@ -109,105 +109,14 @@ export default function OperatingTheaterManager() {
         }));
         setCases(mapped);
       } else {
-        seedDefaultCases();
+        setCases([]);
       }
     } catch (err: any) {
       console.warn('Error fetching surgeries:', err.message);
-      seedDefaultCases();
+      setCases([]);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const seedDefaultCases = () => {
-    const today = new Date().toISOString().split('T')[0];
-    const demoCases: SurgeryCase[] = [
-      {
-        id: 'sur-1',
-        surgery_name: 'استبدال مفصل ركبة كامل (Total Knee Arthroplasty)',
-        patient_name: 'الحاج إبراهيم منصور',
-        mrn: 'MRN-2026-8801',
-        lead_surgeon: 'أ.د. حسام الشريف (جراحة عظام ومفاصل)',
-        anesthesiologist: 'د. سامح عبد الفتاح (تخدير)',
-        scrub_nurse: 'م/ إيمان علي',
-        room_number: 'OR-2',
-        scheduled_start: `${today}T09:00`,
-        scheduled_end: `${today}T11:30`,
-        status: 'IN_SURGERY',
-        anesthesia_type: 'SPINAL',
-        who_sign_in: true,
-        who_time_out: true,
-        who_sign_out: false,
-        implants_used: [
-          { item: 'مفصل ركبة تيتانيوم Zimmer Biomet', serial: 'SN-994821', lot: 'LOT-2026-B', qty: 1 }
-        ],
-        estimated_blood_loss_ml: 180,
-        antibiotic_prophylaxis: true,
-        notes: 'تم إعطاء الجيل الثالث من السيفالوسبورين قبل شق الجلد بـ 30 دقيقة'
-      },
-      {
-        id: 'sur-2',
-        surgery_name: 'استئصال مرارة بالمنظار (Laparoscopic Cholecystectomy)',
-        patient_name: 'سارة خالد الدسوقي',
-        mrn: 'MRN-2026-8802',
-        lead_surgeon: 'د. ماجد فهمي (جراحة عامة ومناظير)',
-        anesthesiologist: 'د. لمياء عثمان (تخدير)',
-        scrub_nurse: 'م/ نهى كمال',
-        room_number: 'OR-1',
-        scheduled_start: `${today}T11:45`,
-        scheduled_end: `${today}T13:15`,
-        status: 'PRE_OP',
-        anesthesia_type: 'GENERAL',
-        who_sign_in: true,
-        who_time_out: false,
-        who_sign_out: false,
-        antibiotic_prophylaxis: true,
-        notes: 'صيام مؤكد، تحاليل التخثر وسيولة الدم INR 1.1 طبيعية'
-      },
-      {
-        id: 'sur-3',
-        surgery_name: 'قسطرة تشخيصية وعلاجية مع تركيب دعامة دوائية',
-        patient_name: 'محمود عبد الرازق',
-        mrn: 'MRN-2026-8803',
-        lead_surgeon: 'أ.د. عصام النجار (قسطرة وقلب)',
-        anesthesiologist: 'د. كريم يحيى (تخدير ورعاية مركزة)',
-        scrub_nurse: 'م/ أحمد رضوان',
-        room_number: 'OR-3',
-        scheduled_start: `${today}T08:30`,
-        scheduled_end: `${today}T10:00`,
-        status: 'PACU_RECOVERY',
-        anesthesia_type: 'LOCAL',
-        who_sign_in: true,
-        who_time_out: true,
-        who_sign_out: true,
-        implants_used: [
-          { item: 'دعامة دوائية شريان تاجي Resolute Onyx 3.0x18mm', serial: 'SN-MED-771', lot: 'L-4410', qty: 1 }
-        ],
-        estimated_blood_loss_ml: 20,
-        antibiotic_prophylaxis: true,
-        notes: 'مستقر بالإفاقة، علامات حيوية طبيعية، ضغط الدم 125/80'
-      },
-      {
-        id: 'sur-4',
-        surgery_name: 'إصلاح فتق إربي بالشبكة (Inguinal Hernia Mesh Repair)',
-        patient_name: 'يوسف جمال الدين',
-        mrn: 'MRN-2026-8804',
-        lead_surgeon: 'د. طارق السعيد',
-        anesthesiologist: 'د. سامح عبد الفتاح',
-        scrub_nurse: 'م/ إيمان علي',
-        room_number: 'OR-1',
-        scheduled_start: `${today}T14:00`,
-        scheduled_end: `${today}T15:30`,
-        status: 'SCHEDULED',
-        anesthesia_type: 'GENERAL',
-        who_sign_in: false,
-        who_time_out: false,
-        who_sign_out: false,
-        antibiotic_prophylaxis: true,
-        notes: 'جاهز بالقسم الداخلي بانتظار استدعاء غرفة العمليات'
-      }
-    ];
-    setCases(demoCases);
   };
 
   useEffect(() => {

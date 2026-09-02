@@ -13,6 +13,9 @@ interface ShelfItem {
   stock: number;
   min_stock_level: number;
   shelf_location: string | null;
+  bin_name?: string | null;
+  zone_name?: string | null;
+  aisle_name?: string | null;
   brand: string | null;
   category_name: string | null;
   image_url: string | null;
@@ -42,23 +45,94 @@ export default function ShelfRestockReport() {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      // 1. جلب المنتجات النشطة
+      const { data: prodsData, error: pErr } = await supabase
         .from('products')
         .select('id, name, sku, barcode, stock, min_stock_level, shelf_location, brand, image_url, sales_price, purchase_price, item_categories(name)')
         .eq('organization_id', orgId)
         .eq('is_active', true)
-        .in('product_type', ['STOCK', 'MANUFACTURED'])
-        .not('shelf_location', 'is', null)
-        .order('shelf_location', { ascending: true });
-      if (error) throw error;
-      const mapped: ShelfItem[] = (data || []).map((p: any) => ({
-        id: p.id, name: p.name, sku: p.sku, barcode: p.barcode,
-        stock: Number(p.stock || 0), min_stock_level: Number(p.min_stock_level || 0),
-        shelf_location: p.shelf_location, brand: p.brand,
-        category_name: p.item_categories?.name || null, image_url: p.image_url,
-        sales_price: Number(p.sales_price || 0), purchase_price: Number(p.purchase_price || 0),
-        shortage: Math.max(0, Number(p.min_stock_level || 0) - Number(p.stock || 0)),
-      }));
+        .in('product_type', ['STOCK', 'MANUFACTURED']);
+
+      if (pErr) throw pErr;
+
+      // 2. جلب مواقع وخانات الرفوف (WMS Bins)
+      const { data: binsData } = await supabase
+        .from('warehouse_bins')
+        .select('id, bin_code, bin_name, zone_name, aisle, rack, shelf, warehouse_id')
+        .eq('organization_id', orgId);
+
+      // 3. جلب تسكينات الأصناف على الرفوف (Bin Allocations)
+      const { data: allocsData } = await supabase
+        .from('bin_stock_allocations')
+        .select('*')
+        .eq('organization_id', orgId);
+
+      const prodsMap = new Map<string, any>((prodsData || []).map(p => [p.id, p]));
+      const binsMap = new Map<string, any>((binsData || []).map(b => [b.id, b]));
+
+      const mapped: ShelfItem[] = [];
+      const handledProductIds = new Set<string>();
+
+      // 4. إدراج الأصناف المسكنة في الرفوف (WMS)
+      if (allocsData && allocsData.length > 0) {
+        allocsData.forEach((alloc: any) => {
+          const product = prodsMap.get(alloc.product_id);
+          const bin = binsMap.get(alloc.bin_id);
+          if (product) {
+            handledProductIds.add(product.id);
+            const allocatedQty = Number(alloc.quantity) || 0;
+            const minStock = Number(product.min_stock_level) || 0;
+            const binCode = bin?.bin_code || 'رف غير محدد';
+            const aisleLabel = bin?.aisle ? `ممر ${bin.aisle}` : (bin?.zone_name || 'المنطقة A');
+
+            mapped.push({
+              id: `${alloc.id || alloc.bin_id}-${product.id}`,
+              name: product.name,
+              sku: product.sku,
+              barcode: product.barcode,
+              stock: allocatedQty,
+              min_stock_level: minStock,
+              shelf_location: binCode,
+              bin_name: bin?.bin_name,
+              zone_name: bin?.zone_name,
+              aisle_name: aisleLabel,
+              brand: product.brand,
+              category_name: product.item_categories?.name || null,
+              image_url: product.image_url,
+              sales_price: Number(product.sales_price || 0),
+              purchase_price: Number(product.purchase_price || 0),
+              shortage: Math.max(0, minStock - allocatedQty),
+            });
+          }
+        });
+      }
+
+      // 5. إدراج أي منتجات لها موقع رف يدوي سابق
+      (prodsData || []).forEach((p: any) => {
+        if (p.shelf_location && !handledProductIds.has(p.id)) {
+          const stockQty = Number(p.stock || 0);
+          const minStock = Number(p.min_stock_level) || 0;
+          mapped.push({
+            id: p.id,
+            name: p.name,
+            sku: p.sku,
+            barcode: p.barcode,
+            stock: stockQty,
+            min_stock_level: minStock,
+            shelf_location: p.shelf_location,
+            bin_name: p.shelf_location,
+            zone_name: 'Zone A',
+            aisle_name: p.shelf_location.split('-')[0].toUpperCase(),
+            brand: p.brand,
+            category_name: p.item_categories?.name || null,
+            image_url: p.image_url,
+            sales_price: Number(p.sales_price || 0),
+            purchase_price: Number(p.purchase_price || 0),
+            shortage: Math.max(0, minStock - stockQty),
+          });
+        }
+      });
+
       setItems(mapped);
     } catch (e: any) {
       showToast('فشل تحميل بيانات الرفوف: ' + e.message, 'error');
@@ -74,18 +148,20 @@ export default function ShelfRestockReport() {
       item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.sku || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.shelf_location || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (item.bin_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       (item.brand || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchMode =
       filterMode === 'all' ? true :
       filterMode === 'empty' ? item.stock === 0 :
       item.stock > 0 && item.stock < item.min_stock_level;
-    const matchAisle = selectedAisle === 'all' ? true : (item.shelf_location || '').startsWith(selectedAisle);
+    const matchAisle = selectedAisle === 'all' ? true : 
+      (item.aisle_name === selectedAisle || (item.shelf_location || '').startsWith(selectedAisle));
     return matchSearch && matchMode && matchAisle;
   });
 
   const aisleMap = new Map<string, ShelfItem[]>();
   filtered.forEach(item => {
-    const aisle = (item.shelf_location || 'بدون رف').split('-')[0].toUpperCase();
+    const aisle = item.aisle_name || (item.shelf_location || 'بدون رف').split('-')[0].toUpperCase();
     if (!aisleMap.has(aisle)) aisleMap.set(aisle, []);
     aisleMap.get(aisle)!.push(item);
   });
@@ -100,7 +176,7 @@ export default function ShelfRestockReport() {
   });
   aisleGroups.sort((a, b) => a.aisle.localeCompare(b.aisle));
 
-  const allAisles = [...new Set(items.map(i => (i.shelf_location || '').split('-')[0].toUpperCase()))].sort();
+  const allAisles = [...new Set(items.map(i => i.aisle_name || (i.shelf_location || '').split('-')[0].toUpperCase()))].sort();
   const emptyCount = items.filter(i => i.stock === 0).length;
   const lowCount = items.filter(i => i.stock > 0 && i.stock < i.min_stock_level).length;
   const totalShortage = items.reduce((s, i) => s + i.shortage, 0);
@@ -225,7 +301,7 @@ export default function ShelfRestockReport() {
         <div className="text-center py-16 bg-white rounded-xl border">
           <LayoutGrid size={48} className="text-slate-300 mx-auto mb-3" />
           <p className="text-slate-500 font-bold">لا توجد أصناف لها موقع رف محدد</p>
-          <p className="text-slate-400 text-sm mt-1">أضف موقع الرف من شاشة تعديل الصنف في قسم إعدادات الهايبر ماركت</p>
+          <p className="text-slate-400 text-sm mt-1">قم بتسكين الأصناف على الرفوف عبر شاشة (إدارة المواقع والرفوف التخزينية WMS) لتظهر هنا فورياً ومباشرة.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -234,12 +310,12 @@ export default function ShelfRestockReport() {
               {/* Aisle Header */}
               <div className={`px-4 py-3 flex items-center justify-between ${group.criticalCount > 0 ? 'bg-red-50 border-b border-red-100' : 'bg-indigo-50 border-b border-indigo-100'}`}>
                 <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-lg ${group.criticalCount > 0 ? 'bg-red-500' : 'bg-indigo-600'}`}>
+                  <div className={`px-3 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm ${group.criticalCount > 0 ? 'bg-red-500' : 'bg-indigo-600'}`}>
                     {group.aisle}
                   </div>
                   <div>
-                    <h3 className="font-black text-slate-800">ممر {group.aisle}</h3>
-                    <p className="text-xs text-slate-500">{group.items.length} صنف</p>
+                    <h3 className="font-black text-slate-800">{group.aisle.startsWith('ممر') ? group.aisle : `ممر ${group.aisle}`}</h3>
+                    <p className="text-xs text-slate-500">{group.items.length} صنف مسكّن</p>
                   </div>
                 </div>
                 <div className="flex gap-3">

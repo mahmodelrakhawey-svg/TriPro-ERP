@@ -25,46 +25,67 @@ export default function CapacityPlanningDashboard() {
   const { showToast } = useToast();
 
   const [capacities, setCapacities] = useState<WorkCenterCapacity[]>([]);
+  const [realWorkCenters, setRealWorkCenters] = useState<{ id: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [formName, setFormName] = useState('مركز التشكيل والكبس الهيدروليكي');
+  const [formName, setFormName] = useState('');
   const [formDailyCapacity, setFormDailyCapacity] = useState<number>(16); // 2 shifts = 16 hours
   const [formEfficiency, setFormEfficiency] = useState<number>(90); // 90%
-  const [formPlannedHours, setFormPlannedHours] = useState<number>(18.5); // 18.5 hours needed
+  const [formPlannedHours, setFormPlannedHours] = useState<number>(0);
   const [formNotes, setFormNotes] = useState('');
 
   const orgId = organization?.id || currentSelectedOrgId || currentUser?.organization_id;
 
-  // Preset Common Work Centers
-  const presetCenters = [
-    { name: 'مركز التشكيل والكبس الهيدروليكي', cap: 16, eff: 90, planned: 18.5 },
-    { name: 'مركز التشغيل والـ CNC الدقيق', cap: 16, eff: 88, planned: 12.0 },
-    { name: 'مركز اللحام وتجميع الهياكل', cap: 8, eff: 85, planned: 7.5 },
-    { name: 'مركز المعالجة السطحية والدهان الإليكتروستاتيك', cap: 8, eff: 92, planned: 6.0 },
-    { name: 'خط التعبئة والتغليف النهائي', cap: 16, eff: 95, planned: 14.0 }
-  ];
-
-  // Fetch Capacities
+  // Fetch Capacities & Real Factory Centers
   const fetchCapacities = async () => {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      // 1. Fetch Real Factory Work Centers
+      const { data: realCenters } = await supabase
+        .from('mfg_work_centers')
+        .select('id, name')
+        .eq('organization_id', orgId)
+        .order('name');
+
+      setRealWorkCenters(realCenters || []);
+
+      // 2. Fetch Capacities
+      const { data: capData, error } = await supabase
         .from('mfg_work_center_capacities')
         .select('*')
         .eq('organization_id', orgId)
         .order('work_center_name');
 
-      if (error) {
-        console.warn('mfg_work_center_capacities table notice:', error.message);
-        setCapacities([]);
-      } else {
-        setCapacities(data || []);
+      // Auto-sync any existing factory work center that doesn't have a capacity record yet
+      if (realCenters && realCenters.length > 0) {
+        const existingNames = new Set((capData || []).map(c => c.work_center_name));
+        const missing = realCenters.filter(r => !existingNames.has(r.name));
+        if (missing.length > 0) {
+          const toInsert = missing.map(m => ({
+            organization_id: orgId,
+            work_center_name: m.name,
+            daily_capacity_hours: 16,
+            efficiency_factor: 90,
+            current_planned_hours: 0,
+            is_bottleneck: false
+          }));
+          await supabase.from('mfg_work_center_capacities').insert(toInsert);
+          const { data: synced } = await supabase
+            .from('mfg_work_center_capacities')
+            .select('*')
+            .eq('organization_id', orgId)
+            .order('work_center_name');
+          setCapacities(synced || []);
+          return;
+        }
       }
+
+      setCapacities(capData || []);
     } catch (err: any) {
       console.error(err);
       setCapacities([]);
@@ -73,28 +94,31 @@ export default function CapacityPlanningDashboard() {
     }
   };
 
-  // Seed standard demo centers on demand (No duplicates)
+  // Sync / Reset to Real Factory Centers
   const handleSeedDefaults = async () => {
     if (!orgId) return;
     try {
-      // First delete any existing to avoid duplicates
+      if (realWorkCenters.length === 0) {
+        showToast('لم يتم العثور على مراكز عمل مسجلة في المصنع. يمكنك إضافتها أولاً', 'warning');
+        return;
+      }
       await supabase.from('mfg_work_center_capacities').delete().eq('organization_id', orgId);
       
-      const initialSeeds = presetCenters.map(p => ({
+      const toInsert = realWorkCenters.map(p => ({
         organization_id: orgId,
         work_center_name: p.name,
-        daily_capacity_hours: p.cap,
-        efficiency_factor: p.eff,
-        current_planned_hours: p.planned,
-        is_bottleneck: (p.planned / (p.cap * (p.eff / 100))) > 1.0
+        daily_capacity_hours: 16,
+        efficiency_factor: 90,
+        current_planned_hours: 0,
+        is_bottleneck: false
       }));
-      const { error } = await supabase.from('mfg_work_center_capacities').insert(initialSeeds);
+      const { error } = await supabase.from('mfg_work_center_capacities').insert(toInsert);
       if (error) throw error;
 
-      showToast('تم تحميل النماذج القياسية لمراكز العمل بنجاح 🏭', 'success');
+      showToast('تمت مزامنة مراكز العمل الفعلية للمصنع بنجاح 🏭', 'success');
       fetchCapacities();
     } catch (err: any) {
-      showToast('فشل تعيين النماذج: ' + err.message, 'error');
+      showToast('فشل المزامنة: ' + err.message, 'error');
     }
   };
 
@@ -117,10 +141,10 @@ export default function CapacityPlanningDashboard() {
   // Open Modal
   const handleOpenAddModal = () => {
     setEditingId(null);
-    setFormName('مركز التشغيل الآلي');
+    setFormName(realWorkCenters[0]?.name || '');
     setFormDailyCapacity(16);
     setFormEfficiency(90);
-    setFormPlannedHours(14);
+    setFormPlannedHours(0);
     setFormNotes('');
     setIsModalOpen(true);
   };
@@ -478,10 +502,23 @@ export default function CapacityPlanningDashboard() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="md:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 mb-1">اسم مركز العمل / المحطة *</label>
+                  {realWorkCenters.length > 0 && (
+                    <select
+                      value={formName}
+                      onChange={(e) => setFormName(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold mb-2 outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="">-- اختر من مراكز العمل المعرفة بالمصنع --</option>
+                      {realWorkCenters.map(rc => (
+                        <option key={rc.id} value={rc.name}>{rc.name}</option>
+                      ))}
+                    </select>
+                  )}
                   <input
                     type="text"
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
+                    placeholder="أو اكتب اسم مركز عمل جديد"
                     required
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold"
                   />

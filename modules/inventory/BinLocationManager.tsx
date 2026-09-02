@@ -31,6 +31,15 @@ export const BinLocationManager: React.FC = () => {
   const [activeBinForAlloc, setActiveBinForAlloc] = useState<WarehouseBin | null>(null);
   const [savingAlloc, setSavingAlloc] = useState(false);
 
+  // Picking / Deallocation Modal State
+  const [isPickModalOpen, setIsPickModalOpen] = useState(false);
+  const [activeBinForPick, setActiveBinForPick] = useState<WarehouseBin | null>(null);
+  const [activeItemForPick, setActiveItemForPick] = useState<BinStockAllocation | null>(null);
+  const [pickQuantity, setPickQuantity] = useState<number>(1);
+  const [pickActionType, setPickActionType] = useState<'discharge' | 'transfer'>('discharge');
+  const [targetBinId, setTargetBinId] = useState<string>('');
+  const [savingPick, setSavingPick] = useState(false);
+
   const [barcodeModalOpen, setBarcodeModalOpen] = useState(false);
   const [activeBinForBarcode, setActiveBinForBarcode] = useState<WarehouseBin | null>(null);
 
@@ -101,7 +110,10 @@ export const BinLocationManager: React.FC = () => {
         b.bin_code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         b.bin_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
         b.zone_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        b.allocated_items?.some(it => it.product_name?.toLowerCase().includes(searchTerm.toLowerCase()));
+        b.allocated_items?.some(it => {
+          const pName = it.product_name || products.find(p => p.id === it.product_id)?.name || '';
+          return pName.toLowerCase().includes(searchTerm.toLowerCase());
+        });
 
       const matchZone = zoneFilter === 'all' || b.zone_name === zoneFilter;
       const matchType = typeFilter === 'all' || b.bin_type === typeFilter;
@@ -127,15 +139,22 @@ export const BinLocationManager: React.FC = () => {
   const handleOpenCreateBin = () => {
     setEditingBinId(null);
     const zone = uniqueZones.length > 0 ? uniqueZones[0] : 'Zone A';
+    let nextNum = bins.length + 1;
+    let candidateCode = `${zone.replace(/\s+/g, '')}-A1-R1-S1-B${nextNum}`.toUpperCase();
+    while (bins.some(b => b.bin_code === candidateCode)) {
+      nextNum++;
+      candidateCode = `${zone.replace(/\s+/g, '')}-A1-R1-S1-B${nextNum}`.toUpperCase();
+    }
+    const barcode = `BIN-${candidateCode}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
     setBinFormData({
-      bin_code: `${zone.replace(/\s+/g, '')}-A1-R1-S1-B1`.toUpperCase(),
-      bin_name: `رف ${zone} - A1/R1`,
-      barcode: '',
+      bin_code: candidateCode,
+      bin_name: `رف ${zone} - خانة B${nextNum}`,
+      barcode: barcode,
       zone_name: zone,
       aisle: 'A1',
       rack: 'R1',
       shelf: 'S1',
-      bin_number: 'B1',
+      bin_number: `B${nextNum}`,
       bin_type: 'storage',
       max_capacity_qty: 1000,
       max_weight_kg: 500,
@@ -177,8 +196,14 @@ export const BinLocationManager: React.FC = () => {
     setSavingBin(true);
     try {
       const selectedWh = warehouses.find(w => w.id === selectedWarehouseId);
+      let finalBinCode = (binFormData.bin_code || '').trim().toUpperCase();
+      if (!editingBinId && bins.some(b => b.bin_code === finalBinCode)) {
+        finalBinCode = `${finalBinCode}-${bins.length + 1}`;
+      }
+
       const payload = {
         ...binFormData,
+        bin_code: finalBinCode,
         warehouse_id: selectedWarehouseId,
         warehouse_name: selectedWh?.name,
       };
@@ -260,6 +285,69 @@ export const BinLocationManager: React.FC = () => {
   const handleOpenBarcode = (bin: WarehouseBin) => {
     setActiveBinForBarcode(bin);
     setBarcodeModalOpen(true);
+  };
+
+  // فتح نافذة سحب / صرف من الرف
+  const handleOpenPickModal = (bin: WarehouseBin, item?: BinStockAllocation) => {
+    setActiveBinForPick(bin);
+    const selectedItem = item || (bin.allocated_items && bin.allocated_items.length > 0 ? bin.allocated_items[0] : null);
+    setActiveItemForPick(selectedItem);
+    setPickQuantity(selectedItem ? Number(selectedItem.quantity) : 1);
+    setPickActionType('discharge');
+    setTargetBinId('');
+    setIsPickModalOpen(true);
+  };
+
+  // حفظ عملية الصرف / النقل من الرف
+  const handleSavePick = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeBinForPick || !activeItemForPick) return;
+
+    const availableQty = Number(activeItemForPick.quantity) || 0;
+    if (pickQuantity <= 0) {
+      showToast('يرجى إدخال كمية صحيحة أكبر من الصفر', 'warning');
+      return;
+    }
+    if (pickQuantity > availableQty) {
+      showToast(`الكمية المطلوبة (${pickQuantity}) أكبر من المتوفر في هذا الرف (${availableQty})`, 'error');
+      return;
+    }
+
+    setSavingPick(true);
+    try {
+      // 1. خصم من الرف الحالي
+      await WmsLocationService.deallocateStockFromBin(
+        activeBinForPick.id,
+        activeItemForPick.product_id,
+        pickQuantity
+      );
+
+      // 2. إذا كان تحويل إلى رف آخر
+      if (pickActionType === 'transfer' && targetBinId) {
+        const prod = products.find(p => p.id === activeItemForPick.product_id);
+        await WmsLocationService.allocateStockToBin(
+          orgId,
+          selectedWarehouseId,
+          targetBinId,
+          activeItemForPick.product_id,
+          prod?.name || 'صنف',
+          pickQuantity,
+          activeItemForPick.batch_number,
+          activeItemForPick.expiry_date
+        );
+        const targetBinObj = bins.find(b => b.id === targetBinId);
+        showToast(`تم نقل ${pickQuantity} وحدة من الرف (${activeBinForPick.bin_code}) إلى الرف (${targetBinObj?.bin_code || targetBinId}) بنجاح 🔄`, 'success');
+      } else {
+        showToast(`تم صرف وسحب ${pickQuantity} وحدة من الرف (${activeBinForPick.bin_code}) بنجاح 📦`, 'success');
+      }
+
+      setIsPickModalOpen(false);
+      fetchBins();
+    } catch (err: any) {
+      showToast(err.message || 'فشل تنفيذ عملية الصرف', 'error');
+    } finally {
+      setSavingPick(false);
+    }
   };
 
   return (
@@ -485,14 +573,30 @@ export const BinLocationManager: React.FC = () => {
 
                   {bin.allocated_items && bin.allocated_items.length > 0 ? (
                     <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
-                      {bin.allocated_items.map((it, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded-lg border border-slate-200/60 shadow-2xs">
-                          <span className="font-bold text-slate-800 truncate max-w-[140px]">{it.product_name || 'صنف'}</span>
-                          <span className="font-mono text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
-                            {it.quantity} وحدة
-                          </span>
-                        </div>
-                      ))}
+                      {bin.allocated_items.map((it, idx) => {
+                        const prod = products.find(p => p.id === it.product_id);
+                        const displayName = it.product_name || prod?.name || 'صنف';
+                        return (
+                          <div key={idx} className="flex items-center justify-between text-xs bg-white p-2 rounded-lg border border-slate-200/60 shadow-2xs">
+                            <span className="font-bold text-slate-800 truncate max-w-[130px]" title={displayName}>
+                              {displayName}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-mono text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded">
+                                {it.quantity} وحدة
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPickModal(bin, it)}
+                                className="p-1 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded transition-all"
+                                title="صرف / سحب أو نقل من الرف"
+                              >
+                                <ArrowUpFromLine className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : (
                     <p className="text-[11px] text-slate-400 text-center py-2">الرف فارغ حالياً ومتاح للتخزين</p>
@@ -501,13 +605,26 @@ export const BinLocationManager: React.FC = () => {
 
                 {/* Card Actions */}
                 <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                  <button
-                    onClick={() => handleOpenPutAway(bin)}
-                    className="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold transition-all flex items-center gap-1"
-                  >
-                    <ArrowDownToLine className="w-3.5 h-3.5" />
-                    تسكين بضاعة
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => handleOpenPutAway(bin)}
+                      className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold transition-all flex items-center gap-1"
+                      title="تسكين بضاعة"
+                    >
+                      <ArrowDownToLine className="w-3.5 h-3.5" />
+                      تسكين
+                    </button>
+                    {(bin.current_qty || 0) > 0 && (
+                      <button
+                        onClick={() => handleOpenPickModal(bin)}
+                        className="px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg font-bold transition-all flex items-center gap-1"
+                        title="صرف / سحب أو نقل بضاعة من هذا الرف"
+                      >
+                        <ArrowUpFromLine className="w-3.5 h-3.5" />
+                        صرف / نقل
+                      </button>
+                    )}
+                  </div>
 
                   <div className="flex items-center gap-1">
                     <button
@@ -776,6 +893,170 @@ export const BinLocationManager: React.FC = () => {
       )}
 
       {/* ============================================================================== */}
+      {/* Modal: Pick / Move Stock from Bin */}
+      {/* ============================================================================== */}
+      {isPickModalOpen && activeBinForPick && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="p-6 bg-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500/20 text-amber-400 rounded-xl">
+                  <ArrowUpFromLine className="w-6 h-6" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black">صرف / نقل بضاعة من الرف</h2>
+                  <p className="text-xs text-slate-400">الرف: <span className="text-amber-400 font-mono font-bold">{activeBinForPick.bin_code}</span></p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPickModalOpen(false)}
+                className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePick} className="p-6 space-y-4">
+              {/* نوع الإجراء: صرف نهائي أم نقل لرف آخر */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-2">نوع العملية</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPickActionType('discharge')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      pickActionType === 'discharge'
+                        ? 'bg-amber-50 border-amber-400 text-amber-800 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <ArrowUpFromLine className="w-4 h-4" />
+                    صرف وتفريغ من الرف
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPickActionType('transfer')}
+                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      pickActionType === 'transfer'
+                        ? 'bg-indigo-50 border-indigo-400 text-indigo-800 shadow-xs'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    نقل إلى رف آخر
+                  </button>
+                </div>
+              </div>
+
+              {/* اختيار الصنف المراد صرفه */}
+              {activeBinForPick.allocated_items && activeBinForPick.allocated_items.length > 0 ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">اختر الصنف المراد سحبه *</label>
+                  <select
+                    required
+                    value={activeItemForPick?.id || activeItemForPick?.product_id || ''}
+                    onChange={e => {
+                      const found = activeBinForPick.allocated_items?.find(it => (it.id === e.target.value || it.product_id === e.target.value));
+                      if (found) {
+                        setActiveItemForPick(found);
+                        setPickQuantity(Number(found.quantity) || 1);
+                      }
+                    }}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none"
+                  >
+                    {activeBinForPick.allocated_items.map((it, idx) => {
+                      const prod = products.find(p => p.id === it.product_id);
+                      const name = it.product_name || prod?.name || 'صنف';
+                      return (
+                        <option key={idx} value={it.id || it.product_id}>
+                          {name} — متوفر: ({it.quantity} وحدة)
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 text-amber-800 rounded-xl text-xs font-bold">
+                  هذا الرف لا يحتوي على أصناف مسكنة حالياً.
+                </div>
+              )}
+
+              {/* الكمية المطلوبة للصرف */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-700">الكمية المسحوبة *</label>
+                  {activeItemForPick && (
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      الأقصى المتاح بالرف: <strong className="text-emerald-700">{activeItemForPick.quantity}</strong>
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0.01}
+                    max={Number(activeItemForPick?.quantity) || 9999}
+                    step="any"
+                    required
+                    value={pickQuantity}
+                    onChange={e => setPickQuantity(Number(e.target.value))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-center"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPickQuantity(Number(activeItemForPick?.quantity) || 1)}
+                    className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold whitespace-nowrap"
+                  >
+                    الكل
+                  </button>
+                </div>
+              </div>
+
+              {/* الرف الوجهة في حال النقل */}
+              {pickActionType === 'transfer' && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">اختر الرف المنقول إليه (الوجهة) *</label>
+                  <select
+                    required
+                    value={targetBinId}
+                    onChange={e => setTargetBinId(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold outline-none"
+                  >
+                    <option value="">-- اختر الرف المستهدف --</option>
+                    {bins.filter(b => b.id !== activeBinForPick.id).map(tb => (
+                      <option key={tb.id} value={tb.id}>
+                        {tb.bin_code} ({tb.bin_name}) — إشغال: {tb.occupancy_pct}%
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsPickModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPick || !activeItemForPick}
+                  className={`px-5 py-2 rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5 text-white ${
+                    pickActionType === 'transfer'
+                      ? 'bg-indigo-600 hover:bg-indigo-700'
+                      : 'bg-amber-600 hover:bg-amber-700'
+                  }`}
+                >
+                  <Check className="w-4 h-4" />
+                  {savingPick ? 'جارِ التنفيذ...' : pickActionType === 'transfer' ? 'تأكيد النقل للرف' : 'تأكيد سحب الكمية'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {/* Modal: Barcode Label & Print */}
       {/* ============================================================================== */}
       {barcodeModalOpen && activeBinForBarcode && (

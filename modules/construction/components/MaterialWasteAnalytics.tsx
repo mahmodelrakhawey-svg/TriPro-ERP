@@ -194,13 +194,7 @@ export default function MaterialWasteAnalytics() {
             completionPct = estQty > 0 ? Math.min(100, Math.round((execQty / estQty) * 100)) : 0;
           }
 
-          // If no billing recorded yet, use a realistic simulation ratio for demonstration
-          if (execQty === 0 && estQty > 0) {
-            execQty = Math.round(estQty * 0.6); // 60% executed demo default
-            completionPct = 60;
-          }
-
-          // Engineering standard material consumption heuristic
+          // Engineering standard material consumption heuristic based on actual BOQ item
           let standardRatio = 1.0;
           let materialName = 'خرسانة مسلحة جاهزة C30';
           let materialUnit = 'م3';
@@ -240,8 +234,9 @@ export default function MaterialWasteAnalytics() {
             allowedWastePct = 6.0;
           }
 
+          // Real executed quantity from billings
           const issuedRecord = issuedByBoq[boq.id];
-          const actualIssued = issuedRecord ? issuedRecord.totalQty : Math.round(execQty * standardRatio * 1.07); // 7% actual waste demo
+          const actualIssued = issuedRecord ? Number(issuedRecord.totalQty || 0) : 0;
           const theoreticalNeeded = Math.round(execQty * standardRatio * 100) / 100;
           const varianceQty = Math.round((actualIssued - theoreticalNeeded) * 100) / 100;
           const wastePct = theoreticalNeeded > 0 ? Math.round(((actualIssued - theoreticalNeeded) / theoreticalNeeded) * 1000) / 10 : 0;
@@ -278,110 +273,15 @@ export default function MaterialWasteAnalytics() {
             status
           });
         });
-      } else {
-        // Preset Demo Reconciliations if fresh DB
-        seedDefaultReconciliations();
       }
 
-      if (reconMatrix.length > 0) {
-        setBoqReconciliations(reconMatrix);
-      }
+      setBoqReconciliations(reconMatrix);
     } catch (err: any) {
       console.warn('Reconciliation fetch error:', err.message);
-      seedDefaultReconciliations();
+      setBoqReconciliations([]);
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const seedDefaultReconciliations = () => {
-    const demoItems: BOQReconciliationItem[] = [
-      {
-        boq_id: 'b-1',
-        boq_name: 'صب خرسانة مسلحة لأعمدة الدور الأرضي والأول',
-        project_id: 'p-1',
-        project_name: 'مشروع برج النور الإداري',
-        boq_unit: 'م3',
-        estimated_boq_qty: 350,
-        executed_certified_qty: 210,
-        completion_pct: 60,
-        material_name: 'حديد تسليح عالي المقاومة 16-18 مم',
-        material_unit: 'طن',
-        standard_ratio: 0.12, // 120 kg/m3 = 0.12 ton/m3
-        theoretical_needed: 25.2,
-        actual_issued: 27.6,
-        variance_qty: 2.4,
-        waste_pct: 9.5,
-        allowed_waste_pct: 3.0,
-        unit_cost: 38000,
-        excess_financial_loss: 62320,
-        status: 'CRITICAL'
-      },
-      {
-        boq_id: 'b-2',
-        boq_name: 'توريد وصب خرسانة جاهزة C30 للأساسات واللبشة',
-        project_id: 'p-1',
-        project_name: 'مشروع برج النور الإداري',
-        boq_unit: 'م3',
-        estimated_boq_qty: 600,
-        executed_certified_qty: 600,
-        completion_pct: 100,
-        material_name: 'خرسانة جاهزة سابقة الصب C30',
-        material_unit: 'م3',
-        standard_ratio: 1.025,
-        theoretical_needed: 615,
-        actual_issued: 628,
-        variance_qty: 13,
-        waste_pct: 2.1,
-        allowed_waste_pct: 2.5,
-        unit_cost: 1450,
-        excess_financial_loss: 0,
-        status: 'NORMAL'
-      },
-      {
-        boq_id: 'b-3',
-        boq_name: 'مباني قواطيع طوب أسمنتي مفرغ 20 سم',
-        project_id: 'p-2',
-        project_name: 'مشروع كمبوند الروضة السكني',
-        boq_unit: 'م2',
-        estimated_boq_qty: 4500,
-        executed_certified_qty: 2800,
-        completion_pct: 62,
-        material_name: 'طوب أسمنتي مفرغ 40x20x20',
-        material_unit: 'ألف طوبة',
-        standard_ratio: 0.0125, // 12.5 blocks/m2
-        theoretical_needed: 35.0,
-        actual_issued: 37.8,
-        variance_qty: 2.8,
-        waste_pct: 8.0,
-        allowed_waste_pct: 4.0,
-        unit_cost: 2200,
-        excess_financial_loss: 3080,
-        status: 'CRITICAL'
-      },
-      {
-        boq_id: 'b-4',
-        boq_name: 'أعمال بياض ومحارة أسمنتية داخلية للواجهات',
-        project_id: 'p-2',
-        project_name: 'مشروع كمبوند الروضة السكني',
-        boq_unit: 'م2',
-        estimated_boq_qty: 8000,
-        executed_certified_qty: 4200,
-        completion_pct: 52,
-        material_name: 'أسمنت بورتلاندي ممتاز معبأ',
-        material_unit: 'طن',
-        standard_ratio: 0.018, // 18 kg cement/m2
-        theoretical_needed: 75.6,
-        actual_issued: 78.8,
-        variance_qty: 3.2,
-        waste_pct: 4.2,
-        allowed_waste_pct: 3.5,
-        unit_cost: 2300,
-        excess_financial_loss: 1219,
-        status: 'WARNING'
-      }
-    ];
-    setBoqReconciliations(demoItems);
   };
 
   useEffect(() => {
