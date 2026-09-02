@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
+import { supabaseUrl } from '../supabaseClient';
 import { LogIn, AlertCircle, Loader2, ShieldCheck, PlayCircle } from 'lucide-react';
 
 const Login = () => {
@@ -26,6 +27,8 @@ const Login = () => {
           msg = 'بيانات الدخول غير صحيحة (تأكد من كتابة البريد وكلمة المرور كما تم إنشاؤهما في Supabase)';
         } else if (msg.includes('Email not confirmed')) {
           msg = 'البريد الإلكتروني غير مفعّل بعد في Supabase (اضغط على Confirm User بجانب المستخدم في Supabase)';
+        } else if (msg.includes('Invalid path specified in request URL')) {
+          msg = `رابط Supabase غير صحيح. يرجى التأكد في Vercel أن VITE_SUPABASE_URL هو: https://your-id.supabase.co فقط بدون /rest/v1 وبدون أي مسار إضافي.`;
         } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
           msg = 'تعذر الاتصال بقاعدة البيانات (تحقق من صحة رابط VITE_SUPABASE_URL في Vercel)';
         }
@@ -127,8 +130,11 @@ const Login = () => {
           </button>
         </form>
 
-        <div className="mt-8 text-center text-xs text-slate-400 font-medium">
+        <div className="mt-8 text-center text-xs text-slate-400 font-medium space-y-1">
           <p>الإصدار 7.0.0 - TriPro ERP © {new Date().getFullYear()}. جميع الحقوق محفوظة</p>
+          <p className="text-[11px] text-slate-400 opacity-60 font-mono" dir="ltr">
+            Host: {supabaseUrl || 'Not Configured'}
+          </p>
         </div>
       </div>
     </div>
