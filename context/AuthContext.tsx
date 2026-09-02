@@ -255,18 +255,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       
       if (error) {
-        // Don't expose internal error details in production
-        if (process.env.NODE_ENV === 'development') {
-          console.error('Login error:', error);
-        }
-        return { success: false, message: 'بيانات الدخول غير صحيحة' };
+        console.error('Login error:', error);
+        return { success: false, message: error.message || 'بيانات الدخول غير صحيحة' };
       }
       return { success: true };
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Login exception:', error);
-      }
-      return { success: false, message: 'حدث خطأ في تسجيل الدخول' };
+    } catch (error: any) {
+      console.error('Login exception:', error);
+      return { success: false, message: error?.message || 'حدث خطأ في الاتصال بنظام تسجيل الدخول' };
     }
   };
 

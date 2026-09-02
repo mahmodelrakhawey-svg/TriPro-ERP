@@ -21,9 +21,14 @@ const Login = () => {
       if (!result.success) {
         // تحسين رسالة الخطأ لتكون مفهومة
         let msg = result.message || 'فشل تسجيل الدخول';
-        console.log('Login Error Detail:', result.message); // سطر لمساعدتك في معرفة السبب الحقيقي
-        if (msg.includes('Invalid login credentials')) msg = 'بيانات الدخول غير صحيحة (اسم المستخدم أو كلمة المرور خطأ)';
-        if (msg.includes('Email not confirmed')) msg = 'البريد الإلكتروني غير مفعل';
+        console.log('Login Error Detail:', result.message);
+        if (msg.includes('Invalid login credentials')) {
+          msg = 'بيانات الدخول غير صحيحة (تأكد من كتابة البريد وكلمة المرور كما تم إنشاؤهما في Supabase)';
+        } else if (msg.includes('Email not confirmed')) {
+          msg = 'البريد الإلكتروني غير مفعّل بعد في Supabase (اضغط على Confirm User بجانب المستخدم في Supabase)';
+        } else if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+          msg = 'تعذر الاتصال بقاعدة البيانات (تحقق من صحة رابط VITE_SUPABASE_URL في Vercel)';
+        }
         setError(msg);
       }
     } catch (err) {
