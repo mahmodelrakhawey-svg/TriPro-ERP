@@ -14,7 +14,7 @@ import { PurchaseOrderPrint } from './PurchaseOrderPrint';
 export const PurchaseOrderList = () => {
   const { 
     suppliers, warehouses, currentUser, settings, 
-    convertPoToInvoice, selectedFiscalYear, fiscalYearRange 
+    convertPoToInvoice, selectedFiscalYear, fiscalYearRange, currentSelectedOrgId 
   } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -59,7 +59,7 @@ export const PurchaseOrderList = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
       if (!userOrgId) {
         setLoading(false);
         return;

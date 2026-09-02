@@ -12,7 +12,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';
 
 const PurchaseOrderForm = () => {
-  const { suppliers, products, warehouses, currentUser, settings, convertPoToInvoice } = useAccounting();
+  const { suppliers, products, warehouses, currentUser, settings, convertPoToInvoice, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -56,7 +56,7 @@ const PurchaseOrderForm = () => {
   const fetchOrderIds = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
       if (!userOrgId) return;
 
       const { data, error } = await supabase
@@ -122,7 +122,7 @@ const PurchaseOrderForm = () => {
       setFormData({
         supplierId: po.supplier_id || '',
         date: po.order_date || new Date().toISOString().split('T')[0],
-        deliveryDate: po.expected_delivery_date || '',
+        deliveryDate: po.expected_delivery_date || po.delivery_date || '',
         orderNumber: po.po_number || po.order_number || '',
         notes: po.notes || '',
         status: po.status || 'draft'
@@ -273,20 +273,35 @@ const PurchaseOrderForm = () => {
 
   const deletePoItems = async (orderId: string) => {
     let delRes = await supabase.from('purchase_order_items').delete().eq('purchase_order_id', orderId);
-    if (delRes.error && delRes.error.message?.includes('purchase_order_id')) {
+    if (delRes.error && (delRes.error.code === 'PGRST204' || delRes.error.message?.includes('purchase_order_id'))) {
       delRes = await supabase.from('purchase_order_items').delete().eq('order_id', orderId);
     }
     return delRes.error;
   };
 
   const insertPoItems = async (itemsList: any[]) => {
-    let insRes = await supabase.from('purchase_order_items').insert(itemsList);
-    if (insRes.error && insRes.error.message?.includes('purchase_order_id')) {
-      const adjusted = itemsList.map(item => {
-        const { purchase_order_id, ...rest } = item;
-        return { ...rest, order_id: purchase_order_id };
-      });
-      insRes = await supabase.from('purchase_order_items').insert(adjusted);
+    let currentItems = itemsList.map(item => ({ ...item }));
+    let insRes = await supabase.from('purchase_order_items').insert(currentItems);
+
+    // معالجة ذكية لأي أعمدة غير متوفرة في المخطط
+    while (insRes.error && (insRes.error.code === 'PGRST204' || insRes.error.message?.includes('schema cache'))) {
+      const colMatch = insRes.error.message?.match(/Could not find the '([^']+)' column/);
+      if (colMatch && colMatch[1]) {
+        currentItems = currentItems.map(item => {
+          const clone = { ...item };
+          delete clone[colMatch[1]];
+          return clone;
+        });
+        insRes = await supabase.from('purchase_order_items').insert(currentItems);
+      } else if (insRes.error.message?.includes('purchase_order_id')) {
+        currentItems = currentItems.map(item => {
+          const { purchase_order_id, ...rest } = item;
+          return { ...rest, order_id: purchase_order_id };
+        });
+        insRes = await supabase.from('purchase_order_items').insert(currentItems);
+      } else {
+        break;
+      }
     }
     return insRes.error;
   };
@@ -318,10 +333,11 @@ const PurchaseOrderForm = () => {
     }
 
     try {
-      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
       if (!userOrgId) throw new Error("تعذر تحديد المنظمة. يرجى إعادة تسجيل الدخول.");
 
       const poNumber = formData.orderNumber || `PO-${Date.now().toString().slice(-6)}`;
+      const safeDeliveryDate = formData.deliveryDate && formData.deliveryDate.trim() ? formData.deliveryDate.trim() : null;
 
       let poId = editingId;
 
@@ -330,28 +346,30 @@ const PurchaseOrderForm = () => {
         const updatePayload: any = {
           supplier_id: formData.supplierId,
           po_number: poNumber,
+          order_number: poNumber,
           order_date: formData.date,
-          expected_delivery_date: formData.deliveryDate || null,
+          expected_delivery_date: safeDeliveryDate,
+          delivery_date: safeDeliveryDate,
+          subtotal: subtotal || (totalAmount - taxAmount),
           total_amount: totalAmount,
           tax_amount: taxAmount,
-          notes: formData.notes
+          status: formData.status || 'draft',
+          notes: formData.notes || null
         };
 
         let updateRes = await supabase.from('purchase_orders').update(updatePayload).eq('id', editingId);
-        if (updateRes.error) {
-          if (updateRes.error.message?.includes('po_number')) {
-            delete updatePayload.po_number;
-            updatePayload.order_number = poNumber;
-          }
-          if (updateRes.error.message?.includes('expected_delivery_date')) {
-            delete updatePayload.expected_delivery_date;
-          }
-          updateRes = await supabase.from('purchase_orders').update(updatePayload).eq('id', editingId);
-          if (updateRes.error && updateRes.error.message?.includes('expected_delivery_date')) {
-            delete updatePayload.expected_delivery_date;
+
+        // حلقة تكرار ذكية لحذف أي عمود غير موجود في جدول purchase_orders
+        while (updateRes.error && (updateRes.error.code === 'PGRST204' || updateRes.error.message?.includes('schema cache'))) {
+          const colMatch = updateRes.error.message?.match(/Could not find the '([^']+)' column/);
+          if (colMatch && colMatch[1] && updatePayload[colMatch[1]] !== undefined) {
+            delete updatePayload[colMatch[1]];
             updateRes = await supabase.from('purchase_orders').update(updatePayload).eq('id', editingId);
+          } else {
+            break;
           }
         }
+
         if (updateRes.error) throw updateRes.error;
 
         await deletePoItems(editingId);
@@ -359,9 +377,10 @@ const PurchaseOrderForm = () => {
         const itemsToInsert = items.map(item => ({
           organization_id: userOrgId,
           purchase_order_id: editingId,
+          order_id: editingId,
           product_id: item.productId,
-          quantity: Number(item.quantity),
-          unit_price: Number(item.unitPrice),
+          quantity: Number(item.quantity) || 1,
+          unit_price: Number(item.unitPrice) || 0,
           uom_id: item.uomId || null,
           total: Number(item.quantity) * Number(item.unitPrice)
         }));
@@ -377,29 +396,30 @@ const PurchaseOrderForm = () => {
           organization_id: userOrgId,
           supplier_id: formData.supplierId,
           po_number: poNumber,
+          order_number: poNumber,
           order_date: formData.date,
-          expected_delivery_date: formData.deliveryDate || null,
+          expected_delivery_date: safeDeliveryDate,
+          delivery_date: safeDeliveryDate,
+          subtotal: subtotal || (totalAmount - taxAmount),
           total_amount: totalAmount,
           tax_amount: taxAmount,
-          status: 'sent',
-          notes: formData.notes
+          status: formData.status || 'sent',
+          notes: formData.notes || null
         };
 
         let insertRes = await supabase.from('purchase_orders').insert(insertPayload).select().single();
-        if (insertRes.error) {
-          if (insertRes.error.message?.includes('po_number')) {
-            delete insertPayload.po_number;
-            insertPayload.order_number = poNumber;
-          }
-          if (insertRes.error.message?.includes('expected_delivery_date')) {
-            delete insertPayload.expected_delivery_date;
-          }
-          insertRes = await supabase.from('purchase_orders').insert(insertPayload).select().single();
-          if (insertRes.error && insertRes.error.message?.includes('expected_delivery_date')) {
-            delete insertPayload.expected_delivery_date;
+
+        // حلقة تكرار ذكية لحذف أي عمود غير موجود في جدول purchase_orders
+        while (insertRes.error && (insertRes.error.code === 'PGRST204' || insertRes.error.message?.includes('schema cache'))) {
+          const colMatch = insertRes.error.message?.match(/Could not find the '([^']+)' column/);
+          if (colMatch && colMatch[1] && insertPayload[colMatch[1]] !== undefined) {
+            delete insertPayload[colMatch[1]];
             insertRes = await supabase.from('purchase_orders').insert(insertPayload).select().single();
+          } else {
+            break;
           }
         }
+
         if (insertRes.error) throw insertRes.error;
         const po = insertRes.data;
         poId = po.id;
@@ -407,9 +427,10 @@ const PurchaseOrderForm = () => {
         const itemsToInsert = items.map(item => ({
           organization_id: userOrgId,
           purchase_order_id: po.id,
+          order_id: po.id,
           product_id: item.productId,
-          quantity: Number(item.quantity),
-          unit_price: Number(item.unitPrice),
+          quantity: Number(item.quantity) || 1,
+          unit_price: Number(item.unitPrice) || 0,
           uom_id: item.uomId || null,
           total: Number(item.quantity) * Number(item.unitPrice)
         }));
@@ -426,8 +447,8 @@ const PurchaseOrderForm = () => {
       }
 
     } catch (error: any) {
-      console.error(error);
-      showToast('فشل حفظ أمر الشراء: ' + error.message, 'error');
+      console.error('Error saving PO:', error);
+      showToast('فشل حفظ أمر الشراء: ' + (error.message || 'حدث خطأ أثناء الاتصال بقاعدة البيانات'), 'error');
     } finally {
       setSaving(false);
     }

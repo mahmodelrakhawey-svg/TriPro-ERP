@@ -369,41 +369,73 @@ export class RfqService {
       }
 
       // 2. إنشاء أمر الشراء الرسمي Purchase Order في جدول purchase_orders
+      const deliveryDateStr = new Date(Date.now() + (winningBid.lead_time_days || 3) * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const extraNotesParts: string[] = [];
+      if (winningBid.discount_amount) extraNotesParts.push(`الخصم: ${winningBid.discount_amount}`);
+      if (winningBid.shipping_cost) extraNotesParts.push(`تكلفة الشحن: ${winningBid.shipping_cost}`);
+      if (winningBid.payment_terms) extraNotesParts.push(`شروط السداد: ${winningBid.payment_terms}`);
+      const extraNotes = extraNotesParts.length > 0 ? ` (${extraNotesParts.join(' | ')})` : '';
+
       const poPayload: any = {
         organization_id: validOrgId,
         po_number: poNumber,
+        order_number: poNumber,
         supplier_id: this.sanitizeUuid(winningBid.supplier_id),
         order_date: today,
-        expected_delivery_date: new Date(Date.now() + (winningBid.lead_time_days || 3) * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        delivery_date: deliveryDateStr,
+        expected_delivery_date: deliveryDateStr,
         subtotal: Number(winningBid.subtotal) || 0,
         tax_amount: Number(winningBid.tax_amount) || 0,
-        discount_amount: Number(winningBid.discount_amount) || 0,
-        shipping_cost: Number(winningBid.shipping_cost) || 0,
         total_amount: Number(winningBid.total_amount) || 0,
         status: 'approved',
-        payment_terms: winningBid.payment_terms || 'آجل 30 يوم',
-        notes: `تم التوليد والترسية آلياً بناءً على طلب عروض الأسعار #${rfq?.rfq_number || ''} (${rfq?.title || ''})`,
+        notes: `تم التوليد والترسية آلياً بناءً على طلب عروض الأسعار #${rfq?.rfq_number || ''} (${rfq?.title || ''})${extraNotes}`,
         created_by: this.sanitizeUuid(userId),
       };
 
       try {
-        const { data: createdPo } = await supabase
+        let insertRes = await supabase
           .from('purchase_orders')
           .insert(poPayload)
           .select()
           .single();
 
+        while (insertRes.error && (insertRes.error.code === 'PGRST204' || insertRes.error.message?.includes('schema cache'))) {
+          const colMatch = insertRes.error.message?.match(/Could not find the '([^']+)' column/);
+          if (colMatch && colMatch[1] && poPayload[colMatch[1]] !== undefined) {
+            delete poPayload[colMatch[1]];
+            insertRes = await supabase.from('purchase_orders').insert(poPayload).select().single();
+          } else {
+            break;
+          }
+        }
+
+        const createdPo = insertRes.data;
+
         if (createdPo && winningBid.items && winningBid.items.length > 0) {
-          const poItemsData = winningBid.items.map(it => ({
+          let poItemsData = winningBid.items.map(it => ({
+            organization_id: validOrgId,
             purchase_order_id: createdPo.id,
+            order_id: createdPo.id,
             product_id: this.sanitizeUuid(it.product_id),
             quantity: Number(it.offered_quantity) || 1,
             unit_price: Number(it.unit_price) || 0,
-            tax_percent: Number(it.tax_percent) ?? 14,
-            total_price: Number(it.total_price) || 0,
+            total: Number(it.total_price) || (Number(it.offered_quantity) * Number(it.unit_price)) || 0,
           }));
 
-          await supabase.from('purchase_order_items').insert(poItemsData);
+          let itemsRes = await supabase.from('purchase_order_items').insert(poItemsData);
+          while (itemsRes.error && (itemsRes.error.code === 'PGRST204' || itemsRes.error.message?.includes('schema cache'))) {
+            const colMatch = itemsRes.error.message?.match(/Could not find the '([^']+)' column/);
+            if (colMatch && colMatch[1]) {
+              poItemsData = poItemsData.map(it => {
+                const clone = { ...it };
+                delete (clone as any)[colMatch[1]];
+                return clone;
+              });
+              itemsRes = await supabase.from('purchase_order_items').insert(poItemsData);
+            } else {
+              break;
+            }
+          }
 
           if (validRfqId) {
             await supabase
