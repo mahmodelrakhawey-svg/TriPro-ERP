@@ -353,23 +353,52 @@ export default function VendorContractsManager() {
           return child ? child.id : null;
         };
 
-        const supplierAcc =
-          leafAccounts.find(a => a.code === '20101' || a.code === '211' || a.code === '201001' || a.name?.includes('موردين') || a.name?.includes('الموردين'))?.id ||
-          getLeaf(getSystemAccount('SUPPLIERS')) ||
-          leafAccounts.find(a => String(a.type).toLowerCase() === 'liability')?.id;
+        // 1. تحديد حساب المورد الدقيق (التزام/خصوم متداولة فقط واستبعاد أي حساب أصول أو دفعات مقدمة)
+        const vendorObj = suppliers.find(s => s.id === contract.vendor_id || s.name === contract.vendor_name);
+        const specificVendorAccId = vendorObj?.account_id || (vendorObj as any)?.accountId;
 
-        // إيرادات إيجار الأرفف: حساب إيرادات فرعي 421 أو إيراد إيجار أرفف (وليس 413 خصم مسموح به)
+        const vendorNameMatchAcc = vendorObj?.name
+          ? leafAccounts.find(a => 
+              String(a.type).toLowerCase() === 'liability' &&
+              (a.name?.trim().toLowerCase() === vendorObj.name.trim().toLowerCase() ||
+               a.name?.includes(vendorObj.name)) &&
+              !a.name?.includes('مقدم') && !a.name?.includes('دفعات')
+            )?.id
+          : null;
+
+        const systemSuppliersAcc = getLeaf(getSystemAccount('SUPPLIERS'));
+
+        const coaSuppliersAcc =
+          leafAccounts.find(a => 
+            String(a.type).toLowerCase() === 'liability' && 
+            (a.code === '201' || a.code === '20101' || a.code === '201001' || a.code?.startsWith('201')) &&
+            !a.name?.includes('مقدم') && !a.name?.includes('دفعات')
+          )?.id ||
+          leafAccounts.find(a => 
+            String(a.type).toLowerCase() === 'liability' && 
+            (a.name?.includes('موردين') || a.name?.includes('الموردين') || a.name?.includes('مورد')) &&
+            !a.name?.includes('مقدم') && !a.name?.includes('دفعات')
+          )?.id;
+
+        const supplierAcc = 
+          specificVendorAccId ||
+          vendorNameMatchAcc ||
+          systemSuppliersAcc ||
+          coaSuppliersAcc ||
+          leafAccounts.find(a => String(a.type).toLowerCase() === 'liability' && !a.name?.includes('مقدم') && !a.name?.includes('دفعات'))?.id;
+
+        // 2. إيرادات إيجار الأرفف والمساحات الترويجية (حساب إيراد 42101 أو إيرادات متنوعة 421)
         const shelfRentalAcc =
-          leafAccounts.find(a => a.name?.includes('إيجار أرفف') || a.name?.includes('مساحات ترويجية') || a.name?.includes('إيرادات إيجار'))?.id ||
-          leafAccounts.find(a => (a.code === '421' || a.code === '441' || a.code === '4201' || a.name?.includes('إيرادات متنوعة') || a.name?.includes('إيرادات أخرى')) && !a.name?.includes('مسموح') && !a.name?.includes('ضريب'))?.id ||
+          getLeaf(getSystemAccount('SHELF_RENTAL_REVENUE')) ||
+          leafAccounts.find(a => (a.code === '42101' || a.name?.includes('إيجار أرفف') || a.name?.includes('مساحات ترويجية') || a.name?.includes('إيرادات إيجار')) && !a.name?.includes('مسموح'))?.id ||
           getLeaf(getSystemAccount('REVENUE_OTHER')) ||
+          leafAccounts.find(a => (a.code === '421' || a.name?.includes('إيرادات متنوعة') || a.name?.includes('إيرادات أخرى')) && !a.name?.includes('مسموح') && !a.name?.includes('ضريب'))?.id ||
           leafAccounts.find(a => String(a.type).toLowerCase() === 'revenue' && !a.name?.includes('مسموح') && !a.name?.includes('مبيعات'))?.id;
 
-        // الخصم المكتسب من الموردين
+        // 3. الخصم المكتسب وبوانص الموردين (حساب إيراد 42102 أو خصم مكتسب)
         const rebateAcc =
-          leafAccounts.find(a => (a.name?.includes('خصم مكتسب') || a.name?.includes('بوانص')) && !a.name?.includes('مسموح'))?.id ||
           getLeaf(getSystemAccount('EARNED_DISCOUNTS')) ||
-          leafAccounts.find(a => (a.code === '512' || a.code === '412' || a.code === '5112' || a.code === '421') && !a.name?.includes('مسموح'))?.id ||
+          leafAccounts.find(a => (a.code === '42102' || a.name?.includes('خصم مكتسب') || a.name?.includes('بوانص')) && !a.name?.includes('مسموح'))?.id ||
           shelfRentalAcc;
 
         if (supplierAcc && (shelfRentalAcc || rebateAcc)) {

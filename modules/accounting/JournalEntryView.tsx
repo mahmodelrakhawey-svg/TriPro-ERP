@@ -12,9 +12,12 @@ const getEntrySource = (reference: string = '', description: string = '') => {
     const desc = (description || '').trim();
 
     // 1. فواتير ومرتجعات وإشعارات المبيعات
-    if (ref.startsWith('INV-')) return { label: 'فاتورة مبيعات', color: 'bg-blue-100 text-blue-700' };
-    if (ref.startsWith('SR-') || ref.startsWith('SRET-')) return { label: 'مرتجع مبيعات', color: 'bg-blue-50 text-blue-600' };
+    if (ref.startsWith('INV-') || ref.startsWith('REC-INV-') || ref.startsWith('POS-') || ref.startsWith('SI-') || desc.includes('فاتورة مبيعات')) {
+        return { label: 'فاتورة مبيعات', color: 'bg-blue-100 text-blue-700' };
+    }
+    if (ref.startsWith('SR-') || ref.startsWith('SRET-') || desc.includes('مرتجع مبيعات')) return { label: 'مرتجع مبيعات', color: 'bg-blue-50 text-blue-600' };
     if (ref.startsWith('CN-') || desc.includes('إشعار دائن')) return { label: 'إشعار دائن', color: 'bg-cyan-100 text-cyan-800' };
+    if (ref.startsWith('REB-') || desc.includes('بونص') || desc.includes('إيجار رف')) return { label: 'بونص وإيجار أرفف', color: 'bg-amber-100 text-amber-800' };
 
     // 2. فواتير ومرتجعات وإشعارات المشتريات
     if (ref.startsWith('PUR-') || ref.startsWith('PINV-') || ref.startsWith('PI-')) return { label: 'فاتورة مشتريات', color: 'bg-purple-100 text-purple-700' };

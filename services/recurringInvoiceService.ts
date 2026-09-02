@@ -657,7 +657,7 @@ export class RecurringInvoiceService {
         tax_amount: Number(sub.tax_amount) || 0,
         total_amount: Number(sub.total_amount) || 0,
         paid_amount: 0,
-        status: sub.auto_post ? 'posted' : 'draft',
+        status: 'draft', // دائماً مسودة أولاً ليتولى محرك الاعتماد الترحيل وتوليد القيود
         currency: sub.currency || 'EGP',
         exchange_rate: 1,
         notes: `تم الإصدار آلياً بناءً على الاشتراك الدوري #${sub.subscription_number} (${sub.title})`,
@@ -681,6 +681,7 @@ export class RecurringInvoiceService {
           // 2. إدخال بنود الفاتورة
           if (sub.items && sub.items.length > 0) {
             const invoiceItemsData = sub.items.map((it: any) => ({
+              organization_id: validOrgId,
               invoice_id: createdInvoice.id,
               product_id: this.sanitizeUuid(it.product_id),
               quantity: Number(it.quantity) || 1,
@@ -690,6 +691,22 @@ export class RecurringInvoiceService {
             }));
 
             await supabase.from('invoice_items').insert(invoiceItemsData);
+          }
+
+          // 3. 🚀 الترحيل الآلي وتوليد القيود المحاسبية وتحديث المخزون
+          if (sub.auto_post) {
+            try {
+              const { error: postError } = await supabase.rpc('post_sales_invoice', {
+                p_invoice_id: createdInvoice.id,
+                p_org_id: validOrgId || null,
+                p_warehouse_id: this.sanitizeUuid(sub.warehouse_id) || null
+              });
+              if (postError) {
+                console.warn('post_sales_invoice warning for recurring invoice:', postError);
+              }
+            } catch (postErr) {
+              console.warn('post_sales_invoice exception:', postErr);
+            }
           }
         }
       } catch (e) {

@@ -26,6 +26,8 @@ DECLARE v_vat_rate numeric; v_admin_id uuid; v_org_name text;
     v_social_ins_id uuid; v_bank_main_id uuid; v_rev_other_id uuid; v_exp_gen_id uuid; v_security_deposit_id uuid;
     v_sal_allow_id uuid;
     v_rev_construction_id uuid;
+    v_shelf_rental_id uuid;
+    v_earned_disc_id uuid;
 BEGIN
     v_vat_rate := CASE 
         WHEN p_activity_type = 'construction' THEN 0.05 
@@ -178,6 +180,8 @@ BEGIN
     ('412', 'مردودات ومسموحات مبيعات', 'revenue', false, '41'),
     ('413', 'خصم مسموح به', 'revenue', false, '41'),
     ('421', 'إيرادات متنوعة', 'revenue', false, '42'),
+    ('42101', 'إيرادات إيجار أرفف ومساحات ترويجية', 'revenue', false, '42'),
+    ('42102', 'خصم مكتسب وبوانص موردين تجارية', 'revenue', false, '42'),
     ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'),
     ('425', 'إيراد تشغيل معدات داخلي', 'revenue', false, '42'),
     ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
@@ -335,6 +339,8 @@ BEGIN
     v_security_deposit_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '226' LIMIT 1);
     v_sal_allow_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '412' LIMIT 1);
     v_rev_construction_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '41103' LIMIT 1);
+    v_shelf_rental_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '42101' LIMIT 1);
+    v_earned_disc_id := (SELECT id FROM public.accounts WHERE organization_id = p_org_id AND code = '42102' LIMIT 1);
 
     -- ضمان وجود دور الـ admin وكافة الصلاحيات قبل ربط الإعدادات
     INSERT INTO public.roles (organization_id, name, description)
@@ -382,6 +388,8 @@ BEGIN
             'SALES_ALLOWANCES', v_sal_allow_id,
             'SECURITY_DEPOSIT_ACCOUNT', v_security_deposit_id,
             'CONSTRUCTION_REVENUE', v_rev_construction_id,        
+            'SHELF_RENTAL_REVENUE', v_shelf_rental_id,
+            'EARNED_DISCOUNTS', v_earned_disc_id,
             'BANK_ACCOUNTS', v_bank_main_id -- ربط حساب البنك الرئيسي
         )
     ) ON CONFLICT (organization_id) DO UPDATE SET activity_type = EXCLUDED.activity_type, vat_rate = EXCLUDED.vat_rate, company_name = EXCLUDED.company_name, account_mappings = EXCLUDED.account_mappings;
