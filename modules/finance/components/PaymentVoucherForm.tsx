@@ -88,14 +88,21 @@ const PaymentVoucherForm = () => {
 
       // 🛡️ الحل الشامل والموحد: حساب الرصيد الفعلي للمورد مباشرة ليتطابق 100% مع كشف الحساب والأستاذ العام
       const [
-          pinvRes, payRes, pretRes, dnRes, chqRes, subRes
+          pinvRes, payRes, pretRes, dnRes, chqRes, subRes, rebRes, manualJRes
       ] = await Promise.all([
           supabase.from('purchase_invoices').select('total_amount, paid_amount, invoice_number').eq('supplier_id', supplier.id).eq('organization_id', userOrgId).neq('status', 'draft'),
           supabase.from('payment_vouchers').select('amount, notes').eq('supplier_id', supplier.id).eq('organization_id', userOrgId),
           supabase.from('purchase_returns').select('total_amount').eq('supplier_id', supplier.id).eq('organization_id', userOrgId).neq('status', 'draft'),
           supabase.from('debit_notes').select('total_amount').eq('supplier_id', supplier.id).eq('organization_id', userOrgId).eq('status', 'posted'),
           supabase.from('cheques').select('amount').eq('party_id', supplier.id).eq('type', 'outgoing').eq('organization_id', userOrgId).neq('status', 'rejected'),
-          supabase.from('subcontractors').select('id, name').or(`name.eq."${supplier.name}",supplier_id.eq."${supplier.id}"`).eq('organization_id', userOrgId)
+          supabase.from('subcontractors').select('id, name').or(`name.eq."${supplier.name}",supplier_id.eq."${supplier.id}"`).eq('organization_id', userOrgId),
+          supabase.from('vendor_rebate_settlements').select('total_claim_amount').eq('vendor_id', supplier.id).eq('organization_id', userOrgId).in('status', ['APPROVED', 'SETTLED']),
+          supabase.from('journal_lines')
+            .select('debit, credit, journal_entries!inner(id, reference, status, related_document_id), accounts!inner(code)')
+            .eq('journal_entries.status', 'posted')
+            .is('journal_entries.related_document_id', null)
+            .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
+            .ilike('journal_entries.description', `%${supplier.name}%`)
       ]);
 
       // حساب مستخلصات مقاولي الباطن
@@ -128,9 +135,28 @@ const PaymentVoucherForm = () => {
       const totalReturns = pretRes.data?.reduce((sum, r) => sum + Number(r.total_amount || 0), 0) || 0;
       const totalDebitNotes = dnRes.data?.reduce((sum, d) => sum + Number(d.total_amount || 0), 0) || 0;
       const totalCheques = chqRes.data?.reduce((sum, c) => sum + Number(c.amount || 0), 0) || 0;
+      const totalRebates = rebRes.data?.reduce((sum, r) => sum + Number(r.total_claim_amount || 0), 0) || 0;
+
+      // قيود تسوية يدوية أخرى (باستثناء البوانص والفواتير والشيكات المسجلة)
+      const otherManualDebit = (manualJRes.data as any[])
+        ?.filter((l: any) => {
+          const jEntry = Array.isArray(l.journal_entries) ? l.journal_entries[0] : l.journal_entries;
+          const ref = jEntry?.reference || '';
+          return !ref.startsWith('REB-') && !ref.startsWith('PV-') && !ref.startsWith('PINV-') && !ref.startsWith('CHQ-');
+        })
+        .reduce((sum: number, l: any) => sum + Number(l.debit || 0), 0) || 0;
+
+      const otherManualCredit = (manualJRes.data as any[])
+        ?.filter((l: any) => {
+          const jEntry = Array.isArray(l.journal_entries) ? l.journal_entries[0] : l.journal_entries;
+          const ref = jEntry?.reference || '';
+          return !ref.startsWith('REB-') && !ref.startsWith('PV-') && !ref.startsWith('PINV-') && !ref.startsWith('CHQ-');
+        })
+        .reduce((sum: number, l: any) => sum + Number(l.credit || 0), 0) || 0;
+
       const opening = Number(supplier.opening_balance || 0);
 
-      const realBalance = opening + totalInvoiced + contractorBillings - totalPayments - totalReturns - totalDebitNotes - totalCheques;
+      const realBalance = opening + totalInvoiced + contractorBillings + otherManualCredit - totalPayments - totalReturns - totalDebitNotes - totalCheques - totalRebates - otherManualDebit;
       setDynamicBalance(realBalance);
     };
     getRealBalance();

@@ -51,6 +51,85 @@ CREATE TABLE IF NOT EXISTS public.project_progress_billings (
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 4. جداول مقاولين الباطن
+CREATE TABLE IF NOT EXISTS public.subcontractors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    name TEXT NOT NULL,
+    phone TEXT,
+    specialty TEXT, -- تخصص المقاول (كهرباء، سباكة، إلخ)
+    supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL,
+    bank_name TEXT,
+    iban_number TEXT,
+    swift_code TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.subcontractors ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Subcontractors_Isolation" ON public.subcontractors;
+CREATE POLICY "SaaS_Subcontractors_Isolation" ON public.subcontractors
+    FOR ALL USING (organization_id = public.get_my_org());
+
+CREATE TABLE IF NOT EXISTS public.subcontractor_contracts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+    subcontractor_id UUID REFERENCES public.subcontractors(id) ON DELETE CASCADE,
+    contract_name TEXT NOT NULL,
+    total_value NUMERIC(15,2) DEFAULT 0,
+    retention_percentage NUMERIC(5,2) DEFAULT 5, -- نسبة محتجز الضمان
+    advance_payment_balance NUMERIC(15,2) DEFAULT 0, -- رصيد الدفعة المقدمة المتبقي
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.subcontractor_contracts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Subcontractor_Contracts_Isolation" ON public.subcontractor_contracts;
+CREATE POLICY "SaaS_Subcontractor_Contracts_Isolation" ON public.subcontractor_contracts
+    FOR ALL USING (organization_id = public.get_my_org());
+
+-- جدول بنود عقود مقاولي الباطن (تفصيلي بالبنود)
+CREATE TABLE IF NOT EXISTS public.subcontractor_contract_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    contract_id UUID NOT NULL REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    item_name TEXT NOT NULL,
+    unit TEXT,
+    quantity NUMERIC(15,2) DEFAULT 0,
+    unit_price NUMERIC(15,2) DEFAULT 0,
+    total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.subcontractor_contract_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Sub_Contract_Items_Isolation" ON public.subcontractor_contract_items
+    FOR ALL USING (organization_id = public.get_my_org());
+
+CREATE TABLE IF NOT EXISTS public.subcontractor_billings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    contract_id UUID REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
+    billing_number TEXT NOT NULL,
+    billing_date DATE NOT NULL,
+    gross_amount NUMERIC(15,2) NOT NULL, -- قيمة الأعمال المنفذة
+    retention_amount NUMERIC(15,2) DEFAULT 0, -- محتجز الضمان (خصم)
+    advance_deduction NUMERIC(15,2) DEFAULT 0, -- استرداد الدفعة المقدمة (خصم)
+    vat_rate NUMERIC(5,2) DEFAULT 0,
+    vat_amount NUMERIC(15,2) DEFAULT 0,
+    wht_rate NUMERIC(5,2) DEFAULT 0,
+    wht_amount NUMERIC(15,2) DEFAULT 0,
+    retention_release_date DATE,
+    net_amount NUMERIC(15,2) GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction + vat_amount - wht_amount) STORED,
+    status TEXT DEFAULT 'draft',
+    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
+    items_progress JSONB DEFAULT '{}' -- تخزين نسب إنجاز البنود للمقاول
+);
+
+ALTER TABLE public.subcontractor_billings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Subcontractor_Billings_Isolation" ON public.subcontractor_billings;
+CREATE POLICY "SaaS_Subcontractor_Billings_Isolation" ON public.subcontractor_billings
+    FOR ALL USING (organization_id = public.get_my_org());
+
 -- 🏗️ جدول المرفقات الشامل (Project & Billing Attachments)
 CREATE TABLE IF NOT EXISTS public.project_attachments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -169,63 +248,6 @@ BEGIN
         GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction + vat_amount - wht_amount) STORED;
 
 END $$;
-
--- 6. جداول مقاولين الباطن
-CREATE TABLE IF NOT EXISTS public.subcontractors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    name TEXT NOT NULL,
-    phone TEXT,
-    specialty TEXT, -- تخصص المقاول (كهرباء، سباكة، إلخ)
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.subcontractor_contracts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    subcontractor_id UUID REFERENCES public.subcontractors(id) ON DELETE CASCADE,
-    contract_name TEXT NOT NULL,
-    total_value NUMERIC(15,2) DEFAULT 0,
-    retention_percentage NUMERIC(5,2) DEFAULT 5, -- نسبة محتجز الضمان
-    advance_payment_balance NUMERIC(15,2) DEFAULT 0, -- رصيد الدفعة المقدمة المتبقي
-    status TEXT DEFAULT 'active',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- جدول بنود عقود مقاولي الباطن (تفصيلي بالبنود)
-CREATE TABLE IF NOT EXISTS public.subcontractor_contract_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    contract_id UUID NOT NULL REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    item_name TEXT NOT NULL,
-    unit TEXT,
-    quantity NUMERIC(15,2) DEFAULT 0,
-    unit_price NUMERIC(15,2) DEFAULT 0,
-    total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- سياسات الأمان RLS لجدول البنود
-ALTER TABLE public.subcontractor_contract_items ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "SaaS_Sub_Contract_Items_Isolation" ON public.subcontractor_contract_items
-    FOR ALL USING (organization_id = public.get_my_org());
-
-CREATE TABLE IF NOT EXISTS public.subcontractor_billings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    contract_id UUID REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
-    billing_number TEXT NOT NULL,
-    billing_date DATE NOT NULL,
-    gross_amount NUMERIC(15,2) NOT NULL, -- قيمة الأعمال المنفذة
-    retention_amount NUMERIC(15,2) DEFAULT 0, -- محتجز الضمان (خصم)
-    advance_deduction NUMERIC(15,2) DEFAULT 0, -- استرداد الدفعة المقدمة (خصم)
-    net_amount NUMERIC(15,2) GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction) STORED,
-    status TEXT DEFAULT 'draft',
-    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
-    items_progress JSONB DEFAULT '{}' -- تخزين نسب إنجاز البنود للمقاول
-);
 
 -- 5. دالة اعتماد المستخلص وتوليد القيد المحاسبي
 CREATE OR REPLACE FUNCTION public.fn_approve_project_billing(p_billing_id UUID)

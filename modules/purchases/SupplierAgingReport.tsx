@@ -53,6 +53,11 @@ const SupplierAgingReport = () => {
             .eq('type', 'outgoing')
             .neq('status', 'rejected');
       
+      const { data: rebates } = await supabase.from('vendor_rebate_settlements')
+            .select('vendor_id, total_claim_amount')
+            .match(filter)
+            .in('status', ['APPROVED', 'SETTLED']);
+      
       // 4. جلب مقاولي الباطن ومستخلصاتهم
       const { data: subs } = await supabase.from('subcontractors').select('id, name').match(filter);
       const { data: contracts } = await supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter);
@@ -93,8 +98,9 @@ const SupplierAgingReport = () => {
         const suppReturns = returns?.filter(r => r.supplier_id === supplier.id).reduce((sum, r) => sum + Number(r.total_amount), 0) || 0;
         const suppDebitNotes = debitNotes?.filter(d => d.supplier_id === supplier.id).reduce((sum, d) => sum + Number(d.total_amount), 0) || 0;
         const suppCheques = cheques?.filter(c => c.party_id === supplier.id).reduce((sum, c) => sum + Number(c.amount), 0) || 0;
+        const suppRebates = rebates?.filter(reb => reb.vendor_id === supplier.id).reduce((sum, reb) => sum + Number(reb.total_claim_amount), 0) || 0;
 
-        const totalCredits = suppPayments + suppReturns + suppDebitNotes + suppCheques;
+        const totalCredits = suppPayments + suppReturns + suppDebitNotes + suppCheques + suppRebates;
         
         // الرصيد المستحق الحالي
         let netBalance = (totalInvoiced + contractorBillings) - totalCredits;

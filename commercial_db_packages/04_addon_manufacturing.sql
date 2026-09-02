@@ -3770,7 +3770,7 @@ LEFT JOIN public.invoices i ON ii.invoice_id = i.id
 WHERE i.status IN ('posted', 'paid')
 GROUP BY p.id, p.name, ic.name, p.organization_id;
 
-﻿-- ==============================================================================
+-- ==============================================================================
 -- TriPro ERP - Migration: Setup Real Advanced Manufacturing Module Tables
 -- Date: 2026-09-02
 -- 1. Updates mfg_production_orders with work_center_id, priority, progress_percent
@@ -3885,7 +3885,7 @@ WHERE po.work_center_id IS NULL
   AND EXISTS (SELECT 1 FROM public.mfg_work_centers WHERE organization_id = po.organization_id);
 
 
-﻿-- ==============================================================================
+-- ==============================================================================
 -- TriPro ERP - Migration: Fix Manufacturing By-Products Warehouse Stock & Recalculation
 -- Date: 2026-09-02
 -- 1. Adds warehouse_id to mfg_byproducts_logs
@@ -4125,6 +4125,51 @@ BEGIN
             JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id
             JOIN public.products p ON sti.product_id = p.id
             WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
+
+            UNION ALL
+            -- مرتجعات مبيعات (+) - بضاعة عادت للمخزن من العميل
+            SELECT sri.product_id, sr.warehouse_id, public.uom_convert(sri.quantity, sri.uom_id, p.base_uom_id) as qty
+            FROM public.sales_return_items sri
+            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
+            JOIN public.products p ON sri.product_id = p.id
+            WHERE UPPER(COALESCE(sr.status, '')) NOT IN ('DRAFT', 'CANCELLED')
+              AND sr.warehouse_id IS NOT NULL
+              AND sri.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
+              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = sri.product_id)
+
+            UNION ALL
+            -- مرتجعات مبيعات مكونات BOM (+)
+            SELECT bom.raw_material_id, sr.warehouse_id, (public.uom_convert(sri.quantity, sri.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id)) as qty
+            FROM public.sales_return_items sri
+            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
+            JOIN public.bill_of_materials bom ON bom.product_id = sri.product_id
+            JOIN public.products p ON sri.product_id = p.id
+            JOIN public.products rm ON bom.raw_material_id = rm.id
+            WHERE UPPER(COALESCE(sr.status, '')) NOT IN ('DRAFT', 'CANCELLED')
+              AND sr.warehouse_id IS NOT NULL
+              AND sri.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
+              AND bom.raw_material_id IS NOT NULL
+
+            UNION ALL
+            -- مرتجعات مشتريات (-) - بضاعة ردت للمورد
+            SELECT pri.product_id, pr.warehouse_id, -public.uom_convert(pri.quantity, pri.uom_id, p.base_uom_id) as qty
+            FROM public.purchase_return_items pri
+            JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id
+            JOIN public.products p ON pri.product_id = p.id
+            WHERE UPPER(COALESCE(pr.status, '')) NOT IN ('DRAFT', 'CANCELLED')
+              AND pr.warehouse_id IS NOT NULL
+              AND pri.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR pr.organization_id = v_final_org)
+
+            UNION ALL
+            -- استهلاك مواد لمشاريع المقاولات (-)
+            SELECT pmii.product_id, pmi.warehouse_id, -public.uom_convert(pmii.quantity, pmii.uom_id, p.base_uom_id)
+            FROM public.project_material_issue_items pmii
+            JOIN public.project_material_issues pmi ON pmii.issue_id = pmi.id
+            JOIN public.products p ON pmii.product_id = p.id
+            WHERE pmi.status = 'approved' AND (v_final_org IS NULL OR pmi.organization_id = v_final_org)
         ) movements
         WHERE product_id IS NOT NULL AND warehouse_id IS NOT NULL
         AND (p_product_id IS NULL OR product_id = p_product_id)

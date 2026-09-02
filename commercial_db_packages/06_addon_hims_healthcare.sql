@@ -474,6 +474,7 @@ CREATE TABLE IF NOT EXISTS public.hims_billing_items (
     product_id uuid REFERENCES public.products(id) ON DELETE SET NULL, -- الربط مع المخزون
     warehouse_id uuid REFERENCES public.warehouses(id) ON DELETE SET NULL, -- تحديد مصدر الصرف
     uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم وحدات القياس
+    batch_number text, -- 💊 رقم التشغيلة المصروفة
     related_service_id uuid,
     created_at timestamptz DEFAULT now()
 );
@@ -488,6 +489,9 @@ DO $$ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='hims_billing_items' AND column_name='uom_id') THEN
         ALTER TABLE public.hims_billing_items ADD COLUMN uom_id uuid REFERENCES public.uoms(id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='hims_billing_items' AND column_name='batch_number') THEN
+        ALTER TABLE public.hims_billing_items ADD COLUMN batch_number text;
     END IF;
 END $$;
 

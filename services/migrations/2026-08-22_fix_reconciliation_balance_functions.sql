@@ -34,12 +34,16 @@ ALTER TABLE public.payment_vouchers
   ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'cash';
 
 -- عمود customer_id في جدول projects (للمقاولات)
-ALTER TABLE public.projects
+ALTER TABLE IF EXISTS public.projects
   ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL;
 
 -- عمود supplier_id في جدول subcontractors (لمنع ازدواجية المستخلصات)
-ALTER TABLE public.subcontractors
-  ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'subcontractors') THEN
+    ALTER TABLE public.subcontractors
+      ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- ==============================================================================
 -- 2. دالة حساب رصيد العميل المُحدَّثة

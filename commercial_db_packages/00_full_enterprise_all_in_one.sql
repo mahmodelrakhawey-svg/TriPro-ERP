@@ -15,7 +15,7 @@
 
 -- ========= 0. تنظيف وإعداد المخطط =========
 -- DROP SCHEMA public CASCADE; (Disabled for safety)
-CREATE SCHEMA public;
+CREATE SCHEMA IF NOT EXISTS public;
 GRANT ALL ON SCHEMA public TO postgres;
 GRANT ALL ON SCHEMA public TO public;
 
@@ -47,6 +47,25 @@ CREATE TABLE public.company_settings (
     updated_at timestamptz DEFAULT now()
 );
 
+-- وحدات القياس (Units of Measure - Early Definition)
+CREATE TABLE IF NOT EXISTS public.uom_categories (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.uoms (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    category_id uuid REFERENCES public.uom_categories(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    uom_type text CHECK (uom_type IN ('reference', 'smaller', 'bigger')),
+    ratio numeric(19,4) DEFAULT 1,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(organization_id, name)
+);
+
 -- الصلاحيات والمستخدمين
 CREATE TABLE public.roles (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -70,12 +89,45 @@ CREATE TABLE public.role_permissions (
 
 CREATE TABLE public.profiles (
     id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id),
     full_name text,
     role text DEFAULT 'viewer',
     role_id uuid REFERENCES public.roles(id),
     is_active boolean DEFAULT true,
     created_at timestamptz DEFAULT now() NOT NULL
 );
+
+-- دوال الصلاحيات والمنظمات الأساسية (Core Identity Helpers)
+CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE _role text;
+BEGIN
+    _role := COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', ''),
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', ''),
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'app_role', '')
+    );
+    IF _role IS NULL THEN
+        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '');
+    END IF;
+    IF _role IS NOT NULL THEN RETURN _role; END IF;
+    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN COALESCE(_role, 'viewer');
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE _org_id uuid;
+DECLARE _role text;
+DECLARE _user_id uuid := auth.uid();
+BEGIN
+    _org_id := COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid,
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid
+    );
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    RETURN NULL;
+END; $$;
 
 -- المحاسبة
 CREATE TABLE public.cost_centers (
@@ -146,6 +198,7 @@ CREATE TABLE public.customers (
     tax_id text,
     address text,
     credit_limit numeric DEFAULT 0,
+    opening_balance numeric DEFAULT 0,
     customer_type text DEFAULT 'individual',
     deleted_at timestamptz,
     deletion_reason text,
@@ -161,6 +214,7 @@ CREATE TABLE public.suppliers (
     tax_id text,
     address text,
     contact_person text,
+    opening_balance numeric DEFAULT 0,
     deleted_at timestamptz,
     deletion_reason text,
     created_at timestamptz DEFAULT now() NOT NULL
@@ -185,6 +239,7 @@ CREATE TABLE public.products (
     cost numeric DEFAULT 0,
     weighted_average_cost numeric DEFAULT 0,
     stock numeric DEFAULT 0,
+    opening_balance numeric DEFAULT 0,
     min_stock_level numeric DEFAULT 0,
     item_type text DEFAULT 'STOCK',
     inventory_account_id uuid REFERENCES public.accounts(id),
@@ -199,9 +254,16 @@ CREATE TABLE public.products (
 
 CREATE TABLE public.bill_of_materials (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
-    raw_material_id uuid REFERENCES public.products(id),
-    quantity_required numeric NOT NULL DEFAULT 1
+    product_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    raw_material_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity_required numeric(12, 4) NOT NULL DEFAULT 1,
+    shrinkage_pct numeric(6, 2) NOT NULL DEFAULT 0.00,
+    uom_id uuid REFERENCES public.uoms(id) ON DELETE SET NULL,
+    notes text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now(),
+    updated_at timestamptz DEFAULT now(),
+    UNIQUE (product_id, raw_material_id)
 );
 
 CREATE TABLE public.opening_inventories (
@@ -216,9 +278,11 @@ CREATE TABLE public.opening_inventories (
 -- المبيعات والمشتريات
 CREATE TABLE public.invoices (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id),
     invoice_number text,
     customer_id uuid REFERENCES public.customers(id),
     salesperson_id uuid,
+    user_id uuid,
     invoice_date date,
     due_date date,
     total_amount numeric,
@@ -226,6 +290,8 @@ CREATE TABLE public.invoices (
     subtotal numeric,
     paid_amount numeric DEFAULT 0,
     discount_amount numeric DEFAULT 0,
+    currency text DEFAULT 'EGP',
+    exchange_rate numeric DEFAULT 1,
     status text,
     notes text,
     warehouse_id uuid REFERENCES public.warehouses(id),
@@ -270,13 +336,20 @@ CREATE TABLE public.sales_return_items (
 
 CREATE TABLE public.purchase_invoices (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id),
     invoice_number text,
     supplier_id uuid REFERENCES public.suppliers(id),
     invoice_date date,
     total_amount numeric,
     tax_amount numeric,
+    subtotal numeric,
+    paid_amount numeric DEFAULT 0,
+    currency text DEFAULT 'EGP',
+    exchange_rate numeric DEFAULT 1,
     status text,
+    notes text,
     warehouse_id uuid REFERENCES public.warehouses(id),
+    treasury_account_id uuid REFERENCES public.accounts(id),
     related_journal_entry_id uuid REFERENCES public.journal_entries(id),
     created_at timestamptz DEFAULT now() NOT NULL
 );
@@ -1320,6 +1393,7 @@ DECLARE
     t text;
     tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders', 'purchase_orders', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'sales_orders', 'sales_order_items', 'employees', 'employee_advances'];
     dup record;
+    r record;
     tables_with_user_id text[] := ARRAY['orders', 'journal_entries', 'shifts', 'table_sessions', 'cash_closings', 'organization_backups', 'notifications', 'receipt_vouchers', 'payment_vouchers'];
     user_id_table text;
 BEGIN
@@ -1433,17 +1507,27 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees' AND table_schema = 'public') THEN
         ALTER TABLE public.employees 
             ADD COLUMN IF NOT EXISTS name text,
+            ADD COLUMN IF NOT EXISTS full_name text,
             ADD COLUMN IF NOT EXISTS position text,
             ADD COLUMN IF NOT EXISTS department text,
             ADD COLUMN IF NOT EXISTS notes text,
             ADD COLUMN IF NOT EXISTS status text DEFAULT 'active',
-            ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
-            ALTER COLUMN name DROP NOT NULL,
-            ALTER COLUMN full_name DROP NOT NULL;
+            ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+            
+        ALTER TABLE public.employees ALTER COLUMN name DROP NOT NULL;
+        
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'employees' AND column_name = 'full_name') THEN
+            ALTER TABLE public.employees ALTER COLUMN full_name DROP NOT NULL;
+        END IF;
 
         -- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع كافة مديولات النظام
         IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='employees' AND column_name='salary') THEN
-            ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='employees' AND column_name='basic_salary') THEN
+                ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+            ELSE
+                UPDATE public.employees SET basic_salary = salary WHERE basic_salary IS NULL AND salary IS NOT NULL;
+                ALTER TABLE public.employees DROP COLUMN salary;
+            END IF;
         END IF;
     END IF;
 
@@ -1457,7 +1541,9 @@ BEGIN
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t AND table_schema = 'public') THEN
             EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id)', t);
             -- الربط بالمنظمة الحالية للسجلات اليتيمة
-            EXECUTE format('UPDATE public.%I SET organization_id = public.get_my_org() WHERE organization_id IS NULL AND public.get_my_org() IS NOT NULL', t);
+            IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'get_my_org') THEN
+                EXECUTE format('UPDATE public.%I SET organization_id = public.get_my_org() WHERE organization_id IS NULL AND public.get_my_org() IS NOT NULL', t);
+            END IF;
         END IF;
     END LOOP;
 
@@ -1465,7 +1551,16 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products' AND table_schema = 'public') THEN
         ALTER TABLE public.products 
             ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
+            ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
+    END IF;
+
+    -- 🛡️ ترميم الرصيد الافتتاحي للعملاء والموردين
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'customers' AND table_schema = 'public') THEN
+        ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'suppliers' AND table_schema = 'public') THEN
+        ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS opening_balance numeric DEFAULT 0;
     END IF;
 
     -- 🛡️ ترميم جدول الحسابات (Accounts Healing)
@@ -1626,8 +1721,13 @@ DECLARE
     v_raw_id UUID;
     v_wh_id UUID;
 BEGIN
+    -- 🛡️ التحقق من وجود مديول التصنيع لتجنب الأخطاء في الباقات التي لا تتضمن التصنيع
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mfg_work_centers') THEN 
+        RETURN; 
+    END IF;
+
     SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
-    IF v_org_id IS NULL THEN RETURN; END IF; -- لا يوجد منظمة، لا حاجة لإنشاء منتجات
+    IF v_org_id IS NULL THEN RETURN; END IF;
 
     -- 1. ضمان وجود مستودع
     SELECT id INTO v_wh_id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1;
@@ -2001,6 +2101,34 @@ CREATE TABLE IF NOT EXISTS public.suppliers (
     created_at timestamptz DEFAULT now() NOT NULL,
     credit_limit numeric DEFAULT 0
 );
+
+-- 🏗️ المشاريع ومراكز التكلفة التشغيلية (Projects & Operational Cost Centers)
+CREATE TABLE IF NOT EXISTS public.projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    name TEXT NOT NULL,
+    description TEXT,
+    customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL,
+    contract_value NUMERIC(15,2) DEFAULT 0,
+    start_date DATE,
+    end_date DATE,
+    cost_center_account_id UUID REFERENCES public.accounts(id) ON DELETE SET NULL,
+    status TEXT DEFAULT 'planned' CHECK (status IN ('planned', 'active', 'on_hold', 'completed', 'cancelled')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- RLS
+ALTER TABLE public.projects ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_projects_Isolation" ON public.projects;
+CREATE POLICY "SaaS_projects_Isolation" ON public.projects
+    FOR ALL
+    USING (organization_id = public.get_my_org())
+    WITH CHECK (organization_id = public.get_my_org());
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS idx_projects_org_status ON public.projects(organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_projects_customer_id ON public.projects(customer_id);
 
 -- المخزون والمنتجات
 CREATE TABLE IF NOT EXISTS public.warehouses (
@@ -2692,6 +2820,8 @@ CREATE TABLE IF NOT EXISTS public.bill_of_materials (
     updated_at      timestamptz DEFAULT now(),
     UNIQUE (product_id, raw_material_id)
 );
+
+ALTER TABLE public.bill_of_materials ADD COLUMN IF NOT EXISTS shrinkage_pct numeric(6, 2) NOT NULL DEFAULT 0.00;
 
 COMMENT ON TABLE public.bill_of_materials IS 'وصفات الإنتاج والمكونات: تحدد المواد الخام لكل منتج مصنّع أو وجبة مطعم مع نسبة الفاقد';
 COMMENT ON COLUMN public.bill_of_materials.shrinkage_pct IS 'نسبة الفاقد/الانكماش أثناء الطهي أو التحضير (0-99%). مثال: 15 = 15% فاقد';
@@ -4671,49 +4801,56 @@ BEGIN PERFORM public.approve_purchase_invoice(p_invoice_id, p_org_id, p_warehous
 -- ================================================================
 
 -- 📊 رؤية ربحية أمر الإنتاج (Manufacturing Order Profitability View)
--- ضرورية لدالة تحديث الأسعار والتقارير المالية
-DROP VIEW IF EXISTS public.v_mfg_order_profitability CASCADE;
-CREATE OR REPLACE VIEW public.v_mfg_order_profitability WITH (security_invoker = true) AS
-WITH labor_summary AS (
-    SELECT
-        op.production_order_id,
-        SUM(COALESCE(op.labor_cost_actual, 0)) as total_labor,
-        SUM(COALESCE((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate, 0)) as total_overhead
-    FROM public.mfg_order_progress op
-    JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
-    JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
-    GROUP BY op.production_order_id
-),
-material_summary AS (
-    -- 🛡️ منع الازدواجية في المحرك الموحد: نجمع الاستهلاك الفعلي مع طلبات الصرف المستقلة فقط
-    SELECT po_id, SUM(cost) as total_material_cost FROM (
-        SELECT op.production_order_id as po_id, SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
-        FROM public.mfg_actual_material_usage amu
-        JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
-        JOIN public.products rm ON amu.raw_material_id = rm.id
-        GROUP BY op.production_order_id, amu.raw_material_id
-        UNION ALL
-        SELECT mr.production_order_id as po_id, SUM(public.uom_convert(mri.quantity_issued, mri.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) as cost
-        FROM public.mfg_material_request_items mri
-        JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
-        JOIN public.products p ON mri.raw_material_id = p.id
-        WHERE mr.status = 'issued'
-        AND NOT EXISTS (
-            SELECT 1 FROM public.mfg_order_progress op2 
-            JOIN public.mfg_actual_material_usage amu2 ON op2.id = amu2.order_progress_id
-            WHERE op2.production_order_id = mr.production_order_id AND amu2.raw_material_id = mri.raw_material_id
-        )
-        GROUP BY mr.production_order_id, mri.raw_material_id
-    ) safe_mats GROUP BY po_id
-)
-SELECT
-    po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.status, po.organization_id,
-    (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) as sales_value,
-    ROUND((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 2) as total_actual_cost
-FROM public.mfg_production_orders po
-JOIN public.products p ON po.product_id = p.id
-LEFT JOIN labor_summary ls ON po.id = ls.production_order_id
-LEFT JOIN material_summary ms ON po.id = ms.po_id;
+-- ضرورية لدالة تحديث الأسعار والتقارير المالية (تُنشأ فقط عند توفر مديول التصنيع)
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mfg_order_progress') THEN
+        EXECUTE $VIEW$
+            DROP VIEW IF EXISTS public.v_mfg_order_profitability CASCADE;
+            CREATE OR REPLACE VIEW public.v_mfg_order_profitability WITH (security_invoker = true) AS
+            WITH labor_summary AS (
+                SELECT
+                    op.production_order_id,
+                    SUM(COALESCE(op.labor_cost_actual, 0)) as total_labor,
+                    SUM(COALESCE((rs.standard_time_minutes / 60.0) * op.produced_qty * wc.overhead_rate, 0)) as total_overhead
+                FROM public.mfg_order_progress op
+                JOIN public.mfg_routing_steps rs ON op.step_id = rs.id
+                JOIN public.mfg_work_centers wc ON rs.work_center_id = wc.id
+                GROUP BY op.production_order_id
+            ),
+            material_summary AS (
+                -- 🛡️ منع الازدواجية في المحرك الموحد: نجمع الاستهلاك الفعلي مع طلبات الصرف المستقلة فقط
+                SELECT po_id, SUM(cost) as total_material_cost FROM (
+                    SELECT op.production_order_id as po_id, SUM(public.uom_convert(amu.actual_quantity, amu.uom_id, rm.base_uom_id) * COALESCE(NULLIF(rm.weighted_average_cost, 0), NULLIF(rm.cost, 0), rm.purchase_price, 0)) as cost
+                    FROM public.mfg_actual_material_usage amu
+                    JOIN public.mfg_order_progress op ON amu.order_progress_id = op.id
+                    JOIN public.products rm ON amu.raw_material_id = rm.id
+                    GROUP BY op.production_order_id, amu.raw_material_id
+                    UNION ALL
+                    SELECT mr.production_order_id as po_id, SUM(public.uom_convert(mri.quantity_issued, mri.uom_id, p.base_uom_id) * COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, 0)) as cost
+                    FROM public.mfg_material_request_items mri
+                    JOIN public.mfg_material_requests mr ON mri.material_request_id = mr.id
+                    JOIN public.products p ON mri.raw_material_id = p.id
+                    WHERE mr.status = 'issued'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM public.mfg_order_progress op2 
+                        JOIN public.mfg_actual_material_usage amu2 ON op2.id = amu2.order_progress_id
+                        WHERE op2.production_order_id = mr.production_order_id AND amu2.raw_material_id = mri.raw_material_id
+                    )
+                    GROUP BY mr.production_order_id, mri.raw_material_id
+                ) safe_mats GROUP BY po_id
+            )
+            SELECT
+                po.id as order_id, po.order_number, p.name as product_name, po.quantity_to_produce as qty, po.status, po.organization_id,
+                (po.quantity_to_produce * COALESCE(p.sales_price, p.price, 0)) as sales_value,
+                ROUND((COALESCE(ls.total_labor, 0) + COALESCE(ls.total_overhead, 0) + COALESCE(ms.total_material_cost, 0)), 2) as total_actual_cost
+            FROM public.mfg_production_orders po
+            JOIN public.products p ON po.product_id = p.id
+            LEFT JOIN labor_summary ls ON po.id = ls.production_order_id
+            LEFT JOIN material_summary ms ON po.id = ms.po_id;
+        $VIEW$;
+    END IF;
+END $$;
 
 -- ️ دالة حساب التكلفة المعيارية (Helper)
 CREATE OR REPLACE FUNCTION public.mfg_calculate_standard_cost(p_product_id uuid, p_org_id uuid DEFAULT public.get_my_org())
@@ -6140,7 +6277,7 @@ EXCEPTION WHEN OTHERS THEN
     RAISE EXCEPTION 'فشل إنشاء الحسابات المفقودة: %', SQLERRM;
 END; $$;
 
-GRANT EXECUTE ON FUNCTION public.run_global_system_repair(uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.create_missing_system_accounts(uuid) TO authenticated;
 
 -- 📊 دالة حساب رصيد العميل المحدثة (تطابق كشف الحساب)
 CREATE OR REPLACE FUNCTION public.get_customer_balance(p_customer_id uuid, p_org_id uuid)
@@ -6443,14 +6580,26 @@ GRANT EXECUTE ON FUNCTION public.get_dashboard_stats(uuid) TO authenticated;
 GRANT USAGE ON SCHEMA public TO authenticated, anon;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
 -- 📱 منح صلاحيات القراءة لـ anon لبعض الجداول المختارة لعمل الكيو آر منيو
-GRANT SELECT ON public.restaurant_tables TO anon;
 GRANT SELECT ON public.products TO anon;
 GRANT SELECT ON public.item_categories TO anon;
-GRANT SELECT ON public.menu_categories TO anon;
 GRANT SELECT ON public.uoms TO anon;
 GRANT SELECT ON public.organizations TO anon;
-GRANT SELECT ON public.modifier_groups TO anon;
-GRANT SELECT ON public.modifiers TO anon;
+
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'restaurant_tables') THEN
+        EXECUTE 'GRANT SELECT ON public.restaurant_tables TO anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'menu_categories') THEN
+        EXECUTE 'GRANT SELECT ON public.menu_categories TO anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'modifier_groups') THEN
+        EXECUTE 'GRANT SELECT ON public.modifier_groups TO anon';
+    END IF;
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'modifiers') THEN
+        EXECUTE 'GRANT SELECT ON public.modifiers TO anon';
+    END IF;
+END $$;
 GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.get_product_recipe_cost(uuid, uuid) TO authenticated, anon;
@@ -9527,6 +9676,7 @@ $$;
 
 -- 🛠️ دالة تشغيل النسخ الاحتياطي لكافة الشركات (Global Backup Runner)
 -- تُستخدم هذه الدالة بواسطة نظام الجدولة (Cron Job) لتشغيل النسخ الاحتياطي آلياً
+DROP FUNCTION IF EXISTS public.run_daily_backups_all_orgs();
 CREATE OR REPLACE FUNCTION public.run_daily_backups_all_orgs()
 RETURNS void 
 LANGUAGE plpgsql 
@@ -9843,6 +9993,7 @@ END; $$;
 
 -- 🛡️ دالة فحص نزاهة النسخة الاحتياطية (Integrity Validator RPC)
 -- هذه الدالة لا تمس البيانات، بل تعيد تقريراً فقط
+DROP FUNCTION IF EXISTS public.validate_backup_integrity(uuid, jsonb);
 CREATE OR REPLACE FUNCTION public.validate_backup_integrity(p_org_id uuid, p_backup_data jsonb)
 RETURNS jsonb 
 LANGUAGE plpgsql 
@@ -10836,35 +10987,6 @@ BEGIN
     -- 2. إنشاء منتج برصيد افتتاحي (10 وحدات @ 100 ج.م)
     INSERT INTO public.products (name, stock, opening_balance, purchase_price, weighted_average_cost, cost, organization_id)
     VALUES ('Test Product', 10, 10, 100, 100, 100, v_org_id) RETURNING id INTO v_prod_id;
--- 🛡️ دالة الفحص الشامل لسلامة النظام (System Integrity Shield)
-CREATE OR REPLACE FUNCTION public.run_comprehensive_system_tests()
-RETURNS TABLE(suite_name text, status text, details text) LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-    -- 1. اختبارات المطاعم
-    suite_name := 'Restaurant & POS';
-    IF EXISTS (SELECT 1 FROM public.test_all_restaurant_modules_integrity() WHERE result = 'FAIL ❌') THEN
-        status := 'CRITICAL 🛑'; details := 'فشل في دورة مبيعات المطاعم';
-    ELSE
-        status := 'HEALTHY 🟢'; details := 'دورة المطاعم والمطبخ سليمة';
-    END IF; RETURN NEXT;
-
-    -- 2. اختبارات التصنيع
-    suite_name := 'Manufacturing';
-    IF EXISTS (SELECT 1 FROM public.mfg_test_full_cycle() WHERE result = 'FAIL ❌') THEN
-        status := 'CRITICAL 🛑'; details := 'فشل في مديول التصنيع';
-    ELSE
-        status := 'HEALTHY 🟢'; details := 'دورة الإنتاج والتكاليف سليمة';
-    END IF; RETURN NEXT;
-
-    -- 3. اختبارات المحاسبة (WAC & Isolation)
-    suite_name := 'Accounting & Security';
-    IF EXISTS (SELECT 1 FROM public.test_wac_logic() WHERE status = 'FAILED ❌') OR 
-       EXISTS (SELECT 1 FROM public.test_saas_isolation() WHERE result = 'FAILED ❌') THEN
-        status := 'CRITICAL 🛑'; details := 'فشل في حسابات التكلفة أو عزل البيانات';
-    ELSE
-        status := 'HEALTHY 🟢'; details := 'الحسابات وعزل الـ SaaS محصن';
-    END IF; RETURN NEXT;
-END; $$;
     
     -- 🛡️ إصلاح: إضافة رصيد افتتاحى في سجلات المخزون لكي يراها المحرك الموحد V50
     INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
@@ -11303,7 +11425,12 @@ DO $$ BEGIN
     END IF;
     -- توحيد مسمى رقم الطلب في المشتريات لضمان عمل الواجهة
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_orders' AND column_name = 'po_number') THEN
-        ALTER TABLE public.purchase_orders RENAME COLUMN po_number TO order_number;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_orders' AND column_name = 'order_number') THEN
+            ALTER TABLE public.purchase_orders RENAME COLUMN po_number TO order_number;
+        ELSE
+            UPDATE public.purchase_orders SET order_number = po_number WHERE order_number IS NULL AND po_number IS NOT NULL;
+            ALTER TABLE public.purchase_orders DROP COLUMN po_number;
+        END IF;
     END IF;    
 
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_orders') THEN
@@ -11316,7 +11443,12 @@ DO $$ BEGIN
 
     -- توحيد مسمى عمود الربط في بنود أوامر الشراء
     IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_order_items' AND column_name = 'purchase_order_id') THEN
-        ALTER TABLE public.purchase_order_items RENAME COLUMN purchase_order_id TO order_id;
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_order_items' AND column_name = 'order_id') THEN
+            ALTER TABLE public.purchase_order_items RENAME COLUMN purchase_order_id TO order_id;
+        ELSE
+            UPDATE public.purchase_order_items SET order_id = purchase_order_id WHERE order_id IS NULL AND purchase_order_id IS NOT NULL;
+            ALTER TABLE public.purchase_order_items DROP COLUMN purchase_order_id;
+        END IF;
     END IF;
 END $$;
 
@@ -11863,6 +11995,8 @@ DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payrolls') THEN ALTER TABLE public.payrolls ADD COLUMN IF NOT EXISTS status text DEFAULT 'draft'; END IF;
     -- 🛠️ تحصين جدول الموظفين وإصلاح قيود الأسماء (Stabilization Fix)
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees') THEN 
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS name text;
+        ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS full_name text;
         ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS department text;
         ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS notes text;
         ALTER TABLE public.employees ADD COLUMN IF NOT EXISTS position text;
@@ -11871,31 +12005,35 @@ DO $$ BEGIN
         
         -- إزالة قيود NOT NULL المسببة للأخطاء
         ALTER TABLE public.employees ALTER COLUMN name DROP NOT NULL;
-        ALTER TABLE public.employees ALTER COLUMN full_name DROP NOT NULL;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='employees' AND column_name='full_name') THEN
+            ALTER TABLE public.employees ALTER COLUMN full_name DROP NOT NULL;
+        END IF;
 
         -- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع مديول المقاولات والتصنيع
--- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع مديول المقاولات والتصنيع
-IF EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema='public'
-    AND table_name='employees'
-    AND column_name='salary'
-)
-AND NOT EXISTS (
-    SELECT 1
-    FROM information_schema.columns
-    WHERE table_schema='public'
-    AND table_name='employees'
-    AND column_name='basic_salary'
-)
-THEN
-    ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
-END IF;
+        IF EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema='public'
+            AND table_name='employees'
+            AND column_name='salary'
+        )
+        AND NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema='public'
+            AND table_name='employees'
+            AND column_name='basic_salary'
+        )
+        THEN
+            ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+        END IF;
 
-        -- مزامنة البيانات التاريخية
-        UPDATE public.employees SET full_name = name WHERE full_name IS NULL AND name IS NOT NULL;
-        UPDATE public.employees SET name = full_name WHERE name IS NULL AND full_name IS NOT NULL;
+        -- مزامنة البيانات التاريخية ديناميكياً
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='employees' AND column_name='full_name')
+           AND EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='employees' AND column_name='name') THEN
+            EXECUTE 'UPDATE public.employees SET full_name = name WHERE full_name IS NULL AND name IS NOT NULL';
+            EXECUTE 'UPDATE public.employees SET name = full_name WHERE name IS NULL AND full_name IS NOT NULL';
+        END IF;
     END IF;
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payroll_items') THEN ALTER TABLE public.payroll_items ADD COLUMN IF NOT EXISTS payroll_tax numeric DEFAULT 0; END IF;
     -- 🛠️ تحصين جدول السلف وإصلاح خطأ ENCES (Stabilization Fix)
@@ -13931,7 +14069,11 @@ GRANT EXECUTE ON FUNCTION public.add_product_with_opening_balance TO authenticat
 -- 1. Database Schema Alterations
 ALTER TABLE public.purchase_invoice_items ADD COLUMN IF NOT EXISTS batch_number text;
 ALTER TABLE public.purchase_invoice_items ADD COLUMN IF NOT EXISTS expiry_date date;
-ALTER TABLE public.hims_billing_items ADD COLUMN IF NOT EXISTS batch_number text;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'hims_billing_items') THEN
+        ALTER TABLE public.hims_billing_items ADD COLUMN IF NOT EXISTS batch_number text;
+    END IF;
+END $$;
 
 -- 2. Create product_batches table
 CREATE TABLE IF NOT EXISTS public.product_batches (
@@ -14064,292 +14206,6 @@ BEGIN
     PERFORM public.recalculate_all_system_balances(v_org_id);
 END; 
 $$;
-
--- 4. Redefine hims_dispense_prescription to implement FEFO batch stock consumption
-CREATE OR REPLACE FUNCTION public.hims_dispense_prescription(p_prescription_id uuid, p_warehouse_id uuid DEFAULT NULL)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE 
-    v_med record; v_org_id uuid; v_visit_id uuid;
-    v_final_wh_id uuid;
-    v_sales_price numeric; v_product_name text;
-    v_bill_status text; v_ins_id uuid;
-    v_total_cogs numeric(18,2) := 0; v_cogs_acc_id uuid; v_inv_acc_id uuid;
-    v_mappings jsonb; v_cost_price numeric; v_journal_id uuid;
-BEGIN
-    -- 1. جلب معلومات المنظمة والزيارة
-    SELECT organization_id, visit_id INTO v_org_id, v_visit_id 
-    FROM public.hims_prescriptions WHERE id = p_prescription_id;
-    
-    -- 🔄 إعادة احتساب وتحديث الفاتورة فوراً لضمان إدخال بنود الأدوية وحساب الفروقات المالية المحدثة
-    PERFORM public.hims_prepare_invoice(v_visit_id);
-    
-    -- 🛡️ حماية مالية: التحقق من حالة دفع الفاتورة للمرضى النقديين أو وجود جهة تأمين
-    SELECT payment_status, insurance_provider_id INTO v_bill_status, v_ins_id 
-    FROM public.hims_billing WHERE visit_id = v_visit_id;
-
-    IF v_ins_id IS NULL AND (v_bill_status IS NULL OR v_bill_status != 'paid') THEN
-        RAISE EXCEPTION '⚠️ خطأ أمني: لا يمكن صرف الدواء قبل سداد قيمة الروشتة بالخزينة أولاً.';
-    END IF;
-
-    -- تحديد المستودع
-    v_final_wh_id := COALESCE(
-        p_warehouse_id,
-        (SELECT default_pharmacy_warehouse FROM public.hims_settings WHERE organization_id = v_org_id),
-        (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
-    );
-
-    IF v_final_wh_id IS NULL THEN
-        RAISE EXCEPTION '⚠️ فشل الصرف: لم يتم العثور على مستودع صيدلية معرف لهذه المنظمة.';
-    END IF;
-
-    -- جلب إعدادات الربط المحاسبي
-    SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    v_cogs_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '511' LIMIT 1)));
-    v_inv_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10302' LIMIT 1)));
-
-    FOR v_med IN SELECT * FROM jsonb_to_recordset((SELECT medications FROM public.hims_prescriptions WHERE id = p_prescription_id)) 
-        AS x(product_id uuid, qty numeric)
-    LOOP
-        -- رقابة مزدوجة: (الصلاحية والأرصدة العامة)
-        IF EXISTS (
-            SELECT 1 FROM public.products 
-            WHERE id = v_med.product_id 
-            AND organization_id = v_org_id 
-            AND (expiry_date < CURRENT_DATE)
-        ) THEN
-            RAISE EXCEPTION '⚠️ خطأ أمني: الدواء (%) منتهي الصلاحية ولا يمكن صرفه طبياً.', 
-                (SELECT name FROM public.products WHERE id = v_med.product_id);
-        END IF;
-
-        IF (SELECT stock FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id) < v_med.qty THEN
-            RAISE EXCEPTION '⚠️ عجز مخزني: لا يتوفر رصيد كافٍ للدواء (%). الرصيد المتوفر (%) فقط.', 
-                (SELECT name FROM public.products WHERE id = v_med.product_id),
-                (SELECT stock FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id);
-        END IF;
-
-        -- جلب البيانات المالية وتكلفة الصنف
-        SELECT name, sales_price, 
-               COALESCE(NULLIF(weighted_average_cost, 0), NULLIF(cost, 0), NULLIF(purchase_price, 0), 0), 
-               COALESCE(inventory_account_id, v_inv_acc_id)
-        INTO v_product_name, v_sales_price, v_cost_price, v_inv_acc_id
-        FROM public.products WHERE id = v_med.product_id;
-
-        -- 🚀 خوارزمية FEFO: خصم الكمية من التشغيلات المتوفرة بالمستودع الأقرب لانتهاء الصلاحية أولاً
-        DECLARE
-            v_remaining_qty_to_dispense numeric := v_med.qty;
-            v_batch RECORD;
-            v_dispensed_from_batch numeric;
-            v_first_batch_number text := NULL;
-        BEGIN
-            FOR v_batch IN 
-                SELECT id, batch_number, quantity, expiry_date 
-                FROM public.product_batches
-                WHERE product_id = v_med.product_id 
-                  AND warehouse_id = v_final_wh_id
-                  AND quantity > 0
-                ORDER BY expiry_date ASC, created_at ASC
-            LOOP
-                EXIT WHEN v_remaining_qty_to_dispense <= 0;
-
-                IF v_batch.quantity >= v_remaining_qty_to_dispense THEN
-                    UPDATE public.product_batches 
-                    SET quantity = quantity - v_remaining_qty_to_dispense 
-                    WHERE id = v_batch.id;
-
-                    v_dispensed_from_batch := v_remaining_qty_to_dispense;
-                    v_remaining_qty_to_dispense := 0;
-                ELSE
-                    UPDATE public.product_batches 
-                    SET quantity = 0 
-                    WHERE id = v_batch.id;
-
-                    v_dispensed_from_batch := v_batch.quantity;
-                    v_remaining_qty_to_dispense := v_remaining_qty_to_dispense - v_batch.quantity;
-                END IF;
-
-                IF v_first_batch_number IS NULL THEN
-                    v_first_batch_number := v_batch.batch_number;
-                END IF;
-
-                -- تسجيل الحركة في سجل إعطاء الدواء
-                INSERT INTO public.hims_medication_log (visit_id, medication_name, dosage, administered_by, organization_id, batch_number)
-                VALUES (v_visit_id, v_product_name, v_dispensed_from_batch::text || ' ' || COALESCE((SELECT unit FROM public.products WHERE id = v_med.product_id), 'قطعة'), auth.uid(), v_org_id, v_batch.batch_number);
-            END LOOP;
-
-            -- حالة احتياطية لضمان تسجيل الصرف حتى عند عدم إدخال شحنات مشتريات تفصيلية
-            IF v_remaining_qty_to_dispense > 0 THEN
-                INSERT INTO public.hims_medication_log (visit_id, medication_name, dosage, administered_by, organization_id, batch_number)
-                VALUES (v_visit_id, v_product_name, v_remaining_qty_to_dispense::text || ' ' || COALESCE((SELECT unit FROM public.products WHERE id = v_med.product_id), 'قطعة'), auth.uid(), v_org_id, 'SYSTEM-AUTO');
-            END IF;
-
-            -- 1. خصم الكمية من مخزن المنتجات العام
-            UPDATE public.products SET stock = stock - v_med.qty 
-            WHERE id = v_med.product_id AND organization_id = v_org_id;
-
-            -- حساب التكلفة الإجمالية للصرف (COGS)
-            v_total_cogs := COALESCE(v_total_cogs, 0) + (v_med.qty * COALESCE(v_cost_price, 0));
-
-            -- 2. ترحيل البند لفاتورة المريض
-            PERFORM public.hims_add_billing_item(
-                v_visit_id,
-                'pharmacy',
-                v_product_name,
-                v_med.qty,
-                v_sales_price,
-                v_med.product_id,
-                v_final_wh_id,
-                (SELECT base_uom_id FROM public.products WHERE id = v_med.product_id)
-            );
-
-            -- تحديث رقم التشغيلة المصروفة في سطر الفاتورة
-            UPDATE public.hims_billing_items 
-            SET batch_number = COALESCE(v_first_batch_number, 'SYSTEM-AUTO')
-            WHERE billing_id = (SELECT id FROM public.hims_billing WHERE visit_id = v_visit_id)
-              AND product_id = v_med.product_id
-              AND item_type = 'pharmacy';
-        END;
-    END LOOP;
-
-    -- 🛡️ توليد قيد اليومية المزدوج لإثبات التكلفة
-    IF v_total_cogs > 0.01 THEN
-        INSERT INTO public.journal_entries (organization_id, transaction_date, description, reference, status, related_document_id, related_document_type, is_posted)
-        VALUES (v_org_id, CURRENT_DATE, 'إثبات تكلفة أدوية مصروفة - روشتة: ' || p_prescription_id::TEXT, 'PHARM-' || substring(p_prescription_id::TEXT, 1, 8), 'posted', p_prescription_id, 'hims_prescription', true)
-        RETURNING id INTO v_journal_id;
-
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id, description)
-        VALUES 
-            (v_journal_id, v_cogs_acc_id, v_total_cogs, 0, v_org_id, 'تكلفة أدوية مباعة'),
-            (v_journal_id, v_inv_acc_id, 0, v_total_cogs, v_org_id, 'تخفيض مخزون الصيدلية');
-    END IF;
-
-    UPDATE public.hims_prescriptions SET status = 'dispensed' WHERE id = p_prescription_id;
-    PERFORM public.recalculate_stock_rpc(v_org_id);
-END; $$;
-
--- 5. Redefine hims_prepare_invoice to preserve batch numbers in breakdown
-CREATE OR REPLACE FUNCTION public.hims_prepare_invoice(p_visit_id uuid)
-RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE
-    v_patient_id uuid; v_doc_fee numeric := 0; v_med_cost numeric := 0;
-    v_lab_cost numeric := 0; v_rad_cost numeric := 0; v_stay_cost numeric := 0;
-    v_blood_cost numeric := 0; v_surgery_cost numeric := 0; v_subtotal numeric := 0; v_tax numeric := 0; 
-    v_vat_rate numeric; v_total numeric := 0; v_bill_id uuid; v_org_id uuid;
-BEGIN
-    SELECT organization_id, patient_id INTO v_org_id, v_patient_id FROM public.hims_visits WHERE id = p_visit_id;
-    SELECT COALESCE(vat_rate, 0.14) INTO v_vat_rate FROM public.company_settings WHERE organization_id = v_org_id;
-    
-    SELECT COALESCE(consultation_fee, 0) INTO v_doc_fee FROM public.hims_doctors 
-    WHERE id = (SELECT doctor_id FROM public.hims_visits WHERE id = p_visit_id);
-
-    SELECT COALESCE(SUM((m->>'qty')::numeric * p.sales_price), 0) INTO v_med_cost
-    FROM public.hims_prescriptions pr, jsonb_array_elements(pr.medications) AS m
-    JOIN public.products p ON p.id = (m->>'product_id')::uuid
-    WHERE pr.visit_id = p_visit_id;
-
-    SELECT COALESCE(SUM(t.price), 0) INTO v_lab_cost
-    FROM public.hims_lab_orders o
-    JOIN public.hims_lab_tests t ON t.id = o.test_id
-    WHERE o.visit_id = p_visit_id;
-
-    SELECT COALESCE(SUM(o.price), 0) INTO v_rad_cost
-    FROM public.hims_radiology_orders o
-    WHERE o.visit_id = p_visit_id;
-
-    v_stay_cost := public.hims_calculate_stay_cost(p_visit_id);
-
-    SELECT COALESCE(COUNT(id) * 150, 0) INTO v_blood_cost 
-    FROM public.hims_blood_transfusions 
-    WHERE visit_id = p_visit_id;
-
-    SELECT COALESCE(SUM(bi.total_price), 0) INTO v_surgery_cost
-    FROM public.hims_billing_items bi
-    JOIN public.hims_billing b ON b.id = bi.billing_id
-    WHERE b.visit_id = p_visit_id AND bi.item_type = 'surgery';
-
-    v_subtotal := COALESCE(v_doc_fee, 0) + COALESCE(v_med_cost, 0) + COALESCE(v_lab_cost, 0) + COALESCE(v_rad_cost, 0) + COALESCE(v_stay_cost, 0) + v_blood_cost + v_surgery_cost;
-    v_tax := v_subtotal * v_vat_rate;
-    v_total := v_subtotal + v_tax;
-
-    INSERT INTO public.hims_billing (
-        visit_id, patient_id, total_amount, tax_amount, patient_paid_amount, payment_status, organization_id
-    )
-    VALUES (
-        p_visit_id, v_patient_id, v_total, v_tax, 0, 'unpaid', v_org_id
-    )
-    ON CONFLICT (visit_id) DO UPDATE SET 
-        total_amount = EXCLUDED.total_amount,
-        tax_amount = EXCLUDED.tax_amount,
-        payment_status = CASE 
-            WHEN (EXCLUDED.total_amount - COALESCE(public.hims_billing.insurance_covered_amount, 0) - COALESCE(public.hims_billing.patient_paid_amount, 0)) <= 0.01 THEN 'paid'
-            ELSE 'unpaid'
-        END
-    RETURNING id INTO v_bill_id;
-
-    -- 10. تفكيك وبناء تفاصيل بنود الفاتورة للشفافية المطلقة (Billing Items Breakdown)
-    DELETE FROM public.hims_billing_items WHERE billing_id = v_bill_id AND item_type != 'surgery';
-    
-    -- أ. بند الكشف الطبي
-    IF v_doc_fee > 0 THEN
-        INSERT INTO public.hims_billing_items (billing_id, item_type, description, quantity, unit_price, organization_id)
-        VALUES (v_bill_id, 'consultation', 'كشف عيادة خارجية', 1, v_doc_fee, v_org_id);
-    END IF;
-    
-    -- ب. بنود الأدوية (يتوافق نوع البند مع 'pharmacy' ويسترجع رقم التشغيلة المصروفة من سجل العلاج ml.administered_at)
-    INSERT INTO public.hims_billing_items (
-        billing_id, item_type, description, quantity, unit_price, organization_id, product_id, warehouse_id, uom_id, batch_number
-    )
-    SELECT 
-        v_bill_id, 
-        'pharmacy', 
-        p.name, 
-        (m->>'qty')::numeric, 
-        p.sales_price, 
-        v_org_id,
-        CASE WHEN pr.status = 'dispensed' THEN p.id ELSE NULL END,
-        CASE WHEN pr.status = 'dispensed' THEN COALESCE(
-            (SELECT default_pharmacy_warehouse FROM public.hims_settings WHERE organization_id = v_org_id),
-            (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1)
-        ) ELSE NULL END,
-        CASE WHEN pr.status = 'dispensed' THEN p.base_uom_id ELSE NULL END,
-        CASE WHEN pr.status = 'dispensed' THEN (
-            SELECT ml.batch_number 
-            FROM public.hims_medication_log ml 
-            WHERE ml.visit_id = pr.visit_id 
-              AND ml.medication_name = p.name 
-            ORDER BY ml.administered_at DESC 
-            LIMIT 1
-        ) ELSE NULL END
-    FROM public.hims_prescriptions pr, jsonb_array_elements(pr.medications) AS m
-    JOIN public.products p ON p.id = (m->>'product_id')::uuid
-    WHERE pr.visit_id = p_visit_id;
-
-    -- ج. بنود تحاليل المختبر
-    INSERT INTO public.hims_billing_items (billing_id, item_type, description, quantity, unit_price, organization_id)
-    SELECT v_bill_id, 'lab', t.test_name, 1, t.price, v_org_id
-    FROM public.hims_lab_orders o
-    JOIN public.hims_lab_tests t ON t.id = o.test_id
-    WHERE o.visit_id = p_visit_id;
-
-    -- د. بنود الفحوصات الشعاعية
-    INSERT INTO public.hims_billing_items (billing_id, item_type, description, quantity, unit_price, organization_id)
-    SELECT v_bill_id, 'radiology', o.scan_type, 1, o.price, v_org_id
-    FROM public.hims_radiology_orders o
-    WHERE o.visit_id = p_visit_id;
-
-    -- هـ. بند الإقامة بالقسم الداخلي
-    IF v_stay_cost > 0 THEN
-        INSERT INTO public.hims_billing_items (billing_id, item_type, description, quantity, unit_price, organization_id)
-        VALUES (v_bill_id, 'accommodation', 'إقامة بالقسم الداخلي والأجنحة', 1, v_stay_cost, v_org_id);
-    END IF;
-
-    -- و. بنود نقل الدم
-    IF v_blood_cost > 0 THEN
-        INSERT INTO public.hims_billing_items (billing_id, item_type, description, quantity, unit_price, organization_id)
-        VALUES (v_bill_id, 'other', 'خدمة نقل دم - بنك الدم', (v_blood_cost/150)::int, 150, v_org_id);
-    END IF;
-
-    RETURN v_bill_id;
-END; $$;
 
 
 -- ==============================================================================
@@ -15160,12 +15016,16 @@ ALTER TABLE public.payment_vouchers
   ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'cash';
 
 -- عمود customer_id في جدول projects (للمقاولات)
-ALTER TABLE public.projects
+ALTER TABLE IF EXISTS public.projects
   ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES public.customers(id) ON DELETE SET NULL;
 
 -- عمود supplier_id في جدول subcontractors (لمنع ازدواجية المستخلصات)
-ALTER TABLE public.subcontractors
-  ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'subcontractors') THEN
+    ALTER TABLE public.subcontractors
+      ADD COLUMN IF NOT EXISTS supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL;
+  END IF;
+END $$;
 
 -- ==============================================================================
 -- 2. دالة حساب رصيد العميل المُحدَّثة
@@ -17233,7 +17093,7 @@ CREATE INDEX IF NOT EXISTS idx_stock_transfers_in_transit
 ON stock_transfers(organization_id, transfer_type, in_transit_status);
 
 
-﻿-- ==============================================================================
+-- ==============================================================================
 -- TriPro ERP - Migration: Fix Warehouse Bins Constraints (Solve 409 Conflict & 23505 Duplicate Key)
 -- Date: 2026-09-02
 -- 1. Drops global barcode unique constraint
@@ -17477,7 +17337,7 @@ CREATE INDEX IF NOT EXISTS idx_bids_rfq_supplier
 ON vendor_quotation_bids(rfq_id, supplier_id);
 
 
-﻿-- ==============================================================================
+-- ==============================================================================
 -- TriPro ERP - Migration: Fix Columns & Constraints for Purchase Orders
 -- Ensures purchase_orders and purchase_order_items have all needed columns
 -- ==============================================================================
@@ -17534,6 +17394,7 @@ BEGIN
     NOTIFY pgrst, 'reload schema';
 END $$;
 
+SELECT '🚀 تم تأسيس قاعدة بيانات النواة الأساسية لـ TriPro ERP (01_core_erp.sql) بنجاح تام 100%' as status;
 
 
 -- =============================================================================
@@ -19453,7 +19314,6 @@ GRANT ALL ON public.driver_settlements TO authenticated, anon;
 SELECT '✅ تم تحديث جداول كباتن التوصيل والعهد النقدية بنجاح' as status;
 
 
-
 -- =============================================================================
 -- 🏗️ TriPro ERP — Commercial Add-on: Contracting & Projects (03_addon_contracting.sql)
 -- 🏢 مديول المقاولات: المشاريع، جداول الكميات BOQ، المستخلصات، مقاولي الباطن، صرف المواد، العهد ونسب الهالك
@@ -19511,6 +19371,86 @@ CREATE TABLE IF NOT EXISTS public.project_progress_billings (
     created_by UUID REFERENCES auth.users(id),
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- 4. جداول مقاولين الباطن
+CREATE TABLE IF NOT EXISTS public.subcontractors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    name TEXT NOT NULL,
+    phone TEXT,
+    specialty TEXT, -- تخصص المقاول (كهرباء، سباكة، إلخ)
+    supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL,
+    bank_name TEXT,
+    iban_number TEXT,
+    swift_code TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.subcontractors ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Subcontractors_Isolation" ON public.subcontractors;
+CREATE POLICY "SaaS_Subcontractors_Isolation" ON public.subcontractors
+    FOR ALL USING (organization_id = public.get_my_org());
+
+CREATE TABLE IF NOT EXISTS public.subcontractor_contracts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
+    subcontractor_id UUID REFERENCES public.subcontractors(id) ON DELETE CASCADE,
+    contract_name TEXT NOT NULL,
+    total_value NUMERIC(15,2) DEFAULT 0,
+    retention_percentage NUMERIC(5,2) DEFAULT 5, -- نسبة محتجز الضمان
+    advance_payment_balance NUMERIC(15,2) DEFAULT 0, -- رصيد الدفعة المقدمة المتبقي
+    status TEXT DEFAULT 'active',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.subcontractor_contracts ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Subcontractor_Contracts_Isolation" ON public.subcontractor_contracts;
+CREATE POLICY "SaaS_Subcontractor_Contracts_Isolation" ON public.subcontractor_contracts
+    FOR ALL USING (organization_id = public.get_my_org());
+
+-- جدول بنود عقود مقاولي الباطن (تفصيلي بالبنود)
+CREATE TABLE IF NOT EXISTS public.subcontractor_contract_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    contract_id UUID NOT NULL REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    item_name TEXT NOT NULL,
+    unit TEXT,
+    quantity NUMERIC(15,2) DEFAULT 0,
+    unit_price NUMERIC(15,2) DEFAULT 0,
+    total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.subcontractor_contract_items ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Sub_Contract_Items_Isolation" ON public.subcontractor_contract_items;
+CREATE POLICY "SaaS_Sub_Contract_Items_Isolation" ON public.subcontractor_contract_items
+    FOR ALL USING (organization_id = public.get_my_org());
+
+CREATE TABLE IF NOT EXISTS public.subcontractor_billings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    contract_id UUID REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
+    billing_number TEXT NOT NULL,
+    billing_date DATE NOT NULL,
+    gross_amount NUMERIC(15,2) NOT NULL, -- قيمة الأعمال المنفذة
+    retention_amount NUMERIC(15,2) DEFAULT 0, -- محتجز الضمان (خصم)
+    advance_deduction NUMERIC(15,2) DEFAULT 0, -- استرداد الدفعة المقدمة (خصم)
+    vat_rate NUMERIC(5,2) DEFAULT 0,
+    vat_amount NUMERIC(15,2) DEFAULT 0,
+    wht_rate NUMERIC(5,2) DEFAULT 0,
+    wht_amount NUMERIC(15,2) DEFAULT 0,
+    retention_release_date DATE,
+    net_amount NUMERIC(15,2) GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction + vat_amount - wht_amount) STORED,
+    status TEXT DEFAULT 'draft',
+    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
+    items_progress JSONB DEFAULT '{}' -- تخزين نسب إنجاز البنود للمقاول
+);
+
+ALTER TABLE public.subcontractor_billings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "SaaS_Subcontractor_Billings_Isolation" ON public.subcontractor_billings;
+CREATE POLICY "SaaS_Subcontractor_Billings_Isolation" ON public.subcontractor_billings
+    FOR ALL USING (organization_id = public.get_my_org());
 
 -- 🏗️ جدول المرفقات الشامل (Project & Billing Attachments)
 CREATE TABLE IF NOT EXISTS public.project_attachments (
@@ -19630,63 +19570,6 @@ BEGIN
         GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction + vat_amount - wht_amount) STORED;
 
 END $$;
-
--- 6. جداول مقاولين الباطن
-CREATE TABLE IF NOT EXISTS public.subcontractors (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    name TEXT NOT NULL,
-    phone TEXT,
-    specialty TEXT, -- تخصص المقاول (كهرباء، سباكة، إلخ)
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS public.subcontractor_contracts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    project_id UUID REFERENCES public.projects(id) ON DELETE CASCADE,
-    subcontractor_id UUID REFERENCES public.subcontractors(id) ON DELETE CASCADE,
-    contract_name TEXT NOT NULL,
-    total_value NUMERIC(15,2) DEFAULT 0,
-    retention_percentage NUMERIC(5,2) DEFAULT 5, -- نسبة محتجز الضمان
-    advance_payment_balance NUMERIC(15,2) DEFAULT 0, -- رصيد الدفعة المقدمة المتبقي
-    status TEXT DEFAULT 'active',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- جدول بنود عقود مقاولي الباطن (تفصيلي بالبنود)
-CREATE TABLE IF NOT EXISTS public.subcontractor_contract_items (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    contract_id UUID NOT NULL REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    item_name TEXT NOT NULL,
-    unit TEXT,
-    quantity NUMERIC(15,2) DEFAULT 0,
-    unit_price NUMERIC(15,2) DEFAULT 0,
-    total_price NUMERIC(15,2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
--- سياسات الأمان RLS لجدول البنود
-ALTER TABLE public.subcontractor_contract_items ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "SaaS_Sub_Contract_Items_Isolation" ON public.subcontractor_contract_items
-    FOR ALL USING (organization_id = public.get_my_org());
-
-CREATE TABLE IF NOT EXISTS public.subcontractor_billings (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
-    contract_id UUID REFERENCES public.subcontractor_contracts(id) ON DELETE CASCADE,
-    billing_number TEXT NOT NULL,
-    billing_date DATE NOT NULL,
-    gross_amount NUMERIC(15,2) NOT NULL, -- قيمة الأعمال المنفذة
-    retention_amount NUMERIC(15,2) DEFAULT 0, -- محتجز الضمان (خصم)
-    advance_deduction NUMERIC(15,2) DEFAULT 0, -- استرداد الدفعة المقدمة (خصم)
-    net_amount NUMERIC(15,2) GENERATED ALWAYS AS (gross_amount - retention_amount - advance_deduction) STORED,
-    status TEXT DEFAULT 'draft',
-    related_journal_entry_id UUID REFERENCES public.journal_entries(id),
-    items_progress JSONB DEFAULT '{}' -- تخزين نسب إنجاز البنود للمقاول
-);
 
 -- 5. دالة اعتماد المستخلص وتوليد القيد المحاسبي
 CREATE OR REPLACE FUNCTION public.fn_approve_project_billing(p_billing_id UUID)
@@ -22694,7 +22577,6 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.fn_release_retention(UUID, NUMERIC, TEXT, TEXT, UUID, UUID) TO authenticated;
-
 
 
 -- =============================================================================
@@ -26469,7 +26351,7 @@ LEFT JOIN public.invoices i ON ii.invoice_id = i.id
 WHERE i.status IN ('posted', 'paid')
 GROUP BY p.id, p.name, ic.name, p.organization_id;
 
-﻿-- ==============================================================================
+-- ==============================================================================
 -- TriPro ERP - Migration: Setup Real Advanced Manufacturing Module Tables
 -- Date: 2026-09-02
 -- 1. Updates mfg_production_orders with work_center_id, priority, progress_percent
@@ -26584,7 +26466,7 @@ WHERE po.work_center_id IS NULL
   AND EXISTS (SELECT 1 FROM public.mfg_work_centers WHERE organization_id = po.organization_id);
 
 
-﻿-- ==============================================================================
+-- ==============================================================================
 -- TriPro ERP - Migration: Fix Manufacturing By-Products Warehouse Stock & Recalculation
 -- Date: 2026-09-02
 -- 1. Adds warehouse_id to mfg_byproducts_logs
@@ -26824,6 +26706,51 @@ BEGIN
             JOIN public.stock_transfers st ON sti.stock_transfer_id = st.id
             JOIN public.products p ON sti.product_id = p.id
             WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
+
+            UNION ALL
+            -- مرتجعات مبيعات (+) - بضاعة عادت للمخزن من العميل
+            SELECT sri.product_id, sr.warehouse_id, public.uom_convert(sri.quantity, sri.uom_id, p.base_uom_id) as qty
+            FROM public.sales_return_items sri
+            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
+            JOIN public.products p ON sri.product_id = p.id
+            WHERE UPPER(COALESCE(sr.status, '')) NOT IN ('DRAFT', 'CANCELLED')
+              AND sr.warehouse_id IS NOT NULL
+              AND sri.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
+              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = sri.product_id)
+
+            UNION ALL
+            -- مرتجعات مبيعات مكونات BOM (+)
+            SELECT bom.raw_material_id, sr.warehouse_id, (public.uom_convert(sri.quantity, sri.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id)) as qty
+            FROM public.sales_return_items sri
+            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
+            JOIN public.bill_of_materials bom ON bom.product_id = sri.product_id
+            JOIN public.products p ON sri.product_id = p.id
+            JOIN public.products rm ON bom.raw_material_id = rm.id
+            WHERE UPPER(COALESCE(sr.status, '')) NOT IN ('DRAFT', 'CANCELLED')
+              AND sr.warehouse_id IS NOT NULL
+              AND sri.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
+              AND bom.raw_material_id IS NOT NULL
+
+            UNION ALL
+            -- مرتجعات مشتريات (-) - بضاعة ردت للمورد
+            SELECT pri.product_id, pr.warehouse_id, -public.uom_convert(pri.quantity, pri.uom_id, p.base_uom_id) as qty
+            FROM public.purchase_return_items pri
+            JOIN public.purchase_returns pr ON pri.purchase_return_id = pr.id
+            JOIN public.products p ON pri.product_id = p.id
+            WHERE UPPER(COALESCE(pr.status, '')) NOT IN ('DRAFT', 'CANCELLED')
+              AND pr.warehouse_id IS NOT NULL
+              AND pri.product_id IS NOT NULL
+              AND (v_final_org IS NULL OR pr.organization_id = v_final_org)
+
+            UNION ALL
+            -- استهلاك مواد لمشاريع المقاولات (-)
+            SELECT pmii.product_id, pmi.warehouse_id, -public.uom_convert(pmii.quantity, pmii.uom_id, p.base_uom_id)
+            FROM public.project_material_issue_items pmii
+            JOIN public.project_material_issues pmi ON pmii.issue_id = pmi.id
+            JOIN public.products p ON pmii.product_id = p.id
+            WHERE pmi.status = 'approved' AND (v_final_org IS NULL OR pmi.organization_id = v_final_org)
         ) movements
         WHERE product_id IS NOT NULL AND warehouse_id IS NOT NULL
         AND (p_product_id IS NULL OR product_id = p_product_id)
@@ -26861,7 +26788,6 @@ BEGIN
         PERFORM public.recalculate_stock_rpc(r_org.id);
     END LOOP;
 END $$;
-
 
 
 -- =============================================================================
@@ -27850,7 +27776,6 @@ GRANT EXECUTE ON FUNCTION public.get_supplier_balance(uuid, uuid) TO authenticat
 COMMIT;
 
 
-
 -- =============================================================================
 -- 🏥 TriPro ERP — Commercial Add-on: Healthcare & Hospitals (06_addon_hims_healthcare.sql)
 -- 🩺 مديول المستشفيات: المرضى، العيادات، الطوارئ، التنويم، العمليات، المعمل، الأشعة، بنك الدم، التأمين
@@ -28327,6 +28252,7 @@ CREATE TABLE IF NOT EXISTS public.hims_billing_items (
     product_id uuid REFERENCES public.products(id) ON DELETE SET NULL, -- الربط مع المخزون
     warehouse_id uuid REFERENCES public.warehouses(id) ON DELETE SET NULL, -- تحديد مصدر الصرف
     uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم وحدات القياس
+    batch_number text, -- 💊 رقم التشغيلة المصروفة
     related_service_id uuid,
     created_at timestamptz DEFAULT now()
 );
@@ -28341,6 +28267,9 @@ DO $$ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='hims_billing_items' AND column_name='uom_id') THEN
         ALTER TABLE public.hims_billing_items ADD COLUMN uom_id uuid REFERENCES public.uoms(id);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='hims_billing_items' AND column_name='batch_number') THEN
+        ALTER TABLE public.hims_billing_items ADD COLUMN batch_number text;
     END IF;
 END $$;
 
@@ -33248,7 +33177,4 @@ GRANT EXECUTE ON FUNCTION public.hims_generate_premium_demo(uuid) TO authenticat
 GRANT EXECUTE ON FUNCTION public.hims_dispense_prescription(uuid, uuid) TO authenticated;
 
 
-
--- =============================================================================
--- 🎉 تهانينا! تم تأسيس كافة جداول ودوال ومحركات نظام TriPro ERP الشامل بنجاح تام!
--- =============================================================================
+SELECT '🌟 تم تأسيس وتشغيل الحزمة الشاملة الكاملة TriPro Master Enterprise Suite (225 جدول + 50 View + 297 RPC) بنجاح تام 100%!' as status;

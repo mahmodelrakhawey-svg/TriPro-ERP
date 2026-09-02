@@ -105,6 +105,7 @@ const SupplierManager = () => {
         const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
         const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
         const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected');
+        const { data: rebates } = await supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').match(filter).in('status', ['APPROVED', 'SETTLED']);
 
         // جلب مقاولي الباطن ومستخلصاتهم
         const { data: subs } = await supabase.from('subcontractors').select('id, name').match(filter);
@@ -152,6 +153,7 @@ const SupplierManager = () => {
         returns?.forEach(r => { if (newStats[r.supplier_id]) newStats[r.supplier_id].balance -= Number(r.total_amount); });
         debitNotes?.forEach(dn => { if (newStats[dn.supplier_id]) newStats[dn.supplier_id].balance -= Number(dn.total_amount); });
         cheques?.forEach(c => { if (newStats[c.party_id]) newStats[c.party_id].balance -= Number(c.amount); });
+        rebates?.forEach(reb => { if (newStats[reb.vendor_id]) newStats[reb.vendor_id].balance -= Number(reb.total_claim_amount); });
 
         setStats(newStats);
     } catch (error) { if (process.env.NODE_ENV === 'development') console.error("Error fetching supplier stats", error); } finally { setStatsLoading(false); }
