@@ -269,7 +269,6 @@ const UserManager = () => {
         const { error: profileInsertError } = await supabase.from('profiles').insert({
           id: authData.user.id,
           full_name: newUserData.fullName,
-          email: newUserData.email,
           role: newUserData.role,
           organization_id: currentSelectedOrgId || (currentUser as any)?.organization_id || null,
         });
