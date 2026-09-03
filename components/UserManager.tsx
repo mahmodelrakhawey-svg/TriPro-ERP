@@ -235,24 +235,32 @@ const UserManager = () => {
       // 1. استخدام دالة التسجيل العامة لإنشاء المستخدم
       // ملاحظة: هذا يعتمد على إعدادات تأكيد البريد الإلكتروني في مشروع Supabase.
       // تم تغيير هذا من supabase.auth.admin.createUser لأنه لا يمكن استدعاؤه من طرف العميل (المتصفح).
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      const targetOrgId = (currentSelectedOrgId && currentSelectedOrgId !== 'null' && currentSelectedOrgId.trim() !== '')
+        ? currentSelectedOrgId
+        : ((currentUser as any)?.organization_id && (currentUser as any)?.organization_id !== 'null')
+          ? (currentUser as any).organization_id
+          : null;
 
-        email: newUserData.email,
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newUserData.email.trim(),
         password: newUserData.password,
         options: {
           data: {
-            full_name: newUserData.fullName,
+            full_name: newUserData.fullName.trim(),
             role: newUserData.role,
             app_role: newUserData.role,
-            org_id: currentSelectedOrgId || (currentUser as any)?.organization_id || null, 
+            org_id: targetOrgId, 
           }
         }
       });
 
-
-
       if (authError) throw authError;
       if (!authData.user) throw new Error("لم يتم إرجاع بيانات المستخدم بعد الإنشاء.");
+
+      // إذا كان الإيميل مسجلاً بالفعل، سوبابيز يرجع identities فارغة لمنع كشف المستخدمين
+      if (authData.user.identities && authData.user.identities.length === 0) {
+        throw new Error("هذا البريد الإلكتروني مسجل بالفعل في النظام! يرجى استخدام بريد إلكتروني آخر أو استعادة كلمة المرور.");
+      }
 
       // 🛡️ صمام أمان: التحقق من وجود البروفايل بعد إنشاء المستخدم
       // إذا فشل التريجر (handle_new_user) لأي سبب، نقوم بإنشاء البروفايل يدوياً
@@ -268,11 +276,16 @@ const UserManager = () => {
         console.warn("Profile not found after user signup, attempting manual profile creation.");
         const { error: profileInsertError } = await supabase.from('profiles').insert({
           id: authData.user.id,
-          full_name: newUserData.fullName,
+          full_name: newUserData.fullName.trim(),
           role: newUserData.role,
-          organization_id: currentSelectedOrgId || (currentUser as any)?.organization_id || null,
+          organization_id: targetOrgId,
         });
-        if (profileInsertError) throw profileInsertError;
+        if (profileInsertError) {
+          if (profileInsertError.message?.includes('violates foreign key constraint') || profileInsertError.code === '23503') {
+            throw new Error("هذا البريد مسجل بالفعل في المصادقة، أو لم تكتمل عملية تسجيل المستخدم.");
+          }
+          throw profileInsertError;
+        }
       }
 
       // ملاحظة: لم نعد بحاجة لتحديث الملف الشخصي من هنا.
