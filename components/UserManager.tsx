@@ -74,13 +74,13 @@ const UserManager = () => {
 
       if (profilesError) throw profilesError;
 
-      // محاولة جلب البريد الإلكتروني من دالة RPC إذا كانت متوفرة، أو استخدام البيانات المتاحة
-      // بما أننا لا نملك دالة RPC جاهزة لجلب الإيميلات، سنعتمد على تحسين العرض
-      // ولكن يمكننا محاولة تحديث البيانات المحلية إذا كان المستخدم الحالي هو المدير
-      
-      // دمج البيانات مع البريد الإلكتروني إذا كان متاحاً في profile (بعض الأنظمة تضيفه)
-      // أو عرضه كـ "مستخدم [ID]"
-      const profilesWithEmail = profiles.map((p: any) => ({
+      // 🛡️ حماية خصوصية السوبر أدمن: إخفاء حسابات Super Admin تماماً عن مدراء الشركات والعملاء
+      const filteredProfiles = (currentUserRole === 'super_admin')
+        ? (profiles || [])
+        : (profiles || []).filter((p: any) => p.role !== 'super_admin');
+
+      // دمج البيانات مع البريد الإلكتروني إذا كان متاحاً في profile
+      const profilesWithEmail = filteredProfiles.map((p: any) => ({
           ...p,
           email: p.email || (p.id === DEMO_USER_ID ? DEMO_EMAIL : null)
       }));
